@@ -25,7 +25,6 @@ type nativeTargetOraclePlan struct {
 	GitMetadata     *NativeGitMetadata `json:"git_metadata,omitempty"`
 	// A scoped repair keeps its original readiness view, not a relabelled
 	// preparation. Its actual candidate remains in GitMetadata.
-	PreparedGitCandidate *NativeGitView `json:"prepared_git_candidate,omitempty"`
 }
 
 // prepareCommand returns the canonical prepare lease command for the

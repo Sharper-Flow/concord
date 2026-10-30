@@ -76,10 +76,18 @@ func TestNativeOracleStageStreamCutByWaitDelayIsIncomplete(t *testing.T) {
 	}
 }
 
+func nativeOutputVerifyRequest(id string) WorktreeVerifyRequest {
+	return WorktreeVerifyRequest{
+		WorkID: "work-w", ProjectID: "project-w", LeaseID: id, RequestID: "request-" + id, PrincipalRef: "principal-1",
+		Owner:   SessionWorktreeOwner{ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1"},
+		Command: []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}, Runner: ExecGitRunner{}, SupportedBudgetSeconds: 30,
+	}
+}
+
 func seedNativeOutputLease(t *testing.T) (*Store, WorktreeVerifyResult, []byte, []byte) {
 	t.Helper()
 	s, repo := realGitTiersFixture(t)
-	r, err := s.VerifyWorktree(context.Background(), oracleRealVerifyRequest("native-output", nil))
+	r, err := s.VerifyWorktree(context.Background(), nativeOutputVerifyRequest("native-output"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +221,7 @@ func TestNativeOracleStreamLifetime(t *testing.T) {
 
 func TestNativeOracleMigrationLegacyNulls(t *testing.T) {
 	s, _ := realGitTiersFixture(t)
-	r, err := s.VerifyWorktree(context.Background(), oracleRealVerifyRequest("legacy-null", nil))
+	r, err := s.VerifyWorktree(context.Background(), nativeOutputVerifyRequest("legacy-null"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -687,7 +695,7 @@ func TestNativeOracleReleaseSQLOnly(t *testing.T) {
 			}
 			if name, ok := call.Fun.(*ast.Ident); ok && begin.IsValid() && call.Pos() > begin {
 				switch name.Name {
-				case "readNativeOracleAuthorizationTx", "nativeDigest", "nativeBundleDigest", "workflowJSON", "marshalNativeVerifyRecord", "readCurrentOracleSubject":
+				case "readNativePreparationInputs", "nativeDigest", "nativeBundleDigest", "workflowJSON", "marshalNativeVerifyRecord", "readCurrentOracleSubject":
 					t.Errorf("release performs metadata work inside its transaction: %s", name.Name)
 				}
 			}
@@ -716,10 +724,12 @@ func TestNativeOracleReleaseStampBindsDependencies(t *testing.T) {
 	if err != nil || before == after || before.Preparations == after.Preparations {
 		t.Fatalf("preparation change escaped release proof: %v", err)
 	}
-	setNativeAttemptStateFixture(t, f, f.a.AttemptID, "completed")
+	if _, err := f.s.db.Exec(`UPDATE durable_operations SET result_payload=json_set(result_payload,'$.subject_ref',?) WHERE op_id='worktree_verify:native-subject'`, "commit:"+strings.Repeat("b", 40)); err != nil {
+		t.Fatal(err)
+	}
 	terminal, err := readNativeOracleReleaseStamp(context.Background(), f.s.db, req)
-	if err != nil || after == terminal || after.Attempt == terminal.Attempt {
-		t.Fatalf("terminal attempt escaped release proof: %v", err)
+	if err != nil || after == terminal || after.CoreReceipt == terminal.CoreReceipt {
+		t.Fatalf("qualified subject change escaped release proof: %v", err)
 	}
 }
 
@@ -768,7 +778,7 @@ func TestNativeOracleLateCancellationPublishesNoGreen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := f.s.releaseNativeOracle(context.Background(), req, entry, oracleGitSubjectSnapshot{head: plan.SubjectCommit, clean: true}, plan.WorktreeIdentity, plan, r, raw, unavailable, unavailableRaw, capture, true)
+	result, err := f.s.releaseNativeOracle(context.Background(), req, entry, oracleGitSubjectSnapshot{head: plan.SubjectCommit, clean: true}, plan, r, raw, unavailable, unavailableRaw, capture, true)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -41,7 +41,11 @@ func reviewedClosureContentHashQ(ctx context.Context, q queryer, workID string) 
 	if contractVersion != activeVersion {
 		return "", nil
 	}
-	if err := workflowRequireMain(ctx, q, workID, actor); err != nil {
+	if err := requireActor(ctx, q, actor); err != nil {
+		var failure *Failure
+		if failureAs(err, &failure) && (failure.Kind == KindProjectionNotFound || failure.Kind == KindInvalidPayload) {
+			return "", newFailure(KindInvariantViolation, "reviewed_closure", "reviewed closure exit has no recorded actor", false, "restore the closure binding and its exact actor provenance")
+		}
 		return "", err
 	}
 	var raw []byte

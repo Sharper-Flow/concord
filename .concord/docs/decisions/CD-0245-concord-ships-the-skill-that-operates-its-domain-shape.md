@@ -32,9 +32,9 @@ Domain shape, reorganising code roots, refining facts after a change, and
 auditing gaps.
 
 [CD-0246](CD-0246-concord-ships-portable-engineering-methods.md) D3 also
-admits a skill that carries a portable engineering method. A worker receives
-its method in its generated lane definition under CD-0246 D2; host-specific
-lane procedure stays host-owned under CD-0043 D2.
+admits a skill that carries a portable engineering method. Host agents and
+native subagents use the shipped skill path; host-specific procedure stays
+host-owned under CD-0043 D1.
 
 ### D2. A shipped skill is versioned by the release
 

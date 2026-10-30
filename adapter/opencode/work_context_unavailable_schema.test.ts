@@ -38,7 +38,6 @@ const basePin = (): Record<string, unknown> => ({
   cancelled_instance_closes: 0,
   workflow_type: "workflow.break_fix",
   step: "planning",
-  attempt: null,
   pending_operator_decision: null,
   driving_sessions: [],
   watermark: "seq:1",

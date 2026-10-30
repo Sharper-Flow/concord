@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +15,19 @@ import (
 	"testing"
 	"time"
 )
+
+func mustJSONValue(value any) json.RawMessage {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return raw
+}
+
+func hasFailureKind(err error, kind FailureKind) bool {
+	var failure *Failure
+	return errors.As(err, &failure) && failure.Kind == kind
+}
 
 // This file uses only production code. A native control pins it as its
 // sole test file, and the producer compiles exactly the pinned files.
@@ -200,4 +215,30 @@ func TestTestDatabaseTemplateCleanupOnFailure(t *testing.T) {
 		}
 	}
 	t.Fatalf("test child did not create the template:\n%s", output)
+}
+func workerFactsQueryRows(t *testing.T, s *Store, queries []string) [][]string {
+	t.Helper()
+	result := make([][]string, len(queries))
+	for i, query := range queries {
+		rows, err := s.db.Query(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var raw string
+			if err := rows.Scan(&raw); err != nil {
+				rows.Close()
+				t.Fatal(err)
+			}
+			result[i] = append(result[i], raw)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return result
 }

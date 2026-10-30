@@ -253,7 +253,6 @@ func advanceResolutionPrefix(t *testing.T, s *Store, registry DefinitionRegistry
 	t.Helper()
 	ownerRef := ownerRefForTest(t, owner)
 	version := readWorkVersion(t, s, workID)
-	lane := BuiltinLaneDefinitions()[0]
 	appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 		Events: []Event{
 			workflowActionCompletedFixture("resolution-proposal-"+workID, workID, ownerRef, version, "proposal", "record_proposal"),
@@ -272,7 +271,7 @@ func advanceResolutionPrefix(t *testing.T, s *Store, registry DefinitionRegistry
 				"work_id": workID, "expected_version": version + 5, "resulting_version": version + 6,
 				"step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1,
 				"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "resolution-start:" + workID,
-				"actor_ref": ownerRef, "execution_model": preferredModelForLane(lane),
+				"actor_ref": ownerRef, "execution_model": "fixture-model",
 			}),
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { contractOperations, manifestDigest, maxEnvelopeBytes } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
-import { mutationResult, reconstructMutationResult } from "./packet"
+import { mutationResult, reconstructMutationResult } from "./mutation-result"
 import { largeMutationPayload, mutationProjectionFixture } from "./mutation-projection.fixture"
 
 test("projected mutation authority stays private and retains complete pins above the envelope cap", async () => {

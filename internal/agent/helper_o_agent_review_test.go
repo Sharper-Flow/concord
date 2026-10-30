@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,6 +14,33 @@ import (
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
+
+const oracleFixtureControlID = "control:o-agent-value"
+
+func oracleFixtureDigest(raw []byte) string {
+	return fmt.Sprintf("%x", sha256.Sum256(raw))
+}
+
+func oracleFixtureActiveClaimFor(t *testing.T, s *store.Store, work string) (string, string) {
+	t.Helper()
+	var path, branch string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT path,branch FROM worktree_entries WHERE set_id=? AND state='active' AND project_id='project-1'`, store.WorktreeSetID(work)).Scan(&path, &branch); err != nil {
+		t.Fatal(err)
+	}
+	return path, branch
+}
+
+func fixtureClaimSubject(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("git", "-C", path, "rev-parse", "--verify", "HEAD").Run(); err == nil {
+		return
+	}
+	gitRun(t, path, "init", "--quiet", "--initial-branch=main")
+	gitRun(t, path, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "--allow-empty", "-m", "fixture subject")
+}
 
 // oAgentFixture keeps Review setup local to the O journeys. Reads use the
 // store projection; writes and native preparation use the agent boundary.
@@ -39,7 +67,7 @@ func oAgentFixture(t *testing.T, s *store.Store, service *Service, env CallEnvel
 			t.Fatal(err)
 		}
 		gitRun(t, canonical, "add", ".concord/tooling.v1.json")
-		gitRun(t, canonical, "commit", "-qm", "fixture declared checks")
+		gitRun(t, canonical, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture declared checks")
 	}
 	if err := exec.Command("git", "-C", canonical, "remote", "get-url", "origin").Run(); err != nil {
 		seedClaimOrigin(t, canonical)
@@ -77,39 +105,11 @@ func oAgentAction(t *testing.T, f *oAgentFixtureState, action string, fields map
 	return response
 }
 
-// oAgentNativeJob prepares a self-contained real Go control. No receipt or
-// Review projection is inserted: the host producer owns preparation bytes.
-func oAgentNativeJob(t *testing.T, f *oAgentFixtureState) {
-	t.Helper()
-	oracle := oAgentPreparedOracle(t, f, []string{"predicate:primary"})
-	spineOK(t, oAgentAction(t, f, "record_worker_job", map[string]any{
-		"job_id": "job:o-agent-native", "objective": "Check the approved fixture value.", "stopping_condition": "The value check passes.",
-		"ready": true, "checks": []string{"go test ./..."}, "path_scope": []string{"o_fixture/value.go"},
-		"readiness_evidence": oracle.Controls[0].ReadinessEvidenceRefs,
-		"acceptance_oracle":  oracle,
-	}))
-}
-
-// agentNativeOracle returns an acceptance oracle over every approved
-// predicate of the fixture work's active contract. Its one control is a real Go
-// recipe committed in the claimed worktree and prepared through the public
-// worktree_verify producer on the current candidate, so Review dispatch can
-// requalify it on the observed runtime (CD-0205).
-func agentNativeOracle(t *testing.T, s *store.Store, service *Service, env CallEnvelope) map[string]any {
-	t.Helper()
-	oracle := oAgentPreparedOracle(t, oAgentClaimFixture(t, s, service, env, oracleFixtureWork), agentContractPredicates(t, s, oracleFixtureWork))
-	var fields map[string]any
-	if err := json.Unmarshal(retryJSON(oracle), &fields); err != nil {
-		t.Fatal(err)
-	}
-	return fields
-}
-
 // oAgentPreparedOracle qualifies the claimed candidate and prepares the real
 // fixture control for the given approved predicates. The preparation key
-// names only its inputs (subject, contract version, and bundle), so a new job
-// revision on unchanged inputs replays the same qualified preparation;
-// preparation is not a per-consumer acceptance execution.
+// names only its inputs (subject, contract version, and bundle), so a re-run
+// on unchanged inputs replays the same qualified preparation; preparation is
+// not a per-consumer acceptance execution.
 func oAgentPreparedOracle(t *testing.T, f *oAgentFixtureState, predicates []string) store.AcceptanceOracle {
 	t.Helper()
 	oAgentControlRepository(t, f)
@@ -119,7 +119,7 @@ func oAgentPreparedOracle(t *testing.T, f *oAgentFixtureState, predicates []stri
 	}))
 	snapshot, err := store.ReadWorkflowContinuity(context.Background(), f.s, store.ContinuityRequest{Work: f.work})
 	if err != nil || snapshot.Contract == nil {
-		t.Fatalf("O native job contract: %v", err)
+		t.Fatalf("O review contract: %v", err)
 	}
 	var domain string
 	if err := f.s.DatabaseForTesting().QueryRow(`SELECT root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&domain); err != nil {
@@ -172,99 +172,46 @@ func oAgentControlRepository(t *testing.T, f *oAgentFixtureState) {
 			}
 		}
 		gitRun(t, f.path, "add", "go.mod", "o_fixture")
-		gitRun(t, f.path, "commit", "-qm", "fixture native control")
+		gitRun(t, f.path, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture native control")
 	}
 }
 
-// oAgentReview accepts an unchanged-candidate Review of the explicit current
-// job. Assessments cite either this dispatch's native execution or the actual
-// command receipts the caller asks Review to assess on this candidate.
-func oAgentReview(t *testing.T, f *oAgentFixtureState, disposition string, prove bool, receipts ...string) {
+// oAgentReview records the coordinator's subject-bound Review through
+// record_review. Assessments cite this report's native execution of
+// the prepared control.
+func oAgentReview(t *testing.T, f *oAgentFixtureState, disposition string, prove bool) {
 	t.Helper()
-	oAgentReviewJob(t, f, "", disposition, prove, receipts...)
-}
-
-func oAgentReviewJob(t *testing.T, f *oAgentFixtureState, jobID, disposition string, prove bool, receipts ...string) {
-	t.Helper()
-	snapshot, err := store.ReadWorkflowContinuity(context.Background(), f.s, store.ContinuityRequest{Work: f.work})
-	if err != nil || len(snapshot.ReadyWorkerJobs) == 0 {
-		t.Fatalf("O Review ready job: %v (%d jobs)", err, len(snapshot.ReadyWorkerJobs))
+	// The Review output must be the current qualified clean candidate, so
+	// requalify HEAD through the retained clean-subject owner first.
+	qualified := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
+		"work_id": f.work, "command": []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}, "idempotency_key": fmt.Sprintf("o-review-subject-%d", f.request),
+	}))
+	var subject store.WorktreeVerifyResult
+	if err := json.Unmarshal(qualified.Result, &subject); err != nil || subject.ExitCode != 0 || subject.TrackedFilesChanged {
+		t.Fatalf("O Review subject qualification: %s (%v)", qualified.Result, err)
 	}
-	selected := snapshot.ReadyWorkerJobs[len(snapshot.ReadyWorkerJobs)-1]
-	if jobID != "" {
-		found := false
-		for _, ready := range snapshot.ReadyWorkerJobs {
-			if ready.JobID == jobID {
-				selected, found = ready, true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("O Review job %s is not ready", jobID)
-		}
-	}
-	selected.CallerExclusions = nil
-	job := &store.WorkerJobBinding{JobID: selected.JobID, Revision: selected.Revision, Digest: selected.Digest}
-	lane := deliveryRecoveryLane(t, "review")
-	attempt := fmt.Sprintf("attempt:o-agent-review-%d", workVersion(t, f.s, f.work))
 	pin, err := store.ReadWorkPin(context.Background(), f.s, f.work)
 	if err != nil || pin.Review == nil || pin.Review.Dependencies == nil {
 		t.Fatalf("O Review dependencies: %v", err)
 	}
-	inputs := map[string]any{"worker_job": retryJSON(selected)}
-	if pin.Correction != nil {
-		inputs["correction"] = pin.Correction
-	}
-	packet := bindPacketToRecordedState(t, f.s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion,
-		"attempt_id": attempt, "lane_id": lane.ID, "lane_digest": lane.Digest,
-		"work_id": f.work, "step_id": snapshot.WorkflowStep, "inputs": inputs})
-	authorized := spineOK(t, oAgentAction(t, f, "dispatch_worker", map[string]any{"attempt_id": attempt, "worker_packet": packet}))
-	var authorization struct {
-		PacketDigest string `json:"worker_packet_digest"`
-	}
-	if err := json.Unmarshal(authorized.Result, &authorization); err != nil || authorization.PacketDigest == "" {
-		t.Fatalf("O Review authorization: %s (%v)", authorized.Result, err)
-	}
-	var epoch int64
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, f.work, attempt).Scan(&epoch); err != nil || epoch == 0 {
-		t.Fatalf("O Review epoch: %d (%v)", epoch, err)
-	}
-	dispatch := store.Event{EventID: "o-host-dispatched-" + attempt, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: f.work,
-		Actor: "worker:test", OccurredAt: f.service.Now(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{
-			AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
-			PacketDigest: authorization.PacketDigest, ReadbackModel: "openai/test-model", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
-	if err := f.s.Transact(context.Background(), func(tx *store.Transaction) error {
-		pair, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, f.env.PrincipalRef, f.env.ClientRef)
-		if err != nil {
-			return err
-		}
-		_, err = store.AppendLaneActorDispatchTx(context.Background(), tx, pair)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	candidate := store.WorkerReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, f.path, "rev-parse", "HEAD"), Tree: gitRun(t, f.path, "rev-parse", "HEAD^{tree}")}
-	report := &store.WorkerReviewBlock{Disposition: disposition, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: *pin.Review.Dependencies,
-		Assessments: []store.WorkerReviewAssessment{}, Findings: []store.WorkerReviewFinding{}, RemainingObligations: []store.WorkerReviewObligation{}}
+	candidate := store.ReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, f.path, "rev-parse", "HEAD"), Tree: gitRun(t, f.path, "rev-parse", "HEAD^{tree}")}
+	report := store.ReviewBlock{Disposition: disposition, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: *pin.Review.Dependencies,
+		Assessments: []store.ReviewAssessment{}, Findings: []store.ReviewFinding{}, RemainingObligations: []store.ReviewObligation{}}
 	if prove {
-		control := selected.AcceptanceOracle.Controls[0]
+		oracle := oAgentPreparedOracle(t, f, []string{"predicate:primary"})
+		control := oracle.Controls[0]
 		executed := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
 			"work_id": f.work, "idempotency_key": fmt.Sprintf("o-execute-%d", f.request), "oracle": map[string]any{
-				"phase": "execute", "attempt_id": attempt, "attempt_epoch": epoch, "worker_packet_digest": authorization.PacketDigest,
-				"worker_job_binding": job, "control_id": control.ControlID, "preparation_run_ref": control.ReadinessEvidenceRefs[0],
+				"phase": "execute", "preparation_run_ref": control.ReadinessEvidenceRefs[0],
 			},
 		}))
 		var result store.WorktreeVerifyResult
 		if err := json.Unmarshal(executed.Result, &result); err != nil || result.ExitCode != 0 || result.Oracle == nil || result.Oracle.Qualification != "pass" {
 			t.Fatalf("O native execution: %s (%v)", executed.Result, err)
 		}
-		report.Assessments = []store.WorkerReviewAssessment{{PredicateID: "predicate:primary", Assessment: "supported", ReceiptRefs: []string{result.OperationRef}}}
+		report.Assessments = []store.ReviewAssessment{{PredicateID: "predicate:primary", Assessment: "supported", ReceiptRefs: []string{result.OperationRef}}}
 	}
-	if len(receipts) > 0 {
-		report.Assessments = []store.WorkerReviewAssessment{{PredicateID: "predicate:primary", Assessment: "supported", ReceiptRefs: receipts}}
-	}
-	f.finishWorker(t, lane, attempt, job, report)
-	spineOK(t, oAgentAction(t, f, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}))
+	spineOK(t, oAgentAction(t, f, "record_review", map[string]any{"review": report}))
 }
 
 func oAgentVerify(t *testing.T, f *oAgentFixtureState, command []string) string {

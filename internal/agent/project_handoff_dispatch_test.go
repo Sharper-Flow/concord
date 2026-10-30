@@ -460,7 +460,7 @@ func TestSessionVacateRouteAndVerifiedLandingCompleteRetirementReadiness(t *test
 	if retirement["state"] != "ready_to_close_or_replace" {
 		t.Fatalf("retirement=%+v, want READY_TO_CLOSE_OR_REPLACE from the verified facts", retirement)
 	}
-	for _, fact := range []string{"recorded_handoff", "artifacts_preserved", "workers_stopped", "vacate_landed"} {
+	for _, fact := range []string{"recorded_handoff", "artifacts_preserved", "vacate_landed"} {
 		if retirement[fact] != true {
 			t.Fatalf("retirement=%+v, want %s verified", retirement, fact)
 		}

@@ -21,11 +21,11 @@ func prepareTerminalTestContext(ctx context.Context, s *Store, workID, action st
 	if !WorkflowActionRequiresSubjectFreshness(action) {
 		return ctx, nil
 	}
-	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID})
+	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkflowSubjectRequest{WorkID: workID})
 	if err != nil {
 		return ctx, err
 	}
-	return WithWorkerDispatchPreparation(ctx, prepared), nil
+	return WithWorkflowSubjectPreparation(ctx, prepared), nil
 }
 
 func TestManagedCandidateTerminalFreshness(t *testing.T) {
@@ -92,13 +92,13 @@ func TestWorkflowTerminalPreparationOutsideSQL(t *testing.T) {
 			probe.err = errors.New("synthetic Git outage")
 		}
 		before := j.effects(t)
-		prepared, err := PrepareWorkflowAcceptanceFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: t.TempDir(), Runner: probe})
+		prepared, err := PrepareWorkflowAcceptanceFreshness(context.Background(), j.s, PrepareWorkflowSubjectRequest{WorkID: j.workID, Runner: probe})
 		if unreachable {
 			var failure *Failure
 			if !errors.As(err, &failure) || failure.Kind != KindGitUnreachable || !failure.RetrySafe {
 				t.Fatalf("unreachable terminal probe = %v, want retryable git_unreachable", err)
 			}
-		} else if err != nil || prepared.proof.observation == nil || prepared.proof.observation.Commit != head || prepared.proof.observation.State != "clean" {
+		} else if err != nil || prepared.candidate == nil || prepared.candidate.Commit != head {
 			t.Fatalf("terminal preparation = %+v err=%v, want clean observed HEAD", prepared, err)
 		}
 		if probe.calls == 0 {
@@ -112,12 +112,12 @@ func TestWorkflowTerminalPreparationOutsideSQL(t *testing.T) {
 
 func TestWorkflowTerminalPreparedPinDriftRefuses(t *testing.T) {
 	j, _ := descendantReviewFixture(t, "terminal-prepared-pin-drift")
-	prepared, err := PrepareWorkflowAcceptanceFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
+	prepared, err := PrepareWorkflowAcceptanceFreshness(context.Background(), j.s, PrepareWorkflowSubjectRequest{WorkID: j.workID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	descendantCommit(t, j, "b")
-	ctx := WithWorkerDispatchPreparation(context.Background(), prepared)
+	ctx := WithWorkflowSubjectPreparation(context.Background(), prepared)
 	before := j.effects(t)
 	err = j.s.Transact(ctx, func(transaction *Transaction) error {
 		return validateWorkflowAcceptanceFreshness(ctx, transaction.tx, j.workID)
@@ -140,7 +140,7 @@ func TestManagedCandidateTerminalPostObservationMovementKeepsObservedSubject(t *
 		t.Fatalf("confirm clean A: %v", err)
 	}
 	bindCompletionClosure(t, j.s, j.workID, j.fixture.owner)
-	prepared, err := PrepareWorkflowAcceptanceFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID})
+	prepared, err := PrepareWorkflowAcceptanceFreshness(context.Background(), j.s, PrepareWorkflowSubjectRequest{WorkID: j.workID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,12 +148,12 @@ func TestManagedCandidateTerminalPostObservationMovementKeepsObservedSubject(t *
 	if j.pinned(t) != j.a || j.head(t) != j.b {
 		t.Fatal("fixture must preserve pin A while live HEAD moves to B")
 	}
-	ctx := WithWorkerDispatchPreparation(context.Background(), prepared)
-	err = j.terminalActionContext(t, ctx, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), j.fixture.owner, nil)
+	ctx := WithWorkflowSubjectPreparation(context.Background(), prepared)
+	err = j.terminalActionContext(t, ctx, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), j.fixture.owner)
 	if err != nil {
 		t.Fatalf("complete over sealed A observation: %v", err)
 	}
-	if prepared.proof.observation.Commit != j.a || j.pinned(t) != j.a {
+	if prepared.candidate == nil || prepared.candidate.Commit != j.a || j.pinned(t) != j.a {
 		t.Fatal("completion replaced the observed A subject with unobserved B")
 	}
 	var state string

@@ -3,15 +3,9 @@
     "tier": "derived"
   },
   "date": "2026-09-30T00:00:00Z",
-  "home_domain_id": "worker-lanes",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0197",
   "kind": "decision",
-  "law_relations": [
-    {
-      "kind": "refines",
-      "target_id": "CD-0056"
-    }
-  ],
   "path": ".concord/docs/decisions/CD-0197-a-review-report-carries-a-typed-verdict-and-ranked-findings.md",
   "scopes": {
     "domain_ids": [],
@@ -20,13 +14,12 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fac6a2d6fd3bd91d4f98988286b27b73a3a2eac7ddb9afafdfb3840639429e15",
+  "sha256": "sha256:ecf1e18d05d1871f6df9a252a224b1aae4e2bd66daa6fa7bc2ecd5fb561c7157",
   "status": "accepted",
-  "summary": "A dispatch-pinned Review report names one CD-0242 D5 disposition and up to 64 ranked findings with closed severity and confidence. Oracle-bound findings retain their classifications and canonical identities. Resolution claims carry qualifying native references for executable requirements and exact judged-case identities for Review-judged requirements. Judged proposals close only on Main's acceptance of the exact current Review, never at ingest or rejection. The report grants no workflow verdict or acceptance authority.",
+  "summary": "The coordinator records the existing typed review block through record_review, binding candidates, dependencies, findings and one of four dispositions without lane, job or attempt identity. Independent native Task review remains required; Concord does not attest the producer. Open blocking findings prevent progression. Review content supplies no native receipt, approval or completion by itself.",
   "tags": [
     "agent-surface",
-    "lanes",
-    "worker-attempts",
+    "review",
     "law"
   ],
   "title": "A review report carries a typed verdict and ranked findings"

@@ -120,7 +120,7 @@ func recordResearchDeclarationTxReceipt(t *testing.T, f workContextFixture, fiel
 	}
 	fieldRaw := make(map[string]json.RawMessage, len(fields))
 	for name, value := range fields {
-		fieldRaw[name] = json.RawMessage(mustJSONValue(value))
+		fieldRaw[name] = mustJSONValue(value)
 	}
 	return f.store.Transact(ctx, func(transaction *Transaction) error {
 		rawTx, txErr := transactionSQL(transaction, "research declaration mirror")
@@ -873,16 +873,8 @@ func researchBoundReadings(f workContextFixture) []map[string]any {
 	return readings
 }
 
-// seedResearchBoundJob prepares the claimed worktree subject and the ready
-// job whose native preparations and qualified subject ride the measured view.
-func seedResearchBoundJob(t *testing.T, f workContextFixture) {
-	t.Helper()
-	reviewSubjectClaim(t, f.store, f.workID)
-	reviewSubjectReadyRevision(t, f)
-}
-
 // researchBoundCarrierDeclaration records the fixed 16-finding carrier
-// declaration the tuned declaration selects beside its own 16 findings, so
+// declaration the tuned declaration selects beside its own 15 findings, so
 // the view holds 32 findings while each declaration stays inside its own
 // 16-finding bound.
 func researchBoundCarrierDeclaration(t *testing.T, f workContextFixture, statementLen int) int64 {
@@ -902,7 +894,7 @@ func researchBoundCarrierDeclaration(t *testing.T, f workContextFixture, stateme
 }
 
 // researchBoundDeclaration records the tuned boundary declaration once: the
-// bounded readings, the 16 selected carrier findings, 16 new findings (the
+// bounded readings, the 16 selected carrier findings, 15 new findings (the
 // first of statement length firstLen, the rest restLen, the byte-granular
 // pad), and one research selection. On failure it returns the refusal
 // instead of failing the test.
@@ -928,30 +920,20 @@ func researchBoundDeclaration(t *testing.T, f workContextFixture, packID string,
 }
 
 // tuneResearchBoundView lands the whole serialized view at exactly target
-// bytes by tuning the 16 tuned findings' statement length one byte at a
-// time. A view that overshoots the bound refuses its own read, so the loop
-// shrinks and re-approaches from below until the exact landing holds.
+// bytes by tuning the 15 findings' statement lengths. An over-bound
+// declaration rolls back, so the loop commits below the bound before
+// remeasuring the next declaration's source identities.
 func tuneResearchBoundView(t *testing.T, f workContextFixture, packID string, target int) (carrierSeq int64, firstLen, restLen int) {
 	t.Helper()
-	seedResearchBoundJob(t, f)
 	carrierSeq = researchBoundCarrierDeclaration(t, f, 500)
-	firstLen, restLen = 500, 500
+	firstLen, restLen = 450, 450
 	if err := researchBoundDeclaration(t, f, packID, carrierSeq, firstLen, restLen); err != nil {
 		t.Fatalf("bound declaration refused: %v", err)
 	}
 	for iteration := 0; iteration < 16; iteration++ {
 		view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
 		if err != nil {
-			// The landing overshot the bound, so the read refuses; shrink
-			// and re-approach from below.
-			restLen -= 2
-			if restLen <= 32 {
-				t.Fatalf("view tuning cannot recover below %d bytes: %v", target, err)
-			}
-			if err := researchBoundDeclaration(t, f, packID, carrierSeq, firstLen, restLen); err != nil {
-				t.Fatalf("bound declaration refused while recovering: %v", err)
-			}
-			continue
+			t.Fatalf("read committed bound declaration: %v", err)
 		}
 		raw, err := json.Marshal(view)
 		if err != nil {
@@ -969,7 +951,15 @@ func tuneResearchBoundView(t *testing.T, f workContextFixture, packID string, ta
 			t.Fatalf("view tuning needs statement lengths %d/%d outside the 1024-byte finding bound; recalibrate the fixture", firstLen, restLen)
 		}
 		if err := researchBoundDeclaration(t, f, packID, carrierSeq, firstLen, restLen); err != nil {
-			t.Fatalf("bound declaration refused: %v", err)
+			if !hasFailureKind(err, KindLimitExceeded) {
+				t.Fatalf("bound declaration refused: %v", err)
+			}
+			// The next declaration's sequence and source identities may grow
+			// a digit. Commit below the bound before measuring that new shape.
+			firstLen -= 32
+			if err := researchBoundDeclaration(t, f, packID, carrierSeq, firstLen, restLen); err != nil {
+				t.Fatalf("bound declaration refused while recovering: %v", err)
+			}
 		}
 	}
 	t.Fatalf("view tuning did not converge on %d bytes", target)
@@ -995,39 +985,11 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		if err := fixture.recordWorkContext(t, map[string]any{"context_findings": findings}); err != nil {
 			t.Fatalf("generic declaration refused: %v", err)
 		}
-		// One ranked slot rides a terminal report's review block: the
+		// One ranked slot rides a historical report's Review block: the
 		// mixed 32-slot view spans generic, ranked, and research entries.
-		lane := BuiltinLaneDefinitions()[0]
-		ownerRef, actorErr := WorkflowActorRef(fixture.owner)
-		if actorErr != nil {
-			t.Fatal(actorErr)
-		}
-		recordWorkerFixtureDispatchAuthorization(t, fixture.store, fixture.workID, "attempt-ctx-research-ranked", "repair", ownerRef)
-		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-research-ranked", lane, nil)}}); err != nil {
-			t.Fatal(err)
-		}
-		evidence := make([]WorkerReportEvidence, 0, len(lane.EvidenceObligations))
-		for _, obligation := range lane.EvidenceObligations {
-			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation})
-		}
 		review := reviewBlockFixture()
-		review.Findings = []WorkerReviewFinding{{FindingID: "finding:mixed-count", Severity: "P2", Confidence: "low", Detail: "the ranked mixed-count blocker", Status: "open", Blocking: true, InScope: true, EvidenceRefs: []string{}, ClosureRefs: []string{}}}
-		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{Event{
-			EventID: "ctx-complete-research-ranked", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID,
-			Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted),
-			Payload: mustJSONValue(WorkerCompletedPayload{
-				AttemptID: "attempt-ctx-research-ranked", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
-				WorkerDirectory: workerFixtureDirectory(t, fixture.store, fixture.workID),
-				EvidenceOrigin:  WorkerEvidenceReported, Evidence: evidence,
-				Review: review,
-			}),
-		}}}); err != nil {
-			t.Fatalf("ranked review report refused: %v", err)
-		}
-		var rankedSeq int64
-		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT MAX(terminal_seq) FROM worker_attempts WHERE work_id=? AND terminal_kind=?`, fixture.workID, WorkerCompleted).Scan(&rankedSeq); err != nil {
-			t.Fatal(err)
-		}
+		review.Findings = []ReviewFinding{{FindingID: "finding:mixed-count", Severity: "P2", Confidence: "low", Detail: "the ranked mixed-count blocker", Status: "open", Blocking: true, InScope: true, EvidenceRefs: []string{}, ClosureRefs: []string{}}}
+		rankedSeq := seedContextFactTerminal(t, fixture, "worker.completed", map[string]any{"review": review})
 		var seq int64
 		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT declaration_seq FROM work_context_state WHERE work_id=?`, fixture.workID).Scan(&seq); err != nil {
 			t.Fatal(err)
@@ -1073,10 +1035,7 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		selections = append(selections, researchSelectionEntry(pack.PackID, 1, "f2", workContextTestChild))
 		versionBefore := readWorkVersion(t, fixture.store, fixture.workID)
 		eventsBefore := declarationEventCount(t, fixture)
-		startsBefore := dispatchStartedCount(t, fixture.store, fixture.workID)
-		if startsBefore != 1 {
-			t.Fatalf("dispatch_worker starts before refusal = %d, want 1 from setup", startsBefore)
-		}
+		before := outsideRepairDatabaseSnapshot(t, fixture.store)
 		err := recordResearchDeclarationTx(t, fixture, map[string]any{
 			"finding_refs": refs, "context_findings": []map[string]any{}, "research_finding_refs": selections,
 		}, nil)
@@ -1090,8 +1049,8 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		if got := declarationEventCount(t, fixture); got != eventsBefore {
 			t.Fatalf("refused 33-slot declaration left %d declaration events, want %d", got, eventsBefore)
 		}
-		if got := dispatchStartedCount(t, fixture.store, fixture.workID); got != startsBefore {
-			t.Fatalf("dispatch_worker starts after refusal = %d, want unchanged pre-refusal count %d", got, startsBefore)
+		if after := outsideRepairDatabaseSnapshot(t, fixture.store); after != before {
+			t.Fatal("refused 33-slot declaration changed database state")
 		}
 	})
 
@@ -1112,13 +1071,6 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		if len(raw) != 65536 {
 			t.Fatalf("tuned view measures %d bytes, want exactly 65536", len(raw))
 		}
-		packet, err := json.Marshal(map[string]any{"inputs": map[string]any{"work_context": view}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := admittedWorkerPacketWorkContext(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID, packet); err != nil {
-			t.Fatalf("the admission refused a view at exactly the whole-view bound: %v", err)
-		}
 	})
 
 	t.Run("one byte over the whole view refuses the declaration whole", func(t *testing.T) {
@@ -1129,6 +1081,7 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		carrierSeq, firstLen, restLen := tuneResearchBoundView(t, fixture, pack.PackID, 65536)
 		versionBefore := readWorkVersion(t, fixture.store, fixture.workID)
 		eventsBefore := declarationEventCount(t, fixture)
+		before := outsideRepairDatabaseSnapshot(t, fixture.store)
 		err := researchBoundDeclaration(t, fixture, pack.PackID, carrierSeq, firstLen+1, restLen)
 		var failure *Failure
 		if err == nil || !errors.As(err, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.Detail, "65536") {
@@ -1140,8 +1093,8 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		if got := declarationEventCount(t, fixture); got != eventsBefore {
 			t.Fatalf("refused over-bound declaration left %d declaration events, want %d", got, eventsBefore)
 		}
-		if got := dispatchStartedCount(t, fixture.store, fixture.workID); got != 0 {
-			t.Fatalf("dispatch_worker starts = %d, want zero behind the refusal", got)
+		if after := outsideRepairDatabaseSnapshot(t, fixture.store); after != before {
+			t.Fatal("refused over-bound declaration changed database state")
 		}
 	})
 
@@ -1306,8 +1259,7 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 			t.Fatalf("boundary view measures %d bytes, want exactly 65537", len(raw))
 		}
 		unframed := len(mustJSONValue(view.SubjectCommit)) +
-			len(mustJSONValue(view.OraclePreparations)) +
-			len(mustJSONValue(view.OracleReceipts))
+			len(mustJSONValue(view.OraclePreparations))
 		for _, finding := range view.Findings {
 			if finding.Status == WorkContextFindingStatusOpen {
 				unframed += len(mustJSONValue(finding))
@@ -1368,9 +1320,7 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		bindResearchPack(t, fixture, pack.PackID, 1, true)
 		versionBefore := readWorkVersion(t, fixture.store, fixture.workID)
 		eventsBefore := declarationEventCount(t, fixture)
-		// The seeded oracle dispatch itself started an attempt; the refusal
-		// must add no dispatch effect beyond that fixture baseline.
-		dispatchBaseline := dispatchStartedCount(t, fixture.store, fixture.workID)
+		before := outsideRepairDatabaseSnapshot(t, fixture.store)
 		declErr := recordResearchDeclarationTx(t, fixture, map[string]any{
 			"finding_refs":          []string{},
 			"context_findings":      []map[string]any{},
@@ -1385,8 +1335,8 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		if got := declarationEventCount(t, fixture); got != eventsBefore {
 			t.Fatalf("refused declaration left %d declaration events, want %d", got, eventsBefore)
 		}
-		if got := dispatchStartedCount(t, fixture.store, fixture.workID); got != dispatchBaseline {
-			t.Fatalf("dispatch_worker starts = %d, want the fixture baseline %d with no refusal effects", got, dispatchBaseline)
+		if outsideRepairDatabaseSnapshot(t, fixture.store) != before {
+			t.Fatal("refused declaration changed durable state")
 		}
 		after := mandatoryRetainedSnapshot(t, fixture)
 		if len(after) != len(retained) {
@@ -1400,87 +1350,48 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 	})
 }
 
-// seedMandatoryNativeEvidence seeds the evidence no declaration can reduce:
-// the qualified subject, the ready oracle job's native preparations, and
-// the given number of open ranked blockers, each inside its own closed
-// bounds (a 512-byte detail and eight 256-byte reproduction refs). At 24
-// blockers the legally retained mandatory metadata alone carries the whole
-// view past the 64 KiB bound below the 32-slot bound; at 33 blockers the
-// shared slot count itself overflows on mandatory content alone.
+// The trusted projection fixture isolates mandatory-view bounds from action
+// admission. Native preparations retain their exact qualified subject; each
+// open Review finding retains a source identity and its declared Domain.
 func seedMandatoryNativeEvidence(t *testing.T, f workContextFixture, blockers int) {
 	t.Helper()
-	bootstrapOracleFixtureSubject(t, f.store, f.workID)
-	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + f.workID + "-worker", ActorClass: ActorAgent}
-	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/oracle-acceptor", SessionRef: "session/" + f.workID + "-acceptor", ActorClass: ActorAgent}
-	workerRef, err := WorkflowActorRef(worker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	version := readWorkVersion(t, f.store, f.workID)
-	if err := applyWorkflowTestOperation(context.Background(), f.store, Operation{Events: []Event{workflowEventWithActor("mandatory-worker-"+f.workID, WorkflowActorRecorded, f.workID, workerRef, map[string]any{
-		"work_id": f.workID, "expected_version": version, "resulting_version": version + 1,
-		"actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef,
-		"agent_ref": worker.AgentRef, "session_ref": worker.SessionRef, "actor_class": string(worker.ActorClass),
-	})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): version}}); err != nil {
-		t.Fatal(err)
-	}
-	git, entry := oracleFixtureClaimedWorktree(t, f.store, f.workID)
-	repair := oracleRepairFixture{store: f.store, owner: f.owner, worker: worker, acceptor: acceptor, git: git, entry: entry}
-	job := &WorkerJobBinding{JobID: "job:mandatory-native-" + f.workID}
-	oracleDispatchAttempt(t, repair, f.workID, "attempt-mandatory-native", twoPathOracleFields(t, f.store, f.workID, nil), job)
-	completion := oracleCompletionEvent(t, f.store, f.workID, "attempt-mandatory-native", "mandatory-native", func(payload *WorkerCompletedPayload) {
-		findings := make([]WorkerReviewFinding, 0, blockers)
-		for i := 0; i < blockers; i++ {
-			refs := make([]string, 0, 8)
-			for ref := 0; ref < 8; ref++ {
-				refs = append(refs, fmt.Sprintf("evidence:mandatory-%02d-%s", i, strings.Repeat("e", 232)))
-			}
-			findings = append(findings, WorkerReviewFinding{
-				Severity: "P1", Confidence: "high",
-				Detail: fmt.Sprintf("the mandatory ranked blocker %02d carries its sized detail ", i) + strings.Repeat("m", 455),
-				Oracle: &WorkerOracleFinding{
-					Classification: OracleClassificationDeliveryBlocker, OwnerID: "owner:repair",
-					FailureFamily: fmt.Sprintf("mandatory-family-%02d", i), ControlIDs: []string{"control:check-a"},
-					EvidenceRefs: refs,
-				},
-			})
+	repo, _ := reviewSubjectClaim(t, f.store, f.workID)
+	qualifyReviewSubjectForTest(t, f.store, f.workID, repo)
+	oracle := acceptanceOracleFieldsWithoutPreparationsForTest(t, f.store, f.workID)
+	seedOraclePreparationFieldsFixture(t, f.store, f.workID, oracle)
+	state := WorkflowReviewState{Findings: []ReviewFinding{}, findingSources: map[string]reviewFindingSource{}}
+	for i := 0; i < blockers; i++ {
+		refs := make([]string, 0, 16)
+		for ref := 0; ref < 16; ref++ {
+			prefix := fmt.Sprintf("evidence:mandatory-%02d-%02d-", i, ref)
+			refs = append(refs, prefix+strings.Repeat("e", 128-len(prefix)))
 		}
-		payload.Review = &WorkerReviewBlock{Disposition: "correction_required", Findings: findings}
-	})
-	if err := ApplyOperation(context.Background(), f.store, Operation{Events: []Event{completion}}); err != nil {
-		t.Fatalf("mandatory ranked report refused: %v", err)
+		id := fmt.Sprintf("finding:mandatory-%02d", i)
+		state.Findings = append(state.Findings, ReviewFinding{
+			FindingID: id, Severity: "P1", Confidence: "high", InScope: true, Blocking: true, Status: "open",
+			Detail:       fmt.Sprintf("the mandatory ranked blocker %02d carries its sized detail ", i) + strings.Repeat("m", 455),
+			EvidenceRefs: refs, ClosureRefs: []string{}, Oracle: &ReviewOracleFinding{Classification: OracleClassificationDeliveryBlocker, OwnerID: "owner:repair", FailureFamily: fmt.Sprintf("mandatory-family-%02d", i), ControlIDs: []string{"control:fixture"}, EvidenceRefs: refs[:8]},
+		})
+		state.findingSources[id] = reviewFindingSource{CanonicalID: fmt.Sprintf("finding:%d:0", 100+i), DomainID: workContextTestChild, EventID: "mandatory-review-" + id, Kind: WorkflowActionCompleted, Seq: int64(100 + i)}
+	}
+	if err := f.store.Transact(t.Context(), func(tx *Transaction) error {
+		scope, err := beginWrite(t.Context(), tx.tx)
+		if err != nil {
+			return err
+		}
+		if err := writeWorkflowReviewFacts(t.Context(), tx.tx, f.workID, state); err != nil {
+			return err
+		}
+		return scope.close(t.Context())
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 
-// assertZeroDispatchEffects asserts the admission refusal left zero
-// dispatch starts, attempts, and dispatch authorizations on the work.
-func assertZeroDispatchEffects(t *testing.T, f workContextFixture) {
-	t.Helper()
-	if got := dispatchStartedCount(t, f.store, f.workID); got != 0 {
-		t.Fatalf("dispatch_worker starts = %d, want zero behind the refusal", got)
-	}
-	var attempts int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=?`, f.workID).Scan(&attempts); err != nil {
-		t.Fatal(err)
-	}
-	if attempts != 0 {
-		t.Fatalf("worker attempts = %d, want zero behind the refusal", attempts)
-	}
-	var authorizations int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_authorizations WHERE work_id=?`, f.workID).Scan(&authorizations); err != nil {
-		t.Fatal(err)
-	}
-	if authorizations != 0 {
-		t.Fatalf("dispatch authorizations = %d, want zero behind the refusal", authorizations)
-	}
-}
-
-// mandatoryRetainedSnapshot records the work's terminal completion events
-// with their exact payload bytes, so a refusal can prove the retained
-// terminal evidence survives unchanged.
+// Refusals preserve the exact current Review facts and native custody bytes.
 func mandatoryRetainedSnapshot(t *testing.T, f workContextFixture) map[string]string {
 	t.Helper()
-	rows, err := f.store.DatabaseForTesting().Query(`SELECT terminal_event_id,terminal_payload FROM worker_attempts WHERE work_id=? AND terminal_kind=? ORDER BY terminal_seq`, f.workID, WorkerCompleted)
+	rows, err := f.store.DatabaseForTesting().Query(`SELECT work_id,state FROM workflow_review_state WHERE work_id=? UNION ALL SELECT lease_id,coalesce(result_json,'')||coalesce(native_plan_json,'') FROM worktree_verify_leases WHERE work_id=? ORDER BY 1`, f.workID, f.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1692,113 +1603,8 @@ func TestWorkContextResearchDeclarationRollback(t *testing.T) {
 	})
 }
 
-// The dispatch admission at the work-context equality owner: byte equality
-// stays necessary and becomes insufficient, because a required unresolved
-// selection refuses even in an equal view, and research state participates
-// in the existing preparation revalidation.
 func TestWorkContextResearchAdmission(t *testing.T) {
 	t.Parallel()
-
-	declareResolved := func(t *testing.T, f workContextFixture, pack ResearchPack) {
-		t.Helper()
-		if err := recordResearchDeclarationTx(t, f, map[string]any{
-			"finding_refs":          []string{},
-			"context_findings":      []map[string]any{},
-			"research_finding_refs": []map[string]any{researchSelectionEntry(pack.PackID, 1, "f1", workContextTestChild)},
-		}, nil); err != nil {
-			t.Fatalf("research declaration refused: %v", err)
-		}
-	}
-
-	t.Run("a required unresolved selection refuses at the equality owner", func(t *testing.T) {
-		fixture := seedWorkContextFixture(t, "ctx-research-admit-missing")
-		defer fixture.store.Close()
-		pack := seedResearchContextPack(t, fixture, "admit")
-		bindResearchPack(t, fixture, pack.PackID, 1, true)
-		declareResolved(t, fixture, pack)
-		injectResearchRowDelete(t, fixture, `DELETE FROM active_research_consumers WHERE pack_id=? AND consumer_work_id=?`, pack.PackID, fixture.workID)
-		document, _ := researchViewDocument(t, fixture)
-		packet, err := json.Marshal(map[string]any{"inputs": map[string]any{"work_context": document}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, admitErr := admittedWorkerPacketWorkContext(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID, packet)
-		var failure *Failure
-		if admitErr == nil || !errors.As(admitErr, &failure) || failure.Kind != KindResearchConsumerBlocked || !strings.Contains(failure.Detail, "missing") {
-			t.Fatalf("required missing admission error = %v, want %s naming the unresolved state", admitErr, KindResearchConsumerBlocked)
-		}
-		assertZeroDispatchEffects(t, fixture)
-	})
-
-	t.Run("an equal view with a stale required selection refuses", func(t *testing.T) {
-		fixture := seedWorkContextFixture(t, "ctx-research-admit-stale")
-		defer fixture.store.Close()
-		pack := seedResearchContextPack(t, fixture, "stale-admit")
-		bindResearchPack(t, fixture, pack.PackID, 1, true)
-		declareResolved(t, fixture, pack)
-		bindResearchPack(t, fixture, pack.PackID, 2, true)
-		document, _ := researchViewDocument(t, fixture)
-		packet, err := json.Marshal(map[string]any{"inputs": map[string]any{"work_context": document}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, admitErr := admittedWorkerPacketWorkContext(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID, packet)
-		var failure *Failure
-		if admitErr == nil || !errors.As(admitErr, &failure) || failure.Kind != KindResearchConsumerBlocked || !strings.Contains(failure.Detail, "rebound") {
-			t.Fatalf("required rebound admission error = %v, want %s naming the rebound state", admitErr, KindResearchConsumerBlocked)
-		}
-		assertZeroDispatchEffects(t, fixture)
-	})
-
-	t.Run("an optional unresolved selection admits at the same owner", func(t *testing.T) {
-		fixture := seedWorkContextFixture(t, "ctx-research-admit-optional")
-		defer fixture.store.Close()
-		pack := seedResearchContextPack(t, fixture, "optional")
-		bindResearchPack(t, fixture, pack.PackID, 1, false)
-		declareResolved(t, fixture, pack)
-		bindResearchPack(t, fixture, pack.PackID, 2, false)
-		document, _ := researchViewDocument(t, fixture)
-		packet, err := json.Marshal(map[string]any{"inputs": map[string]any{"work_context": document}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, admitErr := admittedWorkerPacketWorkContext(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID, packet); admitErr != nil {
-			t.Fatalf("optional unresolved selection refused the admission: %v", admitErr)
-		}
-		assertZeroDispatchEffects(t, fixture)
-	})
-
-	t.Run("research state drift under the sealed preparation refuses the retry proof", func(t *testing.T) {
-		fixture := seedWorkContextFixture(t, "ctx-research-admit-drift")
-		defer fixture.store.Close()
-		pack := seedResearchContextPack(t, fixture, "drift")
-		bindResearchPack(t, fixture, pack.PackID, 1, true)
-		declareResolved(t, fixture, pack)
-		claimDir, _ := reviewSubjectClaim(t, fixture.store, fixture.workID)
-		preparation, err := PrepareWorkerDispatchFreshness(context.Background(), fixture.store, PrepareWorkerDispatchRequest{WorkID: fixture.workID, SessionWorktree: claimDir})
-		if err != nil {
-			t.Fatalf("preparation refused: %v", err)
-		}
-		ctx := WithWorkerDispatchPreparation(context.Background(), preparation)
-		revalidate := func() error {
-			tx, txErr := fixture.store.DatabaseForTesting().BeginTx(ctx, nil)
-			if txErr != nil {
-				t.Fatal(txErr)
-			}
-			defer tx.Rollback()
-			return revalidateDispatchProofForRetryTx(ctx, tx, fixture.workID)
-		}
-		if err := revalidate(); err != nil {
-			t.Fatalf("unchanged research state refused the sealed proof: %v", err)
-		}
-		if _, err := fixture.store.DatabaseForTesting().Exec(`UPDATE active_research_findings SET status='contradicted' WHERE pack_id=? AND revision=1 AND finding_id='f1'`, pack.PackID); err != nil {
-			t.Fatal(err)
-		}
-		err = revalidate()
-		if !hasFailureKind(err, KindProjectionConflict) || !strings.Contains(err.Error(), "changed under the dispatch subject observation") {
-			t.Fatalf("research drift revalidation error = %v, want %s refusing the changed work context", err, KindProjectionConflict)
-		}
-	})
 
 	t.Run("the current action declares and retains the research selection field", func(t *testing.T) {
 		registered, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")

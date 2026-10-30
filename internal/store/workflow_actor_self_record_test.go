@@ -96,7 +96,10 @@ func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
 				IdempotencyKey: "issue740-" + testCase.actionID, RequestID: "request:issue740-" + testCase.actionID,
 				ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 3, 1, 0, 0, 0, time.UTC),
 			}
-			if _, err := invokeWorkflowActionForCD0059(ctx, t, s, request); err != nil {
+			if err := s.Transact(ctx, func(tx *Transaction) error {
+				_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), request)
+				return err
+			}); err != nil {
 				t.Fatalf("first workflow action by an unrecorded session: %v", err)
 			}
 
@@ -199,7 +202,10 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 			t.Fatal(err)
 		}
 		request := buildAction(workID, "record_proposal", workID, agent, version, proposalPayload)
-		if _, err := invokeWorkflowActionForCD0059(ctx, t, s, request); err != nil {
+		if err := s.Transact(ctx, func(tx *Transaction) error {
+			_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), request)
+			return err
+		}); err != nil {
 			t.Fatalf("first workflow action by an unrecorded session: %v", err)
 		}
 		if got := countWorkflowActor(t, s, agentRef); got != 1 {
@@ -231,7 +237,10 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := invokeWorkflowActionForCD0059(ctx, t, s, buildAction(workID, "record_proposal", workID, agent, version, proposalPayload)); err != nil {
+		if err := s.Transact(ctx, func(tx *Transaction) error {
+			_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), buildAction(workID, "record_proposal", workID, agent, version, proposalPayload))
+			return err
+		}); err != nil {
 			t.Fatalf("first workflow action by an unrecorded session: %v", err)
 		}
 		// Alignment is the actual next step after proposal on this
@@ -242,7 +251,10 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 		recordedVersion := readWorkVersion(t, s, workID)
 		actorEventsBefore := countActorRecordedEvents(t, s)
 		alignmentPayload := map[string]any{"searched": "The bounded searched area.", "outcome": "none_found"}
-		if _, err := invokeWorkflowActionForCD0059(ctx, t, s, buildAction(workID, "record_alignment", workID+"-second", agent, recordedVersion, alignmentPayload)); err != nil {
+		if err := s.Transact(ctx, func(tx *Transaction) error {
+			_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), buildAction(workID, "record_alignment", workID+"-second", agent, recordedVersion, alignmentPayload))
+			return err
+		}); err != nil {
 			t.Fatalf("second workflow action by the recorded session: %v", err)
 		}
 		if got := readWorkVersion(t, s, workID); got != recordedVersion+2 {
@@ -279,7 +291,10 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 		}
 		request := buildAction(workID, "record_proposal", workID, agent, version, proposalPayload)
 		request.Now = time.Time{}
-		if _, err := invokeWorkflowActionForCD0059(ctx, t, s, request); err != nil {
+		if err := s.Transact(ctx, func(tx *Transaction) error {
+			_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), request)
+			return err
+		}); err != nil {
 			t.Fatalf("first workflow action with zero request time: %v", err)
 		}
 		if got := countWorkflowActor(t, s, agentRef); got != 1 {

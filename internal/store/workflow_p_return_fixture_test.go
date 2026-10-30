@@ -2,13 +2,10 @@ package store
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
-// Production, host observation and Main acceptance establish the candidate
-// before Review can authorize its next execution group or final proof.
+// A clean observed Git subject precedes the ordinary Review action.
 func pReturnReviewFixture(t *testing.T, id, family, disposition string) *candidateJourney {
 	t.Helper()
 	effect := "execution"
@@ -39,26 +36,7 @@ func pReturnClaim(t *testing.T, f workflowReturnRouteFixture, id string) *candid
 
 func pReturnProduce(t *testing.T, j *candidateJourney, label string) {
 	t.Helper()
-	job := reviewSubjectReadyRevision(t, j.fixture)
-	attempt := "attempt:" + j.workID + ":" + label
-	if err := descendantDispatch(t, j, "implement", attempt, job, nil); err != nil {
-		t.Fatal(err)
-	}
-	j.laneDispatch(t, attempt, "implementation", &job)
-	path := filepath.Join(j.repo, "internal", "store", job.JobID, "value.go")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("package fixture\n// "+attempt+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	j.commit(t, "worker@example.invalid", "produce bounded implementation")
-	j.completeLane(t, attempt, "implementation", &job, nil)
-	window := reviewSubjectWindow(t, j.s, j.workID, attempt)
-	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": window.AttemptEpoch}, j.fixture.owner); err != nil {
-		t.Fatal(err)
-	}
-	j.observe(t, "accepted-"+label)
+	conformanceImplementChange(t, j, label)
 }
 
 func pReviewCorrectionPayload(t *testing.T) json.RawMessage {

@@ -4,8 +4,8 @@
 - **Date:** 2026-09-23
 - **Scope:** Store admission for operator-approved contract supersession at the completion step, the workflow step return, and the verdict carryover rule
 - **Approval:** The operator approved this bounded recovery route for a disproved contract at completion.
-- **Related:** CD-0013, CD-0030, CD-0059, CD-0124, CD-0133, CD-0143
-- **Preserves:** CD-0143's unhealthy-verdict route, predecessor contracts, verdict history, worker attempt history, and operator authority.
+- **Related:** CD-0013, CD-0030, CD-0124, CD-0143
+- **Preserves:** CD-0143's unhealthy-verdict route, predecessor contract authority, current verdicts and applicable operator authority.
 
 ## Context
 
@@ -30,8 +30,8 @@ For `approval_policy=consequence_v1`, complete-step contract correction requires
 
 `supersede_contract` is available at the step that declares `complete` on a
 break-fix or implementation workflow when the work item lifecycle is
-nonterminal, one or more approved contracts are active, no worker attempt is
-unsettled, and a same-work observation was recorded after the latest recorded
+nonterminal, one or more approved contracts are active,
+and a same-work observation was recorded after the latest recorded
 verdict. The completion step declares no evidence-binding action, so the
 post-verdict observation is the durable contradiction record: it is the one
 typed record a public route can append there. Any other work kind or step

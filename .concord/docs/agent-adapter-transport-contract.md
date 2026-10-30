@@ -83,25 +83,17 @@ LLM → OpenCode custom tool → `concord.ts`
 No adapter-owned daemon, worker, database connection pool, HTTP server, IPC socket,
 or background reconciliation loop exists.
 
-### 2.1 Client registration and key storage
-
-Installation registers an OpenCode adapter public key with Concord and stores the
-private key in the operating system's credential store, outside workspaces,
-model-visible arguments, environment payloads, and Product artifacts.
+### 2.1 Client registration
 
 The adapter carries no bearer credential and runs no bootstrap handshake. Every
 domain call is one short-lived `concord invoke`. The core authorizes each call
 from the registered client policy and the repository the envelope names. It
-refuses a client or key that is not active. Session and path fields carry no
+refuses a client that is not active. Session and path fields carry no
 authority of their own.
-
-The private key signs worker evidence only. The adapter builds that assertion
-after a run, so the signature never reaches the worker or any prompt surface.
-The adapter never persists secrets.
 
 This protects the model/tool-call boundary and rejects unregistered clients. Concord's
 local single-operator threat boundary still trusts the OS account, OpenCode process,
-installed adapter, and OS credential service; arbitrary code already controlling
+installed adapter; arbitrary code already controlling
 that account/process is outside Concord's authority model.
 
 ## 3. Registration and schemas
@@ -207,9 +199,10 @@ retry returns a prior result, resumes a durable operation, or executes.
 
 `concord-plugin.ts` owns registration and the host hooks required by accepted
 decisions. [CD-0090](./decisions/CD-0090-per-turn-continuity-re-pin-hook.md)
-owns the continuity re-pin hook;
-[CD-0102 D2/D5](./decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md#d2-the-plugin-binds-the-packet-to-the-next-matching-call)
-defines the native Task dispatch and completion bridge. `concord.ts` stays transport-only.
+owns the continuity re-pin hook. `concord.ts` stays transport-only.
+
+Native Task is the host's own surface. Concord adds no authorization,
+packaging, completion readback or recovery bridge for it (CD-0242 D6).
 
 ## 7. Why not MCP
 

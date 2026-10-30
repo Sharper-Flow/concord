@@ -81,7 +81,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 				t.Fatalf("engine recovery discovery does not return the builtin entry %s; derived set %v", action.ID, engineOwned)
 			}
 		}
-		for _, actionID := range []string{"record_verdict", "record_worker_failure"} {
+		for _, actionID := range []string{"record_verdict"} {
 			if !ownedByEngine(actionID) {
 				t.Fatalf("engine recovery discovery does not return %s; derived set %v", actionID, engineOwned)
 			}
@@ -177,21 +177,6 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			t.Fatalf("legacy operator-required %s consent = %q, want the executor override to required", controlID, override.Consent)
 		}
 
-		// The v2 pin declares record_worker_failure.
-		legacyWorker := workflowFixtureDefinition(t, 2).Definition
-		workerOwner, ok := workflowRecoveryActionDefinition("record_worker_failure")
-		if !ok {
-			t.Fatal("engine recovery discovery lost record_worker_failure")
-		}
-		workerResult, err := ClassifyWorkflowApproval(legacyWorker, "record_worker_failure", WorkflowApprovalFacts{})
-		if err != nil {
-			t.Fatalf("legacy classification of declared record_worker_failure refused: %v", err)
-		}
-		declaredWorker, _ := declared(legacyWorker, "record_worker_failure")
-		if workerResult.Consent != WorkflowApprovalConsent(declaredWorker.Approval) || workerResult.Consent != WorkflowApprovalConsent(workerOwner.Approval) {
-			t.Fatalf("legacy record_worker_failure consent = %q, want the declared %q the engine owner pins as %q", workerResult.Consent, declaredWorker.Approval, workerOwner.Approval)
-		}
-
 		// An action neither the pin declares nor the engine owns keeps the
 		// typed refusal under both policies.
 		const unknownAction = "record_alignment"
@@ -261,11 +246,6 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if !state.DecisionDomainsPresent || state.DecisionDomains == nil || len(state.DecisionDomains) != 0 {
 			t.Fatalf("engineering decision fact = present %v domains %v, want [] present", state.DecisionDomainsPresent, state.DecisionDomains)
 		}
-		// Executing the work requires no operator evaluation: no executing
-		// actor distinctness exists beyond the worker's own result (CD-0242 D5).
-		if state.EvaluatorAuthority != WorkflowIndependentEvaluator {
-			t.Fatalf("executing coordinator authority = %q, want independent", state.EvaluatorAuthority)
-		}
 		if state.Policy.Policy != WorkflowApprovalPolicyConsequenceV1 || state.Policy.Class != WorkflowApprovalClassDecision || state.Policy.Consent != WorkflowConsentNone {
 			t.Fatalf("engineering confirmation classified %s/%s/%s, want consequence_v1 decision/none", state.Policy.Policy, state.Policy.Class, state.Policy.Consent)
 		}
@@ -286,8 +266,8 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reviewer boundary read refused: %v", err)
 		}
-		if reviewer.EvaluatorAuthority != WorkflowIndependentEvaluator || reviewer.Policy.Consent != WorkflowConsentNone {
-			t.Fatalf("independent evaluator read authority %q consent %q, want independent and no consent", reviewer.EvaluatorAuthority, reviewer.Policy.Consent)
+		if reviewer.Policy.Consent != WorkflowConsentNone {
+			t.Fatalf("reviewer consent %q, want no consent", reviewer.Policy.Consent)
 		}
 
 		proposed, err := ReadWorkflowApprovalBoundary(ctx, s, registry, WorkflowActionPreflightRequest{WorkID: workID, ActionID: "approve_contract", Actor: owner, Payload: json.RawMessage(`{"decision_domains":["product"]}`)})
@@ -353,27 +333,6 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		}
 		if _, err := ReadWorkflowApprovalBoundary(ctx, absentStore, absentRegistry, WorkflowActionPreflightRequest{WorkID: absentID, ActionID: "confirm_premise", Actor: absentOwner}); refusalKind(err) != KindInvariantViolation {
 			t.Fatalf("absent-fact confirmation = %v, want the typed absence refusal", err)
-		}
-
-		// A terminal failure does not add an approval requirement.
-		const retryID = "approval-boundary-retry"
-		retryFixture, attempt, _ := seedCurrentRepairWorker(t, retryID)
-		retryStore := retryFixture.store
-		defer retryStore.Close()
-		worker := retryFixture.owner
-		failed := s2WorkerFailedAttributedEvent(retryID, attempt, "failed-"+retryID, preferredModelForLane(laneForID(t)), WorkerFailureWorkerError, "the lane failed before a judgeable result existed", time.Unix(30, 0).UTC())
-		if err := s2WorkerFailedLive(t, retryStore, failed); err != nil {
-			t.Fatalf("failed-retry terminal: %v", err)
-		}
-		retry, err := ReadWorkflowApprovalBoundary(ctx, retryStore, nil, WorkflowActionPreflightRequest{WorkID: retryID, ActionID: "dispatch_worker", Actor: worker})
-		if err != nil {
-			t.Fatalf("failed-retry boundary read refused: %v", err)
-		}
-		if retry.EvaluatorAuthority != WorkflowIndependentEvaluator {
-			t.Fatalf("dispatching coordinator authority = %q, want independent", retry.EvaluatorAuthority)
-		}
-		if retry.Policy.Consent != WorkflowConsentNone {
-			t.Fatalf("failed retry added consent = %q, want none", retry.Policy.Consent)
 		}
 
 		if approvalEventCount(t, s, workID) != eventsBefore || readWorkVersion(t, s, workID) != workVersion {

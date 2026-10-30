@@ -199,11 +199,6 @@ type WorkflowPayloadCombination struct {
 	Remedy   string   `json:"remedy,omitempty"`
 }
 
-// WorkerDispatchCapability is the capability that marks a worker-lane
-// dispatch: a worker holding only work_transition cannot dispatch a nested
-// worker (CD-0017 D4, CD-0059).
-const WorkerDispatchCapability = "worker_dispatch"
-
 type WorkflowActionDefinition struct {
 	ID            string              `json:"id"`
 	Consequence   ActionConsequence   `json:"consequence"`
@@ -216,9 +211,7 @@ type WorkflowActionDefinition struct {
 	// surface for legacy actions and tests that do not assert a capability.
 	RequiredCapability string                    `json:"required_capability,omitempty"`
 	Payload            WorkflowPayloadDefinition `json:"payload"`
-	// PublicPayload replaces Payload only at the agent boundary. The adapter
-	// uses it for dispatch_worker, where callers supply lane_id and the adapter
-	// authors the core attempt identity and worker packet.
+	// PublicPayload replaces Payload only at the agent boundary.
 	PublicPayload *WorkflowPayloadDefinition `json:"public_payload,omitempty"`
 }
 
@@ -709,39 +702,6 @@ func BuiltinWorkflowDefinitionForRef(ref string) (RegisteredDefinition, error) {
 	return registered, nil
 }
 
-// LaneStepDispatchAllowed reports whether a lane of the given capability
-// class may be dispatched at a step of the given kind. It is the dispatch-time
-// half of the join: definition composition attaches the action set wherever
-// some lane may dispatch, and this gate refuses the specific lane whose class
-// the step kind does not admit.
-func LaneStepDispatchAllowed(capabilityClass string, kind WorkflowStepKind) bool {
-	for _, allowed := range laneStepDispatchKinds[capabilityClass] {
-		if WorkflowStepKind(allowed) == kind {
-			return true
-		}
-	}
-	return false
-}
-
-// LaneStepDispatchClasses returns the lane capability classes the generated
-// lane-step dispatch join admits at a step of the given kind, sorted by name.
-// It is the inverse read of LaneStepDispatchAllowed: the dispatch refusal
-// carries this set so a refused caller reads the admitted lanes instead of
-// guessing at them.
-func LaneStepDispatchClasses(kind WorkflowStepKind) []string {
-	var classes []string
-	for class, kinds := range laneStepDispatchKinds {
-		for _, allowed := range kinds {
-			if WorkflowStepKind(allowed) == kind {
-				classes = append(classes, class)
-				break
-			}
-		}
-	}
-	sort.Strings(classes)
-	return classes
-}
-
 func validWorkKind(kind WorkKind) bool {
 	switch kind {
 	case WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff:
@@ -1161,11 +1121,6 @@ func actionPolicy(consequence ActionConsequence, approval ActionApproval, mode A
 	return builtinActionPolicy{Consequence: consequence, Approval: approval, ExecutionMode: mode, EventShape: shape, Payload: WorkflowPayloadDefinition{Closed: true, Fields: fields}}
 }
 
-func publicActionPolicy(policy builtinActionPolicy, fields ...WorkflowPayloadField) builtinActionPolicy {
-	policy.PublicPayload = &WorkflowPayloadDefinition{Closed: true, Fields: fields}
-	return policy
-}
-
 // actionPolicyWithCombinations attaches the action's cross-field legal input
 // combinations to its engine policy declaration: the one typed declaration
 // core validation enforces and the published variants generate their closed
@@ -1497,59 +1452,14 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	),
 	"record_delivery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric,
 		actionRefField("delivery_artifact", true), actionEnumField("delivery_state", true, "asserted")),
-	"accept_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true),
-	),
-	// CD-0187: the confirmation-step accept binds a completed worker
-	// attempt's report as evidence and holds the step, so the operator's
-	// own gate stays the step's only advancing exit.
-	"accept_worker_evidence": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true),
-	),
-	"record_worker_failure": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric,
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true),
-	),
-	"reject_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric,
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionIDListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
-		actionIDListField("open_finding_ids", false, 1, 32),
-		// CD-0198 D5: the optional retry dispatch intent. The member names
-		// only the lane; the store derives the fresh attempt and the packet
-		// from the recorded state the rejection commits. The pinned
-		// definition gates the route at apply time.
-		actionObjectField("retry", false, "reject_retry"),
+	"record_review": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+		actionObjectField("review", true, "workflow_review_report"),
 	),
 	"request_correction": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold, ActionEventGeneric,
 		actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
 	),
-	"dispatch_worker": publicActionPolicy(actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric,
-		actionRefField("attempt_id", true), actionObjectField("worker_packet", true, "worker_packet"),
-	), actionRefField("lane_id", true)),
 	"supersede_contract": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
-	// CD-0205: record_worker_job records one immutable worker-job revision
-	// under the work aggregate and holds the step. The caller authors the
-	// bounded job; the core derives the parent contract version, the Project
-	// scope, the next revision, and the digest.
-	"record_worker_job": actionPolicyWithAlternatives(actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
-		actionRefField("job_id", true),
-		actionStringField("objective", true, 4096),
-		actionStringField("stopping_condition", true, 2048),
-		actionListField("path_scope", false, 0, 64),
-		actionIDListField("predicate_ids", false, 0, 8),
-		actionProseListField("checks", false, 0, 64, "worker_job_text"),
-		actionItemArrayField("prerequisites", false, 0, 64, "worker_job_prerequisite"),
-		actionProseListField("unresolved_refs", false, 0, 64, "worker_job_text"),
-		actionStringField("reserved_integration", false, 4096),
-		WorkflowPayloadField{Name: "ready", ValueType: PayloadBoolean, Required: true},
-		actionListField("readiness_evidence", false, 0, 16),
-	),
-		memberGroupActionAlternatives().Alternatives...,
-	),
 }
-
-// workerJobOrdinaryGroup is record_worker_job's ordinary field group: the
-// members every released version declares and requires, so an engine group
-// over them admits every frozen pin unchanged.
-var workerJobOrdinaryGroup = []string{"job_id", "objective", "stopping_condition", "ready"}
 
 // workflowCallerEvidenceBinders names the actions whose completed event binds
 // the evidence kind the call submitted. Each payload declares the
@@ -1565,23 +1475,14 @@ func workflowCallerEvidenceBinder(actionID string) bool {
 	return slices.Contains(workflowCallerEvidenceBinders, actionID)
 }
 
-// workflowWorkerAttemptEvidenceKinds is the closed set accept_worker_result
-// and accept_worker_evidence can produce: workerAttemptEvidenceKind maps a
-// lane capability class onto exactly these kinds, so an accepted attempt binds
-// as one of them and never as approval, commit, durable_note, or native_run.
-var workflowWorkerAttemptEvidenceKinds = []EvidenceKind{EvidenceVerification, EvidenceReview, EvidenceArtifact}
-
 // workflowEvidenceKindsProducedBy returns the evidence kinds one completed
-// action can bind. The caller-kind binders take the kind from their payload,
-// so each can produce any declared kind; accept_worker_result and
-// accept_worker_evidence bind the accepted attempt under the closed
-// worker-attempt mapping. Every other action binds no evidence at all.
+// action can bind. Caller-kind binders take the kind from their payload.
 func workflowEvidenceKindsProducedBy(actionID string) []EvidenceKind {
 	if workflowCallerEvidenceBinder(actionID) {
 		return workflowEvidenceKinds
 	}
-	if actionID == "accept_worker_result" || actionID == "accept_worker_evidence" {
-		return workflowWorkerAttemptEvidenceKinds
+	if actionID == "record_review" {
+		return []EvidenceKind{EvidenceReview}
 	}
 	return nil
 }
@@ -1696,10 +1597,6 @@ func workflowDecisionFactInitialActionDefinition(definition WorkflowDefinition) 
 	return selected, nil
 }
 
-func workerFailureRecoveryActionDefinition() WorkflowActionDefinition {
-	return workTransitionAction(currentActionDefinition("record_worker_failure", true))
-}
-
 // Recovery payloads are engine-owned even when absent from a historical pin.
 // Discovery of a definition does not grant admission at the current step.
 func workflowRecoveryActionDefinition(actionID string) (WorkflowActionDefinition, bool) {
@@ -1708,8 +1605,6 @@ func workflowRecoveryActionDefinition(actionID string) (WorkflowActionDefinition
 		return workflowContractRecoveryActionDefinition(), true
 	case "record_verdict":
 		return currentActionDefinition(actionID, true), true
-	case "record_worker_failure":
-		return workerFailureRecoveryActionDefinition(), true
 	}
 	for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {
 		if action.ID == actionID {
@@ -1726,7 +1621,6 @@ func workflowRecoveryActionDefinition(actionID string) (WorkflowActionDefinition
 func BuiltinWorkflowRecoveryActionDefinitions() []WorkflowActionDefinition {
 	return []WorkflowActionDefinition{
 		workflowContractRecoveryActionDefinition(),
-		workflowCorrectionActionDefinition(),
 		workflowCorrectionRequestActionDefinition(),
 	}
 }

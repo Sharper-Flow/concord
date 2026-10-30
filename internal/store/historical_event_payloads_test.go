@@ -26,7 +26,7 @@ func histDispatchEvent(t *testing.T, eventID, attemptID string, version int, occ
 	for member, value := range members {
 		payload[member] = value
 	}
-	return Event{EventID: eventID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "host:fixture", OccurredAt: occurredAt, PayloadVersion: version, Payload: mustJSONValue(payload)}
+	return Event{EventID: eventID, Kind: "worker.dispatched", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "host:fixture", OccurredAt: occurredAt, PayloadVersion: version, Payload: mustJSONValue(payload)}
 }
 
 func histDeclaredHostProvenance() map[string]any {
@@ -102,15 +102,12 @@ func TestLiveWriteRoutesRefuseRecordedOldShapesAndCommitNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before := workerProjectionSnapshot(t, s)
+	before := outsideRepairDatabaseSnapshot(t, s)
 	version := readWorkVersion(t, s, "work-w")
 	native := legacyNativeRunWriterPayload(t, "run-live", nil)
 	cases := map[string]Event{
-		"occupancy release occupant_session_ref":     {Kind: "work.worktree_occupancy_released", Payload: jsonRaw(`{"set_id":"worktree-set:work-w","project_id":"project-w","claim_op_id":"wt-op-1","occupant_session_ref":"ses-held"}`)},
-		"worker failed observed_session_directories": {Kind: WorkerFailed, Payload: jsonRaw(`{"attempt_id":"attempt-live","failure_kind":"abandoned","detail":"host ended","readback_model":"","observed_session_directories":[]}`)},
-		"worker dispatched routing members":          histDispatchEvent(t, "live-old-dispatch", "attempt-live", 1, time.Unix(30, 0).UTC(), map[string]any{"routing_policy_version": historicalRoutingPolicyToken, "resolved_model": "openai/test-model"}),
-		"worker dispatched digestless readback":      histDispatchEvent(t, "live-digestless-dispatch", "attempt-live", 3, time.Unix(30, 0).UTC(), map[string]any{"readback_model": "", "host_provenance": histDeclaredHostProvenance()}),
-		"native run map universe":                    legacyNativeRunEvent("live-old-native", native),
+		"occupancy release occupant_session_ref": {Kind: "work.worktree_occupancy_released", Payload: jsonRaw(`{"set_id":"worktree-set:work-w","project_id":"project-w","claim_op_id":"wt-op-1","occupant_session_ref":"ses-held"}`)},
+		"native run map universe":                legacyNativeRunEvent("live-old-native", native),
 	}
 	for name, event := range cases {
 		event.EventID = "refused-" + strings.ReplaceAll(name, " ", "-")
@@ -123,7 +120,7 @@ func TestLiveWriteRoutesRefuseRecordedOldShapesAndCommitNothing(t *testing.T) {
 		if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload {
 			t.Fatalf("live %s = %v, want invalid_payload", name, err)
 		}
-		if !reflect.DeepEqual(currentEffectRows(t, s), receipts) || workerProjectionSnapshot(t, s) != before || readWorkVersion(t, s, "work-w") != version {
+		if !reflect.DeepEqual(currentEffectRows(t, s), receipts) || outsideRepairDatabaseSnapshot(t, s) != before || readWorkVersion(t, s, "work-w") != version {
 			t.Fatalf("live %s refusal changed state", name)
 		}
 	}

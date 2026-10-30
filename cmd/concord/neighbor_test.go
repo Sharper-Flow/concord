@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest/neighbor"
 )
@@ -67,9 +66,6 @@ func cliNeighborOperations() []cliNeighborOperation {
 	rows := []cliNeighborOperation{
 		{"session-prepare", prepareSessionPrepareNeighborRow(ctx)},
 	}
-	for _, verb := range []string{agent.WorkerEvidenceVerbDispatch, agent.WorkerEvidenceVerbComplete, agent.WorkerEvidenceVerbFail} {
-		rows = append(rows, cliNeighborOperation{verb, prepareWorkerEvidenceNeighborRow(ctx, verb)})
-	}
 	rows = append(rows, cliNeighborOperation{"predecessor-import", preparePredecessorImportNeighborRow(ctx)})
 	return rows
 }
@@ -101,7 +97,6 @@ func prepareSessionPrepareNeighborRow(ctx context.Context) func(t *testing.T) cl
 			identityCalls := 0
 			var out, errOut bytes.Buffer
 			code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
-				func(string) error { return nil },
 				hostCommandAt(defaultHostResolution()),
 				func(ctx context.Context, _ string, _ hostCommandResolution, productID, workID, _ string) (string, error) {
 					identityCalls++
@@ -140,66 +135,6 @@ func prepareSessionPrepareNeighborRow(ctx context.Context) func(t *testing.T) cl
 			run:    run,
 			verify: verify,
 		}
-	}
-}
-
-// prepareWorkerEvidenceNeighborRow mirrors
-// TestWorkerEvidenceDurableReconciliationIgnoresPinnedReader's seed and
-// extends it to the terminal verbs. applyWorkerEvidence's durable transaction
-// must commit under either neighbor, and the acknowledged event identity and
-// the attempt lifecycle must be the committed result.
-func prepareWorkerEvidenceNeighborRow(ctx context.Context, verb string) func(t *testing.T) cliNeighborFixture {
-	return func(t *testing.T) cliNeighborFixture {
-		dbPath := freshMigratedCLIDatabase(t)
-		key := seedWorkerEvidenceClient(t)
-		lane := store.BuiltinLaneDefinitions()[0]
-		readback := preferredLaneModel(lane)
-		if verb == agent.WorkerEvidenceVerbDispatch {
-			seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
-		} else {
-			seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
-		}
-		request, assertion := workerEvidenceRequest(t, verb, lane, readback, "nonce-neighbor-"+strings.TrimPrefix(verb, "worker-")+"-01")
-		if verb == agent.WorkerEvidenceVerbFail {
-			assertion = wFailureObservation(t, request, assertion, attributionWorkerReportObservation())
-		}
-		request["assertion"] = signWorkerEvidence(t, key, assertion)
-		run := func() error {
-			var out, errOut bytes.Buffer
-			if code := runWithInput([]string{verb}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code != 0 {
-				return fmt.Errorf("exit=%d stderr=%q", code, errOut.String())
-			}
-			var result struct {
-				EventIDs []string `json:"event_ids"`
-			}
-			if err := json.Unmarshal(out.Bytes(), &result); err != nil || len(result.EventIDs) == 0 {
-				return fmt.Errorf("missing acknowledged event identity: %v; stdout=%s stderr=%s", err, out.String(), errOut.String())
-			}
-			return nil
-		}
-		verify := func() {
-			s, err := store.Open(ctx, dbPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer s.Close()
-			assertCommittedEventOnce(t, s, request["event_id"].(string))
-			wantState := "dispatched"
-			switch verb {
-			case agent.WorkerEvidenceVerbComplete:
-				wantState = "completed"
-			case agent.WorkerEvidenceVerbFail:
-				wantState = "failed"
-			}
-			var state string
-			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, "attempt-1").Scan(&state); err != nil {
-				t.Fatal(err)
-			}
-			if state != wantState {
-				t.Fatalf("lifecycle_state=%s want %s", state, wantState)
-			}
-		}
-		return cliNeighborFixture{dbPath: dbPath, run: run, verify: verify}
 	}
 }
 
@@ -256,7 +191,7 @@ func preparePredecessorImportNeighborRow(ctx context.Context) func(t *testing.T)
 
 // assertCommittedEventOnce proves the identity the command acknowledged is
 // exactly one committed receipt with a unique effect position and its owning
-// current identity. Payload retention is checked only for the worker kinds.
+// current identity.
 func assertCommittedEventOnce(t *testing.T, s *store.Store, eventID string) {
 	t.Helper()
 	var committed int
@@ -279,16 +214,6 @@ func assertCommittedEventOnce(t *testing.T, s *store.Store, eventID string) {
 		t.Fatalf("effect position %d is not unique: count=%d err=%v", seq, committed, err)
 	}
 	switch kind {
-	case store.WorkerDispatched:
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND dispatch_event_id=? AND dispatch_seq=? AND dispatch_actor=? AND dispatch_payload_version=? AND length(dispatch_payload)>0`, subjectID, eventID, seq, actor, version).Scan(&committed); err != nil || committed != 1 || subjectType != "work_item" {
-			t.Fatalf("dispatch receipt has no exact current identity: count=%d err=%v", committed, err)
-		}
-		storedWorkerEventRow(t, s.Path(), eventID)
-	case store.WorkerCompleted, store.WorkerFailed:
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND terminal_event_id=? AND terminal_seq=? AND terminal_kind=? AND terminal_payload_version=? AND length(terminal_payload)>0`, subjectID, eventID, seq, kind, version).Scan(&committed); err != nil || committed != 1 || subjectType != "work_item" {
-			t.Fatalf("terminal receipt has no exact current identity: count=%d err=%v", committed, err)
-		}
-		storedWorkerEventRow(t, s.Path(), eventID)
 	case "work.created":
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE id=?`, subjectID).Scan(&committed); err != nil || committed != 1 || subjectType != "work_item" {
 			t.Fatalf("creation receipt has no current work: count=%d err=%v", committed, err)

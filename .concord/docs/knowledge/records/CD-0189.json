@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9314d95afcebd3945e9b7fede9f61b2f75f7d86359cadc04edecb05229663f2c",
+  "sha256": "sha256:7235f5a9d17a1aee5167ee5e025ca8aff112a7cd490dbcd1b180bef89b8eb99a",
   "status": "accepted",
   "summary": "session-prepare runs one bounded bare registry probe of the calling host in the claimed worktree under the calling host's inherited environment, so the verified registry is the one the calling session resolves with, and probe refusals are typed. The configured launch command, its option, and every Go launch obligation are retired; Concord launches nothing.",
   "tags": [

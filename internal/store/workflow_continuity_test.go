@@ -40,7 +40,7 @@ func continuityTestWorkflow(t *testing.T, s *Store, workID string) (WorkflowActo
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"step_id": "proposal", "action_id": "record_proposal", "attempt_epoch": 1,
 		"accepted_inputs_digest": "sha256:continuity-start", "idempotency_identity": "continuity-start:" + workID,
-		"actor_ref": actorRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0]),
+		"actor_ref": actorRef,
 	})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
@@ -79,10 +79,7 @@ func TestContinuityStepActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The current implementation head derives the workflow failure record
-	// from the attempt's own terminal event, so the step's declared actions
-	// carry the dispatch/accept pair without a callable failure record.
-	want := []string{"record_proposal", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context"}
+	want := []string{"record_proposal", "checkpoint_context", "cross_context_boundary", "record_work_context"}
 	if !reflect.DeepEqual(snapshot.StepActions, want) {
 		t.Fatalf("step actions=%v, want %v", snapshot.StepActions, want)
 	}

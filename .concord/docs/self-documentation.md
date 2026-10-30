@@ -112,10 +112,10 @@ Self-documentation surfaces display authority/freshness indicators, not hidden
 guesses. CD-0006 R3's composition edges, accepted verdicts, and pinned revision
 checks are authoritative; browse views must not invent or silently clear state.
 
-CD-0222 adds the active architecture footprint: affected Domains, exact law pins,
-write overlaps, and the current version-pinned resolution. The default Domain
-view surfaces unresolved overlap as a blocking problem. Business grouping lives
-in Linear through the Linear MCP server under CD-0213 and never clears that state.
+CD-0222 adds the active architecture footprint: affected Domains and exact law pins.
+Shared Domains block no boundary; concurrent edits reconcile through Git under
+CD-0222 D6. Business grouping lives in Linear through the Linear MCP server under
+CD-0213 and supplies no execution authority.
 
 ---
 

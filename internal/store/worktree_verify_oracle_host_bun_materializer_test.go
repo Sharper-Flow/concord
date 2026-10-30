@@ -236,7 +236,7 @@ func TestNativeTargetBunMaterializerMetadata(t *testing.T) {
 	})
 	before := f.cacheDigest(t)
 	f.commitAndPrepareRepin(t, "metadata")
-	o := f.authorize(t, "metadata", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("metadata-execute", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || f.launches != 1 {
 		t.Fatalf("override/trust/pruned bundle execution %+v %v launches=%d", r, err, f.launches)

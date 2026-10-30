@@ -62,7 +62,6 @@ CI_JOB_IDS = (
     "verify",
     "verify-adapter",
     "verify-adapter-rest",
-    "verify-adapter-dispatch",
     "verify-contracts",
     "verify-tooling",
     "verify-go",
@@ -292,7 +291,7 @@ class NativeRecipePrerequisiteTests(unittest.TestCase):
 
     def test_provisioning_reads_pin_publishes_python3_and_refuses_unavailable_runtime(self):
         command = next(self.recipe_steps())
-        version = json.loads((ROOT / ".concord/oracles/adapter/dispatch-acceptance.v1.json").read_text())["pin"]["python"]
+        version = json.loads((ROOT / ".concord/oracles/adapter/native-acceptance.v1.json").read_text())["pin"]["python"]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             binary = root / "bin"
@@ -329,10 +328,10 @@ print(os.environ['MANAGED_PYTHON'])
                 self.assertFalse((root / "path").exists(), "A failed runtime must never enter PATH")
 
 
-class AdapterCIShardTests(unittest.TestCase):
+class AdapterCISuiteTests(unittest.TestCase):
     def test_aggregate_adapter_gate_refuses_every_non_success_result(self) -> None:
         gate = jobs(load_workflow(CI_WORKFLOW))["verify-adapter"]
-        self.assertEqual(needs_list(gate), ["verify-adapter-rest", "verify-adapter-dispatch"])
+        self.assertEqual(needs_list(gate), ["verify-adapter-rest"])
         self.assertEqual(str(gate.get("if")).strip(), "always()")
         self.assertNotIn("continue-on-error", gate)
         steps = gate["steps"]
@@ -340,34 +339,32 @@ class AdapterCIShardTests(unittest.TestCase):
         step = steps[0]
         self.assertEqual(step["env"], {
             "REST_RESULT": "${{ needs.verify-adapter-rest.result }}",
-            "DISPATCH_RESULT": "${{ needs.verify-adapter-dispatch.result }}",
         })
         for rest in ("success", "failure", "cancelled", "skipped"):
-            for dispatch in ("success", "failure", "cancelled", "skipped"):
-                with self.subTest(rest=rest, dispatch=dispatch):
-                    run = subprocess.run(
-                        ["bash", "-euo", "pipefail", "-c", step["run"]],
-                        env={**os.environ, "REST_RESULT": rest, "DISPATCH_RESULT": dispatch},
-                        capture_output=True, text=True, timeout=10,
-                    )
-                    self.assertEqual(run.returncode == 0, rest == dispatch == "success", run.stdout + run.stderr)
+            with self.subTest(rest=rest):
+                run = subprocess.run(
+                    ["bash", "-euo", "pipefail", "-c", step["run"]],
+                    env={**os.environ, "REST_RESULT": rest},
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(run.returncode == 0, rest == "success", run.stdout + run.stderr)
 
-    def test_real_shard_commands_execute_each_discovered_test_once(self) -> None:
+    def test_real_suite_command_executes_each_discovered_test_once(self) -> None:
         workflow = jobs(load_workflow(CI_WORKFLOW))
         shard_ids = needs_list(workflow["verify-adapter"])
         environments = []
         reported = []
         files = (
-            "adapter/opencode/dispatch_route_end_to_end.test.ts",
+            "adapter/opencode/session-scope.test.ts",
             "adapter/opencode/ordinary.test.ts",
-            "adapter/opencode/nested/dispatch_route_end_to_end.test.ts",
+            "adapter/opencode/nested/session-scope.test.ts",
             "adapter/opencode/nested/new.spec.ts",
         )
         with tempfile.TemporaryDirectory(prefix="adapter-ci-partition-") as temporary:
             root = Path(temporary)
             observed = root / "observed.jsonl"
-            # A nested namesake must not disappear with the root journey file.
-            # A new ordinary test must join the remainder without an allowlist.
+            # Every discovered test, including nested namesakes, joins without
+            # a manually maintained file allowlist.
             for name in (*files, "outside/unrelated.test.ts"):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -421,18 +418,20 @@ class AdapterCIShardTests(unittest.TestCase):
                 [str(root / name) for name in files],
             )
             self.assertCountEqual(reported, [str(root / name) for name in files])
-        self.assertEqual(environments[0], environments[1], "both shards must retain the same poison inputs")
+        self.assertEqual(len(environments), 1)
+        self.assertEqual(environments[0]["CONCORD_SELECTED_PRODUCT_ID"], "poison-product")
+        self.assertEqual(environments[0]["CONCORD_DB_PATH"], "/nonexistent/poison.db")
 
 
 class BunNativeResultTests(unittest.TestCase):
     def test_pinned_native_results_keep_process_and_case_outcomes_distinct(self) -> None:
         workflow = jobs(load_workflow(CI_WORKFLOW))
         pins = [step["with"]["bun-version"]
-                for name in ("verify-adapter-rest", "verify-adapter-dispatch")
+                for name in ("verify-adapter-rest",)
                 for step in workflow[name]["steps"] if step.get("uses", "").startswith("oven-sh/setup-bun@")]
         version = subprocess.run(["bun", "--version"], capture_output=True, text=True, timeout=10)
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertEqual(pins, [version.stdout.strip()] * 2, "Use CI's exact Bun version for result fixtures")
+        self.assertEqual(pins, [version.stdout.strip()], "Use CI's exact Bun version for result fixtures")
         sources = {
             "suite.test.ts": 'import {test, expect} from "bun:test";\n'
                              'test("alpha",()=>expect(2+2).toBe(4));\n'

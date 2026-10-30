@@ -25,15 +25,7 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0017"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0036"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0137"
     },
     {
       "kind": "refines",
@@ -42,10 +34,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0197"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0205"
     },
     {
       "kind": "refines",
@@ -117,10 +105,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0102"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0178"
     },
     {
@@ -137,9 +121,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:082c255344869887f225a6b3a7bbcd1496d19351d2d734869ab150a6cdecda15",
+  "sha256": "sha256:aef92320c722a6b8e078f83b49613a0fde3dda0af2fc05e138312f7808d3b83f",
   "status": "accepted",
-  "summary": "Product knowledge and completion receipts hold durable outcomes and a shared local store holds resumable current work. Each mutation writes current rows checked by an expected version and its idempotency key; no event log or replay exists. Stage exits are the unit of enforcement, families compose shared stages, and Main controls the execution loop. Attempts carry their own authority instead of budgets, revisions invalidate only dependents, and receipts bind evidence to subjects. Completion needs proof, approvals, delivery, and publication. Fresh sessions resume from current state, and refusals name admitted actions. The cutover is one documented migration with a verified snapshot, and generated contracts derive from one source.",
+  "summary": "Product knowledge and completion receipts hold durable outcomes; shared current rows support resumption with expected-version and idempotency checks. Main obtains independent native Task Review and records typed subject-bound outcomes. Concord has no subagent launcher, execution lifecycle or producer-identity attestation. Verify retains native receipts, exact preparation bundles and subject/environment checks. Stage exits, dependency invalidation, proof, approvals, delivery, publication and required CI remain. Verified-snapshot retirement preserves active work and truthful historical absence. Generated contracts have one source.",
   "tags": [
     "state",
     "workflow",

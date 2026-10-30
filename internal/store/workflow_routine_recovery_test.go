@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 )
 
 // The recovery consent owner keeps every recovery wall and classifies only
@@ -289,38 +288,6 @@ func TestRoutineRecovery(t *testing.T) {
 		}
 	})
 
-	t.Run("correction preserves the failed attempt identity", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-retry-race"
-		ctx := context.Background()
-		f, attemptID, epoch := seedCurrentRepairWorker(t, workID)
-		s := f.store
-		// The attributed terminal derives the failure record in the same
-		// commit (CD-0198 D5).
-		lane := laneForID(t)
-		if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attemptID, "failed-"+workID, preferredModelForLane(lane), WorkerFailureWorkerError, "the repair attempt failed", time.Unix(40, 0).UTC())); err != nil {
-			t.Fatalf("failed repair terminal: %v", err)
-		}
-		pin := issue1013Pin(t, s, workID)
-		if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailedAttemptEpoch != epoch {
-			t.Fatalf("correction = %+v, want the failed attempt %s at epoch %d", pin.Correction, attemptID, epoch)
-		}
-		var step string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-			t.Fatal(err)
-		}
-		stalePayload := json.RawMessage(`{"attempt_id":"` + attemptID + `","worker_packet":{}}`)
-		err := validateFailedWorkerRetryIdentity(ctx, s.DatabaseForTesting(), workID, step, stalePayload)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindStaleAttempt {
-			t.Fatalf("retry reusing the failed identity returned %v, want the stale-attempt refusal", err)
-		}
-		freshPayload := json.RawMessage(`{"attempt_id":"attempt:routine-retry-fresh","worker_packet":{}}`)
-		if err := validateFailedWorkerRetryIdentity(ctx, s.DatabaseForTesting(), workID, step, freshPayload); err != nil {
-			t.Fatalf("fresh retry identity refused: %v", err)
-		}
-	})
-
 	t.Run("correction and supersession payload registrations keep their semantics", func(t *testing.T) {
 		t.Parallel()
 		superseded, ok := registeredEventKind(WorkflowContractSuperseded)
@@ -330,8 +297,8 @@ func TestRoutineRecovery(t *testing.T) {
 		// A correction request records no dedicated event kind: it is a
 		// workflow.action_completed whose action_id is request_correction.
 		completed, ok := registeredEventKind(WorkflowActionCompleted)
-		if !ok || completed.CurrentVersion != 7 {
-			t.Fatalf("action_completed registration = %#v, want v7", completed)
+		if !ok || completed.CurrentVersion != 8 {
+			t.Fatalf("action_completed registration = %#v, want v8", completed)
 		}
 	})
 

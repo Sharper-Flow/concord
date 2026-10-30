@@ -3,10 +3,10 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
 import { moveSessionToRegisteredMainCheckout, work_transition, configureConcordAdapter } from "./concord"
 import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, resetClaimedWorktrees } from "./claimed-worktree"
-import { dispatchRequiresNextTurn, resetTurnMoveBoundaries } from "./turn-move-boundary"
+import { questionRequiresNormalChat, resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { manifestDigest } from "./generated-contracts"
 import { TURN_MOVE_BOUNDARY_NOTICE } from "./move-notice"
-import { configureCoreBinary } from "./dispatch"
+import { configureCoreBinary } from "./core-runtime"
 
 // The landing record resolves the core binary path before the runner seam
 // intercepts the verb, so the file binds a path once at module level.
@@ -323,7 +323,7 @@ describe("session_vacate moves only to the core-derived checkout", () => {
       expect(landingCalls).toEqual(["/main"])
       expect(pendingVacateDestination("session-1")).toBeNull()
       expect(armedClaimedWorktree("session-1")).toBeNull()
-      expect(dispatchRequiresNextTurn("session-1")).toBe(true)
+      expect(questionRequiresNormalChat("session-1")).toBe(true)
       // The pre-move armed the boundary, so the notice on this result names it.
       expect(output.split("\n")[1]).toContain("Concord moved this session to /main")
       expect(output.split("\n")[1]).toContain(TURN_MOVE_BOUNDARY_NOTICE)

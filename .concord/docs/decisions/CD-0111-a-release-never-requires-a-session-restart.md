@@ -173,15 +173,14 @@ readiness refusal names this route; no automated path guesses a manifest.
 
 ### D4. The typed refusal never asks for a restart
 
-No core refusal names a session restart as its recovery. An adapter refusal
-names a restart only for the stale-session `dispatch_worker` gate, when the
-lane text a dispatch would run was replaced on disk by the install.
+No core or adapter refusal names a session restart as its recovery. An observed
+installed-release mismatch may carry the bounded reload notice of CD-0191;
+it is not a subagent dispatch refusal.
 `manifest_mismatch` remains the refusal for a digest the core does
 not recognize. Under D1 it is reachable only through a defect, and its recovery
 action is `contact_operator` with the two digests.
 
-Every other refusal, and every non-dispatch operation in a stale session,
-names no restart as recovery.
+Existing operations remain available under the session's pinned pair.
 
 ## Acceptance Criteria
 

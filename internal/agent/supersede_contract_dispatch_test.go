@@ -13,7 +13,7 @@ import (
 
 func TestSupersedeContractDispatchChallengesThenBindsApprovalOperator(t *testing.T) {
 	t.Parallel()
-	for _, stage := range []string{"before-start", "after-start", "acceptance", "shared-writer", "pending-dispatch", "pending-dispatch-shared-writer", "shared-domain"} {
+	for _, stage := range []string{"before-start", "after-start", "acceptance", "shared-writer", "shared-domain"} {
 		t.Run(stage, func(t *testing.T) {
 			testSupersedeContractDispatch(t, stage)
 		})
@@ -22,7 +22,7 @@ func TestSupersedeContractDispatchChallengesThenBindsApprovalOperator(t *testing
 
 func testSupersedeContractDispatch(t *testing.T, stage string) {
 	t.Helper()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	// The initial contract is engineering. The successor's serious registry
 	// correction exercises exact-text consent under consequence_v1.
 	version := seedAgentWorkflowAt(t, s, grant, legacyApprovalPolicyDefinitionForRef(t))
@@ -37,7 +37,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		version = workOneVersion(t, s)
 	}
 	binding := workflowArchitectureBindingForSeededRegistry(t, s)
-	if stage == "shared-writer" || stage == "pending-dispatch-shared-writer" {
+	if stage == "shared-writer" {
 		binding["domain_modifies"] = []string{binding["home_domain_id"].(string)}
 	}
 	contractFields := workflowContractFieldsFixture()
@@ -66,40 +66,6 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if stage == "shared-writer" || stage == "shared-domain" {
 		seedContractCorrectionPeer(t, s)
 	}
-	if strings.HasPrefix(stage, "pending-dispatch") {
-		env = workflowDispatchWorktreeFixture(t, s, env)
-		var lane store.LaneDefinition
-		for _, candidate := range store.BuiltinLaneDefinitions() {
-			if candidate.ID == "verify" {
-				lane = candidate
-			}
-		}
-		// The job-capable pin (workflow.implementation v24+) refuses the
-		// dispatch without a ready worker-job revision. Record one under
-		// the v1 parent contract before authorizing the dispatch window
-		// (CD-0205). The verify lane is a verification capability class
-		// and the recorded checks cannot be empty.
-		recordReadyRetryJobWithChecks(t, s, service, env, "job:supersede-pending", 1, []string{"go test ./internal/store/"})
-		version = workOneVersion(t, s)
-		payload, err := json.Marshal(map[string]any{
-			"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "pending-dispatch",
-			"fields": map[string]any{"attempt_id": "attempt:pending", "worker_packet": bindPacketToRecordedState(t, s, map[string]any{
-				"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": "attempt:pending", "lane_id": lane.ID, "lane_digest": lane.Digest,
-				"work_id": "work-1", "step_id": "execution", "inputs": map[string]any{"task": "verify the synthetic change"},
-			})},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		dispatched := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: payload}, env)
-		if dispatched.Outcome != agentcontract.OutcomeOK {
-			t.Fatalf("authorize dispatch window: %+v", dispatched.Error)
-		}
-		version = workOneVersion(t, s)
-	}
-	if stage == "pending-dispatch-shared-writer" {
-		seedContractCorrectionPeer(t, s)
-	}
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil {
 		t.Fatal(err)
@@ -110,12 +76,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 			advertised = true
 		}
 	}
-	// The advertisement is the shared admission's answer, not a per-site
-	// predicate. Beside an authorized dispatch window the fold's correction
-	// gate refuses supersede_contract (CD-0133 D1), and a peer writing the
-	// same Domain is no staleness that opens recovery (CD-0222 D6).
-	wantCorrection := !strings.HasPrefix(stage, "pending-dispatch")
-	if advertised != wantCorrection {
+	if !advertised {
 		t.Errorf("correction advertised=%v at %s: %+v", advertised, stage, pin.NextValidIntents)
 	}
 
@@ -151,15 +112,6 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		t.Fatal(err)
 	}
 	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if !wantCorrection {
-		if challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind == "approval_required" {
-			t.Fatalf("pending dispatch admitted correction: %+v", challenge.Error)
-		}
-		if workOneVersion(t, s) != version {
-			t.Fatal("refused correction changed the work version")
-		}
-		return
-	}
 	if challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("challenge outcome=%s error=%+v", challenge.Outcome, challenge.Error)
 	}
@@ -174,8 +126,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The assertion binds the invoking session's worktree, which the
-	// pending-dispatch stages point at their claimed worktree fixture.
+	// The assertion binds the invoking session's worktree.
 	scope, versions := challengeApprovalBindings(t, challenge.Error.ConsequenceSummary)
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 	tampered := bytes.Replace(approvedRaw, []byte("corrected premise"), []byte("unapproved premise"), 1)
@@ -246,10 +197,6 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	after, err := store.VerifyWorkflowInstanceDefinition(context.Background(), s, store.BuiltinWorkflowRegistry(), "work-1")
 	if err != nil || after.Digest != before.Digest {
 		t.Fatalf("correction changed the pinned definition: before=%s after=%s err=%v", before.Digest, after.Digest, err)
-	}
-	// The correction route must not need or fabricate a worker attempt.
-	if attempts := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); attempts != 0 {
-		t.Fatalf("operator correction required or fabricated %d worker attempts, want 0", attempts)
 	}
 	if _, err := json.Marshal(response); err != nil {
 		t.Fatalf("correction result cannot be serialized: %v", err)

@@ -46,6 +46,9 @@ func TestArtifactSupersessionUsesRecordedProofDependencies(t *testing.T) {
 					return runVerdictActionAs(t, s, f.workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner)
 				})
 				pAcceptReceiptReview(t, f, repo, refs)
+				if step := currentStep(t, s, f.workID); step != "acceptance" {
+					t.Fatalf("reassessment Review advanced acceptance to %s", step)
+				}
 			} else if err != nil {
 				t.Fatalf("unchanged criterion lost its proof: %v", err)
 			}

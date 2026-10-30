@@ -7,8 +7,7 @@
 - **Preserves:** every other route refusal keeps its own scope (CD-0186);
   payload and identity checks stay in the guards; no generated contract
   changes
-- **Related:** CD-0043, CD-0133, CD-0137, CD-0143, CD-0166,
-  CD-0173, CD-0187, CD-0197
+- **Related:** CD-0043, CD-0143, CD-0166, CD-0173, CD-0197
 - **Approval:** The operator approved the approach in session chat on
   2026-10-01, including the well-formed-state exit check and excluding
   runtime invariant guards and random-walk conformance.
@@ -45,26 +44,21 @@ and the pure function.
 
 The loader takes a queryer, not a store, so a caller inside a transaction
 never calls back into the pooled connection (the store connection
-invariant). The request payload checks and the attempt identity checks stay
-in the guards. Admission binds an accept request's attempt to the Review it
-accepts before it decides.
+invariant). Request payload checks stay in the guards. Admission binds the
+recorded Review to its exact subject and dependencies before it decides.
 
 The derived admission state covers every condition the five sites read: the step and lifecycle, the instance state, the active
 contract count, the law and registry pin staleness, the breaking impact
-notices, the design currency, the latest worker attempt and its capability
-class, the latest result disposition, the accepted Review disposition of the
-current candidate, the recovery routes, the dispatch hold, the evidence-binding recovery, and
+notices, design currency, the accepted Review disposition of the
+current candidate, recovery routes, evidence-binding recovery and
 the correction classifications. A duplicated contract projection follows the
 same rule: the count classifies the supersede recovery, and the singular-reader
 derivations degrade instead of refusing the route that recovery owns
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-For oracle-capable work, the loader consumes the one ranked-finding
-lineage, including unresolved oracle defects, and derives its open count.
-Correction and context projections use that same reader's canonical IDs and
-retained receipts. Dispatch refuses above 32 open blockers without truncation.
-Oracle structure, readiness references, and receipt/current-subject joins
-remain checks at the existing job, preparation, and terminal boundaries.
+Review, correction and context projections use their current findings and
+retained receipts without inventing worker lineage. Native preparation and
+execution keep their own bundle, readiness and current-subject checks.
 They do not create a second admission derivation or new evidence authority.
 
 The liveness checks count only exits the derived state proves, so they fail
@@ -103,7 +97,7 @@ Missing oracle readiness, an oracle defect, or a new uncovered case must
 retain declared preparation, correction, contract-supersession, and operator-stop
 recovery as applicable. Recovery never erases open blockers, and no attempt
 count, limit, or reset exists
-([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).
 Each family extends the same admission owner; liveness checks count
 only the oracle dimensions their model actually derives.
 

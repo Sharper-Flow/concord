@@ -316,16 +316,6 @@ func normalizeNativeTargetGitMetadata(ctx context.Context, repo string, p *nativ
 	if err != nil {
 		return err
 	}
-	if repair := nativeReviewRepairFrom(ctx); repair != nil {
-		prepared, err := resolveNativeGitMetadata(ctx, git, repo, repair.Base, p.Bundle.Control.RecipeSource.CommitOID)
-		if err != nil {
-			return err
-		}
-		if repair.Commit != p.SubjectCommit || !oracleEntryIdentical(prepared.Candidate.Tags, t.GitMetadata.Candidate.Tags) || !oracleEntryIdentical(prepared.Recipe, t.GitMetadata.Recipe) {
-			return oracleFailure(KindUnauthorizedDispatch, "scoped repair Git metadata differs from its preparation ancestry", "restore the prepared tag identities or request fresh explicit preparation through an admitted route")
-		}
-		t.PreparedGitCandidate = &prepared.Candidate
-	}
 	t.Environment.Git = git
 	t.Environment.GitMetadataDigest = nativeDigest([]byte(workflowJSON(nativeGitPreparationMetadata(*p))))
 	return nil
@@ -335,11 +325,7 @@ func nativeGitPreparationMetadata(p nativeOraclePlan) *NativeGitMetadata {
 	if p.Target == nil || p.Target.GitMetadata == nil {
 		return nil
 	}
-	m := *p.Target.GitMetadata
-	if p.Target.PreparedGitCandidate != nil {
-		m.Candidate = *p.Target.PreparedGitCandidate
-	}
-	return &m
+	return p.Target.GitMetadata
 }
 
 func nativeGitMetadataMatches(p nativeOraclePlan, got *NativeGitMetadata) bool {
@@ -348,17 +334,9 @@ func nativeGitMetadataMatches(p nativeOraclePlan, got *NativeGitMetadata) bool {
 	}
 	t := p.Target
 	if t.Recipe.GitMetadata == "" {
-		return got == nil && t.GitMetadata == nil && t.PreparedGitCandidate == nil && t.Environment.Git == "" && t.Environment.GitMetadataDigest == ""
+		return got == nil && t.GitMetadata == nil && t.Environment.Git == "" && t.Environment.GitMetadataDigest == ""
 	}
 	if t.GitMetadata == nil || t.GitMetadata.Candidate.Commit != p.SubjectCommit || t.GitMetadata.Recipe.Commit != p.Bundle.Control.RecipeSource.CommitOID {
-		return false
-	}
-	if p.ReviewRepair == nil {
-		if t.PreparedGitCandidate != nil {
-			return false
-		}
-	} else if t.PreparedGitCandidate == nil || t.PreparedGitCandidate.Commit != p.ReviewRepair.Base || t.GitMetadata.Candidate.Commit != p.ReviewRepair.Commit ||
-		t.PreparedGitCandidate.ObjectFormat != t.GitMetadata.Candidate.ObjectFormat || !oracleEntryIdentical(t.PreparedGitCandidate.Tags, t.GitMetadata.Candidate.Tags) {
 		return false
 	}
 	return t.Recipe.GitMetadata == nativeGitMetadataMode && t.GitMetadata.Mode == nativeGitMetadataMode && t.Environment.Git != "" &&
@@ -404,15 +382,6 @@ func nativeTargetGitMetadataUnchanged(ctx context.Context, repo string, p native
 	}
 	if !oracleEntryIdentical(current, t.GitMetadata) {
 		return nativeUnavailable("candidate Git metadata changed since preparation")
-	}
-	if t.PreparedGitCandidate != nil {
-		prepared, err := resolveNativeGitMetadata(ctx, t.Environment.Git, repo, t.PreparedGitCandidate.Commit, p.Bundle.Control.RecipeSource.CommitOID)
-		if err != nil {
-			return err
-		}
-		if !oracleEntryIdentical(prepared, nativeGitPreparationMetadata(p)) {
-			return nativeUnavailable("scoped repair Git preparation metadata changed")
-		}
 	}
 	return nil
 }

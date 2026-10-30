@@ -188,7 +188,7 @@ func TestValue(t *testing.T) {
 		t.Fatalf("stale-core-subject prepare=%+v, want the typed admission refusal", refused)
 	}
 	errEnvelope := refused.Error
-	const detail = "preparation requires clean HEAD equal to the current core subject"
+	const detail = "native verification requires clean HEAD equal to the current qualified subject"
 	const remedy = `run worktree_verify with command ["git","rev-parse","--verify","HEAD^{commit}"] and a fresh request identity, then refresh context`
 	if errEnvelope.Kind != "missing_evidence" || errEnvelope.RecoveryAction.Kind != "provide_evidence" || errEnvelope.RetrySafe || errEnvelope.EffectState != agentcontract.EffectNone {
 		t.Fatalf("refusal lost its closed coupling or no-effect semantics: %+v", errEnvelope)

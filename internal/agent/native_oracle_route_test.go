@@ -14,10 +14,7 @@ func nativeExecuteInput() map[string]any {
 	return map[string]any{
 		"work_id": "work-2", "idempotency_key": "native-execute-forged",
 		"oracle": map[string]any{
-			"phase": "execute", "attempt_id": "attempt-invented", "attempt_epoch": 1,
-			"worker_packet_digest": "sha256:" + strings.Repeat("a", 64),
-			"worker_job_binding":   map[string]any{"job_id": "job:one", "revision": 1, "digest": "sha256:" + strings.Repeat("b", 64)},
-			"control_id":           "control:one", "preparation_run_ref": "worktree_verify:prepare",
+			"phase": "execute", "preparation_run_ref": "worktree_verify:prepare",
 		},
 	}
 }
@@ -31,7 +28,7 @@ func TestNativeOracleInputDecodesFixedStoreRequest(t *testing.T) {
 	if err := decodeOperationInput(execute, &in); err != nil {
 		t.Fatal(err)
 	}
-	if in.Oracle == nil || in.Oracle.Phase != "execute" || in.Oracle.AttemptID != "attempt-invented" || in.Oracle.AttemptEpoch != 1 || in.Oracle.WorkerJobBinding == nil || in.Oracle.WorkerJobBinding.JobID != "job:one" || in.Command != nil {
+	if in.Oracle == nil || in.Oracle.Phase != "execute" || in.Oracle.PreparationRunRef != "worktree_verify:prepare" || in.Command != nil {
 		t.Fatalf("fixed execute request lost a binding: %+v", in)
 	}
 	prepare := []byte(`{"work_id":"work-1","idempotency_key":"prepare-1","requested_budget_seconds":300,"oracle":{"phase":"prepare","expected_contract_version":2,"control_bundle":{"owner":{},"control":{},"cases":[]}}}`)
@@ -42,7 +39,7 @@ func TestNativeOracleInputDecodesFixedStoreRequest(t *testing.T) {
 	if in.Oracle.Phase != "prepare" || in.Oracle.ExpectedContractVersion != 2 || in.Oracle.ControlBundle == nil {
 		t.Fatalf("fixed prepare request lost its bundle: %+v", in)
 	}
-	for _, foreign := range []string{"subject_commit", "project_id", "cwd", "native_plan_sha256", "stdout"} {
+	for _, foreign := range []string{"subject_commit", "project_id", "cwd", "native_plan_sha256", "stdout", "control_id", "attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding"} {
 		value := nativeExecuteInput()
 		value["oracle"].(map[string]any)[foreign] = "caller-owned"
 		raw, _ := json.Marshal(value)
@@ -59,11 +56,11 @@ func TestNativeOracleInputDecodesFixedStoreRequest(t *testing.T) {
 	}
 }
 
-func TestNativeOracleExecuteForgedAttemptRefusesBeforeLeaseThroughAgent(t *testing.T) {
+func TestNativeOracleExecuteUnpreparedControlRefusesBeforeLeaseThroughAgent(t *testing.T) {
 	s, service, grant, _, _, _ := tiersFixture(t)
 	response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", nativeExecuteInput())
-	if response.Error == nil || response.Error.Kind != "unauthorized" || response.Error.EffectState != agentcontract.EffectNone {
-		t.Fatalf("forged execution did not reach native authorization refusal: %+v", response.Error)
+	if response.Error == nil || response.Error.Kind != "missing_evidence" || response.Error.EffectState != agentcontract.EffectNone {
+		t.Fatalf("unprepared execution did not reach native preparation refusal: %+v", response.Error)
 	}
 	var leases int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worktree_verify_leases`).Scan(&leases); err != nil {

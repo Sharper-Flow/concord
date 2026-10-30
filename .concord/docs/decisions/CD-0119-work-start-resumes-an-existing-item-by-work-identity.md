@@ -103,7 +103,7 @@ Scenario: A live item without an active worktree starts under its original ident
 
 Scenario: An unclaimed live item refuses an unsafe bootstrap origin
   Given a live work item with Project membership and no active worktree
-  And the invoking linked worktree is dirty or has an open worker attempt
+  And the invoking linked worktree is dirty or has an active verify lease
   When the session calls concord_work_start with only the work_id
   Then the origin gate refuses before bootstrap intent is recorded
 

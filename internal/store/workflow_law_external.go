@@ -33,7 +33,7 @@ var workflowLawExternalGit GitRunner = ExecGitRunner{}
 // because main already held the same change.
 
 type workflowLawCandidateProof struct {
-	candidate WorkerReviewCandidate
+	candidate ReviewCandidate
 	source    workflowLawBaselineSource
 	scanned   string
 	laws      map[string]bool
@@ -230,7 +230,7 @@ func workflowLawGitBlob(ctx context.Context, repo, commit, path string) (string,
 // The candidate must resolve to the exact reviewed commit and tree. The
 // item's claimed worktree holds it first; the Project's canonical checkout
 // shares its objects after the worktree is gone.
-func (s *Store) lawCandidateRepo(gitCtx context.Context, workID string, candidate WorkerReviewCandidate) string {
+func (s *Store) lawCandidateRepo(gitCtx context.Context, workID string, candidate ReviewCandidate) string {
 	rows, err := s.db.QueryContext(gitCtx, `SELECT e.path FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id=? AND e.project_id=? AND e.state='active'
 UNION ALL SELECT normalized_value FROM project_locators WHERE project_id=? AND kind='canonical_path'`, workID, candidate.ProjectID, candidate.ProjectID)
 	if err != nil {
@@ -264,7 +264,7 @@ func workflowLawGitLine(ctx context.Context, repo string, args ...string) string
 	return strings.TrimSpace(string(out))
 }
 
-func workflowLawAcceptedCandidate(ctx context.Context, q queryer, workID string) (*WorkerReviewCandidate, error) {
+func workflowLawAcceptedCandidate(ctx context.Context, q queryer, workID string) (*ReviewCandidate, error) {
 	facts, err := readWorkflowReviewFacts(ctx, q, workID)
 	if err != nil || facts.Accepted == nil {
 		return nil, err

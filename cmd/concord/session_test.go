@@ -191,16 +191,10 @@ func assertRecordedAssertion(t *testing.T, dbPath string, expected store.Orchest
 // version, ruleset digest and resolved source list.
 func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
-	for _, lane := range store.BuiltinLaneDefinitions() {
-		writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
-	}
 	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"))
 	t.Setenv("HOME", home)
 	dbPath := filepath.Join(t.TempDir(), "concord-assertion.db")
 	t.Setenv(dbOverrideEnv, dbPath)
-	if err := verifyLaneAgentIdentity(home, cwd, store.BuiltinLaneDefinitions()); err != nil {
-		t.Fatalf("lane identity: %v", err)
-	}
 	expected, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
 	if err != nil {
 		t.Fatal(err)
@@ -263,10 +257,6 @@ func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 func TestOrchestratorIdentityRefusalRecordsNothing(t *testing.T) {
 	t.Run("definition absent", func(t *testing.T) {
 		home, cwd := t.TempDir(), t.TempDir()
-		// Lane definitions resolve, but the active agent's definition does not.
-		for _, lane := range store.BuiltinLaneDefinitions() {
-			writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
-		}
 		t.Setenv("HOME", home)
 		dbPath := filepath.Join(t.TempDir(), "concord-absent.db")
 		t.Setenv(dbOverrideEnv, dbPath)
@@ -291,9 +281,6 @@ func TestOrchestratorIdentityRefusalRecordsNothing(t *testing.T) {
 	})
 	t.Run("registry does not register the handle", func(t *testing.T) {
 		home, cwd := t.TempDir(), t.TempDir()
-		for _, lane := range store.BuiltinLaneDefinitions() {
-			writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
-		}
 		writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"))
 		t.Setenv("HOME", home)
 		dbPath := filepath.Join(t.TempDir(), "concord-unregistered.db")
@@ -319,9 +306,6 @@ func TestOrchestratorIdentityRefusalRecordsNothing(t *testing.T) {
 // changes.
 func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
-	for _, lane := range store.BuiltinLaneDefinitions() {
-		writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
-	}
 	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"))
 	agentsPath := filepath.Join(cwd, "AGENTS.md")
 	if err := os.WriteFile(agentsPath, []byte("# instructions v1\n"), 0o644); err != nil {
@@ -332,9 +316,6 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 	t.Setenv(dbOverrideEnv, dbPath)
 	record := func() {
 		t.Helper()
-		if err := verifyLaneAgentIdentity(home, cwd, store.BuiltinLaneDefinitions()); err != nil {
-			t.Fatalf("lane identity: %v", err)
-		}
 		if _, err := recordOrchestratorIdentity(context.Background(), home, registryResolutionFor("concord-1"), cwd, "product-1", "work-1", "concord-1"); err != nil {
 			t.Fatalf("record assertion: %v", err)
 		}

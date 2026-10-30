@@ -28,9 +28,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fd960c6ccb883fe10eaf9982217aa0aaca5de4418252d827c54aea829cc63293",
+  "sha256": "sha256:f1228195b8cdfaee1be1cd11a9a0da71e1c2ea990205e0ea7374b9c27258dcdb",
   "status": "accepted",
-  "summary": "A small item batch, merges, and derives routine coordinator records. One record_verdict call carries a verdict object per approved predicate, each with its own actor, evidence, and kind, and completion refuses a verdict the executing actor recorded. The three break_fix diagnosis records merge into one record_diagnosis action whose required sections carry the CD-0156 payload guards, and the alignment step narrows to workflow.implementation. The start of repair and refine derives from the first action at the step, keeping the epoch, the fence, and the CD-0192 refine bound. An accepted report that carries the delivery artifact records the delivery CD-0166 D1 keeps coordinator-owned. The worker-failure record derives from the attempt terminal result, and reject_worker_result can carry the retry dispatch. Each decision names one implementation item; the record implements nothing.",
+  "summary": "Batched verdicts retain per-predicate actor/evidence/kind and reject duplicates; omitted predicates remain missing. Typed break-fix diagnosis retains reproduction, alignment and root-cause guards. Repair/refine starts derive atomically from the first action and retain fences, epochs and exact declared-command native verification. Delivery uses its complete admission and Review records separately; no combined worker acceptance or retry dispatch remains.",
   "tags": [
     "workflow",
     "workflow-actions",

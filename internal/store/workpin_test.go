@@ -126,7 +126,7 @@ func TestReadWorkPinAllowsWorkWithoutPrimaryProject(t *testing.T) {
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"step_id": "proposal", "action_id": "record_proposal", "attempt_epoch": 1,
 		"accepted_inputs_digest": "sha256:workpin-no-primary", "idempotency_identity": "workpin-no-primary:start",
-		"actor_ref": actorRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0]),
+		"actor_ref": actorRef, "execution_model": "fixture-model",
 	})
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
@@ -203,42 +203,6 @@ func TestReadWorkPinCountsCancelledInstanceLifecycleCloses(t *testing.T) {
 	if other.ProjectID != "project-secondary" || other.CancelledInstanceCloses != 1 {
 		t.Fatalf("other project pin=%s closes=%d, want project-secondary with 1", other.ProjectID, other.CancelledInstanceCloses)
 	}
-}
-
-func TestReadWorkPinIncludesTheCurrentWorkerAttemptEpoch(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	attemptID := "attempt:workpin-attempt"
-	authorizeWorkerFixtureDispatch(t, s, "workpin-attempt", attemptID)
-	seedWorkflowLaw(t, s)
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("workpin-attempt", attemptID, BuiltinLaneDefinitions()[0], nil)}}); err != nil {
-		t.Fatal(err)
-	}
-
-	pin, err := ReadWorkPin(context.Background(), s, "workpin-attempt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pin.Attempt == nil || pin.Attempt.ID != attemptID || pin.Attempt.Epoch != 1 || pin.Attempt.Lane == "" || pin.Attempt.State != "dispatched" {
-		t.Fatalf("attempt=%+v, want the dispatched worker attempt at epoch 1", pin.Attempt)
-	}
-	snapshot, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: "workpin-attempt", Limit: 20})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.WorkPin == nil {
-		t.Fatal("continuity result has no work pin")
-	}
-	for _, intent := range snapshot.WorkPin.NextValidIntents {
-		if intent.ActionID != "dispatch_worker" {
-			continue
-		}
-		if len(intent.RequiredFields) != 1 || intent.RequiredFields[0] != "lane_id" {
-			t.Fatalf("continuity dispatch_worker required fields = %v, want [lane_id]", intent.RequiredFields)
-		}
-		return
-	}
-	t.Fatal("continuity result has no dispatch_worker intent")
 }
 
 func TestReadWorkPinCompletedIncludesVerifiedCriteria(t *testing.T) {

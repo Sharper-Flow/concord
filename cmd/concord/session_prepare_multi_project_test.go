@@ -77,11 +77,10 @@ func TestSessionPrepareMultiProject(t *testing.T) {
 	}
 
 	t.Setenv(dbOverrideEnv, dbPath)
-	prepare := func() (int, *bytes.Buffer, *bytes.Buffer, int, int, int) {
-		laneCalls, identityCalls, bootCalls := 0, 0, 0
+	prepare := func() (int, *bytes.Buffer, *bytes.Buffer, int, int) {
+		identityCalls, bootCalls := 0, 0
 		var out, errOut bytes.Buffer
 		code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run the task"), s, &out, &errOut,
-			func(string) error { laneCalls++; return nil },
 			hostCommandAt(defaultHostResolution()),
 			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
 				identityCalls++
@@ -91,7 +90,7 @@ func TestSessionPrepareMultiProject(t *testing.T) {
 				bootCalls++
 				return []byte(`{"watermark":"test"}`), nil
 			})
-		return code, &out, &errOut, laneCalls, identityCalls, bootCalls
+		return code, &out, &errOut, identityCalls, bootCalls
 	}
 	for _, worktree := range []struct {
 		name  string
@@ -102,9 +101,9 @@ func TestSessionPrepareMultiProject(t *testing.T) {
 	} {
 		t.Run("admits "+worktree.name, func(t *testing.T) {
 			t.Chdir(worktree.entry.Path)
-			code, out, errOut, laneCalls, identityCalls, bootCalls := prepare()
-			if code != 0 || laneCalls != 1 || identityCalls != 1 || bootCalls != 1 {
-				t.Fatalf("prepare code=%d lane=%d identity=%d boot=%d stderr=%q", code, laneCalls, identityCalls, bootCalls, errOut.String())
+			code, out, errOut, identityCalls, bootCalls := prepare()
+			if code != 0 || identityCalls != 1 || bootCalls != 1 {
+				t.Fatalf("prepare code=%d identity=%d boot=%d stderr=%q", code, identityCalls, bootCalls, errOut.String())
 			}
 			var prepared sessionPrepareOutput
 			if err := json.Unmarshal(out.Bytes(), &prepared); err != nil {
@@ -118,9 +117,9 @@ func TestSessionPrepareMultiProject(t *testing.T) {
 	for _, repo := range []string{repoA, repoB} {
 		t.Run("refuses main checkout of "+filepath.Base(repo), func(t *testing.T) {
 			t.Chdir(repo)
-			code, _, errOut, laneCalls, identityCalls, bootCalls := prepare()
-			if code != sessionPrepareRefusalExit || laneCalls != 0 || identityCalls != 0 || bootCalls != 0 {
-				t.Fatalf("main checkout code=%d lane=%d identity=%d boot=%d stderr=%q", code, laneCalls, identityCalls, bootCalls, errOut.String())
+			code, _, errOut, identityCalls, bootCalls := prepare()
+			if code != sessionPrepareRefusalExit || identityCalls != 0 || bootCalls != 0 {
+				t.Fatalf("main checkout code=%d identity=%d boot=%d stderr=%q", code, identityCalls, bootCalls, errOut.String())
 			}
 			if !strings.Contains(errOut.String(), "not an active claimed worktree") {
 				t.Fatalf("refusal diagnostic=%q", errOut.String())

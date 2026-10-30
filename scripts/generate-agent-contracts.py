@@ -8,8 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "contracts/agent-tool-surface.v1.json"
 IR = ROOT / "contracts/agent-tool-surface.schema.json"
 PAYLOAD = ROOT / "contracts/agent-tool-surface-payloads.schema.json"
-LANE_PACKET = ROOT / "contracts/agent-lane-packet.schema.json"
-LANE_REPORT = ROOT / "contracts/agent-lane-report.schema.json"
 WORKFLOW_OUTCOME = ROOT / "contracts/workflow-outcome.schema.json"
 ENVELOPE = ROOT / "contracts/agent-tool-envelope.schema.json"
 HOST_MANIFEST = ROOT / "contracts/host-tool-surface.v1.json"
@@ -96,13 +94,14 @@ export function expandedPublishedRequestSchema(published: unknown): unknown {
     if (Array.isArray(value)) return value.map(expandValue);
     if (value === null || typeof value !== "object") return value;
     const node = resolve(value);
-    if (node !== null && typeof node === "object" && !Array.isArray(node) && Array.isArray(node.oneOf)) {
+    const union = node !== null && typeof node === "object" && !Array.isArray(node) ? ["oneOf", "anyOf"].find((keyword) => Array.isArray(node[keyword])) : undefined;
+    if (union !== undefined) {
       const expanded: Record<string, any> = {};
       for (const [key, entry] of Object.entries(node)) {
-        if (key === "oneOf" || key === "$defs") continue;
+        if (key === union || key === "$defs") continue;
         expanded[key] = expandValue(entry);
       }
-      expanded.oneOf = node.oneOf.map((branch: any) => expandValue(conjunction(node, resolve(branch))));
+      expanded[union] = node[union].map((branch: any) => expandValue(conjunction(node, resolve(branch))));
       return expanded;
     }
     const result: Record<string, any> = {};
@@ -185,7 +184,7 @@ SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "e
 # byte length can still reach the floor — so a core-admitted string can never
 # be refused by the code-point bounds. The byte bounds travel as x-maxBytes
 # and x-minBytes from the same registry metadata and the byte-aware
-# validators (adapter dispatch.ts, Go payloadschema) enforce them.
+# validators (adapter core-runtime.ts, Go payloadschema) enforce them.
 BYTE_LIMIT_GUIDANCE = (
     "The store counts this field's length in UTF-8 bytes: x-maxBytes and "
     "x-minBytes carry the enforcing byte bounds, and the code-point "
@@ -654,7 +653,7 @@ WORKFLOW_PREDICATE_MAX_BYTES = 64 * 1024
 # parents need their own copy to reach the other twins. The output bound
 # ledger proves every dropped cap unbounded and every kept cap finite.
 RETAINED_OUTPUT_TWINS = {
-    "workflow_correction_context": ("/properties/diagnosis/maxLength", "/properties/failure_detail/maxLength"),
+    "workflow_correction_context": ("/properties/diagnosis/maxLength",),
     "workflow_law_context": ("/properties/registry_path/maxLength",),
     "workflow_law_context_law": ("/properties/path/maxLength",),
     "work_context_finding_view": ("/properties/source_event_id/maxLength",),
@@ -1064,7 +1063,7 @@ def project_native_oracle_requests(defs: dict) -> None:
     control = copy.deepcopy(defs["worker_oracle_control"])
     control["required"].remove("readiness_evidence_refs")
     control["properties"].pop("readiness_evidence_refs")
-    control["description"] = "Native prepare input only: readiness references are omitted, never invented. Recorded ready jobs still require them."
+    control["description"] = "Native prepare input: readiness references are produced by preparation, never supplied by the caller."
     defs["native_oracle_prepare_control"] = control
     case = copy.deepcopy(defs["worker_oracle_case"])
     case.pop("oneOf")
@@ -1077,10 +1076,6 @@ def project_native_oracle_requests(defs: dict) -> None:
         "control": {"$ref": "#/$defs/native_oracle_prepare_control"},
         "cases": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/native_oracle_executable_case"}},
     })
-    defs["native_oracle_job_binding"] = obj({
-        "job_id": {"$ref": "#/$defs/id"}, "revision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
-        "digest": {"$ref": "#/$defs/native_oracle_digest"},
-    })
     defs["native_oracle_prepare_request"] = obj({
         "phase": {"type": "string", "const": "prepare"},
         "expected_contract_version": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
@@ -1088,11 +1083,6 @@ def project_native_oracle_requests(defs: dict) -> None:
     })
     defs["native_oracle_execute_request"] = obj({
         "phase": {"type": "string", "const": "execute"},
-        "attempt_id": {"$ref": "#/$defs/id"},
-        "attempt_epoch": {"type": "integer", "minimum": 1, "maximum": 2147483647},
-        "worker_packet_digest": {"$ref": "#/$defs/native_oracle_digest"},
-        "worker_job_binding": {"$ref": "#/$defs/native_oracle_job_binding"},
-        "control_id": copy.deepcopy(defs["worker_oracle_control"]["properties"]["control_id"]),
         "preparation_run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
     })
     prepare = defs["native_oracle_prepare_request"]
@@ -1102,10 +1092,10 @@ def project_native_oracle_requests(defs: dict) -> None:
     defs["native_oracle_request"]["description"] = (
         "native_oracle_v2: prepare qualifies one closed recipe family without running its workload and grants readiness only. "
         "The pinned pure-Go harness compiles without test execution; a target_runner_v1 recipe materializes its pinned "
-        "dependencies offline and runs only its collection or check-input stage. Execute requires the exact persisted dispatch, "
-        "job, epoch, packet digest, and clean subject. The producer owns recipe bytes, cwd, environment, candidate, stages, and "
-        "streams. Unsupported recipes, families, and materializer/runner pairs are unavailable. Both phases are explicit "
-        "preparation and readiness only: no acceptance body, no install, no automatic preparation, no new worker authority."
+        "dependencies offline and runs only its collection or check-input stage. Execute selects the exact persisted preparation "
+        "and requires the same clean subject. The producer owns the control bundle, recipe bytes, cwd, environment, candidate, stages, and "
+        "streams. Unsupported recipes, families, and materializer/runner pairs are unavailable. Preparation runs no acceptance "
+        "body and performs no install. Execution runs only the declared prepared workload; no automatic preparation."
     )
     verify = defs["work_transition_worktree_verify_input"]
     verify = verify.get("oneOf", [verify])[0]
@@ -1218,63 +1208,8 @@ def closed_field_union(branches: list[dict], defs: dict, name: str) -> dict:
     return {"oneOf": disjoint}
 
 
-def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
-    """The packet owns the shared native preparation projection; results add
-    only the fields the store producer publishes, never caller observations.
-    The canonical packet also owns the selected-research projection:
-    the shared view's research member and its closed defs project from the
-    lane contract, so the public read view and the frozen view3 anchor the
-    same schema content instead of independently copied runtime policy."""
-    aliases = {
-        "lane_native_oracle_stream": "native_oracle_stream",
-        "lane_native_oracle_file": "native_oracle_file",
-        "lane_native_oracle_test_name": "native_oracle_test_name",
-        "lane_native_oracle_preparation": "native_oracle_preparation",
-        "lane_work_context_reading_source_repository_file": "work_context_reading_source_repository_file",
-        "lane_work_context_research_selection": "work_context_research_selection",
-        "lane_work_context_research_finding": "work_context_research_finding",
-        "lane_work_context_research_finding_view": "work_context_research_finding_view",
-        "lane_research_scopes": "research_scopes",
-        "lane_research_source": "research_source",
-    }
-    # The lane-local research defs the payloads document does not author: the
-    # canonical lane contract owns their bytes and the projection copies them
-    # under the shared payload names. lane_research_scopes and
-    # lane_research_source only remap references; the payloads document's own
-    # research defs stay the published tool-surface owner.
-    projected_research_defs = (
-        "lane_work_context_research_selection",
-        "lane_work_context_research_finding",
-        "lane_work_context_research_finding_view",
-    )
-
-    def remap(node):
-        if isinstance(node, list):
-            return [remap(value) for value in node]
-        if not isinstance(node, dict):
-            return node
-        result = {key: remap(value) for key, value in node.items()}
-        if "$ref" in result:
-            name = result["$ref"].removeprefix("#/$defs/")
-            if name not in aliases:
-                fail(f"native oracle metadata names an unprojected schema: {name}")
-            result["$ref"] = "#/$defs/" + aliases[name]
-        return result
-
-    for source, target in aliases.items():
-        if source.startswith("lane_native_") or source in projected_research_defs:
-            defs[target] = remap(packet_defs[source])
-    for name in ("subject_commit", "oracle_preparations"):
-        defs["work_context_view"]["properties"][name] = remap(packet_defs["lane_work_context_view"]["properties"][name])
-    research = packet_defs["lane_work_context_view"]["properties"].get("research_findings")
-    if not isinstance(research, dict):
-        fail("the canonical lane work-context view carries no research_findings member")
-    defs["work_context_view"]["properties"]["research_findings"] = remap(research)
-    defs["work_context_view"]["properties"].pop("candidate_subject", None)
-    receipt = defs["worker_oracle_receipt"]
-    receipt["properties"].pop("candidate_subject", None)
-    receipt["properties"]["subject_commit"] = copy.deepcopy(packet_defs["lane_worker_oracle_receipt"]["properties"]["subject_commit"])
-    receipt["description"] = packet_defs["lane_worker_oracle_receipt"]["description"]
+def project_native_oracle_metadata(defs: dict) -> None:
+    """Project producer results from the native preparation schema owned here."""
     stage = {
         "name": {"type": "string", "minLength": 1, "maxLength": 128},
         "argv": copy.deepcopy(defs["work_transition_worktree_verify_input"]["properties"]["command"]),
@@ -1328,26 +1263,20 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
     execute["properties"]["phase"] = {"type": "string", "const": "execute"}
     execute["properties"]["qualification"] = {"type": "string", "enum": ["pass", "fail", "unavailable"]}
     request = defs["native_oracle_execute_request"]
-    for name in ("attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding", "preparation_run_ref"):
+    for name in ("preparation_run_ref",):
         execute["properties"][name] = copy.deepcopy(request["properties"][name])
         execute["required"].append(name)
     execute["properties"].update({
-        "authorization_event_id": {"$ref": "#/$defs/id"},
-        "authorization_seq": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
-        "start_seq": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
         "observed_test_names": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
                                 "items": {"$ref": "#/$defs/native_oracle_test_name"}},
         "observed_witness_ids": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
                                  "items": {"type": "string", "minLength": 1, "maxLength": 256,
                                            "pattern": "^[^\\x00-\\x1f\\x7f]*$"}},
     })
-    execute["required"].extend(["authorization_event_id", "authorization_seq", "start_seq"])
     project_phase_into_branches(execute, {name: copy.deepcopy(execute["properties"][name]) for name in
-                                          ("attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding",
-                                           "preparation_run_ref", "authorization_event_id", "authorization_seq", "start_seq",
-                                           "input_manifest_digest", "binary_digest", "observed_test_names", "observed_witness_ids")},
-                                ["attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding",
-                                 "preparation_run_ref", "authorization_event_id", "authorization_seq", "start_seq"])
+                                          ("preparation_run_ref", "input_manifest_digest", "binary_digest",
+                                           "observed_test_names", "observed_witness_ids")},
+                                ["preparation_run_ref"])
     # The family branches restate the phase fields they inherited from the
     # preparation union; an execute branch speaks the execute phase grammar.
     for branch in execute.get("oneOf", []):
@@ -1371,7 +1300,7 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
         "Native producer observations only. The canonical plan/digest are immutable in the existing lease; command remains bare argv. "
         "Prepare grants readiness only. Execute pass requires actual run/pass witnesses in the record's own family grammar "
         "(observed test names for Go, observed witness IDs for target_runner_v1), complete streams, pinned inputs/cwd/environment, "
-        "and the persisted live dispatch's three-way clean subject equality. "
+        "and the persisted preparation's clean subject equality. "
         "Qualified green result metadata is byte-identical to lease result_json. "
         "Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."
     )}
@@ -1466,18 +1395,8 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     projected = copy.deepcopy(document)
     remove_generated_guidance(projected)
     defs = projected["$defs"]
-    # Continuity and work pins expose the same card references as dispatch.
-    # The authored packet schema owns the source shape, not a second union.
-    packet_defs = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text())["$defs"]
-    defs["worker_oracle_case"] = copy.deepcopy(packet_defs["lane_worker_oracle_case"])
-    for name in ("recipe_source", "readiness_evidence_refs"):
-        defs["worker_oracle_control"]["properties"][name]["description"] = packet_defs["lane_worker_oracle_control"]["properties"][name]["description"]
     project_native_oracle_requests(defs)
-    project_native_oracle_metadata(defs, packet_defs)
-    # The card-free work-context view carries domain groups without
-    # the retired domain_cards member. The live view keeps its own closed
-    # shape; released card-bearing 1.0/1.1 packets replay through the
-    # versioned lane packet contract's branches, never through this view.
+    project_native_oracle_metadata(defs)
     # The action-discriminated variants replaced the shared conditional input.
     # Projection starts from the previous document, so drop the retired
     # definition explicitly; a stale copy would keep satisfying checks that
@@ -1581,18 +1500,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"type": "string", "enum": ["block", "warning"]}}}}}
     defs["proposal_affected_text"] = {"type": "string", "minLength": 1, "maxLength": 256}
     defs["proposal_text"] = {"type": "string", "minLength": 1, "maxLength": 512}
-    # CD-0205: record_worker_job carries bounded check and unresolved-reference
-    # text, and exact prerequisite revision references. The store re-checks
-    # each prerequisite against the recorded revisions at dispatch time.
-    defs["worker_job_text"] = {"type": "string", "minLength": 1, "maxLength": 256}
-    defs["worker_job_prerequisite"] = {
-        "type": "object", "additionalProperties": False, "required": ["job_id", "revision"],
-        "properties": {
-            "job_id": {"$ref": "#/$defs/id"},
-            "revision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
-            "result_ref": {"type": "string", "minLength": 1, "maxLength": 512},
-        },
-    }
     design_action = next((action for action in actions if action["id"] == "record_design"), None)
     if design_action is None:
         fail("the live projection names no record_design action; the design-content def has no live owner")
@@ -1690,51 +1597,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     return projected, public_variants
 
 
-# CD-0067 D1: the payloads schema's worker_packet def mirrors the canonical
-# lane packet contract, and the mirror's inputs object is derived from
-# contracts/agent-lane-packet.schema.json, never handwritten. Fields the
-# canonical schema binds inline land verbatim; fields it binds through
-# lane-local $defs stay anchored to the payloads schema's shared defs, which
-# own the published bounds. work_context and checkpoint keep their published
-# teaching text, which deliberately trims the canonical wire text.
-WORKER_PACKET_INPUT_ALIASES = {
-    "binding": "worker_packet_binding",
-    "correction": "workflow_correction_context",
-    "worker_job": "worker_packet_worker_job",
-    "review_input": "worker_packet_review_input",
-    "law_context": "workflow_law_context",
-    "design_record": "workflow_design_record",
-    "proposal_record": "workflow_proposal_record",
-    "work_record": "worker_packet_work_record",
-    "work_context": "work_context_view",
-    "checkpoint": "continuity_checkpoint",
-    "outcome_predicates": "worker_packet_outcome_predicates",
-}
-WORKER_PACKET_INPUT_PUBLISHED_TEXT = {
-    "work_context": (
-        "The current work-context view the work pin carried when the "
-        "packet was built. The core refuses a dispatch whose packet does not "
-        "consume the current view byte-for-byte."
-    ),
-    "checkpoint": (
-        "The latest context checkpoint the pinned continuity "
-        "projection carried when the packet was built. The core refuses a "
-        "dispatch whose packet does not carry the latest checkpoint "
-        "byte-for-byte."
-    ),
-}
-
-
-def contains_schema_ref(node: object) -> bool:
-    if isinstance(node, dict):
-        if isinstance(node.get("$ref"), str):
-            return True
-        return any(contains_schema_ref(value) for value in node.values())
-    if isinstance(node, list):
-        return any(contains_schema_ref(value) for value in node)
-    return False
-
-
 def project_domain_fact_schema(payload: dict) -> None:
     """Reuse the fact contract with namespaced local refs in the payload document.
 
@@ -1774,140 +1636,43 @@ def project_domain_fact_schema(payload: dict) -> None:
     path["not"] = {"anyOf": [path["not"], {"pattern": r"^/|(?:^|/)\.{1,2}(?:/|$)"}]}
 
 
-def project_worker_packet_inputs(payload: dict, lane_packet: dict) -> None:
-    """Project the current packet and its job from the canonical lane input.
+def prune_payload_definitions(payload: dict, manifest: dict, public_variants: list[dict], schema_roots: list[str] | None = None) -> None:
+    """Keep current public schemas and the registry's authoring seeds."""
+    defs = payload["$defs"]
+    roots = {schema["ref"].rsplit("/", 1)[-1] for schema in manifest["schemas"].values()
+             if schema["ref"].partition("#")[0] in {"", "contracts/agent-tool-surface-payloads.schema.json"}}
+    roots.update(("worker_oracle_control", "worker_oracle_case", "native_oracle_preparation", "workflow_review_report",
+                  "work_transition_action_public_input", "workflow_action_outcome"))
+    roots.update(RETAINED_OUTPUT_TWINS)
+    roots.update(variant["schema"] for variant in public_variants)
+    roots.update(schema_roots or [])
+    reached: set[str] = set()
 
-    Shared record aliases keep their own published bounds. Packet identity,
-    Review provenance and the worker-job field set have one owner.
-    """
-    inputs = lane_packet.get("properties", {}).get("inputs")
-    if not isinstance(inputs, dict) or inputs.get("type") != "object" or inputs.get("additionalProperties") is not False:
-        fail("contracts/agent-lane-packet.schema.json: inputs is not a closed object")
-    doc_defs = payload.get("$defs", {})
-    packet_aliases = {
-        "lane_review_input": "worker_packet_review_input",
-        "review_candidate": "worker_packet_review_candidate",
-        "review_dependencies": "worker_packet_review_dependencies",
-        "lane_packet_worker_job": "worker_packet_worker_job",
-    }
-    imported = set(packet_aliases)
-    refs = {f"#/$defs/{source}": f"#/$defs/{alias}" for source, alias in packet_aliases.items()}
-    for source in lane_packet["$defs"]:
-        shared = source.removeprefix("lane_")
-        if shared in doc_defs:
-            refs.setdefault("#/$defs/" + source, "#/$defs/" + shared)
-
-    def review_alias(node):
+    def visit(node: object) -> None:
         if isinstance(node, dict):
-            result = {key: review_alias(value) for key, value in node.items()}
-            if "$ref" in result:
-                ref = result["$ref"]
-                if ref not in refs:
-                    if not ref.startswith("#/$defs/"):
-                        fail(f"lane packet carries a non-local reference {ref}")
-                    source = ref.removeprefix("#/$defs/")
-                    if source not in lane_packet["$defs"]:
-                        fail(f"lane packet references unknown definition {source}")
-                    alias = "worker_packet_" + source.removeprefix("lane_")
-                    refs[ref] = "#/$defs/" + alias
-                    if source not in imported:
-                        imported.add(source)
-                        doc_defs[alias] = review_alias(lane_packet["$defs"][source])
-                result["$ref"] = refs[ref]
-            if "enum" in result and "type" not in result:
-                result["type"] = "string"
-            return result
-        if isinstance(node, list):
-            return [review_alias(value) for value in node]
-        return node
+            ref = node.get("$ref")
+            if isinstance(ref, str):
+                if not ref.startswith("#/$defs/"):
+                    fail(f"non-local payload reference {ref}")
+                include(ref.removeprefix("#/$defs/"))
+            for key, value in node.items():
+                if key not in {"examples", "const", "enum", "default"}:
+                    visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
 
-    for source, alias in packet_aliases.items():
-        doc_defs[alias] = review_alias(lane_packet["$defs"][source])
-    packet = {key: copy.deepcopy(lane_packet[key]) for key in ("type", "additionalProperties", "required")}
-    packet["description"] = "CD-0067 D1: current closed worker packet, projected from contracts/agent-lane-packet.schema.json."
-    packet["properties"] = {name: review_alias(schema) for name, schema in lane_packet["properties"].items() if name != "inputs"}
-    # Live dispatch admits only the canonical format's current identity.
-    packet["properties"]["schema_version"]["enum"] = [lane_packet["properties"]["schema_version"]["enum"][-1]]
-    doc_defs["worker_packet"] = packet
-    properties = {}
-    for name, schema in inputs.get("properties", {}).items():
-        alias = WORKER_PACKET_INPUT_ALIASES.get(name)
-        if alias is not None:
-            if alias not in doc_defs:
-                fail(f"worker_packet inputs alias for {name} names unknown def {alias}")
-            node = {"$ref": f"#/$defs/{alias}"}
-            published = WORKER_PACKET_INPUT_PUBLISHED_TEXT.get(name, schema.get("description"))
-            if published is not None:
-                node["description"] = published
-            properties[name] = node
-            continue
-        if contains_schema_ref(schema):
-            fail(f"canonical lane packet inputs field {name} carries a $ref; anchor it through WORKER_PACKET_INPUT_ALIASES")
-        properties[name] = copy.deepcopy(schema)
-    projected = {"type": "object", "additionalProperties": False, "properties": properties}
-    required = list(inputs.get("required", []))
-    if required:
-        projected["required"] = required
-    packet["properties"]["inputs"] = projected
+    def include(name: str) -> None:
+        if name in reached:
+            return
+        if name not in defs:
+            fail(f"public contract names missing payload schema {name}")
+        reached.add(name)
+        visit(defs[name])
 
-
-def project_review_report_types(payload: dict, lane_report: dict) -> None:
-    """Expose the canonical report shape in current-state reads, not a copy."""
-    source = lane_report["$defs"]
-    target = payload["$defs"]
-    imported: set[str] = set()
-
-    def import_definition(name: str) -> str:
-        alias = "lane_report_" + name
-        if name not in imported:
-            imported.add(name)
-            if name not in source:
-                fail(f"lane report references unknown definition {name}")
-            target[alias] = rewrite(copy.deepcopy(source[name]))
-        return alias
-
-    def rewrite(node: object) -> object:
-        if isinstance(node, list):
-            return [rewrite(value) for value in node]
-        if not isinstance(node, dict):
-            return node
-        result = {key: rewrite(value) for key, value in node.items()}
-        if "$ref" in result:
-            ref = result["$ref"]
-            if not isinstance(ref, str) or not ref.startswith("#/$defs/"):
-                fail(f"lane report carries a non-local reference {ref}")
-            result["$ref"] = "#/$defs/" + import_definition(ref.removeprefix("#/$defs/"))
-        if "enum" in result and "type" not in result:
-            if not all(isinstance(value, str) for value in result["enum"]):
-                fail("lane report enum needs an explicit type")
-            result["type"] = "string"
-        return result
-
-    for name in ("review_candidate", "review_block", "review_finding"):
-        import_definition(name)
-
-    # A retained delivery may predate Project or tree observation. Readback
-    # exposes what was recorded; a new worker report still requires all three.
-    candidate_view = copy.deepcopy(target["lane_report_review_candidate"])
-    candidate_view["required"] = ["commit"]
-    candidate_view["description"] = "The retained candidate commit, with Project and tree only when recorded. Missing identity fields grant no worker-report or acceptance authority."
-    target["workflow_review_candidate_view"] = candidate_view
-    target["workflow_review_state"]["properties"]["candidate"]["anyOf"][1] = {
-        "$ref": "#/$defs/workflow_review_candidate_view"
-    }
-
-    unidentified = copy.deepcopy(target["lane_report_review_finding"])
-    observed = {"severity", "confidence", "detail", "oracle"}
-    unidentified["properties"] = {
-        name: schema for name, schema in unidentified["properties"].items() if name in observed
-    }
-    unidentified["required"] = [name for name in unidentified["required"] if name in observed]
-    unidentified["description"] = "A retained current finding without recorded identity, status, scope, blocking or reference fields. Only its observed content is exposed; it grants no worker-report, closure or acceptance authority."
-    target["workflow_review_unidentified_finding"] = unidentified
-    target["workflow_review_state"]["properties"]["findings"]["items"] = {"anyOf": [
-        {"$ref": "#/$defs/lane_report_review_finding"},
-        {"$ref": "#/$defs/workflow_review_unidentified_finding"},
-    ]}
+    for name in sorted(roots):
+        include(name)
+    payload["$defs"] = {name: node for name, node in defs.items() if name in reached}
 
 
 def check_schema_keywords(node, path="schema"):
@@ -2023,7 +1788,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 59
+    expected_operations = 57
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -2169,56 +1934,12 @@ def validate_work_start_host_tool(tool: dict) -> None:
         fail("concord_work_start capture must derive Project identity")
 
 
-def validate_worker_read_host_tool(tool: dict) -> None:
-    args = tool.get("args", {})
-    properties = args.get("properties", {})
-    fields = ["ordinal", "offset", "length"]
-    if args.get("type") != "object" or args.get("additionalProperties") is not False:
-        fail("concord_worker_read host schema must be a closed object")
-    if list(properties) != fields or args.get("required") != fields:
-        fail("concord_worker_read must require only ordinal, offset, and length")
-    for name, minimum, maximum in (("ordinal", 0, 9007199254740991), ("offset", 0, 9007199254740991), ("length", 1, 4096)):
-        field = properties[name]
-        if field.get("type") != "integer" or field.get("minimum") != minimum or field.get("maximum") != maximum:
-            fail(f"concord_worker_read {name} must be an integer bounded {minimum}..{maximum}")
-
-
-def validate_worker_diff_host_tool(tool: dict) -> None:
-    args = tool.get("args", {})
-    properties = args.get("properties", {})
-    if args.get("type") != "object" or args.get("additionalProperties") is not False:
-        fail("concord_worker_diff host schema must be a closed object")
-    if list(properties) != ["offset", "length"] or args.get("required") != ["offset", "length"]:
-        fail("concord_worker_diff must require only offset and length")
-    for name, minimum, maximum in (("offset", 0, 9007199254740991), ("length", 1, 4096)):
-        field = properties[name]
-        if field.get("type") != "integer" or field.get("minimum") != minimum or field.get("maximum") != maximum:
-            fail(f"concord_worker_diff {name} must be an integer bounded {minimum}..{maximum}")
-
-
-def validate_worker_check_host_tool(tool: dict) -> None:
-    args = tool.get("args", {})
-    properties = args.get("properties", {})
-    if args.get("type") != "object" or args.get("additionalProperties") is not False:
-        fail("concord_worker_check host schema must be a closed object")
-    if list(properties) != ["control_id"] or args.get("required") != ["control_id"]:
-        fail("concord_worker_check must require only control_id")
-    reference = json.loads(PAYLOAD.read_text(encoding="utf-8"))["$defs"]["reference"]
-    actual = {key: value for key, value in properties["control_id"].items() if key not in {"description", "examples"}}
-    expected = {key: value for key, value in reference.items() if key not in {"description", "examples"}}
-    if actual != expected:
-        fail("concord_worker_check control_id must use the workflow reference bounds")
-
-
 # The named host-tool validators: one named check per host-published tool.
 # A new host tool joins by adding its contract entry and its validator here;
 # the manifest must declare exactly this set once each, so an unknown,
 # missing, or duplicated tool fails generation instead of widening silently.
 HOST_TOOL_VALIDATORS = {
     "concord_work_start": validate_work_start_host_tool,
-    "concord_worker_read": validate_worker_read_host_tool,
-    "concord_worker_check": validate_worker_check_host_tool,
-    "concord_worker_diff": validate_worker_diff_host_tool,
 }
 
 
@@ -2636,10 +2357,7 @@ def main() -> int:
         validate_current_schema_refs(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching)
         project_domain_fact_schema(projected_payload)
-        project_worker_packet_inputs(projected_payload, json.loads(LANE_PACKET.read_text()))
-        project_review_report_types(projected_payload, json.loads(LANE_REPORT.read_text()))
-        # The adapter publishes public action variants, never the core-owned
-        # dispatch packet in the internal workflow_action input union.
+        prune_payload_definitions(projected_payload, manifest, public_variants, schema_refs["current"])
         input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]
                        if operation["id"] != "concord_work_transition.workflow_action"]
         input_names.extend(variant["schema"] for variant in public_variants)

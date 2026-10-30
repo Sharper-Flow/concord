@@ -7,7 +7,7 @@
 - **Preserves:** CD-0172 D1's admission gate and D2 through D6 in full;
   CD-0222 D7's ordinary stale recovery; the stale re-pin admission the store
   already performs
-- **Related:** CD-0222, CD-0133, CD-0143, CD-0172,
+- **Related:** CD-0222, CD-0143, CD-0172,
   [Concord (CON) issue 540](https://linear.app/sharper-flow/issue/CON-540)
 - **Approval:** The operator approved the work item contract that carries this
   record on 2026-09-28.

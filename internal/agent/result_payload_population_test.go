@@ -747,8 +747,7 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 		}
 		t.Fatalf("schema type union %v has no fixture rule", kind)
 	default:
-		// A typeless anyOf union (the retry_worker_packet transport
-		// closure) selects its first non-null arm like oneOf, with the
+		// A typeless anyOf union selects its first non-null arm like oneOf, with the
 		// node's own sibling constraints merged into the arm so the built
 		// value satisfies the union whole. A typed node with an anyOf
 		// sibling keeps walking its own declared shape, so the union never
@@ -967,21 +966,17 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 		}
 	})
 	t.Run("typeless_anyOf_selects_first_non_null_arm", func(t *testing.T) {
-		// CD-0242 D14 removes the packet ladder; keep the generic union witness synthetic.
 		union := map[string]any{"anyOf": []any{
-			map[string]any{"$ref": "#/$defs/worker_packet"},
+			map[string]any{"$ref": "#/$defs/work_size_summary"},
 			map[string]any{"type": "null"},
 		}}
-		if _, typed := union["type"]; typed {
-			t.Fatal("retry_worker_packet stopped being a typeless union; this subtest no longer exercises the typeless rule")
-		}
 		arm := schemaFixtureValue(t, union, defs, 0)
 		data, err := json.Marshal(arm)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := payloadschema.Validate("worker_packet", data); err != nil {
-			t.Fatalf("typeless anyOf fixture does not satisfy the first arm worker_packet: %v", err)
+		if err := payloadschema.Validate("work_size_summary", data); err != nil {
+			t.Fatalf("typeless anyOf fixture does not satisfy the first arm work_size_summary: %v", err)
 		}
 	})
 	t.Run("typeless_anyOf_sibling_constraints_bind_the_arm", func(t *testing.T) {

@@ -2,7 +2,7 @@ package store
 
 import (
 	"encoding/json"
-	"math"
+	"reflect"
 	"testing"
 )
 
@@ -52,7 +52,7 @@ func TestSessionTakeoverReadsCurrentVacateRequest(t *testing.T) {
 				}
 			}
 			read := func() (any, error) {
-				return workflowStartTakeover(t.Context(), s.db, WorkflowActionDefinition{}, work, "actor:another-session", workerRestartAssignment{}, "")
+				return workflowStartTakeover(t.Context(), s.db, WorkflowActionDefinition{ExecutionMode: ActionFenced}, work, "actor:another-session")
 			}
 			got, err := read()
 			if err != nil {
@@ -71,53 +71,26 @@ func TestSessionTakeoverReadsCurrentVacateRequest(t *testing.T) {
 	}
 }
 
-func TestLaneTakeoverReadsCurrentAttemptState(t *testing.T) {
-	for _, state := range []string{"live", "completed-awaiting-decision", "failed"} {
-		t.Run(state, func(t *testing.T) {
-			t.Parallel()
-			work := "current-lane-takeover-" + state
-			f := seedChecksRepairFixture(t, work, "repair")
-			s := f.store
-			job := &WorkerJobBinding{JobID: "job:" + work}
-			attempt := "attempt:" + work
-			dispatchJobBoundAttempt(t, s, work, "repair", attempt, nil, f.owner, 0, "dispatch:"+work, job)
-			switch state {
-			case "completed-awaiting-decision":
-				if err := completeJobBoundAttemptForTest(s, work, attempt, reviewGateLane(t, "implementation"), job); err != nil {
-					t.Fatal(err)
-				}
-			case "failed":
-				failed := attributionWorkerFailedEvent(work, attempt, "failed:"+work, preferredModelForLane(reviewGateLane(t, "implementation")), attributionHostObservation())
-				if err := s2WorkerFailedLive(t, s, failed); err != nil {
-					t.Fatal(err)
-				}
-			}
-			startEvent, err := readWorkflowActionStartTx(t.Context(), s.db, work, "repair", true)
+func assertWorkerFactsLogBlind(t *testing.T, s *Store, checks map[string]func() (any, error)) {
+	t.Helper()
+	want := map[string]any{}
+	for name, read := range checks {
+		value, err := read()
+		if err != nil {
+			t.Fatalf("%s baseline: %v", name, err)
+		}
+		want[name] = value
+	}
+	assertEventLogAbsent(t, s)
+	for name, read := range checks {
+		t.Run(name, func(t *testing.T) {
+			got, err := read()
 			if err != nil {
 				t.Fatal(err)
 			}
-			var start workflowActionStartedPayload
-			if err := json.Unmarshal(startEvent.Payload, &start); err != nil {
-				t.Fatal(err)
+			if !reflect.DeepEqual(got, want[name]) {
+				t.Fatalf("current answer = %#v; baseline = %#v", got, want[name])
 			}
-			read := func() (any, error) {
-				return workflowLaneAttemptHeldFrom(t.Context(), s.db, work, "repair", startEvent.Seq, start, "actor:another-session")
-			}
-			got, err := read()
-			if want := state != "failed"; err != nil || got != want {
-				t.Fatalf("lane hold=%v err=%v, want %t", got, err, want)
-			}
-			assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
-				"G33-lane-hold": read,
-				"G23-fenced-writer": func() (any, error) {
-					writer, live, since, err := workflowFencedWriter(t.Context(), s.db, work, start.ActorRef, math.MaxInt64)
-					return struct {
-						Writer string
-						Live   bool
-						Since  int64
-					}{writer, live, since}, err
-				},
-			})
 		})
 	}
 }

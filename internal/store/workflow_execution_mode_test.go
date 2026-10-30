@@ -55,13 +55,18 @@ func TestWorkflowExecutionModesPreserveCurrentTransitionSemantics(t *testing.T) 
 		"cross_context_boundary": ActionHold,
 		"record_delivery":        ActionAdvance,
 		"checkpoint_refine":      ActionCheckpoint,
-		"accept_worker_result":   ActionAdvance,
-		"record_worker_failure":  ActionHold,
+		"record_review":          ActionHold,
 	}
 	for actionID, expected := range want {
 		mode, ok := workflowActionExecutionMode(definition, actionID)
 		if !ok || mode != expected {
 			t.Fatalf("action %s mode=%q found=%t, want %q", actionID, mode, ok, expected)
+		}
+	}
+	// CD-0242 D6 retires worker-result acceptance and failure actions.
+	for _, actionID := range []string{"accept_worker_result", "record_worker_failure"} {
+		if _, ok := workflowActionExecutionMode(definition, actionID); ok {
+			t.Fatalf("retired action %s still has an execution mode", actionID)
 		}
 	}
 	// CD-0198 D3: the current head derives the refine start, so the

@@ -280,71 +280,16 @@ func setWorkTerminalForTesting(t *testing.T, s *Store, workID string) {
 	}
 }
 
-func seedCompletedWorkerOverlap(t *testing.T, workID, otherID string) (*Store, WorkflowActor, string, int64) {
-	t.Helper()
-	s, _, owner, attemptID := seedCompletedWorkerAtExecution(t, workID)
-	seedWork(t, s, otherID)
-	setExecutionStartedForTesting(t, s, otherID, true)
-	ctx := context.Background()
-	hash := "sha256:" + strings.Repeat("d", 64)
-	approvedBy, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := enterWrite(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	statements := []struct {
-		query string
-		args  []any
-	}{
-		{`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project','workflow-law-locator','product','root','1.0',?,'test')`, []any{hash}},
-		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','root','Root','Product law','current',?,'test')`, []any{hash}},
-		{`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'accept worker result','internal_sqlite','[]','[]','2026-08-19T00:00:00Z',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:overlap","immutable_subject_ref":"commit:overlap","expected_result":"pass"}')`, []any{workID, approvedBy, workID}},
-		{`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'concurrent work','internal_sqlite','[]','[]','2026-08-19T00:00:00Z',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:overlap","immutable_subject_ref":"commit:overlap","expected_result":"pass"}')`, []any{otherID, approvedBy, otherID}},
-	}
-	for _, statement := range statements {
-		if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-	}
-	for _, id := range []string{workID, otherID} {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,1,'product',?,'root',?)`, id, hash, hash); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,'root')`, id); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES(?,1,'root')`, id); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-	}
-	if err := leaveWrite(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	setWorkLifecycleForTesting(t, s, otherID, "in_progress")
-	return s, owner, attemptID, readWorkVersion(t, s, workID)
-}
-
 // CD-0183 D2: the first workflow action moves the lifecycle, and the
-// external-effect step records the execution-start fact. Driving a break-fix
-// workflow to its repair step leaves the item in progress with that fact set.
+// external-effect start records the execution-start fact, not arrival at repair.
 func TestExecutionStartRecordsTheInstanceFact(t *testing.T) {
 	const workID = "claim-at-execution-start"
-	s, _, _, _ := seedCompletedWorkerAtExecution(t, workID)
+	f := seedCurrentWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := f.store
+	if startedAt, _ := instanceExecutionStart(t, s, workID); startedAt != "" {
+		t.Fatal("arrival at repair recorded execution before its qualifying start")
+	}
+	reviewGateStartStep(t, s, workID, "repair", "checkpoint_repair", f.owner)
 	var lifecycle string
 	var startedAt any
 	if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle, i.execution_started_at FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &startedAt); err != nil {
@@ -440,29 +385,6 @@ func TestOrdinaryRelationsCannotWriteResolutionRelations(t *testing.T) {
 	for _, kind := range []string{"compatible_with", "merged_into"} {
 		err := applyWorkEvent(t, s, relationAddedEvent("ordinary-"+kind, kind, "ordinary-left", "ordinary-right", 2, 3), workVersion("ordinary-right", 2))
 		assertFailureKind(t, err, KindRelationContractViolation)
-	}
-}
-
-// Two executing items that modify the same Domain do not block each other
-// (CD-0222 D6): worker result acceptance proceeds beside the peer.
-func TestWorkerResultAcceptanceProceedsBesideASharedDomainWriter(t *testing.T) {
-	t.Parallel()
-	const workID = "shared-writer-result-work"
-	s, owner, attemptID, version := seedCompletedWorkerOverlap(t, workID, "shared-writer-result-other")
-	ctx := context.Background()
-	raw, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, actionErr := applyWorkflowActionRawTx(ctx, raw, newWriteScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "accept_worker_result",
-		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}), Actor: owner,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "shared-writer-result-accept", OperationID: "shared-writer-result-accept",
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "shared-writer-result-accept", RequestID: "request:shared-writer-result-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC),
-	})
-	_ = raw.Rollback()
-	if actionErr != nil {
-		t.Fatalf("worker result acceptance beside a shared Domain writer = %v, want admitted", actionErr)
 	}
 }
 

@@ -199,7 +199,7 @@ work management outside those classes need no consent. Serious law and crucial
 size alone do not require approval. Approval-boundary changes require the
 operator's approval of their exact wording.
 
-The authenticated non-worker coordinator explicitly records every applicable
+The authenticated coordinator explicitly records every applicable
 approval class in the contract's `decision_domains` field. An explicit empty
 array means no class applies; an absent field is never treated as
 engineering. It does not infer consent from a title, tag, kind, path, or
@@ -211,14 +211,16 @@ Engineering work still records a valid contract and premise confirmation
 without a host consent prompt. A decision requiring operator approval retains
 the exact question, choice, digest, and verified operator identity.
 
-Supersession, correction, verdicts, completion, failed-worker retries, and
+Supersession, correction, verdicts, completion and
 acceptance records are routine when no CD-0243 D2 class applies. Removed
 approvals do not remove evidence, version, source, scope, current-step, or
 recovery checks. Recovery follows CD-0243 D5: the operator may approve
 explained irreversible loss, and customer-data loss remains reserved.
 Supersession grants no legislative authority or automatic overlap exemption.
 
-Review inspects the accumulated solution and reports one disposition that Main records; workers gain no completion authority ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
+Independent native Task Review inspects the accumulated solution and reports
+one disposition that Main records against its exact subject and dependencies
+without Concord attesting a subagent producer ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 An engineering premise confirmation records the actual coordinator actor after
 investigation and acceptance deliverables pass. A UI/UX change requiring
@@ -460,14 +462,15 @@ kind, or actor tuple requires an accepted CD-NNNN.
 
 ### CD-0143 amendment: verdict correction remains engine-owned
 
-The engine admits `request_correction` after a completed and accepted worker
-result leaves a current unhealthy verification verdict. A dispatch alone does
+The engine admits `request_correction` after delivered work
+receives a current unhealthy verification verdict. A native Task alone does
 not satisfy this boundary. The action requires a diagnosis, strategy, affected
 predicate IDs, bound evidence, and exact operator approval. It holds
 the current checkpoint, preserves the recorded verdict and results, and returns
 the pinned instance to its declared external-effect step. It does not return to
 `refine`, rewrite the contract, or alter a definition's generated source.
-Each correction launch is admitted on its own scope and safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+Each correction keeps its scope and safety checks; native execution remains
+host-owned ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).
 Completion
 stays fail-closed until the latest approved predicates are healthy.
 

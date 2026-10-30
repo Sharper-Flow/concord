@@ -36,13 +36,17 @@ VALUES('source','condition:one','ci_result','run:one','durable_operation:fixture
 DELETE FROM write_guard`, testManifestDigest, testManifestDigest, testManifestDigest, testManifestDigest, testManifestDigest, testManifestDigest); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(t.Context(), db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, db, 164)
 	var state, model, disposition string
 	var unhealthy, nonDispatch, version int
 	if err := db.QueryRow(`SELECT instance_state,execution_model,result_disposition,unhealthy_verdict_seq,latest_non_dispatch_start_seq,(SELECT version FROM work_items WHERE id='source') FROM workflow_instances WHERE work_id='source'`).Scan(&state, &model, &disposition, &unhealthy, &nonDispatch, &version); err != nil || state != "blocked" || model != "test-model" || disposition != "deferred" || unhealthy != 11 || nonDispatch != 12 || version != 7 {
 		t.Fatalf("retained instance=%s/%s/%s/%d/%d/v%d err=%v", state, model, disposition, unhealthy, nonDispatch, version, err)
+	}
+	if err := Migrate(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT instance_state,execution_model,unhealthy_verdict_seq,(SELECT version FROM work_items WHERE id='source') FROM workflow_instances WHERE work_id='source'`).Scan(&state, &model, &unhealthy, &version); err != nil || state != "blocked" || model != "test-model" || unhealthy != 11 || version != 7 {
+		t.Fatalf("current instance=%s/%s/%d/v%d err=%v", state, model, unhealthy, version, err)
 	}
 	var edges, receipts, guards int
 	if err := db.QueryRow(`SELECT (SELECT count(*) FROM workflow_impact_edges WHERE work_id='source' AND target_work_id='successor' AND edge_kind='forward_link'),(SELECT count(*) FROM effect_receipts),(SELECT count(*) FROM sqlite_schema WHERE type='trigger' AND name IN ('workflow_instances_guard_insert','workflow_instances_guard_update','workflow_instances_guard_delete','workflow_law_baselines_completed'))`).Scan(&edges, &receipts, &guards); err != nil || edges != 1 || receipts != 1 || guards != 4 {

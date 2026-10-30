@@ -1,17 +1,15 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import nodeFs from "node:fs"
 import path from "node:path"
-import { agentLanes } from "./generated-agent-lanes"
 import { manifestDigest } from "./generated-contracts"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
-import { configureCoreBinary, dispatchWorker, type AgentLanePacket } from "./dispatch"
+import { configureCoreBinary } from "./core-runtime"
 import { configureConcordAdapter } from "./concord"
-import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { hostControlPlane } from "./move-session"
 import { moveSessionToClaimedWorktree, moveSessionToRegisteredMainCheckout, work_start } from "./concord"
 import { resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
-import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn, questionRequiresNormalChat, TURN_MOVE_DISPATCH_REFUSAL, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
+import { armTurnMoveBoundary, clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
 const testDirectories: string[] = []
 function mkdtempSync(prefix: string): string {
   const directory = nodeFs.mkdtempSync(prefix)
@@ -141,9 +139,7 @@ describe("same-turn session move boundary", () => {
     // pending.
     expect(unlandedClaimedWorktree(sessionID)).toBeNull()
 
-    // Issue #1322: the host accepted the move but answers a different
-    // directory, so the claim's move has not landed. The refusal records the
-    // pending target, and the dispatch gate stays closed for this session
+    // An accepted move with mismatched readback retains the pending target
     // until a confirmed landing.
     bindMoveRoutes("/claimed", { landed: "/other" })
     expect((await moveSessionToClaimedWorktree(claimArgs(), context(), successfulClaimEnvelope("/claimed"))).outcome).toBe("error")
@@ -199,31 +195,13 @@ describe("same-turn session move boundary", () => {
     await expectQuestionAllowed()
   })
 
-  // Issue #1322, end to end: the metadata-only work_start refuses and records
-  // the unlanded move, so a dispatch for the same session cannot open a worker
-  // window while its tool context still runs in the pre-move directory. A
-  // replay whose context has landed reports success, arms the claim, and the
-  // dispatch is admitted.
-  test("metadata-only work_start keeps dispatch closed until the context lands, then a replay admits it", async () => {
-    const root = fs.mkdtempSync(path.join(process.cwd(), "concord-unlanded-dispatch-"))
+  test("metadata-only work_start retains its pending move until a landed replay succeeds", async () => {
+    const root = fs.mkdtempSync(path.join(process.cwd(), "concord-unlanded-move-"))
     fs.mkdirSync(path.join(root, "origin"))
     fs.mkdirSync(path.join(root, "claimed"))
     const origin = fs.realpathSync(path.join(root, "origin"))
     const claimed = fs.realpathSync(path.join(root, "claimed"))
     const previousDirectory = process.cwd()
-    const lane = agentLanes[0]
-    const packet: AgentLanePacket = {
-      schema_version: "1.0",
-      attempt_id: "attempt-unlanded",
-      lane_id: lane.id,
-      lane_digest: lane.digest,
-      work_id: "work-unlanded",
-      step_id: "step-unlanded",
-      inputs: { task: "dispatch after a metadata-only move", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "bounded_findings" } },
-    }
-    const windows = new DispatchWindows()
-    const authorize = async () => ({ outcome: "ok" })
-    const credentials = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
     let moved = false
     let metadata: Record<string, unknown> = {}
     hostControlPlane().bind({
@@ -265,120 +243,20 @@ describe("same-turn session move boundary", () => {
       expect(refusedEnvelope.error.kind).toBe("session_directory_mismatch")
       expect(unlandedClaimedWorktree(sessionID)).toBe(claimed)
 
-      const sameTurn = await dispatchWorker(packet, {
-        authorize,
-        credentials,
-        sessionID,
-        windows,
-        workerDirectory: claimed,
-        resolveWorkerDirectory: async () => claimed,
-        contextDirectory: origin,
-      })
-      expect(sameTurn.outcome).toBe("error")
-      expect(sameTurn.error?.kind).toBe("unauthorized_dispatch")
-      expect(sameTurn.error?.message).toContain(claimed)
-      expect(sameTurn.error?.message).toContain(origin)
-      expect(sameTurn.error?.message).toMatch(/replay work_start/)
-      expect(windows.has(sessionID)).toBe(false)
-
       const replay = await work_start.execute(startArgs, context(claimed))
       if (typeof replay === "string") throw new Error("work_start returned a string ToolResult")
       const replayEnvelope = JSON.parse(replay.output)
       expect(replayEnvelope.outcome, replay.output).toBe("ok")
       expect(unlandedClaimedWorktree(sessionID)).toBeNull()
 
-      const landed = await dispatchWorker(packet, {
-        authorize,
-        credentials,
-        sessionID,
-        windows,
-        workerDirectory: claimed,
-        resolveWorkerDirectory: async () => claimed,
-        contextDirectory: claimed,
-      })
-      expect(landed.outcome).toBe("ok")
-      expect(landed.dispatch_state).toBe("awaiting_worker")
-      expect(windows.has(sessionID)).toBe(true)
-    } finally {
-      process.chdir(previousDirectory)
-      fs.rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  test("refuses same-turn dispatch after work_start and proceeds after the next operator turn", async () => {
-    const root = fs.mkdtempSync(path.join(process.cwd(), "concord-turn-move-"))
-    const origin = path.join(root, "origin")
-    const claimed = path.join(root, "claimed")
-    fs.mkdirSync(origin)
-    fs.mkdirSync(claimed)
-    const previousDirectory = process.cwd()
-    const lane = agentLanes[0]
-    const packet: AgentLanePacket = {
-      schema_version: "1.0",
-      attempt_id: "attempt-turn-move",
-      lane_id: lane.id,
-      lane_digest: lane.digest,
-      work_id: "work-turn-move",
-      step_id: "step-turn-move",
-      inputs: { task: "dispatch after the move", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "bounded_findings" } },
-    }
-    const windows = new DispatchWindows()
-    let authorizeCalls = 0
-    const authorize = async () => {
-      authorizeCalls++
-      return { outcome: "ok" }
-    }
-    const credentials = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
-    try {
-      bindMoveRoutes(claimed)
-      const moved = await moveSessionToClaimedWorktree(claimArgs(), context(origin), successfulClaimEnvelope(claimed))
-      expect(moved.outcome).toBe("ok")
-      expect(dispatchRequiresNextTurn(sessionID)).toBe(true)
-      expect(process.cwd()).toBe(previousDirectory)
-
-      const sameTurn = await dispatchWorker(packet, {
-        authorize,
-        credentials,
-        sessionID,
-        windows,
-        workerDirectory: claimed,
-        resolveWorkerDirectory: async () => claimed,
-      })
-      expect(sameTurn.error?.message).toBe(TURN_MOVE_DISPATCH_REFUSAL)
-      expect(sameTurn.error?.kind).toBe("unauthorized_dispatch")
-      expect(authorizeCalls).toBe(0)
-      expect(windows.has(sessionID)).toBe(false)
-
-      windows.open(sessionID, packet, "", claimed)
-      // Even the exact selector the coordinator issues after authorization
-      // refuses inside the closed turn: the turn-move gate precedes binding.
-      await expect(windows.bind(TASK_TOOL_ID, sessionID, { subagent_type: `concord-${packet.lane_id}`, prompt: packet.attempt_id, description: "bounded worker" }, "call-same-turn", async () => claimed, claimed))
-        .rejects.toThrow(TURN_MOVE_DISPATCH_REFUSAL)
-      expect(windows.has(sessionID)).toBe(false)
-
-      await chatHook()({ sessionID, agent: "agent-1" })
-      expect(dispatchRequiresNextTurn(sessionID)).toBe(false)
-      const nextTurn = await dispatchWorker(packet, {
-        authorize,
-        credentials,
-        sessionID,
-        windows,
-        workerDirectory: claimed,
-        resolveWorkerDirectory: async () => claimed,
-        contextDirectory: claimed,
-      })
-      expect(nextTurn.outcome).toBe("ok")
-      expect(authorizeCalls).toBe(1)
-      expect(windows.has(sessionID)).toBe(true)
-      const args = { subagent_type: `concord-${packet.lane_id}`, prompt: packet.attempt_id, description: "bounded worker" }
-      await windows.bind(TASK_TOOL_ID, sessionID, args, "call-turn-move", async () => claimed, claimed)
-      expect(JSON.parse(args.prompt).attempt_id).toBe(packet.attempt_id)
+      expect(questionRequiresNormalChat(sessionID)).toBe(false)
       expect(process.cwd()).toBe(previousDirectory)
     } finally {
       process.chdir(previousDirectory)
       fs.rmSync(root, { recursive: true, force: true })
     }
   })
+
 })
 
 // The factory's host-lease claim fails against the unstamped repository

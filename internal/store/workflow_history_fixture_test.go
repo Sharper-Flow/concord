@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func progressHistory(t *testing.T) (*sql.DB, func(string, any) int64, func() *workflowCorrectionHistory) {
+func progressHistory(t *testing.T) (*sql.DB, func(string, any) int64, func() *WorkflowCorrectionContext) {
 	t.Helper()
 	db := correctionHistoryDatabase(t)
 	progressFixtureTables(t, db)
@@ -21,11 +21,6 @@ func progressHistory(t *testing.T) (*sql.DB, func(string, any) int64, func() *wo
 		if _, err := db.Exec(`INSERT INTO effect_receipts SELECT event_id,seq,kind,subject_type,subject_id FROM domain_events WHERE seq=?`, seq); err != nil {
 			t.Fatal(err)
 		}
-		if kind == WorkerDispatched {
-			if _, err := db.Exec(`INSERT OR IGNORE INTO workflow_worker_actors SELECT json_extract(?,'$.lane_actor_ref'),? WHERE json_extract(?,'$.lane_actor_ref') IS NOT NULL`, mustJSONValue(payload), seq, mustJSONValue(payload)); err != nil {
-				t.Fatal(err)
-			}
-		}
 		return seq
 	}
 	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
@@ -34,24 +29,24 @@ func progressHistory(t *testing.T) (*sql.DB, func(string, any) int64, func() *wo
 	}
 	appendEvent(WorkflowDefinitionSelected, workflowDefinitionSelectedPayload{Ref: entry.Definition.Ref, Digest: entry.Digest})
 	appendEvent(WorkflowContractApproved, workflowContractApprovedPayload{ContractVersion: 1, RequiredEvidence: []string{"artifact"}, OutcomePredicates: []workflowContractPredicatePayload{{PredicateID: "predicate:one", OutcomeKind: "exists", OutcomePayload: mustJSONValue(map[string]any{"kind": "exists", "surface": "source.go", "subjects": []string{"owner"}})}}, DecisionDomains: []string{}})
-	read := func() *workflowCorrectionHistory {
+	read := func() *WorkflowCorrectionContext {
 		t.Helper()
-		history, err := workflowCorrectionWalkWorkerSatisfaction(context.Background(), db, "work-history", 1<<62, "history_test")
+		correction, err := readWorkflowCorrectionContext(context.Background(), db, "work-history")
 		if err != nil {
 			t.Fatal(err)
 		}
-		return history
+		return correction
 	}
 	return db, appendEvent, read
 }
 
-func progressCorrectionHistory(t *testing.T) (*sql.DB, func(string, any) int64, func() *workflowCorrectionHistory) {
+func progressCorrectionHistory(t *testing.T) (*sql.DB, func(string, any) int64, func() *WorkflowCorrectionContext) {
 	t.Helper()
 	db, appendEvent, read := progressHistory(t)
 	correctionFixtureTables(t, db)
 	return db, func(kind string, payload any) int64 {
 		seq := appendEvent(kind, payload)
-		applyCorrectionFixture(t, db, seq, kind, payload)
+		applyCorrectionFixture(t, db, seq, fmt.Sprintf("progress-e%d", seq), kind, payload)
 		return seq
 	}, read
 }
@@ -65,9 +60,7 @@ func progressFixtureTables(t *testing.T, db *sql.DB) {
 		`CREATE TABLE domain_events(seq INTEGER PRIMARY KEY,subject_type TEXT,subject_id TEXT,kind TEXT,payload BLOB,actor TEXT NOT NULL DEFAULT '',event_id TEXT NOT NULL DEFAULT '')`,
 		`CREATE TABLE effect_receipts(event_id TEXT PRIMARY KEY,effect_seq INTEGER,kind TEXT,subject_type TEXT,subject_id TEXT)`,
 		`CREATE TABLE workflow_actors (actor_ref TEXT PRIMARY KEY, principal_ref TEXT NOT NULL, client_ref TEXT NOT NULL, agent_ref TEXT NOT NULL, session_ref TEXT NOT NULL, actor_class TEXT NOT NULL)`,
-		`CREATE TABLE workflow_member_callers(actor_ref TEXT PRIMARY KEY,work_id TEXT,project_id TEXT,group_id TEXT,member_id TEXT)`,
 		`CREATE TABLE workflow_instances (work_id TEXT PRIMARY KEY, execution_actor_ref TEXT)`,
-		`CREATE TABLE workflow_worker_actors(actor_ref TEXT PRIMARY KEY,first_dispatch_seq INTEGER NOT NULL)`,
 		`CREATE TABLE durable_operations (op_id TEXT, attempt_epoch INTEGER NOT NULL DEFAULT 1, work_id TEXT NOT NULL, principal_ref TEXT NOT NULL, request_id TEXT NOT NULL, result_kind TEXT, evidence_refs TEXT NOT NULL DEFAULT '[]')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {

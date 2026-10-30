@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,81 +13,61 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// First entry without Review applies only where no architecture is recorded;
-// the break-fix family has none.
-func TestSpineFirstGroupFailedAssignmentRelaunchesAcrossRevision(t *testing.T) {
+// Native verification qualifies a clean subject without manufacturing Review.
+func TestSpineFirstGroupFailedProofPreservesUnreviewedCandidate(t *testing.T) {
 	f := newSpineExecutionFixtureForFamily(t, "workflow.break_fix")
 	f.verify(t)
-	f.recordJob(t)
-	const failed = "attempt:first-group-failed"
-	f.startWorker(t, "implement", failed)
-	terminal := store.Event{EventID: "spine-first-group-failure", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: f.work,
-		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerFailed),
-		Payload: retryJSON(map[string]any{"attempt_id": failed, "readback_model": "openai/test-model", "failure_kind": store.WorkerFailureWorkerError, "detail": "The assigned implementation failed before delivering its result.",
-			"failure_attribution": map[string]any{"origin": "recorded", "observation": map[string]any{"observer": "host_adapter", "phase": "host_execution", "cause": "unknown", "basis": "unknown", "sources": []map[string]any{{"kind": "host_event", "host": map[string]any{"tag": "cancellation", "event_type": "synthetic.session.cancelled"}}}}}})}
-	if err := f.s.Transact(t.Context(), func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkerEvidenceOperationTx(t.Context(), tx, terminal)
-		return err
-	}); err != nil {
-		t.Fatal(err)
+	f.prepareControl(t)
+	failed := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
+		"work_id": f.work, "command": []string{"go", "test", "./missing"}, "idempotency_key": "first-group-failed-proof",
+	}))
+	var proof store.WorktreeVerifyResult
+	if err := json.Unmarshal(failed.Result, &proof); err != nil || proof.ExitCode == 0 {
+		t.Fatalf("fixture did not capture a failed proof: %s (%v)", failed.Result, err)
 	}
-	f.recordJob(t)
 	before := f.read(t).Pinned.Pin
 	if before.Review.Accepted != nil {
 		t.Fatal("failure or revision manufactured a Review")
 	}
-	const retry = "attempt:first-group-relaunch"
-	lane, job, epoch := f.startWorker(t, "implement", retry)
 	if err := os.WriteFile(filepath.Join(f.path, "pkg/value.go"), []byte("package spine\nfunc Value() int { return 3 + 4 }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	gitRun(t, f.path, "add", "pkg/value.go")
-	gitRun(t, f.path, "commit", "-qm", "finish the relaunched assignment")
-	f.finishWorker(t, lane, retry, job, nil)
-	spineOK(t, f.action(t, "accept_worker_result", map[string]any{"attempt_id": retry, "attempt_epoch": epoch}))
+	gitRun(t, f.path, "commit", "-qm", "finish the checked repair")
+	f.verify(t)
 	after := f.read(t).Pinned.Pin
-	if after.Review.Accepted != nil || after.Review.Candidate == nil || after.Review.Candidate.Commit != gitRun(t, f.path, "rev-parse", "HEAD") {
-		t.Fatalf("same-assignment relaunch lost its result or required Review: %+v", after.Review)
+	if after.Review.Accepted != nil || after.Review.Candidate != nil || after.WorkContext == nil || after.WorkContext.SubjectCommit != gitRun(t, f.path, "rev-parse", "HEAD") {
+		t.Fatalf("native verification lost its qualified subject or manufactured Review: context=%+v Review=%+v", after.WorkContext, after.Review)
 	}
 }
 
 func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 	f := newSpineExecutionFixtureForFamily(t, "workflow.break_fix")
 	f.verify(t)
-	f.recordJob(t)
+	f.prepareControl(t)
 	if f.read(t).Pinned.Pin.Review.Accepted != nil {
 		t.Fatal("first entry installed an unsolicited baseline Review")
 	}
-	f.completeWorker(t)
-	f.recordJobAs(t, "job:spine-next-group")
+	f.implement(t)
 	before := f.read(t).Pinned.Pin
-	if before.Review.Candidate == nil || before.Review.Accepted != nil {
-		t.Fatalf("first result did not produce the unreviewed integrated candidate: %+v", before.Review)
+	if before.WorkContext == nil || before.WorkContext.SubjectCommit != gitRun(t, f.path, "rev-parse", "HEAD") || before.Review.Candidate != nil || before.Review.Accepted != nil {
+		t.Fatalf("native verification did not retain the unreviewed subject: context=%+v Review=%+v", before.WorkContext, before.Review)
 	}
-	assertHeld := func(attempt string) {
+	assertHeld := func() {
 		t.Helper()
-		lane, ok := builtinLane("implement")
-		if !ok {
-			t.Fatal("implementation lane unavailable")
-		}
-		packet := bindPacketToRecordedState(t, f.s, map[string]any{
-			"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attempt,
-			"lane_id": lane.ID, "lane_digest": lane.Digest,
-			"work_id": f.work, "step_id": f.read(t).Pinned.Step, "inputs": map[string]any{},
-		})
-		refused := f.action(t, "dispatch_worker", map[string]any{"attempt_id": attempt, "worker_packet": packet})
+		refused := f.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:first-group", "delivery_state": "asserted"})
 		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "missing_evidence" {
 			t.Fatalf("a progressed execution reopened its first group: %+v", refused)
 		}
 		after := f.read(t).Pinned.Pin
-		if after.Version != before.Version || after.Lifecycle != before.Lifecycle || !reflect.DeepEqual(after.Review, before.Review) {
-			t.Fatal("refused group opening changed the candidate, disposition, findings, or lifecycle")
+		if after.Version != before.Version || after.Lifecycle != before.Lifecycle || !reflect.DeepEqual(after.Review, before.Review) || !reflect.DeepEqual(after.WorkContext, before.WorkContext) {
+			t.Fatal("refused delivery changed the qualified subject, Review, or lifecycle")
 		}
 	}
-	assertHeld("attempt:second-before-resume")
+	assertHeld()
 	f.administrativeRecovery(t)
 	before = f.read(t).Pinned.Pin
-	assertHeld("attempt:second-after-recovery")
+	assertHeld()
 	database := f.s.Path()
 	if err := f.s.Close(); err != nil {
 		t.Fatal(err)
@@ -100,33 +81,5 @@ func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 	f.service.Now = time.Now
 	resolveProjectAuthority(f.service, store.ProjectResolution{ProjectID: "project-1"})
 	f.env.SessionRef = "session-spine-first-group-resumed"
-	assertHeld("attempt:second-after-resume")
-}
-
-func TestSpineFirstGroupUnknownLaunchCannotAuthorizeAnotherAttempt(t *testing.T) {
-	f := newSpineExecutionFixtureForFamily(t, "workflow.break_fix")
-	f.verify(t)
-	f.recordJob(t)
-	lane, ok := builtinLane("implement")
-	if !ok {
-		t.Fatal("implementation lane unavailable")
-	}
-	authorize := func(attempt string) agentcontract.Envelope {
-		packet := bindPacketToRecordedState(t, f.s, map[string]any{
-			"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attempt,
-			"lane_id": lane.ID, "lane_digest": lane.Digest,
-			"work_id": f.work, "step_id": f.read(t).Pinned.Step, "inputs": map[string]any{},
-		})
-		return f.action(t, "dispatch_worker", map[string]any{"attempt_id": attempt, "worker_packet": packet})
-	}
-	spineOK(t, authorize("attempt:initial-unknown"))
-	before := f.read(t).Pinned.Pin
-	refused := authorize("attempt:initial-duplicate")
-	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "operation_conflict" {
-		t.Fatalf("unknown-effect first launch: outcome=%s error=%+v", refused.Outcome, refused.Error)
-	}
-	after := f.read(t).Pinned.Pin
-	if after.Version != before.Version || !reflect.DeepEqual(after.Attempt, before.Attempt) || !reflect.DeepEqual(after.Review, before.Review) {
-		t.Fatal("refused duplicate launch changed execution state")
-	}
+	assertHeld()
 }

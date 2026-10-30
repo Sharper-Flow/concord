@@ -62,11 +62,10 @@ The confirmed process contributors are:
    `record_alignment` records a declared candidate search, not a check of
    recurring failure shapes or accumulated special cases. CD-0156 D3-D5
    deliberately leaves semantic relations with the coordinator.
-4. **Explore permits inference alongside facts.** The baseline explore body
-   in `scripts/generate-agent-lanes.py` says “Separate observed facts from
-   inferences.” CD-0149 D2-D4 gives the utility no diagnosis authority,
-   report schema, or workflow evidence. Its body nevertheless permits an
-   inference-shaped answer that a parent could mistake for a diagnosis.
+4. **Explore must distinguish facts from diagnosis.** CD-0149 D2-D4 gives the
+   utility no diagnosis authority, report schema or workflow evidence.
+   `scripts/generate-agent-profiles.py` owns the facts-only body; the
+   coordinator must not treat its output as a root-cause assessment.
 5. **No capture-time cluster owner exists.** The two capture routes do not
    compare historical same-shape defects. Alignment checks candidate overlap
    inside an individual workflow. Neither mechanism holds a recurring bug
@@ -268,8 +267,9 @@ This record does not complete that item or authorize an installation.
   `TestClassifiedBugRevisionAwayRefused` prove kind-conversion refusal.
 - `go test ./internal/store ./internal/agent -run 'TestLargeCluster|TestRecurrenceRefusalDetail|TestPublic'`
   exercises complete large-cluster coverage and public reads.
-- `python3 scripts/test-generate-agent-lanes.py` proves the facts-only body.
+- `python3 scripts/generate-agent-profiles.py --check` checks the facts-only
+  body projection; independent review checks its content against D2.
 - `python3 scripts/generate-agent-contracts.py --check` and
-  `python3 scripts/generate-agent-lanes.py --check` prove generated consistency.
-- `python3 scripts/check-json.py` and `python3 scripts/check-public-content.py`
-  check accepted law and public artifacts against this accepted record.
+  `python3 scripts/generate-agent-profiles.py --check` prove generated consistency.
+- `python3 scripts/check-json.py` and `python3 scripts/check-public-content.py` check accepted law and public
+  artifacts against this accepted record.

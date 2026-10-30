@@ -4,6 +4,7 @@ import "testing"
 
 func TestResearchCompositionReachesReview(t *testing.T) {
 	s := openTemp(t)
+	t.Cleanup(func() { _ = s.Close() })
 	const workID = "research-review-reachable"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
@@ -40,14 +41,18 @@ func TestResearchCompositionReachesReview(t *testing.T) {
 	if step := readInstanceStep(t, s, workID); step != "findings" {
 		t.Fatalf("research prerequisites reached %q, want findings", step)
 	}
-	lane := reviewGateLane(t, "review")
-	const attempt = "attempt:research-review"
-	packet := joinPacketFor(t, s, workID, "findings", attempt, lane.ID, lane.Digest)
-	if _, err := dispatchJoinAttempt(t.Context(), t, s, workID, readWorkVersion(t, s, workID), livenessActor(), packet); err != nil {
-		t.Fatalf("research cannot authorize its Review after findings: %v", err)
+	apply("record_report", nil)
+	if step := readInstanceStep(t, s, workID); step != "conclude" {
+		t.Fatalf("research report reached %q, want conclude", step)
 	}
-	var authorized int
-	if err := s.db.QueryRow(`SELECT count(*) FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND json_extract(payload,'$.worker_lane_id')='review'`, workID, attempt).Scan(&authorized); err != nil || authorized != 1 {
-		t.Fatalf("research Review authorization=%d, err=%v", authorized, err)
+	repo, _ := reviewSubjectClaim(t, s, workID)
+	qualifyReviewSubjectForTest(t, s, workID, repo)
+	report := currentReviewBlockForTest(t, s, workID, "ready_for_final_proof")
+	if err := recordReviewForTest(t, s, workID, livenessActor(), report); err != nil {
+		t.Fatalf("research cannot record Review after findings: %v", err)
+	}
+	state, err := loadWorkflowReviewState(t.Context(), s.db, workID)
+	if err != nil || state.Accepted == nil || state.Accepted.ReportDigest != reviewDigest(report) {
+		t.Fatalf("recorded research Review = %+v, %v", state.Accepted, err)
 	}
 }

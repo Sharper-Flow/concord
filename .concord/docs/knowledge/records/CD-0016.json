@@ -3,8 +3,7 @@
     "agent-adapter",
     "agent-call-boundary",
     "agent-contract",
-    "agent-surface",
-    "worker-lanes"
+    "agent-surface"
   ],
   "authority": {
     "contract_version": 1,
@@ -29,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4515402ff9256a58cab8b62a3201c7543e42b47f01d321c3b9083e8625ef3eef",
+  "sha256": "sha256:b4923c784798e268a02957bc95789b93ffd0eb43fb512e11e5e8eb7eccaf3830",
   "status": "accepted",
   "summary": "Defines durable checkpoints, bounded boundaries, derived pinned context, typed restart availability, and the recorded work-context view.",
   "tags": [

@@ -19,15 +19,13 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-// The spine observes only current public reads. Product setup and the host's
-// worker-terminal seam are fixture infrastructure, not assertions about storage.
+// The spine observes current public reads, coordinator Review and captured proof.
 type spineFixture struct {
 	s                       *store.Store
 	service                 *Service
 	env                     CallEnvelope
 	work, path, base, proof string
 	proofCommit             string
-	packetDigest            string
 	request                 int
 }
 
@@ -37,7 +35,6 @@ type spineContinuity struct {
 		Step     string                      `json:"workflow_step"`
 		Contract *store.WorkflowReadContract `json:"contract"`
 		Pin      *store.WorkPin              `json:"work_pin"`
-		Jobs     []store.WorkerPacketJob     `json:"ready_worker_jobs"`
 	} `json:"pinned"`
 }
 
@@ -135,10 +132,10 @@ func newSpineFixtureForFamily(t *testing.T, family string) *spineFixture {
 	t.Helper()
 	f := newSpineExecutionFixtureForFamily(t, family)
 	f.verify(t)
-	f.recordJob(t)
-	f.completeWorker(t)
+	f.prepareControl(t)
+	f.implement(t)
 	f.proof = f.verify(t)
-	f.recordJob(t)
+	f.prepareControl(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	return f
@@ -162,7 +159,7 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: agentFixtureProductEvents("spine", "product-1", "project-1", "Spine Product", "Spine Project", "synthetic spine fixture")}); err != nil {
 		t.Fatal(err)
 	}
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"product_read", "work_define", "work_transition", "worker_dispatch"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"product_read", "work_define", "work_transition"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	s.Clock, service.Now = time.Now, time.Now
 	home, err := pm1fixture.SeedCommittedProductDomain(context.Background(), s, "product-1", "project-1", t.TempDir())
 	if err != nil {
@@ -250,16 +247,7 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	return f
 }
 
-func (f *spineFixture) recordJob(t *testing.T) {
-	f.recordJobAs(t, "job:spine-value")
-	if review := f.read(t).Pinned.Pin.Review; review != nil && review.Accepted == nil && review.Dependencies != nil && !review.Dependencies.ArchitectureNotApplicable {
-		// The architecture Review binds the job it permits; continue leaves
-		// that job ready for implementation (CD-0205 D3).
-		f.review(t, "continue", "")
-	}
-}
-
-func (f *spineFixture) recordJobAs(t *testing.T, jobID string) {
+func (f *spineFixture) prepareControl(t *testing.T) {
 	t.Helper()
 	state := f.read(t)
 	binding := state.Pinned.Contract.ArchitectureBinding
@@ -289,101 +277,16 @@ func (f *spineFixture) recordJobAs(t *testing.T, jobID string) {
 	if result.Oracle == nil || result.Oracle.Qualification != "ready" {
 		t.Fatalf("native preparation not ready: %+v", result)
 	}
-	control.ReadinessEvidenceRefs = []string{result.OperationRef}
-	spineOK(t, f.action(t, "record_worker_job", map[string]any{
-		"job_id": jobID, "objective": "Carry out the approved value change.", "stopping_condition": "The value check passes.",
-		"ready": true, "checks": []string{"go test ./..."}, "readiness_evidence": []string{result.OperationRef}, "path_scope": []string{"pkg/value.go"},
-		"acceptance_oracle": store.AcceptanceOracle{Owners: []store.OracleOwner{owner}, Cases: cases, Controls: []store.OracleControl{control}},
-	}))
 }
 
-func (f *spineFixture) completeWorker(t *testing.T) {
+func (f *spineFixture) implement(t *testing.T) {
 	t.Helper()
-	const attempt = "attempt:spine-value"
-	lane, job, epoch := f.startWorker(t, "implement", attempt)
 	if err := os.WriteFile(filepath.Join(f.path, "pkg/value.go"), []byte("package spine\n\nfunc Value() int { return 3 + 4 }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	gitRun(t, f.path, "add", "pkg/value.go")
 	gitRun(t, f.path, "commit", "-qm", "checked value implementation")
 	f.verify(t)
-	f.finishWorker(t, lane, attempt, job, nil)
-	spineOK(t, f.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}))
-}
-
-func (f *spineFixture) startWorker(t *testing.T, laneID, attempt string) (store.LaneDefinition, *store.WorkerJobBinding, int64) {
-	t.Helper()
-	ctx := context.Background()
-	lane, ok := builtinLane(laneID)
-	if !ok {
-		t.Fatal("implementation lane unavailable")
-	}
-	ready := f.read(t).Pinned.Jobs
-	if len(ready) != 1 {
-		t.Fatalf("ready jobs = %d, want one", len(ready))
-	}
-	job := &store.WorkerJobBinding{JobID: ready[0].JobID, Revision: ready[0].Revision, Digest: ready[0].Digest}
-	packet := bindPacketToRecordedState(t, f.s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion,
-		"attempt_id": attempt, "lane_id": lane.ID, "lane_digest": lane.Digest,
-		"work_id": f.work, "step_id": f.read(t).Pinned.Step, "inputs": map[string]any{}})
-	if correction := f.read(t).Pinned.Pin.Correction; correction != nil {
-		packet["inputs"].(map[string]any)["correction"] = correction
-	}
-	authorized := spineOK(t, f.action(t, "dispatch_worker", map[string]any{"attempt_id": attempt, "worker_packet": packet}))
-	var authorization struct {
-		PacketDigest string `json:"worker_packet_digest"`
-	}
-	if err := json.Unmarshal(authorized.Result, &authorization); err != nil || authorization.PacketDigest == "" {
-		t.Fatalf("dispatch omitted its actual packet digest: %s (%v)", authorized.Result, err)
-	}
-	f.packetDigest = authorization.PacketDigest
-	state := f.read(t)
-	if state.Pinned.Pin.Attempt == nil {
-		t.Fatal("dispatch omitted current attempt")
-	}
-	epoch := state.Pinned.Pin.Attempt.Epoch
-	dispatch := store.Event{EventID: "spine-host-dispatched-" + attempt, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: f.work,
-		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{
-			AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
-			PacketDigest: f.packetDigest, ReadbackModel: "openai/test-model", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
-	if err := f.s.Transact(ctx, func(tx *store.Transaction) error {
-		pair, err := store.PrepareLaneActorDispatch(ctx, tx, dispatch, f.env.PrincipalRef, f.env.ClientRef)
-		if err != nil {
-			return err
-		}
-		_, err = store.AppendLaneActorDispatchTx(ctx, tx, pair)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	return lane, job, epoch
-}
-
-func (f *spineFixture) finishWorker(t *testing.T, lane store.LaneDefinition, attempt string, job *store.WorkerJobBinding, review *store.WorkerReviewBlock) {
-	t.Helper()
-	ctx := context.Background()
-	evidence := []store.WorkerReportEvidence{}
-	for _, obligation := range lane.EvidenceObligations {
-		if obligation == "severity" && review != nil {
-			continue
-		}
-		evidence = append(evidence, store.WorkerReportEvidence{Obligation: obligation, Detail: "Checked value implementation."})
-	}
-	completion := store.Event{EventID: "spine-host-completed-" + attempt, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: f.work,
-		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerCompleted),
-		Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: attempt, ReadbackModel: "openai/test-model", ReportSchemaVersion: store.WorkerReportSchemaVersion,
-			WorkerDirectory: f.path, Evidence: evidence, EvidenceOrigin: store.WorkerEvidenceReported, WorkerJob: job, Review: review})}
-	prepared, err := store.PrepareWorkerTerminalDelivery(ctx, f.s, store.PrepareWorkerTerminalDeliveryRequest{WorkID: f.work, AttemptID: attempt, EventID: completion.EventID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx = store.WithWorkerTerminalPreparation(ctx, prepared)
-	if err := f.s.Transact(ctx, func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkerEvidenceOperationTx(ctx, tx, completion)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func (f *spineFixture) review(t *testing.T, disposition, proof string) {
@@ -392,16 +295,13 @@ func (f *spineFixture) review(t *testing.T, disposition, proof string) {
 	if pin.Review == nil || pin.Review.Dependencies == nil {
 		t.Fatal("current Review dependency identities are unavailable")
 	}
-	candidate := store.WorkerReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, f.path, "rev-parse", "HEAD"), Tree: gitRun(t, f.path, "rev-parse", "HEAD^{tree}")}
-	report := &store.WorkerReviewBlock{Disposition: disposition, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: *pin.Review.Dependencies,
-		Assessments: []store.WorkerReviewAssessment{}, Findings: []store.WorkerReviewFinding{}, RemainingObligations: []store.WorkerReviewObligation{}}
+	candidate := store.ReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, f.path, "rev-parse", "HEAD"), Tree: gitRun(t, f.path, "rev-parse", "HEAD^{tree}")}
+	report := &store.ReviewBlock{Disposition: disposition, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: *pin.Review.Dependencies,
+		Assessments: []store.ReviewAssessment{}, Findings: []store.ReviewFinding{}, RemainingObligations: []store.ReviewObligation{}}
 	if proof != "" {
-		report.Assessments = append(report.Assessments, store.WorkerReviewAssessment{PredicateID: "predicate:primary", Assessment: "supported", ReceiptRefs: []string{proof}})
+		report.Assessments = append(report.Assessments, store.ReviewAssessment{PredicateID: "predicate:primary", Assessment: "supported", ReceiptRefs: []string{proof}})
 	}
-	attempt := fmt.Sprintf("attempt:spine-review-%d", f.request)
-	lane, job, epoch := f.startWorker(t, "review", attempt)
-	f.finishWorker(t, lane, attempt, job, report)
-	spineOK(t, f.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}))
+	spineOK(t, f.action(t, "record_review", map[string]any{"review": report}))
 }
 
 func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
@@ -460,9 +360,16 @@ func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
 func (f *spineFixture) advanceToAcceptance(t *testing.T) {
 	t.Helper()
 	delivery := map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}
+	if step := f.read(t).Pinned.Step; step != "execution" && step != "repair" {
+		t.Fatalf("ready Review moved the producing step to %q", step)
+	}
 	spineOK(t, f.action(t, "record_delivery", delivery))
+	if step := f.read(t).Pinned.Step; step != "refine" {
+		t.Fatalf("producer delivery left the step at %q, want refine", step)
+	}
 	spineOK(t, f.action(t, "checkpoint_refine", map[string]any{}))
 	f.proof = f.verify(t)
+	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "evidence_ref": "commit:" + f.proofCommit}))
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	spineOK(t, f.action(t, "record_delivery", delivery))
 	spineOK(t, f.action(t, "record_delivery", delivery))

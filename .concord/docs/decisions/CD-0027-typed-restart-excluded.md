@@ -2,22 +2,16 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-15
-- **Scope:** Context continuity; worker lane dispatch
-- **Related:** CD-0016 (context continuity), CD-0017 (typed workers), issue #120
-- Each launch is one admitted request with its own authority ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+- **Scope:** Context continuity and host session restart
+- **Related:** CD-0016 (context continuity), issue #120
+- Native Task belongs to the host ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).
 
 ## Context
 
 The predecessor enumeration (`.concord/docs/predecessor-operational-coverage.md` §3)
 lists "restart cleanly into a typed agent after a boundary rather than
-summarizing". It was tracked under issue #57, lost its owner when #57 closed,
-and was re-homed to #120 once the lane registry existed — because the
-originally stated blocker ("typed-agent registry not implemented") had
-vanished while restart remained hardcoded unavailable.
-
-The mechanism is implementable today: the lane registry, the dispatch adapter,
-and CD-0016's pinned checkpoints all exist. The question is whether the
-capability it delivers is one Concord owes.
+summarizing". Concord must preserve authority across context boundaries;
+host session management owns working memory and subagent execution.
 
 ## Decision
 
@@ -36,13 +30,10 @@ accepted law.
 
 What restart would additionally buy is continuity of *in-flight working
 memory* — resuming mid-execution into the same lane with the same scratch
-context. In a permanently single-operator system (CD-0006 D8) that belongs to
-the host's session management, not to Product authority: Concord's lanes are
-stateless workers whose durable state is the workflow itself, and re-entering
-execution through a fresh dispatch with pinned state is equivalent in
-authority and cheaper in mechanism. Implementing restart would also require a
-lane-selection authority rule (which lane may resume which step) whose only
-purpose would be preserving what is already preserved.
+context. In a permanently single-operator system (CD-0006 D8), that belongs to
+host session management, not Product authority. A new host session reads current
+workflow authority through pinned continuity without a Concord relaunch,
+lane registry or subagent-provenance claim.
 
 Nothing in this record weakens CD-0016: checkpoints stay durable, boundaries
 stay monotonic, pinned state stays re-derived per call, and restart stays

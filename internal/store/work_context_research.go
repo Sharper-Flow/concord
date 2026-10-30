@@ -164,26 +164,6 @@ func validateWorkContextResearchSelectionsTx(ctx context.Context, tx *sql.Tx, wo
 	return nil
 }
 
-// requireResolvedResearchSelections is the dispatch admission gate beside
-// the work-context byte equality: equality stays necessary and becomes
-// insufficient, because an equal view carrying a required unresolved
-// selection refuses before a worker launches. Optional unresolved entries
-// stay visible without content and never block.
-func requireResolvedResearchSelections(view *WorkContextView) error {
-	if view == nil {
-		return nil
-	}
-	for _, entry := range view.ResearchFindings {
-		if !entry.Required || entry.State == WorkContextResearchStateResolved {
-			continue
-		}
-		return workContextFailure(KindResearchConsumerBlocked, "work_context",
-			fmt.Sprintf("required research selection %s revision %d finding %s is %s; dispatch refuses while it does not resolve", entry.Selection.PackID, entry.Selection.Revision, entry.Selection.FindingID, entry.State),
-			"rebind the pack to a current revision or drop the required selection through a later declaration")
-	}
-	return nil
-}
-
 // isResearchNotFound reports whether an error is one of the canonical
 // selected-read helper's recognized not-found refusals. The typed kind and
 // operation decide; no error-string matching runs here.

@@ -52,7 +52,7 @@ func defaultCheckoutRemovalEligibilityQ(ctx context.Context, q queryer, req Work
 		return out, err
 	}
 	set := WorktreeSetID(req.WorkID)
-	if out.entries, err = removalStateRows(ctx, q, `SELECT json_array(project_id,claim_op_id,member_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts) FROM worktree_entries WHERE set_id=? ORDER BY project_id,member_id`, set); err != nil {
+	if out.entries, err = removalStateRows(ctx, q, `SELECT json_array(project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts) FROM worktree_entries WHERE set_id=? ORDER BY project_id`, set); err != nil {
 		return out, err
 	}
 	if out.outcomes, err = removalStateRows(ctx, q, `SELECT json_array(project_id,claim_op_id,claim_incarnation,branch,phase,tip,reason,path,recorded_at,settlement_count) FROM worktree_ref_outcomes WHERE set_id=? ORDER BY project_id,claim_op_id,claim_incarnation,branch`, set); err != nil {

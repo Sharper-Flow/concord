@@ -10,9 +10,9 @@
 // the notice never carries unconfirmed-landing recovery: each route's refusal
 // names its own replay. boundaryActive is the turn-move boundary state the
 // caller reads after arming, so the notice names the boundary only when the
-// native question tool and dispatch are in fact closed.
+// native question tool is in fact closed.
 export const TURN_MOVE_BOUNDARY_NOTICE =
-  "A turn-move boundary is active: the native question tool and dispatch stay closed until the next operator message. To ask the operator a question, write it in normal chat and end the turn."
+  "A turn-move boundary is active: the native question tool stays closed until the next operator message. To ask the operator a question, write it in normal chat and end the turn."
 
 export function moveNoticeText(newPath: string, boundaryActive: boolean): string {
   const notice = `Concord moved this session to ${newPath}. Use paths under ${newPath} for reads, edits, and the shell working directory for the rest of this turn. The <env> working directory and the pre-move checkout are stale until the next turn.`

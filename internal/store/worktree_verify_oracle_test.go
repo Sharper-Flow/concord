@@ -3,10 +3,8 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,11 +15,9 @@ import (
 type nativeOracleFixture struct {
 	s                                        *Store
 	work, repo, head, initMarker, testMarker string
-	dispatchSubject                          string
 	bundle                                   NativeOracleControlBundle
 	prepare                                  WorktreeVerifyResult
-	a, b                                     NativeOracleRequest
-	actor                                    WorkflowActor
+	a                                        NativeOracleRequest
 	launches                                 int
 }
 
@@ -43,11 +39,39 @@ func TestNativeOraclePreparedMetadataMatchesPublicResult(t *testing.T) {
 	}
 }
 
-func newNativeOracleFixture(t *testing.T, recordedSubject ...string) *nativeOracleFixture {
+func TestNativeOracleRequestVariants(t *testing.T) {
+	bundle := NativeOracleControlBundle{}
+	for _, tc := range []struct {
+		name string
+		req  WorktreeVerifyRequest
+		ok   bool
+	}{
+		{"prepare", WorktreeVerifyRequest{Oracle: &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &bundle}}, true},
+		{"execute", WorktreeVerifyRequest{Oracle: &NativeOracleRequest{Phase: "execute", PreparationRunRef: "worktree_verify:ready"}}, true},
+		{"no_oracle", WorktreeVerifyRequest{}, false},
+		{"unknown_phase", WorktreeVerifyRequest{Oracle: &NativeOracleRequest{Phase: "unknown"}}, false},
+		{"command_and_oracle", WorktreeVerifyRequest{Command: []string{"go", "test"}, Oracle: &NativeOracleRequest{Phase: "execute", PreparationRunRef: "worktree_verify:ready"}}, false},
+		{"prepare_no_contract", WorktreeVerifyRequest{Oracle: &NativeOracleRequest{Phase: "prepare", ControlBundle: &bundle}}, false},
+		{"prepare_no_bundle", WorktreeVerifyRequest{Oracle: &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1}}, false},
+		{"prepare_with_reference", WorktreeVerifyRequest{Oracle: &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &bundle, PreparationRunRef: "worktree_verify:ready"}}, false},
+		{"execute_no_reference", WorktreeVerifyRequest{Oracle: &NativeOracleRequest{Phase: "execute"}}, false},
+		{"execute_with_bundle", WorktreeVerifyRequest{Oracle: &NativeOracleRequest{Phase: "execute", ControlBundle: &bundle, PreparationRunRef: "worktree_verify:ready"}}, false},
+		{"execute_with_contract", WorktreeVerifyRequest{Oracle: &NativeOracleRequest{Phase: "execute", ExpectedContractVersion: 1, PreparationRunRef: "worktree_verify:ready"}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateNativeOracleRequest(tc.req)
+			if tc.ok && err != nil || !tc.ok && failureKind(err) != KindInvalidPayload {
+				t.Fatalf("request variant: %v, valid=%t", err, tc.ok)
+			}
+		})
+	}
+}
+
+func newNativeOracleFixture(t *testing.T) *nativeOracleFixture {
 	t.Helper()
 	const work = "native-oracle-work"
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
-	f := &nativeOracleFixture{s: seed.store, work: work, repo: t.TempDir(), initMarker: filepath.Join(t.TempDir(), "init.marker"), testMarker: filepath.Join(t.TempDir(), "test.marker"), actor: seed.owner}
+	f := &nativeOracleFixture{s: seed.store, work: work, repo: t.TempDir(), initMarker: filepath.Join(t.TempDir(), "init.marker"), testMarker: filepath.Join(t.TempDir(), "test.marker")}
 	markers, err := json.Marshal(map[string]string{"init": f.initMarker, "test": f.testMarker})
 	if err != nil {
 		t.Fatal(err)
@@ -80,17 +104,12 @@ func TestValue(t *testing.T){ if os.Getenv("CONCORD_ORACLE_SECRET_SENTINEL")!=""
 		t.Fatal(err)
 	}
 	f.head = strings.TrimSpace(string(head))
-	f.dispatchSubject = f.head
-	if len(recordedSubject) > 0 {
-		f.dispatchSubject = recordedSubject[0]
-	}
 	f.qualify(t, "oracle-branch", "pkg", "pkg/oracle.json", "case:fixture", "TestValue")
 	return f
 }
 
 // qualify claims f.repo at f.head for f.work, prepares the pinned recipe's
-// single control for caseID without launching it, and authorizes an editing
-// attempt plus a distinct verification assignment to execute it.
+// single control for caseID without launching it.
 func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, caseID, testName string) {
 	t.Helper()
 	if _, err := f.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-claim',?,?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM write_guard`, WorktreeSetID(f.work), branch, f.head, f.repo, f.repo); err != nil {
@@ -99,7 +118,7 @@ func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, cas
 	if _, err := f.s.VerifyWorktree(context.Background(), f.request("subject", nil)); err != nil {
 		t.Fatal(err)
 	}
-	fields := acceptanceOracleFieldsForTest(t, f.s, f.work)
+	fields := acceptanceOracleFieldsWithoutPreparationsForTest(t, f.s, f.work)
 	raw, _ := json.Marshal(fields)
 	var oracle AcceptanceOracle
 	if err := json.Unmarshal(raw, &oracle); err != nil {
@@ -126,8 +145,7 @@ func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, cas
 		t.Fatalf("prepare: %+v err=%v", f.prepare, err)
 	}
 	f.assertNoLaunch(t)
-	f.a = f.authorizeLane(t, "a", f.actor, "implement")
-	f.b = f.authorize(t, "b", f.actor)
+	f.a = NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 }
 
 func (f *nativeOracleFixture) request(id string, o *NativeOracleRequest) WorktreeVerifyRequest {
@@ -137,85 +155,6 @@ func (f *nativeOracleFixture) request(id string, o *NativeOracleRequest) Worktre
 		r.Command = []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}
 	}
 	return r
-}
-
-func (f *nativeOracleFixture) authorize(t *testing.T, id string, actor WorkflowActor) NativeOracleRequest {
-	return f.authorizeLane(t, id, actor, "verify")
-}
-
-func (f *nativeOracleFixture) authorizeLane(t *testing.T, id string, actor WorkflowActor, laneID string) NativeOracleRequest {
-	t.Helper()
-	b := f.bundle
-	b.Control.ReadinessEvidenceRefs = []string{f.prepare.OperationRef}
-	oracle := &AcceptanceOracle{Owners: []OracleOwner{b.Owner}, Cases: b.Cases, Controls: []OracleControl{b.Control}}
-	version := readWorkVersion(t, f.s, f.work)
-	next := version + 1
-	job := WorkerJobRecordedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: f.work, ExpectedVersion: &version, ResultingVersion: &next}, JobID: "job:" + id, Revision: 1, ContractVersion: 1, Objective: "execute pinned value control " + id, StoppingCondition: "the exact control executes", ProjectScope: "project", PathScope: []string{b.Control.Cwd}, PredicateIDs: b.Control.PredicateIDs, Checks: []string{"pinned value"}, Prerequisites: []WorkerJobPrerequisite{}, UnresolvedRefs: []string{}, Readiness: &WorkerJobReadiness{Ready: true, Evidence: []string{f.prepare.OperationRef}}, AcceptanceOracle: oracle}
-	job.Digest = DeriveWorkerJobDigest(job)
-	raw, _ := json.Marshal(job)
-	actorRef, _ := WorkflowActorRef(actor)
-	event := workflowEventWithActor("native-job-"+id, WorkerJobRecorded, f.work, actorRef, map[string]any{})
-	event.Payload = raw
-	event.PayloadVersion = CurrentEventPayloadVersion(WorkerJobRecorded)
-	if err := applyWorkflowTestOperationDirect(context.Background(), f.s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.work): version}}); err != nil {
-		t.Fatal(err)
-	}
-	version++
-	packet := map[string]any{"work_id": f.work, "attempt_id": "attempt-" + id, "job": job.Digest, "subject_commit": f.head}
-	packetRaw, _ := json.Marshal(packet)
-	canonical, _ := canonicalJSON(packetRaw)
-	digest := nativeDigest(canonical)
-	lane := reviewGateLane(t, map[string]string{"implement": "implementation", "review": "review", "verify": "verification"}[laneID])
-	var epoch int64
-	if err := f.s.db.QueryRow(`SELECT coalesce(max(attempt_epoch),0)+1 FROM workflow_step_epochs WHERE work_id=? AND step_id='repair'`, f.work).Scan(&epoch); err != nil {
-		t.Fatal(err)
-	}
-	start := workflowEventWithActor("native-start-"+id, WorkflowActionStarted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version, "resulting_version": version + 1, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "accepted_inputs_digest": digest, "idempotency_identity": "native-dispatch-" + id, "actor_ref": actorRef})
-	completion := workflowEventWithActor("native-completion-"+id, WorkflowActionCompleted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version + 1, "resulting_version": version + 2, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actorRef, "result_evidence_refs": []string{}, "changed_refs": []string{}, "worker_attempt_id": "attempt-" + id, "worker_packet_digest": digest, "worker_subject_commit": f.head, "worker_worktree_identity": workerWorktreeIdentity(f.repo), "worker_job": WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, "worker_lane_id": lane.ID, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass, "worker_packet_predicate_ids": b.Control.PredicateIDs})
-	completion.PayloadVersion = CurrentEventPayloadVersion(WorkflowActionCompleted)
-	var completionPayload map[string]any
-	if err := json.Unmarshal(completion.Payload, &completionPayload); err != nil {
-		t.Fatal(err)
-	}
-	if f.dispatchSubject == "" {
-		delete(completionPayload, "worker_subject_commit")
-	} else {
-		completionPayload["worker_subject_commit"] = f.dispatchSubject
-	}
-	completion.Payload, _ = json.Marshal(completionPayload)
-	if err := applyWorkflowTestOperationDirect(context.Background(), f.s, Operation{Events: []Event{start, completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.work): version}}); err != nil {
-		t.Fatal(err)
-	}
-	// The current descriptors retain payloads; receipts retain their exact
-	// headers, canonical digests, and order, never a second payload source.
-	var retained, retainedStart []byte
-	var retainedSeq, retainedStartSeq int64
-	var retainedLane, retainedLaneDigest, retainedCapability string
-	if err := f.s.db.QueryRow(`SELECT d.payload,d.seq,d.start_payload,d.start_seq,a.lane_id,a.lane_digest,a.capability_class
-FROM worker_authorizations d JOIN worker_attempts a ON a.work_id=d.work_id AND a.attempt_id=d.attempt_id
-JOIN effect_receipts r ON r.event_id=d.event_id AND r.effect_seq=d.seq
-WHERE d.work_id=? AND d.attempt_id=? AND d.event_id=?`, f.work, "attempt-"+id, completion.EventID).Scan(&retained, &retainedSeq, &retainedStart, &retainedStartSeq, &retainedLane, &retainedLaneDigest, &retainedCapability); err != nil {
-		t.Fatal(err)
-	}
-	if !oracleEntryIdentical(json.RawMessage(retained), completion.Payload) || !oracleEntryIdentical(json.RawMessage(retainedStart), start.Payload) || retainedLane != lane.ID || retainedLaneDigest != lane.Digest || retainedCapability != lane.CapabilityClass {
-		t.Fatal("retained authorization differs from its exact dispatch/start/lane tuple")
-	}
-	for _, expected := range []Event{event, start, completion} {
-		receipt, found, err := readEffectReceipt(context.Background(), f.s.db, expected.EventID)
-		if err != nil || !found {
-			t.Fatalf("authorization receipt %s: found=%t err=%v", expected.EventID, found, err)
-		}
-		if diffs := receipt.identityDifferences(expected); len(diffs) != 0 {
-			t.Fatalf("authorization receipt %s differs in %v", expected.EventID, diffs)
-		}
-		if (expected.EventID == start.EventID && receipt.Seq != retainedStartSeq) || (expected.EventID == completion.EventID && receipt.Seq != retainedSeq) || (expected.EventID == event.EventID && receipt.Seq >= retainedStartSeq) {
-			t.Fatalf("authorization receipt %s has a mismatched effect sequence", expected.EventID)
-		}
-	}
-	if retainedStartSeq <= 0 || retainedSeq <= retainedStartSeq {
-		t.Fatal("retained authorization does not follow its exact dispatch start")
-	}
-	return NativeOracleRequest{Phase: "execute", AttemptID: "attempt-" + id, AttemptEpoch: epoch, WorkerPacketDigest: digest, WorkerJobBinding: &WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, ControlID: b.Control.ControlID, PreparationRunRef: f.prepare.OperationRef}
 }
 
 func (f *nativeOracleFixture) assertNoLaunch(t *testing.T) {
@@ -233,84 +172,100 @@ func (f *nativeOracleFixture) assertNoLaunch(t *testing.T) {
 func (f *nativeOracleFixture) refusal(t *testing.T, id string, o NativeOracleRequest) {
 	t.Helper()
 	_, err := f.s.VerifyWorktree(context.Background(), f.request(id, &o))
-	if failureKind(err) != KindUnauthorizedDispatch {
-		t.Errorf("typed refusal=%v, want unauthorized_dispatch", err)
+	if failureKind(err) != KindMissingEvidence {
+		t.Errorf("typed refusal=%v, want missing_evidence", err)
 	}
 	f.assertNoLaunch(t)
 	t.Logf("refusal=%s test_program_launches=%d", failureKind(err), f.launches)
 }
 
-func TestNativeOracleExecuteForgedAttemptOrForeignPacketNeverLaunches(t *testing.T) {
+func TestNativeOracleExecuteUnknownPreparationNeverLaunches(t *testing.T) {
 	f := newNativeOracleFixture(t)
 	o := f.a
-	o.AttemptID = "invented-attempt"
+	o.PreparationRunRef = "worktree_verify:invented-preparation"
 	f.refusal(t, "forged", o)
-	o = f.a
-	o.WorkerPacketDigest = f.b.WorkerPacketDigest
-	f.refusal(t, "foreign-packet", o)
-	o = f.a
-	o.WorkerJobBinding = f.b.WorkerJobBinding
-	f.refusal(t, "foreign-job", o)
 }
 
-func TestNativeOracleExecuteMissingCandidateBindingNeverLaunches(t *testing.T) {
-	f := newNativeOracleFixture(t, "")
+func TestNativeOraclePreparationScopeAndReplayIdentity(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	for _, scope := range []struct{ work, project string }{{"foreign-work", "project"}, {f.work, "foreign-project"}} {
+		p, err := readOraclePreparationReceiptTx(t.Context(), f.s.db, scope.work, scope.project, f.prepare.OperationRef)
+		if err != nil || p != nil {
+			t.Fatalf("foreign preparation scope %+v returned %+v, %v", scope, p, err)
+		}
+	}
+	for name, change := range map[string]func(*WorktreeVerifyRequest){
+		"work":      func(r *WorktreeVerifyRequest) { r.WorkID = "foreign-work" },
+		"project":   func(r *WorktreeVerifyRequest) { r.ProjectID = "foreign-project" },
+		"request":   func(r *WorktreeVerifyRequest) { r.RequestID = "foreign-request" },
+		"principal": func(r *WorktreeVerifyRequest) { r.PrincipalRef = "principal/foreign" },
+		"client":    func(r *WorktreeVerifyRequest) { r.Owner.ClientRef = "client/foreign" },
+		"agent":     func(r *WorktreeVerifyRequest) { r.Owner.AgentRef = "agent/foreign" },
+		"session":   func(r *WorktreeVerifyRequest) { r.Owner.SessionRef = "session/foreign" },
+		"contract":  func(r *WorktreeVerifyRequest) { r.Oracle.ExpectedContractVersion = 2 },
+		"phase": func(r *WorktreeVerifyRequest) {
+			r.Oracle = &NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := f.request("prepare", &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &f.bundle})
+			change(&r)
+			if _, err := f.s.VerifyWorktree(t.Context(), r); failureKind(err) != KindInvalidOperation {
+				t.Fatalf("replay changed %s: %v", name, err)
+			}
+			f.assertNoLaunch(t)
+		})
+	}
+}
+
+func TestNativeOraclePrepareContractVersionRefusal(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	o := NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 2, ControlBundle: &f.bundle}
+	if _, err := f.s.VerifyWorktree(t.Context(), f.request("foreign-contract", &o)); failureKind(err) != KindVersionConflict {
+		t.Fatalf("inactive preparation contract: %v", err)
+	}
+	f.assertNoLaunch(t)
+}
+
+func TestNativeOracleDirtyExecutionNeverLaunches(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	if err := os.WriteFile(filepath.Join(f.repo, "pkg/value.go"), []byte("package oracle\nfunc Value() int { return 8 }\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f.refusal(t, "dirty", f.a)
+}
+
+func TestNativeOracleExecuteMissingQualifiedSubjectNeverLaunches(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	if _, err := f.s.db.Exec(`DELETE FROM durable_operations WHERE op_id='worktree_verify:native-subject'`); err != nil {
+		t.Fatal(err)
+	}
 	f.refusal(t, "missing-subject", f.a)
 }
 
-func TestNativeOracleExecuteRecordedOlderSubjectNeverLaunches(t *testing.T) {
-	f := newNativeOracleFixture(t, strings.Repeat("a", 40))
-	f.refusal(t, "older-subject", f.a)
-}
-
-// An editing attempt commits a candidate over its dispatch subject. Execution
-// under that attempt still refuses, but the genuine binding names the route
-// that grades the candidate, whether or not the core has pinned it yet. A
-// forged binding on the same HEAD keeps the bare refusal.
-func TestNativeOracleExecuteEditedCandidateNamesTheEvaluatorRoute(t *testing.T) {
+func TestNativeOracleExecuteEditedCandidateRequiresFreshPreparation(t *testing.T) {
 	f := newNativeOracleFixture(t)
 	gitRunStore(t, f.repo, "-c", "user.email=oracle@example.invalid", "-c", "user.name=Oracle", "commit", "--allow-empty", "-m", "edited candidate")
-	out, err := (ExecGitRunner{}).Run(context.Background(), f.repo, "rev-parse", "HEAD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	candidate := strings.TrimSpace(string(out))
-	wantRoute := []string{"worktree_verify", "record_worker_job", "dispatch_worker"}
-	check := func(id string, o NativeOracleRequest, routed bool) {
-		t.Helper()
-		_, err := f.s.VerifyWorktree(context.Background(), f.request(id, &o))
-		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindUnauthorizedDispatch {
-			t.Fatalf("%s: refusal=%v, want unauthorized_dispatch", id, err)
-		}
-		if !routed {
-			if failure.RecoveryAction == RecoveryUseDeclaredRoute {
-				t.Errorf("%s: a forged binding named the evaluator route: %+v", id, failure)
-			}
-		} else if failure.RecoveryAction != RecoveryUseDeclaredRoute || !slices.Equal(failure.RecoveryRefs, wantRoute) || !strings.Contains(failure.Detail, f.head) || !strings.Contains(failure.Detail, candidate) {
-			t.Errorf("%s: refusal recovery=%q refs=%v detail=%q, want the evaluator route naming %s and %s", id, failure.RecoveryAction, failure.RecoveryRefs, failure.Detail, f.head, candidate)
-		}
-		f.assertNoLaunch(t)
-	}
-	check("candidate-unpinned", f.a, true)
-	forged := f.a
-	forged.WorkerPacketDigest = f.b.WorkerPacketDigest
-	check("candidate-forged", forged, false)
-	foreignPreparation := f.a
-	foreignPreparation.PreparationRunRef = "worktree_verify:invented-preparation"
-	check("candidate-foreign-preparation", foreignPreparation, false)
-	foreignControl := f.a
-	foreignControl.ControlID = "control:invented"
-	check("candidate-foreign-control", foreignControl, false)
+	f.refusal(t, "candidate-unpinned", f.a)
 	if _, err := f.s.VerifyWorktree(context.Background(), f.request("candidate-subject", nil)); err != nil {
 		t.Fatal(err)
 	}
-	check("candidate-pinned", f.a, true)
+	f.refusal(t, "candidate-pinned", f.a)
+	prepare := NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &f.bundle}
+	r, err := f.s.VerifyWorktree(context.Background(), f.request("candidate-prepare", &prepare))
+	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "ready" {
+		t.Fatalf("fresh candidate preparation: %+v %v", r, err)
+	}
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: r.OperationRef}
+	r, err = f.s.VerifyWorktree(context.Background(), f.request("candidate-execute", &o))
+	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || f.launches != 1 {
+		t.Fatalf("fresh candidate execute: %+v %v launches=%d", r, err, f.launches)
+	}
 }
 
 func TestNativeOracleExecuteCoreDisagreementNeverLaunches(t *testing.T) {
 	f := newNativeOracleFixture(t)
-	// Preserve HEAD and recorded dispatch. A different native core receipt is
+	// Preserve HEAD and preparation. A different native core receipt is
 	// the sole changed fact, not a caller subject or a dirty working tree.
 	if _, err := f.s.db.Exec(`UPDATE worktree_verify_leases SET result_json=json_set(result_json,'$.subject_ref',?) WHERE lease_id='native-subject';UPDATE durable_operations SET result_payload=(SELECT result_json FROM worktree_verify_leases WHERE lease_id='native-subject') WHERE op_id='worktree_verify:native-subject'`, "commit:"+strings.Repeat("b", 40)); err != nil {
 		t.Fatal(err)
@@ -358,12 +313,12 @@ func TestNativeOracleGenuineExecutionAndImmutableReplay(t *testing.T) {
 	t.Logf("genuine test execution: %s; %d distinct witnesses; one launch; identical replay", r.OperationRef, len(r.Oracle.ObservedTestNames))
 }
 
-func TestNativeOracleServerEnvironmentDoesNotReachWorker(t *testing.T) {
+func TestNativeOracleServerEnvironmentDoesNotReachNativeProgram(t *testing.T) {
 	t.Setenv("CONCORD_ORACLE_SECRET_SENTINEL", "synthetic-server-secret")
 	f := newNativeOracleFixture(t)
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("sentinel", &f.a))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || f.launches != 1 {
-		t.Fatalf("worker inherited server environment: qualification=%+v err=%v launches=%d", r.Oracle, err, f.launches)
+		t.Fatalf("native program inherited server environment: qualification=%+v err=%v launches=%d", r.Oracle, err, f.launches)
 	}
 }
 
@@ -373,7 +328,7 @@ func TestNativeOracleHangingTestDeadlineReleasesLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.commitAndPrepare(t, "slow")
-	o := f.authorize(t, "slow", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	req := f.request("slow-execute", &o)
 	req.SupportedBudgetSeconds = 1
 	r, err := f.s.VerifyWorktree(context.Background(), req)
@@ -390,13 +345,11 @@ func TestNativeOracleHangingTestDeadlineReleasesLease(t *testing.T) {
 	}
 }
 
-// Two jobs may be ready at once. The work context then selects no job and
-// carries no preparations; it must not refuse the read.
-func TestNativeOracleTwoReadyJobsSelectNoPreparations(t *testing.T) {
+func TestNativeOracleContextSelectsDirectPreparations(t *testing.T) {
 	f := newNativeOracleFixture(t)
 	preparations, err := readSelectedOraclePreparations(context.Background(), f.s.db, f.work)
-	if err != nil || preparations != nil {
-		t.Fatalf("two ready jobs: preparations=%d err=%v, want none and no error", len(preparations), err)
+	if err != nil || len(preparations) != 1 || preparations[0].RunRef != f.prepare.OperationRef {
+		t.Fatalf("direct preparations=%+v err=%v", preparations, err)
 	}
 }
 
@@ -414,13 +367,18 @@ func TestNativeOracleCorePreparationAdmissionAndAdapterBoundary(t *testing.T) {
 		"no_selected_names":   `json_set(result_json,'$.oracle.selected_test_names',json_array())`,
 		"distinct_count_zero": `json_set(result_json,'$.oracle.selected_distinct_count',0)`,
 		"empty_case_map":      `json_set(result_json,'$.oracle.case_to_test_map',json_object())`,
+		"foreign_work":        `json_set(result_json,'$.oracle.work_id','foreign-work')`,
+		"foreign_project":     `json_set(result_json,'$.oracle.project_id','foreign-project')`,
+		"bundle_drift":        `json_set(result_json,'$.oracle.bundle_digest','` + nativeDigest([]byte("foreign bundle")) + `')`,
+		"recipe_drift":        `json_set(result_json,'$.oracle.recipe_source.path','pkg/foreign.json')`,
+		"environment_drift":   `json_set(result_json,'$.oracle.build_environment_digest','` + nativeDigest([]byte("foreign environment")) + `')`,
+		"missing_stage":       `json_set(result_json,'$.oracle.stages',json_array())`,
+		"failed_stage":        `json_set(result_json,'$.oracle.stages[0].exit_code',1)`,
+		"stream_length_drift": `json_set(result_json,'$.oracle.stdout.length',-1)`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := f.s.db.Exec(`UPDATE worktree_verify_leases SET result_json=` + alteration + ` WHERE lease_id='native-prepare'`); err != nil {
 				t.Fatal(err)
-			}
-			if err := requireWorkerJobRevisionReadyTx(context.Background(), f.s.db, f.work, *f.a.WorkerJobBinding); err == nil {
-				t.Fatal("dispatch admission accepted a mismatched preparation")
 			}
 			if _, err := f.s.VerifyWorktree(context.Background(), f.request("preparation-"+name, &f.a)); err == nil {
 				t.Fatal("execute admission accepted a mismatched preparation")
@@ -436,7 +394,7 @@ func TestNativeOracleCorePreparationAdmissionAndAdapterBoundary(t *testing.T) {
 	if _, err := f.s.db.Exec(`UPDATE worktree_verify_leases SET result_json=json_set(result_json,'$.oracle.stdout.ref','') WHERE lease_id='native-prepare'`); err != nil {
 		t.Fatal(err)
 	}
-	if err := requireWorkerJobRevisionReadyTx(context.Background(), f.s.db, f.work, *f.a.WorkerJobBinding); err != nil {
+	if _, err := readOraclePreparationReceiptTx(context.Background(), f.s.db, f.work, "project", f.prepare.OperationRef); err != nil {
 		t.Fatalf("adapter/core boundary changed; reconsider duplicate checks: %v", err)
 	}
 	f.assertNoLaunch(t)
@@ -502,38 +460,13 @@ func TestNativeOracleExitZeroDuringTestFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.commitAndPrepare(t, "test-exit-zero")
-	o := f.authorize(t, "test-exit-zero", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("test-exit-zero", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "fail" || r.ExitCode == 0 {
 		t.Fatalf("test-time exit zero: exit=%d oracle=%+v err=%v", r.ExitCode, r.Oracle, err)
 	}
 	if _, err := os.Stat(f.testMarker); err != nil {
 		t.Fatalf("the selected test did not reach the exit probe: %v", err)
-	}
-}
-
-func TestNativeOracleEligibleDispatchedAndTerminalStates(t *testing.T) {
-	f := newNativeOracleFixture(t)
-	nativeFixtureDispatch(t, f, f.b)
-	o := f.b
-	o.WorkerPacketDigest = f.a.WorkerPacketDigest
-	f.refusal(t, "dispatched-foreign-packet", o)
-	o = f.b
-	o.AttemptEpoch++
-	f.refusal(t, "dispatched-stale-epoch", o)
-	for _, state := range []string{"completed", "failed"} {
-		setNativeAttemptStateFixture(t, f, f.b.AttemptID, state)
-		f.refusal(t, "terminal-"+state, f.b)
-	}
-	setNativeAttemptStateFixture(t, f, f.b.AttemptID, "dispatched")
-	r, err := f.s.VerifyWorktree(context.Background(), f.request("dispatched-valid", &f.b))
-	if err != nil || r.Oracle.Qualification != "pass" || f.launches != 1 {
-		t.Fatalf("dispatched execute=%+v launches=%d err=%v", r, f.launches, err)
-	}
-	setNativeAttemptStateFixture(t, f, f.b.AttemptID, "completed")
-	replay, err := f.s.VerifyWorktree(context.Background(), f.request("dispatched-valid", &f.b))
-	if err != nil || !oracleEntryIdentical(r, replay) || f.launches != 1 {
-		t.Fatalf("terminal identical replay relaunched: %v", err)
 	}
 }
 
@@ -546,7 +479,6 @@ func (f *nativeOracleFixture) commitAndPrepare(t *testing.T, id string) {
 		t.Fatal(err)
 	}
 	f.head = strings.TrimSpace(string(head))
-	f.dispatchSubject = f.head
 	if _, err := f.s.VerifyWorktree(context.Background(), f.request(id+"-subject", nil)); err != nil {
 		t.Fatal(err)
 	}
@@ -566,7 +498,7 @@ func TestNativeOraclePinnedHarnessRejectsFalseGreenAndLaterRepairPasses(t *testi
 		t.Fatal(err)
 	}
 	f.commitAndPrepare(t, "faulty-candidate")
-	o := f.authorize(t, "faulty", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("faulty-execute", &o))
 	if err != nil || r.Oracle.Qualification != "fail" || r.ExitCode == 0 || f.launches != 1 {
 		t.Fatalf("false-green candidate escaped pinned harness: %+v %v launches=%d", r, err, f.launches)
@@ -582,7 +514,7 @@ func TestNativeOraclePinnedHarnessRejectsFalseGreenAndLaterRepairPasses(t *testi
 		t.Fatal(err)
 	}
 	f.commitAndPrepare(t, "repaired-candidate")
-	o = f.authorize(t, "repaired", f.actor)
+	o = NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err = f.s.VerifyWorktree(context.Background(), f.request("repaired-execute", &o))
 	if err != nil || r.Oracle.Qualification != "pass" || f.launches != 2 {
 		t.Fatalf("later genuine repair %+v %v launches=%d", r, err, f.launches)
@@ -607,25 +539,27 @@ func TestNativeOraclePlanTamperRefusesAndHeldRunCannotResume(t *testing.T) {
 	f.assertNoLaunch(t)
 }
 
-func TestNativeOracleAuthorizationRecheckBeforeLaunchAndRelease(t *testing.T) {
+func TestNativeOraclePreparationRecheckBeforePublication(t *testing.T) {
 	for _, stageName := range []string{"converter_compile", "convert"} {
 		t.Run(stageName, func(t *testing.T) {
 			f := newNativeOracleFixture(t)
 			f.s.nativeOracleStageObserved = func(name, _ string, _, _ []string) {
 				if name == stageName {
-					setNativeAttemptStateFixture(t, f, f.a.AttemptID, "completed")
+					if _, err := f.s.db.Exec(`UPDATE worktree_verify_leases SET result_json=json_set(result_json,'$.oracle.qualification','unavailable') WHERE lease_id=?`, f.prepare.LeaseID); err != nil {
+						t.Error(err)
+					}
 				}
 			}
 			r, err := f.s.VerifyWorktree(context.Background(), f.request("authority-drift", &f.a))
 			if r.Oracle == nil || r.Oracle.Qualification != "unavailable" {
-				t.Fatalf("changed authorization qualified: %+v %v", r, err)
+				t.Fatalf("changed preparation qualified: %+v %v", r, err)
 			}
 			if err != nil || f.launches != 1 {
 				t.Fatalf("release drift fabricated rerun: %v launches=%d", err, f.launches)
 			}
 			var green int
 			if err := f.s.db.QueryRow(`SELECT count(*) FROM durable_operations WHERE op_id=?`, r.OperationRef).Scan(&green); err != nil || green != 0 {
-				t.Fatal("authorization drift created verification authority")
+				t.Fatal("preparation drift created verification authority")
 			}
 			if _, err := f.s.InspectWorktree(context.Background(), WorktreeInspectRequest{WorkID: f.work, ProjectID: "project", Mode: "oracle_output", RunRef: r.OperationRef, Stream: "stdout", Length: 16384}); err != nil {
 				t.Fatalf("committed diagnostics were lost: %v", err)
@@ -645,7 +579,7 @@ func TestNativeOracleCandidateInitForgeryReproducer(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.commitAndPrepare(t, "forged-candidate")
-	o := f.authorize(t, "forged", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("forged-execute", &o))
 	if _, statErr := os.Stat(f.testMarker); !os.IsNotExist(statErr) {
 		t.Fatalf("selected test ran; the fixture no longer exercises the initializer forgery: %v", statErr)

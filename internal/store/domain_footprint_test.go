@@ -257,11 +257,11 @@ func TestDomainFootprintRefusesMalformedSelectors(t *testing.T) {
 	}
 }
 
-// TestCommittedCorpusFeedsTheFootprintOfWorkflowDesign proves the
+// TestCommittedCorpusFeedsTheFootprintOfWorkflowAdmission proves the
 // repository's own inputs carry the case the footprint read answers: the
-// package map resolves internal/store/workflow_design.go, and CD-0128 and
-// CD-0133 name it as evidence.
-func TestCommittedCorpusFeedsTheFootprintOfWorkflowDesign(t *testing.T) {
+// package map resolves internal/store/workflow_admission.go, and CD-0201 and
+// CD-0209 name it as evidence.
+func TestCommittedCorpusFeedsTheFootprintOfWorkflowAdmission(t *testing.T) {
 	t.Parallel()
 	root := repositoryRootForTest(t)
 	manifest := composeWorkingTreeManifest(t, root)
@@ -278,7 +278,7 @@ func TestCommittedCorpusFeedsTheFootprintOfWorkflowDesign(t *testing.T) {
 	for _, entry := range architecture.Packages {
 		roots = append(roots, DomainShapeRoot{Path: entry.Path, Role: "mixed", DomainIDs: entry.DomainIDs})
 	}
-	const file = "internal/store/workflow_design.go"
+	const file = "internal/store/workflow_admission.go"
 	if owner := domainShapeOwningRoot(roots, file); owner != "internal/store" {
 		t.Fatalf("%s resolves to %q", file, owner)
 	}
@@ -290,7 +290,7 @@ func TestCommittedCorpusFeedsTheFootprintOfWorkflowDesign(t *testing.T) {
 			}
 		}
 	}
-	if !naming["CD-0128"] || !naming["CD-0133"] {
+	if !naming["CD-0201"] || !naming["CD-0209"] {
 		t.Fatalf("laws naming %s = %v", file, naming)
 	}
 }

@@ -11,15 +11,6 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// laneAgentFileName names the definition file a registered lane resolves to.
-// The name and the directories searched by verifyLaneAgentIdentity mirror the
-// candidates adapter/opencode/dispatch.ts hashes for CD-0034 host provenance;
-// the two must agree or a session can start on a definition the provenance
-// record cannot cite.
-func laneAgentFileName(laneID string) string {
-	return "concord-" + laneID + ".md"
-}
-
 // agentDefinitionFileName names the definition file an agent resolves to:
 // the agent's invocation handle plus the host definition extension.
 func agentDefinitionFileName(agent string) string {
@@ -132,43 +123,8 @@ func agentSearchDirectories(home, dir string) []string {
 	return dirs
 }
 
-// verifyLaneAgentIdentity asserts that every registered lane resolves to a
-// definition file before a session starts. CD-0049 D2 places this assertion in
-// Concord because `opencode run --agent` answers an unknown name by falling
-// back to the operator's default agent and exiting zero, so the host cannot
-// report the absence. CD-0049 D4 admits no degraded start.
-func verifyLaneAgentIdentity(home, dir string, lanes []store.LaneDefinition) error {
-	dirs := agentSearchDirectories(home, dir)
-	required := make([]string, 0, len(lanes))
-	missing := make([]string, 0, len(lanes))
-	for _, lane := range lanes {
-		name := laneAgentFileName(lane.ID)
-		required = append(required, name)
-		if !resolvesToDefinition(dirs, name) {
-			missing = append(missing, name)
-		}
-	}
-	if len(missing) == 0 {
-		return nil
-	}
-	return &agentIdentityAbsentError{Required: required, Missing: missing, Searched: dirs}
-}
-
-// resolvesToDefinition reports whether any directory in dirs contains a
-// regular file named name.
-func resolvesToDefinition(dirs []string, name string) bool {
-	for _, dir := range dirs {
-		info, err := os.Stat(filepath.Join(dir, name))
-		if err == nil && info.Mode().IsRegular() {
-			return true
-		}
-	}
-	return false
-}
-
 // manifestSeparator separates per-source lines in the ruleset digest
-// manifest. The literal matches adapter/opencode/dispatch.ts
-// computeHostPromptProvenance so the two sides agree on concatenation.
+// manifest.
 const manifestSeparator = "\n---\n"
 
 // verifyOrchestratorIdentity asserts that the active host agent's definition

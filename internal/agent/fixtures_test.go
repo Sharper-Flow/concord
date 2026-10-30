@@ -8,6 +8,7 @@ import (
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestGeneratedPayloadFixturesAreConsumedByGoValidator(t *testing.T) {
@@ -71,19 +72,13 @@ func TestWorkflowCompletionImpactVerdictIsPublicAndRequired(t *testing.T) {
 	}
 }
 
-func TestWorkflowActionSchemaIsActionSpecificAndUsesPublicDispatchFields(t *testing.T) {
+func TestWorkflowActionSchemaIsActionSpecific(t *testing.T) {
 	t.Parallel()
-	dispatch := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"dispatch_worker","idempotency_key":"dispatch-1","fields":{"lane_id":"research"}}`)
-	if err := payloadschema.Validate("work_transition_action_public_input", dispatch); err != nil {
-		t.Fatalf("public dispatch lane_id rejected: %v", err)
-	}
-
-	internalDispatch := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"dispatch_worker","idempotency_key":"dispatch-1","fields":{"attempt_id":"attempt-1","worker_packet":{"schema_version":"2.0","attempt_id":"attempt-1","lane_id":"verify","lane_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000","work_id":"work-1","step_id":"execute","inputs":{"task":"verify the change","binding":{"objective_source":"contract_premise","work_version":1,"contract_version":1,"assigned_result":"exit_codes"}}}}}`)
-	if err := payloadschema.Validate("work_transition_action_public_input", internalDispatch); err == nil {
-		t.Fatal("public schema accepted adapter-owned dispatch fields")
-	}
-	if err := payloadschema.Validate("work_transition_action_input", internalDispatch); err != nil {
-		t.Fatalf("core schema rejected adapter-owned dispatch fields: %v", err)
+	valid := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"bind_evidence","idempotency_key":"bind-1","fields":{"evidence_kind":"verification","evidence_ref":"worktree_verify:one"}}`)
+	for _, schema := range []string{"work_transition_action_public_input", "work_transition_action_input"} {
+		if err := payloadschema.Validate(schema, valid); err != nil {
+			t.Fatalf("%s rejected ordinary evidence binding: %v", schema, err)
+		}
 	}
 
 	crossAction := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"bind_evidence","idempotency_key":"bind-1","fields":{"edge_id":"edge:wrong-action"}}`)
@@ -98,7 +93,6 @@ func TestRecoveryWorkflowActionSchemasRejectUnknownFieldsAtBoundary(t *testing.T
 		id     string
 		fields string
 	}{
-		{id: "reject_worker_result", fields: `{"attempt_id":"attempt-1","attempt_epoch":1,"diagnosis":"bad result","strategy":"retry the worker","predicate_ids":["predicate-1"],"evidence_refs":["evidence-1"]}`},
 		{id: "request_correction", fields: `{"diagnosis":"bad result","strategy":"retry the worker","predicate_ids":["predicate-1"],"evidence_refs":["evidence-1"]}`},
 	} {
 		payload := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"` + action.id + `","idempotency_key":"action-1","fields":` + action.fields + `}`)
@@ -130,21 +124,30 @@ func TestRecoveryWorkflowActionSchemasRejectUnknownFieldsAtBoundary(t *testing.T
 	}
 }
 
-func TestWorkerResultAcceptanceBindingIsPublicAndRequired(t *testing.T) {
+func TestReviewSubjectBindingIsPublicAndRequired(t *testing.T) {
 	t.Parallel()
-	valid := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"accept_worker_result","idempotency_key":"accept-1","fields":{"attempt_id":"attempt-1","attempt_epoch":1}}`)
-	if err := payloadschema.Validate("work_transition_action_input", valid); err != nil {
-		t.Fatalf("explicit worker result binding rejected: %v", err)
+	candidate := store.ReviewCandidate{ProjectID: "project-1", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}
+	review := store.ReviewBlock{Disposition: "continue", InputCandidate: candidate, OutputCandidate: candidate,
+		Dependencies: store.ReviewDependencies{ArchitectureNotApplicable: true, Criteria: []store.ReviewCriterion{{PredicateID: "predicate:primary", ContentDigest: "sha256:" + strings.Repeat("c", 64)}}},
+		Assessments:  []store.ReviewAssessment{}, Findings: []store.ReviewFinding{}, RemainingObligations: []store.ReviewObligation{}}
+	input := map[string]any{"work_id": "work-1", "expected_version": 1, "action_id": "record_review", "idempotency_key": "review-1", "fields": map[string]any{"review": review}}
+	for _, schema := range []string{"work_transition_action_input", "work_transition_action_public_input"} {
+		if err := payloadschema.Validate(schema, retryJSON(input)); err != nil {
+			t.Fatalf("%s rejected complete Review subject binding: %v", schema, err)
+		}
 	}
-
-	for name, input := range map[string]json.RawMessage{
-		"missing attempt": json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"accept_worker_result","idempotency_key":"accept-1","fields":{"attempt_epoch":1}}`),
-		"missing epoch":   json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"accept_worker_result","idempotency_key":"accept-1","fields":{"attempt_id":"attempt-1"}}`),
-		"invalid epoch":   json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"accept_worker_result","idempotency_key":"accept-1","fields":{"attempt_id":"attempt-1","attempt_epoch":0}}`),
-	} {
-		t.Run(name, func(t *testing.T) {
-			if err := payloadschema.Validate("work_transition_action_input", input); err == nil {
-				t.Fatal("invalid worker result acceptance input was accepted")
+	for _, member := range []string{"input_candidate", "output_candidate", "dependencies"} {
+		t.Run("missing "+member, func(t *testing.T) {
+			var incomplete map[string]any
+			if err := json.Unmarshal(retryJSON(review), &incomplete); err != nil {
+				t.Fatal(err)
+			}
+			delete(incomplete, member)
+			input["fields"] = map[string]any{"review": incomplete}
+			for _, schema := range []string{"work_transition_action_input", "work_transition_action_public_input"} {
+				if err := payloadschema.Validate(schema, retryJSON(input)); err == nil {
+					t.Fatalf("%s admitted Review without %s", schema, member)
+				}
 			}
 		})
 	}

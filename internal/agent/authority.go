@@ -197,13 +197,7 @@ func validPolicyGrants(policy TrustedClientPolicy) bool {
 		return false
 	}
 	for _, capability := range policy.Capabilities {
-		// worker_evidence and worker_dispatch are registrable in a client
-		// policy but deliberately absent from the grant-request vocabulary
-		// below: both authorize client-only signed writes, and no bearer
-		// grant can carry either. worker_dispatch is policy-bound because
-		// CD-0059 D3 makes the nested-worker prohibition structural by
-		// denying workers the capability at the policy layer.
-		if !slices.Contains([]string{"product_read", "work_define", "work_transition", "work_relate", "work_compact", "cross_scope", "research", string(CapabilityWorkerEvidence), string(CapabilityWorkerDispatch)}, string(capability)) {
+		if !slices.Contains([]string{"product_read", "work_define", "work_transition", "work_relate", "work_compact", "cross_scope", "research"}, string(capability)) {
 			return false
 		}
 	}
@@ -527,9 +521,6 @@ func (s *Service) AuthorizeTx(ctx context.Context, tx *store.Transaction, host s
 	}
 	grant, err := s.authorizeResolved(ctx, tx, host, in, client)
 	if err != nil {
-		return Authority{}, err
-	}
-	if err := store.CheckMemberMutationTx(ctx, tx, memberWorkflowActor(grant), in.RequiredOperation); err != nil {
 		return Authority{}, err
 	}
 	return grant, nil

@@ -94,7 +94,7 @@ and never blocks the resume.
 ### D4. Launch authority binds to the prepared worktree and agent
 
 `session-prepare` refuses a directory other than the active claimed worktree. It checks
-the installed lane definitions, asserts the orchestrator identity, and obtains the
+the installed primary definitions, asserts the orchestrator identity, and obtains the
 core-derived session packet before launch.
 
 The host launches the named agent with the worktree as both process directory and host

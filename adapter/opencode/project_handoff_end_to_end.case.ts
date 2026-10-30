@@ -7,18 +7,13 @@ import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fi
 requireOwnedFixtureRun()
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureConcordAdapter, invokeConcordOperation, projectHandoffConsumeKey, work_start, work_transition } from "./concord"
-import { concordBinaryPath, configureCoreBinary, type DispatchRunner } from "./dispatch"
+import { concordBinaryPath, configureCoreBinary, type CoreRunner } from "./core-runtime"
 import { configureHostLease } from "./host-lease"
 import { resetClaimedWorktrees } from "./claimed-worktree"
 import { resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { manifestDigest } from "./generated-contracts"
 import { hostControlPlane, MOVE_SESSION_ROUTE, SESSION_ROUTE, SESSION_MESSAGES_ROUTE } from "./move-session"
-import { dispatchLaneWorker } from "./lane_dispatch"
-import { completeDispatchedWorker } from "./lane_completion"
-import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
-import { agentLanes } from "./generated-agent-lanes"
-import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
-import { dbValue, fixturePublicKeyBase64, nativeTaskSelector, workerEffects, type JSONRecord } from "./end-to-end.fixture"
+import { dbValue, fixturePublicKeyBase64, type JSONRecord } from "./end-to-end.fixture"
 
 // The Project-session handoff acceptance runs on the real boundary: a real
 // core binary against a real store, two Projects in two repositories, the
@@ -48,8 +43,7 @@ const CLIENT_REF = "opencode"
 const SOURCE_SESSION = "session-handoff-source"
 const RECEIVE_SESSION = "session-handoff-receive"
 const RECEIVE_SESSION_B = "session-handoff-receive-b"
-const AGENT = "concord-implement"
-const LANE_AGENTS = ["concord-research", "concord-implement", "concord-design", "concord-review", "concord-verify"]
+const AGENT = "Concord"
 const PRIVATE_SEED = new Uint8Array(32).fill(11)
 const HANDOFF_PREDICATE = {
   predicate_id: "predicate:handoff-e2e-consume",
@@ -82,13 +76,13 @@ async function git(cwd: string, ...args: string[]): Promise<void> {
 // realCoreRunner spawns the real core binary against the real store for
 // every transport leg, honoring the child working directory the boot flow
 // resolves (work-resume and session-prepare run from the session's own
-// directories) and the session-prepare seams: a HOME holding the lane agent
+// directories) and the session-prepare seams: a HOME holding the primary agent
 // definitions and a fake `opencode` probe on PATH. This is the boundary the
 // acceptance claims: no canned answer stands between the boot flow and the
 // core, and no fixture session is launched by anyone — both coordinator
 // sessions are host-started before the route runs.
-function realCoreRunner(binary: string, dbPath: string, childEnv: Record<string, string>, captured: { invoke?: JSONRecord }, host?: HandoffHost): DispatchRunner & {
-  run(argv: string[], input: string, signal?: AbortSignal, options?: { cwd?: string }): ReturnType<DispatchRunner["run"]>
+function realCoreRunner(binary: string, dbPath: string, childEnv: Record<string, string>, captured: { invoke?: JSONRecord }, host?: HandoffHost): CoreRunner & {
+  run(argv: string[], input: string, signal?: AbortSignal, options?: { cwd?: string }): ReturnType<CoreRunner["run"]>
 } {
   return {
     async run(argv: string[], input: string, signal?: AbortSignal, options?: { cwd?: string }) {
@@ -110,7 +104,7 @@ function realCoreRunner(binary: string, dbPath: string, childEnv: Record<string,
 // mover request, the session route reads the directory and metadata back,
 // and the PATCH route persists the managed Task scope the boot enrolls. The
 // seed names where each session runs before its first move.
-async function fakeHostControlPlane(seed: Array<[string, string]>, runner: DispatchRunner, retained?: HandoffHost) {
+async function fakeHostControlPlane(seed: Array<[string, string]>, runner: CoreRunner, retained?: HandoffHost) {
   const host = retained ?? { sessions: {}, taskCalls: 0 }
   for (const [id, directory] of seed) host.sessions[id] ??= { directory, metadata: {}, messages: [] }
   configureHostLease({
@@ -124,7 +118,7 @@ async function fakeHostControlPlane(seed: Array<[string, string]>, runner: Dispa
       },
     } as never,
   })
-  configureConcordAdapter({ runner, credentials: { async getPrivateKey() { return PRIVATE_SEED } } })
+  configureConcordAdapter({ runner })
   return await ConcordAdapterPlugin({
     directory: seed[0][1],
     client: {
@@ -137,7 +131,7 @@ async function fakeHostControlPlane(seed: Array<[string, string]>, runner: Dispa
           return { data: { id, ...session }, response: new Response(null, { status: 200 }) }
         },
         post: async ({ url, body }: { url: string; path?: Record<string, unknown>; body?: unknown }) => {
-          if (url === SESSION_MESSAGES_ROUTE) throw new Error("dispatch performs zero subtask writes")
+          if (url === SESSION_MESSAGES_ROUTE) throw new Error("handoff performs zero subtask writes")
           expect(url).toBe(MOVE_SESSION_ROUTE)
           const { sessionID, destination } = body as { sessionID: string; destination: { directory: string } }
           host.sessions[sessionID].directory = destination.directory
@@ -185,7 +179,7 @@ interface HandoffFixture {
 // Projects with canonical locators in distinct repositories, one shared work
 // item holding both memberships, one approved contract, and the recorded
 // handoff the source session addressed to the receiving Project through the
-// real invoke route. The session-prepare seams (lane agent definitions in a
+// real invoke route. The session-prepare seams (primary agent definitions in a
 // fixture HOME and a fake `opencode` probe on PATH) let the real boot flow
 // run its prepare step without an installed host.
 async function bootHandoffFixture(root: string, restartWitness = false): Promise<HandoffFixture> {
@@ -193,9 +187,7 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   const homeRoot = join(root, "home")
   await mkdir(binRoot)
   await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
-  for (const lane of LANE_AGENTS) {
-    await writeFile(join(homeRoot, ".config", "opencode", "agents", `${lane}.md`), `${lane} synthetic definition\n`)
-  }
+  await writeFile(join(homeRoot, ".config", "opencode", "agents", `${AGENT}.md`), `${AGENT} synthetic definition\n`)
   const probe = join(binRoot, "opencode")
   await Bun.write(probe, `#!/bin/sh\necho '{"agent":{"${AGENT}":{"mode":"all","disable":false}}}'\n`)
   await chmod(probe, 0o755)
@@ -283,7 +275,7 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     key_id: "handoff-e2e-key",
     principal_ref: "operator-1",
     public_key: fixturePublicKeyBase64(PRIVATE_SEED),
-    capabilities: ["product_read", "work_transition", "work_relate", "worker_dispatch", "worker_evidence"],
+    capabilities: ["product_read", "work_transition", "work_relate"],
     product_scope: [PRODUCT_ID],
     project_scope: [SOURCE_PROJECT, RECEIVE_PROJECT],
     agent_scope: [AGENT],
@@ -389,7 +381,7 @@ routeDeclaration("host-started session receives real core context without out-of
   }
   const core = realCoreRunner(binary, dbPath, childEnv, captured, host)
   const calls: string[] = []
-  const runner: DispatchRunner = {
+  const runner: CoreRunner = {
     async run(argv, input, signal, options?: { cwd?: string }) {
       const before = snapshot()
       const result = await core.run(argv, input, signal, options)
@@ -728,15 +720,13 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
 
     // The retirement read derives READY_TO_CLOSE_OR_REPLACE from the
     // verified facts only: the recorded addressed handoff, the preserved
-    // source worktree, the stopped session-owned execution, and the
-    // verified vacate landing.
+    // source worktree, and the verified vacate landing.
     const retirement = await invoke("concord_work_trace", "project_retirement", { work_id: workID }, contextFor(SOURCE_SESSION, destination))
     expect(retirement.outcome, JSON.stringify(retirement)).toBe("ok")
     const readiness = retirement.result as JSONRecord
     expect(readiness.state).toBe("ready_to_close_or_replace")
     expect(readiness.recorded_handoff).toBe(true)
     expect(readiness.artifacts_preserved).toBe(true)
-    expect(readiness.workers_stopped).toBe(true)
     expect(readiness.vacate_landed).toBe(true)
     expect(readiness.blockers).toEqual([])
 
@@ -804,7 +794,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM worktree_occupancy WHERE session_ref='${SOURCE_SESSION}'`).n).toBe(0)
     const path = join(fixture.root, "restart-fixture.json")
     await Bun.write(path, JSON.stringify(fixture))
-    for (const phase of ["land", "continue", "recover"]) {
+    for (const phase of ["land", "continue", "resume"]) {
       const result = await runFixtureProcess([process.execPath, "test", import.meta.path, "-t", RESTART_WITNESS], "", {
         cwd: join(import.meta.dir, "..", ".."),
         env: { ...process.env, HANDOFF_RESTART_FIXTURE: path, HANDOFF_RESTART_PHASE: phase },
@@ -816,9 +806,8 @@ routeDeclaration(RESTART_WITNESS, async () => {
     }
     const retained = await Bun.file(path).json()
     assertReceiverCounts(retained)
-    expect(retained.host.taskCalls).toBe(1)
+    expect(retained.host.taskCalls).toBe(0)
     expect(retained.host.sessions[RECEIVE_SESSION].messages).toEqual(retained.originalParentMessages)
-    expect(retained.host.sessions["worker-handoff-original"].messages).toEqual(retained.originalChildMessages)
     return
   }
 
@@ -826,12 +815,9 @@ routeDeclaration(RESTART_WITNESS, async () => {
   const { binary, dbPath, workID, handoffID, repoReceive, host, childEnv, captured } = fixture
   process.env.CONCORD_DB_PATH = dbPath
   const phase = process.env.HANDOFF_RESTART_PHASE
-  expect(dispatchWindows().inFlightAttempt(RECEIVE_SESSION)).toBeNull()
-  expect(dispatchWindows().has(RECEIVE_SESSION)).toBe(false)
   const runner = realCoreRunner(binary, dbPath, childEnv, captured, host)
-  const plugin = await fakeHostControlPlane([[RECEIVE_SESSION, host.sessions[RECEIVE_SESSION].directory]], runner, host)
-  const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-  const invoke = (tool: string, request: any, context: any, directory?: string) => invokeConcordOperation(tool, request, context, directory)
+  await fakeHostControlPlane([[RECEIVE_SESSION, host.sessions[RECEIVE_SESSION].directory]], runner, host)
+  const invoke = (tool: string, request: any, context: any) => invokeConcordOperation(tool, request, context)
   const handoff = () => dbValue(dbPath, `SELECT state, consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`)
   const consumedCount = () => dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE kind='work.project_handoff_consumed' AND subject_id='${workID}'`).n
   const expectedHandoff = {
@@ -881,62 +867,26 @@ routeDeclaration(RESTART_WITNESS, async () => {
     if (!prepareResult.oracle) throw new Error("native preparation returned no oracle result")
     expect(prepareResult.oracle.qualification).toBe("ready")
     const preparationRef = prepareResult.oracle.run_ref
-    const job = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "record_worker_job", idempotency_key: "handoff-receiver-job", fields: { job_id: "job:handoff-receiver", predicate_ids: owner.predicate_ids, objective: expectedHandoff.bounded_job, stopping_condition: "The receiving adapter surface is verified.", path_scope: ["oraclekit"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [preparationRef], acceptance_oracle: { owners: [owner], cases: [oracleCase], controls: [{ ...control, readiness_evidence_refs: [preparationRef] }] } } } }, context)
-    expect(job.outcome, JSON.stringify(job)).toBe("ok")
-    const dispatched = await dispatchLaneWorker({ work_id: workID, expected_version: version(), idempotency_key: "handoff-receiver-dispatch", lane_id: "implement" }, { context, invoke, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, windows: dispatchWindows() })
-    expect(dispatched.outcome, JSON.stringify(dispatched)).toBe("ok")
-    const args = nativeTaskSelector(dispatched)
-    await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID: RECEIVE_SESSION, callID: "handoff-original-task" }, { args })
-    host.taskCalls++
-    const packet = JSON.parse(args.prompt)
-    expect(args.subagent_type).toBe("concord-implement")
-    expect(packet.inputs.worker_job.objective).toBe(expectedHandoff.bounded_job)
-    expect(packet.inputs.task).toBe("Deliver the bounded cross-Project handoff.")
-    expect(packet.inputs.work_record).toEqual({ value_statement: "The bounded handoff crosses Projects without operator copying.", task: "Exercise the handoff route." })
-    const lane = agentLanes.find((candidate) => candidate.id === "implement")!
-    const workerJob = packet.inputs.worker_job
-    const report = { schema_version: packet.schema_version, readback_model: "openai/gpt-5.6-luna", status: "completed", worker_job: { job_id: workerJob.job_id, revision: workerJob.revision, digest: workerJob.digest }, evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original handoff ${obligation}`, ...(index === 0 ? { predicate_ids: [HANDOFF_PREDICATE.predicate_id] } : {}) })) }
-    const reportText = `\`\`\`${WORKER_REPORT_PROTOCOL}\n${JSON.stringify(report)}\n\`\`\``
-    const workerID = "worker-handoff-original"
-    host.sessions[workerID] = { directory: fixture.receiveWorktree, parentID: RECEIVE_SESSION, metadata: {}, messages: [
-      { info: { id: "worker-open", sessionID: workerID, role: "user", agent: AGENT, time: { created: 0 } }, parts: [{ type: "text", text: args.prompt }] },
-      { info: { id: "worker-report", sessionID: workerID, role: "assistant", agent: AGENT, providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [{ type: "text", text: reportText }] },
-    ] }
-    const output = { title: "original handoff Task", output: `<task id="${workerID}" state="completed">\n<task_result>\n${reportText}\n</task_result>\n</task>`, metadata: {} }
-    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: RECEIVE_SESSION, callID: "handoff-original-task", args }, output, { windows: dispatchWindows(), credentials: { async getPrivateKey() { return PRIVATE_SEED } }, runner, concordBinary: binary })
-    const completion = JSON.parse(output.output.split("<concord_attempt>\n")[1].split("\n</concord_attempt>")[0])
-    expect(completion.outcome, JSON.stringify(completion)).toBe("ok")
-    const dispatchEvent = workerEffects(dbPath, workID).find((row) => row.kind === "worker.dispatched")!
-    const provenance = JSON.parse(dispatchEvent.payload).host_provenance.sources
-    expect(provenance).toContainEqual(expect.objectContaining({ kind: "agents_md", path: join(fixture.receiveWorktree, "AGENTS.md") }))
-    expect(provenance.some((source: JSONRecord) => source.path === join(fixture.sourceWorktree, "AGENTS.md"))).toBe(false)
-    host.sessions[RECEIVE_SESSION].messages = [{ info: { id: "original-parent-message", sessionID: RECEIVE_SESSION, role: "assistant" }, parts: [{ id: "original-handoff-task-part", sessionID: RECEIVE_SESSION, type: "tool", tool: TASK_TOOL_ID, state: { status: "completed", input: args, output: output.output } }] }]
+    const executionInput = { work_id: workID, idempotency_key: "handoff-native-execute", requested_budget_seconds: 300, oracle: { phase: "execute", preparation_run_ref: preparationRef } }
+    const execution = await invoke("concord_work_transition", { operation: "worktree_verify", input: executionInput }, context)
+    expect(execution.outcome, JSON.stringify(execution)).toBe("ok")
+    const nativeResult = parseWorktreeVerifyResult(execution.result)
+    expect(nativeResult.oracle?.qualification).toBe("pass")
+    host.sessions[RECEIVE_SESSION].messages = [{ info: { id: "original-parent-message", sessionID: RECEIVE_SESSION, role: "assistant" }, parts: [{ type: "text", text: expectedHandoff.bounded_job }] }]
     fixture.originalParentMessages = host.sessions[RECEIVE_SESSION].messages
-    fixture.originalChildMessages = host.sessions[workerID].messages
-    fixture.originalDispatch = dispatchEvent
-    fixture.originalCompletion = workerEffects(dbPath, workID).find((row) => row.kind === "worker.completed")!
-    fixture.attemptID = packet.attempt_id
+    fixture.executionInput = executionInput
+    fixture.nativeResult = nativeResult
   } else {
-    expect(phase).toBe("recover")
-    if (process.env.HANDOFF_WITNESS_SENSITIVITY === "mismatched-task") {
-      // Valid JSON with unchanged content must still preserve the original
-      // serialized Task bytes before recovery can accept its evidence.
-      host.sessions[RECEIVE_SESSION].messages[0].parts[0].state.input.prompt += "\n"
-    }
+    expect(phase).toBe("resume")
     const context = contextFor(RECEIVE_SESSION, fixture.receiveWorktree)
-    const result = parseToolResult(await work_transition.execute({ request: { operation: "worker_reconcile", input: { work_id: workID, attempt_id: fixture.attemptID, task_part_id: "original-handoff-task-part", idempotency_key: "handoff-original-report-reconcile" } } } as any, context))
+    const boot = parseToolResult(await work_start.execute({ work_id: workID } as any, context))
+    expect(boot.outcome, JSON.stringify(boot)).toBe("ok")
+    expect(boot.project_handoff).toMatchObject(expectedHandoff)
+    const result = await invoke("concord_work_transition", { operation: "worktree_verify", input: fixture.executionInput }, context)
     expect(result.outcome, JSON.stringify(result)).toBe("ok")
-    expect(result.result.worker_recovery.lifecycle_state).toBe("completed")
-    expect(result.result.worker_recovery.coordinator_session).toBe(RECEIVE_SESSION)
-    expect(result.result.worker_recovery.dispatch_event_id).toBe(fixture.originalDispatch.event_id)
-    expect(result.result.worker_recovery.terminal_event_id).toBe(fixture.originalCompletion.event_id)
-    expect(workerEffects(dbPath, workID).find((row) => row.kind === "worker.dispatched")).toEqual(fixture.originalDispatch)
-    expect(workerEffects(dbPath, workID).find((row) => row.kind === "worker.completed")).toEqual(fixture.originalCompletion)
+    expect(parseWorktreeVerifyResult(result.result)).toEqual(fixture.nativeResult)
     expect(host.sessions[RECEIVE_SESSION].messages).toEqual(fixture.originalParentMessages)
-    expect(host.sessions["worker-handoff-original"].messages).toEqual(fixture.originalChildMessages)
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM worker_attempts WHERE work_id='${workID}'`).n).toBe(1)
-    expect(workerEffects(dbPath, workID).filter((row) => row.kind === "worker.completed")).toHaveLength(1)
-    expect(host.taskCalls).toBe(1)
+    expect(host.taskCalls).toBe(0)
     expect(handoff()).toEqual(fixture.originalHandoff)
     expect(consumedCount()).toBe(1)
   }

@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -460,7 +459,6 @@ func TestSessionPrepareRefusesWrongDirectoryBeforeIdentity(t *testing.T) {
 	identityCalls := 0
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run the task"), mustOpenStore(t, dbPath), &out, &errOut,
-		func(string) error { return nil },
 		hostCommandAt(defaultHostResolution()),
 		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
 			identityCalls++
@@ -503,7 +501,6 @@ func TestSessionPrepareRefusesRetiredInitiativeBeforeCallbacks(t *testing.T) {
 	calls := 0
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
-		func(string) error { calls++; return nil },
 		func(context.Context, string) (hostCommandResolution, error) {
 			calls++
 			return defaultHostResolution(), nil
@@ -522,54 +519,7 @@ func TestSessionPrepareRefusesRetiredInitiativeBeforeCallbacks(t *testing.T) {
 	}
 }
 
-func TestWorkerCommandsRefuseRetiredInitiativeBeforeAssertion(t *testing.T) {
-	for _, command := range []string{"worker-dispatch", "worker-complete", "worker-fail", "worker-abandon"} {
-		t.Run(command, func(t *testing.T) {
-			dbPath := freshMigratedCLIDatabase(t)
-			seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
-			key := seedWorkerEvidenceClient(t)
-			lane := store.BuiltinLaneDefinitions()[0]
-			if command != "worker-dispatch" {
-				var out, errOut bytes.Buffer
-				raw := workerDispatchJSON(t, key, "seed-dispatch", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-retired-seed-dispatch")
-				if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(raw), &out, &errOut); code != 0 {
-					t.Fatalf("seed dispatch: code=%d stderr=%q", code, errOut.String())
-				}
-			}
-			s := mustOpenStore(t, dbPath)
-			modelCLIHistoricalInitiative(t, s, "work-1")
-			verb := command
-			if command == "worker-abandon" {
-				verb = agent.WorkerEvidenceVerbFail
-			}
-			request, assertion := workerEvidenceRequest(t, verb, lane, preferredLaneModel(lane), "nonce-retired-"+command)
-			if command == "worker-abandon" {
-				delete(request, "readback_model")
-				delete(request, "failure_kind")
-				assertion.ReadbackModel = ""
-				assertion.FailureKind = store.WorkerFailureAbandoned
-			}
-			request["assertion"] = signWorkerEvidence(t, key, assertion)
-			var before, after int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
-				t.Fatal(err)
-			}
-			assertionCalls := 0
-			service := agent.NewService(s)
-			service.Now = func() time.Time { assertionCalls++; return time.Now().UTC() }
-			var out, errOut bytes.Buffer
-			code := runWorkerCommand(command, []byte(mustJSON(t, request)), s, service, time.Now, &out, &errOut)
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&after); err != nil {
-				t.Fatal(err)
-			}
-			if code != 1 || assertionCalls != 0 || after != before || !strings.Contains(errOut.String(), "CD-0213") {
-				t.Fatalf("code=%d assertion_calls=%d events=%d->%d stdout=%q stderr=%q", code, assertionCalls, before, after, out.String(), errOut.String())
-			}
-		})
-	}
-}
-
-func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
+func TestSessionPrepareRunsIdentityBeforeBoot(t *testing.T) {
 	repo := initLocatorRepo(t)
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	s := mustOpenStore(t, dbPath)
@@ -584,10 +534,9 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM effect_receipts").Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	laneCalls, identityCalls, bootCalls := 0, 0, 0
+	identityCalls, bootCalls := 0, 0
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "use UTF-8 ✓"), s, &out, &errOut,
-		func(string) error { laneCalls++; return nil },
 		hostCommandAt(defaultHostResolution()),
 		func(ctx context.Context, dir string, host hostCommandResolution, productID, workID, agent string) (string, error) {
 			identityCalls++
@@ -605,8 +554,8 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 			bootCalls++
 			return []byte(`{"watermark":"test"}`), nil
 		})
-	if code != 0 || laneCalls != 1 || identityCalls != 1 || bootCalls != 1 || !strings.Contains(out.String(), "use UTF-8 ✓") {
-		t.Fatalf("prepare code=%d lane=%d identity=%d boot=%d stdout=%q stderr=%q", code, laneCalls, identityCalls, bootCalls, out.String(), errOut.String())
+	if code != 0 || identityCalls != 1 || bootCalls != 1 || !strings.Contains(out.String(), "use UTF-8 ✓") {
+		t.Fatalf("prepare code=%d identity=%d boot=%d stdout=%q stderr=%q", code, identityCalls, bootCalls, out.String(), errOut.String())
 	}
 	var prepared struct {
 		Title string `json:"title"`
@@ -626,27 +575,26 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 	}
 
 	before = after
-	laneCalls, identityCalls, bootCalls = 0, 0, 0
+	identityCalls, bootCalls = 0, 0
 	out, errOut = bytes.Buffer{}, bytes.Buffer{}
 	code = runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
-		func(string) error { laneCalls++; return errors.New("lane definition is missing") },
 		hostCommandAt(defaultHostResolution()),
 		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
 			identityCalls++
-			return "orchestrator", nil
+			return "", errors.New("orchestrator definition is missing")
 		},
 		func(context.Context, string, string, string) ([]byte, error) {
 			bootCalls++
 			return []byte(`{"watermark":"test"}`), nil
 		})
-	if code == 0 || laneCalls != 1 || identityCalls != 0 || bootCalls != 0 {
-		t.Fatalf("missing lane code=%d lane=%d identity=%d boot=%d stderr=%q", code, laneCalls, identityCalls, bootCalls, errOut.String())
+	if code != sessionPrepareRefusalExit || identityCalls != 1 || bootCalls != 0 {
+		t.Fatalf("missing identity code=%d identity=%d boot=%d stderr=%q", code, identityCalls, bootCalls, errOut.String())
 	}
 	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM effect_receipts").Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if after != before {
-		t.Fatalf("missing lane wrote event before=%d after=%d", before, after)
+		t.Fatalf("missing identity wrote event before=%d after=%d", before, after)
 	}
 }
 
@@ -672,7 +620,6 @@ func TestSessionPrepareReportsAKilledRegistryProbeAsRetryable(t *testing.T) {
 	identityCalls := 0
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
-		func(string) error { return nil },
 		hostSessionPrepareRegistry,
 		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
 			identityCalls++
@@ -715,7 +662,6 @@ func TestTimedOutRegistryProbeTypedAndExit1(t *testing.T) {
 	identityCalls := 0
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
-		func(string) error { return nil },
 		func(ctx context.Context, dir string) (hostCommandResolution, error) {
 			timedCtx, timedCancel := context.WithTimeout(ctx, 50*time.Millisecond)
 			defer timedCancel()
@@ -755,7 +701,6 @@ func TestDeterministicHostRegistryRefusalsExit2(t *testing.T) {
 	run := func(t *testing.T, dbPath, workID string) (int, string) {
 		var out, errOut bytes.Buffer
 		code := runSessionPrepare(commandSessionPrepareInput(t, workID, "run"), mustOpenStore(t, dbPath), &out, &errOut,
-			func(string) error { return nil },
 			hostSessionPrepareRegistry,
 			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
 				t.Fatal("the identity step ran after a refused probe")
@@ -848,7 +793,6 @@ func TestSessionPrepareProbesTheCallingHostOnce(t *testing.T) {
 		t.Chdir(worktree)
 		var out, errOut bytes.Buffer
 		code := runSessionPrepare(commandSessionPrepareInput(t, workID, "run"), mustOpenStore(t, dbPath), &out, &errOut,
-			func(string) error { return nil },
 			hostSessionPrepareRegistry,
 			func(_ context.Context, _ string, host hostCommandResolution, _, _, agent string) (string, error) {
 				// The production callback verifies the resolution's registry

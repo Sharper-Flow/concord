@@ -195,7 +195,7 @@ func TestNativeIsolationGitReceiptBindings(t *testing.T) {
 		}
 	}
 	p := nativeOraclePlan{WorkID: "work", ProjectID: "project", ContractVersion: 1, SubjectCommit: subject, Target: target,
-		Request:      NativeOracleRequest{Phase: "prepare", WorkerJobBinding: &WorkerJobBinding{}},
+		Request:      NativeOracleRequest{Phase: "prepare"},
 		Bundle:       NativeOracleControlBundle{Control: OracleControl{Cwd: ".", Argv: []string{"check", "witness"}, RecipeSource: WorkContextReadingSource{CommitOID: recipe}}},
 		ManifestFile: NativeOracleFile{BlobOID: recipe, SHA256: nativeDigest([]byte("manifest"))},
 		Files:        []NativeOracleFile{{Path: "check.sh", SHA256: nativeDigest([]byte("harness"))}},

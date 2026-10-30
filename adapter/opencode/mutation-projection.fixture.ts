@@ -5,7 +5,7 @@ export function largeMutationPayload() {
     work_id: `work-projection-${i}`, title: `Lossless result 😀 ${i}`, linear_issue_key: "",
     project_id: "project-test", project_display_name: "Fixture", version: 3,
     lifecycle: "in_progress", cancelled_instance_closes: 0,
-    workflow_type: "workflow.implementation", step: "execution", attempt: null,
+    workflow_type: "workflow.implementation", step: "execution",
     pending_operator_decision: null,
     driving_sessions: Array.from({ length: 16 }, (_, n) => ({
       session_ref: `session-${n}-`.padEnd(128, "x"), last_action_id: "action-".padEnd(128, "y"), last_acted_at: "2026-10-28T00:00:00Z",

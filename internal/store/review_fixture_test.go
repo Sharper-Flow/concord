@@ -8,81 +8,101 @@ import (
 	"time"
 )
 
-// acceptCurrentReviewForTest enters through the dispatch, host terminal, and
-// Main acceptance owners. Candidate identities come from the real checkout;
-// this helper never installs a claimed output observation or acceptance row.
+func reviewBlockFixture() *ReviewBlock {
+	candidate := ReviewCandidate{ProjectID: "project:one", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}
+	return &ReviewBlock{
+		Disposition: "correction_required", InputCandidate: candidate, OutputCandidate: candidate,
+		Dependencies: ReviewDependencies{ArchitectureNotApplicable: true, Criteria: []ReviewCriterion{{PredicateID: "predicate:primary", ContentDigest: nativeDigest([]byte("criterion"))}}},
+		Assessments:  []ReviewAssessment{}, RemainingObligations: []ReviewObligation{},
+		Findings: []ReviewFinding{{FindingID: "finding:one", Severity: "P1", Confidence: "high", Detail: "the current candidate misses its declared obligation", InScope: true, Blocking: true, Status: "open", EvidenceRefs: []string{"evidence:review"}, ClosureRefs: []string{}}},
+	}
+}
+
 func acceptCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string) {
 	t.Helper()
-	acceptCurrentReviewForBoundJobForTest(t, f, repo, disposition, reviewSubjectReadyRevision(t, f))
+	completeCurrentReviewForTest(t, f, repo, disposition)
 }
 
-func acceptCurrentReviewForBoundJobForTest(t *testing.T, f workContextFixture, repo, disposition string, job WorkerJobBinding) {
+func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string, mutations ...func(*ReviewBlock)) (string, int64) {
 	t.Helper()
-	attempt, epoch := completeCurrentReviewForBoundJobForTest(t, f, repo, disposition, job)
-	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
-	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, f.owner); err != nil {
-		t.Fatalf("Main acceptance of fixture Review: %v", err)
-	}
-}
-
-func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string, mutations ...func(*WorkerReviewBlock)) (string, int64) {
-	t.Helper()
-	return completeCurrentReviewForBoundJobForTest(t, f, repo, disposition, reviewSubjectReadyRevision(t, f), mutations...)
-}
-
-func completeCurrentReviewForBoundJobForTest(t *testing.T, f workContextFixture, repo, disposition string, job WorkerJobBinding, mutations ...func(*WorkerReviewBlock)) (string, int64) {
-	t.Helper()
-	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
-	attempt := fmt.Sprintf("review:fixture:%d", readWorkVersion(t, f.store, f.workID))
-	if err := descendantDispatch(t, j, "review", attempt, job, nil); err != nil {
-		t.Fatalf("dispatch fixture Review: %v", err)
-	}
-	j.laneDispatch(t, attempt, "review", &job)
-	window := reviewSubjectWindow(t, f.store, f.workID, attempt)
-	report := currentReviewBlockForTest(t, f.store, f.workID, attempt, disposition)
+	qualifyReviewSubjectForTest(t, f.store, f.workID, repo)
+	report := currentReviewBlockForTest(t, f.store, f.workID, disposition)
 	for _, mutate := range mutations {
 		mutate(report)
 	}
-	lane := reviewGateLane(t, "review")
-	evidence := []WorkerReportEvidence{}
-	for _, obligation := range lane.EvidenceObligations {
-		if obligation != "severity" {
-			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "Reviewed the fixture's current candidate."})
-		}
+	if err := recordReviewForTest(t, f.store, f.workID, f.owner, report); err != nil {
+		t.Fatalf("record fixture Review: %v", err)
 	}
-	event := Event{EventID: attempt + ":completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted),
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attempt, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: repo, Evidence: evidence, EvidenceOrigin: WorkerEvidenceReported, WorkerJob: &job, Review: report})}
-	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), f.store, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attempt, EventID: event.EventID})
+	state, err := loadWorkflowReviewState(t.Context(), f.store.db, f.workID)
+	if err != nil || state.Accepted == nil {
+		t.Fatalf("read fixture Review: %+v, %v", state.Accepted, err)
+	}
+	return state.Accepted.ReportRef, latestStepStartEpoch(t, f.store, f.workID, currentStep(t, f.store, f.workID))
+}
+
+func recordReviewForTest(t *testing.T, s *Store, workID string, actor WorkflowActor, report *ReviewBlock) error {
+	t.Helper()
+	ctx, err := prepareTerminalTestContext(t.Context(), s, workID, "record_review")
+	if err != nil {
+		return err
+	}
+	version := readWorkVersion(t, s, workID)
+	id := fmt.Sprintf("fixture-review-%s-%d", workID, version)
+	return s.Transact(ctx, func(tx *Transaction) error {
+		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+			WorkID: workID, ExpectedVersion: version, ActionID: "record_review", Payload: mustJSONValue(map[string]any{"review": report}), Actor: actor,
+			AcceptedInputsDigest: nativeDigest([]byte(id)), IdempotencyIdentity: id, OperationID: id,
+			PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id, RequestID: id, ContractDigest: testManifestDigest, Now: time.Now().UTC(),
+		})
+		return err
+	})
+}
+
+func qualifyReviewSubjectForTest(t *testing.T, s *Store, workID, repo string) {
+	t.Helper()
+	var project string
+	if err := s.db.QueryRow(`SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
+		t.Fatal(err)
+	}
+	key := fmt.Sprintf("fixture-subject-%s-%d-%s", workID, readWorkVersion(t, s, workID), runTestGit(t, repo, "rev-parse", "HEAD"))
+	result, err := s.VerifyWorktree(t.Context(), WorktreeVerifyRequest{
+		WorkID: workID, ProjectID: project, LeaseID: key, RequestID: key, PrincipalRef: "principal/operator",
+		Owner:   SessionWorktreeOwner{ClientRef: "client/concord-1", AgentRef: "agent/review-fixture", SessionRef: "session/review-fixture"},
+		Command: []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}, Runner: ExecGitRunner{}, SupportedBudgetSeconds: 30,
+	})
+	if err != nil || result.ExitCode != 0 || result.TrackedFilesChanged || result.SubjectRef == "" {
+		t.Fatalf("qualify fixture candidate: %+v, %v", result, err)
+	}
+}
+
+func currentReviewBlockForTest(t *testing.T, s *Store, workID, disposition string) *ReviewBlock {
+	t.Helper()
+	repo := reviewFixtureDirectory(t, s, workID)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	raw, err := (ExecGitRunner{}).Run(ctx, repo, "rev-parse", "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), f.store, event)
-	return attempt, window.AttemptEpoch
-}
-
-func currentReviewBlockForTest(t *testing.T, s *Store, workID, attempt, disposition string) *WorkerReviewBlock {
-	t.Helper()
-	repo := workerFixtureDirectory(t, s, workID)
-	window := reviewSubjectWindow(t, s, workID, attempt)
-	commit := window.SubjectCommit
-	if commit == "" {
-		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-		defer cancel()
-		raw, err := (ExecGitRunner{}).Run(ctx, repo, "rev-parse", "HEAD")
-		if err != nil {
-			t.Fatal(err)
-		}
-		commit = strings.TrimSpace(string(raw))
-	}
+	commit := strings.TrimSpace(string(raw))
 	var project string
-	if err := s.db.QueryRowContext(t.Context(), `SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
+	if err := s.db.QueryRow(`SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
 		t.Fatal(err)
 	}
-	candidate := WorkerReviewCandidate{ProjectID: project, Commit: commit, Tree: reviewObservedTree(t, repo, commit)}
+	candidate := ReviewCandidate{ProjectID: project, Commit: commit, Tree: reviewObservedTree(t, repo, commit)}
 	dependencies, err := workflowReviewDependencies(t.Context(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &WorkerReviewBlock{Disposition: disposition, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: dependencies,
-		Assessments: []WorkerReviewAssessment{}, Findings: []WorkerReviewFinding{}, RemainingObligations: []WorkerReviewObligation{}}
+	return &ReviewBlock{Disposition: disposition, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: dependencies,
+		Assessments: []ReviewAssessment{}, Findings: []ReviewFinding{}, RemainingObligations: []ReviewObligation{}}
+}
+
+func reviewFixtureDirectory(t *testing.T, s *Store, workID string) string {
+	t.Helper()
+	var path string
+	if err := s.db.QueryRow(`SELECT e.path FROM worktree_entries e JOIN work_projects p ON p.work_id=? AND p.project_id=e.project_id AND p.role='primary' WHERE e.set_id=? AND e.state='active'`, workID, WorktreeSetID(workID)).Scan(&path); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

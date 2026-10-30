@@ -169,11 +169,11 @@ See [`capability-placement.md`](./capability-placement.md) for the canonical dir
 
 **Requirement.** An agent, sub-agent, or tool invocation operates within an established Product/workspace context. Multi-repo reach is a property of that context, not an argument threaded through each call. A capability must not depend on the caller remembering to pass a scope parameter.
 
-**Implication.** Three consequences follow. First, no capability may be available only to callers that pass a scope argument — a capability either works within the established context, or it is explicitly and structurally unavailable. Second, spawned agents and workers inherit Product/workspace context structurally rather than by prompt convention, so their state reads and evidence writes land in the same context as the parent that spawned them. Third, when a read cannot be served authoritatively, the degradation is typed and surfaced; a non-authoritative snapshot is never silently substituted for authority.
+**Implication.** No capability is available only to callers that pass a scope argument: it works within established context or is explicitly unavailable. Native Task remains host-owned; any Concord call resolves its own Product/workspace context. An unavailable authoritative read returns typed degradation, never a silently substituted snapshot.
 
 **Direction.** TS5/CD-0005 resolves the boundary as a trusted host-injected,
 self-contained invocation envelope whose Product/Project scope and versions the core
-re-resolves on every call. Spawned workers inherit the resolved context structurally.
+re-resolves on every call. A native subagent's prompt supplies no Concord authority.
 A project-local refusal can still be correct fail-closed behavior: this constraint
 targets second-class execution paths, not every scope restriction. The predecessor's
 explicit path-confirmation plumbing is the recorded anti-pattern reference — see
@@ -264,8 +264,8 @@ The cited decisions govern implementation conformance.
 4. **Ambient Product context propagation** (§13). **Resolved by TS5/CD-0005:** trusted hidden call envelope, core re-resolution, explicit cross-scope intent, and inherited Product/workspace context.
 5. **Recovery-path taxonomy** (§19). [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
    owns current-row reconciliation and finite verified snapshots.
-   [D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-   owns launch authority and uncertain-effect reconciliation;
+   [D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)
+   leaves subagent lifecycle ownership with the host, not Concord;
    [D11–D12](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d11-a-fresh-session-resumes-from-current-state)
    own resumption and admitted recovery actions. PM10 owns backup/restore, and
    CD-0008 D3 owns dependency-aware unreadable isolation.

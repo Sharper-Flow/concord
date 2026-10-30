@@ -15,9 +15,8 @@ func seedBackupCurrentState(t *testing.T, s *Store) {
 	t.Helper()
 	seedWork(t, s, "snapshot-active-work")
 	_, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
-		VALUES('snapshot-active-work','attempt:snapshot','implement',?,'engineering','','2.0','2.0','in_flight','2026-10-22T00:00:00Z');
-		DELETE FROM write_guard`, "sha256:"+strings.Repeat("a", 64))
+		UPDATE work_items SET lifecycle='in_progress' WHERE id='snapshot-active-work';
+		DELETE FROM write_guard`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +46,7 @@ func TestBackupRestorePreservesMaterializedCurrentState(t *testing.T) {
 	}
 	defer db.Close()
 	for _, query := range []string{
-		`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id='attempt:snapshot'`,
+		`SELECT * FROM work_items WHERE id='snapshot-active-work'`,
 		`SELECT canonical_digest FROM idempotency_records WHERE idempotency_key='snapshot-key'`,
 	} {
 		if got, want := captureEvidenceRows(t, db, query), captureEvidenceRows(t, s.db, query); strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -59,11 +58,11 @@ func TestBackupRestorePreservesMaterializedCurrentState(t *testing.T) {
 func TestRestoreStageRejectsCurrentStateTampering(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, mutation string }{
-		{"active attempt lost", `INSERT INTO write_guard VALUES(1); DELETE FROM worker_attempts; DELETE FROM write_guard`},
-		{"active attempt changed", `INSERT INTO write_guard VALUES(1); UPDATE worker_attempts SET dispatched_at='2026-10-23T00:00:00Z'; DELETE FROM write_guard`},
+		{"active work lost", `INSERT INTO write_guard VALUES(1); DELETE FROM work_projects WHERE work_id='snapshot-active-work'; DELETE FROM work_items WHERE id='snapshot-active-work'; DELETE FROM write_guard`},
+		{"active work changed", `INSERT INTO write_guard VALUES(1); UPDATE work_items SET lifecycle='cancelled' WHERE id='snapshot-active-work'; DELETE FROM write_guard`},
 		{"direct authority lost", `DELETE FROM idempotency_records`},
 		{"direct authority changed", `UPDATE idempotency_records SET canonical_digest='tampered'`},
-		{"schema changed", `DROP INDEX worker_attempts_work`},
+		{"schema changed", `DROP INDEX work_projects_by_project`},
 		{"new current table", `CREATE TABLE snapshot_unexpected(value TEXT)`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

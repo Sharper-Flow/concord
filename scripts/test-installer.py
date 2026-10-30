@@ -37,6 +37,49 @@ git_environment.scrub_inherited()
 import install as installer
 
 
+class NativeTaskInstallerTests(unittest.TestCase):
+    def test_shipped_adapter_is_import_closed_without_launcher_modules(self):
+        adapter = Path(installer.__file__).resolve().parents[1] / "adapter/opencode"
+        self.assertEqual(installer.derive_adapter_files(adapter), installer.ADAPTER_FILES)
+        self.assertTrue(set(installer.ADAPTER_FILES).isdisjoint(installer.RETIRED_ADAPTER_FILES))
+        self.assertIn("core-runtime.ts", installer.ADAPTER_FILES)
+        self.assertIn("mutation-result.ts", installer.ADAPTER_FILES)
+
+    def test_runtime_preflight_requires_only_retained_host_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            available = {"git": "/synthetic/git", "opencode": "/synthetic/opencode"}
+            with mock.patch.object(installer, "command_status", side_effect=available.get) as status, \
+                    mock.patch.dict(os.environ, {"PATH": str(paths.bin_dir)}):
+                installer.runtime_preflight(paths)
+            self.assertEqual([call.args[0] for call in status.call_args_list], ["git", "opencode"])
+
+    def test_preflight_neither_inspects_nor_changes_shared_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            keyrings = paths.data_home / "keyrings"
+            keyrings.mkdir(parents=True)
+            sentinel = keyrings / "operator-owned.fixture"
+            sentinel.write_bytes(b"synthetic shared state")
+            before = sentinel.read_bytes()
+            with mock.patch.object(installer, "command_status", side_effect=AssertionError("no credential tool probe")), \
+                    mock.patch.object(installer.subprocess, "run", side_effect=AssertionError("no credential process")), \
+                    mock.patch.object(installer.platform, "system", return_value="Linux"), \
+                    mock.patch.object(installer.platform, "machine", return_value="x86_64"):
+                plan = installer.preflight(paths, "v1.0.0", None)
+            self.assertTrue(plan.changed)
+            self.assertEqual(sentinel.read_bytes(), before)
+            self.assertEqual(list(keyrings.iterdir()), [sentinel])
+
+    def test_missing_required_host_command_still_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            with mock.patch.object(installer, "command_status", return_value=None), \
+                    mock.patch.dict(os.environ, {"PATH": str(paths.bin_dir)}):
+                with self.assertRaisesRegex(installer.InstallerError, "missing command git"):
+                    installer.runtime_preflight(paths)
+
+
 SCRIPT = Path(__file__).with_name("install.py")
 
 # The roots an installer child resolves without --root, under the environment
@@ -124,19 +167,6 @@ class InstallerTests(unittest.TestCase):
         self.artifacts.mkdir()
         self.write_command("git", "exit 0")
         self.write_command("opencode", "exit 0")
-        self.write_command("secret-tool", "exit 0")
-        self.write_command("gnome-keyring-daemon", "exit 0")
-        self.write_command(
-            "busctl",
-            r'''case "$*" in
-  "--user --list") printf 'org.freedesktop.secrets\n' ;;
-  *"ReadAlias"*) printf 'o "/org/freedesktop/secrets/collection/login"\n' ;;
-  *" Locked") printf 'b false\n' ;;
-  *) exit 2 ;;
-esac''',
-        )
-        self.write_command("dbus-run-session", "exit 0")
-        self.write_command("systemctl", "exit 0")
         self.env = os.environ.copy()
         self.env["PATH"] = str(self.commands) + os.pathsep + os.defpath
         self.config.parent.mkdir(parents=True)
@@ -341,65 +371,6 @@ esac''',
             encoding="utf-8",
         )
 
-    def configure_managed_credential_fixture(self) -> tuple[Path, Path, Path, Path]:
-        state = self.root / "credential-state"
-        command_log = self.root / "credential-commands.log"
-        keyrings = self.root / "data" / "keyrings"
-        self.env["TEST_CREDENTIAL_STATE"] = str(state)
-        self.env["TEST_CREDENTIAL_LOG"] = str(command_log)
-        self.env["TEST_KEYRINGS"] = str(keyrings)
-        legacy_unit = self.root / "config" / "systemd" / "user" / installer.CREDENTIAL_UNIT_NAME
-        legacy_unit.parent.mkdir(parents=True)
-        legacy_unit.write_text(
-            installer.legacy_credential_unit_text(str(self.commands / "gnome-keyring-daemon")), encoding="utf-8"
-        )
-        self.write_command(
-            "busctl",
-            r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
-case "$*" in
-  "--user --list") printf 'org.freedesktop.secrets\n' ;;
-  *"ReadAlias"*)
-    if [ -f "$TEST_CREDENTIAL_STATE" ]; then
-      printf 'o "/org/freedesktop/secrets/collection/login"\n'
-    else
-      printf 'o "/"\n'
-    fi ;;
-  *" Collections") printf 'ao 1 "/org/freedesktop/secrets/collection/session"\n' ;;
-  *" Items") printf 'ao 1 "/org/freedesktop/secrets/collection/session/1"\n' ;;
-  *" Locked")
-    if [ "$(cat "$TEST_CREDENTIAL_STATE" 2>/dev/null)" = ready ]; then printf 'b false\n'; else printf 'b true\n'; fi ;;
-  *"status org.freedesktop.secrets") printf 'PID=0\n' ;;
-  *) exit 2 ;;
-esac''',
-        )
-        self.write_command(
-            "dbus-run-session",
-            r'''printf 'dbus-run-session %s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
-mkdir -p "$TEST_KEYRINGS"
-printf 'store' >"$TEST_KEYRINGS/user.keystore"
-printf 'login' >"$TEST_KEYRINGS/login.keyring"
-chmod 700 "$TEST_KEYRINGS"
-chmod 600 "$TEST_KEYRINGS/user.keystore" "$TEST_KEYRINGS/login.keyring"
-printf 'created\n' >"$TEST_CREDENTIAL_STATE"''',
-        )
-        self.write_command(
-            "systemctl",
-            r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
-case "$*" in
-  *"show"*) printf '0\n' ;;
-  *"restart gnome-keyring-daemon.service"*) printf 'ready\n' >"$TEST_CREDENTIAL_STATE" ;;
-esac''',
-        )
-        dropin = (
-            self.root
-            / "config"
-            / "systemd"
-            / "user"
-            / "gnome-keyring-daemon.service.d"
-            / installer.CREDENTIAL_DROPIN_NAME
-        )
-        return state, command_log, keyrings, dropin
-
     def test_fresh_home_without_a_launcher_bin_dir_installs(self) -> None:
         # A PATH entry can name a directory that does not exist yet: a fresh
         # HOME has exactly that shape. The install must create the bin dir
@@ -440,154 +411,15 @@ esac''',
 
     def test_missing_prerequisite_refuses_without_installing(self) -> None:
         self.make_release("v1.0.0")
-        (self.commands / "secret-tool").unlink()
+        (self.commands / "opencode").unlink()
         environment = self.env.copy()
         environment["PATH"] = str(self.commands)
         result = self.run_installer(
             "install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts), env=environment
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("missing command secret-tool", result.stderr)
-        self.assertIn("worker evidence signing fails closed", result.stderr)
+        self.assertIn("missing command opencode", result.stderr)
         self.assert_retained_empty_lock_root()
-
-    def test_headless_install_creates_noninteractive_persistent_credential_collection(self) -> None:
-        self.make_release("v1.0.0")
-        state, command_log, keyrings, unit = self.configure_managed_credential_fixture()
-
-        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(first.returncode, 0, first.stderr)
-        self.assertTrue(unit.is_file())
-        self.assertEqual(unit.stat().st_mode & 0o777, 0o644)
-        self.assertEqual(keyrings.stat().st_mode & 0o777, 0o700)
-        self.assertEqual((keyrings / "login.keyring").stat().st_mode & 0o777, 0o600)
-        self.assertEqual((keyrings / "user.keystore").stat().st_mode & 0o777, 0o600)
-        combined = first.stdout + first.stderr + unit.read_text(encoding="utf-8")
-        manifest = json.loads(
-            (self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8")
-        )
-        self.assertEqual(manifest["credential_directory"], str(keyrings))
-        unit_text = unit.read_text(encoding="utf-8")
-        self.assertIn("[Service]", unit_text)
-        self.assertIn("ExecStart=\n", unit_text)
-        self.assertIn("--unlock --foreground --components=pkcs11,secrets", unit_text)
-        self.assertIn("StandardInputData=Cg==", unit_text)
-        self.assertNotIn("concord-keyring-unlock.service", unit_text)
-        service = self.root / "data" / "dbus-1" / "services" / installer.CREDENTIAL_SERVICE_NAME
-        self.assertTrue(service.is_file())
-        service_text = service.read_text(encoding="utf-8")
-        self.assertIn("Name=org.freedesktop.secrets", service_text)
-        self.assertIn("SystemdService=gnome-keyring-daemon.service", service_text)
-        self.assertIn("--unlock --foreground --components=pkcs11,secrets", service_text)
-        self.assertNotIn("base64:", combined)
-        self.assertNotIn("private_key", combined)
-        self.assertEqual(state.read_text(encoding="utf-8").strip(), "ready")
-        commands = command_log.read_text(encoding="utf-8") if command_log.exists() else ""
-        self.assertIn("dbus-run-session", commands)
-        self.assertIn(f"disable --now {installer.CREDENTIAL_UNIT_NAME}", commands)
-        self.assertIn("restart gnome-keyring-daemon.service", commands)
-
-        second = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(second.returncode, 0, second.stderr)
-        self.assertIn("already installed", second.stdout)
-
-        unit.unlink()
-        state.write_text("created\n", encoding="utf-8")
-        repaired = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(repaired.returncode, 0, repaired.stderr)
-        self.assertTrue(unit.is_file())
-        self.assertEqual(state.read_text(encoding="utf-8").strip(), "ready")
-
-        restart_marker = self.root / "credential-restart-marker"
-        self.env["TEST_RESTART_MARKER"] = str(restart_marker)
-        self.write_command(
-            "systemctl",
-            r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
-case "$*" in
-  *"restart gnome-keyring-daemon.service"*)
-    if [ -f "$TEST_RESTART_MARKER" ]; then printf 'ready\n' >"$TEST_CREDENTIAL_STATE"; else touch "$TEST_RESTART_MARKER"; fi ;;
-esac''',
-        )
-        state.write_text("created\n", encoding="utf-8")
-        unit.unlink()
-        before_refusal_commands = command_log.read_text(encoding="utf-8").splitlines()
-        refused = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertNotEqual(refused.returncode, 0)
-        self.assertIn("remained locked", refused.stderr)
-        self.assertIn("Check the user service", refused.stderr)
-        self.assertFalse(unit.exists())
-        commands = command_log.read_text(encoding="utf-8").splitlines()
-        refusal_commands = commands[len(before_refusal_commands) :]
-        self.assertEqual(refusal_commands.count("--user daemon-reload"), 2)
-        self.assertEqual(refusal_commands.count("--user restart gnome-keyring-daemon.service"), 2)
-
-    def test_setup_failure_rolls_back_a_new_dropin(self) -> None:
-        self.make_release("v1.0.0")
-        state, command_log, keyrings, dropin = self.configure_managed_credential_fixture()
-        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-        dropin.unlink()
-        state.write_text("created\n", encoding="utf-8")
-        self.write_command("systemctl", 'case "$*" in *"daemon-reload"*) exit 1 ;; esac')
-
-        refused = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-
-        self.assertNotEqual(refused.returncode, 0)
-        self.assertFalse(dropin.exists())
-
-    def test_same_version_install_records_credential_ownership_during_migration(self) -> None:
-        self.make_release("v1.0.0")
-        _state, _command_log, keyrings, _dropin = self.configure_managed_credential_fixture()
-        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-
-        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        del manifest["credential_directory"]
-        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-        legacy_unit = self.root / "config" / "systemd" / "user" / installer.CREDENTIAL_UNIT_NAME
-        legacy_unit.write_text(
-            installer.legacy_credential_unit_text(str(self.commands / "gnome-keyring-daemon")), encoding="utf-8"
-        )
-
-        migrated = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-
-        self.assertEqual(migrated.returncode, 0, migrated.stderr)
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["credential_directory"], str(keyrings))
-
-    def test_repair_keeps_a_preexisting_credential_dropin_when_unlock_fails(self) -> None:
-        self.make_release("v1.0.0")
-        state, command_log, keyrings, dropin = self.configure_managed_credential_fixture()
-
-        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-        original_dropin = dropin.read_bytes()
-
-        restart_marker = self.root / "credential-restart-marker"
-        self.env["TEST_RESTART_MARKER"] = str(restart_marker)
-        self.write_command(
-            "systemctl",
-            r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
-case "$*" in
-  *"restart gnome-keyring-daemon.service"*)
-    touch "$TEST_RESTART_MARKER" ;;
-esac''',
-        )
-        state.write_text("created\n", encoding="utf-8")
-        before_refusal_commands = command_log.read_text(encoding="utf-8").splitlines()
-
-        refused = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-
-        self.assertNotEqual(refused.returncode, 0)
-        self.assertIn("remained locked", refused.stderr)
-        self.assertIn("Check the user service", refused.stderr)
-        self.assertEqual(dropin.read_bytes(), original_dropin)
-        self.assertEqual(keyrings.joinpath("login.keyring").read_text(encoding="utf-8"), "login")
-        commands = command_log.read_text(encoding="utf-8").splitlines()
-        refusal_commands = commands[len(before_refusal_commands) :]
-        self.assertEqual(refusal_commands.count("--user daemon-reload"), 1)
-        self.assertEqual(refusal_commands.count("--user restart gnome-keyring-daemon.service"), 1)
 
     def test_install_keeps_an_existing_compatible_secret_service(self) -> None:
         self.make_release("v1.0.0")
@@ -599,7 +431,7 @@ esac''',
             / "systemd"
             / "user"
             / "gnome-keyring-daemon.service.d"
-            / installer.CREDENTIAL_DROPIN_NAME
+            / "concord-login.conf"
         )
         self.assertFalse(unit.exists())
 
@@ -621,23 +453,22 @@ esac''',
                 / "systemd"
                 / "user"
                 / "gnome-keyring-daemon.service.d"
-                / installer.CREDENTIAL_DROPIN_NAME
+                / "concord-login.conf"
             ).exists()
         )
 
-    def test_install_refuses_a_user_authored_legacy_credential_unit(self) -> None:
+    def test_install_preserves_a_user_authored_credential_unit(self) -> None:
         self.make_release("v1.0.0")
-        unit = self.root / "config" / "systemd" / "user" / installer.CREDENTIAL_UNIT_NAME
+        unit = self.root / "config" / "systemd" / "user" / "concord-keyring-unlock.service"
         unit.parent.mkdir(parents=True)
         unit.write_text("[Service]\nExecStart=/usr/local/bin/custom-keyring\n", encoding="utf-8")
 
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
 
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("user-authored legacy credential unit", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(unit.read_text(encoding="utf-8"), "[Service]\nExecStart=/usr/local/bin/custom-keyring\n")
 
-    def test_install_refuses_an_unowned_encrypted_login_collection(self) -> None:
+    def test_install_preserves_an_unowned_encrypted_login_collection(self) -> None:
         self.make_release("v1.0.0")
         keyrings = self.root / "data" / "keyrings"
         keyrings.mkdir(parents=True)
@@ -658,9 +489,7 @@ esac''',
 
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
 
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("not owned by Concord", result.stderr)
-        self.assertIn("Unlock it with the desktop login", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(
             (
                 self.root
@@ -668,7 +497,7 @@ esac''',
                 / "systemd"
                 / "user"
                 / "gnome-keyring-daemon.service.d"
-                / installer.CREDENTIAL_DROPIN_NAME
+                / "concord-login.conf"
             ).exists()
         )
         self.assertEqual(login_keyring.read_text(encoding="utf-8"), "encrypted")
@@ -676,7 +505,7 @@ esac''',
         self.assertNotIn("daemon-reload", commands)
         self.assertNotIn("restart gnome-keyring-daemon.service", commands)
 
-    def test_headless_install_refuses_to_discard_persistent_credentials(self) -> None:
+    def test_install_does_not_inspect_or_discard_persistent_credentials(self) -> None:
         self.make_release("v1.0.0")
         self.write_command(
             "busctl",
@@ -689,14 +518,10 @@ esac''',
 esac''',
         )
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("persistent collection", result.stderr)
-        self.assertIn("Remove or migrate", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(
-            (self.root / "config" / "systemd" / "user" / "gnome-keyring-daemon.service.d" / installer.CREDENTIAL_DROPIN_NAME).exists()
+            (self.root / "config" / "systemd" / "user" / "gnome-keyring-daemon.service.d" / "concord-login.conf").exists()
         )
-        self.assert_retained_empty_lock_root()
-
     def test_install_is_idempotent(self) -> None:
         self.make_release("v1.0.0")
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
@@ -930,8 +755,8 @@ esac''',
         self.assertEqual(os.readlink(self.data_root / "current"), str(self.data_root / version))
         tools_marker = (self.root / "config" / "opencode" / "tools" / "concord.ts").read_text(encoding="utf-8").strip()
         self.assertEqual(tools_marker, f"concord.ts:{marker}")
-        agents_marker = (self.root / "config" / "opencode" / "agents" / "concord-implement.md").read_text(encoding="utf-8").strip()
-        self.assertEqual(agents_marker, f"agent:concord-implement.md:{marker}")
+        agents_marker = (self.root / "config" / "opencode" / "agents" / "concord-explore.md").read_text(encoding="utf-8").strip()
+        self.assertEqual(agents_marker, f"agent:concord-explore.md:{marker}")
 
     def prepare_a_blocked_release(self) -> None:
         self.install_release("v1.0.0")
@@ -1348,7 +1173,7 @@ esac''',
         self.assertEqual(self.install_release("v1.0.0").returncode, 0)
         args = SimpleNamespace(root=self.root, version="v1.0.0", artifact_dir=str(self.artifacts), base_url="unused")
         for operation in (installer.install, installer.repair):
-            for missing in ("git", "opencode", "secret-tool", "PATH"):
+            for missing in ("git", "opencode", "PATH"):
                 with self.subTest(operation=operation.__name__, missing=missing):
                     environment = self.env.copy()
                     if missing == "PATH":
@@ -1371,7 +1196,7 @@ esac''',
         environment["PATH"] = os.defpath
 
         def command_status(command: str) -> str | None:
-            if command in {"git", "opencode", "secret-tool"}:
+            if command in {"git", "opencode"}:
                 return None
             return shutil.which(command, path=self.env["PATH"])
 
@@ -1386,16 +1211,15 @@ esac''',
     def test_activate_without_opencode_still_refuses_unsafe_paths(self) -> None:
         self.prepare_a_blocked_release()
         paths = installer.paths_for(self.root)
-        moved_systemd = self.root / "moved-systemd"
-        moved_systemd.mkdir()
-        paths.systemd_user_dir.parent.mkdir(parents=True, exist_ok=True)
-        paths.systemd_user_dir.symlink_to(moved_systemd, target_is_directory=True)
+        moved_bin = self.root / "moved-bin"
+        paths.bin_dir.rename(moved_bin)
+        paths.bin_dir.symlink_to(moved_bin, target_is_directory=True)
         (self.commands / "opencode").unlink()
 
         result = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
 
         self.assertEqual(result.returncode, 1)
-        self.assertIn(f"refusing symlinked managed path {paths.systemd_user_dir}", result.stderr)
+        self.assertIn(f"refusing symlinked managed path {paths.bin_dir}", result.stderr)
         self.assertNotIn("missing command opencode", result.stderr)
         self.assert_active_release("v1.0.0", "v1.0.0")
         self.assertTrue(self.prepared_path.exists())
@@ -1554,18 +1378,15 @@ esac''',
         broken upgrade, so the new file is placed rather than refused as
         user-authored.
         """
-        added = "credentials.ts"
+        added = "core-runtime.ts"
         self.assertIn(added, installer.ADAPTER_FILES)
-        # CD-0067 D4: the lane pipeline ships as four adapter files. Removing
-        # any of them from the installed archive would break #253 reachability,
-        # so the set the installer packs is asserted here by name.
-        for shipped in ("dispatch.ts", "generated-agent-lanes.ts", "lane_dispatch.ts", "packet.ts"):
-            self.assertIn(shipped, installer.ADAPTER_FILES, f"missing lane pipeline file {shipped}")
+        for shipped in ("core-runtime.ts", "mutation-result.ts", "turn-move-boundary.ts", "host-prompt.ts"):
+            self.assertIn(shipped, installer.ADAPTER_FILES, f"missing shared host module {shipped}")
         # Test suites and their vectors are dev-only inputs, not adapter runtime
         # inputs. Shipping them would put test code and fixtures in the
         # installed archive, so the installer's adapter file list is asserted to
         # exclude them by name.
-        for dev_only in ("concord.test.ts", "dispatch.test.ts", "worker-evidence-vector.json", "worker-cli-required-fields.json"):
+        for dev_only in ("concord.test.ts", "session-scope.test.ts", "mutation-projection.fixture.ts", "plugin-tool.fixture.ts"):
             self.assertNotIn(dev_only, installer.ADAPTER_FILES, f"dev-only file {dev_only} must not ship in the adapter archive")
         self.make_release("v1.0.0", "old")
         self.make_release("v1.1.0", "new")
@@ -2773,8 +2594,6 @@ esac''',
                         ".concord/instructions/change.md",
                     ))
                 )
-                if name in ("concord-design.md", "concord-implement.md", "concord-review.md"):
-                    self.assertIn('conduct rule that opens "Commit only durable content."', " ".join(prompt.split()), name)
 
         if source_references:
             self.fail("installed profiles require Concord checkout paths:\n" + "\n".join(source_references))
@@ -3077,20 +2896,20 @@ esac''',
         self.assertEqual(installed.returncode, 0, installed.stderr)
         assert_primary_agents_unchanged()
 
-        managed_worker = agents_dir / installer.AGENT_FILES[0]
-        self.assertEqual(managed_worker.read_text(encoding="utf-8"), f"agent:{installer.AGENT_FILES[0]}:old\n")
+        managed_agent = agents_dir / installer.AGENT_FILES[0]
+        self.assertEqual(managed_agent.read_text(encoding="utf-8"), f"agent:{installer.AGENT_FILES[0]}:old\n")
 
         self.make_release("v2.0.0", marker="new")
         upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
         assert_primary_agents_unchanged()
-        self.assertEqual(managed_worker.read_text(encoding="utf-8"), f"agent:{installer.AGENT_FILES[0]}:new\n")
+        self.assertEqual(managed_agent.read_text(encoding="utf-8"), f"agent:{installer.AGENT_FILES[0]}:new\n")
 
-        managed_worker.unlink()
+        managed_agent.unlink()
         repaired = self.run_installer("repair", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(repaired.returncode, 0, repaired.stderr)
         assert_primary_agents_unchanged()
-        self.assertEqual(managed_worker.read_text(encoding="utf-8"), f"agent:{installer.AGENT_FILES[0]}:new\n")
+        self.assertEqual(managed_agent.read_text(encoding="utf-8"), f"agent:{installer.AGENT_FILES[0]}:new\n")
 
         manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
         self.assertEqual(set(manifest["agent_files"]), set(installer.AGENT_FILES))
@@ -4782,15 +4601,15 @@ class DeriveAdapterFilesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "concord-plugin.ts").write_text(
-                'import { readWorkerReport } from "./worker-report-protocol.js"\n',
+                'import { nativeHelper } from "./native-helper.js"\n',
                 encoding="utf-8",
             )
-            (root / "worker-report-protocol.js").write_text(
-                "export const readWorkerReport = 1\n", encoding="utf-8"
+            (root / "native-helper.js").write_text(
+                "export const nativeHelper = 1\n", encoding="utf-8"
             )
             derived = installer.derive_adapter_files(root)
-            self.assertEqual(derived, ("concord-plugin.ts", "worker-report-protocol.js"))
-            self.assertNotIn("worker-report-protocol.js.ts", derived)
+            self.assertEqual(derived, ("concord-plugin.ts", "native-helper.js"))
+            self.assertNotIn("native-helper.js.ts", derived)
 
     def test_an_exact_js_file_wins_over_a_same_stem_ts_sibling(self) -> None:
         # The runtime loads the file the specifier names, so the graph must

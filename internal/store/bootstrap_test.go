@@ -682,7 +682,7 @@ func TestValidateBootstrapOriginAdmitsLiveOrigin(t *testing.T) {
 	}
 }
 
-func TestValidateBootstrapOriginRefusesDirtyLeasedOrDispatchedOrigin(t *testing.T) {
+func TestValidateBootstrapOriginRefusesDirtyOrLeasedOrigin(t *testing.T) {
 	t.Parallel()
 	t.Run("dirty", func(t *testing.T) {
 		repo := initBootstrapStoreRepo(t)
@@ -719,28 +719,6 @@ func TestValidateBootstrapOriginRefusesDirtyLeasedOrDispatchedOrigin(t *testing.
 		}
 	})
 
-	// Authorization creates the attempt in_flight before the worker is
-	// dispatched; both states hold the origin.
-	for _, state := range []string{"in_flight", "dispatched"} {
-		t.Run(state, func(t *testing.T) {
-			repo := initBootstrapStoreRepo(t)
-			s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer s.Close()
-			seedBootstrapStoreAuthority(t, s, repo)
-			origin := liveBootstrapOrigin(t, s, "bootstrap-origin-"+state+"-combined")
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt-open-combined','implement',?,'implementation','','1.0','1.0',?,'2026-01-01T00:00:00Z'); DELETE FROM write_guard`, origin.WorkID, "sha256:"+strings.Repeat("a", 64), state); err != nil {
-				t.Fatal(err)
-			}
-			_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil)
-			var failure *Failure
-			if !errors.As(err, &failure) || failure.Kind != KindResourceBusy || !strings.Contains(failure.Detail, "worker attempt") {
-				t.Fatalf("%s origin attempt was not refused: %v", state, err)
-			}
-		})
-	}
 }
 
 func TestValidateBootstrapOriginRefusesHeldVerifyLease(t *testing.T) {
@@ -763,26 +741,6 @@ func TestValidateBootstrapOriginRefusesHeldVerifyLease(t *testing.T) {
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindResourceBusy || !strings.Contains(failure.Detail, "verify lease") {
 		t.Fatalf("held lease was not refused as resource_busy: %v", err)
-	}
-}
-
-func TestValidateBootstrapOriginRefusesDispatchedWorkerAttempt(t *testing.T) {
-	t.Parallel()
-	repo := initBootstrapStoreRepo(t)
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	seedBootstrapStoreAuthority(t, s, repo)
-	origin := terminalBootstrapOrigin(t, s, "bootstrap-origin-dispatched")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt-open','implement',?,'implementation','','1.0','1.0','dispatched','2026-01-01T00:00:00Z'); DELETE FROM write_guard`, origin.WorkID, "sha256:"+strings.Repeat("a", 64)); err != nil {
-		t.Fatal(err)
-	}
-	_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil)
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindResourceBusy || !strings.Contains(failure.Detail, "worker attempt") {
-		t.Fatalf("dispatched attempt was not refused as resource_busy: %v", err)
 	}
 }
 

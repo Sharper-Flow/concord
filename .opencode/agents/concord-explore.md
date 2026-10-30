@@ -29,9 +29,6 @@ tools:
   concord_work_start: false
   concord_work_trace: false
   concord_work_transition: false
-  concord_worker_check: false
-  concord_worker_diff: false
-  concord_worker_read: false
 permission:
   bash:
     "*": deny
@@ -59,9 +56,8 @@ or promise of further work. When blocked, report the exact blocker and missing
 evidence through that format; do not invent fields or a second reporting channel.
 
 This is a read-only repository exploration utility. Return a facts packet as
-plain text for the parent. The packet is not lane evidence and carries no
-report schema. Do not edit files, write files, patch files, mutate Concord
-state, mutate GitHub, or start another agent.
+plain text for the parent. Do not edit files, write files, patch files, mutate
+Concord state, mutate GitHub, or start another agent.
 
 ## Input
 
@@ -71,7 +67,6 @@ question from the working directory.
 
 A bounded question limits the investigation; it need not name the files or
 symbols to retrieve. Discover those through related searches and source reads.
-For example, trace how cancellation reaches a worker and where it can stop.
 Reading a named file or locating an exact symbol is targeted retrieval the
 parent can do directly, not a reason to start an investigation.
 

@@ -17,7 +17,6 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	before := f.read(t)
 	candidate := *before.Pinned.Pin.Review.Candidate
 	proof := store.WorkPinEvidence{EvidenceKind: "verification", ImmutableSubjectRef: f.proof}
-	attempts := countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE capability_class='implementation'`)
 	challenges := countWorkflowApprovalChallenges(t, f.s)
 
 	f.administrativeRecovery(t)
@@ -85,14 +84,14 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	delivery := map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}
 	version := f.read(t).Pinned.Pin.Version
 	refused := f.action(t, "record_delivery", delivery)
-	if refused.Error == nil || refused.Error.Kind != "missing_evidence" || refused.Error.EffectState != agentcontract.EffectNone || f.read(t).Pinned.Pin.Version != version {
+	if refused.Error == nil || refused.Error.Kind != "stale_requires_review" || refused.Error.Message != "recorded Review does not cover the current candidate and dependencies" || refused.Error.EffectState != agentcontract.EffectNone || f.read(t).Pinned.Pin.Version != version {
 		t.Fatalf("changed obligation used the old Review or committed an effect: %+v", refused.Error)
 	}
-	f.recordJob(t)
+	f.prepareControl(t)
 	f.review(t, "correction_required", "")
 	report := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": report}))
-	if unmet := f.action(t, "record_delivery", delivery); unmet.Error == nil || unmet.Error.Kind != "missing_evidence" || !strings.Contains(unmet.Error.Message, "correction_required") {
+	if unmet := f.action(t, "record_delivery", delivery); unmet.Error == nil || unmet.Error.Kind != "missing_evidence" || unmet.Error.Message != "Review has not reached ready_for_final_proof without remaining obligations" || unmet.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("an unmet changed obligation left execution without correction: %+v", unmet.Error)
 	}
 	spineOK(t, f.action(t, "request_correction", map[string]any{
@@ -103,7 +102,7 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	if correction := f.read(t).Pinned.Pin.Correction; correction == nil || !slices.Contains(correction.EvidenceRefs, report) {
 		t.Fatal("the unmet changed obligation lost its correction authority")
 	}
-	f.recordJob(t)
+	f.prepareControl(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	f.advanceToAcceptance(t)
@@ -116,7 +115,6 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 	done := f.read(t)
 	if done.Pinned.Pin.Lifecycle != "completed" || *done.Pinned.Pin.Review.Candidate != candidate || len(done.Pinned.Pin.VerifiedCriteria) != 1 ||
-		countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE capability_class='implementation'`) != attempts ||
 		countWorkflowApprovalChallenges(t, f.s) != challenges || f.proofCommit != candidate.Commit {
 		t.Fatal("re-evaluation required no-op production, discarded proof, or introduced unrelated approval")
 	}

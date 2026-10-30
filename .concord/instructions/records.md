@@ -79,8 +79,8 @@ Separate observations from suspected causes; do not invent timings or savings.
 Resolved, incidental friction needs no separate log, ticket, or handoff entry.
 Raise blockers and material safety risks when they need attention. Include other
 unresolved findings by reference in the next handoff or completion report, not
-in a status update for each occurrence. Workers keep their permitted report
-format; no extra bookkeeping fields are required.
+in a status update for each occurrence. Subagents return their assigned report;
+no extra bookkeeping fields are required.
 
 File a planning follow-up when an actionable defect needs work outside the
 approved scope. Routine coordination does not require a ticket.

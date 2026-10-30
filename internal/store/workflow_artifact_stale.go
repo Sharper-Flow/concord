@@ -9,7 +9,7 @@ import (
 // Artifact staleness holds an unhealthy judgment until production at the
 // declared recovery-route target. Contract revisions instead invalidate the
 // exact Review and proof dependencies they change (CD-0242 D7). Those owners
-// compare WorkerReviewBlock.Dependencies and the association's CriterionDigest
+// compare ReviewBlock.Dependencies and the association's CriterionDigest
 // in workflow_review.go; a supersession sequence is not a dependency digest.
 // Keeping that comparison there permits reassessing an unchanged candidate
 // without demanding another implementation delivery.
@@ -55,30 +55,10 @@ func workflowArtifactStaleFrontier(ctx context.Context, q queryer, workID, subje
 	return verdictSeq, nil
 }
 
-// workflowProducingCapabilityClasses is the closed positive classification
-// of dispatch capability classes whose worker attempts produce artifacts
-// (CD-0201 D5). An implementation, design, or research lane builds the
-// artifact an evaluator judges; review and verification lanes judge one. A
-// dispatch carrying a class the set does not name — or no class at all —
-// never produces: identity and class fail closed.
-var workflowProducingCapabilityClasses = []string{"implementation", "design", "research"}
-
 // workflowArtifactProductionFrontier reads the latest actual production at
-// the declared route target that postdates the stale cause. A producing
-// delivery carries positive event and capability authority bound to its
-// dispatch origin: the accepted result (accept_worker_result) counts only
-// when the acceptance stands at the target step, its worker attempt was
-// dispatched at the target step — a dispatch_worker completion there naming
-// the same attempt — the attempt's capability dispatch (worker.dispatched,
-// the event that carries the capability class) exists with a producing
-// class, the dispatch and capability events precede the acceptance, and the
-// whole producing origin postdates the stale cause, so a dispatch from
-// before the artifact went stale never refreshes it. A completion of one of
-// the target's artifact actions (workflowStepArtifactActions) counts with
-// its own owning semantics. Evidence-only acceptance, starts, dispatches
-// without an accepted delivery, checkpoints, evidence bindings, verdicts,
-// and every completion at another step never reach this frontier, so a
-// stale artifact cannot become fresh without re-production.
+// the declared route target that postdates the stale cause. Only the target's
+// artifact-owning completions count; starts, checkpoints, evidence bindings,
+// verdicts, and completions at another step cannot refresh it.
 // A nonzero throughSeq names the latest verdict window, not an arbitrary
 // historical frontier; direct production is snapshotted only for that window.
 func workflowArtifactProductionFrontier(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, target string, staleSeq, throughSeq int64, subject string) (int64, error) {
@@ -103,26 +83,7 @@ func workflowArtifactProductionFrontier(ctx context.Context, q queryer, workID s
 			return 0, wrapFailure(KindUnavailable, subject, "cannot read the direct artifact production frontier", true, "retry once the workflow projection is readable", err)
 		}
 	}
-	capabilityPlaceholders := strings.TrimSuffix(strings.Repeat("?,", len(workflowProducingCapabilityClasses)), ",")
-	args := []any{workID, target, staleSeq, staleSeq, target, staleSeq}
-	for _, class := range workflowProducingCapabilityClasses {
-		args = append(args, class)
-	}
-	query := `SELECT COALESCE(MAX(e.first_acceptance_seq),0) FROM worker_attempt_dispositions e
- JOIN worker_attempts a ON a.work_id=e.work_id AND a.attempt_id=e.attempt_id
- JOIN worker_authorizations d ON d.work_id=e.work_id AND d.attempt_id=e.attempt_id
- WHERE e.work_id=? AND e.action_id='accept_worker_result' AND json_extract(e.first_acceptance_payload,'$.step_id')=? AND e.first_acceptance_seq>?
- AND d.seq>? AND d.seq<e.first_acceptance_seq AND json_extract(d.payload,'$.step_id')=?
- AND a.dispatch_seq>? AND a.dispatch_seq<e.first_acceptance_seq AND json_extract(a.dispatch_payload,'$.capability_class') IN (` + capabilityPlaceholders + `)`
-	if throughSeq > 0 {
-		query += ` AND e.first_acceptance_seq<=?`
-		args = append(args, throughSeq)
-	}
-	var seq int64
-	if err := q.QueryRowContext(ctx, query, args...).Scan(&seq); err != nil {
-		return 0, wrapFailure(KindUnavailable, subject, "cannot read the artifact production frontier", true, "retry once the workflow projection is readable", err)
-	}
-	return max(seq, directSeq), nil
+	return directSeq, nil
 }
 
 // workflowVerdictPayloadNamesOk reports whether one record_verdict payload

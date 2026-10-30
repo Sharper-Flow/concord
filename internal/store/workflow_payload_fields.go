@@ -1,5 +1,12 @@
 package store
 
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
+}
+
 var designDecisionItemSchema = withPayloadFieldRevision("decisions", func(field WorkflowPayloadField) WorkflowPayloadField {
 	return actionItemArrayField("decisions", field.Required, *field.MinItems, *field.MaxItems, field.SchemaRef)
 })
@@ -11,10 +18,8 @@ var premiseFloor = withPayloadFieldRevision("premise", func(field WorkflowPayloa
 
 var (
 	confirmPremiseOperatorPayload = withClosedPayload(confirmPremiseOperatorFields)
-	acceptDeliveryPayload         = withClosedPayload(acceptDeliveryActionFields)
 	proposalOutOfScopePayload     = withClosedPayload(proposalOutOfScopeActionFields)
 	canonicalVerdictPayload       = withClosedPayload(canonicalVerdictActionFields)
-	acceptanceOracleRevision      = withAppendedPayloadField(acceptanceOracleActionField)
 	openFindingsCorrection        = withAppendedPayloadField(workflowOpenFindingsCorrectionField)
 )
 
@@ -26,42 +31,14 @@ func confirmPremiseOperatorFields() []WorkflowPayloadField {
 	}
 }
 
-func acceptDeliveryActionFields() []WorkflowPayloadField {
-	return []WorkflowPayloadField{
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true),
-		actionRefField("delivery_artifact", false), actionEnumField("delivery_state", false, "asserted"),
-	}
-}
-
 func proposalOutOfScopeActionFields() []WorkflowPayloadField {
 	fields := make([]WorkflowPayloadField, 0, len(builtinActionPolicies["record_proposal"].Payload.Fields)+1)
 	fields = append(fields, builtinActionPolicies["record_proposal"].Payload.Fields...)
 	return append(fields, actionProseListField("out_of_scope", false, 0, 16, "proposal_text"))
 }
 
-func workflowWorkerJobsActive(definition WorkflowDefinition) bool {
-	return workflowCapabilities(definition).has(WorkflowCapabilityWorkerJobs)
-}
-
-func acceptanceOracleActionField() WorkflowPayloadField {
-	return actionObjectField("acceptance_oracle", true, "worker_acceptance_oracle")
-}
-
 func workflowOpenFindingsCorrectionField() WorkflowPayloadField {
 	return actionIDListField("open_finding_ids", false, 1, 32)
-}
-
-func checksRepairAuthoringRevision(action WorkflowActionDefinition) WorkflowActionDefinition {
-	action = withAppendedPayloadField(checksRepairRevisionsActionField)(action)
-	return withAppendedPayloadField(checksRepairReasonActionField)(action)
-}
-
-func checksRepairRevisionsActionField() WorkflowPayloadField {
-	return WorkflowPayloadField{Name: "repair_revisions", ValueType: PayloadArray, Required: false, MinItems: workflowInt(1), MaxItems: workflowInt(64), ItemRef: "worker_job_repair_revision"}
-}
-
-func checksRepairReasonActionField() WorkflowPayloadField {
-	return actionStringField("repair_reason", false, 4096)
 }
 
 func canonicalVerdictActionFields() []WorkflowPayloadField {

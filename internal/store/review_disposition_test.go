@@ -1,19 +1,18 @@
 package store
 
-import (
-	"context"
-	"testing"
-)
+import "testing"
 
 func TestReviewDispositionMainMayAssociateProofAfterExecution(t *testing.T) {
-	db, appendEvent, _ := progressHistory(t)
-	if _, err := db.Exec(`CREATE TABLE worker_attempts(work_id TEXT,dispatch_event_id TEXT,dispatch_payload BLOB)`); err != nil {
+	f, _, refs := pReceiptFixture(t, "review-self-association", 1, 1)
+	var executor string
+	if err := f.store.db.QueryRow(`SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, f.workID).Scan(&executor); err != nil {
 		t.Fatal(err)
 	}
-	main := progressActorRecord(t, db, "main", "agent")
-	appendEvent(WorkflowActionStarted, workflowActionStartedPayload{StepID: "execution", ActionID: "start_execution", ActorRef: main})
-	if err := workflowRequireMain(context.Background(), db, "work-history", main); err != nil {
-		t.Fatalf("Main cannot associate producer proof after executing: %v", err)
+	if executor != mustActorRef(t, f.owner) {
+		t.Fatalf("fixture executor=%s, want the associating coordinator", executor)
+	}
+	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
+		t.Fatalf("coordinator cannot associate producer proof after executing: %v", err)
 	}
 }
 
@@ -22,7 +21,7 @@ func TestReviewDispositionReplacesShipGate(t *testing.T) {
 		t.Run(disposition, func(t *testing.T) {
 			report := reviewBlockFixture()
 			report.Disposition = disposition
-			if err := validateWorkerReviewBlock(report); err != nil {
+			if err := validateReviewBlock(report); err != nil {
 				t.Fatalf("explicit disposition is rejected by the retired ship gate: %v", err)
 			}
 		})

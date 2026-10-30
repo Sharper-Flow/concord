@@ -59,9 +59,9 @@ action boundary. Each keeps its stable ID.
 ## Consequences
 
 - Product-truth enforcement on the implementation workflow carries conformance
-  coverage: outcome contracts, verdict-actor distinctness, completion rollback,
-  evidence-commit binding, and owner acceptance of a lane result.
-- Domain overlap refusal is proved by store tests, not by the corpus.
+  coverage: outcome contracts, completion rollback, evidence-commit binding,
+  and current subject-bound Review results.
+- Store tests prove that a shared Domain alone blocks no boundary (CD-0222 D6).
 - Each Product-changing proof case seeds a Domain registry and approves an
   explicit architecture binding. This setup cost follows from D1 and is accepted.
 

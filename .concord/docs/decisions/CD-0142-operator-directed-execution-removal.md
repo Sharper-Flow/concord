@@ -41,7 +41,7 @@ Before removal, the caller preserves the verified cancellation identity, work ve
 ### D2. Preparation fences execution and requires a complete handoff
 
 Preparation pins an operation identity, idempotency key, work revision, reason,
-and handoff digest. It refuses stale revisions, live or unknown worker attempts,
+and handoff digest. It refuses stale revisions,
 occupied sessions or worktrees, pending writes, effects, claims, required
 consumers, dependencies, and incomplete artifact or handoff evidence. Unknown
 host state remains unknown and never grants removal authority.
@@ -80,9 +80,9 @@ approvals, attempts, reservations, or checkpoints.
 
 ### D5. Liveness is read-time evidence
 
-Liveness is derived from recorded worker attempts, bounded waits, failures, and
-progress. A dispatched attempt is operational evidence, not proof of host process
-health. A work item without verified active or waiting evidence reports
+Liveness is derived from current host occupancy, bounded waits, failures and
+progress, not inferred subagent execution. A work item without verified active
+or waiting evidence reports
 `unknown`; liveness never authorizes removal.
 
 ### D6. Complete shelving from the registered default checkout

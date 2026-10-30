@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -9,7 +8,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-	"time"
 )
 
 // The read fixture deliberately has no projection guards or unrelated schema.
@@ -24,8 +22,6 @@ func effectReceiptReadFixture(t *testing.T) *Store {
 	t.Cleanup(func() { _ = db.Close() })
 	_, err = db.Exec(`
 CREATE TABLE effect_receipts(event_id TEXT PRIMARY KEY,effect_seq INTEGER UNIQUE,kind TEXT,subject_type TEXT,subject_id TEXT,actor TEXT,payload_version INTEGER,payload_digest TEXT);
-CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,dispatch_event_id TEXT,dispatch_payload TEXT,terminal_event_id TEXT,terminal_kind TEXT,terminal_payload TEXT);
-CREATE TABLE worker_job_revisions(work_id TEXT,recorded_payload TEXT);
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -106,89 +102,21 @@ func TestEffectReceiptPredecessorProbesLogBlind(t *testing.T) {
 	}
 }
 
-func TestEffectReceiptTerminalSampleLogBlind(t *testing.T) {
-	s := effectReceiptReadFixture(t)
-	e := testEvent()
-	seedEffectReceiptRead(t, s, 7, e)
-	hideEffectLog(t, s)
-	got, err := sampleWorkerTerminalDelivery(t.Context(), s.db, "work", "attempt", e.EventID)
-	if err != nil || !got.eventFound {
-		t.Fatalf("sample = %+v, %v", got, err)
-	}
-}
-
 func TestCorrectionRecordSourceLogBlind(t *testing.T) {
 	s := effectReceiptReadFixture(t)
 	e := testEvent()
 	if _, err := s.db.Exec(`CREATE TABLE work_items(id TEXT PRIMARY KEY); INSERT INTO work_items VALUES('work');
-CREATE TABLE workflow_correction_state(work_id TEXT PRIMARY KEY,state TEXT);
-CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload TEXT);`); err != nil {
+CREATE TABLE workflow_correction_state(work_id TEXT PRIMARY KEY,state TEXT);`); err != nil {
 		t.Fatal(err)
 	}
-	h := newWorkflowCorrectionState()
-	h.records = []workflowCorrectionRecordState{{seq: 7, sourceID: e.EventID, fields: workflowCorrectionCompletionFields{ActionID: "request_correction"}}}
+	h := correctionStateFact{Records: []correctionRecordFact{{Seq: 7, SourceID: e.EventID, Fields: workflowCorrectionCompletionFields{ActionID: "request_correction"}}}}
 	if err := writeWorkflowCorrectionFacts(t.Context(), s.db, "work", h); err != nil {
 		t.Fatal(err)
 	}
 	hideEffectLog(t, s)
-	got, err := workflowCorrectionContextForDispatch(t.Context(), s.db, "work", "", "")
+	got, err := readWorkflowCorrectionContext(t.Context(), s.db, "work")
 	if err != nil || got == nil || got.SourceEventID != e.EventID || got.SourceEventSeq != 7 {
 		t.Fatalf("source = %+v, %v", got, err)
-	}
-}
-
-func TestEffectReceiptEvaluationPrefixLogBlind(t *testing.T) {
-	s := effectReceiptReadFixture(t)
-	e := testEvent()
-	e.Kind, e.SubjectType, e.SubjectID, e.Actor = WorkerDispatched, SubjectWorkItem, "other-work", "coordinator"
-	e.Payload = []byte(`{"attempt_id":"attempt","lane_actor_ref":"worker"}`)
-	seedEffectReceiptRead(t, s, 7, e)
-	if _, err := s.db.Exec(`INSERT INTO worker_attempts(work_id,attempt_id,dispatch_event_id,dispatch_payload) VALUES('other-work','attempt',?,?)`, e.EventID, string(e.Payload)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(`CREATE TABLE workflow_worker_actors(actor_ref TEXT PRIMARY KEY,first_dispatch_seq INTEGER); INSERT INTO workflow_worker_actors VALUES('worker',7)`); err != nil {
-		t.Fatal(err)
-	}
-	hideEffectLog(t, s)
-	for _, tc := range []struct {
-		actor  string
-		prefix int64
-		want   bool
-	}{{"worker", 6, false}, {"worker", 7, true}, {"worker", 8, true}, {"coordinator", 8, false}} {
-		got, err := workflowRecordedEvaluationFacts(t.Context(), s.db, "work", tc.actor, tc.prefix)
-		if err != nil || got != tc.want {
-			t.Fatalf("%+v = %v, %v", tc, got, err)
-		}
-	}
-}
-
-func TestEffectReceiptWorkerAcknowledgmentLogBlind(t *testing.T) {
-	for _, kind := range []string{WorkerDispatched, WorkerCompleted, WorkerFailed} {
-		t.Run(kind, func(t *testing.T) {
-			s := effectReceiptReadFixture(t)
-			e := testEvent()
-			e.Kind, e.SubjectType, e.SubjectID, e.PayloadVersion = kind, SubjectWorkItem, "work", 3
-			e.Payload = []byte("{ \"attempt_id\": \"attempt\", \"extension\": {\"unknown\": true} }")
-			seedEffectReceiptRead(t, s, 7, e)
-			if kind == WorkerDispatched {
-				_, err := s.db.Exec(`INSERT INTO worker_attempts(work_id,attempt_id,dispatch_event_id,dispatch_payload) VALUES('work','attempt',?,?)`, e.EventID, string(e.Payload))
-				if err != nil {
-					t.Fatal(err)
-				}
-			} else {
-				_, err := s.db.Exec(`INSERT INTO worker_attempts(work_id,attempt_id,terminal_event_id,terminal_kind,terminal_payload) VALUES('work','attempt',?,?,?)`, e.EventID, kind, string(e.Payload))
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			hideEffectLog(t, s)
-			got, found, err := eventByID(context.Background(), s.db, e.EventID)
-			want := e
-			want.Seq, want.OccurredAt = 7, time.Time{}
-			if err != nil || !found || !reflect.DeepEqual(got, want) {
-				t.Fatalf("ack = %+v, %v, %v", got, found, err)
-			}
-		})
 	}
 }
 
@@ -264,19 +192,6 @@ func TestEffectReceiptBackfillRefusesMissingDigest(t *testing.T) {
 	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("failed digest backfill escaped rollback: %d, %v", count, err)
 	}
-}
-
-func TestEffectReceiptPayloadMismatchRefusesAcknowledgment(t *testing.T) {
-	s := effectReceiptReadFixture(t)
-	e := testEvent()
-	e.Kind, e.SubjectType, e.SubjectID, e.Payload = WorkerFailed, SubjectWorkItem, "work", []byte(`{"attempt_id":"attempt","detail":"original"}`)
-	seedEffectReceiptRead(t, s, 1, e)
-	if _, err := s.db.Exec(`INSERT INTO worker_attempts(work_id,terminal_event_id,terminal_kind,terminal_payload) VALUES('work',?,?,'{"attempt_id":"attempt","detail":"changed"}')`, e.EventID, e.Kind); err != nil {
-		t.Fatal(err)
-	}
-	hideEffectLog(t, s)
-	_, _, err := eventByID(t.Context(), s.db, e.EventID)
-	assertFailureKind(t, err, KindInvariantViolation)
 }
 
 func TestEffectReceiptRollsBackWithAppend(t *testing.T) {

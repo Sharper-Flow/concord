@@ -11,12 +11,6 @@ import (
 	"time"
 )
 
-// The managed candidate journey: an Implement assignment produces subject A
-// and Main records A as its integrated candidate. The candidate moves only
-// through a recorded integration of an assignment result, never through live
-// HEAD or the native pin (CD-0242 D5, D7). A record about A stays true of A,
-// byte for byte, and authorizes nothing about a changed subject (D7).
-
 const candidateJourneyHarness = `package oracle
 import "testing"
 func TestValue(t *testing.T) { if Value() != 7 { t.Fatalf("Value() = %d, want 7", Value()) } }
@@ -35,8 +29,6 @@ type candidateJourney struct {
 
 func newCandidateJourney(t *testing.T, workID string) *candidateJourney {
 	t.Helper()
-	// The journey pins the current break-fix definition, under which Main
-	// confirms and completes with no operator substitution.
 	f := seedWorkContextFixtureWithDefinition(t, workID, legacyApprovalPolicyDefinitionForRef(t, "workflow.break_fix"))
 	t.Cleanup(func() { f.store.Close() })
 	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: t.TempDir()}
@@ -56,7 +48,7 @@ func newCandidateJourney(t *testing.T, workID string) *candidateJourney {
 		}
 	}
 	gitRunStore(t, j.repo, "init", "-b", "candidate-branch")
-	base := j.commit(t, "worker@example.invalid", "pinned harness and defect")
+	base := j.commit(t, "author@example.invalid", "pinned harness and defect")
 	if _, err := j.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','candidate-claim','candidate-branch',?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM write_guard`, WorktreeSetID(workID), base, j.repo, j.repo); err != nil {
 		t.Fatal(err)
 	}
@@ -64,13 +56,8 @@ func newCandidateJourney(t *testing.T, workID string) *candidateJourney {
 	if got := j.observe(t, "base"); got != base {
 		t.Fatalf("base observation qualified %q, want %q", got, base)
 	}
-	// The confirmation question needs a recorded investigation artifact that
-	// names a current Domain of the Product.
 	insertInvestigationGateObservation(t, j.s, workID, "obs:"+strings.Repeat("c", 16), []string{workContextTestRoot})
-	raw, err := json.Marshal(acceptanceOracleFieldsWithoutPreparationsForTest(t, j.s, workID))
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := mustJSONValue(acceptanceOracleFieldsWithoutPreparationsForTest(t, j.s, workID))
 	var oracle AcceptanceOracle
 	if err := json.Unmarshal(raw, &oracle); err != nil {
 		t.Fatal(err)
@@ -84,8 +71,6 @@ func newCandidateJourney(t *testing.T, workID string) *candidateJourney {
 	return j
 }
 
-// commit records the working tree as one commit by the named Git author.
-// The Git identity is synthetic and carries no workflow authority.
 func (j *candidateJourney) commit(t *testing.T, author, message string) string {
 	t.Helper()
 	gitRunStore(t, j.repo, "-c", "user.email="+author, "-c", "user.name="+author, "add", ".")
@@ -95,24 +80,17 @@ func (j *candidateJourney) commit(t *testing.T, author, message string) string {
 
 func (j *candidateJourney) head(t *testing.T) string {
 	t.Helper()
-	out, err := (ExecGitRunner{}).Run(context.Background(), j.repo, "rev-parse", "HEAD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.TrimSpace(string(out))
+	return runTestGit(t, j.repo, "rev-parse", "HEAD")
 }
 
-func (j *candidateJourney) request(id string, o *NativeOracleRequest) WorktreeVerifyRequest {
-	r := WorktreeVerifyRequest{WorkID: j.workID, ProjectID: "project", LeaseID: "candidate-" + id, RequestID: "request-" + id, PrincipalRef: "principal/operator", Owner: SessionWorktreeOwner{ClientRef: "client/candidate", AgentRef: "agent/candidate-verify", SessionRef: "session/candidate-verify"}, Runner: ExecGitRunner{}, Oracle: o, Now: time.Now().UTC()}
-	r.SupportedBudgetSeconds = 60
-	if o == nil {
+func (j *candidateJourney) request(id string, oracle *NativeOracleRequest) WorktreeVerifyRequest {
+	r := WorktreeVerifyRequest{WorkID: j.workID, ProjectID: "project", LeaseID: "candidate-" + id, RequestID: "request-" + id, PrincipalRef: "principal/operator", Owner: SessionWorktreeOwner{ClientRef: "client/candidate", AgentRef: "agent/candidate-verify", SessionRef: "session/candidate-verify"}, Runner: ExecGitRunner{}, Oracle: oracle, Now: time.Now().UTC(), SupportedBudgetSeconds: 60}
+	if oracle == nil {
 		r.Command = []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}
 	}
 	return r
 }
 
-// observe qualifies the clean HEAD through the native verification owner and
-// returns the subject the core now pins.
 func (j *candidateJourney) observe(t *testing.T, id string) string {
 	t.Helper()
 	result := j.observeRun(t, id)
@@ -122,51 +100,23 @@ func (j *candidateJourney) observe(t *testing.T, id string) string {
 	return strings.TrimPrefix(result.SubjectRef, "commit:")
 }
 
-func (j *candidateJourney) prepare(t *testing.T, id string) WorktreeVerifyResult {
+func (j *candidateJourney) observeRun(t *testing.T, id string) WorktreeVerifyResult {
 	t.Helper()
-	bundle := j.bundle
-	result, err := j.s.VerifyWorktree(context.Background(), j.request("prepare-"+id, &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &bundle}))
-	if err != nil || result.Oracle == nil || result.Oracle.Qualification != "ready" {
-		t.Fatalf("prepare %s: %+v err=%v", id, result.Oracle, err)
+	result, err := j.s.VerifyWorktree(t.Context(), j.request("observe-"+id, nil))
+	if err != nil || result.SubjectRef == "" || result.ExitCode != 0 || result.TrackedFilesChanged {
+		t.Fatalf("observe %s: %+v err=%v", id, result, err)
 	}
 	return result
 }
 
-// recordReadyJob records one ready worker-job revision through the
-// record_worker_job action. Its oracle carries exactly the named preparation.
-func (j *candidateJourney) recordReadyJob(t *testing.T, jobID string, preparation WorktreeVerifyResult) WorkerJobBinding {
+func (j *candidateJourney) prepare(t *testing.T, id string) WorktreeVerifyResult {
 	t.Helper()
-	control := j.bundle.Control
-	control.ReadinessEvidenceRefs = []string{preparation.OperationRef}
-	oracle, err := json.Marshal(AcceptanceOracle{Owners: []OracleOwner{j.bundle.Owner}, Cases: j.bundle.Cases, Controls: []OracleControl{control}})
-	if err != nil {
-		t.Fatal(err)
+	bundle := j.bundle
+	result, err := j.s.VerifyWorktree(t.Context(), j.request("prepare-"+id, &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &bundle}))
+	if err != nil || result.Oracle == nil || result.Oracle.Qualification != "ready" {
+		t.Fatalf("prepare %s: %+v err=%v", id, result.Oracle, err)
 	}
-	fields := map[string]any{
-		"job_id": jobID, "objective": "return the approved value from the pinned harness",
-		"stopping_condition": "the pinned harness passes on the candidate",
-		"path_scope":         []string{"pkg"}, "checks": []string{"go test ./pkg"},
-		"reserved_integration": "integration evidence binds at the parent effect step",
-		"ready":                true, "readiness_evidence": []string{preparation.OperationRef},
-		"acceptance_oracle": json.RawMessage(oracle),
-	}
-	if err := recordWorkerJobActionForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
-		t.Fatalf("record ready job %s: %v", jobID, err)
-	}
-	views, err := readWorkerJobRevisions(context.Background(), j.s.db, j.workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var binding WorkerJobBinding
-	for _, view := range views {
-		if view.Binding.JobID == jobID && view.Binding.Revision > binding.Revision {
-			binding = view.Binding
-		}
-	}
-	if binding.Digest == "" {
-		t.Fatalf("job %s is not recorded", jobID)
-	}
-	return binding
+	return result
 }
 
 func (j *candidateJourney) action(t *testing.T, action string, payload any, actor WorkflowActor) error {
@@ -179,16 +129,14 @@ func (j *candidateJourney) action(t *testing.T, action string, payload any, acto
 
 func (j *candidateJourney) terminalAction(t *testing.T, action string, payload json.RawMessage, actor WorkflowActor) error {
 	t.Helper()
-	ctx := context.Background()
-	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
+	ctx, err := prepareTerminalTestContext(t.Context(), j.s, j.workID, action)
 	if err != nil {
 		return err
 	}
-	ctx = WithWorkerDispatchPreparation(ctx, prepared)
-	return j.terminalActionContext(t, ctx, action, payload, actor, nil)
+	return j.terminalActionContext(t, ctx, action, payload, actor)
 }
 
-func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Context, action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
+func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Context, action string, payload json.RawMessage, actor WorkflowActor) error {
 	t.Helper()
 	if action == "complete" && knowledgeSourceSetProofFrom(ctx) == nil {
 		var err error
@@ -203,9 +151,9 @@ func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Conte
 	if action == "confirm_premise" {
 		choice = "confirm"
 	}
-	return j.s.Transact(ctx, func(transaction *Transaction) error {
-		_, err := ApplyWorkflowActionTx(ctx, transaction, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-			WorkID: j.workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: actor, OperatorActor: operator, SelectedChoice: choice,
+	return j.s.Transact(ctx, func(tx *Transaction) error {
+		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+			WorkID: j.workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: actor, SelectedChoice: choice,
 			EvidenceRefs: actionEvidenceRefs(action, payload), AcceptedInputsDigest: nativeDigest([]byte(id)), IdempotencyIdentity: id,
 			OperationID: id, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id,
 			RequestID: "request:" + id, ContractDigest: testManifestDigest, Now: time.Now().UTC(),
@@ -214,52 +162,30 @@ func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Conte
 	})
 }
 
-// candidateAtVerify is a journey parked at verify after A was produced,
-// accepted, delivered, and reviewed, with an unrecorded B committed.
 type candidateAtVerify struct {
 	*candidateJourney
 	a, b            string
 	runA            WorktreeVerifyResult
-	jobA            WorkerJobBinding
 	preparationBase WorktreeVerifyResult
 	snapshotA       map[string]subjectRecord
-}
-
-// journeyToVerify drives subject A through the managed route to verify and
-// commits an unrecorded B. reviewAccepted selects an A review
-// accepted with a healthy verdict, or an A review completed with no
-// disposition; host drift need not create a rejection event.
-func journeyToVerify(t *testing.T, workID string, reviewAccepted bool) *candidateAtVerify {
-	t.Helper()
-	j := journeyThroughA(t, workID, reviewAccepted)
-	j.commitB(t)
-	j.refuseStaleExecution(t, "attempt-candidate-a", j.jobA, j.preparationBase)
-	return j
+	reviewA         *ReviewBlock
 }
 
 func journeyToRefineA(t *testing.T, workID string) *candidateAtVerify {
 	t.Helper()
 	j := &candidateAtVerify{candidateJourney: newCandidateJourney(t, workID)}
+	if err := j.action(t, "checkpoint_repair", map[string]any{}, j.acceptor); err != nil {
+		t.Fatalf("checkpoint_repair: %v", err)
+	}
 	base := j.head(t)
-
-	// Subject A: a managed implement attempt produces the change.
 	j.preparationBase = j.prepare(t, "base")
-	j.jobA = j.recordReadyJob(t, "job:candidate", j.preparationBase)
-	j.dispatchJob(t, "attempt-candidate-a", "implement", "implementation", j.jobA)
-	if err := os.WriteFile(filepath.Join(j.repo, "pkg", "value.go"), []byte("package oracle\nfunc Value() int { return 7 }\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(j.repo, "pkg/value.go"), []byte("package oracle\nfunc Value() int { return 7 }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	j.a = j.commit(t, "worker@example.invalid", "worker returns the approved value")
+	j.a = j.commit(t, "author@example.invalid", "return the approved value")
 	if j.a == base {
-		t.Fatal("the worker commit did not change the subject")
+		t.Fatal("the change did not move the candidate")
 	}
-	j.completeLane(t, "attempt-candidate-a", "implementation", &j.jobA, nil)
-	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": "attempt-candidate-a", "attempt_epoch": latestStepStartEpoch(t, j.s, j.workID, "repair")}, j.acceptor); err != nil {
-		t.Fatalf("accept A: %v", err)
-	}
-
-	// Repair, refine, and delivery over A, each exit proved by a qualified
-	// green run of A in its epoch.
 	j.observeRun(t, "review-a")
 	acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
 	delivery := map[string]any{"delivery_artifact": "artifact:candidate-a", "delivery_state": "asserted"}
@@ -273,31 +199,30 @@ func journeyToRefineA(t *testing.T, workID string) *candidateAtVerify {
 	return j
 }
 
-func journeyThroughA(t *testing.T, workID string, reviewAccepted bool) *candidateAtVerify {
+func journeyThroughA(t *testing.T, workID string, reviewRecorded bool) *candidateAtVerify {
 	t.Helper()
 	j := journeyToRefineA(t, workID)
-	delivery := map[string]any{"delivery_artifact": "artifact:candidate-a", "delivery_state": "asserted"}
 	j.runA = j.observeRun(t, "refine-a")
 	if j.runA.SubjectRef != "commit:"+j.a {
 		t.Fatalf("refine run subject = %q, want A %q", j.runA.SubjectRef, j.a)
 	}
 	j.bindVerification(t, j.runA)
+	if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "commit:" + j.a}, j.acceptor); err != nil {
+		t.Fatalf("bind candidate A artifact: %v", err)
+	}
 	for _, gate := range []string{"refine", "delivery"} {
-		if err := j.action(t, "record_delivery", delivery, j.acceptor); err != nil {
+		if err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:candidate-a", "delivery_state": "asserted"}, j.acceptor); err != nil {
 			t.Fatalf("%s delivery over A: %v", gate, err)
 		}
 	}
 	if got := currentStep(t, j.s, j.workID); got != "verify" {
 		t.Fatalf("step after delivery over A = %q, want verify", got)
 	}
-
-	// Independent review of A by actors who authored nothing.
-	j.reviewReceipts = []string{j.runA.OperationRef}
-	j.dispatchReview(t, "attempt-review-a")
-	j.completeLane(t, "attempt-review-a", "review", nil, nil)
-	if reviewAccepted {
-		if err := j.acceptEvidence(t, "attempt-review-a"); err != nil {
-			t.Fatalf("accept A review: %v", err)
+	j.reviewA = currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
+	j.reviewA.Assessments = []ReviewAssessment{{PredicateID: "predicate:work-context", Assessment: "supported", ReceiptRefs: []string{j.runA.OperationRef}}}
+	if reviewRecorded {
+		if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, j.reviewA); err != nil {
+			t.Fatalf("record A Review: %v", err)
 		}
 		if err := j.action(t, "record_verdict", criterionAssociationPayload(j.runA.OperationRef, "predicate:work-context"), j.fixture.owner); err != nil {
 			t.Fatalf("record A verdict: %v", err)
@@ -307,28 +232,25 @@ func journeyThroughA(t *testing.T, workID string, reviewAccepted bool) *candidat
 	return j
 }
 
+func journeyToVerify(t *testing.T, workID string, reviewRecorded bool) *candidateAtVerify {
+	t.Helper()
+	j := journeyThroughA(t, workID, reviewRecorded)
+	j.commitB(t)
+	j.refuseStaleExecution(t, "base-on-b", j.preparationBase)
+	return j
+}
+
 func (j *candidateAtVerify) commitB(t *testing.T) {
 	t.Helper()
-	// An unrecorded commit B moves HEAD in the same worktree. No assignment
-	// produced it, so it is not Main's integrated candidate (CD-0242 D5). The
-	// approved predicates and pinned harness stay unchanged.
-	if err := os.WriteFile(filepath.Join(j.repo, "pkg", "value.go"), []byte("package oracle\n\n// Value returns the approved value.\nfunc Value() int { return 7 }\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(j.repo, "pkg/value.go"), []byte("package oracle\n\nfunc Value() int { return 7 }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	j.b = j.commit(t, "unrecorded@example.invalid", "unrecorded commit")
-	if j.b == j.a {
-		t.Fatal("the unrecorded commit did not change the subject")
-	}
-
-	// Before any B observation the core still pins A, and A's execution
-	// authority cannot launch a control on B.
-	if pinned := j.pinned(t); pinned != j.a {
-		t.Fatalf("core pin before B observation = %q, want A %q", pinned, j.a)
+	j.b = j.commit(t, "author@example.invalid", "changed candidate")
+	if j.b == j.a || j.pinned(t) != j.a {
+		t.Fatal("fixture must change HEAD without changing the qualified A pin")
 	}
 }
 
-// observeB qualifies B through the native verification owner. It moves the
-// pin and relabels nothing about A.
 func (j *candidateAtVerify) observeB(t *testing.T) {
 	t.Helper()
 	if got := j.observe(t, "b"); got != j.b {
@@ -336,21 +258,12 @@ func (j *candidateAtVerify) observeB(t *testing.T) {
 	}
 }
 
-// refuse runs one stale-proof route and requires a refusal with no durable
-// effect.
 func (j *candidateAtVerify) refuse(t *testing.T, route string, run func() error) {
 	t.Helper()
 	before := j.effects(t)
-	if err := run(); err == nil {
-		t.Errorf("%s over A proof admitted with HEAD at B", route)
-	} else {
-		var failure *Failure
-		// After stale review and verdict refusal, the pending-review branch
-		// has no verdict to confirm. That independent evidence refusal is valid.
-		if !failureAs(err, &failure) || (failure.Kind != KindStaleRequiresReview && !(route == "confirm_premise" && failure.Kind == KindMissingEvidence)) {
-			t.Errorf("%s refusal = %v, want stale_requires_review", route, err)
-		}
-		t.Logf("%s over A proof refused: %v", route, err)
+	err := run()
+	if !hasFailureKind(err, KindStaleRequiresReview) && !(route == "confirm_premise" && hasFailureKind(err, KindMissingEvidence)) {
+		t.Errorf("%s refusal = %v, want stale_requires_review", route, err)
 	}
 	if after := j.effects(t); after != before {
 		t.Errorf("%s changed durable state:\nbefore=%s\nafter=%s", route, before, after)
@@ -362,17 +275,11 @@ func (j *candidateAtVerify) confirmPremise(t *testing.T) error {
 	return j.terminalAction(t, "confirm_premise", json.RawMessage(`{"contract_version":1}`), j.fixture.owner)
 }
 
-// completeOrdinary is the ordinary completion call: impact_verdict only, with
-// no current_commit, evidence_commit, or asserted staleness.
 func (j *candidateAtVerify) completeOrdinary(t *testing.T) error {
 	t.Helper()
 	return j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), j.fixture.owner)
 }
 
-// staleAcceptance drives the declared acceptance routes on A proof alone:
-// confirmation, then the ordinary completion call. Each must refuse with no
-// durable effect. A route that admits is reported and the next route still
-// runs, so one red does not hide another.
 func (j *candidateAtVerify) staleAcceptance(t *testing.T) {
 	t.Helper()
 	j.refuse(t, "confirm_premise", func() error { return j.confirmPremise(t) })
@@ -381,9 +288,6 @@ func (j *candidateAtVerify) staleAcceptance(t *testing.T) {
 	}
 }
 
-// TestManagedCandidateSubjectStaleProofNeverAuthorizesB proves A's accepted
-// review, A's verdict, and A's verification runs cannot accept B, and that
-// replaying A's producer returns A unchanged (CD-0242 D7).
 func TestManagedCandidateSubjectStaleProofNeverAuthorizesB(t *testing.T) {
 	j := journeyToVerify(t, "candidate-stale-accepted", true)
 	j.observeB(t)
@@ -392,9 +296,6 @@ func TestManagedCandidateSubjectStaleProofNeverAuthorizesB(t *testing.T) {
 	j.requireRecordsUnchanged(t, j.snapshotA)
 }
 
-// TestManagedCandidateSubjectUnobservedHeadNeverCompletes drives the ordinary
-// acceptance calls while HEAD is B and the core still pins A. The ordinary
-// completion call omits every optional commit and staleness assertion.
 func TestManagedCandidateSubjectUnobservedHeadNeverCompletes(t *testing.T) {
 	j := journeyToVerify(t, "candidate-unobserved", true)
 	j.staleAcceptance(t)
@@ -415,95 +316,56 @@ func TestManagedCandidateSubjectCompleteRechecksObservedSubject(t *testing.T) {
 	j.requireRecordsUnchanged(t, j.snapshotA)
 }
 
-// TestManagedCandidateSubjectReviewOfIntegratedCandidateSurvivesSubjectMovement
-// proves Main's integrated candidate, not live HEAD or the native pin, is the
-// Review subject (CD-0242 D5, D7): with A still integrated, Main accepts A's
-// Review after HEAD moves to an unrecorded B or after the pin disappears, and
-// associates A's receipts with the criteria of the A it integrated.
-func TestManagedCandidateSubjectReviewOfIntegratedCandidateSurvivesSubjectMovement(t *testing.T) {
-	t.Run("head_moved", func(t *testing.T) {
-		j := journeyToVerify(t, "candidate-review-head-moved", false)
-		j.observeB(t)
-		if got := j.pinned(t); got != j.b {
-			t.Fatalf("pin after B observation = %q, want B %q", got, j.b)
-		}
-		if err := j.acceptEvidence(t, "attempt-review-a"); err != nil {
-			t.Fatalf("accept A's Review with HEAD at unrecorded B: %v", err)
-		}
-		j.requireAcceptedReview(t, "attempt-review-a", j.a)
-		// Accepting A's Review grants no final proof over B.
-		j.staleAcceptance(t)
-		j.requireRecordsUnchanged(t, j.snapshotA)
-	})
-	t.Run("pin_removed", func(t *testing.T) {
-		j := journeyThroughA(t, "candidate-review-pin-removed", false)
-		j.reclaimWorktree(t)
-		if err := j.acceptEvidence(t, "attempt-review-a"); err != nil {
-			t.Fatalf("accept A's Review with no current pin: %v", err)
-		}
-		j.requireAcceptedReview(t, "attempt-review-a", j.a)
-		if err := j.action(t, "record_verdict", criterionAssociationPayload(j.runA.OperationRef, "predicate:work-context"), j.fixture.owner); err != nil {
-			t.Fatalf("associate A's receipt with no current pin: %v", err)
-		}
-		j.requireRecordsUnchanged(t, j.snapshotA)
-	})
+func TestManagedCandidateSubjectDelayedReviewRequiresObservedCandidate(t *testing.T) {
+	for _, movement := range []string{"head_moved", "pin_removed"} {
+		t.Run(movement, func(t *testing.T) {
+			j := journeyThroughA(t, "candidate-delayed-review-"+movement, false)
+			if movement == "head_moved" {
+				j.commitB(t)
+				j.observeB(t)
+			} else {
+				j.reclaimWorktree(t)
+			}
+			before := j.effects(t)
+			if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, j.reviewA); !hasFailureKind(err, KindStaleRequiresReview) {
+				t.Fatalf("delayed A Review after %s: %v", movement, err)
+			}
+			if j.effects(t) != before {
+				t.Fatal("refused delayed Review changed durable state")
+			}
+			j.requireRecordsUnchanged(t, j.snapshotA)
+		})
+	}
 }
 
-// TestManagedCandidateSubjectReviewDispatchRefusesUnrecordedHead proves an
-// unrecorded B never becomes the Review input, even once observed and pinned:
-// Review dispatch on B refuses with no durable effect (CD-0242 D5).
-func TestManagedCandidateSubjectReviewDispatchRefusesUnrecordedHead(t *testing.T) {
-	j := journeyToVerify(t, "candidate-review-unrecorded-b", false)
+func TestManagedCandidateSubjectReviewNeverRelabelsOldProof(t *testing.T) {
+	j := journeyToVerify(t, "candidate-review-old-proof", false)
 	j.observeB(t)
-	job := reviewSubjectReadyRevision(t, j.fixture)
+	report := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
+	report.Assessments = j.reviewA.Assessments
 	before := j.effects(t)
-	err := j.dispatchReviewJob(t, "attempt-review-b", job)
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindStaleRequiresReview || !strings.Contains(failure.Detail, "Review input differs from Main's current integrated candidate") {
-		t.Fatalf("Review dispatch on unrecorded B = %v, want the integrated-candidate refusal", err)
+	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, report); err == nil {
+		t.Fatal("B Review admitted A's criterion receipt")
 	}
-	if after := j.effects(t); after != before {
-		t.Fatalf("refused Review dispatch on B changed durable state:\nbefore=%s\nafter=%s", before, after)
+	if j.effects(t) != before {
+		t.Fatal("refused receipt substitution changed durable state")
 	}
 	j.requireRecordsUnchanged(t, j.snapshotA)
 }
 
-// TestManagedCandidateSubjectLateReviewNeverReplacesNewerCandidate proves "a
-// late or duplicate member result never replaces a newer accepted candidate"
-// (CD-0242 D5): a second Review of A commits a corrective change A2, Main
-// accepts it, and the late first Review of A then refuses with no durable
-// effect while A2 stays the integrated candidate.
 func TestManagedCandidateSubjectLateReviewNeverReplacesNewerCandidate(t *testing.T) {
-	j := journeyThroughA(t, "candidate-late-review", false)
-	job := reviewSubjectReadyRevision(t, j.fixture)
-	const corrective = "attempt-review-corrective"
-	if err := j.dispatchReviewJob(t, corrective, job); err != nil {
-		t.Fatalf("dispatch the corrective Review of A: %v", err)
-	}
-	if got := j.dispatchedSubject(t, corrective); got != j.a {
-		t.Fatalf("corrective Review input = %q, want A %q", got, j.a)
-	}
-	a2, _ := j.completeCorrectiveReview(t, corrective, job, filepath.Join("internal", "store", job.JobID, "review.txt"), "corrective review note\n", "corrective-a2")
-	if err := j.acceptEvidence(t, corrective); err != nil {
-		t.Fatalf("accept the corrective Review that integrates A2: %v", err)
-	}
-	j.requireAcceptedReview(t, corrective, a2)
-
+	j := journeyWithIntegratedB(t, "candidate-late-review")
 	before := j.effects(t)
-	err := j.acceptEvidence(t, "attempt-review-a")
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindStaleRequiresReview || !strings.Contains(failure.Detail, "a newer accepted candidate replaced this Review's input") {
-		t.Fatalf("late acceptance of A's Review over integrated A2 = %v, want the newer-candidate refusal", err)
+	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, j.reviewA); !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("late A Review over recorded B = %v, want stale_requires_review", err)
 	}
-	if after := j.effects(t); after != before {
-		t.Fatalf("refused late Review acceptance changed durable state:\nbefore=%s\nafter=%s", before, after)
+	if j.effects(t) != before {
+		t.Fatal("refused late Review changed durable state")
 	}
-	j.requireAcceptedReview(t, corrective, a2)
+	j.requireAcceptedReview(t, j.b)
 	j.requireRecordsUnchanged(t, j.snapshotA)
 }
 
-// TestManagedCandidateSubjectMissingPinNeverAccepts proves the final-proof
-// routes refuse when the active worktree, and with it the pin, disappears.
 func TestManagedCandidateSubjectMissingPinNeverAccepts(t *testing.T) {
 	for _, gate := range []string{"confirm_premise", "complete"} {
 		t.Run(gate, func(t *testing.T) {
@@ -525,8 +387,6 @@ func TestManagedCandidateSubjectMissingPinNeverAccepts(t *testing.T) {
 	}
 }
 
-// reclaimWorktree models the loss of the active worktree, not a new workflow
-// route, and requires the pin to disappear with it.
 func (j *candidateAtVerify) reclaimWorktree(t *testing.T) {
 	t.Helper()
 	if _, err := j.s.db.Exec(`UPDATE worktree_entries SET state='reclaimed' WHERE set_id=?`, WorktreeSetID(j.workID)); err != nil {
@@ -537,79 +397,47 @@ func (j *candidateAtVerify) reclaimWorktree(t *testing.T) {
 	}
 }
 
-// requireAcceptedReview requires Main's accepted Review to be the named
-// attempt and the integrated candidate to be the named commit.
-func (j *candidateJourney) requireAcceptedReview(t *testing.T, attemptID, candidate string) {
+func (j *candidateJourney) requireAcceptedReview(t *testing.T, candidate string) {
 	t.Helper()
 	state, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Accepted == nil || state.Accepted.AttemptID != attemptID || state.Candidate == nil || state.Candidate.Commit != candidate {
-		t.Fatalf("accepted Review = %+v candidate = %+v, want %s integrating %s", state.Accepted, state.Candidate, attemptID, candidate)
+	if state.Accepted == nil || state.Accepted.ReportRef == "" || state.Candidate == nil || state.Candidate.Commit != candidate || state.Accepted.Report.OutputCandidate != *state.Candidate {
+		t.Fatalf("accepted Review = %+v candidate = %+v, want exact output %s", state.Accepted, state.Candidate, candidate)
 	}
 }
 
-// journeyWithIntegratedB has Main accept a corrective Review's output B.
-// Merely observing or pinning B does not integrate it (CD-0242 D5).
 func journeyWithIntegratedB(t *testing.T, workID string) *candidateAtVerify {
 	t.Helper()
 	j := journeyThroughA(t, workID, true)
-	job := reviewSubjectReadyRevision(t, j.fixture)
-	const attempt = "attempt-integrate-b"
-	if err := j.dispatchReviewJob(t, attempt, job); err != nil {
-		t.Fatalf("dispatch corrective Review of A: %v", err)
-	}
-	j.b, _ = j.completeCorrectiveReview(t, attempt, job, filepath.Join("internal", "store", job.JobID, "review.txt"), "corrected candidate\n", "integrated-b")
+	j.b, _ = j.completeCorrectiveReview(t, "review.txt", "corrected candidate\n", "integrated-b")
 	if j.b == j.a {
 		t.Fatal("the corrective Review did not change A")
 	}
-	if err := j.acceptEvidence(t, attempt); err != nil {
-		t.Fatalf("Main integrates B: %v", err)
-	}
-	j.requireAcceptedReview(t, attempt, j.b)
+	j.requireAcceptedReview(t, j.b)
 	j.requireRecordsUnchanged(t, j.snapshotA)
 	return j
 }
 
-// TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB executes the
-// pinned oracle on Main's integrated B in a fresh Review of B. Only that
-// producer receipt proves B's criterion; A's retained records stay unchanged.
 func TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB(t *testing.T) {
 	j := journeyWithIntegratedB(t, "candidate-fresh-b")
-	preparationB := j.prepare(t, "b")
-	if preparationB.Oracle.SubjectCommit != j.b {
-		t.Fatalf("B preparation subject = %q, want B %q", preparationB.Oracle.SubjectCommit, j.b)
-	}
-	jobB := j.recordReadyJob(t, "job:candidate", preparationB)
-	if jobB.Revision <= j.jobA.Revision {
-		t.Fatalf("B job revision %d does not follow A revision %d", jobB.Revision, j.jobA.Revision)
-	}
-	const attempt = "attempt-review-b"
-	if err := j.dispatchReviewJob(t, attempt, jobB); err != nil {
-		t.Fatalf("dispatch Review of integrated B: %v", err)
-	}
-	if got := j.dispatchedSubject(t, attempt); got != j.b {
-		t.Fatalf("B Review dispatch subject = %q, want B %q", got, j.b)
+	preparation := j.prepare(t, "b")
+	if preparation.Oracle.SubjectCommit != j.b {
+		t.Fatalf("B preparation subject = %q, want %q", preparation.Oracle.SubjectCommit, j.b)
 	}
 	launches := j.launches
-	oracle := j.executeRequest(t, attempt, jobB, preparationB)
+	oracle := j.executeRequest(preparation)
 	executed, err := j.s.VerifyWorktree(t.Context(), j.request("execute-b", &oracle))
 	if err != nil || executed.Oracle == nil || executed.Oracle.Qualification != "pass" || executed.Oracle.SubjectCommit != j.b || j.launches != launches+1 {
 		t.Fatalf("execute native oracle on B: %+v err=%v launches=%d", executed.Oracle, err, j.launches-launches)
 	}
-	control := j.bundle.Control
-	exit := 0
-	j.reviewReceipts = []string{executed.OperationRef}
-	j.completeLane(t, attempt, "review", &jobB, &WorkerOracleReceipt{
-		ControlIDs: []string{control.ControlID}, CaseIDs: control.CaseIDs, SubjectCommit: j.b,
-		RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: control.RecipeSource.ProjectID, Path: control.RecipeSource.Path, CommitOID: control.RecipeSource.CommitOID},
-		Result:       OracleReceiptResultPass, ExitCode: &exit, RunRef: executed.OperationRef, EvidenceRefs: []string{executed.OperationRef},
-	})
-	if err := j.acceptEvidence(t, attempt); err != nil {
-		t.Fatalf("Main accepts B's receipt-bound Review: %v", err)
+	report := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
+	report.Assessments = []ReviewAssessment{{PredicateID: "predicate:work-context", Assessment: "supported", ReceiptRefs: []string{executed.OperationRef}}}
+	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, report); err != nil {
+		t.Fatalf("record B's receipt-bound Review: %v", err)
 	}
-	j.requireAcceptedReview(t, attempt, j.b)
+	j.requireAcceptedReview(t, j.b)
 	j.bindVerification(t, executed)
 	if err := j.action(t, "record_verdict", criterionAssociationPayload(executed.OperationRef, "predicate:work-context"), j.fixture.owner); err != nil {
 		t.Fatalf("associate B's native oracle receipt: %v", err)
@@ -631,121 +459,34 @@ func TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB(t *testing.T) {
 	j.requireRecordsUnchanged(t, j.snapshotA)
 }
 
-// TestManagedCandidateSubjectCorrectiveDispatchOnB preserves correction
-// context, the integrated subject, the exact job binding, and epoch ordering.
-// Correction-count authority is not part of the dispatch (CD-0242 D6).
-func TestManagedCandidateSubjectCorrectiveDispatchOnB(t *testing.T) {
+func TestManagedCandidateSubjectCorrectiveReviewOnB(t *testing.T) {
 	j := journeyWithIntegratedB(t, "candidate-corrective-b")
 	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
-	review, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID)
-	if err != nil || review.Accepted == nil || review.Candidate == nil || review.Candidate.Commit != j.b || review.Accepted.Report.InputCandidate.Commit != j.b {
-		t.Fatalf("correction Review over B: %+v err=%v", review, err)
-	}
+	j.requireAcceptedReview(t, j.b)
 	run := j.observeRun(t, "correction-b")
 	j.bindVerification(t, run)
 	const diagnosis = "B needs a bounded corrective pass"
 	const strategy = "correct B under its pinned oracle"
-	correction := map[string]any{
-		"diagnosis": diagnosis, "strategy": strategy,
-		"predicate_ids": []string{"predicate:work-context"}, "evidence_refs": []string{run.OperationRef},
-	}
-	if err := j.action(t, "request_correction", correction, j.fixture.owner); err != nil {
-		t.Fatalf("request correction of integrated B: %v", err)
+	if err := j.action(t, "request_correction", map[string]any{"diagnosis": diagnosis, "strategy": strategy, "predicate_ids": []string{"predicate:work-context"}, "evidence_refs": []string{run.OperationRef}}, j.fixture.owner); err != nil {
+		t.Fatalf("request correction of B: %v", err)
 	}
 	if step := currentStep(t, j.s, j.workID); step != "repair" {
 		t.Fatalf("step after correction = %q, want repair", step)
 	}
-	preparationB := j.prepare(t, "corrective-b")
-	jobB := j.recordReadyJob(t, "job:candidate", preparationB)
-	const attempt = "attempt-corrective-b"
-	before, err := workflowCorrectionContextForDispatch(t.Context(), j.s.db, j.workID, "repair", attempt)
-	if err != nil || before == nil {
-		t.Fatalf("open correction before dispatch = %+v err=%v", before, err)
-	}
-	if before.Disposition != "verification" || before.Diagnosis != diagnosis || before.Strategy != strategy || len(before.PredicateIDs) != 1 || before.PredicateIDs[0] != "predicate:work-context" || len(before.EvidenceRefs) != 1 || before.EvidenceRefs[0] != run.OperationRef {
-		t.Fatalf("correction context = %+v, want this request's diagnosis, strategy, predicate and B evidence", before)
-	}
-	j.dispatchJob(t, attempt, "implement", "implementation", jobB)
-	if got := j.dispatchedSubject(t, attempt); got != j.b {
-		t.Errorf("corrective dispatch subject = %q, want B %q", got, j.b)
-	}
-	var job WorkerJobBinding
-	var raw string
-	if err := j.s.db.QueryRow(`SELECT json_extract(payload,'$.worker_job') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, j.workID, attempt).Scan(&raw); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal([]byte(raw), &job); err != nil || job != jobB {
-		t.Errorf("corrective dispatch job = %+v err=%v, want %+v", job, err, jobB)
-	}
-	if j.dispatchEpoch(t, attempt) <= j.dispatchEpoch(t, "attempt-candidate-a") {
-		t.Error("corrective attempt epoch does not follow the A attempt")
-	}
-	var state string
-	if err := j.s.db.QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE work_id=? AND attempt_id=?`, j.workID, attempt).Scan(&state); err != nil || state != "dispatched" {
-		t.Errorf("corrective attempt state = %q err=%v, want dispatched", state, err)
+	before, err := readWorkflowCorrectionContext(t.Context(), j.s.db, j.workID)
+	if err != nil || before == nil || before.Disposition != "verification" || before.Diagnosis != diagnosis || before.Strategy != strategy || len(before.PredicateIDs) != 1 || before.PredicateIDs[0] != "predicate:work-context" || len(before.EvidenceRefs) != 1 || before.EvidenceRefs[0] != run.OperationRef {
+		t.Fatalf("correction context = %+v err=%v, want this request's direction and B evidence", before, err)
 	}
 	if got := j.pinned(t); got != j.b {
-		t.Errorf("corrective dispatch pin = %q, want B %q", got, j.b)
+		t.Fatalf("request_correction moved B pin to %q", got)
+	}
+	acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
+	if after, err := readWorkflowCorrectionContext(t.Context(), j.s.db, j.workID); err != nil || after != nil {
+		t.Fatalf("recorded corrective Review left unfinished direction: %+v %v", after, err)
 	}
 	j.requireRecordsUnchanged(t, j.snapshotA)
 }
 
-// dispatchJob dispatches one job-bound attempt on the named lane at the
-// current step, carrying the open correction context when one exists.
-func (j *candidateJourney) dispatchJob(t *testing.T, attemptID, laneID, capability string, job WorkerJobBinding) {
-	t.Helper()
-	laneDigest := registeredLaneIdentity(t, laneID)
-	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attemptID, laneID, laneDigest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "implement")
-	correction, err := workflowCorrectionContextForDispatch(t.Context(), j.s.db, j.workID, currentStep(t, j.s, j.workID), attemptID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if correction != nil {
-		packet["inputs"].(map[string]any)["correction"] = correction
-	}
-	if err := j.dispatchPacket(t, packet); err != nil {
-		t.Fatalf("dispatch %s on %s: %v", attemptID, laneID, err)
-	}
-	bound := job
-	j.laneDispatch(t, attemptID, capability, &bound)
-}
-
-// dispatchPacket authorizes one prepared packet through the dispatch_worker
-// action from the claimed worktree.
-func (j *candidateJourney) dispatchPacket(t *testing.T, packet map[string]any) error {
-	t.Helper()
-	prepared, err := PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo, DispatchPayload: mustJSONValue(map[string]any{"attempt_id": packet["attempt_id"], "worker_packet": packet}), reviewPlanner: oracleFixtureReviewPlanner(t, oracleFixtureRuntime)})
-	if err != nil {
-		return err
-	}
-	ctx := WithWorkerDispatchPreparation(context.Background(), prepared)
-	_, err = dispatchJoinAttempt(ctx, t, j.s, j.workID, readWorkVersion(t, j.s, j.workID), j.fixture.owner, packet)
-	return err
-}
-
-// dispatchedSubject is the raw subject the dispatch authorization recorded.
-func (j *candidateJourney) dispatchedSubject(t *testing.T, attemptID string) string {
-	t.Helper()
-	var subject string
-	if err := j.s.db.QueryRow(`SELECT coalesce(json_extract(payload,'$.worker_subject_commit'),'') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, j.workID, attemptID).Scan(&subject); err != nil {
-		t.Fatal(err)
-	}
-	return subject
-}
-
-// observeRun is observe that returns the qualified verification run.
-func (j *candidateJourney) observeRun(t *testing.T, id string) WorktreeVerifyResult {
-	t.Helper()
-	result, err := j.s.VerifyWorktree(context.Background(), j.request("observe-"+id, nil))
-	if err != nil || result.SubjectRef == "" {
-		t.Fatalf("observe %s: %+v err=%v", id, result, err)
-	}
-	return result
-}
-
-// bindVerification binds a native verification run as verification evidence
-// through the bind_evidence action.
 func (j *candidateJourney) bindVerification(t *testing.T, run WorktreeVerifyResult) {
 	t.Helper()
 	if err := j.action(t, "bind_evidence", map[string]any{
@@ -756,78 +497,9 @@ func (j *candidateJourney) bindVerification(t *testing.T, run WorktreeVerifyResu
 	}
 }
 
-// dispatchReview dispatches one review-lane attempt on a fresh ready job.
-func (j *candidateJourney) dispatchReview(t *testing.T, attemptID string) {
+func (j *candidateJourney) completeCorrectiveReview(t *testing.T, path, content, observeID string) (string, WorktreeVerifyResult) {
 	t.Helper()
-	if err := j.dispatchReviewJob(t, attemptID, reviewSubjectReadyRevision(t, j.fixture)); err != nil {
-		t.Fatalf("dispatch review %s: %v", attemptID, err)
-	}
-}
-
-// dispatchReviewJob dispatches one review-lane attempt bound to the job at
-// the current step through the dispatch_worker action and the lane-actor
-// dispatch route.
-func (j *candidateJourney) dispatchReviewJob(t *testing.T, attemptID string, job WorkerJobBinding) error {
-	t.Helper()
-	laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attemptID, "review", laneDigest)
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "review")
-	if err := j.dispatchPacket(t, packet); err != nil {
-		return err
-	}
-	j.laneDispatch(t, attemptID, "review", &job)
-	return nil
-}
-
-// laneDispatch records the worker.dispatched event through the lane-actor
-// route with the packet digest the dispatch_worker authorization recorded.
-func (j *candidateJourney) laneDispatch(t *testing.T, attemptID, capability string, job *WorkerJobBinding) {
-	t.Helper()
-	lane := reviewGateLane(t, capability)
-	var packetDigest string
-	if err := j.s.db.QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, j.workID, attemptID).Scan(&packetDigest); err != nil {
-		t.Fatalf("read dispatch digest %s: %v", attemptID, err)
-	}
-	dispatch := Event{EventID: "candidate-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: j.workID, Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
-		AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
-		ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: job,
-	})}
-	if err := j.s.Transact(context.Background(), func(transaction *Transaction) error {
-		prepared, err := PrepareLaneActorDispatch(context.Background(), transaction, dispatch, j.fixture.owner.PrincipalRef, j.fixture.owner.ClientRef)
-		if err != nil {
-			return err
-		}
-		_, err = AppendLaneActorDispatchTx(context.Background(), transaction, prepared)
-		return err
-	}); err != nil {
-		t.Fatalf("lane dispatch %s: %v", attemptID, err)
-	}
-}
-
-// completeLane appends the attempt's worker.completed report. A review lane
-// reports a ready Review of its unchanged input, and a non-nil receipt rides
-// the first evidence entry.
-func (j *candidateJourney) completeLane(t *testing.T, attemptID, capability string, job *WorkerJobBinding, receipt *WorkerOracleReceipt) {
-	t.Helper()
-	if job == nil {
-		var err error
-		job, err = workflowDispatchedJobForAttempt(t.Context(), j.s.db, j.workID, attemptID)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	var review *WorkerReviewBlock
-	if capability == "review" {
-		review = currentReviewBlockForTest(t, j.s, j.workID, attemptID, "ready_for_final_proof")
-	}
-	j.completeAttempt(t, attemptID, capability, *job, review, receipt)
-}
-
-// completeCorrectiveReview commits the dispatched Review's corrective change
-// inside its job's path scope, verifies the corrected candidate, and returns
-// the Review's terminal report naming that output with the run's receipt.
-func (j *candidateJourney) completeCorrectiveReview(t *testing.T, attemptID string, job WorkerJobBinding, path, content, observeID string) (string, WorktreeVerifyResult) {
-	t.Helper()
+	input := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof").InputCandidate
 	if err := os.MkdirAll(filepath.Join(j.repo, filepath.Dir(path)), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -839,105 +511,39 @@ func (j *candidateJourney) completeCorrectiveReview(t *testing.T, attemptID stri
 	if run.SubjectRef != "commit:"+output {
 		t.Fatalf("corrected candidate run = %q, want %q", run.SubjectRef, output)
 	}
-	report := currentReviewBlockForTest(t, j.s, j.workID, attemptID, "ready_for_final_proof")
-	report.OutputCandidate = WorkerReviewCandidate{ProjectID: report.InputCandidate.ProjectID, Commit: output, Tree: reviewObservedTree(t, j.repo, output)}
-	j.reviewReceipts = []string{run.OperationRef}
-	j.completeReview(t, attemptID, job, report)
+	report := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
+	report.InputCandidate = input
+	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, report); err != nil {
+		t.Fatalf("record corrective Review: %v", err)
+	}
 	return output, run
-}
-
-// completeReview appends the Review attempt's worker.completed report with
-// the named block; the terminal producer observes its output candidate.
-func (j *candidateJourney) completeReview(t *testing.T, attemptID string, job WorkerJobBinding, review *WorkerReviewBlock) {
-	t.Helper()
-	j.completeAttempt(t, attemptID, "review", job, review, nil)
-}
-
-func (j *candidateJourney) completeAttempt(t *testing.T, attemptID, capability string, job WorkerJobBinding, review *WorkerReviewBlock, receipt *WorkerOracleReceipt) {
-	t.Helper()
-	lane := reviewGateLane(t, capability)
-	event := jobBoundCompletionEvent(j.workID, "candidate-completed-"+attemptID, attemptID, lane, time.Now().UTC(), &job, workerFixtureDirectory(t, j.s, j.workID))
-	if review != nil {
-		var payload WorkerCompletedPayload
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			t.Fatal(err)
-		}
-		if len(j.reviewReceipts) != 0 {
-			review.Assessments = []WorkerReviewAssessment{{PredicateID: "predicate:work-context", Assessment: "supported", ReceiptRefs: j.reviewReceipts}}
-		}
-		payload.Review = review
-		event.Payload = mustJSONValue(payload)
-	}
-	if receipt != nil {
-		var payload WorkerCompletedPayload
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			t.Fatal(err)
-		}
-		payload.Evidence[0].OracleReceipt = receipt
-		event.Payload = mustJSONValue(payload)
-	}
-	ctx := context.Background()
-	prepared, err := PrepareWorkerTerminalDelivery(ctx, j.s, PrepareWorkerTerminalDeliveryRequest{
-		WorkID: j.workID, AttemptID: attemptID, EventID: event.EventID, Runner: ExecGitRunner{},
-	})
-	if err != nil {
-		t.Fatalf("prepare completion %s: %v", attemptID, err)
-	}
-	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(ctx, prepared), j.s, event)
-}
-
-func (j *candidateJourney) dispatchEpoch(t *testing.T, attemptID string) int64 {
-	t.Helper()
-	var epoch int64
-	if err := j.s.db.QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, j.workID, attemptID).Scan(&epoch); err != nil {
-		t.Fatalf("read dispatch epoch %s: %v", attemptID, err)
-	}
-	return epoch
-}
-
-func (j *candidateJourney) acceptEvidence(t *testing.T, attemptID string) error {
-	t.Helper()
-	return j.action(t, "accept_worker_result", map[string]any{"attempt_id": attemptID, "attempt_epoch": j.dispatchEpoch(t, attemptID)}, j.fixture.owner)
 }
 
 func (j *candidateJourney) pinned(t *testing.T) string {
 	t.Helper()
-	subject, err := readCurrentOracleSubject(context.Background(), j.s.db, j.workID)
+	subject, err := readCurrentOracleSubject(t.Context(), j.s.db, j.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return subject
 }
 
-// effects is the durable state a refused route must leave unchanged.
 func (j *candidateJourney) effects(t *testing.T) string {
 	t.Helper()
-	var jobs, subject string
-	if err := j.s.db.QueryRow(`SELECT coalesce(group_concat(job_id||':'||revision||':'||coalesce(satisfied_result_ref,''),','),'') FROM worker_job_revisions WHERE work_id=?`, j.workID).Scan(&jobs); err != nil {
-		t.Fatal(err)
-	}
-	subject = j.pinned(t)
-	return contractCorrectionEffectSnapshot(t, j.s, j.workID) + " jobs=" + jobs + " pinned=" + subject
+	return outsideRepairDatabaseSnapshot(t, j.s)
 }
 
-// subjectRecord is one retained record whose bytes must never change.
 type subjectRecord struct{ id, kind, payload string }
 
-// snapshotSubjectRecords captures every worker report, dispatch binding, and
-// native producer result the work holds now.
+// Current Review projections may advance. Effect identities and digests, and
+// captured native producer bytes, must not change when the candidate does.
 func (j *candidateJourney) snapshotSubjectRecords(t *testing.T, subject string) map[string]subjectRecord {
 	t.Helper()
 	records := map[string]subjectRecord{}
-	rows, err := j.s.db.Query(`SELECT r.event_id,r.kind||'@'||r.payload_version,p.payload FROM effect_receipts r JOIN (
-		SELECT dispatch_event_id AS event_id,dispatch_payload AS payload FROM worker_attempts WHERE work_id=? AND dispatch_payload IS NOT NULL
-		UNION ALL SELECT terminal_event_id,terminal_payload FROM worker_attempts WHERE work_id=? AND terminal_kind=?
-		UNION ALL SELECT event_id,payload FROM worker_authorizations WHERE work_id=?
-		UNION ALL SELECT event_id,payload FROM worker_attempt_dispositions WHERE work_id=? AND action_id IN ('accept_worker_result','accept_worker_evidence')
-	) p ON p.event_id=r.event_id WHERE r.subject_type='work_item' AND r.subject_id=?`, j.workID, j.workID, WorkerCompleted, j.workID, j.workID, j.workID)
+	rows, err := j.s.db.Query(`SELECT event_id,kind||'@'||payload_version,payload_digest FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, j.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
 	for rows.Next() {
 		var r subjectRecord
 		if err := rows.Scan(&r.id, &r.kind, &r.payload); err != nil {
@@ -948,6 +554,7 @@ func (j *candidateJourney) snapshotSubjectRecords(t *testing.T, subject string) 
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
+	rows.Close()
 	producers, err := j.s.db.Query(`SELECT lease_id,outcome,coalesce(result_json,'') FROM worktree_verify_leases WHERE work_id=?`, j.workID)
 	if err != nil {
 		t.Fatal(err)
@@ -969,8 +576,6 @@ func (j *candidateJourney) snapshotSubjectRecords(t *testing.T, subject string) 
 	return records
 }
 
-// requireRecordsUnchanged compares a snapshot with the current records byte
-// for byte.
 func (j *candidateJourney) requireRecordsUnchanged(t *testing.T, snapshot map[string]subjectRecord) {
 	t.Helper()
 	current := j.snapshotSubjectRecords(t, strings.TrimPrefix(subjectOfLease(t, snapshot["lease:candidate-observe-refine-a"]), "commit:"))
@@ -978,63 +583,48 @@ func (j *candidateJourney) requireRecordsUnchanged(t *testing.T, snapshot map[st
 		got, ok := current[key]
 		if !ok {
 			t.Errorf("retained record %s disappeared", key)
-			continue
-		}
-		if got != want {
+		} else if got != want {
 			t.Errorf("retained record %s changed:\nbefore=%s %s\nafter=%s %s", key, want.kind, want.payload, got.kind, got.payload)
 		}
 	}
 }
 
-func subjectOfLease(t *testing.T, r subjectRecord) string {
+func subjectOfLease(t *testing.T, record subjectRecord) string {
 	t.Helper()
 	var result WorktreeVerifyResult
-	if err := json.Unmarshal([]byte(r.payload), &result); err != nil {
+	if err := json.Unmarshal([]byte(record.payload), &result); err != nil {
 		t.Fatal(err)
 	}
 	return result.SubjectRef
 }
 
-// executeRequest names the recorded dispatch authority of one job-bound
-// attempt.
-func (j *candidateJourney) executeRequest(t *testing.T, attemptID string, job WorkerJobBinding, preparation WorktreeVerifyResult) NativeOracleRequest {
-	t.Helper()
-	var digest string
-	if err := j.s.db.QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, j.workID, attemptID).Scan(&digest); err != nil {
-		t.Fatal(err)
-	}
-	bound := job
-	return NativeOracleRequest{Phase: "execute", AttemptID: attemptID, AttemptEpoch: j.dispatchEpoch(t, attemptID), WorkerPacketDigest: digest, WorkerJobBinding: &bound, ControlID: j.bundle.Control.ControlID, PreparationRunRef: preparation.OperationRef}
+func (j *candidateJourney) executeRequest(preparation WorktreeVerifyResult) NativeOracleRequest {
+	return NativeOracleRequest{Phase: "execute", PreparationRunRef: preparation.OperationRef}
 }
 
-// refuseStaleExecution proves an earlier subject's execution authority
-// refuses before any test program launches.
-func (j *candidateJourney) refuseStaleExecution(t *testing.T, attemptID string, job WorkerJobBinding, preparation WorktreeVerifyResult) {
+func (j *candidateJourney) refuseStaleExecution(t *testing.T, id string, preparation WorktreeVerifyResult) {
 	t.Helper()
 	launches := j.launches
-	o := j.executeRequest(t, attemptID, job, preparation)
-	_, err := j.s.VerifyWorktree(context.Background(), j.request("stale-execute-"+attemptID, &o))
+	oracle := j.executeRequest(preparation)
+	_, err := j.s.VerifyWorktree(t.Context(), j.request("stale-execute-"+id, &oracle))
 	if err == nil {
-		t.Errorf("stale execution authority of %s launched on the current HEAD", attemptID)
+		t.Errorf("stale preparation %s authorized execution on the changed HEAD", id)
 	}
 	if j.launches != launches {
-		t.Errorf("stale execution of %s launched %d test programs", attemptID, j.launches-launches)
+		t.Errorf("stale execution %s launched %d test programs", id, j.launches-launches)
 	}
-	t.Logf("stale execution of %s refused: %s launches=%d", attemptID, failureKind(err), j.launches-launches)
 }
 
-// replayProducer replays one A producer: the recorded A result returns
-// unchanged, no program launches, and the pin is not requalified.
-func (j *candidateJourney) replayProducer(t *testing.T, id, a, pinned string) {
+func (j *candidateJourney) replayProducer(t *testing.T, id, subject, pinned string) {
 	t.Helper()
 	launches := j.launches
 	var before string
 	if err := j.s.db.QueryRow(`SELECT result_json FROM worktree_verify_leases WHERE lease_id=?`, "candidate-"+id).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	replay, err := j.s.VerifyWorktree(context.Background(), j.request(id, nil))
-	if err != nil || replay.SubjectRef != "commit:"+a {
-		t.Errorf("replay of %s = %q err=%v, want the recorded A subject", id, replay.SubjectRef, err)
+	replay, err := j.s.VerifyWorktree(t.Context(), j.request(id, nil))
+	if err != nil || replay.SubjectRef != "commit:"+subject {
+		t.Errorf("replay of %s = %q err=%v, want recorded subject %s", id, replay.SubjectRef, err, subject)
 	}
 	var after string
 	if err := j.s.db.QueryRow(`SELECT result_json FROM worktree_verify_leases WHERE lease_id=?`, "candidate-"+id).Scan(&after); err != nil {

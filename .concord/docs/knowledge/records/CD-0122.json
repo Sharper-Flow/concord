@@ -20,10 +20,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0089"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0102"
     }
   ],
   "path": ".concord/docs/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md",
@@ -35,7 +31,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:389474ca2e96bcd964104235cc878435ecf7a2a0af20e6bdba8c2d874dba45d4",
+  "sha256": "sha256:5eacba5aff044ce4b3318ada3579dcf154d4916d093fe42d36e37d85befd396d",
   "status": "accepted",
   "summary": "Limits Concord workflow authority to explicitly managed participation, permits outside project work and authorized defect repair, and preserves repository evidence and host-owned roles.",
   "tags": [

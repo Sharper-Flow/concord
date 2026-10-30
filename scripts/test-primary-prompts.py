@@ -14,6 +14,7 @@ profiles are rejected on sight.
 from __future__ import annotations
 
 import importlib.util
+import re
 import shutil
 import tempfile
 import unittest
@@ -204,9 +205,18 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assertTrue(any("concord-operator" in finding for finding in findings))
 
     def test_concord_lost_delegation_anchor_reports(self) -> None:
-        self.rewrite("Concord.md", lambda text: text.replace("Size is not an exemption", "Size decides"))
-        findings = self.findings()
-        self.assertTrue(any("Concord.md" in finding and "delegation anchor" in finding for finding in findings))
+        path = self.root / check_primary_prompts.PROFILE_DIR / "Concord.md"
+        original = path.read_text(encoding="utf-8")
+        for marker in check_primary_prompts.DELEGATION_ANCHOR_MARKERS:
+            with self.subTest(marker=marker):
+                def drop_marker(_: str) -> str:
+                    pattern = r"\s+".join(re.escape(word) for word in marker.split())
+                    text, count = re.subn(pattern, "removed", original)
+                    self.assertEqual(count, 1, marker)
+                    return text
+
+                self.rewrite("Concord.md", drop_marker)
+                self.assertEqual(self.findings(), [f"Concord.md lost the delegation anchor marker {marker!r}"])
 
     def test_named_profile_body_routing_by_generated_id_reports(self) -> None:
         self.rewrite("Concord.md", lambda text: text.replace("the explore utility", "concord-explore", 1))
@@ -267,9 +277,35 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             self.assertFalse((ROOT / check_primary_prompts.PROMPT_DIR / name).exists())
 
     def test_duplicated_lookup_obligation_reports(self) -> None:
-        self.rewrite("concord-0.md", lambda text: text.replace("## Dispatch boundary", "Recall is not evidence.\n\n## Dispatch boundary"))
+        self.rewrite("concord-0.md", lambda text: text.replace("## Authority", "Recall is not evidence.\n\n## Authority"))
         findings = self.findings()
         self.assertTrue(any("duplicates the technical-unknown" in finding for finding in findings))
+
+    def test_intake_retains_exact_permissions_without_launcher_requirements(self) -> None:
+        text = check_primary_prompts.read_prompt(ROOT, "concord-0.md")
+        self.assertEqual(check_primary_prompts.split_frontmatter(text), """# Example only. Concord never installs or manages this file.
+description: Concord 0, intake posture — aligns Product data and defines managed work without executing it; Linear MCP owns planning.
+mode: primary
+permission:
+  edit: deny
+  write: deny
+  patch: deny
+  morph_edit: deny
+  bash:
+    "*": deny
+    "gh issue list *": allow
+    "gh issue view *": allow
+  task:
+    "*": deny
+  concord_work_transition: deny
+  concord_work_compact: deny""")
+        body = check_primary_prompts.flatten(check_primary_prompts.body(text))
+        for marker in ("dispatch", "lane", "packet", "attempt window", "retry a failure"):
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, body)
+        self.assertIn("The native Task tool is denied in this intake posture", body)
+        self.assertIn("Do not seek a substitute for it", body)
+        self.assertIn("This posture records what the work is, not where it stands", body)
 
     def test_intake_boundary_loss_reports(self) -> None:
         self.rewrite("concord-0.md", lambda text: text.replace("  write: deny\n", ""))

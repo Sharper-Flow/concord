@@ -91,11 +91,10 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 				t.Fatalf("current complete-step recovery preflight: %v", err)
 			}
 			challenges := countWorkflowApprovalChallenges(t, f.s)
-			attempts := countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`)
 			input := map[string]any{"work_id": f.work, "expected_version": before.Pinned.Pin.Version, "action_id": "supersede_contract", "fields": fields, "idempotency_key": "spine-complete-supersede"}
 			spineOK(t, f.call(t, "concord_work_transition", "workflow_action", input))
 			after := f.read(t)
-			if after.WorkID != before.WorkID || after.Pinned.Step != family.target || after.Pinned.Pin.Lifecycle != before.Pinned.Pin.Lifecycle || after.Pinned.Contract.Version != contract.Version+1 || !reflect.DeepEqual(after.Pinned.Contract.OutcomePredicates, contract.OutcomePredicates) || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`) != attempts || countWorkflowApprovalChallenges(t, f.s) != challenges || f.env.HostApproval != nil {
+			if after.WorkID != before.WorkID || after.Pinned.Step != family.target || after.Pinned.Pin.Lifecycle != before.Pinned.Pin.Lifecycle || after.Pinned.Contract.Version != contract.Version+1 || !reflect.DeepEqual(after.Pinned.Contract.OutcomePredicates, contract.OutcomePredicates) || !reflect.DeepEqual(after.Pinned.Pin.Review.Candidate, before.Pinned.Pin.Review.Candidate) || countWorkflowApprovalChallenges(t, f.s) != challenges || f.env.HostApproval != nil {
 				t.Fatalf("complete-step recovery lost its target, subject or routine authority: %+v", after.Pinned)
 			}
 			effects := premiseConsentSnapshot(t, f.s)
@@ -117,6 +116,7 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 			} {
 				spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": binding.EvidenceKind, "evidence_ref": binding.ImmutableSubjectRef}))
 			}
+			f.review(t, "ready_for_final_proof", f.proof)
 			f.advanceToAcceptance(t)
 			spineOK(t, f.call(t, "concord_work_define", "observation_record", map[string]any{
 				"work_id": f.work, "statement": "Reassessment retains the checked candidate and unchanged approved criterion.",
@@ -130,8 +130,8 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 			spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}))
 			spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 			done := f.read(t)
-			if done.WorkID != before.WorkID || done.Pinned.Pin.Lifecycle != "completed" || !reflect.DeepEqual(done.Pinned.Pin.Review.Candidate, before.Pinned.Pin.Review.Candidate) || len(done.Pinned.Pin.VerifiedCriteria) != 1 || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`) != attempts {
-				t.Fatalf("successor completion lost applicable proof or forced another worker: %+v", done.Pinned)
+			if done.WorkID != before.WorkID || done.Pinned.Pin.Lifecycle != "completed" || !reflect.DeepEqual(done.Pinned.Pin.Review.Candidate, before.Pinned.Pin.Review.Candidate) || len(done.Pinned.Pin.VerifiedCriteria) != 1 || gitRun(t, f.path, "rev-parse", "HEAD") != before.Pinned.Pin.Review.Candidate.Commit {
+				t.Fatalf("successor completion lost applicable proof or forced another edit: %+v", done.Pinned)
 			}
 		})
 	}

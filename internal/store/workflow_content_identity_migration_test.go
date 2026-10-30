@@ -14,21 +14,10 @@ import (
 
 func TestWorkflowContentIdentityMigration152PreservesRetainedState(t *testing.T) {
 	const work = "content-identity-migration"
-	f := oSeedReviewRoute(t, work, "workflow.break_fix", "repair")
+	f := seedCurrentWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
 	s := f.store
 	defer s.Close()
 	ctx := context.Background()
-	job := &WorkerJobBinding{JobID: "job:content-identity", Revision: 1}
-	recordWorkerJobRevisionForTest(t, s, work, f.owner, job)
-	dispatchJobBoundAttempt(t, s, work, "repair", "attempt:content-completed", nil, f.owner, 0, "content-dispatch", job)
-	completeAndAcceptAttempt(t, s, work, "attempt:content-completed", reviewGateLane(t, "implementation"), reviewGateAcceptor(work))
-	failed := &WorkerJobBinding{JobID: "job:content-failed", Revision: 1}
-	recordWorkerJobRevisionForTest(t, s, work, f.owner, failed)
-	oDispatchJobBoundAttempt(t, s, work, "attempt:content-failed", nil, f.owner, 0, "content-failed-dispatch", failed)
-	failure := s2WorkerFailedAttributedEvent(work, "attempt:content-failed", "content-failed-terminal", preferredModelForLane(reviewGateLane(t, "implementation")), WorkerFailureWorkerError, "the bounded worker failed", time.Unix(31, 0).UTC())
-	if err := s2WorkerFailedLive(t, s, failure); err != nil {
-		t.Fatal(err)
-	}
 	version, err := continuityAction(t, s, work, readWorkVersion(t, s, work), "checkpoint_context", "content-checkpoint", map[string]any{
 		"active_unit": "unit:migration", "hypothesis": "retained bytes survive", "diagnosis": "identity counters retire", "strategy": "compare every retained column",
 		"touched_refs": []string{"internal/store/schema.go"}, "evidence_refs": []string{"evidence:migration"}, "pending_questions": []string{"question:retention"}, "pending_decisions": []string{},
@@ -68,10 +57,10 @@ func TestWorkflowContentIdentityMigration152PreservesRetainedState(t *testing.T)
 	if _, err := Step(ctx, s, claim.OpID); err != nil {
 		t.Fatalf("exact-digest claim before migration: %v", err)
 	}
-	wantSchema := contentIdentity152Schema(t, s.db)
+	wantSchema := contentIdentity152Schema(t, openMigratedTo(t, filepath.Join(t.TempDir(), "empty-152.db"), 152))
 
-	// The current route supplies a complete data oracle. The historical store
-	// has the actual immutable 151 schema, not a reconstructed current schema.
+	// Current ordinary writers supply retained workflow data. Worker state is
+	// historical input only, inserted into the immutable 151 schema below.
 	path := filepath.Join(t.TempDir(), "content-identity-151.db")
 	db := openMigratedTo(t, path, 151)
 	// Home-pair triggers check immediately, even with deferred foreign keys.
@@ -95,47 +84,27 @@ ORDER BY CASE name WHEN 'projects' THEN 0 WHEN 'project_locators' THEN 1 ELSE 2 
 		t.Fatal(err)
 	}
 	oldValues := map[string]map[string]string{
-		"durable_operations":           {"workflow_type_version": "26"},
-		"workflow_contracts":           {"definition_version": "26"},
-		"workflow_instances":           {"definition_version": "26"},
+		"durable_operations": {"workflow_type_version": "26"},
+		"workflow_contracts": {"definition_version": "26"},
+		"workflow_instances": {
+			"definition_version":            "26",
+			"result_disposition":            "''",
+			"latest_non_dispatch_start_seq": "0",
+		},
 		"workflow_context_checkpoints": {"workflow_definition_version": "26"},
 		"workflow_context_boundaries":  {"workflow_definition_version": "26"},
-		"worker_attempts": {
-			"lane_version":     "19",
-			"dispatch_payload": `'{ "lane_version": 19, '||substr(dispatch_payload,2)`,
-			"terminal_payload": `'{ "workflow_definition_version": 26, '||substr(terminal_payload,2)`,
-		},
-		"runtime_state_writers": {"version": "CASE WHEN surface='knowledge' THEN knowledge_projection_version ELSE 26 END"},
-		// Ordinary dispatch admission lives on the source group owner. Jobs
-		// without that admission retain the historical empty defaults.
-		"worker_job_revisions": {
-			"group_permission": `COALESCE((SELECT g.permission FROM fixture_source.workflow_member_groups g WHERE g.work_id=fixture_source.worker_job_revisions.work_id AND g.group_id=fixture_source.worker_job_revisions.job_id),'')`,
-			"group_review_ref": `COALESCE((SELECT g.review_ref FROM fixture_source.workflow_member_groups g WHERE g.work_id=fixture_source.worker_job_revisions.work_id AND g.group_id=fixture_source.worker_job_revisions.job_id),'')`,
+		"runtime_state_writers":        {"version": "CASE WHEN surface='knowledge' THEN knowledge_projection_version ELSE 26 END"},
+		"workflow_step_epochs": {
+			"latest_dispatch_start_seq":      "0",
+			"latest_dispatch_start_event_id": "''",
+			"latest_dispatch_start_payload":  "'{}'",
 		},
 	}
-	// Historical payloads include retired keys and whitespace. Their receipts
-	// must bind those exact inputs at INSERT, without updating immutable receipts.
-	rows, err = s.db.Query(`SELECT dispatch_event_id,'{ "lane_version": 19, '||substr(dispatch_payload,2) FROM worker_attempts WHERE dispatch_event_id IS NOT NULL
-UNION ALL SELECT terminal_event_id,'{ "workflow_definition_version": 26, '||substr(terminal_payload,2) FROM worker_attempts WHERE terminal_event_id IS NOT NULL`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	digestCase := "CASE event_id"
-	for rows.Next() {
-		var id, payload string
-		if err := rows.Scan(&id, &payload); err != nil {
-			t.Fatal(err)
-		}
-		digestCase += " WHEN '" + strings.ReplaceAll(id, "'", "''") + "' THEN '" + historicalFixturePayloadDigest(t, payload) + "'"
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldValues["effect_receipts"] = map[string]string{"payload_digest": digestCase + " ELSE payload_digest END"}
 	copyFixtureDataToPrefix(t, s, db, tables, oldValues, "write_guard")
+	source := s
 	s = &Store{db: db, path: path, Clock: s.Clock}
+	historical := contentIdentity151WorkerFixture(t, s.db, work)
+	assertHistoricalReceipts(t, s.db, historical)
 	want := contentIdentity152Snapshot(t, s.db, true)
 	for table, rows := range want {
 		if len(rows) == 0 {
@@ -146,11 +115,14 @@ UNION ALL SELECT terminal_event_id,'{ "workflow_definition_version": 26, '||subs
 	if err := s.db.QueryRow(`SELECT count(*) FROM worker_attempts WHERE dispatch_seq>0 AND terminal_seq>dispatch_seq AND (lifecycle_state='completed' OR (failure_recorded>0 AND failure_recorded_seq>terminal_seq))`).Scan(&witnessed); err != nil || witnessed < 2 {
 		t.Fatalf("terminal/failure coordinate witnesses=%d, err=%v", witnessed, err)
 	}
-	if err := Migrate(ctx, s.db); err != nil {
-		t.Fatal(err)
+	advanceHistoricalPrefix(t, s.db, 152)
+	assertHistoricalReceipts(t, s.db, historical)
+	var version152, guards int
+	if err := s.db.QueryRow(`SELECT max(version),(SELECT count(*) FROM write_guard) FROM schema_migrations`).Scan(&version152, &guards); err != nil || version152 != 152 || guards != 0 {
+		t.Fatalf("migration boundary=%d write guards=%d, err=%v", version152, guards, err)
 	}
 	if got := contentIdentity152Schema(t, s.db); !reflect.DeepEqual(got, wantSchema) {
-		t.Errorf("migration 152 did not restore current constraints, indexes, and triggers\ngot %q\nwant %q", got, wantSchema)
+		t.Errorf("migration 152 did not restore its constraints, indexes, and triggers\ngot %q\nwant %q", got, wantSchema)
 	}
 	for table, rows := range contentIdentity152Snapshot(t, s.db, false) {
 		if !reflect.DeepEqual(rows, want[table]) {
@@ -183,16 +155,18 @@ UNION ALL SELECT terminal_event_id,'{ "workflow_definition_version": 26, '||subs
 		})
 	}
 	claim.OpID, claim.IdempotencyKey, claim.RequestID = "content-current-claim", "content-current-claim", "request:content-current-claim"
-	current, err := ClaimStepAuthorized(ctx, s, claim, nil)
+	// Positive current claims exercise the current store, not historical worker
+	// tables whose retirement belongs to a later migration.
+	current, err := ClaimStepAuthorized(ctx, source, claim, nil)
 	if err != nil {
 		t.Fatalf("current exact-digest claim refused: %v", err)
 	}
 	complete.OpID, complete.AttemptEpoch, complete.ResultKind = claim.OpID, current.AttemptEpoch, ResultCompleted
 	complete.IdempotencyKey, complete.RequestID = "content-current-complete", "request:content-current-complete"
-	if _, err := CompleteStep(ctx, s, complete); err != nil {
+	if _, err := CompleteStep(ctx, source, complete); err != nil {
 		t.Fatalf("current exact-digest completion refused: %v", err)
 	}
-	if result, err := Step(ctx, s, claim.OpID); err != nil || result.ResultKind != ResultCompleted || !reflect.DeepEqual(result.EvidenceRefs, complete.EvidenceRefs) {
+	if result, err := Step(ctx, source, claim.OpID); err != nil || result.ResultKind != ResultCompleted || !reflect.DeepEqual(result.EvidenceRefs, complete.EvidenceRefs) {
 		t.Fatalf("current exact-digest resume=%+v, err=%v", result, err)
 	}
 	t.Run("workflow writer keyed by ref and digest", func(t *testing.T) {
@@ -219,6 +193,100 @@ UNION ALL SELECT terminal_event_id,'{ "workflow_definition_version": 26, '||subs
 			t.Fatalf("ref+digest writer identities=%d, err=%v", count, err)
 		}
 	})
+}
+
+// These rows are migration inputs, never current dispatches or reports. Keep
+// their historical payload strings intact, including retired keys and spacing.
+func contentIdentity151WorkerFixture(t *testing.T, db *sql.DB, work string) []histEventRow {
+	t.Helper()
+	tx, err := db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	var seq int64
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts`).Scan(&seq); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Unix(31, 0).UTC().Format(time.RFC3339Nano)
+	digest := "sha256:" + strings.Repeat("a", 64)
+	var events []histEventRow
+	for _, state := range []string{"completed", "failed"} {
+		attempt := "attempt:content-" + state
+		authorization := `{ "action_id": "dispatch_worker", "worker_attempt_id": "` + attempt + `", "step_id": "repair", "attempt_epoch": 1 }`
+		dispatch := `{ "lane_version": 19, "attempt_id": "` + attempt + `", "lane_id": "implementation", "retained": true }`
+		terminal := "{\n  \"workflow_definition_version\": 26, \"attempt_id\": \"" + attempt + "\", \"retained\": true\n}"
+		action := "accept_worker_result"
+		var completedAt, failedAt any = stamp, nil
+		failureKind, failureDetail := "", ""
+		failureRecorded := 0
+		var failureSeq int64
+		firstAcceptance, firstPayload := seq+4, ""
+		if state == "failed" {
+			action = "record_worker_failure"
+			completedAt, failedAt = nil, stamp
+			failureKind, failureDetail = "worker_error", "the bounded worker failed"
+			failureRecorded, failureSeq = 1, seq+4
+			firstAcceptance, firstPayload = 0, "{}"
+		}
+		disposition := `{ "action_id": "` + action + `", "worker_attempt_id": "` + attempt + `", "evidence_refs": ["evidence:migration"] }`
+		if state == "completed" {
+			firstPayload = disposition
+		}
+		batch := []histEventRow{
+			{Seq: seq + 1, EventID: "content-" + state + "-authorization", Kind: "workflow.action_completed", Payload: authorization},
+			{Seq: seq + 2, EventID: "content-" + state + "-dispatch", Kind: "worker.dispatched", Payload: dispatch},
+			{Seq: seq + 3, EventID: "content-" + state + "-terminal", Kind: "worker." + state, Payload: terminal},
+			{Seq: seq + 4, EventID: "content-" + state + "-disposition", Kind: "workflow.action_completed", Payload: disposition},
+		}
+		for i := range batch {
+			e := &batch[i]
+			e.SubjectType, e.SubjectID, e.Actor, e.OccurredAt, e.Version = "work_item", work, "actor:historical-content", stamp, 1
+			if _, err := tx.Exec(`INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) VALUES(?,?,?,?,?,?,?,?)`, e.EventID, e.Seq, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.Version, historicalFixturePayloadDigest(t, e.Payload)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := tx.Exec(`INSERT INTO worker_attempts
+(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,dispatch_payload,dispatch_event_id,dispatch_actor,dispatch_payload_version,dispatch_seq,terminal_payload,terminal_event_id,terminal_payload_version,terminal_kind,failure_recorded,terminal_seq,terminal_occurred_at,failure_recorded_seq)
+VALUES(?,?,'implementation',19,?,'implementation','model:historical','2.0','2.0',?,?,?,?,?,?,?,?,?,1,?,?,?,1,?,?,?,?,?)`,
+			work, attempt, digest, state, failureKind, failureDetail, stamp, completedAt, failedAt,
+			dispatch, batch[1].EventID, batch[1].Actor, batch[1].Seq, terminal, batch[2].EventID, batch[2].Kind, failureRecorded, batch[2].Seq, stamp, failureSeq); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,contract_version) VALUES(?,?,?,?,?,1)`, work, attempt, batch[0].Seq, authorization, batch[0].EventID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`INSERT INTO worker_attempt_dispositions(work_id,attempt_id,action_id,seq,event_id,payload,first_acceptance_seq,first_acceptance_payload) VALUES(?,?,?,?,?,?,?,?)`, work, attempt, action, batch[3].Seq, batch[3].EventID, disposition, firstAcceptance, firstPayload); err != nil {
+			t.Fatal(err)
+		}
+		if state == "failed" {
+			correction := workflowJSON(map[string]any{"boundary": 0, "records": []any{map[string]any{"seq": batch[3].Seq, "source_id": batch[3].EventID, "fields": map[string]any{"action_id": action, "worker_attempt_id": attempt, "diagnosis": "the bounded worker failed", "strategy": "retain the failure and evidence"}}}})
+			if _, err := tx.Exec(`INSERT INTO workflow_correction_state(work_id,state) VALUES(?,?) ON CONFLICT(work_id) DO UPDATE SET state=excluded.state`, work, correction); err != nil {
+				t.Fatal(err)
+			}
+		}
+		events = append(events, batch...)
+		seq += 4
+	}
+	if _, err := tx.Exec(`UPDATE store_sequences SET last=? WHERE name='effect'`, seq); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`UPDATE work_items SET effect_seq=? WHERE id=?`, seq, work); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`UPDATE workflow_instances SET result_disposition='record_worker_failure' WHERE work_id=?`, work); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	return events
 }
 
 func contentIdentity152Schema(t *testing.T, db *sql.DB) []string {
@@ -255,7 +323,7 @@ func contentIdentity152Snapshot(t *testing.T, db *sql.DB, before bool) map[strin
 		"workflow_context_checkpoints": "workflow_definition_version", "workflow_context_boundaries": "workflow_definition_version",
 		"durable_operations": "workflow_type_version",
 	}
-	tables := []string{"worker_attempts", "workflow_instances", "workflow_contracts", "workflow_context_checkpoints", "workflow_context_boundaries", "runtime_state_writers", "durable_operations", "worker_authorizations", "workflow_evidence_bindings", "worker_attempt_dispositions", "effect_receipts", "idempotency_records", "project_locators", "knowledge_index_watermark"}
+	tables := []string{"worker_attempts", "workflow_instances", "workflow_contracts", "workflow_context_checkpoints", "workflow_context_boundaries", "runtime_state_writers", "durable_operations", "worker_authorizations", "workflow_evidence_bindings", "worker_attempt_dispositions", "workflow_correction_state", "effect_receipts", "idempotency_records", "project_locators", "knowledge_index_watermark"}
 	out := make(map[string][]string, len(tables))
 	for _, table := range tables {
 		rows, err := db.Query(`SELECT name FROM pragma_table_info(?) ORDER BY name`, table)
@@ -362,7 +430,7 @@ func contentIdentity152AssertSchema(t *testing.T, db *sql.DB) {
 		_, err = tx.Exec(statement)
 		_ = tx.Rollback()
 		if err == nil || !strings.Contains(err.Error(), "CHECK constraint failed") {
-			t.Errorf("current constraint lost for %s: %v", statement, err)
+			t.Errorf("migration 152 constraint lost for %s: %v", statement, err)
 		}
 	}
 	var violations int

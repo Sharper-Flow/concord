@@ -92,7 +92,7 @@ new completion action or admission bypass.
 A result that the refinement pass rejected, and the repair accepted after it,
 carry no fresh review. On `workflow.break_fix` and `workflow.implementation`,
 the refinement step refuses each advance that carries such a repaired result
-toward delivery: its accepted worker result, its recorded delivery, and the
+toward delivery: its recorded delivery and the
 gate's delivery exit. An accepted Review clears the refusal when its
 disposition of ready for final proof binds the current integrated candidate
 and depended-on revisions, with no open in-scope blocking finding (CD-0242 D5).

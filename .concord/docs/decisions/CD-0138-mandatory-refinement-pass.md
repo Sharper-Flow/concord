@@ -4,8 +4,8 @@
 - **Date:** 2026-09-12
 - **Scope:** Built-in implementation and break-fix workflow definitions
 - **Approval:** The operator approved this bounded workflow change.
-- **Related:** CD-0013, CD-0059, CD-0116
-- **Preserves:** External analysis ownership, worker fences, and the
+- **Related:** CD-0013, CD-0116
+- **Preserves:** External analysis ownership and the
   definitions active work derives from the canonical source
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
 
@@ -33,14 +33,14 @@ Add `refine` after `execution` and before `acceptance` in
 
 Each `refine` step carries `start_refine`, `checkpoint_refine`, `bind_evidence`,
 and `record_delivery`, plus the shared continuity actions. The step carries a
-retry edge to itself and uses the existing lane-step capability join.
+retry edge to itself. Native Task execution supplies no workflow exit (CD-0242 D6).
 
 ### D3. Require artifact evidence and agent-exercised judgment
 
 Each `refine` step requires `EvidenceArtifact`. The bound artifact records the
 analysis findings the pass consumed and proves that the refinement pass ran.
 
-The step is agent-worked, not scanner-driven. The lane that works `refine`
+The step is agent-worked, not scanner-driven. The agent that works `refine`
 verifies each finding before acting on it and discards false positives with
 reasons, because analysis output is advisory input rather than verdict. The
 pass exists to improve the change itself: when review finds that a smaller

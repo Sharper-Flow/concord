@@ -13,14 +13,10 @@
     },
     {
       "criterion": 3,
-      "scenario": "WF13-verdict-actor-distinctness"
-    },
-    {
-      "criterion": 4,
       "scenario": "WF37-action-availability-before-register"
     },
     {
-      "criterion": 5,
+      "criterion": 4,
       "scenario": "WF19-completion-one-transaction"
     }
   ],
@@ -40,9 +36,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:08f152899cc1cc4f0e374713825943d911b04a5fee6f21695b5f5a3d0dc35849",
+  "sha256": "sha256:6c723780fdc6c7a8a7ce0f2d787128113d489dc530c827a11f9bf356fd878328",
   "status": "accepted",
-  "summary": "Defines workflow authority, dispatch, evaluation, and atomic completion over current-state rows with no event log, fold, replay, or rebuild (CD-0242 D2). Each launch carries its own authority with no attempt count or escalation wall (CD-0242 D6), and generated definitions derive from one source (CD-0242 D14). Worker.completed v6 carries reported receipts and canonical ranked-finding resolution, while worker.failed remains v2. Oracle evidence does not supply predicate evaluation or new authority; review verdicts and operator confirmation keep their owners.",
+  "summary": "Defines current-state workflow authority, evaluation and atomic completion. The coordinator records typed subject-bound Review without attempt/lane/job binding. Native preparation retains its declared bundle, exact subject, pinned recipe and environment; execution selects exact preparation_run_ref and retains runner, isolation, integrity and producer receipt checks. Criterion coverage resolves through that retained preparation, not worker jobs. Native evidence supplies no semantic verdict, consent or completion authority by itself.",
   "tags": [
     "workflow",
     "contract"

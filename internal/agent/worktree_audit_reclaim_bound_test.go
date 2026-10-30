@@ -134,8 +134,8 @@ func requireAuditReclaimCommitsWhatItReports(t *testing.T, response agentcontrac
 // pass reclaims the rest.
 func TestAuditReclaimLongPinsCommitsOnlyWhatItReports(t *testing.T) {
 	t.Parallel()
-	const total = 20
-	s, service, grant, root := auditReclaimTerminalFixture(t, total, true, strings.Repeat("t", 250))
+	const total = 30
+	s, service, grant, root := auditReclaimTerminalFixture(t, total, true, strings.Repeat("<", 250))
 	input := map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-long-pins-1", "limit": total}
 	first := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
 	reclaimed := requireAuditReclaimCommitsWhatItReports(t, first, root, true)

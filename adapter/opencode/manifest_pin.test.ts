@@ -6,7 +6,7 @@ import { join } from "node:path"
 import * as adapter from "./concord"
 import { contractOperations, manifestDigest } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resetManifestPinForTesting, resolveDiskManifestDigest, setManifestSourceForTesting } from "./manifest-pin"
-import { configureCoreBinary } from "./dispatch"
+import { configureCoreBinary } from "./core-runtime"
 import { hostControlPlane } from "./move-session"
 const testDirectories: string[] = []
 function mkdtempSync(prefix: string): string {

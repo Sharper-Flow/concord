@@ -40,20 +40,6 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) *Store {
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}
-	if workID == "d7-accept_worker_result" {
-		// Acceptance now joins the requested terminal result before the
-		// consequential-boundary check. Give that boundary an actual result
-		// to consume, before introducing the overlapping contracts.
-		attempt := "attempt:" + workID
-		recordWorkerFixtureDispatchAuthorization(t, s, workID, attempt, "execution", actorRef)
-		lane := reviewGateLane(t, "implementation")
-		dispatch := workerDispatchEvent(workID, attempt+":dispatched", lane, map[string]any{"attempt_id": attempt, "packet_digest": "sha256:" + strings.Repeat("b", 64)})
-		completed := workerCompleteEventForLane(workID, attempt+":completed", attempt, lane, time.Unix(3, 0).UTC(), workerFixtureDirectory(t, s, workID))
-		completed = workerCompletionAtClaim(t, s, completed)
-		if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
-			t.Fatal(err)
-		}
-	}
 	hash := "sha256:" + strings.Repeat("d", 64)
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {

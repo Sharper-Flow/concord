@@ -50,7 +50,7 @@ func TestWorkflowCompletionBackfillPreservesUnknownKeys(t *testing.T) {
 	const work = "completion-unknown-keys"
 	continuityTestWorkflow(t, base, work)
 	c := historicalFactCorpus{parents: func(t *testing.T, target *Store, guard string) {
-		copyFixtureDataToPrefix(t, base, target.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts"}, map[string]map[string]string{"workflow_instances": {"definition_version": "26"}, "workflow_contracts": {"definition_version": "26"}}, guard)
+		copyFixtureDataToPrefix(t, base, target.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts"}, map[string]map[string]string{"workflow_instances": {"definition_version": "26", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"}, "workflow_contracts": {"definition_version": "26"}}, guard)
 	}}
 	for _, f := range []struct{ id, payload string }{
 		{"missing-epoch-completion", `{"step_id":"unknown","action_id":"checkpoint_context"}`},

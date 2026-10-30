@@ -6,7 +6,7 @@
 import { describe, expect, mock, test } from "bun:test"
 import { contractOperations, maxEnvelopeBytes, manifestDigest } from "./generated-contracts"
 import { envelopeFailurePath, validateGeneratedEnvelope } from "./generated-contract-tests"
-import { configureCoreBinary } from "./dispatch"
+import { configureCoreBinary } from "./core-runtime"
 import { fakeTool } from "./plugin-tool.fixture"
 
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
@@ -33,11 +33,6 @@ const TUPLES = {
   host_lease_missing: { kind: "transport_failure", adapter_reason: "host_lease_missing", effect_state: "none", recovery: "contact_operator" },
   unknown_effect: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", recovery: "reconcile_operation" },
   session_directory_unreadable: { kind: "transport_failure", adapter_reason: "session_directory_unreadable", effect_state: "none", recovery: "retry_same_request" },
-  worker_abandon_refused_none: { kind: "operation_conflict", adapter_reason: "worker_abandon_refused", effect_state: "none", recovery: "reconcile_operation" },
-  worker_abandon_refused_possible: { kind: "operation_conflict", adapter_reason: "worker_abandon_refused", effect_state: "possible", recovery: "reconcile_operation" },
-  worker_abandon_receipt_failed: { kind: "operation_conflict", adapter_reason: "worker_abandon_receipt_failed", effect_state: "possible", recovery: "reconcile_operation" },
-  worker_reconcile_failed_recorded: { kind: "operation_conflict", adapter_reason: "worker_reconcile_failed_recorded", effect_state: "possible", recovery: "reconcile_operation" },
-  lane_tool_refusal: { kind: "unauthorized", adapter_reason: "lane_tool_refusal", effect_state: "none", recovery: "contact_operator" },
   invalid_cli_input: { kind: "invalid_input", adapter_reason: "invalid_cli_input", effect_state: "none", recovery: "correct_request" },
   invalid_request_wrapper: { kind: "invalid_input", adapter_reason: "invalid_request_wrapper", effect_state: "none", recovery: "correct_request" },
   invalid_tool_input: { kind: "invalid_input", adapter_reason: "invalid_tool_input", effect_state: "none", recovery: "correct_request" },
@@ -222,9 +217,6 @@ describe("CON-913 closed adapter error tuples", () => {
     const shapes: Array<Record<string, unknown>> = [
       { salvaged: { work_id: "work-1", worktree_path: "/worktrees/work-1", changed_refs: [{ entity_kind: "work", id: "work-1", version: "2" }] } },
       { reconciled: { found: true, lifecycle: "in_progress", version: 3 } },
-      { abandon_error_message: "store: worker_fail: refused", recovery_stopped_at: "worker_abandon_retry", recovery_error_message: "vacate refused" },
-      { recovery_steps: ["session_vacate: moved", "worker_abandon: closed"] },
-      { work_id: "work-1", attempt_id: "attempt-913" },
       { core_digest: "sha256:" + "a".repeat(64), adapter_digest: manifestDigest },
     ]
     for (const details of shapes) {

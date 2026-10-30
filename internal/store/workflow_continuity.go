@@ -1,15 +1,12 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"path/filepath"
-	"slices"
 	"strconv"
-	"strings"
 )
 
 const continuityMaxOffset = 1000000
@@ -75,12 +72,8 @@ type ContextBoundary struct {
 }
 
 type ContinuitySnapshot struct {
-	// ReviewInputWarning reports optional Git enrichment failure outside the
-	// projection bytes so session recovery does not depend on repository access.
-	ReviewInputWarning error              `json:"-"`
-	ReviewInput        *WorkerReviewInput `json:"review_input,omitempty"`
-	WorkID             string             `json:"work_id"`
-	ProductIdentity    []string           `json:"product_identity"`
+	WorkID          string   `json:"work_id"`
+	ProductIdentity []string `json:"product_identity"`
 	// WorkflowInstance states workflow-instance presence as typed
 	// information: WorkflowInstancePresent for the pinned default every
 	// captured item carries, WorkflowInstanceAbsent for an imported or
@@ -96,6 +89,8 @@ type ContinuitySnapshot struct {
 	LatestCheckpoint         *ContextCheckpoint                `json:"latest_checkpoint"`
 	DesignRecord             *WorkflowDesignRecord             `json:"design_record"`
 	ProposalRecord           *WorkflowProposalRecord           `json:"proposal_record"`
+	ReviewInput              *ReviewInput                      `json:"review_input,omitempty"`
+	ReviewInputWarning       error                             `json:"-"`
 	Boundaries               []ContextBoundary                 `json:"boundaries"`
 	BoundaryCount            int64                             `json:"boundary_count"`
 	NextCursor               *string                           `json:"next_cursor"`
@@ -132,18 +127,6 @@ type ContinuitySnapshot struct {
 	// boot renders the bounded job a receiving session must consume before
 	// managed execution. Nil when no handoff stands unconsumed.
 	PendingProjectHandoff *ProjectHandoff `json:"pending_project_handoff,omitempty"`
-	// ReadyWorkerJobs carries the work's dispatch-ready worker-job revisions
-	// in the exact inputs.worker_job packet shape (CD-0205), so the
-	// dispatcher binds a selected revision verbatim and never authors job
-	// content itself. Empty when no revision is ready.
-	ReadyWorkerJobs []WorkerPacketJob `json:"ready_worker_jobs,omitempty"`
-	// ChecksRepairReviewJobs carries satisfied repairing revisions awaiting
-	// their one confirming review (CD-0205 D4), in packet shape. Only review
-	// capability selects them. They are not ready_worker_jobs.
-	ChecksRepairReviewJobs []WorkerPacketJob `json:"checks_repair_review_jobs,omitempty"`
-	// ReviewWorkerJobs carries the delivery-bound final Review fallback, never
-	// ordinary readiness. Review selects it only without another eligible job.
-	ReviewWorkerJobs []WorkerPacketJob `json:"review_worker_jobs,omitempty"`
 	// LawContext resolves the approved contract's binding law and Domains
 	// against the law_subjects and domains projections at read time. Nil
 	// when the contract binds no law and no Domain.
@@ -234,9 +217,8 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err := continuityReadManagedHistoryTx(ctx, tx, req, registry, offset, &out); err != nil {
 		return out, err
 	}
-	// Candidate identity is sampled with the dependencies, then its immutable
-	// tree resolves after the read snapshot closes. Dispatch revalidates it
-	// against the sealed native observation; this read grants no authority.
+	// Resolve immutable Git content only after the read snapshot closes.
+	// The descriptor grants no action or execution authority.
 	reviewSubject, err := sampleContinuityReviewSubjectTx(ctx, tx, req.Work, &out)
 	if err != nil {
 		return out, err
@@ -334,9 +316,6 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 	}
 	out.DesignRecord, err = readCurrentWorkflowDesign(ctx, tx, req.Work)
 	if err != nil {
-		return err
-	}
-	if err := continuityReadReadyWorkerJobsTx(ctx, tx, req.Work, instance.callerCapable, out); err != nil {
 		return err
 	}
 	if out.ProposalRecord, err = readLatestWorkflowProposal(ctx, tx, req.Work, "C19.Continuity"); err != nil {
@@ -477,13 +456,8 @@ func continuityResolveLawMandateTx(ctx context.Context, tx *sql.Tx, work string,
 	return nil
 }
 
-// readLatestContextCheckpointTx is the one latest-checkpoint derivation the
-// continuity snapshot and the dispatch packet admission share. It reads the
-// newest row of the checkpoint projection inside the caller's transaction;
-// the projection carries no source event identity, so the checkpoint's own
-// durable identity (checkpoint_id, work_version, sequence) is the identity
-// every consumer compares. A checkpoint row with malformed arrays is an
-// invariant violation.
+// readLatestContextCheckpointTx reads the newest checkpoint inside the
+// caller's transaction. Malformed stored arrays are an invariant violation.
 func readLatestContextCheckpointTx(ctx context.Context, q queryer, workID, operation string) (*ContextCheckpoint, error) {
 	var checkpoint ContextCheckpoint
 	var touched, evidence, questions, decisions string
@@ -506,111 +480,6 @@ func continuityReadCheckpointTx(ctx context.Context, tx *sql.Tx, work string, ou
 		return err
 	}
 	out.LatestCheckpoint = checkpoint
-	return nil
-}
-
-// validateWorkerPacketCheckpoint refuses a dispatch whose packet does not
-// carry the latest context checkpoint (CON-883), mirroring the correction
-// and work-context admissions above it. The latest checkpoint is re-read
-// inside the dispatch transaction through the same tx-scoped derivation the
-// continuity snapshot projects, so the comparison is against the state the
-// spawn will land on. A present checkpoint requires the member, decoded
-// closed and equal byte-for-byte to the reader's canonical serialization; a
-// packet carrying a checkpoint no record backs refuses.
-func validateWorkerPacketCheckpoint(ctx context.Context, q queryer, workID string, packetRaw json.RawMessage) error {
-	var packet struct {
-		Inputs struct {
-			Checkpoint json.RawMessage `json:"checkpoint"`
-		} `json:"inputs"`
-	}
-	if err := json.Unmarshal(packetRaw, &packet); err != nil {
-		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is malformed", false, "supply the lane packet bound to this work item and attempt")
-	}
-	current, err := readLatestContextCheckpointTx(ctx, q, workID, "workflow_action")
-	if err != nil {
-		return err
-	}
-	present := len(packet.Inputs.Checkpoint) != 0 && string(packet.Inputs.Checkpoint) != "null"
-	if current == nil {
-		if present {
-			return newFailure(KindInvalidPayload, "workflow_action", "worker packet carries a context checkpoint without a latest context checkpoint", false, "build the packet from the current work pin")
-		}
-		return nil
-	}
-	if !present {
-		return newFailure(KindInvalidPayload, "workflow_action", "worker packet does not carry the latest context checkpoint", false, "build a fresh packet from the current work pin")
-	}
-	decoder := json.NewDecoder(strings.NewReader(string(packet.Inputs.Checkpoint)))
-	decoder.DisallowUnknownFields()
-	var claimed ContextCheckpoint
-	if err := decoder.Decode(&claimed); err != nil {
-		return newFailure(KindInvalidPayload, "workflow_action", "worker packet inputs.checkpoint is not one closed context checkpoint", false, "build a fresh packet from the current work pin")
-	}
-	claimedJSON, claimedErr := json.Marshal(claimed)
-	currentJSON, currentErr := json.Marshal(current)
-	if claimedErr != nil || currentErr != nil || !bytes.Equal(claimedJSON, currentJSON) {
-		return newFailure(KindInvalidPayload, "workflow_action", "worker packet does not carry the latest context checkpoint", false, "build a fresh packet from the current work pin")
-	}
-	return nil
-}
-
-// continuityReadReadyWorkerJobsTx reads the dispatch-ready worker-job
-// revisions through the one readiness predicate dispatch admission applies.
-// On a caller-capable pin each job carries the caller_exclusions its
-// implementation dispatch binds (CD-0227 D1); a dispatcher drops them for
-// every other lane. A set above the packet's declared bounds — in count or
-// in per-path characters — is not published, so the read stays available
-// and the dispatch refuses with its recovery.
-func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work string, callerCapable bool, out *ContinuitySnapshot) error {
-	views, err := readWorkerJobRevisions(ctx, tx, work)
-	if err != nil {
-		return err
-	}
-	var corrections map[string][]string
-	if callerCapable {
-		if corrections, err = workerJobCorrectionPathsTx(ctx, tx, work); err != nil {
-			return err
-		}
-	}
-	for _, view := range views {
-		if !view.Ready {
-			continue
-		}
-		job := packetJobFromView(view)
-		if callerCapable {
-			exclusions := workerJobCorrectionExclusions(corrections, view.Binding.JobID)
-			if len(exclusions) > 0 && validateWorkerJobPacketExclusions(view.Binding.JobID, exclusions) == nil {
-				job.CallerExclusions = exclusions
-			}
-		}
-		out.ReadyWorkerJobs = append(out.ReadyWorkerJobs, job)
-	}
-	// The awaiting confirming-review jobs (CD-0205 D4):
-	// every open accepted exact repairing revision whose one confirming
-	// review is still unconsumed.
-	// They are never ready jobs — the one review dispatch each admits reads
-	// them here; ordinary dispatch admission still applies.
-	// Candidates keep deterministic binding order, so a reader resolves the
-	// same job first on every read.
-	candidates, err := workerChecksRepairAwaitingReviewTx(ctx, tx, work)
-	if err != nil {
-		return err
-	}
-	for _, candidate := range candidates {
-		for _, view := range views {
-			if view.Binding == candidate {
-				out.ChecksRepairReviewJobs = append(out.ChecksRepairReviewJobs, packetJobFromView(view))
-				break
-			}
-		}
-	}
-	final, err := finalReviewWorkerJobTx(ctx, tx, work)
-	if err != nil || final == nil {
-		return err
-	}
-	if i := slices.IndexFunc(views, func(view WorkerJobRevisionView) bool { return view.Binding == *final }); i >= 0 {
-		out.ReviewWorkerJobs = append(out.ReviewWorkerJobs, packetJobFromView(views[i]))
-	}
 	return nil
 }
 
@@ -774,15 +643,11 @@ func (s *Store) ResolveContinuityWorkByDirectory(ctx context.Context, directory 
 // present is false for a recorded work item that holds no instance.
 type continuityInstance struct {
 	step string
-	// definition is the read-model reference; the full registered
-	// definition loads beside it, so the caller-scope capability derives
-	// from the declared record_worker_job members exactly as dispatch
-	// admission derives it.
-	definition    WorkflowReadDefinition
-	registered    *RegisteredDefinition
-	workVersion   int64
-	present       bool
-	callerCapable bool
+	// The read-model reference and registered definition share one verified pin.
+	definition  WorkflowReadDefinition
+	registered  *RegisteredDefinition
+	workVersion int64
+	present     bool
 }
 
 // readContinuityInstanceForRegistryTx is the registry-threaded continuity
@@ -819,7 +684,6 @@ func readContinuityInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, work s
 		return instance, err
 	}
 	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	instance.callerCapable = workflowCallerScopeActive(registered.Definition)
 	if step := workflowStep(registered.Definition, instance.step); step != nil {
 		out.StepActions = append(out.StepActions, step.Actions...)
 	}

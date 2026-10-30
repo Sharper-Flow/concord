@@ -854,119 +854,6 @@ func TestProjectHandoffRefusesSymlinkEscapingArtifact(t *testing.T) {
 	}
 }
 
-// seedOrphanWorkerAttemptRow records the anomalous shape the retirement
-// gate must treat as unknown attribution: a nonterminal worker_attempts
-// projection row with no dispatch authorization event at all. The real
-// dispatch chain always writes the authorization beside the row, so this
-// shape is a damaged or legacy projection, and readiness must block on it.
-func seedOrphanWorkerAttemptRow(t *testing.T, s *Store, workID, attemptID string) {
-	t.Helper()
-	ctx := context.Background()
-	lane := BuiltinLaneDefinitions()[0]
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := enterWrite(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts
-		(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
-		VALUES (?,?,?,?,?,?,?,?, 'dispatched', ?)`, workID, attemptID, lane.ID, lane.Digest, lane.CapabilityClass, preferredModelForLane(lane), WorkerPacketSchemaVersion, WorkerReportSchemaVersion, "2026-09-30T00:00:00Z"); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := leaveWrite(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// recordHandoffSessionActor records the session's workflow actor through the
-// real WorkflowActorRecorded fold when the handoff fixture has not recorded
-// it yet, so workflow_actors binds the actor ref to the authenticated
-// session reference exactly as production does. It returns the ref.
-func recordHandoffSessionActor(t *testing.T, f projectHandoffFixture, sessionRef string) string {
-	t.Helper()
-	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: sessionRef, ActorClass: ActorAgent}
-	actorRef, err := WorkflowActorRef(actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var recorded int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&recorded); err != nil {
-		t.Fatal(err)
-	}
-	if recorded == 1 {
-		return actorRef
-	}
-	version := readWorkVersion(t, f.store, f.workID)
-	event := workflowEventWithActor("ph-actor-"+sessionRef, WorkflowActorRecorded, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef, "agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": "agent"})
-	if err := applyWorkflowTestOperation(context.Background(), f.store, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): version}}); err != nil {
-		t.Fatal(err)
-	}
-	return actorRef
-}
-
-// seedSessionOwnedDispatchedAttempt drives the real dispatch authorization
-// chain the retirement gate derives worker ownership from: the session's
-// recorded workflow actor, the dispatch_worker action start on the pinned
-// current step at the next per-step epoch, the dispatch_worker completion
-// that binds the attempt in flight with its lane identity, and the
-// worker.dispatched evidence event whose Actor column carries the
-// authenticated principal/client actor the evidence boundary stamps
-// (cmd/concord applyWorkerEvidence) — never the session reference. The
-// completion fold creates the in_flight worker_attempts row and the evidence
-// fold moves it to dispatched, so the projection rows the gate reads are the
-// folds' own output.
-func seedSessionOwnedDispatchedAttempt(t *testing.T, f projectHandoffFixture, sessionRef, attemptID string) {
-	t.Helper()
-	ctx := context.Background()
-	actorRef := recordHandoffSessionActor(t, f, sessionRef)
-	var currentStep string
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, f.workID).Scan(&currentStep); err != nil {
-		t.Fatal(err)
-	}
-	var startedCount int64
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0) FROM workflow_step_epochs WHERE work_id=? AND step_id=?`, f.workID, currentStep).Scan(&startedCount); err != nil {
-		t.Fatal(err)
-	}
-	epoch := startedCount + 1
-	version := readWorkVersion(t, f.store, f.workID)
-	lane := BuiltinLaneDefinitions()[0]
-	packetDigest := "sha256:" + strings.Repeat("c", 64)
-	identity := workerFixtureWorktreeIdentity(t, f.store, f.workID)
-	started := workflowEventWithActor("ph-dispatch-start-"+attemptID, WorkflowActionStarted, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version, "resulting_version": version + 1, "step_id": currentStep, "action_id": "dispatch_worker", "attempt_epoch": epoch, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "dispatch:" + attemptID, "actor_ref": actorRef, "execution_model": preferredModelForLane(lane)})
-	completed := workflowEventWithActor("ph-dispatch-done-"+attemptID, WorkflowActionCompleted, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version + 1, "resulting_version": version + 2, "step_id": currentStep, "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": attemptID, "worker_lane_id": lane.ID, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass, "worker_packet_digest": packetDigest, "worker_packet_predicate_ids": []any{}, "worker_worktree_identity": identity, "result_evidence_refs": []any{}, "changed_refs": []any{f.workID}, "actor_ref": actorRef})
-	if err := applyWorkflowTestOperation(ctx, f.store, Operation{Events: []Event{started, completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): version}}); err != nil {
-		t.Fatal(err)
-	}
-	// The worker evidence stamps its Actor column with the authenticated
-	// client/principal identity the worker-evidence boundary records, which
-	// is never the dispatching session reference.
-	dispatch := Event{EventID: "ph-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "client:concord-1:operator", OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: packetDigest, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
-	if err := ApplyOperation(ctx, f.store, Operation{Events: []Event{dispatch}}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func completeWorkerAttempt(t *testing.T, s *Store, workID, attemptID string) {
-	t.Helper()
-	lane := BuiltinLaneDefinitions()[0]
-	var reportSchemaVersion string
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT report_schema_version FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&reportSchemaVersion); err != nil {
-		t.Fatal(err)
-	}
-	completed := Event{EventID: "ph-completed-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: reportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID), EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane)})}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // projectMainCheckout resolves the registered main checkout a worktree's
 // repository answers with: the canonical checkout the vacate destination
 // names.
@@ -1041,18 +928,6 @@ func TestRetirementReadinessRequiresEveryVerifiedFact(t *testing.T) {
 	if len(retirement.Blockers) != 1 || !strings.Contains(retirement.Blockers[0], "session_vacate has not recorded") {
 		t.Fatalf("blockers=%v, want the vacate blocker", retirement.Blockers)
 	}
-	// The session's own open worker attempt blocks readiness: the dispatch
-	// authorization chain attributes the attempt to this session's
-	// authenticated actor.
-	seedSessionOwnedDispatchedAttempt(t, f, f.sourceSession, "ph-attempt-1")
-	retirement, err = EvaluateProjectSessionRetirement(ctx, f.store, f.workID, f.sourceProject, f.sourceSession)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if retirement.WorkersStopped || retirement.State != RetirementPending {
-		t.Fatalf("retirement=%+v, want the open attempt to hold readiness", retirement)
-	}
-	completeWorkerAttempt(t, f.store, f.workID, "ph-attempt-1")
 	// The real verified vacate landing completes the last gate: the request
 	// and its /proc-readback landing release the session's occupancy rows.
 	destination := projectMainCheckout(t, f.sourceTree)
@@ -1065,7 +940,7 @@ func TestRetirementReadinessRequiresEveryVerifiedFact(t *testing.T) {
 	if retirement.State != RetirementReady {
 		t.Fatalf("retirement=%+v, want READY_TO_CLOSE_OR_REPLACE from the verified facts", retirement)
 	}
-	if !retirement.RecordedHandoff || !retirement.ArtifactsPreserved || !retirement.WorkersStopped || !retirement.VacateLanded {
+	if !retirement.RecordedHandoff || !retirement.ArtifactsPreserved || !retirement.VacateLanded {
 		t.Fatalf("retirement=%+v, want every fact verified", retirement)
 	}
 	// Retirement derives from facts; it never writes.
@@ -1118,42 +993,6 @@ func TestRetirementDoesNotCompleteOrCancelTheWork(t *testing.T) {
 	}
 	if state == "completed" || state == "cancelled" {
 		t.Fatalf("instance_state=%q, want retirement to leave the workflow state alone", state)
-	}
-}
-
-func TestRetirementUnknownWorkerAttributionBlocksReadiness(t *testing.T) {
-	t.Parallel()
-	f := setupProjectHandoffFixture(t)
-	recorded := recordHandoff(t, f, f.sourceTree)
-	consumeHandoff(t, f, recorded.HandoffID)
-	destination := projectMainCheckout(t, f.sourceTree)
-	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
-	vacateAndLandSession(t, f, f.sourceSession, f.sourceTree, destination)
-	// An attempt whose projection row stands with no dispatch
-	// authorization blocks readiness: unknown ownership never reports
-	// optimistic readiness.
-	seedOrphanWorkerAttemptRow(t, f.store, f.workID, "ph-attempt-unknown")
-	retirement, err := EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if retirement.State != RetirementPending || retirement.WorkersStopped {
-		t.Fatalf("retirement=%+v, want unknown attribution to block readiness", retirement)
-	}
-	// Another session's positively identified open worker is not this
-	// session's worker: the real dispatch chain attributes the attempt to
-	// the foreign session's authenticated actor. Settle the orphan only after
-	// proving its unknown attribution, without recording a second dispatch.
-	sourceActor := recordHandoffSessionActor(t, f, f.sourceSession)
-	appendWorkerFixtureDispatchAuthorization(t, f.store, f.workID, "ph-attempt-unknown", currentStep(t, f.store, f.workID), sourceActor)
-	completeWorkerAttempt(t, f.store, f.workID, "ph-attempt-unknown")
-	seedSessionOwnedDispatchedAttempt(t, f, "session/foreign", "ph-attempt-foreign")
-	retirement, err = EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if retirement.State != RetirementReady {
-		t.Fatalf("retirement=%+v, want the foreign session's worker to leave this session ready", retirement)
 	}
 }
 
@@ -1394,7 +1233,7 @@ func TestRetirementReadinessRefusesStaleContractHandoffAfterVerifiedVacate(t *te
 	if !found {
 		t.Fatalf("blockers=%v, want the stale-contract blocker", stale.Blockers)
 	}
-	if !stale.ArtifactsPreserved || !stale.WorkersStopped || !stale.VacateLanded {
+	if !stale.ArtifactsPreserved || !stale.VacateLanded {
 		t.Fatalf("retirement=%+v, want the preserved, stopped, and landed facts to stand", stale)
 	}
 }
@@ -1523,7 +1362,7 @@ func TestRetirementDriftRefusesReadinessOnSourceClaimChangeBetweenProbeAndFinalR
 			t.Fatal(err)
 		}
 	})
-	if drifted.State != RetirementPending || !drifted.VacateLanded || !drifted.WorkersStopped {
+	if drifted.State != RetirementPending || !drifted.VacateLanded {
 		t.Fatalf("retirement=%+v, want the interleaved source-claim change to refuse readiness with the other facts standing", drifted)
 	}
 	found := false

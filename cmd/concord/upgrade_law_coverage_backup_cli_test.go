@@ -145,7 +145,7 @@ func TestUpgradeRetiringLawCoverageSnapshotsTheCoverageTableBeforeTheDrop(t *tes
 
 	code, out, errOut := runUpgradeStdin(t, `{}`)
 	if code != 0 {
-		t.Fatalf("the v165 to v166 upgrade must apply: %d %s", code, errOut)
+		t.Fatalf("the v165 to current upgrade must apply: %d %s", code, errOut)
 	}
 	var report struct {
 		Applied       []int  `json:"applied"`
@@ -155,8 +155,12 @@ func TestUpgradeRetiringLawCoverageSnapshotsTheCoverageTableBeforeTheDrop(t *tes
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("upgrade output is not JSON: %v: %s", err, out)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{166}) || report.SchemaVersion != store.CurrentSchemaVersion() {
-		t.Fatalf("applied = %+v schema = %d, want [166] at %d", report.Applied, report.SchemaVersion, store.CurrentSchemaVersion())
+	var expectedApplied []int
+	for schema := 166; schema <= store.CurrentSchemaVersion(); schema++ {
+		expectedApplied = append(expectedApplied, schema)
+	}
+	if !reflect.DeepEqual(report.Applied, expectedApplied) || report.SchemaVersion != store.CurrentSchemaVersion() {
+		t.Fatalf("applied = %+v schema = %d, want %v", report.Applied, report.SchemaVersion, expectedApplied)
 	}
 	if !strings.HasPrefix(report.Backup, filepath.Join(root, "backups")+string(filepath.Separator)) {
 		t.Fatalf("the report must name a snapshot under the data root: %+v", report)

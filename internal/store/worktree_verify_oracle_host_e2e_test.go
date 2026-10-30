@@ -47,23 +47,21 @@ func assertNativeTargetReceipt(t *testing.T, r WorktreeVerifyResult, materialize
 // Project repository with no Go module, one pinned axis recipe, and the
 // seeded workflow authority the native producer shares with the Go family.
 type nativeTargetFixture struct {
-	s               *Store
-	work, repo      string
-	head            string
-	dispatchSubject string
-	bundle          NativeOracleControlBundle
-	prepare         WorktreeVerifyResult
-	a, b            NativeOracleRequest
-	actor           WorkflowActor
-	launches        int
-	materializer    string
-	runner          string
-	uvCache         string
-	lockVersions    map[string]string
-	recipePath      string
-	manifestJSON    string
-	controlArgv     []string
-	root            string
+	s            *Store
+	work, repo   string
+	head         string
+	bundle       NativeOracleControlBundle
+	prepare      WorktreeVerifyResult
+	a            NativeOracleRequest
+	launches     int
+	materializer string
+	runner       string
+	uvCache      string
+	lockVersions map[string]string
+	recipePath   string
+	manifestJSON string
+	controlArgv  []string
+	root         string
 }
 
 func TestNativeTargetAxisNoGoModule(t *testing.T) {
@@ -138,7 +136,7 @@ func TestNativeTargetAxisPinnedHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.commitAndPrepare(t, "faulty")
-	o := f.authorize(t, "faulty", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("faulty-execute", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "fail" || r.ExitCode == 0 || f.launches != 1 {
 		t.Fatalf("false-green candidate escaped the pinned harness: %+v %v launches=%d", r, err, f.launches)
@@ -151,7 +149,7 @@ func TestNativeTargetAxisPinnedHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.commitAndPrepare(t, "neutered")
-	o = f.authorize(t, "neutered", f.actor)
+	o = NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err = f.s.VerifyWorktree(context.Background(), f.request("neutered-execute", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "fail" || f.launches != 2 {
 		t.Fatalf("neutered candidate test escaped the pinned harness: %+v %v launches=%d", r, err, f.launches)
@@ -160,7 +158,7 @@ func TestNativeTargetAxisPinnedHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.commitAndPrepare(t, "repaired")
-	o = f.authorize(t, "repaired", f.actor)
+	o = NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err = f.s.VerifyWorktree(context.Background(), f.request("repaired-execute", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || f.launches != 3 {
 		t.Fatalf("genuine repair %+v %v launches=%d", r, err, f.launches)
@@ -230,7 +228,7 @@ func TestNativeTargetAxisWitnessPopulation(t *testing.T) {
 			if err != nil || f.prepare.Oracle == nil || f.prepare.Oracle.Qualification != "ready" {
 				t.Fatalf("fresh preparation %v %+v", err, f.prepare)
 			}
-			o := f.authorize(t, "population-"+name, f.actor)
+			o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 			r, err := f.s.VerifyWorktree(context.Background(), f.request("population-"+name, &o))
 			if err == nil || r.Oracle == nil || r.Oracle.Qualification == "pass" || f.launches > 1 {
 				t.Fatalf("malformed population qualified: %+v %v launches=%d", r, err, f.launches)
@@ -411,23 +409,19 @@ func corruptCachedWheelForTest(t *testing.T, cache, dist string) string {
 	return target
 }
 
-// The shared authorization machinery is family-independent: a forged attempt
-// or a foreign packet refuses typed with zero launches for a target control.
-func TestNativeTargetAxisForgedDispatchRefusal(t *testing.T) {
+// Preparation selection is family-independent and cannot name an invented run.
+func TestNativeTargetAxisUnknownPreparationRefusal(t *testing.T) {
 	f := newNativeTargetFixture(t)
 	o := f.a
-	o.AttemptID = "invented-attempt"
+	o.PreparationRunRef = "worktree_verify:invented-preparation"
 	f.refusal(t, "forged", o)
-	o = f.a
-	o.WorkerPacketDigest = f.b.WorkerPacketDigest
-	f.refusal(t, "foreign-packet", o)
 }
 
 func (f *nativeTargetFixture) refusal(t *testing.T, id string, o NativeOracleRequest) {
 	t.Helper()
 	_, err := f.s.VerifyWorktree(context.Background(), f.request(id, &o))
-	if err == nil || !strings.Contains(err.Error(), "unauthorized_dispatch") {
-		t.Errorf("typed refusal=%v, want unauthorized_dispatch", err)
+	if failureKind(err) != KindMissingEvidence {
+		t.Errorf("typed refusal=%v, want missing_evidence", err)
 	}
 	if f.launches != 0 {
 		t.Errorf("refusal launched the acceptance body: launches=%d", f.launches)
@@ -451,7 +445,7 @@ func TestNativeTargetAxisNoneCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.commitAndPrepare(t, "broken")
-	o := f.authorize(t, "broken", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err = f.s.VerifyWorktree(context.Background(), f.request("broken-execute", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "fail" || r.ExitCode == 0 || f.launches != 3 {
 		t.Fatalf("none+check broken candidate %+v %v launches=%d", r, err, f.launches)
@@ -479,7 +473,7 @@ func TestNativeTargetAxisUVCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.commitAndPrepare(t, "broken")
-	o := f.authorize(t, "broken", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err = f.s.VerifyWorktree(context.Background(), f.request("broken-execute", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "fail" || r.ExitCode == 0 || f.launches != 3 {
 		t.Fatalf("uv+check broken candidate %+v %v launches=%d", r, err, f.launches)
@@ -500,7 +494,7 @@ func TestNativeTargetAxisPlainRepoInputs(t *testing.T) {
 	f.commitAll(t, "plain-repo docs")
 	f.bundle.Control.RecipeSource.CommitOID = f.head
 	f.prepareWithCurrentBundle(t, "docs")
-	o := f.authorize(t, "docs", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("docs-execute", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || f.launches != 1 {
 		t.Fatalf("plain-repo docs execute %+v %v launches=%d", r, err, f.launches)
@@ -518,7 +512,7 @@ func TestNativeTargetAxisInputMutationFails(t *testing.T) {
 	f.commitAll(t, "mutating harness")
 	f.bundle.Control.RecipeSource.CommitOID = f.head
 	f.prepareWithCurrentBundle(t, "mutating")
-	o := f.authorize(t, "mutating", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	_, err := f.s.VerifyWorktree(context.Background(), f.request("mutating-execute", &o))
 	if err == nil || !strings.Contains(err.Error(), "changed during execution") {
 		t.Fatalf("run-time input mutation was not refused: %v", err)
@@ -570,7 +564,7 @@ func TestNativeTargetAxisDependencyMutatedInTest(t *testing.T) {
 	f.commitAll(t, "dep-mutating harness")
 	f.bundle.Control.RecipeSource.CommitOID = f.head
 	f.prepareWithCurrentBundle(t, "depmut")
-	o := f.authorize(t, "depmut", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	_, err := f.s.VerifyWorktree(context.Background(), f.request("depmut-execute", &o))
 	if err == nil || !strings.Contains(err.Error(), "dependency closure changed during execution") {
 		t.Fatalf("test-stage dependency mutation was not refused: %v", err)
@@ -655,7 +649,7 @@ func newNativeTargetFixtureAtRoot(t *testing.T, root string) *nativeTargetFixtur
 	t.Helper()
 	const work = "native-target-work"
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
-	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), actor: seed.owner, root: root, recipePath: nativeTargetFixtureName(root, "recipe.json"), materializer: "uv", runner: "pytest"}
+	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), root: root, recipePath: nativeTargetFixtureName(root, "recipe.json"), materializer: "uv", runner: "pytest"}
 	f.controlArgv = []string{"pytest", "tests/test_value.py::test_value"}
 
 	f.installCommittedUVProject(t)
@@ -683,7 +677,7 @@ func newNativeTargetFixtureAtRoot(t *testing.T, root string) *nativeTargetFixtur
 		},
 	})
 	f.commitAll(t, "pinned harness")
-	f.seedAuthority(t, seed)
+	f.seedAuthority(t)
 	return f
 }
 
@@ -703,7 +697,7 @@ func newNativeTargetCheckFixtureAtRoot(t *testing.T, root string) *nativeTargetF
 	t.Helper()
 	const work = "native-target-check-work"
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
-	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), actor: seed.owner, root: root, recipePath: nativeTargetFixtureName(root, "recipe.json"), materializer: "none", runner: "check"}
+	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), root: root, recipePath: nativeTargetFixtureName(root, "recipe.json"), materializer: "none", runner: "check"}
 	f.controlArgv = []string{"check", "python-value", "shell-value"}
 	shellVersion := liveVersionForTest(t, "bash", `version ([0-9][0-9.]*)`)
 	pyVersion := liveVersionForTest(t, "python3", `Python ([0-9][0-9.]*)`)
@@ -733,7 +727,7 @@ func newNativeTargetCheckFixtureAtRoot(t *testing.T, root string) *nativeTargetF
 	}
 	writeRepoFilesForTest(t, f.repo, files)
 	f.commitAll(t, "pinned check harness")
-	f.seedAuthority(t, seed)
+	f.seedAuthority(t)
 	return f
 }
 
@@ -745,7 +739,7 @@ func newNativeTargetUVCheckFixture(t *testing.T) *nativeTargetFixture {
 	t.Helper()
 	const work = "native-target-uvcheck-work"
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
-	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), actor: seed.owner, root: "uvchk", recipePath: "uvchk/recipe.json", materializer: "uv", runner: "check"}
+	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), root: "uvchk", recipePath: "uvchk/recipe.json", materializer: "uv", runner: "check"}
 	f.controlArgv = []string{"check", "deps", "shell-args"}
 
 	f.installCommittedUVProject(t)
@@ -773,7 +767,7 @@ func newNativeTargetUVCheckFixture(t *testing.T) *nativeTargetFixture {
 		"pin": map[string]string{"python": pyVersion, "uv": uvVersion, "shell": shellVersion, "dep_manifest": "pyproject.toml", "dep_lock": "uv.lock"},
 	})
 	f.commitAll(t, "pinned uv check harness")
-	f.seedAuthority(t, seed)
+	f.seedAuthority(t)
 	return f
 }
 
@@ -1031,12 +1025,11 @@ func (f *nativeTargetFixture) commitAll(t *testing.T, message string) {
 		t.Fatal(err)
 	}
 	f.head = strings.TrimSpace(string(head))
-	f.dispatchSubject = f.head
 }
 
 // seedAuthority mirrors the Go fixture's store seeding: an active claim, a
-// qualified subject, the bundle, and two authorized dispatch bindings.
-func (f *nativeTargetFixture) seedAuthority(t *testing.T, seed workflowReturnRouteFixture) {
+// qualified subject and the immutable preparation bundle.
+func (f *nativeTargetFixture) seedAuthority(t *testing.T) {
 	t.Helper()
 	f.seedTargetAuthority(t)
 	prepare := &NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &f.bundle}
@@ -1048,8 +1041,7 @@ func (f *nativeTargetFixture) seedAuthority(t *testing.T, seed workflowReturnRou
 	if f.launches != 0 {
 		t.Fatalf("preparation launched the acceptance body: launches=%d", f.launches)
 	}
-	f.a = f.authorizeLane(t, "a", seed.owner, "implement")
-	f.b = f.authorize(t, "b", seed.owner)
+	f.a = NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 }
 
 // seedTargetAuthority seeds the active claim, the qualified subject, the
@@ -1091,52 +1083,6 @@ func (f *nativeTargetFixture) request(id string, o *NativeOracleRequest) Worktre
 		r.Command = []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}
 	}
 	return r
-}
-
-func (f *nativeTargetFixture) authorize(t *testing.T, id string, actor WorkflowActor) NativeOracleRequest {
-	t.Helper()
-	return f.authorizeLane(t, id, actor, "verify")
-}
-
-func (f *nativeTargetFixture) authorizeLane(t *testing.T, id string, actor WorkflowActor, laneID string) NativeOracleRequest {
-	t.Helper()
-	b := f.bundle
-	b.Control.ReadinessEvidenceRefs = []string{f.prepare.OperationRef}
-	oracle := &AcceptanceOracle{Owners: []OracleOwner{b.Owner}, Cases: b.Cases, Controls: []OracleControl{b.Control}}
-	version := readWorkVersion(t, f.s, f.work)
-	next := version + 1
-	productionPath := nativeTargetFixtureName(f.root, "value.txt")
-	if f.runner == "pytest" {
-		productionPath = nativeTargetFixtureName(f.root, "app/value.py")
-	}
-	job := WorkerJobRecordedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: f.work, ExpectedVersion: &version, ResultingVersion: &next}, JobID: "job:" + id, Revision: 1, ContractVersion: 1, Objective: "execute pinned target control " + id, StoppingCondition: "the exact control executes", ProjectScope: "project", PathScope: []string{productionPath}, PredicateIDs: b.Control.PredicateIDs, Checks: []string{"pinned target value"}, Prerequisites: []WorkerJobPrerequisite{}, UnresolvedRefs: []string{}, Readiness: &WorkerJobReadiness{Ready: true, Evidence: []string{f.prepare.OperationRef}}, AcceptanceOracle: oracle}
-	job.Digest = DeriveWorkerJobDigest(job)
-	raw, _ := json.Marshal(job)
-	actorRef, _ := WorkflowActorRef(actor)
-	event := workflowEventWithActor("native-target-job-"+id, WorkerJobRecorded, f.work, actorRef, map[string]any{})
-	event.Payload = raw
-	event.PayloadVersion = CurrentEventPayloadVersion(WorkerJobRecorded)
-	if err := applyWorkflowTestOperationDirect(context.Background(), f.s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.work): version}}); err != nil {
-		t.Fatal(err)
-	}
-	version++
-	packet := map[string]any{"work_id": f.work, "attempt_id": "attempt-" + id, "job": job.Digest, "subject_commit": f.head}
-	packetRaw, _ := json.Marshal(packet)
-	canonical, _ := canonicalJSON(packetRaw)
-	digest := nativeDigest(canonical)
-	lane := reviewGateLane(t, map[string]string{"implement": "implementation", "verify": "verification", "review": "review"}[laneID])
-	ld := lane.Digest
-	var epoch int64
-	if err := f.s.db.QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0)+1 FROM workflow_step_epochs WHERE work_id=? AND step_id='repair'`, f.work).Scan(&epoch); err != nil {
-		t.Fatal(err)
-	}
-	start := workflowEventWithActor("native-target-start-"+id, WorkflowActionStarted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version, "resulting_version": version + 1, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "accepted_inputs_digest": digest, "idempotency_identity": "native-target-dispatch-" + id, "actor_ref": actorRef})
-	completion := workflowEventWithActor("native-target-completion-"+id, WorkflowActionCompleted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version + 1, "resulting_version": version + 2, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actorRef, "result_evidence_refs": []string{}, "changed_refs": []string{}, "worker_attempt_id": "attempt-" + id, "worker_packet_digest": digest, "worker_subject_commit": f.dispatchSubject, "worker_worktree_identity": workerWorktreeIdentity(f.repo), "worker_job": WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, "worker_lane_id": lane.ID, "worker_lane_digest": ld, "worker_capability_class": lane.CapabilityClass, "worker_packet_predicate_ids": b.Control.PredicateIDs})
-	completion.PayloadVersion = CurrentEventPayloadVersion(WorkflowActionCompleted)
-	if err := applyWorkflowTestOperationDirect(context.Background(), f.s, Operation{Events: []Event{start, completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.work): version}}); err != nil {
-		t.Fatal(err)
-	}
-	return NativeOracleRequest{Phase: "execute", AttemptID: "attempt-" + id, AttemptEpoch: epoch, WorkerPacketDigest: digest, WorkerJobBinding: &WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, ControlID: b.Control.ControlID, PreparationRunRef: f.prepare.OperationRef}
 }
 
 // An unsupported pair refuses through the real producer before any plan
@@ -1268,7 +1214,7 @@ func newNativeTargetScratchRedirectFixture(t *testing.T) *nativeTargetFixture {
 	t.Helper()
 	const work = "native-target-redirect-work"
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
-	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), actor: seed.owner, root: "chkfix", recipePath: nativeTargetFixtureName("chkfix", "recipe.json"), materializer: "none", runner: "check"}
+	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), root: "chkfix", recipePath: nativeTargetFixtureName("chkfix", "recipe.json"), materializer: "none", runner: "check"}
 	f.controlArgv = []string{"check", "shell-value"}
 	shellVersion := liveVersionForTest(t, "bash", `version ([0-9][0-9.]*)`)
 	redirect := "$scratch/snapshot/" + f.root + "/scripts/check.sh"
@@ -1323,7 +1269,7 @@ func (f *nativeTargetFixture) redirectFalseGreen(t *testing.T) string {
 	if err != nil || !strings.Contains(string(pinned), `= "7"`) {
 		t.Fatalf("the pinned value check did not stay immutable at 7: %q %v", pinned, err)
 	}
-	o := f.authorize(t, "redirected-candidate", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("redirected-execute", &o))
 	if err != nil || r.Oracle == nil {
 		t.Fatalf("redirect execute: %+v %v", r, err)
@@ -1364,7 +1310,7 @@ func newNativeTargetOptionScriptFixture(t *testing.T, interpreter string) *nativ
 	t.Helper()
 	const work = "native-target-option-work"
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
-	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), actor: seed.owner, root: "chkfix", recipePath: nativeTargetFixtureName("chkfix", "recipe.json"), materializer: "none", runner: "check"}
+	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), root: "chkfix", recipePath: nativeTargetFixtureName("chkfix", "recipe.json"), materializer: "none", runner: "check"}
 	witness := "python-value"
 	pin := map[string]string{"python": liveVersionForTest(t, "python3", `Python ([0-9][0-9.]*)`)}
 	argv := []string{interpreter, "--version"}
@@ -1411,7 +1357,7 @@ func newNativeTargetOptionScriptFixture(t *testing.T, interpreter string) *nativ
 // qualification.
 func (f *nativeTargetFixture) optionFalseGreen(t *testing.T) string {
 	t.Helper()
-	o := f.authorize(t, "option-candidate", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("option-execute", &o))
 	if err != nil || r.Oracle == nil {
 		t.Fatalf("option script slot execute: %+v %v", r, err)
@@ -1477,7 +1423,7 @@ func newNativeTargetSharedArgvFixture(t *testing.T) *nativeTargetFixture {
 	t.Helper()
 	const work = "native-target-shared-argv-work"
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
-	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), actor: seed.owner, root: "chkfix", recipePath: nativeTargetFixtureName("chkfix", "recipe.json"), materializer: "none", runner: "check"}
+	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), root: "chkfix", recipePath: nativeTargetFixtureName("chkfix", "recipe.json"), materializer: "none", runner: "check"}
 	f.controlArgv = []string{"check", "shell-first", "shell-second"}
 	shellVersion := liveVersionForTest(t, "bash", `version ([0-9][0-9.]*)`)
 	raw, err := json.Marshal(map[string]any{
@@ -1504,7 +1450,7 @@ func newNativeTargetSharedArgvFixture(t *testing.T) *nativeTargetFixture {
 		f.recipePath: f.manifestJSON,
 	})
 	f.commitAll(t, "pinned shared argv harness")
-	f.seedAuthority(t, seed)
+	f.seedAuthority(t)
 	return f
 }
 
@@ -1531,7 +1477,7 @@ func TestNativeTargetAxisSharedArgvWitnesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.commitAndPrepare(t, "shared-broken")
-	o := f.authorize(t, "shared-broken", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err = f.s.VerifyWorktree(context.Background(), f.request("shared-broken-execute", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "fail" || r.ExitCode == 0 || f.launches != 3 {
 		t.Fatalf("shared-argv broken candidate %+v %v launches=%d", r, err, f.launches)
@@ -1549,7 +1495,7 @@ func TestNativeTargetPytestScopeApplication(t *testing.T) {
 				nativeTargetFixtureName(root, "tests/test_value.py"): "from app.test_mode import VALUE\n\n\ndef test_value():\n    assert VALUE == 7\n",
 			})
 			f.commitAndPrepareRepin(t, "mode-pinned")
-			o := f.authorize(t, "mode-pinned", f.actor)
+			o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 			r, err := f.s.VerifyWorktree(context.Background(), f.request("mode-pinned-execute", &o))
 			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 1 {
 				t.Fatalf("pinned application mode execute %+v %v launches=%d", r, err, f.launches)
@@ -1559,7 +1505,7 @@ func TestNativeTargetPytestScopeApplication(t *testing.T) {
 				t.Fatal(err)
 			}
 			f.commitAndPrepare(t, "mode-regressed")
-			o = f.authorize(t, "mode-regressed", f.actor)
+			o = NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 			r, err = f.s.VerifyWorktree(context.Background(), f.request("mode-regressed-execute", &o))
 			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "fail" || r.ExitCode == 0 || f.launches != 2 {
 				t.Fatalf("unpinned application regression escaped grading: %+v %v launches=%d", r, err, f.launches)
@@ -1571,7 +1517,7 @@ func TestNativeTargetPytestScopeApplication(t *testing.T) {
 				t.Fatal(err)
 			}
 			f.commitAndPrepare(t, "mode-repaired")
-			o = f.authorize(t, "mode-repaired", f.actor)
+			o = NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 			r, err = f.s.VerifyWorktree(context.Background(), f.request("mode-repaired-execute", &o))
 			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 3 {
 				t.Fatalf("genuine application repair %+v %v launches=%d", r, err, f.launches)
@@ -1614,7 +1560,7 @@ func TestNativeTargetPytestScopeCandidateConfig(t *testing.T) {
 						nativeTargetFixtureName(root, "tests/"+name): nativeTargetHostilePytestConfig(name),
 					})
 					f.commitAndPrepare(t, "hostile-config")
-					o := f.authorize(t, "hostile-config", f.actor)
+					o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 					r, err := f.s.VerifyWorktree(context.Background(), f.request("hostile-config-execute", &o))
 					if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 1 {
 						t.Fatalf("hostile candidate config %s escaped the pinned selection: %+v %v launches=%d", name, r, err, f.launches)
@@ -1657,7 +1603,7 @@ func TestNativeTargetPytestScopeDeclaredCollection(t *testing.T) {
 		nativeTargetFixtureName(f.root, "app/test_mode.py"):       "VALUE = 7\n\n\ndef render_value():\n    return VALUE\n\n\ndef test_mode_value():\n    return VALUE\n",
 	})
 	f.commitAndPrepareRepin(t, "undeclared")
-	o := f.authorize(t, "undeclared", f.actor)
+	o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 	r, err := f.s.VerifyWorktree(context.Background(), f.request("undeclared-execute", &o))
 	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 1 {
 		t.Fatalf("undeclared test-shaped files entered grading: %+v %v launches=%d", r, err, f.launches)
@@ -1705,7 +1651,7 @@ func TestNativeTargetPytestScopePinnedSupport(t *testing.T) {
 				nativeTargetFixtureName(root, "tests/test_value.py"): "from app.value import VALUE\n\n\ndef test_value(pinned_seven):\n    assert VALUE == pinned_seven\n",
 			})
 			f.commitAndPrepareRepin(t, "pinned-support")
-			o := f.authorize(t, "pinned-support", f.actor)
+			o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 			r, err := f.s.VerifyWorktree(context.Background(), f.request("pinned-support-execute", &o))
 			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || f.launches != 1 {
 				t.Fatalf("pinned support fixture %+v %v launches=%d", r, err, f.launches)
@@ -1719,7 +1665,7 @@ func TestNativeTargetPytestScopePinnedSupport(t *testing.T) {
 			}
 			writeRepoFilesForTest(t, f.repo, files)
 			f.commitAndPrepare(t, "poisoned-support")
-			o = f.authorize(t, "poisoned-support", f.actor)
+			o = NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 			r, err = f.s.VerifyWorktree(context.Background(), f.request("poisoned-support-execute", &o))
 			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || f.launches != 2 {
 				t.Fatalf("poisoned support candidate escaped the pinned overlay: %+v %v launches=%d", r, err, f.launches)
@@ -1753,7 +1699,7 @@ func TestNativeTargetPytestScopeHarnessConftest(t *testing.T) {
 				nativeTargetFixtureName(root, "tests/test_value.py"): "from app.value import VALUE\n\n\ndef test_value(seven):\n    assert VALUE == seven\n",
 			})
 			f.commitAndPrepareRepin(t, "harness-conftest")
-			o := f.authorize(t, "harness-conftest", f.actor)
+			o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 			r, err := f.s.VerifyWorktree(context.Background(), f.request("harness-conftest-execute", &o))
 			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 1 {
 				t.Fatalf("explicit harness conftest collect target %+v %v launches=%d", r, err, f.launches)
@@ -1791,7 +1737,7 @@ func TestNativeTargetPytestScopeFallback(t *testing.T) {
 			}
 			writeRepoFilesForTest(t, f.repo, files)
 			f.commitAndPrepareRepin(t, "fallback")
-			o := f.authorize(t, "fallback", f.actor)
+			o := NativeOracleRequest{Phase: "execute", PreparationRunRef: f.prepare.OperationRef}
 			r, err := f.s.VerifyWorktree(context.Background(), f.request("fallback-execute", &o))
 			if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || r.ExitCode != 0 || f.launches != 1 {
 				t.Fatalf("fallback manifest selection %+v %v launches=%d", r, err, f.launches)

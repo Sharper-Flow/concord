@@ -133,7 +133,7 @@ without corrupting in-flight work or historical records.
 - Agent-facing writes queue behind one writer and are admitted within the accepted bound: no escaped busy failure, no lost or duplicated effect, no retry storm. Reads are lock-free. See CD-0045.
 - The store keeps current state and finite verified snapshots, and each correction writes the corrected current rows ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - Acknowledged consequential operations — approvals, workflow dispatch
-  and terminal transitions, cross-authority step claims, and worker evidence —
+  and terminal transitions, cross-authority step claims, and producer evidence —
   are durable across power loss and OS crash (CD-0050); ordinary writes are
   durable through the last consequential boundary and never corrupt the store.
 - Workflow and schema changes must be safe for in-flight work.
@@ -227,6 +227,9 @@ See [`workflows.md`](./workflows.md).
 ### How Concord's own development runs during the rebuild
 
 - New assignments to develop Concord use Concord agents and Concord's workflow.
+- Coordinators delegate through native Task, obtain independent Review, and
+  record subject-bound outcomes under CD-0242 D5/D8. Concord does not launch
+  or attest subagents.
 - Work already underway outside the workflow finishes through its existing
   authorized route. It acquires no Concord workflow authority or evidence
   retroactively.

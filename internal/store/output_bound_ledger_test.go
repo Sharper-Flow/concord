@@ -317,23 +317,10 @@ func retainedTwinPattern(pattern string) string {
 	return "/$defs/retained_" + strings.TrimPrefix(pattern, "/$defs/")
 }
 
-// registerOutputBoundWithTwin registers a cap that a shared definition and its
-// retained output twin both keep: one producer bounds both copies.
-func registerOutputBoundWithTwin(pattern string, source outputBoundSource) {
-	registerOutputBound(pattern, source)
-	registerOutputBound(retainedTwinPattern(pattern), source)
-}
-
-// registerRetainedTwinBound registers a cap the retained output twin drops or
-// raises (RETAINED_OUTPUT_TWINS and RETAINED_OUTPUT_RAISES). The twin replays
-// stored values, so its row carries the retained producer source. The shared
-// definition reaches output only inside a dispatched
-// worker packet, and dispatch admission validates every packet against its
-// declared schema (validateWorkflowPayloadSchema in workflow_preflight.go),
-// so the shared row cites that admitted cap. pattern must be concrete: an
-// input source names one node.
+// registerRetainedTwinBound registers the retained output definition's producer.
+// CD-0242 D6 retires the shared definition's only output owner, worker packets.
+// Input reachability alone supplies no output registration.
 func registerRetainedTwinBound(pattern string, retained outputBoundSource) {
-	registerOutputBound(pattern, inputBound(pattern))
 	registerOutputBound(retainedTwinPattern(pattern), retained)
 }
 

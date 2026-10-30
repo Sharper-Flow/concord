@@ -19,7 +19,7 @@
   through the installer's existing retirement transaction.
 - **P12:** Serious: the agent name users select, its permission boundary, and
   which choices reach the operator change.
-- **Related:** CD-0043, CD-0063, CD-0102, and CD-0111
+- **Related:** CD-0043, CD-0063, CD-0242, and CD-0111
 
 ## Context
 
@@ -28,9 +28,8 @@ machine policy. The local policy includes model routing, tool providers,
 credentials, and permission overrides. A public release cannot own that
 machine-specific state.
 
-Concord already manages worker-lane definitions. Those workers are release
-assets with generated contracts. The numbered coordinator definitions are
-operator entry points and remain host configuration.
+The numbered coordinator definitions are operator entry points and remain host
+configuration. Named portable profiles are release assets.
 
 ## Decision
 
@@ -38,12 +37,11 @@ operator entry points and remain host configuration.
 
 Concord does not install, update, migrate, remove, repair, or restore files named
 `concord-0.md`, `concord-1.md`, or `concord-2.md`. The installer manifest and
-release archive manage only the named primary profiles, worker lanes and
+release archive manage only the named primary profiles and
 utilities listed in `AGENT_FILES`.
 
 Install, upgrade, repair, and uninstall operations leave existing numbered
-primary-agent bytes unchanged. These operations continue to install, update,
-repair, and remove worker definitions.
+primary-agent bytes unchanged.
 
 ### D2. Concord distributes portable named primary profiles
 
@@ -105,7 +103,7 @@ is denied every Concord tool that writes work state.
 Those capabilities do not transfer another session's workflow authority or the
 human operator's approval.
 The RTE never answers a Concord approval challenge; it relays it unchanged to
-the human operator. Worker-lane and utility capability boundaries remain.
+the human operator. Utility capability boundaries remain.
 The host owns session procedures, model routing, and machine configuration.
 Linear owns planning. Concord adds no session-launch or portfolio API.
 
@@ -143,6 +141,6 @@ Utility results never become managed review or verification evidence.
 - `python3 scripts/test-primary-prompts.py` proves the validator rejects broken
   profiles and intake examples.
 - `python3 scripts/test-installer.py` proves all numbered primary-agent bytes
-  survive install, upgrade, repair, and uninstall while worker agents remain
+  survive install, upgrade, repair, and uninstall while named profiles remain
   managed.
 - The release workflow packages named primary profiles, never numbered host files.

@@ -19,7 +19,6 @@
     "internal/agent/agent_defect_intake_test.go",
     "internal/agent/agent_defect_journey_test.go",
     "cmd/concord/work_bootstrap.go",
-    "scripts/generate-agent-lanes.py",
     "contracts/agent-tool-surface-payloads.schema.json"
   ],
   "home_domain_id": "work-coordination",
@@ -47,7 +46,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d48f413173256f0904a9fd63d6a8ac921c7662997a78e64a0a147a58f7751a3a",
+  "sha256": "sha256:e1bebc9a5d3e2bc717243795161686a43d80d8f18a6f2b1aabba67f633c7eaad",
   "status": "accepted",
   "summary": "Every new public bug capture carries a defect_intake record with a canonical failure shape, a reproduction, a declared earlier-defect search, and explicit historical siblings. One transaction-scoped Product-membership owner computes the complete sorted sibling snapshot inside the capture transaction and rolls back before any durable or worktree effect. One earlier matching bug makes the report recurrent, and recurrence hard-blocks bug capture until completed same-Product same-shape research in workflow.research covers every current sibling; research capture needs no prerequisite and must omit root_cause_work_id. Classification is immutable across revision, kind conversion refuses, and recorded captures read back as recorded (CD-0242 D2). CD-0149 D2's explore body is amended to a facts-only packet.",
   "tags": [

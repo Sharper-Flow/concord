@@ -15,19 +15,20 @@ import (
 func TestCriterion13ProducerFactsSurviveStageExitAndFreshSession(t *testing.T) {
 	f := newSpineExecutionFixture(t)
 	f.verify(t)
-	f.recordJob(t)
-	f.completeWorker(t)
+	f.prepareControl(t)
+	f.implement(t)
 	f.proof = f.verify(t)
-	f.recordJob(t)
+	f.prepareControl(t)
+	producer := f.read(t)
 	f.review(t, "ready_for_final_proof", f.proof)
-	before := f.read(t)
-	if before.Pinned.Pin.Review == nil || before.Pinned.Pin.Review.Accepted == nil {
-		t.Fatal("producer Review did not reach its accepting consumer")
+	if step := f.read(t).Pinned.Step; step != "execution" {
+		t.Fatalf("Review moved the producing step to %q", step)
 	}
 	delivery := map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}
 	spineOK(t, f.action(t, "record_delivery", delivery))
-	if got := f.read(t).Pinned.Step; got == before.Pinned.Step {
-		t.Fatal("accepted producer facts did not authorize the execution exit")
+	before := f.read(t)
+	if producer.Pinned.Step != "execution" || before.Pinned.Step != "refine" || before.Pinned.Pin.Review == nil || before.Pinned.Pin.Review.Accepted == nil {
+		t.Fatal("producer delivery did not preserve Review for its accepting consumer")
 	}
 	spineOK(t, f.action(t, "checkpoint_refine", map[string]any{}))
 	spineOK(t, f.action(t, "record_delivery", delivery))

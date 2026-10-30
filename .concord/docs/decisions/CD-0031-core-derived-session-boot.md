@@ -3,7 +3,7 @@
 **Status:** Accepted under operator approval.
 **Approval date:** 2026-08-16.
 **Approval:** Operator-approved GitHub issue #100 and implementation direction.
-**Related:** C18, CD-0016, CD-0017, CD-0018, CD-0029, CD-0030, issues #57, #99, #100.
+**Related:** C18, CD-0016, CD-0018, CD-0029, CD-0030, issues #57, #99, #100.
 
 ## Decision
 
@@ -43,8 +43,7 @@ contract. Missing state is represented, never invented.
 
 ## Boundaries
 
-The operator session is not a CD-0017 worker lane. Issue #57 is therefore not a
-blocking dependency: worker lane identity governs bounded delegated attempts,
+The operator session has its own managed identity and context,
 while this packet identifies an operator session through its own closed type and
 contract version. Neither surface accepts a generic fallback.
 

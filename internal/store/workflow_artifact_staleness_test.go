@@ -52,7 +52,7 @@ func stalenessSeedContract(t *testing.T, s *Store, workID string) {
 
 // stalenessEvent supplies trusted current descriptors without authorizing an
 // action. The live-writer tests separately exercise admission and persistence.
-func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) Event {
+func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
 	t.Helper()
 	actorRef, err := WorkflowActorRef(stepFixtureActor())
 	if err != nil {
@@ -116,24 +116,10 @@ func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) Event 
 		if err := json.Unmarshal(event.Payload, &action); err != nil {
 			t.Fatal(err)
 		}
-		if err := writeWorkerAuthorizationTx(t.Context(), tx, event, action); err != nil {
-			t.Fatal(err)
-		}
 		if workflowActionProducesArtifact(action.ActionID) {
 			if _, err := tx.Exec(`INSERT INTO workflow_artifact_actions(work_id,step_id,action_id,production_seq) VALUES(?,?,?,?) ON CONFLICT(work_id,step_id,action_id) DO UPDATE SET production_seq=excluded.production_seq`, workID, action.StepID, action.ActionID, nextSeq); err != nil {
 				t.Fatal(err)
 			}
-		}
-	case WorkerDispatched:
-		var dispatch WorkerDispatchedPayload
-		if err := json.Unmarshal(event.Payload, &dispatch); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tx.Exec(`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?,?,'lane:test','sha256:0000000000000000000000000000000000000000000000000000000000000000','implementation','model:test','1.0','1.0','dispatched','2026-01-02T00:00:00Z') ON CONFLICT(attempt_id) DO NOTHING`, workID, dispatch.AttemptID); err != nil {
-			t.Fatal(err)
-		}
-		if err := writeWorkerDispatchFactsTx(t.Context(), tx, event, dispatch.AttemptID); err != nil {
-			t.Fatal(err)
 		}
 	}
 	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
@@ -142,7 +128,6 @@ func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) Event 
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	return event
 }
 
 func stalenessActionPayload(step, action string) string {
@@ -150,29 +135,14 @@ func stalenessActionPayload(step, action string) string {
 	return string(encoded)
 }
 
-// stalenessCapabilityDispatch records the attempt's capability dispatch —
-// the worker.dispatched event that carries the capability class — which the
-// production frontier requires beside the dispatch_worker completion at the
-// producing step.
-func stalenessCapabilityDispatch(t *testing.T, s *Store, workID, attemptID string) {
+func stalenessSeedDeliveryAt(t *testing.T, s *Store, workID, step string) {
 	t.Helper()
-	stalenessEvent(t, s, workID, string(WorkerDispatched), `{"attempt_id":"`+attemptID+`","capability_class":"implementation"}`)
-}
-
-// stalenessSeedWorkerDeliveryAt seeds the completed worker attempt and its
-// dispatched-then-accepted delivery at the named producing step.
-func stalenessSeedWorkerDeliveryAt(t *testing.T, s *Store, workID, attemptID, step string) {
-	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?,?,'lane:test','sha256:0000000000000000000000000000000000000000000000000000000000000000','implementation','model:test','1.0','1.0','completed','2026-01-02T00:00:00Z','2026-01-02T00:00:01Z'); DELETE FROM write_guard`, workID, attemptID); err != nil {
-		t.Fatal(err)
-	}
-	stalenessCapabilityDispatch(t, s, workID, attemptID)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"`+step+`","action_id":"dispatch_worker","worker_attempt_id":"`+attemptID+`"}`)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"`+step+`","action_id":"accept_worker_result","worker_attempt_id":"`+attemptID+`"}`)
+	stalenessEvent(t, s, workID, WorkflowActionCompleted, stalenessActionPayload(step, "record_delivery"))
 }
 
 func stalenessVerdictPayload(kind string) string {
-	encoded, _ := json.Marshal(map[string]any{"predicate_id": "predicate:primary", "verdict_kind": kind, "contract_version": 1})
+	actor := stepFixtureActor()
+	encoded, _ := json.Marshal(map[string]any{"predicate_id": "predicate:primary", "verdict_kind": kind, "contract_version": 1, "verdict_actor_ref": DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), "evaluation_evidence": []string{}})
 	return string(encoded)
 }
 
@@ -234,7 +204,7 @@ func foldStalenessState(t *testing.T, s *Store, workID string, definition Workfl
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
 		t.Fatal(err)
 	}
-	state, _, _, foldErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, currentStep, "staleness_test", BuiltinWorkflowRegistry())
+	state, _, foldErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, currentStep, "staleness_test", BuiltinWorkflowRegistry())
 	if foldErr != nil {
 		t.Fatal(foldErr)
 	}
@@ -242,8 +212,8 @@ func foldStalenessState(t *testing.T, s *Store, workID string, definition Workfl
 }
 
 // TestBadVerdictStalesArtifactUntilReproduced holds the causal core: a bad
-// verdict sets the bit, neither a fenced start, a dispatch, nor an evidence
-// binding clears it, and only an accepted worker delivery at the declared
+// verdict sets the bit, neither a fenced start nor an evidence
+// binding clears it, and only a recorded delivery at the declared
 // route target does.
 func TestBadVerdictStalesArtifactUntilReproduced(t *testing.T) {
 	t.Parallel()
@@ -258,9 +228,7 @@ func TestBadVerdictStalesArtifactUntilReproduced(t *testing.T) {
 	stalenessSeedContract(t, s, workID)
 	// Production first: an accepted delivery at execution predates the bad
 	// verdict, so the verdict alone decides staleness.
-	stalenessCapabilityDispatch(t, s, workID, "attempt:stale-1")
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execution", "dispatch_worker"))
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"accept_worker_result","worker_attempt_id":"attempt:stale-1"}`)
+	stalenessSeedDeliveryAt(t, s, workID, "execution")
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("bad verdict at acceptance did not stale the artifact")
@@ -270,19 +238,13 @@ func TestBadVerdictStalesArtifactUntilReproduced(t *testing.T) {
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("fenced start cleared artifact staleness")
 	}
-	// A dispatch alone is not production either.
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"dispatch_worker","worker_attempt_id":"attempt:stale-2"}`)
-	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
-		t.Fatal("dispatch without an accepted delivery cleared artifact staleness")
-	}
 	// Rebidding evidence at an unrelated step does not clear it.
 	stalenessEvent(t, s, workID, string(WorkflowEvidenceBound), `{"evidence_ref":"evidence:stale"}`)
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("evidence binding cleared artifact staleness")
 	}
 	// The accepted delivery at the target is the fresh production.
-	stalenessCapabilityDispatch(t, s, workID, "attempt:stale-2")
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"accept_worker_result","worker_attempt_id":"attempt:stale-2"}`)
+	stalenessSeedDeliveryAt(t, s, workID, "execution")
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
 		t.Fatal("accepted delivery at the route target did not clear artifact staleness")
 	}
@@ -421,7 +383,7 @@ func TestStaleOkVerdictNeedsUnhealthyVerdictForDeclaredRoute(t *testing.T) {
 	pinWorkflowAtStep(t, s, workID, definition.Ref, "acceptance")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execution", "record_delivery"))
-	stalenessSeedWorkerDeliveryAt(t, s, workID, "attempt:stale-ok", "execution")
+	stalenessSeedDeliveryAt(t, s, workID, "execution")
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("ok"))
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
 		t.Fatal("ok verdict without a staleness cause folded stale")
@@ -471,13 +433,7 @@ func TestCorrectionRoutesDeriveFromNoWorkKind(t *testing.T) {
 	}
 }
 
-// TestProductionBindsToDispatchOriginAndCapability pins the positive
-// production authority: an accepted result counts only when its attempt was
-// dispatched at the declared route target and carries its capability
-// dispatch. Evidence-only acceptance, an accept whose dispatch originated at
-// another step, and an accept with no capability dispatch never re-produce
-// the artifact.
-func TestProductionBindsToDispatchOriginAndCapability(t *testing.T) {
+func TestProductionBindsToDeclaredRouteTarget(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
@@ -489,34 +445,15 @@ func TestProductionBindsToDispatchOriginAndCapability(t *testing.T) {
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("fixture did not fold stale")
 	}
-	// Evidence-only acceptance at the target, with its dispatch origin in
-	// place, is not production.
-	stalenessCapabilityDispatch(t, s, workID, "attempt:evidence-only")
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"dispatch_worker","worker_attempt_id":"attempt:evidence-only"}`)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"accept_worker_evidence","worker_attempt_id":"attempt:evidence-only"}`)
+	stalenessEvent(t, s, workID, WorkflowActionCompleted, stalenessActionPayload("execution", "checkpoint_context"))
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
-		t.Fatal("evidence-only acceptance cleared artifact staleness")
+		t.Fatal("checkpoint cleared artifact staleness")
 	}
-	// An accepted result whose dispatch originated at a step the route does
-	// not name is not production at the target.
-	stalenessCapabilityDispatch(t, s, workID, "attempt:off-target")
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"acceptance","action_id":"dispatch_worker","worker_attempt_id":"attempt:off-target"}`)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"acceptance","action_id":"accept_worker_result","worker_attempt_id":"attempt:off-target"}`)
+	stalenessSeedDeliveryAt(t, s, workID, "acceptance")
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("off-target accepted delivery cleared artifact staleness")
 	}
-	// An accepted result at the target with no capability dispatch behind
-	// its attempt is not production.
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"dispatch_worker","worker_attempt_id":"attempt:no-capability"}`)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"accept_worker_result","worker_attempt_id":"attempt:no-capability"}`)
-	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
-		t.Fatal("accept without a capability dispatch cleared artifact staleness")
-	}
-	// The positively bound delivery — dispatch origin at the target, the
-	// capability dispatch, the accepted result — produces.
-	stalenessCapabilityDispatch(t, s, workID, "attempt:fresh")
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"dispatch_worker","worker_attempt_id":"attempt:fresh"}`)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"accept_worker_result","worker_attempt_id":"attempt:fresh"}`)
+	stalenessSeedDeliveryAt(t, s, workID, "execution")
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
 		t.Fatal("positively bound delivery at the target did not clear artifact staleness")
 	}
@@ -611,7 +548,7 @@ func TestTerminalUnhealthyVerdictReturnsThroughRouteTable(t *testing.T) {
 	}
 	pinWorkflowAtStep(t, s, workID, definition.Ref, "release")
 	stalenessSeedContract(t, s, workID)
-	stalenessSeedWorkerDeliveryAt(t, s, workID, "attempt:terminal", "execution")
+	stalenessSeedDeliveryAt(t, s, workID, "execution")
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	state := foldStalenessState(t, s, workID, definition)
 	if !state.CorrectionRequestRecovery || state.CorrectionRequestContext == nil {

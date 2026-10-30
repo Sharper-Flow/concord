@@ -7,30 +7,13 @@
   `next_valid_intents`
 - **Approval:** The operator approved this decision for issue #857 on work item
   `work-201ad0df0700db9255d3f256`.
-- **Related:** CD-0005, CD-0027, CD-0030, CD-0039, CD-0096, CD-0133, CD-0173,
+- **Related:** CD-0005, CD-0027, CD-0030, CD-0039, CD-0096, CD-0173,
   CD-0201, CD-0209
 
 ## Context
 
-Concord's typed surface mixes three concurrency regimes. A work item carries an
-optimistic-concurrency version. A workflow instance carries a step state
-machine. A worker attempt carries an epoch. Every mutation demands a pin that
-combines all three, and the surface hands none of them back.
-
-Measurement over one project shard (`agent=concord-1`, about 12,987 tool calls)
-shows the consequence. Sessions ran 345 raw `sqlite3` reads against the
-authority database: `work_items` 130 times (mostly `SELECT version`),
-`domain_events` 109, `workflow_instances` 38, `worker_attempts` 38, and contract
-or actor tables 45. The session that holds the authority reads the store around
-the surface, and the version pin that exists to make mutations safe is read from
-an unversioned side channel.
-
-The same defect appears from the other side. `workflow_action` ran 566 times
-with 226 refusals (40 percent). The leading refusal classes are shape and state
-guesses the response could have prevented: `oneOf mismatch at $.fields` (20),
-action not declared on the current step (11), `dispatch_worker requires
-fields.lane_id` (8), attempt epoch mismatch (7), worker attempt does not exist
-(5).
+Concord mutations need the work version and current workflow state. A response
+that omits those facts forces another read or an unsafe guess.
 
 `mutation_result.next_valid_intents` is contractually required but populated
 only by hand-written static literals in `internal/agent/mutations.go` (more
@@ -40,15 +23,14 @@ requires, and which attempt is live. It tells the session none of that.
 
 The read surface scatters the same facts. The version is readable through
 `concord_work_browse.list`. The step is readable through
-`concord_work_trace.continuity`. Worker attempts are readable through no typed
-operation.
+`concord_work_trace.continuity`.
 
 ## Decision
 
 ### D1. One projection
 
 `internal/store` defines a `WorkPin`: `work_id`, `version`, `lifecycle`,
-`workflow_type`, `step`, `attempt` (id, epoch, lane, state, or null),
+`workflow_type`, `step`,
 `pending_operator_decision`, and `watermark`. One tx-scoped reader derives it.
 The store connection invariant applies: no `s.db`-backed call runs inside the
 transaction.
@@ -84,7 +66,7 @@ admitted actions are the current step's declared actions and the engine-owned
 recovery actions that admission admits. An action that admission holds only
 behind the operator's approval or the fresh review its own acceptance supplies
 counts as admitted, so the pin names that route
-([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).
 A result that carries a pin takes its intents from the pin
 alone, so no hand-written intent reaches it. A result without a pin keeps the
 intents its operation writes, if any: reads that verify the write, or
@@ -126,8 +108,8 @@ Scenario: a session learns its next actions
 
 Scenario: a session never reads the store around the surface
   Given a driving session preparing a workflow action
-  When it needs the version, the step, or the attempt state
-  Then one typed read returns all three
+   When it needs the version and current step state
+   Then one typed read returns both
   And no refusal of a typed operation names reading the database as recovery
 
 Scenario: intents stay honest

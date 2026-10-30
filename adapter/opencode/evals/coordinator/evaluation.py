@@ -2,7 +2,7 @@
 
 from capture_evaluation import (answer_json, evaluate as evaluate_capture, json_object,
                                 strict_output, structural_equal, terminal_answer)
-from scenarios import START, TRANSITION, WORK, TRACE, RUNTIME, runtime_response
+from scenarios import START, TRANSITION, WORK, TRACE, RUNTIME, REVIEW_FIELDS, runtime_response
 
 
 def start_fixture(case):
@@ -69,7 +69,7 @@ def continuity_in_scope(args):
     )
 
 
-def dispatch_in_scope(args):
+def review_in_scope(args):
     if not isinstance(args, dict) or set(args) != {"request"}:
         return False
     request = args["request"]
@@ -81,8 +81,8 @@ def dispatch_in_scope(args):
         and isinstance(data, dict)
         and structural_equal(set(data), {"work_id", "expected_version", "action_id", "idempotency_key", "fields"})
         and structural_equal(data.get("work_id"), WORK) and type(data.get("expected_version")) is int
-        and data.get("expected_version") == 1 and data.get("action_id") == "dispatch_worker"
-        and structural_equal(data.get("fields"), {"lane_id": "implement"})
+        and data.get("expected_version") == 1 and data.get("action_id") == "record_review"
+        and structural_equal(data.get("fields"), REVIEW_FIELDS)
         and isinstance(data.get("idempotency_key"), str) and bool(data["idempotency_key"].strip())
     )
 
@@ -191,7 +191,7 @@ def mutation_in_scope(tool, args, case, required):
     if tool == START:
         return start_fixture(case) is not None and start_in_scope(args, case)
     if tool == TRANSITION:
-        return TRANSITION in required and (dispatch_in_scope(args) or claim_in_scope(args, case))
+        return TRANSITION in required and (review_in_scope(args) or claim_in_scope(args, case))
     return False
 
 
@@ -316,7 +316,7 @@ def evaluate(case, calls, events, exit_code, receipts):
         part.get("tool") == START and not start_in_scope(part.get("state", {}).get("input"), case)
         or part.get("tool") == TRANSITION and (
             TRANSITION not in required
-            or not (dispatch_in_scope(part.get("state", {}).get("input"))
+             or not (review_in_scope(part.get("state", {}).get("input"))
                     or claim_in_scope(part.get("state", {}).get("input"), case)))
     )]
     final = answer_json(terminal_answer(events))

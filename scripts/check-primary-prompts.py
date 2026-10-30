@@ -2,7 +2,7 @@
 """Validate the named primary profiles and the inert intake example.
 
 The generated named profiles `Concord-RTE`, `Concord`, and `Concord-Planner` ship
-as managed agents. scripts/generate-agent-lanes.py --check owns their byte
+as managed agents. scripts/generate-agent-profiles.py --check owns their byte
 equality with the profile contract; this check proves their portable role
 boundaries:
 
@@ -114,13 +114,12 @@ LOOKUP_OBLIGATION_MARKERS = (
     "blocked, unavailable, or inconclusive",
 )
 DELEGATION_ANCHOR_MARKERS = (
-    "`dispatch_worker` among the next valid intents",
-    "Size is not an exemption",
-    "steps the core does not admit for dispatch",
+    "Use native Task to delegate implementation and design under host permissions",
+    "Obtain independent review through native Task against the exact current subject",
+    "Keep qualifying captured native verification receipts",
+    "a Task answer alone is not verification proof",
 )
-# The generated agent ids under contracts/agent-lanes.v1.json. A portable
-# example that names one routes per agent in prose; the registry descriptions
-# own that routing.
+# Portable profiles route by need; agent descriptions own routing by id.
 GENERATED_AGENT_ID = re.compile(r"concord-(?:explore|lookup|advisor|research|implement|design|review|verify)\b")
 
 

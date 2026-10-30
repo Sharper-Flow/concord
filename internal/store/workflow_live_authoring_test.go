@@ -187,7 +187,7 @@ func TestArchivedFamilyTerminalHistoryStaysReadable(t *testing.T) {
 	}
 }
 
-func TestLiveAuthoringActionUnionTargets30WithRecovery(t *testing.T) {
+func TestLiveAuthoringActionUnionTargets26WithRecovery(t *testing.T) {
 	t.Parallel()
 	declared := map[string]bool{}
 	for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
@@ -199,8 +199,7 @@ func TestLiveAuthoringActionUnionTargets30WithRecovery(t *testing.T) {
 			declared[action] = true
 		}
 	}
-	// The two recovery actions the engine admits off the pinned steps.
-	declared["reject_worker_result"] = true
+	// The recovery action the engine admits off the pinned steps.
 	declared["supersede_contract"] = true
 	names := make([]string, 0, len(declared))
 	for name := range declared {
@@ -208,12 +207,12 @@ func TestLiveAuthoringActionUnionTargets30WithRecovery(t *testing.T) {
 	}
 	sort.Strings(names)
 	want := []string{
-		"accept_worker_evidence", "accept_worker_result", "approve_contract", "bind_evidence",
+		"approve_contract", "bind_evidence",
 		"checkpoint_context", "checkpoint_execution", "checkpoint_refine", "checkpoint_repair",
-		"complete", "confirm_premise", "cross_context_boundary", "dispatch_worker", "frame_research",
+		"complete", "confirm_premise", "cross_context_boundary", "frame_research",
 		"link_successor", "record_alignment", "record_conclusion", "record_delivery", "record_design",
-		"record_diagnosis", "record_finding", "record_proposal", "record_report", "record_verdict",
-		"record_work_context", "record_worker_job", "reject_worker_result", "request_correction",
+		"record_diagnosis", "record_finding", "record_proposal", "record_report", "record_review", "record_verdict",
+		"record_work_context", "request_correction",
 		"revise_candidates", "start_execution", "supersede_contract",
 	}
 	if !slices.Equal(names, want) {
@@ -226,7 +225,8 @@ func TestLiveAuthoringActionUnionTargets30WithRecovery(t *testing.T) {
 		"record_health", "record_option", "record_research",
 		"rollback_run", "run_analysis", "start_action", "start_poc", "start_run",
 		"record_reproduction", "record_root_cause", "start_repair", "start_refine",
-		"record_worker_failure", "record_discovery",
+		"record_worker_failure", "record_discovery", "accept_worker_evidence", "accept_worker_result",
+		"dispatch_worker", "record_worker_job", "reject_worker_result",
 	}
 	for _, action := range retired {
 		if declared[action] {
@@ -493,38 +493,8 @@ func TestCanonicalSupersedeRequiresExplicitOutcomePredicates(t *testing.T) {
 	}
 }
 
-func TestCanonicalResearchHeadDerivesFailureWithVersionedPacket(t *testing.T) {
+func TestCanonicalHeadsRequireBatchVerdictPayload(t *testing.T) {
 	t.Parallel()
-	registered, err := LiveWorkflowDefinitionForRef("workflow.research")
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition := registered.Definition
-	if slices.Contains(definition.AvailableActions, "record_worker_failure") {
-		t.Fatal("record_worker_failure is still advertised on the canonical research head")
-	}
-	for _, action := range definition.ActionDefinitions {
-		if action.ID == "record_worker_failure" {
-			t.Fatal("record_worker_failure is still declared on the canonical research head")
-		}
-	}
-	if !workflowDerivedWorkerFailureActive(definition) {
-		t.Fatal("the canonical research head does not derive the workflow failure record")
-	}
-	packetRef := ""
-	for _, action := range definition.ActionDefinitions {
-		if action.ID != "dispatch_worker" {
-			continue
-		}
-		for _, field := range action.Payload.Fields {
-			if field.Name == "worker_packet" {
-				packetRef = field.SchemaRef
-			}
-		}
-	}
-	if packetRef != "worker_packet" {
-		t.Fatalf("canonical research dispatch packet ref = %q, want the current packet closure", packetRef)
-	}
 	// The canonical authoring gate reads the definition's own registry
 	// content: the batch-only record_verdict payload every current head
 	// declares. A head without that payload is not canonical.
@@ -735,108 +705,6 @@ func TestCutoverAllowsExactCanonicalHeadsAtReadiness(t *testing.T) {
 	if _, err := PlanUpgradeReadiness(ctx, path); err != nil {
 		t.Fatalf("readiness with exact canonical heads: %v", err)
 	}
-}
-
-// TestResearchDerivedFailureRetriesAndRebuilds executes the research failure
-// extension end to end: a dispatched investigate attempt's terminal
-// worker.failed event derives exactly one workflow failure record at the
-// step, the correction context reads the original detail, a fresh retry
-// dispatch opens the next fenced epoch, and the log rebuild reproduces the
-// derived record and its correction.
-func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
-	const workID = "research-derived-failure-retry"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.research", "investigate")
-	s := fixture.store
-	dispatcher := diagnosisS1Actor(workID, "dispatcher")
-	lane := reviewGateLane(t, "research")
-	// The research step dispatches its own lane's packet; research declares
-	// no worker-job lifecycle, so the dispatch carries the packet alone.
-	dispatchResearchAttempt := func(attemptID, key string, correction *WorkflowCorrectionContext) {
-		task, binding := recordedPacketInputs(t, s, workID, lane.ID)
-		inputs := map[string]any{"task": task, "binding": binding, "constraints": []string{"do-not-modify-product-truth"}}
-		if correction != nil {
-			inputs["correction"] = correction
-		}
-		for member, value := range recordedPacketRecords(t, s, workID) {
-			inputs[member] = value
-		}
-		packet := map[string]any{
-			"schema_version": WorkerPacketSchemaVersion, "attempt_id": attemptID,
-			"lane_id": lane.ID, "lane_digest": lane.Digest,
-			"work_id": workID, "step_id": "investigate", "inputs": inputs,
-		}
-		if err := dispatchJobPacketForTest(t, s, workID, attemptID, dispatcher, key, packet); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// The dispatch action's durable worker record materializes the attempt
-	// the terminal event names, under the same lane identity.
-	recordResearchDispatch := func(attemptID string) {
-		ownerRef, err := WorkflowActorRef(fixture.owner)
-		if err != nil {
-			t.Fatal(err)
-		}
-		window, err := findAuthorizedDispatchWindowCore(context.Background(), s.DatabaseForTesting(), workID, attemptID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-			EventID: "research-worker-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: ownerRef, OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: window.PacketDigest}),
-		}}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	attempt := "attempt:" + workID + ":1"
-	dispatchResearchAttempt(attempt, "research-failure-dispatch-"+workID, nil)
-	recordResearchDispatch(attempt)
-	if start := workflowCurrentStartAtStep(t, s, workID, "investigate"); start == nil || start.Epoch != 1 || len(workflowStartReceiptIDs(t, s, workID)) != 1 {
-		t.Fatalf("investigate current start after the dispatch = %+v, want one dispatch receipt at epoch 1", start)
-	}
-	detail := "the research lane failed before a judgeable report existed"
-	// The research failure ingest carries the recorded observation the
-	// promoted pin requires; the derivation it proves is unchanged.
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attempt, "failed-"+workID+"-1", preferredModelForLane(lane), WorkerFailureWorkerError, detail, time.Unix(30, 0).UTC())); err != nil {
-		t.Fatalf("the live terminal worker.failed ingest: %v", err)
-	}
-	records := s2DerivedFailureRecords(t, s, workID, attempt)
-	if len(records) != 1 {
-		t.Fatalf("derived failure records = %d, want exactly one from the original terminal event", len(records))
-	}
-	record := records[0]
-	if record["step"] != "investigate" || record["epoch"] != int64(1) {
-		t.Fatalf("derived record = %+v, want the investigate step at the window's epoch 1", record)
-	}
-	if record["actor"] != mustActorRef(t, dispatcher) {
-		t.Fatalf("derived record actor = %v, want the dispatch authorization's actor", record["actor"])
-	}
-	if !strings.HasSuffix(record["event_id"].(string), ":workflow-failure") {
-		t.Fatalf("derived record event id = %v, want the terminal event's derivation pair", record["event_id"])
-	}
-	correction, err := workflowCorrectionContext(context.Background(), s.db, workID, "investigate")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if correction == nil || correction.Disposition != "failed" || correction.Diagnosis != detail || correction.Strategy != "retry with a fresh fenced attempt" || correction.FailedAttemptID != attempt {
-		t.Fatalf("correction after the derived record = %+v, want the failed disposition carrying the original failure detail", correction)
-	}
-
-	// The failed attempt holds the step through the wall: a fresh dispatch is
-	// the admitted retry, consumes the derived correction context, and opens
-	// the next fenced epoch.
-	retryCorrection, retryCorrectionErr := workflowCorrectionContext(context.Background(), s.db, workID, "investigate")
-	if retryCorrectionErr != nil {
-		t.Fatal(retryCorrectionErr)
-	}
-	retry := "attempt:" + workID + ":2"
-	dispatchResearchAttempt(retry, "research-retry-dispatch-"+workID, retryCorrection)
-	recordResearchDispatch(retry)
-	start := workflowCurrentStartAtStep(t, s, workID, "investigate")
-	if start == nil || start.Epoch != 2 || len(workflowStartReceiptIDs(t, s, workID)) != 2 {
-		t.Fatalf("investigate current start after the retry = %+v, want two receipts and current epoch 2", start)
-	}
-
 }
 
 // insertCutoverContract copies the seeded instance's own definition pin into

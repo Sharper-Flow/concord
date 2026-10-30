@@ -32,7 +32,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1ab52f9f56dcee9e7f13ea6dcbc731835830c747c09f6bfdbe127b48dc5a9301",
+  "sha256": "sha256:daf5ad75d2ca3c1456173315d5fcb2dff00159b4d6e0a6f2f396bc2a4a213729",
   "status": "accepted",
   "summary": "A second repository's coordinator session is started by the host: the store refuses the cross-repository claim and names the concord_work_start route, the typed session_placement detail answers where the receiving session goes with restore only at the recorded path, and the receiving session resumes with the work_id alone. The session opener, the explicit Project selector, and their consent rules are removed. The installer keeps the tuple entry and its options; the bounded addressed handoff and its consumption are unchanged.",
   "tags": [

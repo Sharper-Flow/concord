@@ -44,9 +44,8 @@ managed action.
 
 session-prepare launches nothing:
 `concord_work_start` moves the calling session, which keeps running in the
-host process that called it. Adapter worker dispatch and the move-session
-version diagnostic stay on the bare host. Worker lanes are not
-operator-resumable sessions.
+host process that called it. The move-session version diagnostic stays on
+the bare host. Native Task execution is not a Concord session launcher.
 
 ### D5. The law moves with the code
 

@@ -59,19 +59,18 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 			verifyIdentityAction(t, s, "approve_contract", fields, grantActor, now)
 			verifyIdentityAction(t, s, "record_design", workflowDesignFieldsFixture("verify-identity"), grantActor, now)
-			// The producer pass opens with its fenced start, and its declared
-			// delivery enters refine, so the refinement step opens with no
-			// start of its own and the verdict route reads the execution
-			// production it needs.
+			// Delivery consumes ready Review before refinement's own start.
 			verifyIdentityAction(t, s, "start_execution", map[string]any{}, grantActor, now)
-			reviewService, _, reviewGrant := newAuthorizedService(t, s, "client-o-review", grant.PrincipalRef, []agentcontract.Capability{"work_transition", "worker_dispatch"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+			reviewService, _, reviewGrant := newAuthorizedService(t, s, "client-o-review", grant.PrincipalRef, []agentcontract.Capability{"work_transition"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 			reviewService.Now = func() time.Time { return now }
 			fixture := oAgentFixture(t, s, reviewService, mutationEnvelope(reviewGrant, mustScopeVersion(t, s)), "work-2")
-			oAgentNativeJob(t, fixture)
+			oAgentPreparedOracle(t, fixture, []string{"predicate:primary"})
 			oAgentReview(t, fixture, "ready_for_final_proof", true)
 			integration := oAgentVerify(t, fixture, []string{"go", "test", "./..."})
 			verifyIdentityAction(t, s, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": integration}, grantActor, now)
-			verifyIdentityDelivery(t, s, grantActor, "evidence:verify-identity-enter-refine", now)
+			assertVerifyIdentityStep(t, fixture, "execution")
+			verifyIdentityAction(t, s, "record_delivery", map[string]any{"delivery_artifact": "artifact:verify-identity", "delivery_state": "asserted"}, grantActor, now)
+			assertVerifyIdentityStep(t, fixture, "refine")
 			startRefine := func(key string) {
 				t.Helper()
 				var version int64
@@ -96,13 +95,9 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 				// A repeated qualifying action inside one pass reuses the
 				// standing start (CD-0198 D3), so the same-window checkpoint
 				// cannot mint a new epoch. The declared correction re-entry
-				// is the route that does: the green verify run binds as the
-				// refine epoch's verification evidence, the refine exit
-				// asserts its delivery through the gate, an independent
-				// evaluator associates the delivered check's real receipt, and
-				// an accepted corrective Review returns the
-				// instance to the producer step, whose delivery re-enters
-				// refine on a fresh pass.
+				// is the route that does: the verify run binds as evidence,
+				// a corrective Review holds refinement, and its correction
+				// returns to execution before its delivery re-enters refine.
 				verifyIdentityCorrectionReentry(t, s, grant, fixture, first.OperationRef, now)
 				startRefine("verify-refine-2")
 			}
@@ -178,11 +173,11 @@ func verifyIdentityAction(t *testing.T, s *store.Store, action string, fields ma
 	}
 	ctx := agentWorkflowSourceProof(t, context.Background(), s, request.WorkID)
 	if store.WorkflowActionRequiresSubjectFreshness(action) {
-		preparation, prepErr := store.PrepareWorkflowAcceptanceFreshness(ctx, s, store.PrepareWorkerDispatchRequest{WorkID: request.WorkID})
+		preparation, prepErr := store.PrepareWorkflowAcceptanceFreshness(ctx, s, store.PrepareWorkflowSubjectRequest{WorkID: request.WorkID})
 		if prepErr != nil {
 			t.Fatalf("verify-identity journey action %s: %v", action, prepErr)
 		}
-		ctx = store.WithWorkerDispatchPreparation(ctx, preparation)
+		ctx = store.WithWorkflowSubjectPreparation(ctx, preparation)
 	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), request)
@@ -192,25 +187,24 @@ func verifyIdentityAction(t *testing.T, s *store.Store, action string, fields ma
 	}
 }
 
-// verifyIdentityDelivery asserts one admitted delivery on work-2's current
-// step: the advancing completion whose fold crosses the step edge.
-func verifyIdentityDelivery(t *testing.T, s *store.Store, actor store.WorkflowActor, artifact string, now time.Time) {
+func assertVerifyIdentityStep(t *testing.T, fixture *oAgentFixtureState, want string) {
 	t.Helper()
-	verifyIdentityAction(t, s, "record_delivery", map[string]any{"delivery_artifact": artifact, "delivery_state": "asserted"}, actor, now)
+	snapshot, err := store.ReadWorkflowContinuity(t.Context(), fixture.s, store.ContinuityRequest{Work: fixture.work})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.WorkflowStep != want {
+		t.Fatalf("Review progression left the step at %q, want %q", snapshot.WorkflowStep, want)
+	}
 }
 
 // verifyIdentityCorrectionReentry drives the declared correction re-entry the
-// canonical head admits for a fresh refine epoch: the green verify run binds
-// as the refine epoch's verification evidence, the refine exit asserts its
-// delivery through the gate, an independent evaluator judges the delivered
-// change against the approved predicate, and a Review-directed correction
-// returns the instance to the producer step, whose delivery re-enters refine
-// on a fresh pass. No step and no record is faked: every leg is an admitted
-// action against the owning admission owner.
+// canonical head admits for a fresh refine epoch. A correction-required Review
+// holds refinement; its evidence-bearing correction returns to execution, whose
+// new fenced start, ready Review and delivery re-enter refine without a fabricated step.
 func verifyIdentityCorrectionReentry(t *testing.T, s *store.Store, grant Authority, fixture *oAgentFixtureState, verifyOpRef string, now time.Time) {
 	t.Helper()
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	judge := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/verify-identity-judge", SessionRef: "session/verify-identity-judge", ActorClass: store.ActorAgent}
 	var producer, watermark string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT principal_ref,request_id FROM durable_operations WHERE op_id=?`, verifyOpRef).Scan(&producer, &watermark); err != nil {
 		t.Fatal(err)
@@ -219,27 +213,22 @@ func verifyIdentityCorrectionReentry(t *testing.T, s *store.Store, grant Authori
 		"evidence_kind": "verification", "immutable_subject_ref": verifyOpRef,
 		"producer_id": producer, "producer_run_ref": verifyOpRef, "producer_watermark": watermark,
 	}, actor, now)
-	oAgentNativeJob(t, fixture)
-	oAgentReview(t, fixture, "ready_for_final_proof", false, verifyOpRef)
-	verifyIdentityDelivery(t, s, actor, "evidence:verify-identity-refine-exit", now)
-	verifyIdentityDelivery(t, s, actor, "evidence:verify-identity-gate-exit", now)
-	verifyIdentityAction(t, s, "record_verdict", map[string]any{
-		"contract_version": int64(1),
-		"verdicts": []map[string]any{{
-			"predicate_id": "predicate:primary", "receipt_refs": []string{verifyOpRef},
-		}},
-	}, judge, now)
-	oAgentNativeJob(t, fixture)
+	oAgentPreparedOracle(t, fixture, []string{"predicate:primary"})
 	oAgentReview(t, fixture, "correction_required", false)
+	assertVerifyIdentityStep(t, fixture, "refine")
 	verifyIdentityAction(t, s, "request_correction", map[string]any{
-		"diagnosis":     "the delivered change does not satisfy the approved contract predicate",
+		"diagnosis":     "the current Review requires correction of the checked candidate",
 		"strategy":      "reproduce the change at the producer step and verify it under a fresh refine epoch",
 		"predicate_ids": []string{"predicate:primary"},
 		"evidence_refs": []string{verifyOpRef},
 	}, actor, now)
-	oAgentNativeJob(t, fixture)
+	assertVerifyIdentityStep(t, fixture, "execution")
+	verifyIdentityAction(t, s, "start_execution", map[string]any{}, actor, now)
+	oAgentPreparedOracle(t, fixture, []string{"predicate:primary"})
 	oAgentReview(t, fixture, "ready_for_final_proof", false)
-	verifyIdentityDelivery(t, s, actor, "evidence:verify-identity-correction-reentry", now)
+	assertVerifyIdentityStep(t, fixture, "execution")
+	verifyIdentityAction(t, s, "record_delivery", map[string]any{"delivery_artifact": "artifact:verify-identity", "delivery_state": "asserted"}, actor, now)
+	assertVerifyIdentityStep(t, fixture, "refine")
 }
 
 func TestWorktreeVerifyRequestIdentityIncludesPrincipal(t *testing.T) {

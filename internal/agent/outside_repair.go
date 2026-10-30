@@ -264,7 +264,7 @@ func (r runtime) planOutsideRepairReconcile(ctx context.Context, base agentcontr
 	// proof. Fetch it once before any transaction opens.
 	var evidence *workflowproof.Evidence
 	if in.Mode == OutsideRepairModeCompleted {
-		actorRef, err := store.WorkflowActorRef(memberWorkflowActor(grant))
+		actorRef, err := store.WorkflowActorRef(store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent})
 		if err != nil {
 			return failureEnvelope(base, err), nil, true
 		}
@@ -311,7 +311,7 @@ func (r runtime) outsideRepairPlanEffect(digest string, plan *mutationPlan, work
 	return func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 		consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
 		request := store.OutsideRepairRequest{
-			Actor:           memberWorkflowActor(grant),
+			Actor:           store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent},
 			WorkID:          workID,
 			Reason:          reason,
 			EventID:         digest + ":outside-repair",

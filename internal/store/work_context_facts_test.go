@@ -90,15 +90,15 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 		corpus = append(corpus, event)
 		return seedContextFactTerminal(t, f, kind, fields)
 	}
-	recordDeclaration(map[string]any{"context_findings": []WorkerContextFinding{contextFindingFixture()}})
-	reportSeq := recordTerminal(WorkerCompleted, map[string]any{
-		"context_findings": []WorkerContextFinding{contextFindingFixture()},
-		"review":           map[string]any{"findings": []WorkerReviewFinding{{FindingID: "review:one", Severity: "high", Detail: "ranked claim", Status: "open"}}},
+	recordDeclaration(map[string]any{"context_findings": []WorkContextFinding{contextFindingFixture()}})
+	reportSeq := recordTerminal("worker.completed", map[string]any{
+		"context_findings": []WorkContextFinding{contextFindingFixture()},
+		"review":           map[string]any{"findings": []ReviewFinding{{FindingID: "review:one", Severity: "high", Detail: "ranked claim", Status: "open"}}},
 	})
 	selected := fmt.Sprintf("finding:%d:1", reportSeq)
 	recordDeclaration(map[string]any{"finding_refs": []string{selected}, "context_findings": []map[string]any{workContextFinding(workContextTestChild, "direction", "current declaration", "")}})
-	failedSeq := recordTerminal(WorkerFailed, map[string]any{"context_findings": []WorkerContextFinding{contextFindingFixture()}})
-	emptySeq := recordTerminal(WorkerCompleted, map[string]any{})
+	failedSeq := recordTerminal("worker.failed", map[string]any{"context_findings": []WorkContextFinding{contextFindingFixture()}})
+	emptySeq := recordTerminal("worker.completed", map[string]any{})
 	view, err := readWorkContextView(ctx, f.store.db, f.workID)
 	if err != nil || view == nil {
 		t.Fatalf("current view = %+v, %v", view, err)
@@ -133,7 +133,7 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 	// CD-0242 D2 retires replay construction only. Prefix144 lets the real
 	// 145/146 chain derive receipts and coordinates before 148 selects claims.
 	var currentPopulation int
-	if err := f.store.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?,?)`, f.workID, WorkflowWorkContextRecorded, WorkerCompleted, WorkerFailed).Scan(&currentPopulation); err != nil || currentPopulation != len(corpus) {
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?,?)`, f.workID, WorkflowWorkContextRecorded, "worker.completed", "worker.failed").Scan(&currentPopulation); err != nil || currentPopulation != len(corpus) {
 		t.Fatalf("current context population=%d,%v; corpus=%d", currentPopulation, err, len(corpus))
 	}
 	prefix := func() *Store {
@@ -240,7 +240,7 @@ func (q contextFindingSelectionMutant) QueryContext(ctx context.Context, query s
 
 func TestWorkContextFactsReferenceAdmissionLogBlind(t *testing.T) {
 	f := seedWorkContextFixture(t, "context-facts-refs")
-	seq := seedContextFactTerminal(t, f, WorkerFailed, map[string]any{"context_findings": []WorkerContextFinding{contextFindingFixture()}})
+	seq := seedContextFactTerminal(t, f, "worker.failed", map[string]any{"context_findings": []WorkContextFinding{contextFindingFixture()}})
 	valid := fmt.Sprintf("finding:%d:0", seq)
 	assertEventLogAbsent(t, f.store)
 	tx, err := f.store.db.BeginTx(context.Background(), nil)
@@ -271,7 +271,7 @@ func TestWorkContextFactsGuardAndRollback(t *testing.T) {
 	if err := enterWrite(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
-	event := Event{Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "context-facts-guard", EventID: "rolled-back", Seq: 200, Payload: jsonRaw(workflowJSON(map[string]any{"context_findings": []WorkerContextFinding{contextFindingFixture()}}))}
+	event := Event{Kind: "worker.failed", SubjectType: SubjectWorkItem, SubjectID: "context-facts-guard", EventID: "rolled-back", Seq: 200, Payload: jsonRaw(workflowJSON(map[string]any{"context_findings": []WorkContextFinding{contextFindingFixture()}}))}
 	if err := writeWorkContextFacts(t.Context(), tx, event); err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestWorkContextFactsGuardAndRollback(t *testing.T) {
 
 func TestWorkContextFactsCorruptionIsNotRetryable(t *testing.T) {
 	f := seedWorkContextFixture(t, "context-facts-corruption")
-	seq := seedContextFactTerminal(t, f, WorkerFailed, map[string]any{"context_findings": []WorkerContextFinding{contextFindingFixture()}})
+	seq := seedContextFactTerminal(t, f, "worker.failed", map[string]any{"context_findings": []WorkContextFinding{contextFindingFixture()}})
 	if _, err := f.store.db.Exec(`INSERT INTO write_guard VALUES(1); UPDATE work_context_findings SET finding='{"statement":12}' WHERE source_seq=?; DELETE FROM write_guard`, seq); err != nil {
 		t.Fatal(err)
 	}

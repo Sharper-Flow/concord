@@ -8,15 +8,17 @@
 
 ## Context
 
-Each launch carries its own authority, and its scope and safety checks remain ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). Separately, the investigation gate demands an
+Native Task belongs to the host under CD-0242 D6. The investigation gate demands an
 observation that names another work item. A Product that holds one work item
 has no other work item to name, so its premise gate can never open.
 
 ## Decision
 
-### D1. A launch carries its own authority
+### D1. Native Task mints no Concord authority
 
-Each launch carries its own authority and safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+Native Task execution creates no Concord authorization, dispatch window or
+attempt. Scope and safety gates govern the coordinator's recorded workflow
+actions under [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host).
 
 ### D2. The comparison-work condition is counted by the core
 
@@ -28,11 +30,9 @@ carries only the current Domain ref.
 
 ## Verification
 
-- The work-pin refusal paths bind the
-   CD-0242 D6 anchor: no attempt count, escalation wall, or convergence basis
-   exists, and no dispatch mints a challenge. Until that change lands,
-  `python3 scripts/check-knowledge-index.py` is the executable anchor for this
-  record's law registration.
+- `TestBudgetStateAbsentFromCurrentCorrectionAndAdmission` proves that no
+  attempt budget, escalation wall or convergence basis governs admission.
+  `python3 scripts/check-knowledge-index.py` checks this record's registration.
 - The store tests `TestInvestigationArtifactAdmitsSingleItemProductByDomainRef`
   and `TestInvestigationArtifactSingleItemProductStillRequiresDomainRef` prove
   both halves of D2.

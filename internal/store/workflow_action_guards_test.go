@@ -132,7 +132,7 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 	}
 	seedWork(t, s, workID+"-compared")
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("9", 16), []string{"root", workID + "-compared"})
-	if err := pConfirmReceiptPremise(t, f, repo); err != nil {
+	if err := pConfirmReceiptPremise(t, f); err != nil {
 		t.Fatalf("confirm successor: %v", err)
 	}
 	bindCompletionClosure(t, s, workID, f.owner)
@@ -310,7 +310,7 @@ func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
 			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contract_predicates SET outcome_kind=?,outcome_payload=? WHERE work_id=? AND contract_version=1; DELETE FROM write_guard`, test.kind, test.payload, workID); err != nil {
 				t.Fatal(err)
 			}
-			state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, s.db, workID, entry.Definition, "acceptance", "test", BuiltinWorkflowRegistry())
+			state, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, s.db, workID, entry.Definition, "acceptance", "test", BuiltinWorkflowRegistry())
 			if state.EvidenceRecoveryRoute || err != nil {
 				t.Errorf("binding availability with a %s predicate = (%t, %v), want a hidden route without an action-independent failure", test.name, state.EvidenceRecoveryRoute, err)
 			}

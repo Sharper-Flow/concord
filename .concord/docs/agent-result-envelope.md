@@ -316,8 +316,8 @@ Tests prove both inline and reconstructed results meet the same completeness, ve
 When no valid core envelope is available, TS6's adapter may construct a minimal
 TS7 `error` envelope with `origin=adapter` and `authority=unreachable`.
 Freshness is null and the source watermark is empty. Adapter origin includes
-transport failures, pre-dispatch input refusals, lane authorization refusals,
-and worker-recovery failures. It never claims core authority.
+transport failures, pre-dispatch input refusals,
+and native host failures. It never claims core authority.
 
 The [canonical envelope schema](../../contracts/agent-tool-envelope.schema.json)
 owns the machine vocabulary. [Section 5](#5-error-contract) constrains recovery for each kind.
@@ -331,7 +331,6 @@ The schema admits these adapter-origin kinds:
 | `timeout` | The deadline ended with no authoritative effect. | `none` | `retry_same_request` |
 | `cancelled` | Cancellation completed with no authoritative effect. | `none` | `retry_same_request` |
 | `operation_conflict` | A failed operation needs reconciliation. | `none` or `possible` | `reconcile_operation`; an adapter `session_vacate` error with `unknown_effect` and `possible` reconciles against current state ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) and states its caller action ([CD-0242 D12](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)). |
-| `unauthorized` | The adapter refused lane tool authorization before dispatch. | `none` | `contact_operator` |
 | `invalid_input` | The host wrapper, tool arguments, or CLI input failed validation before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
 
 If the wrapper refusal cannot resolve an accepted tool/operation pair, `operation` is
@@ -364,10 +363,6 @@ a reason and a kind beyond the input and manifest rules named below.
 | `host_lease_missing` | The host lease admission gate refused invocation. | `none` | `contact_operator` |
 | `unknown_effect` | A mutation's effect remains uncertain. | `possible` | `reconcile_operation`; an adapter `session_vacate` reconciles against current state ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)), or `contact_operator` when reconciliation cannot run ([CD-0242 D12](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)). |
 | `session_directory_unreadable` | The host cannot read the session directory. | `none` | `retry_same_request` |
-| `worker_abandon_refused` | The recovery operation refused abandonment. | `none` or `possible` | `reconcile_operation` |
-| `worker_abandon_receipt_failed` | Abandonment succeeded but its receipt failed. | `possible` | `reconcile_operation` |
-| `worker_reconcile_failed_recorded` | Retained-report recovery recorded the original attempt's terminal failure in this call; the attempt is failed and this route cannot recover it. | `possible` | `reconcile_operation` |
-| `lane_tool_refusal` | A managed lane called a tool outside its authority. | `none` | `contact_operator` |
 | `invalid_cli_input` | The CLI refused input before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
 | `invalid_request_wrapper` | The host request wrapper is absent or malformed. | `none`, with `retry_safe=false` | `correct_request` |
 | `invalid_tool_input` | Host tool arguments failed validation before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
@@ -384,8 +379,6 @@ within unchanged authority and scope, whatever its `recovery_action`.
 may replace required approval, evade an operator denial or authority boundary,
 or replace a committed mutation. Possible or unknown effects must be reconciled
 before resending; a later no-effect refusal does not clear that uncertainty.
-
-`worker_reconcile_failed_recorded` reports only a failure whose write the core acknowledged in the same call. A refused or uncertain write keeps `unknown_effect`. Its recovery reconciles the original attempt's failed outcome through the current workflow. The recovery itself reopens no attempt, repeats no retained worker recovery, and starts no replacement worker; a later dispatch follows the current workflow's own admission. The envelope identifies the original work and attempt in `error.details`.
 
 If an effect may have occurred, adapter returns `operation_conflict`/recovery to
 re-read or reconcile; it never guesses no effect. Raw stderr is bounded diagnostic

@@ -16,10 +16,6 @@ import (
 // it; tests inject an isolated derivation.
 type sessionBootstrapFunc func(context.Context, string, string, string) ([]byte, error)
 
-// sessionAgentIdentityFunc asserts the registered lanes against the calling
-// host, in the directory whose definitions the assertion resolves.
-type sessionAgentIdentityFunc func(dir string) error
-
 // sessionOrchestratorFunc verifies the identity of the active agent in dir
 // and records the assertion as a domain event. CD-0061 D4 binds the two
 // steps: the verification proves the host has the required definition; the
@@ -39,13 +35,6 @@ type sessionAgentIdentityFunc func(dir string) error
 // The function is a parameter so tests can inject an isolated temp store;
 // production wiring is hostOrchestratorIdentity below.
 type sessionOrchestratorFunc func(ctx context.Context, dir string, host hostCommandResolution, productID, workID, agent string) (string, error)
-
-// hostLaneAgentIdentity asserts the registered lanes against the calling
-// host, in the directory the caller resolved. It reads no working directory
-// of its own.
-func hostLaneAgentIdentity(dir string) error {
-	return verifyLaneAgentIdentity(os.Getenv("HOME"), dir, store.BuiltinLaneDefinitions())
-}
 
 // hostOrchestratorIdentity is the production wiring for the session's
 // orchestrator assertion. It runs the file/digest verification for the active

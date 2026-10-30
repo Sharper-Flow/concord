@@ -6,7 +6,7 @@
   evidence, and completion after the bootstrap exception; issue #602
 - **Approval:** The operator approved the decision contract in issue #602 on
   2026-08-30.
-- **Related:** CD-0007, CD-0010, CD-0017, CD-0082, CD-0088, issue #600, and pull request #605
+- **Related:** CD-0007, CD-0010, CD-0082, CD-0088, issue #600, and pull request #605
 - **Preserves:** Linear as planning authority; pull requests and required
   checks as main-branch review and merge authority; branch and worktree isolation; Product
   law; replacement readiness as an evidence claim; and Advance as reference-only

@@ -104,7 +104,7 @@ The receiving session consumes the recorded handoff before it runs any
 managed external effect. The consume binds the record to the work item
 and its addressed receiving Project under the current contract: any
 coordinator session with a verified landing in the receiving Project may
-dispatch under the frontier handoff's bind, and every such session reads
+act under the frontier handoff's bind, and every such session reads
 the frontier's bounded job.
 A session without a verified landing, or in another Project, stays
 refused. A missing, wrong-target, or stale handoff refuses.
@@ -122,9 +122,9 @@ placement.
 
 `READY_TO_CLOSE_OR_REPLACE` is a derived read, never a written state. It
 reports ready only when the session recorded an addressed handoff, its
-changed artifacts verify preserved, its own open workers and nonterminal
+changed artifacts verify preserved, its nonterminal
 actions stopped, and its verified vacate landing released its occupancy.
-Unknown worker attribution blocks readiness. Retirement never completes or
+Retirement never completes or
 cancels the shared work, removes a worktree, or terminates a process. The
 continuity snapshot carries the newest unconsumed handoff.
 The receiving Project's resume names the bounded job without operator copying.

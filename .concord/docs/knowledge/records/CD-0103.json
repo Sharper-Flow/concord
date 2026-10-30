@@ -16,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:166ae750d5d995e5fce9531a2398eabc10417f88d74290e0bb7a336048d75959",
+  "sha256": "sha256:74e031c27f029d248e64814861c08a1738e909b57e9b364c9989ccb732d4f00c",
   "status": "accepted",
   "summary": "Amends CD-0098 D3 at its turn-end clause. The OpenCode move-session route offers no turn, busy, idle, queue, or lock handling, so the retarget takes effect from the next turn because a running turn resolves its paths before the move lands, not because the route waits for a boundary. The behavior is recorded as an observation of host 1.18.26 rather than a guarantee the host provides, and Concord adds no wait or poll of its own. Every other CD-0098 clause is preserved.",
   "tags": [

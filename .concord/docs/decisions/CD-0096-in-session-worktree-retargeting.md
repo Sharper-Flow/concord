@@ -80,8 +80,9 @@ unchanged. Completion refuses when they changed, because a verifier that edits
 its subject verifies nothing.
 Native oracle preparation and execution use this same lease and operation.
 Preparation compiles the pinned harness without launching a test program.
-Execution requires the exact persisted dispatch authorization described in
-CD-0205 D2 and uses the pinned harness against the authorized candidate.
+Execution selects the exact retained preparation_run_ref and its declared
+bundle, pinned harness, candidate and environment under
+[the workflow engine contract](../workflow-engine-contract.md#51-tables).
 The producer stages private snapshots without changing the claimed worktree.
 The lease retains one immutable canonical producer plan and its digest.
 It stores one raw stdout `BLOB` and one raw stderr `BLOB`, each at most 2 MiB.

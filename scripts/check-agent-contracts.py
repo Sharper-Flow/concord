@@ -93,9 +93,9 @@ HOST_PIN_SCHEMA = ROOT / "contracts/adapter-host-pin.schema.json"
 CURRENT_SCENARIO_IDS = [
     "WF01-capture-late-outcome", "WF02-planning-requires-outcome",
     "WF04-weaker-delivery", "WF05-stronger-delivery",
-    "WF13-verdict-actor-distinctness", "WF19-completion-one-transaction",
+    "WF19-completion-one-transaction",
     "WF37-action-availability-before-register", "WF47-evidence-commit-binding",
-    "WF48-lane-pipeline-typed-evidence", "WF50-one-conjunct-weaker",
+    "WF50-one-conjunct-weaker",
 ]
 DIAGNOSTIC = re.compile(r"^(?P<path>[^(\n]+)\((?P<line>\d+),(?P<column>\d+)\): error (?P<code>TS\d+):")
 
@@ -329,7 +329,6 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
         "approve_contract": {"premise", "decision_domains"},
         "record_verdict": {"verdicts"},
         "complete": {"impact_verdict"},
-        "accept_worker_result": {"attempt_id", "attempt_epoch"},
     }
     def walk(item: dict) -> None:
         action = item.get("action")
@@ -544,13 +543,6 @@ def check_workflow_contracts() -> list[str]:
         if [item.get("id") for item in corpus["scenarios"]] != expected_ids:
             findings.append(f".concord/scenarios/workflow-engine.v1.json: expected scenarios {expected_ids}, got {[item.get('id') for item in corpus['scenarios']]}")
             return findings
-        for scenario_id, expected_cases in (
-            ("WF48-lane-pipeline-typed-evidence", ["WF48-owner-accepts-typed-result", "WF48-worker-self-accept-refused"]),
-        ):
-            scenario = next(item for item in corpus["scenarios"] if item["id"] == scenario_id)
-            if [case.get("id") for case in scenario.get("cases", [])] != expected_cases:
-                findings.append(f".concord/scenarios/workflow-engine.v1.json: expected current cases {expected_cases} in {scenario_id}")
-                return findings
         fixtures = _load_json(fixture_path)
         fixture_by_id = {case["id"]: case for case in fixtures["cases"]}
         for case in fixtures["cases"]:
@@ -698,18 +690,13 @@ def check_workflow_contracts() -> list[str]:
         findings.append(f".concord/scenarios/workflow-engine.v1.json: structural validation failed: {exc}")
     return findings
 
-def _check_cd0043_lane_methodology() -> list[str]:
-    """Check the packet carries no methodology and the admitted skill inventory.
-
-    A skill operates Concord's structure (CD-0245) or carries a portable method
-    (CD-0246 D3); a worker's method lives in its generated lane definition.
-    CD-0242 D14 requires content identity without an authored registry counter.
-    """
-    packet = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text(encoding="utf-8"))
-    registry = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text(encoding="utf-8"))
+def _check_shipped_skills() -> list[str]:
+    """Check the admitted portable skills and their public references."""
     skills_dir = ROOT / "skills"
     entries = sorted(entry.name for entry in skills_dir.iterdir()) if skills_dir.is_dir() and not skills_dir.is_symlink() else []
-    findings = cd0043_lane_methodology_findings(packet, registry, entries)
+    findings = []
+    if set(entries) != {"README.md", *ADMITTED_SKILLS}:
+        findings.append(f"skills/: unexpected admitted inventory: {entries}")
     inventory = shipped_skill_inventory_findings(skills_dir)
     findings.extend(inventory)
     if inventory:
@@ -728,28 +715,6 @@ def _check_cd0043_lane_methodology() -> list[str]:
         except (OSError, UnicodeError) as exc:
             findings.append(f"skills/{name}/SKILL.md: unreadable content: {exc}")
     return findings
-
-def cd0043_lane_methodology_findings(packet_schema: object, registry: object, skills_entries: list[str]) -> list[str]:
-    """Pure methodology/admission check under CD-0043 D2, CD-0245 D1, and CD-0246 D3."""
-    findings: list[str] = []
-    properties = packet_schema.get("properties", {}) if isinstance(packet_schema, dict) else {}
-    if not isinstance(properties, dict):
-        findings.append("contracts/agent-lane-packet.schema.json: properties must be an object")
-    elif "methodology" in properties:
-        findings.append(
-            "contracts/agent-lane-packet.schema.json: a 'methodology' property is rejected by CD-0043; "
-            "host instructions through CONCORD_HOST_INSTRUCTIONS are the sole channel"
-        )
-    if isinstance(registry, dict) and "version" in registry:
-        findings.append(
-            "contracts/agent-lanes.v1.json: authored version counter is forbidden by CD-0242 D14"
-        )
-    if set(skills_entries) != {"README.md", *ADMITTED_SKILLS}:
-        findings.append(
-            f"skills/: CD-0245 D1 requires the exact admitted inventory {sorted({'README.md', *ADMITTED_SKILLS})}; found {sorted(skills_entries)}"
-        )
-    return findings
-
 
 def shipped_skill_inventory_findings(skills_dir: Path) -> list[str]:
     """Admission is explicit, including supporting files and empty directories."""
@@ -839,95 +804,6 @@ def shipped_skill_reference_findings(root: Path, content: str) -> list[str]:
                     findings.append(f"reference path {path} does not exist at {revision}")
     except (OSError, subprocess.SubprocessError) as exc:
         findings.append(f"reference resolution unavailable: {exc}")
-    return findings
-
-def _check_evidence_obligation_vocabulary() -> list[str]:
-    """Prove the lane evidence obligation join (CD-0056 D2).
-
-    The vocabulary is declared twice: `agent-lanes.schema.json` bounds what a
-    lane may owe, and `agent-lane-report.schema.json` bounds what a report may
-    discharge. Two enums that must agree are a join, and an unvalidated join
-    fails open on the first divergence — a lane could declare an obligation no
-    report is able to name, making that lane undispatchable at the moment its
-    manifest is edited rather than at the moment the schemas drift.
-    """
-    return evidence_obligation_findings(
-        json.loads((ROOT / "contracts/agent-lanes.schema.json").read_text(encoding="utf-8")),
-        json.loads((ROOT / "contracts/agent-lane-report.schema.json").read_text(encoding="utf-8")),
-        json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text(encoding="utf-8")),
-    )
-
-def _check_lane_agent_selectability() -> list[str]:
-    """Prove a lane definition is dispatchable but not operator-selectable (CD-0070).
-
-    Subagent mode keeps lanes out of primary sessions. The hidden flag keeps
-    them out of ordinary discovery; authorized native Task dispatch still
-    resolves their exact names.
-
-    The generator's own `--check` proves the definitions match the generator,
-    which is self-consistency rather than proof: a change to both sides passes
-    it. These assertions read the definitions directly, so dropping either key
-    fails here regardless of what the generator emits.
-    """
-    findings: list[str] = []
-    manifest = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text(encoding="utf-8"))
-    for lane in manifest.get("lanes", []):
-        relative = Path(".opencode/agents") / f"concord-{lane['id']}.md"
-        try:
-            frontmatter = (ROOT / relative).read_text(encoding="utf-8").split("---\n", 2)[1]
-        except (OSError, IndexError):
-            findings.append(f"{relative}: lane definition is absent or carries no frontmatter block")
-            continue
-        if "\nhidden: true\n" not in f"\n{frontmatter}":
-            findings.append(f"{relative}: lane definition must declare `hidden: true` (CD-0070 D1)")
-        if "\nmode: subagent\n" not in f"\n{frontmatter}":
-            findings.append(f"{relative}: lane definition must declare `mode: subagent` (CD-0064 D1)")
-    return findings
-
-def _obligation_enum(document: object, label: str, findings: list[str]) -> list[str] | None:
-    node = document
-    for key in ("$defs", "evidence_obligation", "enum"):
-        if not isinstance(node, dict) or key not in node:
-            findings.append(f"{label}: missing $defs/evidence_obligation/enum")
-            return None
-        node = node[key]
-    if not isinstance(node, list) or not node or len(set(node)) != len(node):
-        findings.append(f"{label}: $defs/evidence_obligation/enum must be a nonempty duplicate-free array")
-        return None
-    return node
-
-def evidence_obligation_findings(lanes_schema: object, report_schema: object, registry: object) -> list[str]:
-    """Pure form of the CD-0056 D2 check, over already-parsed documents."""
-    findings: list[str] = []
-    lanes_label = "contracts/agent-lanes.schema.json"
-    report_label = "contracts/agent-lane-report.schema.json"
-    declared = _obligation_enum(lanes_schema, lanes_label, findings)
-    dischargeable = _obligation_enum(report_schema, report_label, findings)
-    if declared is None or dischargeable is None:
-        return findings
-    if set(declared) != set(dischargeable):
-        findings.append(
-            f"evidence obligation vocabulary differs between {lanes_label} and {report_label}: "
-            f"{sorted(set(declared) ^ set(dischargeable))}"
-        )
-        return findings
-    if declared != dischargeable:
-        # Same members, different order. Harmless to a validator and confusing
-        # to a reader diffing the two contracts, so it is a finding rather than
-        # a tolerated difference.
-        findings.append(
-            f"evidence obligation vocabulary is ordered differently in {lanes_label} and {report_label}"
-        )
-        return findings
-    vocabulary = set(declared)
-    lanes = registry.get("lanes", []) if isinstance(registry, dict) else []
-    for lane in lanes:
-        undeclared = sorted(set(lane.get("evidence_obligations", [])) - vocabulary)
-        if undeclared:
-            findings.append(
-                f"contracts/agent-lanes.v1.json: lane {lane.get('id')!r} declares "
-                f"evidence obligation(s) outside the closed vocabulary: {undeclared}"
-            )
     return findings
 
 def _check_envelope_operation_vocabulary() -> list[str]:
@@ -1083,23 +959,12 @@ def main(argv: list[str] | None = None) -> int:
         if tamper.returncode: return tamper.returncode
     generated = subprocess.run([sys.executable, str(ROOT / "scripts/generate-agent-contracts.py"), "--check"], cwd=ROOT)
     if generated.returncode: return generated.returncode
-    lane_findings: list[str] = []
-    lane_schema_expectations = {
-        ROOT / "contracts/agent-lanes.schema.json": {"schema_version", "registry", "lanes", "utilities"},
-        ROOT / "contracts/agent-lane-packet.schema.json": {"schema_version", "attempt_id", "lane_id", "lane_digest", "work_id", "step_id", "inputs"},
-        ROOT / "contracts/agent-lane-report.schema.json": {"schema_version", "readback_model", "status", "evidence"},
-    }
-    for path, required in lane_schema_expectations.items():
-        lane_findings.extend(_check_closed_schema(path, required))
-    lane_findings.extend(_check_evidence_obligation_vocabulary())
-    lane_findings.extend(_check_cd0043_lane_methodology())
-    lane_findings.extend(_check_envelope_operation_vocabulary())
-    lane_findings.extend(_check_lane_agent_selectability())
-    lane_generator = subprocess.run([sys.executable, str(ROOT / "scripts/generate-agent-lanes.py"), "--check"], cwd=ROOT, capture_output=True, text=True)
-    if lane_generator.returncode:
-        lane_findings.append(lane_generator.stderr.strip() or lane_generator.stdout.strip() or "lane generator failed")
-    if lane_findings:
-        for finding in lane_findings:
+    profile_findings = _check_shipped_skills() + _check_envelope_operation_vocabulary()
+    profiles = subprocess.run([sys.executable, str(ROOT / "scripts/generate-agent-profiles.py"), "--check"], cwd=ROOT, capture_output=True, text=True)
+    if profiles.returncode:
+        profile_findings.append(profiles.stderr.strip() or profiles.stdout.strip() or "profile generator failed")
+    if profile_findings:
+        for finding in profile_findings:
             print(finding, file=sys.stderr)
         return 1
     # Validate the pin even when Bun or host typechecking is unavailable.
@@ -1145,10 +1010,7 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
             if adapter.returncode:
                 print("shipped adapter file set is not import-closed; see scripts/install.py ADAPTER_FILES", file=sys.stderr)
                 return adapter.returncode
-            # The whole adapter suite, not one file: dispatch.test.ts and
-            # dispatch_identity.test.ts cover the CD-0017 worker-evidence
-            # append path, which no Go test reaches.
-            expected_suites = {"concord.test.ts", "dispatch.test.ts", "dispatch_identity.test.ts", "envelope_operation.test.ts"}
+            expected_suites = {"concord.test.ts", "envelope_operation.test.ts"}
             present_suites = {path.name for path in (ROOT / "adapter/opencode").glob("*.test.ts")}
             if not expected_suites.issubset(present_suites):
                 print(f"adapter test suite missing: {sorted(expected_suites - present_suites)}", file=sys.stderr); return 1

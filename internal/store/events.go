@@ -76,40 +76,6 @@ func AppendEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, error) {
 	return appendEvent(ctx, tx, e, false)
 }
 
-// EventByIDTx reads a worker evidence receipt and its original current payload
-// through the caller's transaction. OccurredAt is not receipt identity.
-func EventByIDTx(ctx context.Context, transaction *Transaction, eventID string) (Event, bool, error) {
-	tx, err := transactionSQL(transaction, "event_by_id")
-	if err != nil {
-		return Event{}, false, err
-	}
-	return eventByID(ctx, tx, eventID)
-}
-
-// eventByID reconstructs worker evidence without interpreting its payload.
-func eventByID(ctx context.Context, q queryer, eventID string) (Event, bool, error) {
-	receipt, found, err := readEffectReceipt(ctx, q, eventID)
-	if err != nil || !found {
-		return Event{}, found, err
-	}
-	event := receipt.event()
-	switch event.Kind {
-	case WorkerDispatched:
-		err = q.QueryRowContext(ctx, `SELECT dispatch_payload FROM worker_attempts WHERE work_id=? AND dispatch_event_id=?`, event.SubjectID, eventID).Scan(&event.Payload)
-	case WorkerCompleted, WorkerFailed:
-		err = q.QueryRowContext(ctx, `SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND terminal_event_id=? AND terminal_kind=?`, event.SubjectID, eventID, event.Kind).Scan(&event.Payload)
-	default:
-		return Event{}, false, newFailure(KindIdempotencyConflict, "event_by_id", "worker evidence event identity conflicts with an existing effect", false, "choose a new event_id")
-	}
-	if err != nil {
-		return Event{}, false, wrapFailure(KindUnavailable, "event_by_id", "cannot read the stored worker evidence payload", false, "restore the current worker evidence from a verified backup", err)
-	}
-	if len(receipt.identityDifferences(event)) != 0 {
-		return Event{}, false, newFailure(KindInvariantViolation, "event_by_id", "stored worker evidence differs from its effect receipt", false, "restore the current worker evidence from a verified backup")
-	}
-	return event, true, nil
-}
-
 // appendEvent is the lower-level append seam. All workflow advancement events
 // are reserved for an owning workflow route; the private authority bit is not
 // exposed through the generic append APIs.

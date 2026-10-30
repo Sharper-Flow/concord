@@ -301,14 +301,8 @@
         "next_valid_intents": {},
         "work_pins": {},
         "operation_id": {},
-        "worker_packet_digest": {},
-        "assignment_group": {},
-        "retry_attempt_id": {},
-        "retry_worker_packet": {},
-        "worker_worktree": {},
         "delivery": {},
         "vacate_target": {},
-        "worker_recovery": {},
         "projection_reference": {}
       },
       "oneOf": [
@@ -396,156 +390,6 @@
           "$ref": "#/$defs/work_list_projection_page"
         }
       ]
-    },
-    "workflow_member_job_binding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "job_id",
-        "revision",
-        "digest"
-      ],
-      "properties": {
-        "job_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "revision": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647,
-          "description": "Bounds: 1..2147483647 value inclusive"
-        },
-        "digest": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "minLength": 71,
-          "maxLength": 71,
-          "description": "Bounds: 71..71 code points inclusive"
-        }
-      }
-    },
-    "workflow_assignment_group_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "members"
-      ],
-      "properties": {
-        "members": {
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/workflow_member_job_binding"
-          },
-          "description": "Bounds: 2..8 items inclusive"
-        }
-      }
-    },
-    "workflow_member_binding_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "group_id",
-        "member_id",
-        "project_id",
-        "actor"
-      ],
-      "properties": {
-        "group_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "member_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "actor": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "principal_ref",
-            "client_ref",
-            "agent_ref",
-            "session_ref"
-          ],
-          "properties": {
-            "principal_ref": {
-              "$ref": "#/$defs/reference",
-              "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "client_ref": {
-              "$ref": "#/$defs/reference",
-              "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "agent_ref": {
-              "$ref": "#/$defs/reference",
-              "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "session_ref": {
-              "$ref": "#/$defs/reference",
-              "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            }
-          }
-        }
-      }
-    },
-    "workflow_assignment_group_result": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "group_id",
-        "members"
-      ],
-      "properties": {
-        "group_id": {
-          "$ref": "#/$defs/id"
-        },
-        "members": {
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 8,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "member_id",
-              "job_id",
-              "revision",
-              "digest",
-              "project_id"
-            ],
-            "properties": {
-              "member_id": {
-                "$ref": "#/$defs/id"
-              },
-              "job_id": {
-                "$ref": "#/$defs/id"
-              },
-              "revision": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 2147483647
-              },
-              "digest": {
-                "type": "string",
-                "pattern": "^sha256:[0-9a-f]{64}$",
-                "minLength": 71,
-                "maxLength": 71
-              },
-              "project_id": {
-                "$ref": "#/$defs/id"
-              }
-            }
-          }
-        }
-      }
     },
     "absolute_path": {
       "description": "Output readback absolute path. The store joins operator filesystem text with no length guard, so the readback carries no maximum.",
@@ -999,34 +843,6 @@
         }
       }
     },
-    "work_pin_attempt": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "epoch",
-        "lane",
-        "state"
-      ],
-      "properties": {
-        "id": {
-          "$ref": "#/$defs/id"
-        },
-        "epoch": {
-          "$ref": "#/$defs/version"
-        },
-        "lane": {
-          "$ref": "#/$defs/id"
-        },
-        "state": {
-          "$ref": "#/$defs/short"
-        },
-        "failure_attribution": {
-          "$ref": "#/$defs/worker_failure_attribution_read",
-          "description": "The failed attempt's terminal failure attribution exactly as the event-based reader resolves it. Absent on every attempt whose state is not failed."
-        }
-      }
-    },
     "work_pin_driving_session": {
       "type": "object",
       "additionalProperties": false,
@@ -1167,20 +983,6 @@
           "type": "string",
           "maxLength": 4096
         },
-        "failure_kind": {
-          "type": "string",
-          "maxLength": 64
-        },
-        "failure_detail": {
-          "type": "string",
-          "maxLength": 4096
-        },
-        "failed_attempt_id": {
-          "$ref": "#/$defs/id"
-        },
-        "failed_attempt_epoch": {
-          "$ref": "#/$defs/version"
-        },
         "source_event_id": {
           "$ref": "#/$defs/id",
           "description": "The durable failure, rejection, or correction-request event that opened this correction; its diagnosis and strategy are that event's directions."
@@ -1192,43 +994,6 @@
         }
       }
     },
-    "work_pin_intent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "tool",
-        "operation",
-        "reason_code",
-        "action_id",
-        "required_fields",
-        "expected_version"
-      ],
-      "properties": {
-        "tool": {
-          "$ref": "#/$defs/id"
-        },
-        "operation": {
-          "$ref": "#/$defs/short"
-        },
-        "reason_code": {
-          "$ref": "#/$defs/short"
-        },
-        "action_id": {
-          "$ref": "#/$defs/id"
-        },
-        "required_fields": {
-          "type": "array",
-          "maxItems": 32,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/short"
-          }
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version"
-        }
-      }
-    },
     "workflow_review_state": {
       "type": "object",
       "additionalProperties": false,
@@ -1236,7 +1001,6 @@
         "candidate",
         "accepted_review",
         "findings",
-        "continue_consumed",
         "dependencies_current",
         "publication_outstanding"
       ],
@@ -1260,16 +1024,12 @@
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "attempt_id",
                 "report_ref",
                 "report_digest",
                 "actor_ref",
                 "report"
               ],
               "properties": {
-                "attempt_id": {
-                  "$ref": "#/$defs/id"
-                },
                 "report_ref": {
                   "type": "string",
                   "minLength": 1
@@ -1284,7 +1044,7 @@
                   "maxLength": 256
                 },
                 "report": {
-                  "$ref": "#/$defs/lane_report_review_block"
+                  "$ref": "#/$defs/workflow_review_report"
                 }
               }
             }
@@ -1302,12 +1062,6 @@
               }
             ]
           }
-        },
-        "continue_consumed": {
-          "type": "boolean"
-        },
-        "group_id": {
-          "$ref": "#/$defs/id"
         },
         "dependencies_current": {
           "type": "boolean"
@@ -1408,7 +1162,6 @@
         "cancelled_instance_closes",
         "workflow_type",
         "step",
-        "attempt",
         "pending_operator_decision",
         "driving_sessions",
         "watermark",
@@ -1492,16 +1245,6 @@
         "step": {
           "type": "string",
           "maxLength": 256
-        },
-        "attempt": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/work_pin_attempt"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "pending_operator_decision": {
           "oneOf": [
@@ -1628,20 +1371,6 @@
         "initiative"
       ]
     },
-    "relation_link_kind": {
-      "type": "string",
-      "description": "Stored relation kinds an ordinary relate.link request may name. Derived from contracts/relation-vocabulary.v1.json: every kind whose link is allowed or refused. A refused kind is admitted here so the runtime can answer with the composite operation that owns it, rather than a bare enum mismatch.",
-      "enum": [
-        "blocks",
-        "compatible_with",
-        "depends_on",
-        "implements",
-        "merged_into",
-        "parent",
-        "raised_from",
-        "supersedes"
-      ]
-    },
     "relation_query_label": {
       "type": "string",
       "description": "Labels the relation read surface serves. Derived from contracts/relation-vocabulary.v1.json: every kind's forward label, plus each declared inverse label.",
@@ -1668,34 +1397,6 @@
         "standard",
         "expedite"
       ]
-    },
-    "scope": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "product_id": {
-          "$ref": "#/$defs/id"
-        },
-        "project_ids": {
-          "type": "array",
-          "maxItems": 100,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/id"
-          }
-        },
-        "work_ids": {
-          "type": "array",
-          "maxItems": 100,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/id"
-          }
-        },
-        "scope_version": {
-          "$ref": "#/$defs/id"
-        }
-      }
     },
     "page": {
       "type": "object",
@@ -2014,27 +1715,6 @@
           "approval_ref": "a"
         }
       ]
-    },
-    "field": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "name",
-        "value"
-      ],
-      "properties": {
-        "name": {
-          "$ref": "#/$defs/short"
-        },
-        "value": {
-          "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-          ]
-        }
-      }
     },
     "work_summary": {
       "type": "object",
@@ -3572,7 +3252,7 @@
       }
     },
     "workflow_proposal_record": {
-      "description": "The recorded proposal fields the dispatched lane packet renders. Absent when no proposal is recorded.",
+      "description": "The recorded proposal's problem, user outcomes, and constraints the pinned continuity projection carries. Absent when no proposal is recorded.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -3865,7 +3545,7 @@
             "null"
           ],
           "minItems": 0,
-          "maxItems": 8,
+          "maxItems": 32,
           "items": {
             "type": "string",
             "minLength": 1,
@@ -3970,7 +3650,7 @@
         "source_event_frontier": {
           "type": "integer",
           "minimum": 0,
-          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn."
+          "description": "The work item's context frontier at read time."
         },
         "required_reading": {
           "type": "array",
@@ -3996,15 +3676,6 @@
             "$ref": "#/$defs/work_context_domain_group"
           }
         },
-        "oracle_receipts": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/worker_oracle_receipt"
-          },
-          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance."
-        },
         "subject_commit": {
           "type": "string",
           "minLength": 40,
@@ -4019,7 +3690,7 @@
           "items": {
             "$ref": "#/$defs/native_oracle_preparation"
           },
-          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority."
+          "description": "Captured native preparation records, with their exact subject, environment and control bundle. No raw output or alternative readiness authority."
         },
         "research_findings": {
           "type": "array",
@@ -4043,7 +3714,7 @@
           "const": "limit_exceeded"
         }
       },
-      "description": "The shared work-context view exceeded its bound. The work pin and continuity remain readable, but packet construction refuses this marker."
+      "description": "The shared work-context view exceeded its bound. The work pin and continuity remain readable; no complete context can be inferred from this marker."
     },
     "worker_oracle_mechanism": {
       "type": "object",
@@ -4191,33 +3862,28 @@
           "type": "string",
           "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
           "minLength": 6,
-          "maxLength": 128,
-          "description": "Bounds: 6..128 code points inclusive"
+          "maxLength": 128
         },
         "owner_id": {
           "type": "string",
           "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
           "minLength": 7,
-          "maxLength": 128,
-          "description": "Bounds: 7..128 code points inclusive"
+          "maxLength": 128
         },
         "entry_point": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 512,
-          "description": "Bounds: 1..512 code points inclusive"
+          "maxLength": 512
         },
         "input_class": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 512,
-          "description": "Bounds: 1..512 code points inclusive"
+          "maxLength": 512
         },
         "expected_state": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 512,
-          "description": "Bounds: 1..512 code points inclusive"
+          "maxLength": 512
         },
         "judge": {
           "type": "string",
@@ -4234,10 +3900,8 @@
             "type": "string",
             "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
             "minLength": 9,
-            "maxLength": 128,
-            "description": "Bounds: 9..128 code points inclusive"
-          },
-          "description": "Bounds: 1..8 items inclusive"
+            "maxLength": 128
+          }
         }
       }
     },
@@ -4262,14 +3926,13 @@
           "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
           "minLength": 9,
           "maxLength": 128,
-          "description": "A stable control: identity, unique within this work item. Bounds: 9..128 code points inclusive"
+          "description": "A stable control: identity, unique within this work item."
         },
         "owner_id": {
           "type": "string",
           "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
           "minLength": 7,
-          "maxLength": 128,
-          "description": "Bounds: 7..128 code points inclusive"
+          "maxLength": 128
         },
         "predicate_ids": {
           "type": "array",
@@ -4280,10 +3943,9 @@
             "type": "string",
             "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
             "minLength": 11,
-            "maxLength": 128,
-            "description": "Bounds: 11..128 code points inclusive"
+            "maxLength": 128
           },
-          "description": "The parent-approved predicates this control exercises. Bounds: 1..8 items inclusive"
+          "description": "The parent-approved predicates this control exercises."
         },
         "case_ids": {
           "type": "array",
@@ -4294,10 +3956,8 @@
             "type": "string",
             "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
             "minLength": 6,
-            "maxLength": 128,
-            "description": "Bounds: 6..128 code points inclusive"
-          },
-          "description": "Bounds: 1..64 items inclusive"
+            "maxLength": 128
+          }
         },
         "recipe_source": {
           "$ref": "#/$defs/work_context_reading_source_repository_file",
@@ -4310,16 +3970,15 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 512,
-            "description": "Bounds: 1..512 code points inclusive"
+            "maxLength": 512
           },
-          "description": "The exact argument vector, never shell text. Bounds: 1..32 items inclusive"
+          "description": "The exact argument vector, never shell text."
         },
         "cwd": {
           "type": "string",
           "minLength": 1,
           "maxLength": 512,
-          "description": "A contained relative working directory. Bounds: 1..512 code points inclusive"
+          "description": "A contained relative working directory."
         },
         "expected_result": {
           "type": "string",
@@ -4344,99 +4003,9 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 2048,
-            "description": "Bounds: 1..2048 code points inclusive"
+            "maxLength": 2048
           },
-          "description": "The qualified native preparation run references for this exact owner/case/control bundle, parent contract, Project, raw subject, and environment. A legacy green command, unrelated evidence binding, compilation assertion, or zero-selector control is not readiness. Bounds: 1..8 items inclusive"
-        }
-      }
-    },
-    "worker_acceptance_oracle": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "The owner-level acceptance oracle: typed immutable worker-job content. Owners with obligations, a finite case inventory, and executable controls with exact evidence requirements. The store validates the closed graph and its authority joins; the serialized oracle content is bounded by the store at 32 KiB and refused whole on overflow, never truncated.",
-      "required": [
-        "owners",
-        "cases",
-        "controls"
-      ],
-      "properties": {
-        "owners": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 8,
-          "items": {
-            "$ref": "#/$defs/worker_oracle_owner"
-          },
-          "description": "Bounds: 1..8 items inclusive"
-        },
-        "cases": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/worker_oracle_case"
-          },
-          "description": "Bounds: 1..64 items inclusive"
-        },
-        "controls": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/worker_oracle_control"
-          },
-          "description": "Bounds: 1..64 items inclusive"
-        }
-      }
-    },
-    "worker_job_direct_caller_allowance": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "The conditional direct-caller scope an editing job may carry (CD-0227 D1): the permitted Project, the changed owner mechanisms, and the parent contract's approved Domain and pinned law boundaries. It authorizes only the minimum source and test changes that preserve an existing direct caller's approved request behavior.",
-      "required": [
-        "project_id",
-        "mechanisms",
-        "domain_ids",
-        "law_bindings"
-      ],
-      "properties": {
-        "project_id": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 128,
-          "description": "The permitted Project. It must equal the recorded job's project_scope. Bounds: 2..128 code points inclusive"
-        },
-        "mechanisms": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 8,
-          "items": {
-            "$ref": "#/$defs/worker_oracle_mechanism"
-          },
-          "description": "The changed owner mechanisms the caller repair preserves, reusing the oracle's mechanism shape. Bounds: 1..8 items inclusive"
-        },
-        "domain_ids": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256,
-            "description": "Bounds: 1..256 code points inclusive"
-          },
-          "description": "The approved affected Domains of the active parent contract the allowance keeps, joined like the oracle joins Domains. Bounds: 1..8 items inclusive"
-        },
-        "law_bindings": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "items": {
-            "$ref": "#/$defs/worker_oracle_law_binding"
-          },
-          "description": "The pinned law revisions the allowance keeps, joined like the oracle joins law. Bounds: 0..8 items inclusive"
+          "description": "The qualified native preparation run references for this exact owner/case/control bundle, parent contract, Project, raw subject, and environment. A legacy green command, unrelated evidence binding, compilation assertion, or zero-selector control is not readiness."
         }
       }
     },
@@ -4564,7 +4133,7 @@
               "$ref": "#/$defs/work_pin"
             },
             "review_input": {
-              "$ref": "#/$defs/worker_packet_review_input"
+              "$ref": "#/$defs/continuity_review_input"
             },
             "compatible_law_amendments": {
               "type": "array",
@@ -4586,28 +4155,6 @@
             "pending_project_handoff": {
               "description": "The work's newest unconsumed Project-session handoff (CD-0182 amendment): the bounded repository job a receiving session must consume through project_handoff_consume before managed execution. Absent when no handoff stands unconsumed on the work.",
               "$ref": "#/$defs/continuity_pending_project_handoff"
-            },
-            "ready_worker_jobs": {
-              "description": "CD-0205: the work's dispatch-ready worker-job revisions in the exact inputs.worker_job packet shape, so a dispatcher selects one by job_id and binds its recorded content verbatim. Readiness is the one predicate dispatch admission applies. On a size-capable pin a job carries the caller_exclusions its implementation dispatch binds (CD-0227 D1); a dispatcher drops them for every other lane. Absent when no revision is ready.",
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/worker_packet_worker_job"
-              }
-            },
-            "checks_repair_review_jobs": {
-              "description": "CD-0205 D4: exact satisfied repairing revisions awaiting their one confirming review. These are not ordinary ready jobs. Only review lanes may bind them; core dispatch admission still enforces the repairing acceptance, single-use review authority and retry wall.",
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/worker_packet_worker_job"
-              }
-            },
-            "review_worker_jobs": {
-              "description": "CD-0205 D2: when no revision is ready, the one satisfied revision of the job whose accepted implementation attempt delivered the current integrated candidate. These are not ordinary ready jobs. Only a review lane may bind it, and only without another eligible job; core dispatch admission re-derives the binding.",
-              "type": "array",
-              "maxItems": 1,
-              "items": {
-                "$ref": "#/$defs/worker_packet_worker_job"
-              }
             },
             "active_verify_leases": {
               "description": "CD-0096 D5: the reading session's held verify leases, newest first, bounded. Absent when the session named no identity or holds none.",
@@ -6784,869 +6331,6 @@
         }
       }
     },
-    "worker_evidence_failure_result": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "ok",
-        "event_ids",
-        "error"
-      ],
-      "properties": {
-        "ok": {
-          "const": false
-        },
-        "event_ids": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "array",
-              "maxItems": 16,
-              "items": {
-                "$ref": "#/$defs/id"
-              }
-            }
-          ]
-        },
-        "error": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "operation",
-            "retry_safe",
-            "effect_state",
-            "message"
-          ],
-          "properties": {
-            "kind": {
-              "$ref": "#/$defs/id"
-            },
-            "operation": {
-              "$ref": "#/$defs/id"
-            },
-            "retry_safe": {
-              "type": "boolean"
-            },
-            "effect_state": {
-              "type": "string",
-              "enum": [
-                "none",
-                "possible"
-              ]
-            },
-            "message": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 65536
-            }
-          }
-        }
-      }
-    },
-    "worker_failure_attempt_identity": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "attempt_id",
-            "lane_id",
-            "epoch",
-            "packet_digest",
-            "job"
-          ],
-          "properties": {
-            "attempt_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256,
-              "x-maxBytes": 256
-            },
-            "lane_id": {
-              "type": "string",
-              "enum": [
-                "research",
-                "implement",
-                "design",
-                "review",
-                "verify"
-              ]
-            },
-            "epoch": {
-              "$ref": "#/$defs/version"
-            },
-            "packet_digest": {
-              "type": "string",
-              "minLength": 71,
-              "maxLength": 71,
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "job": {
-              "$ref": "#/$defs/worker_failure_job_binding"
-            },
-            "subject": {
-              "$ref": "#/$defs/worker_failure_subject"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "attempt_id",
-            "lane_id",
-            "epoch",
-            "packet_digest",
-            "no_job"
-          ],
-          "properties": {
-            "attempt_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256,
-              "x-maxBytes": 256
-            },
-            "lane_id": {
-              "type": "string",
-              "enum": [
-                "research",
-                "implement",
-                "design",
-                "review",
-                "verify"
-              ]
-            },
-            "epoch": {
-              "$ref": "#/$defs/version"
-            },
-            "packet_digest": {
-              "type": "string",
-              "minLength": 71,
-              "maxLength": 71,
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "no_job": {
-              "const": true
-            },
-            "subject": {
-              "$ref": "#/$defs/worker_failure_subject"
-            }
-          }
-        }
-      ],
-      "description": "The core-derived identity of one authorized worker attempt: the registered lane, the positive attempt epoch, and the packet digest the dispatch authorization recorded, plus exactly one of the explicit no_job marker or the recorded job revision. A missing subject is legal: a pre-launch attempt has no child session or subject."
-    },
-    "worker_failure_attribution": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "origin",
-            "observation",
-            "identity"
-          ],
-          "properties": {
-            "origin": {
-              "const": "recorded"
-            },
-            "observation": {
-              "$ref": "#/$defs/worker_failure_observation"
-            },
-            "identity": {
-              "$ref": "#/$defs/worker_failure_identity"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "origin"
-          ],
-          "properties": {
-            "origin": {
-              "const": "legacy_unavailable"
-            }
-          }
-        }
-      ],
-      "description": "The typed failure_attribution block. The recorded origin carries the producer observation and the core-derived identity; the explicit legacy_unavailable marker marks explicit historical absence and carries neither."
-    },
-    "worker_failure_attribution_read": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "event_id",
-        "source_version",
-        "attribution"
-      ],
-      "properties": {
-        "event_id": {
-          "$ref": "#/$defs/id"
-        },
-        "source_version": {
-          "$ref": "#/$defs/version"
-        },
-        "attribution": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/worker_failure_attribution"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "description": "One failed attempt's resolved terminal failure attribution: the terminal event identity, the source payload version the log recorded, and the decoded block. The attribution is null when a capable terminal recorded none; a source version below the boundary resolves the explicit legacy_unavailable marker. The 8192-byte whole-block bound is the store's own bound, never a schema keyword."
-    },
-    "worker_failure_host_observation": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "tag",
-        "event_type"
-      ],
-      "properties": {
-        "tag": {
-          "type": "string",
-          "enum": [
-            "terminal",
-            "retry",
-            "cancellation",
-            "abandonment"
-          ],
-          "description": "The typed host observation tag: a terminal error, a held retry, a bare cancellation, or the coordinator's abandonment request the host adapter observed. A cancellation and an abandonment carry no error identity; an abandonment is admitted only on the abandoned terminal and keeps cause and basis unknown."
-        },
-        "event_type": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "x-maxBytes": 256,
-          "description": "The host event type that carried the observation, at most 256 UTF-8 bytes. Bounds: 1..256 code points inclusive; <=256 UTF-8 bytes inclusive"
-        },
-        "session_id": {
-          "type": "string",
-          "maxLength": 256,
-          "x-maxBytes": 256,
-          "description": "Bounds: <=256 code points inclusive; <=256 UTF-8 bytes inclusive"
-        },
-        "message_id": {
-          "type": "string",
-          "maxLength": 256,
-          "x-maxBytes": 256,
-          "description": "Bounds: <=256 code points inclusive; <=256 UTF-8 bytes inclusive"
-        },
-        "error_name": {
-          "type": "string",
-          "maxLength": 256,
-          "x-maxBytes": 256,
-          "description": "Bounds: <=256 code points inclusive; <=256 UTF-8 bytes inclusive"
-        },
-        "error_code": {
-          "type": "string",
-          "maxLength": 256,
-          "x-maxBytes": 256,
-          "description": "Bounds: <=256 code points inclusive; <=256 UTF-8 bytes inclusive"
-        },
-        "status_code": {
-          "type": "integer",
-          "minimum": 100,
-          "maximum": 599,
-          "description": "The HTTP-shaped status the host supplied, absent when the host supplied none. Bounds: 100..599 value inclusive"
-        }
-      },
-      "description": "The typed host observation one host_event source carries: which host event was seen, for which session and message, and the typed terminal error fields when the host supplied them."
-    },
-    "worker_failure_identity": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "attempt"
-          ],
-          "properties": {
-            "kind": {
-              "const": "attempt"
-            },
-            "attempt": {
-              "$ref": "#/$defs/worker_failure_attempt_identity"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "integration"
-          ],
-          "properties": {
-            "kind": {
-              "const": "integration"
-            },
-            "integration": {
-              "$ref": "#/$defs/worker_failure_integration_identity"
-            }
-          }
-        }
-      ],
-      "description": "The closed attempt/integration union of core-derived identity. Exactly one variant is present and it matches kind; the producer never authors it."
-    },
-    "worker_failure_integration_identity": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "native_run",
-            "input_results"
-          ],
-          "properties": {
-            "native_run": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "kind",
-                "locator"
-              ],
-              "properties": {
-                "kind": {
-                  "const": "native_run"
-                },
-                "locator": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 512,
-                  "x-maxBytes": 512
-                },
-                "digest": {
-                  "type": "string",
-                  "minLength": 71,
-                  "maxLength": 71,
-                  "pattern": "^sha256:[0-9a-f]{64}$"
-                }
-              }
-            },
-            "input_results": {
-              "type": "array",
-              "minItems": 1,
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "job",
-                  "result_ref"
-                ],
-                "properties": {
-                  "job": {
-                    "$ref": "#/$defs/worker_failure_job_binding"
-                  },
-                  "result_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 512,
-                    "x-maxBytes": 512
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "native_run",
-            "inputs_unavailable"
-          ],
-          "properties": {
-            "native_run": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "kind",
-                "locator"
-              ],
-              "properties": {
-                "kind": {
-                  "const": "native_run"
-                },
-                "locator": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 512,
-                  "x-maxBytes": 512
-                },
-                "digest": {
-                  "type": "string",
-                  "minLength": 71,
-                  "maxLength": 71,
-                  "pattern": "^sha256:[0-9a-f]{64}$"
-                }
-              }
-            },
-            "inputs_unavailable": {
-              "const": true
-            }
-          }
-        }
-      ],
-      "description": "The core-derived identity of a combined integration run: the native run that failed, and either the exact accepted input population in event order or the explicit inputs_unavailable marker for a lease recorded before its event watermark — never both, and the marker never stands for an empty accepted population."
-    },
-    "worker_failure_job_binding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "job_id",
-        "revision",
-        "digest"
-      ],
-      "properties": {
-        "job_id": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 128,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$"
-        },
-        "revision": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "digest": {
-          "type": "string",
-          "minLength": 71,
-          "maxLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        }
-      },
-      "description": "One recorded worker-job revision reference: the job identity, the revision, and the content digest. That the revision is exactly the one the dispatch recorded is a store join, never a schema check."
-    },
-    "worker_failure_observation": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "observer",
-        "phase",
-        "cause",
-        "basis",
-        "sources"
-      ],
-      "properties": {
-        "observer": {
-          "type": "string",
-          "enum": [
-            "host_adapter",
-            "worker_report",
-            "coordinator"
-          ],
-          "description": "The boundary that observed the failure. The authenticated route sets the observer tag; it is never an authority string a worker supplies."
-        },
-        "phase": {
-          "type": "string",
-          "enum": [
-            "dispatch",
-            "host_execution",
-            "worker_execution",
-            "readback",
-            "report_parse",
-            "report_validation",
-            "evidence_write",
-            "result_review",
-            "integration"
-          ],
-          "description": "The closed phase the failure was observed in. Only the boundary that observed a phase may emit it."
-        },
-        "cause": {
-          "type": "string",
-          "enum": [
-            "unknown",
-            "assignment_requirement",
-            "implementation",
-            "dependency",
-            "host_provider",
-            "report_contract",
-            "identity_provenance"
-          ],
-          "description": "The causal classification the observer claims. Typed observations classify only what their boundary owns; failed tests and missing reports never automatically mean an implementation defect."
-        },
-        "basis": {
-          "type": "string",
-          "enum": [
-            "unknown",
-            "hypothesis",
-            "supported"
-          ],
-          "description": "What the causal claim rests on. A hypothesis stays labeled even with citations; a supported claim names admissible immutable evidence."
-        },
-        "sources": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 8,
-          "items": {
-            "$ref": "#/$defs/worker_failure_source"
-          },
-          "description": "The observed structured diagnostic, in the order the boundary observed it. An absent or empty array is not the observation shape. Bounds: 1..8 items inclusive"
-        },
-        "diagnosis": {
-          "type": "string",
-          "maxLength": 1024,
-          "x-maxBytes": 1024,
-          "description": "The bounded causal diagnosis, distinct from the exact observation. At most 1024 UTF-8 bytes. Bounds: <=1024 code points inclusive; <=1024 UTF-8 bytes inclusive"
-        }
-      },
-      "description": "the direct producer observation a coordinator correction action may carry as its optional failure_attribution input. Closed over observer, phase, cause, basis, sources, and diagnosis exactly: the recorded block's origin, core-derived identity, input population, sequence, and commit members are core-derived and are never authorable here."
-    },
-    "worker_failure_source": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind"
-      ],
-      "properties": {
-        "kind": {
-          "type": "string",
-          "enum": [
-            "host_event",
-            "admitted_report",
-            "validator",
-            "result",
-            "native_run"
-          ],
-          "description": "The closed variant of the observed diagnostic: a host terminal/error observation, admitted failed-report evidence, a validator error with location, an existing result or review finding reference, or a native run."
-        },
-        "locator": {
-          "type": "string",
-          "maxLength": 512,
-          "x-maxBytes": 512,
-          "description": "The immutable locator of the observed record. Store the fields actually supplied; never an invented locator. Bounds: <=512 code points inclusive; <=512 UTF-8 bytes inclusive"
-        },
-        "digest": {
-          "type": "string",
-          "minLength": 71,
-          "maxLength": 71,
-          "x-minBytes": 71,
-          "x-maxBytes": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "description": "One sha256:<64 hex> content digest of the observed record, where one is available. Bounds: 71..71 code points inclusive; 71..71 UTF-8 bytes inclusive"
-        },
-        "message": {
-          "type": "string",
-          "maxLength": 2048,
-          "x-maxBytes": 2048,
-          "description": "The exact observed message the boundary supplied, at most 2048 UTF-8 bytes. Bounds: <=2048 code points inclusive; <=2048 UTF-8 bytes inclusive"
-        },
-        "host": {
-          "$ref": "#/$defs/worker_failure_host_observation"
-        }
-      },
-      "description": "One entry of the observed structured diagnostic: the closed variant tag, the immutable locator of the observed record, the content digest where one is available, and the exact observed message where the boundary supplied one. A host_event source carries the typed host observation and no other kind may."
-    },
-    "worker_failure_subject": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "locator"
-      ],
-      "properties": {
-        "kind": {
-          "type": "string",
-          "enum": [
-            "observed_delivery_event",
-            "native_run"
-          ]
-        },
-        "locator": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "x-maxBytes": 512
-        },
-        "digest": {
-          "type": "string",
-          "minLength": 71,
-          "maxLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        }
-      },
-      "description": "A typed immutable reference to an existing recorded subject: the terminal event that carries the core-observed delivery, or the retained native run. The store joins resolve the reference; nothing here copies a commit."
-    },
-    "work_transition_worker_reconcile_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "attempt_id",
-        "task_part_id",
-        "idempotency_key"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "attempt_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "task_part_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      }
-    },
-    "worker_recovery_context": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "packet_digest",
-        "worker_worktree",
-        "coordinator_session",
-        "attempt_epoch",
-        "dispatch_event_id",
-        "lifecycle_state",
-        "packet_schema_version",
-        "report_schema_version",
-        "dispatch"
-      ],
-      "properties": {
-        "packet_digest": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "packet_schema_version": {
-          "description": "The retained packet schema identity the original dispatch recorded: the adapter selects the historical reader by this pair, never by today's current revision.",
-          "type": "string",
-          "enum": [
-            "1.0",
-            "1.1",
-            "2.0"
-          ]
-        },
-        "report_schema_version": {
-          "type": "string",
-          "enum": [
-            "1.0",
-            "1.1",
-            "2.0"
-          ]
-        },
-        "worker_worktree": {
-          "$ref": "#/$defs/absolute_path"
-        },
-        "coordinator_session": {
-          "$ref": "#/$defs/id"
-        },
-        "attempt_epoch": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "dispatch_event_id": {
-          "$ref": "#/$defs/id"
-        },
-        "terminal_event_id": {
-          "$ref": "#/$defs/id"
-        },
-        "lifecycle_state": {
-          "type": "string",
-          "enum": [
-            "dispatched",
-            "completed"
-          ]
-        },
-        "dispatch": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "attempt_id",
-            "lane_id",
-            "lane_digest",
-            "capability_class",
-            "packet_schema_version",
-            "report_schema_version",
-            "packet_digest",
-            "host_provenance",
-            "readback_model"
-          ],
-          "properties": {
-            "attempt_id": {
-              "$ref": "#/$defs/id"
-            },
-            "lane_id": {
-              "$ref": "#/$defs/id"
-            },
-            "lane_digest": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "capability_class": {
-              "$ref": "#/$defs/short"
-            },
-            "packet_schema_version": {
-              "type": "string",
-              "enum": [
-                "1.0",
-                "1.1",
-                "2.0"
-              ],
-              "description": "The packet identity the original dispatch recorded (CD-0205): \"1.0\" never carried inputs.worker_job, \"1.1\" is the released job-capable packet, and \"2.0\" is the current card-free pair the live producer records. The core quotes the stored dispatch; the caller supplies no replacement."
-            },
-            "report_schema_version": {
-              "type": "string",
-              "enum": [
-                "1.0",
-                "1.1",
-                "2.0"
-              ],
-              "description": "The report identity the original dispatch recorded, as the matched pair the dispatch carried (CD-0205). The core quotes the stored dispatch; the caller supplies no replacement."
-            },
-            "packet_digest": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "readback_model": {
-              "$ref": "#/$defs/short"
-            },
-            "lane_actor_ref": {
-              "$ref": "#/$defs/id"
-            },
-            "worker_job": {
-              "type": "object",
-              "additionalProperties": false,
-              "description": "The worker-job binding the original dispatch recorded (CD-0205): the stable job identity, the immutable revision number, and the digest of the recorded revision content. Present only on a job-bound dispatch; the core quotes the stored dispatch, and the caller supplies no replacement.",
-              "required": [
-                "job_id",
-                "revision",
-                "digest"
-              ],
-              "properties": {
-                "job_id": {
-                  "type": "string",
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
-                  "minLength": 2,
-                  "maxLength": 128
-                },
-                "revision": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 2147483647
-                },
-                "digest": {
-                  "type": "string",
-                  "pattern": "^sha256:[0-9a-f]{64}$",
-                  "minLength": 71,
-                  "maxLength": 71
-                }
-              }
-            },
-            "host_provenance": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "digest",
-                "sources"
-              ],
-              "properties": {
-                "digest": {
-                  "type": "string",
-                  "pattern": "^sha256:[0-9a-f]{64}$"
-                },
-                "sources": {
-                  "type": "array",
-                  "minItems": 1,
-                  "maxItems": 32,
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "kind",
-                      "path"
-                    ],
-                    "properties": {
-                      "kind": {
-                        "type": "string",
-                        "enum": [
-                          "agent_definition",
-                          "agents_md",
-                          "instruction_file",
-                          "unenumerated"
-                        ]
-                      },
-                      "path": {
-                        "type": "string",
-                        "maxLength": 512
-                      },
-                      "sha256": {
-                        "type": "string",
-                        "pattern": "^sha256:[0-9a-f]{64}$"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "work_transition_worker_abandon_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "attempt_id",
-        "lane_id",
-        "detail",
-        "idempotency_key"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "attempt_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "lane_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "detail": {
-          "$ref": "#/$defs/short",
-          "description": "Bounds: 1..256 code points inclusive"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      }
-    },
     "work_transition_action_input": {
       "type": "object",
       "additionalProperties": false,
@@ -7733,12 +6417,6 @@
       },
       "anyOf": [
         {
-          "$ref": "#/$defs/work_transition_action_variant_accept_worker_evidence"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_accept_worker_result"
-        },
-        {
           "$ref": "#/$defs/work_transition_action_variant_approve_contract"
         },
         {
@@ -7764,9 +6442,6 @@
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_cross_context_boundary"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_dispatch_worker"
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_frame_research"
@@ -7799,16 +6474,13 @@
           "$ref": "#/$defs/work_transition_action_variant_record_report"
         },
         {
+          "$ref": "#/$defs/work_transition_action_variant_record_review"
+        },
+        {
           "$ref": "#/$defs/work_transition_action_variant_record_verdict"
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_record_work_context"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_record_worker_job"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_reject_worker_result"
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_request_correction"
@@ -8223,26 +6895,6 @@
         "operation_id": {
           "$ref": "#/$defs/id"
         },
-        "worker_packet_digest": {
-          "type": "string",
-          "minLength": 71,
-          "maxLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "assignment_group": {
-          "$ref": "#/$defs/workflow_assignment_group_result"
-        },
-        "retry_attempt_id": {
-          "$ref": "#/$defs/id",
-          "description": "CD-0198 D5: present only on a combined rejection whose retry dispatch the core committed. The fresh fenced attempt the core minted (<operation-id>:retry); its in-flight window, packet digest, and claimed worktree are all the core's own record. Reconcile by this identity; never re-authorize it."
-        },
-        "retry_worker_packet": {
-          "description": "The exact current worker packet the core derived and dispatched inside a combined rejection. The host launches these admitted bytes without rebuilding or replacing them.",
-          "$ref": "#/$defs/worker_packet"
-        },
-        "worker_worktree": {
-          "$ref": "#/$defs/absolute_path"
-        },
         "delivery": {
           "type": "object",
           "additionalProperties": false,
@@ -8267,9 +6919,6 @@
         "vacate_target": {
           "$ref": "#/$defs/vacate_target",
           "description": "Present on a completed or cancelled lifecycle transition when the calling session's linked worktree is that work item's active worktree. Names the registered main checkout the adapter moves the session to after the transition."
-        },
-        "worker_recovery": {
-          "$ref": "#/$defs/worker_recovery_context"
         }
       }
     },
@@ -11331,449 +9980,6 @@
         }
       }
     },
-    "worker_packet": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "schema_version",
-        "attempt_id",
-        "lane_id",
-        "lane_digest",
-        "work_id",
-        "step_id",
-        "inputs"
-      ],
-      "description": "CD-0067 D1: current closed worker packet, projected from contracts/agent-lane-packet.schema.json.",
-      "properties": {
-        "schema_version": {
-          "enum": [
-            "2.0"
-          ],
-          "description": "The packet identity this packet records. \"1.0\" is the released packet: it never carries inputs.worker_job. \"1.1\" is the released job-capable packet (CD-0205): it may carry inputs.worker_job when the dispatcher selected a ready worker-job revision. \"2.0\" is the current card-free packet: the retired domain_cards member is refused, and it is the only identity a live dispatch may record.",
-          "type": "string"
-        },
-        "attempt_id": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 128
-        },
-        "lane_id": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 32
-        },
-        "lane_digest": {
-          "type": "string",
-          "minLength": 71,
-          "maxLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "work_id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "step_id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "inputs": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "task": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 4096
-            },
-            "binding": {
-              "$ref": "#/$defs/worker_packet_binding"
-            },
-            "report_protocol": {
-              "type": "string",
-              "const": "concord-worker-result-v1",
-              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity."
-            },
-            "worker_job": {
-              "$ref": "#/$defs/worker_packet_worker_job"
-            },
-            "review_input": {
-              "$ref": "#/$defs/worker_packet_review_input",
-              "description": "Dispatch-owned input candidate and exact criterion/architecture revisions judged by Review. Required by core admission for candidate-bound Review, and refused on other lanes."
-            },
-            "context": {
-              "type": "string",
-              "minLength": 0,
-              "maxLength": 16384,
-              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it."
-            },
-            "law_context": {
-              "$ref": "#/$defs/workflow_law_context",
-              "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "design_record": {
-              "$ref": "#/$defs/workflow_design_record",
-              "description": "The current typed design record (CD-0128). The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "proposal_record": {
-              "$ref": "#/$defs/workflow_proposal_record",
-              "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "work_record": {
-              "$ref": "#/$defs/worker_packet_work_record"
-            },
-            "correction": {
-              "$ref": "#/$defs/workflow_correction_context"
-            },
-            "work_context": {
-              "$ref": "#/$defs/work_context_view",
-              "description": "The current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
-            },
-            "checkpoint": {
-              "$ref": "#/$defs/continuity_checkpoint",
-              "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
-            },
-            "constraints": {
-              "type": "array",
-              "minItems": 0,
-              "maxItems": 64,
-              "items": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 512
-              }
-            },
-            "outcome_predicates": {
-              "$ref": "#/$defs/worker_packet_outcome_predicates"
-            }
-          },
-          "required": [
-            "task",
-            "binding"
-          ]
-        }
-      }
-    },
-    "worker_packet_binding": {
-      "description": "Typed binding of the packet objective to the recorded state it projected. Mirrors contracts/agent-lane-packet.schema.json $defs/lane_packet_binding exactly.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "objective_source",
-        "work_version",
-        "contract_version",
-        "assigned_result"
-      ],
-      "properties": {
-        "objective_source": {
-          "type": "string",
-          "enum": [
-            "contract_premise",
-            "work_question"
-          ]
-        },
-        "work_version": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "contract_version": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "minimum": 1
-        },
-        "assigned_result": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "pattern": "^[a-z][a-z0-9_]*$"
-        }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "objective_source": {
-                "const": "contract_premise"
-              }
-            },
-            "required": [
-              "objective_source"
-            ]
-          },
-          "then": {
-            "properties": {
-              "contract_version": {
-                "type": "integer"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "objective_source": {
-                "const": "work_question"
-              }
-            },
-            "required": [
-              "objective_source"
-            ]
-          },
-          "then": {
-            "properties": {
-              "contract_version": {
-                "type": "null"
-              }
-            }
-          }
-        }
-      ]
-    },
-    "worker_packet_worker_job": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "The selected ready worker-job revision this attempt executes (CD-0205). The core refuses a packet whose worker_job is not a ready recorded revision with this exact content, and refuses the member on a pinned definition that predates worker jobs. inputs.task stays the complete parent contract premise; this object bounds the attempt's own objective.",
-      "required": [
-        "job_id",
-        "revision",
-        "digest",
-        "objective",
-        "stopping_condition",
-        "project_scope",
-        "path_scope",
-        "predicate_ids",
-        "checks",
-        "prerequisites",
-        "unresolved_refs",
-        "reserved_integration"
-      ],
-      "properties": {
-        "job_id": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
-          "minLength": 2,
-          "maxLength": 128
-        },
-        "revision": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
-        },
-        "digest": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "minLength": 71,
-          "maxLength": 71
-        },
-        "objective": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "stopping_condition": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2048
-        },
-        "project_scope": {
-          "type": "string",
-          "maxLength": 128,
-          "minLength": 0
-        },
-        "path_scope": {
-          "type": "array",
-          "maxItems": 64,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512
-          },
-          "minItems": 0
-        },
-        "predicate_ids": {
-          "type": "array",
-          "maxItems": 8,
-          "items": {
-            "type": "string",
-            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
-            "minLength": 11,
-            "maxLength": 128
-          },
-          "minItems": 0
-        },
-        "checks": {
-          "type": "array",
-          "maxItems": 64,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "minItems": 0
-        },
-        "prerequisites": {
-          "type": "array",
-          "maxItems": 64,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "job_id",
-              "revision"
-            ],
-            "properties": {
-              "job_id": {
-                "type": "string",
-                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
-                "minLength": 2,
-                "maxLength": 128
-              },
-              "revision": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 2147483647
-              },
-              "result_ref": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 512
-              }
-            }
-          },
-          "minItems": 0
-        },
-        "unresolved_refs": {
-          "type": "array",
-          "maxItems": 64,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512
-          },
-          "minItems": 0
-        },
-        "reserved_integration": {
-          "type": "string",
-          "maxLength": 4096,
-          "minLength": 0
-        },
-        "acceptance_oracle": {
-          "$ref": "#/$defs/worker_acceptance_oracle",
-          "description": "The owner-level acceptance oracle of the selected revision: the one oracle copy every admitted lane receives. Optional and omitted on every revision a pre-oracle definition recorded. The core refuses a packet whose worker_job differs from the recorded ready revision, oracle included."
-        },
-        "checks_repair": {
-          "$ref": "#/$defs/worker_checks_repair"
-        },
-        "direct_caller_allowance": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "The recorded conditional direct-caller scope of the selected revision (CD-0227 D1). Optional and omitted on every read-only revision.",
-          "required": [
-            "project_id",
-            "mechanisms",
-            "domain_ids",
-            "law_bindings"
-          ],
-          "properties": {
-            "project_id": {
-              "type": "string",
-              "minLength": 2,
-              "maxLength": 128,
-              "description": "The permitted Project: always the recorded job's project_scope."
-            },
-            "mechanisms": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 8,
-              "items": {
-                "$ref": "#/$defs/worker_oracle_mechanism"
-              },
-              "description": "The changed owner mechanisms the caller repair preserves."
-            },
-            "domain_ids": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 8,
-              "uniqueItems": true,
-              "items": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 256
-              },
-              "description": "The approved affected Domains of the active parent contract the allowance keeps."
-            },
-            "law_bindings": {
-              "type": "array",
-              "minItems": 0,
-              "maxItems": 8,
-              "items": {
-                "$ref": "#/$defs/worker_oracle_law_binding"
-              },
-              "description": "The pinned law revisions the allowance keeps, possibly empty."
-            }
-          }
-        },
-        "caller_exclusions": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 64,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512
-          },
-          "description": "The measured paths of the work's other jobs currently in correction. The core computes this set and refuses a packet whose exclusions differ; only the implementation capability class carries it, and it never enters the job digest."
-        }
-      }
-    },
-    "worker_checks_repair": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "reason",
-        "revisions"
-      ],
-      "description": "Core-recorded checks repair: the stated reason and each named revision's exact binding and old checks. The containing job's checks are the new checks. Present only on repair-capable recorded revisions, covered by their immutable digest.",
-      "properties": {
-        "reason": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "revisions": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "worker_job",
-              "checks"
-            ],
-            "properties": {
-              "worker_job": {
-                "$ref": "#/$defs/worker_failure_job_binding"
-              },
-              "checks": {
-                "type": "array",
-                "minItems": 0,
-                "maxItems": 64,
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 256
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "work_transition_worktree_destroy_input": {
       "type": "object",
       "additionalProperties": false,
@@ -12324,22 +10530,6 @@
         }
       }
     },
-    "workflow_outcome_payload": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/workflow_outcome_exists"
-        },
-        {
-          "$ref": "#/$defs/workflow_outcome_absent"
-        },
-        {
-          "$ref": "#/$defs/workflow_outcome_outcome"
-        },
-        {
-          "$ref": "#/$defs/workflow_outcome_check"
-        }
-      ]
-    },
     "workflow_action_outcome_predicates": {
       "type": "array",
       "minItems": 1,
@@ -12747,12 +10937,6 @@
       },
       "anyOf": [
         {
-          "$ref": "#/$defs/work_transition_action_variant_accept_worker_evidence"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_accept_worker_result"
-        },
-        {
           "$ref": "#/$defs/work_transition_action_variant_approve_contract"
         },
         {
@@ -12778,9 +10962,6 @@
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_cross_context_boundary"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_public_variant_dispatch_worker"
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_frame_research"
@@ -12813,16 +10994,13 @@
           "$ref": "#/$defs/work_transition_action_variant_record_report"
         },
         {
+          "$ref": "#/$defs/work_transition_action_variant_record_review"
+        },
+        {
           "$ref": "#/$defs/work_transition_action_variant_record_verdict"
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_record_work_context"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_record_worker_job"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_reject_worker_result"
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_request_correction"
@@ -13304,122 +11482,6 @@
         }
       }
     },
-    "worker_packet_outcome_predicates": {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 8,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "predicate_id",
-          "ordinal",
-          "outcome_kind",
-          "outcome_payload"
-        ],
-        "properties": {
-          "predicate_id": {
-            "$ref": "#/$defs/id",
-            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
-          },
-          "ordinal": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 7
-          },
-          "outcome_kind": {
-            "type": "string",
-            "enum": [
-              "exists",
-              "absent",
-              "outcome",
-              "check"
-            ]
-          },
-          "outcome_payload": {
-            "$ref": "#/$defs/workflow_outcome_payload"
-          }
-        },
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "outcome_kind": {
-                  "const": "exists"
-                }
-              },
-              "required": [
-                "outcome_kind"
-              ]
-            },
-            "then": {
-              "properties": {
-                "outcome_payload": {
-                  "$ref": "#/$defs/workflow_outcome_exists"
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "properties": {
-                "outcome_kind": {
-                  "const": "absent"
-                }
-              },
-              "required": [
-                "outcome_kind"
-              ]
-            },
-            "then": {
-              "properties": {
-                "outcome_payload": {
-                  "$ref": "#/$defs/workflow_outcome_absent"
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "properties": {
-                "outcome_kind": {
-                  "const": "outcome"
-                }
-              },
-              "required": [
-                "outcome_kind"
-              ]
-            },
-            "then": {
-              "properties": {
-                "outcome_payload": {
-                  "$ref": "#/$defs/workflow_outcome_outcome"
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "properties": {
-                "outcome_kind": {
-                  "const": "check"
-                }
-              },
-              "required": [
-                "outcome_kind"
-              ]
-            },
-            "then": {
-              "properties": {
-                "outcome_payload": {
-                  "$ref": "#/$defs/workflow_outcome_check"
-                }
-              }
-            }
-          }
-        ]
-      }
-    },
     "vacate_target": {
       "type": "object",
       "additionalProperties": false,
@@ -13819,7 +11881,6 @@
         "state",
         "recorded_handoff",
         "artifacts_preserved",
-        "workers_stopped",
         "vacate_landed",
         "blockers"
       ],
@@ -13839,15 +11900,12 @@
             "ready_to_close_or_replace",
             "pending"
           ],
-          "description": "ready_to_close_or_replace derives only from the four verified facts; pending names the open blockers."
+          "description": "ready_to_close_or_replace derives only from the three verified facts and no unfinished workflow action of the session; pending names the open blockers."
         },
         "recorded_handoff": {
           "type": "boolean"
         },
         "artifacts_preserved": {
-          "type": "boolean"
-        },
-        "workers_stopped": {
           "type": "boolean"
         },
         "vacate_landed": {
@@ -13862,44 +11920,6 @@
           }
         }
       }
-    },
-    "worker_job_text": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 256,
-      "description": "Bounds: 1..256 code points inclusive"
-    },
-    "worker_job_prerequisite": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "job_id",
-        "revision"
-      ],
-      "properties": {
-        "job_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "revision": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647,
-          "description": "Bounds: 1..2147483647 value inclusive"
-        },
-        "result_ref": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "description": "Bounds: 1..512 code points inclusive"
-        }
-      }
-    },
-    "worker_job_repair_revision": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 9223372036854775807,
-      "description": "One named job revision an authored checks repair repairs (CD-0205 D4): a positive distinct revision integer of the same job, within the store's int64 revision bound. Authoring supplies repair_revisions beside repair_reason; the core records each satisfied repair's exact binding and old checks from the recorded events, never from these assertions. Bounds: 1..9223372036854775807 value inclusive"
     },
     "defect_classification": {
       "type": "object",
@@ -14338,115 +12358,6 @@
         }
       ]
     },
-    "worker_oracle_receipt": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "control_ids",
-        "case_ids",
-        "recipe_source",
-        "result",
-        "run_ref",
-        "evidence_refs"
-      ],
-      "description": "One typed control-execution receipt, mirroring contracts/agent-lane-report.schema.json $defs/oracle_receipt exactly: reported evidence, never native-run authority. A retained receipt is a prior-subject regression baseline; subject_commit is the host-derived raw OID, filled only from the packet's core work context. A timeout is unavailable evidence, not a measured failure.",
-      "properties": {
-        "control_ids": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 9,
-            "maxLength": 128,
-            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
-          }
-        },
-        "case_ids": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 6,
-            "maxLength": 128,
-            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
-          }
-        },
-        "recipe_source": {
-          "$ref": "#/$defs/work_context_reading_source_repository_file",
-          "description": "The exact pinned harness identity a receipt executed: a repository file at an exact commit. A receipt names the recipe the control pinned, never the candidate's modified copy of the harness."
-        },
-        "result": {
-          "type": "string",
-          "enum": [
-            "pass",
-            "fail",
-            "unavailable",
-            "not_run"
-          ]
-        },
-        "exit_code": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 255,
-          "description": "Required exactly when result is pass or fail: the control's exit status."
-        },
-        "run_ref": {
-          "type": "string",
-          "minLength": 0,
-          "maxLength": 512,
-          "description": "The immutable native-run or artifact locator of the execution. Nonempty exactly when result is pass or fail; a not_run or unavailable result carries the empty string and names its explanation in evidence_refs."
-        },
-        "evidence_refs": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          }
-        },
-        "subject_commit": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "description": "Host-derived raw commit OID. Dispatch-owned: a worker-authored value is stripped before the canonical report; only the core work-context subject supplies it."
-        }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "result": {
-                "type": "string",
-                "enum": [
-                  "pass",
-                  "fail"
-                ]
-              }
-            },
-            "required": [
-              "result"
-            ]
-          },
-          "then": {
-            "required": [
-              "exit_code"
-            ],
-            "properties": {
-              "run_ref": {
-                "minLength": 1
-              }
-            }
-          }
-        }
-      ]
-    },
     "worker_oracle_finding": {
       "type": "object",
       "additionalProperties": false,
@@ -14551,293 +12462,6 @@
           "pattern": "^finding:[0-9]+:[0-9]+$",
           "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding."
         }
-      }
-    },
-    "work_transition_action_variant_accept_worker_evidence": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key",
-        "fields"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "action_id": {
-          "type": "string",
-          "const": "accept_worker_evidence"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "research_bindings": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "pack_id",
-              "revision",
-              "use_role",
-              "required"
-            ],
-            "properties": {
-              "pack_id": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "revision": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Bounds: >=1 value inclusive"
-              },
-              "use_role": {
-                "type": "string",
-                "enum": [
-                  "context",
-                  "design_input",
-                  "verification_basis",
-                  "decision_basis"
-                ]
-              },
-              "required": {
-                "type": "boolean"
-              }
-            }
-          },
-          "description": "Bounds: 1..16 items inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
-        "fields": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "attempt_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "attempt_epoch": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647,
-              "description": "Bounds: 1..2147483647 value inclusive"
-            }
-          },
-          "required": [
-            "attempt_id",
-            "attempt_epoch"
-          ],
-          "description": "Bounds: <=32 properties inclusive"
-        }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      }
-    },
-    "work_transition_action_variant_accept_worker_result": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key",
-        "fields"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "action_id": {
-          "type": "string",
-          "const": "accept_worker_result"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "research_bindings": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "pack_id",
-              "revision",
-              "use_role",
-              "required"
-            ],
-            "properties": {
-              "pack_id": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "revision": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Bounds: >=1 value inclusive"
-              },
-              "use_role": {
-                "type": "string",
-                "enum": [
-                  "context",
-                  "design_input",
-                  "verification_basis",
-                  "decision_basis"
-                ]
-              },
-              "required": {
-                "type": "boolean"
-              }
-            }
-          },
-          "description": "Bounds: 1..16 items inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
-        "fields": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "attempt_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "attempt_epoch": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647,
-              "description": "Bounds: 1..2147483647 value inclusive"
-            },
-            "delivery_artifact": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "delivery_state": {
-              "type": "string",
-              "enum": [
-                "asserted"
-              ]
-            }
-          },
-          "required": [
-            "attempt_id",
-            "attempt_epoch"
-          ],
-          "description": "Bounds: <=32 properties inclusive"
-        }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_approve_contract": {
@@ -17769,258 +15393,6 @@
         ]
       }
     },
-    "work_transition_action_variant_dispatch_worker": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key",
-        "fields"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "action_id": {
-          "type": "string",
-          "const": "dispatch_worker"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          }
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "research_bindings": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "pack_id",
-              "revision",
-              "use_role",
-              "required"
-            ],
-            "properties": {
-              "pack_id": {
-                "$ref": "#/$defs/id"
-              },
-              "revision": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "use_role": {
-                "type": "string",
-                "enum": [
-                  "context",
-                  "design_input",
-                  "verification_basis",
-                  "decision_basis"
-                ]
-              },
-              "required": {
-                "type": "boolean"
-              }
-            }
-          }
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest"
-        },
-        "fields": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "attempt_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
-            },
-            "worker_packet": {
-              "$ref": "#/$defs/worker_packet"
-            }
-          },
-          "required": [
-            "attempt_id",
-            "worker_packet"
-          ]
-        }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      }
-    },
-    "work_transition_action_public_variant_dispatch_worker": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key",
-        "fields"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "action_id": {
-          "type": "string",
-          "const": "dispatch_worker"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "research_bindings": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "pack_id",
-              "revision",
-              "use_role",
-              "required"
-            ],
-            "properties": {
-              "pack_id": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "revision": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Bounds: >=1 value inclusive"
-              },
-              "use_role": {
-                "type": "string",
-                "enum": [
-                  "context",
-                  "design_input",
-                  "verification_basis",
-                  "decision_basis"
-                ]
-              },
-              "required": {
-                "type": "boolean"
-              }
-            }
-          },
-          "description": "Bounds: 1..16 items inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
-        "fields": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "lane_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            }
-          },
-          "required": [
-            "lane_id"
-          ],
-          "description": "Bounds: <=32 properties inclusive"
-        }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      }
-    },
     "work_transition_action_variant_frame_research": {
       "type": "object",
       "additionalProperties": false,
@@ -19622,481 +16994,6 @@
         ]
       }
     },
-    "work_transition_action_variant_record_worker_job": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key",
-        "fields"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "action_id": {
-          "type": "string",
-          "const": "record_worker_job"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "research_bindings": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "pack_id",
-              "revision",
-              "use_role",
-              "required"
-            ],
-            "properties": {
-              "pack_id": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "revision": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Bounds: >=1 value inclusive"
-              },
-              "use_role": {
-                "type": "string",
-                "enum": [
-                  "context",
-                  "design_input",
-                  "verification_basis",
-                  "decision_basis"
-                ]
-              },
-              "required": {
-                "type": "boolean"
-              }
-            }
-          },
-          "description": "Bounds: 1..16 items inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
-        "fields": {
-          "oneOf": [
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "maxProperties": 32,
-              "properties": {
-                "job_id": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 128,
-                  "x-minBytes": 2,
-                  "x-maxBytes": 128,
-                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
-                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-                },
-                "objective": {
-                  "type": "string",
-                  "maxLength": 4096,
-                  "x-maxBytes": 4096,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-                },
-                "stopping_condition": {
-                  "type": "string",
-                  "maxLength": 2048,
-                  "x-maxBytes": 2048,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..2048 code points inclusive; <=2048 UTF-8 bytes inclusive"
-                },
-                "path_scope": {
-                  "type": "array",
-                  "uniqueItems": true,
-                  "items": {
-                    "$ref": "#/$defs/reference",
-                    "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-                  },
-                  "minItems": 0,
-                  "maxItems": 64,
-                  "description": "Bounds: 0..64 items inclusive"
-                },
-                "predicate_ids": {
-                  "type": "array",
-                  "uniqueItems": true,
-                  "items": {
-                    "$ref": "#/$defs/id",
-                    "description": "Bounds: 1..128 code points inclusive"
-                  },
-                  "minItems": 0,
-                  "maxItems": 8,
-                  "description": "Bounds: 0..8 items inclusive"
-                },
-                "checks": {
-                  "type": "array",
-                  "uniqueItems": true,
-                  "items": {
-                    "$ref": "#/$defs/worker_job_text",
-                    "description": "Bounds: 1..256 code points inclusive"
-                  },
-                  "minItems": 0,
-                  "maxItems": 64,
-                  "description": "Bounds: 0..64 items inclusive"
-                },
-                "prerequisites": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/$defs/worker_job_prerequisite"
-                  },
-                  "minItems": 0,
-                  "maxItems": 64,
-                  "description": "Bounds: 0..64 items inclusive"
-                },
-                "unresolved_refs": {
-                  "type": "array",
-                  "uniqueItems": true,
-                  "items": {
-                    "$ref": "#/$defs/worker_job_text",
-                    "description": "Bounds: 1..256 code points inclusive"
-                  },
-                  "minItems": 0,
-                  "maxItems": 64,
-                  "description": "Bounds: 0..64 items inclusive"
-                },
-                "reserved_integration": {
-                  "type": "string",
-                  "maxLength": 4096,
-                  "x-maxBytes": 4096,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-                },
-                "ready": {
-                  "type": "boolean"
-                },
-                "readiness_evidence": {
-                  "type": "array",
-                  "uniqueItems": true,
-                  "items": {
-                    "$ref": "#/$defs/reference",
-                    "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-                  },
-                  "minItems": 0,
-                  "maxItems": 16,
-                  "description": "Bounds: 0..16 items inclusive"
-                },
-                "acceptance_oracle": {
-                  "$ref": "#/$defs/worker_acceptance_oracle"
-                },
-                "repair_revisions": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/$defs/worker_job_repair_revision",
-                    "description": "Bounds: 1..9223372036854775807 value inclusive"
-                  },
-                  "minItems": 1,
-                  "maxItems": 64,
-                  "description": "Bounds: 1..64 items inclusive"
-                },
-                "repair_reason": {
-                  "type": "string",
-                  "maxLength": 4096,
-                  "x-maxBytes": 4096,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-                },
-                "direct_caller_allowance": {
-                  "$ref": "#/$defs/worker_job_direct_caller_allowance"
-                }
-              },
-              "required": [
-                "job_id",
-                "objective",
-                "stopping_condition",
-                "ready",
-                "acceptance_oracle"
-              ],
-              "description": "Bounds: <=32 properties inclusive"
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "maxProperties": 32,
-              "properties": {
-                "assignment_group": {
-                  "$ref": "#/$defs/workflow_assignment_group_input"
-                }
-              },
-              "required": [
-                "assignment_group"
-              ],
-              "description": "Bounds: <=32 properties inclusive"
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "maxProperties": 32,
-              "properties": {
-                "member_binding": {
-                  "$ref": "#/$defs/workflow_member_binding_input"
-                }
-              },
-              "required": [
-                "member_binding"
-              ],
-              "description": "Bounds: <=32 properties inclusive"
-            }
-          ]
-        }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      }
-    },
-    "work_transition_action_variant_reject_worker_result": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key",
-        "fields"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "action_id": {
-          "type": "string",
-          "const": "reject_worker_result"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "research_bindings": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "pack_id",
-              "revision",
-              "use_role",
-              "required"
-            ],
-            "properties": {
-              "pack_id": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "revision": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Bounds: >=1 value inclusive"
-              },
-              "use_role": {
-                "type": "string",
-                "enum": [
-                  "context",
-                  "design_input",
-                  "verification_basis",
-                  "decision_basis"
-                ]
-              },
-              "required": {
-                "type": "boolean"
-              }
-            }
-          },
-          "description": "Bounds: 1..16 items inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
-        "fields": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "attempt_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "attempt_epoch": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647,
-              "description": "Bounds: 1..2147483647 value inclusive"
-            },
-            "diagnosis": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-            },
-            "strategy": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-            },
-            "predicate_ids": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "minItems": 1,
-              "maxItems": 8,
-              "description": "Bounds: 1..8 items inclusive"
-            },
-            "evidence_refs": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-              },
-              "minItems": 1,
-              "maxItems": 32,
-              "description": "Bounds: 1..32 items inclusive"
-            },
-            "open_finding_ids": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "minItems": 1,
-              "maxItems": 32,
-              "description": "Bounds: 1..32 items inclusive"
-            },
-            "retry": {
-              "$ref": "#/$defs/reject_retry"
-            },
-            "failure_attribution": {
-              "$ref": "#/$defs/worker_failure_observation"
-            }
-          },
-          "required": [
-            "attempt_id",
-            "attempt_epoch",
-            "diagnosis",
-            "strategy",
-            "predicate_ids",
-            "evidence_refs"
-          ],
-          "description": "Bounds: <=32 properties inclusive"
-        }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      }
-    },
     "work_transition_action_variant_request_correction": {
       "type": "object",
       "additionalProperties": false,
@@ -20243,9 +17140,6 @@
               "minItems": 1,
               "maxItems": 32,
               "description": "Bounds: 1..32 items inclusive"
-            },
-            "failure_attribution": {
-              "$ref": "#/$defs/worker_failure_observation"
             }
           },
           "required": [
@@ -22447,35 +19341,11 @@
         }
       }
     },
-    "worker_packet_work_record": {
-      "description": "The work item's recorded value statement, task, and narrative, each verbatim and present exactly when the recorded text is not blank. The core refuses a dispatch whose packet member differs from the recorded work item.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [],
-      "properties": {
-        "value_statement": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "task": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 8192
-        },
-        "narrative": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 16384
-        }
-      }
-    },
     "native_oracle_digest": {
       "type": "string",
       "minLength": 71,
       "maxLength": 71,
-      "pattern": "^sha256:[0-9a-f]{64}$",
-      "description": "Bounds: 71..71 code points inclusive"
+      "pattern": "^sha256:[0-9a-f]{64}$"
     },
     "native_oracle_prepare_control": {
       "type": "object",
@@ -22572,7 +19442,7 @@
           "description": "The evidence role the control's receipt must carry."
         }
       },
-      "description": "Native prepare input only: readiness references are omitted, never invented. Recorded ready jobs still require them."
+      "description": "Native prepare input: readiness references are produced by preparation, never supplied by the caller."
     },
     "native_oracle_control_bundle": {
       "type": "object",
@@ -22600,99 +19470,6 @@
         }
       }
     },
-    "native_oracle_job_binding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "job_id",
-        "revision",
-        "digest"
-      ],
-      "properties": {
-        "job_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "revision": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647,
-          "description": "Bounds: 1..2147483647 value inclusive"
-        },
-        "digest": {
-          "$ref": "#/$defs/native_oracle_digest",
-          "description": "Bounds: 71..71 code points inclusive"
-        }
-      }
-    },
-    "native_oracle_prepare_request": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "phase",
-        "expected_contract_version",
-        "control_bundle"
-      ],
-      "properties": {
-        "phase": {
-          "type": "string",
-          "const": "prepare"
-        },
-        "expected_contract_version": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9223372036854775807
-        },
-        "control_bundle": {
-          "$ref": "#/$defs/native_oracle_control_bundle"
-        }
-      }
-    },
-    "native_oracle_execute_request": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "phase",
-        "attempt_id",
-        "attempt_epoch",
-        "worker_packet_digest",
-        "worker_job_binding",
-        "control_id",
-        "preparation_run_ref"
-      ],
-      "properties": {
-        "phase": {
-          "type": "string",
-          "const": "execute"
-        },
-        "attempt_id": {
-          "$ref": "#/$defs/id"
-        },
-        "attempt_epoch": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
-        },
-        "worker_packet_digest": {
-          "$ref": "#/$defs/native_oracle_digest"
-        },
-        "worker_job_binding": {
-          "$ref": "#/$defs/native_oracle_job_binding"
-        },
-        "control_id": {
-          "type": "string",
-          "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
-          "minLength": 9,
-          "maxLength": 128,
-          "description": "A stable control: identity, unique within this work item."
-        },
-        "preparation_run_ref": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512
-        }
-      }
-    },
     "native_oracle_request": {
       "type": "object",
       "additionalProperties": false,
@@ -22715,30 +19492,6 @@
         },
         "control_bundle": {
           "$ref": "#/$defs/native_oracle_control_bundle"
-        },
-        "attempt_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "attempt_epoch": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647,
-          "description": "Bounds: 1..2147483647 value inclusive"
-        },
-        "worker_packet_digest": {
-          "$ref": "#/$defs/native_oracle_digest",
-          "description": "Bounds: 71..71 code points inclusive"
-        },
-        "worker_job_binding": {
-          "$ref": "#/$defs/native_oracle_job_binding"
-        },
-        "control_id": {
-          "type": "string",
-          "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
-          "minLength": 9,
-          "maxLength": 128,
-          "description": "A stable control: identity, unique within this work item. Bounds: 9..128 code points inclusive"
         },
         "preparation_run_ref": {
           "type": "string",
@@ -22777,41 +19530,12 @@
           "additionalProperties": false,
           "required": [
             "phase",
-            "attempt_id",
-            "attempt_epoch",
-            "worker_packet_digest",
-            "worker_job_binding",
-            "control_id",
             "preparation_run_ref"
           ],
           "properties": {
             "phase": {
               "type": "string",
               "const": "execute"
-            },
-            "attempt_id": {
-              "$ref": "#/$defs/id",
-              "description": "Bounds: 1..128 code points inclusive"
-            },
-            "attempt_epoch": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647,
-              "description": "Bounds: 1..2147483647 value inclusive"
-            },
-            "worker_packet_digest": {
-              "$ref": "#/$defs/native_oracle_digest",
-              "description": "Bounds: 71..71 code points inclusive"
-            },
-            "worker_job_binding": {
-              "$ref": "#/$defs/native_oracle_job_binding"
-            },
-            "control_id": {
-              "type": "string",
-              "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
-              "minLength": 9,
-              "maxLength": 128,
-              "description": "A stable control: identity, unique within this work item. Bounds: 9..128 code points inclusive"
             },
             "preparation_run_ref": {
               "type": "string",
@@ -22822,7 +19546,7 @@
           }
         }
       ],
-      "description": "native_oracle_v2: prepare qualifies one closed recipe family without running its workload and grants readiness only. The pinned pure-Go harness compiles without test execution; a target_runner_v1 recipe materializes its pinned dependencies offline and runs only its collection or check-input stage. Execute requires the exact persisted dispatch, job, epoch, packet digest, and clean subject. The producer owns recipe bytes, cwd, environment, candidate, stages, and streams. Unsupported recipes, families, and materializer/runner pairs are unavailable. Both phases are explicit preparation and readiness only: no acceptance body, no install, no automatic preparation, no new worker authority."
+      "description": "native_oracle_v2: prepare qualifies one closed recipe family without running its workload and grants readiness only. The pinned pure-Go harness compiles without test execution; a target_runner_v1 recipe materializes its pinned dependencies offline and runs only its collection or check-input stage. Execute selects the exact persisted preparation and requires the same clean subject. The producer owns the control bundle, recipe bytes, cwd, environment, candidate, stages, and streams. Unsupported recipes, families, and materializer/runner pairs are unavailable. Preparation runs no acceptance body and performs no install. Execution runs only the declared prepared workload; no automatic preparation."
     },
     "native_oracle_stream": {
       "type": "object",
@@ -24921,14 +21645,7 @@
             "streams_complete",
             "control_id",
             "stages",
-            "attempt_id",
-            "attempt_epoch",
-            "worker_packet_digest",
-            "worker_job_binding",
-            "preparation_run_ref",
-            "authorization_event_id",
-            "authorization_seq",
-            "start_seq"
+            "preparation_run_ref"
           ],
           "properties": {
             "protocol": {
@@ -25172,37 +21889,10 @@
             "detail": {
               "type": "string"
             },
-            "attempt_id": {
-              "$ref": "#/$defs/id"
-            },
-            "attempt_epoch": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647
-            },
-            "worker_packet_digest": {
-              "$ref": "#/$defs/native_oracle_digest"
-            },
-            "worker_job_binding": {
-              "$ref": "#/$defs/native_oracle_job_binding"
-            },
             "preparation_run_ref": {
               "type": "string",
               "minLength": 1,
               "maxLength": 512
-            },
-            "authorization_event_id": {
-              "$ref": "#/$defs/id"
-            },
-            "authorization_seq": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 9223372036854775807
-            },
-            "start_seq": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 9223372036854775807
             },
             "observed_test_names": {
               "type": "array",
@@ -25258,14 +21948,7 @@
                 "streams_complete",
                 "control_id",
                 "stages",
-                "attempt_id",
-                "attempt_epoch",
-                "worker_packet_digest",
-                "worker_job_binding",
-                "preparation_run_ref",
-                "authorization_event_id",
-                "authorization_seq",
-                "start_seq"
+                "preparation_run_ref"
               ],
               "properties": {
                 "protocol": {
@@ -25429,37 +22112,10 @@
                 "detail": {
                   "type": "string"
                 },
-                "attempt_id": {
-                  "$ref": "#/$defs/id"
-                },
-                "attempt_epoch": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 2147483647
-                },
-                "worker_packet_digest": {
-                  "$ref": "#/$defs/native_oracle_digest"
-                },
-                "worker_job_binding": {
-                  "$ref": "#/$defs/native_oracle_job_binding"
-                },
                 "preparation_run_ref": {
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 512
-                },
-                "authorization_event_id": {
-                  "$ref": "#/$defs/id"
-                },
-                "authorization_seq": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9223372036854775807
-                },
-                "start_seq": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9223372036854775807
                 },
                 "observed_test_names": {
                   "type": "array",
@@ -25595,14 +22251,7 @@
                 "streams_complete",
                 "control_id",
                 "stages",
-                "attempt_id",
-                "attempt_epoch",
-                "worker_packet_digest",
-                "worker_job_binding",
-                "preparation_run_ref",
-                "authorization_event_id",
-                "authorization_seq",
-                "start_seq"
+                "preparation_run_ref"
               ],
               "properties": {
                 "protocol": {
@@ -25812,37 +22461,10 @@
                 "detail": {
                   "type": "string"
                 },
-                "attempt_id": {
-                  "$ref": "#/$defs/id"
-                },
-                "attempt_epoch": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 2147483647
-                },
-                "worker_packet_digest": {
-                  "$ref": "#/$defs/native_oracle_digest"
-                },
-                "worker_job_binding": {
-                  "$ref": "#/$defs/native_oracle_job_binding"
-                },
                 "preparation_run_ref": {
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 512
-                },
-                "authorization_event_id": {
-                  "$ref": "#/$defs/id"
-                },
-                "authorization_seq": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9223372036854775807
-                },
-                "start_seq": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9223372036854775807
                 },
                 "observed_test_names": {
                   "type": "array",
@@ -26091,7 +22713,7 @@
           }
         }
       ],
-      "description": "Native producer observations only. The canonical plan/digest are immutable in the existing lease; command remains bare argv. Prepare grants readiness only. Execute pass requires actual run/pass witnesses in the record's own family grammar (observed test names for Go, observed witness IDs for target_runner_v1), complete streams, pinned inputs/cwd/environment, and the persisted live dispatch's three-way clean subject equality. Qualified green result metadata is byte-identical to lease result_json. Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."
+      "description": "Native producer observations only. The canonical plan/digest are immutable in the existing lease; command remains bare argv. Prepare grants readiness only. Execute pass requires actual run/pass witnesses in the record's own family grammar (observed test names for Go, observed witness IDs for target_runner_v1), complete streams, pinned inputs/cwd/environment, and the persisted preparation's clean subject equality. Qualified green result metadata is byte-identical to lease result_json. Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."
     },
     "native_oracle_output_page": {
       "type": "object",
@@ -26371,20 +22993,6 @@
           }
         ]
       }
-    },
-    "reject_retry": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "lane_id"
-      ],
-      "properties": {
-        "lane_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "description": "CD-0198 D5: the retry dispatch intent a rejected result can carry on a definition that derives the worker failure record. It names only the lane; the store mints the fresh fenced attempt and derives the lane packet from the recorded state the rejection commits, through the dispatch admission every dispatch answers to. The host launch stays the post-commit dispatch boundary; a refusal leaves the rejection unwritten and the rejection-only escape available."
     },
     "work_context_research_selection": {
       "type": "object",
@@ -27402,19 +24010,22 @@
         "project_id": {
           "type": "string",
           "minLength": 2,
-          "maxLength": 128
+          "maxLength": 128,
+          "description": "Bounds: 2..128 code points inclusive"
         },
         "commit": {
           "type": "string",
           "minLength": 40,
           "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "description": "Bounds: 40..64 code points inclusive"
         },
         "tree": {
           "type": "string",
           "minLength": 40,
           "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "description": "Bounds: 40..64 code points inclusive"
         }
       }
     },
@@ -27442,22 +24053,26 @@
                 "type": "string",
                 "minLength": 11,
                 "maxLength": 128,
-                "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "description": "Bounds: 11..128 code points inclusive"
               },
               "content_digest": {
                 "type": "string",
                 "minLength": 71,
                 "maxLength": 71,
-                "pattern": "^sha256:[0-9a-f]{64}$"
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "description": "Bounds: 71..71 code points inclusive"
               }
             }
-          }
+          },
+          "description": "Bounds: 1..8 items inclusive"
         },
         "architecture_digest": {
           "type": "string",
           "minLength": 71,
           "maxLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$"
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Bounds: 71..71 code points inclusive"
         },
         "architecture_not_applicable": {
           "type": "boolean"
@@ -27488,6 +24103,27 @@
         }
       ]
     },
+    "continuity_review_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_candidate",
+        "dependencies"
+      ],
+      "description": "The native-qualified Review subject and the exact criterion and architecture revisions a Review must judge. Recording a Review rechecks them through its own sealed preparation.",
+      "properties": {
+        "input_candidate": {
+          "$ref": "#/$defs/lane_report_review_candidate"
+        },
+        "dependencies": {
+          "$ref": "#/$defs/lane_report_review_dependencies"
+        },
+        "size": {
+          "description": "The recorded work size and its model/operator provenance. Omitted when unsized; never inferred.",
+          "$ref": "#/$defs/work_size_summary"
+        }
+      }
+    },
     "lane_report_review_refs": {
       "type": "array",
       "minItems": 0,
@@ -27498,8 +24134,10 @@
         "minLength": 2,
         "maxLength": 128,
         "x-maxBytes": 128,
-        "pattern": "^\\S+$"
-      }
+        "pattern": "^\\S+$",
+        "description": "Bounds: 2..128 code points inclusive; <=128 UTF-8 bytes inclusive"
+      },
+      "description": "Bounds: 0..32 items inclusive"
     },
     "lane_report_review_assessment": {
       "type": "object",
@@ -27514,7 +24152,8 @@
           "type": "string",
           "minLength": 11,
           "maxLength": 128,
-          "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "description": "Bounds: 11..128 code points inclusive"
         },
         "assessment": {
           "enum": [
@@ -27525,7 +24164,8 @@
           "type": "string"
         },
         "receipt_refs": {
-          "$ref": "#/$defs/lane_report_review_refs"
+          "$ref": "#/$defs/lane_report_review_refs",
+          "description": "Bounds: 0..32 items inclusive"
         }
       }
     },
@@ -27543,29 +24183,34 @@
         "obligation_id": {
           "type": "string",
           "minLength": 2,
-          "maxLength": 128
+          "maxLength": 128,
+          "description": "Bounds: 2..128 code points inclusive"
         },
         "owner_ref": {
           "type": "string",
           "minLength": 2,
-          "maxLength": 128
+          "maxLength": 128,
+          "description": "Bounds: 2..128 code points inclusive"
         },
         "subject_ref": {
           "type": "string",
           "minLength": 2,
-          "maxLength": 128
+          "maxLength": 128,
+          "description": "Bounds: 2..128 code points inclusive"
         },
         "input_digest": {
           "type": "string",
           "minLength": 71,
           "maxLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$"
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Bounds: 71..71 code points inclusive"
         },
         "needed_proof": {
           "type": "string",
           "minLength": 1,
           "maxLength": 512,
-          "x-maxBytes": 512
+          "x-maxBytes": 512,
+          "description": "Bounds: 1..512 code points inclusive; <=512 UTF-8 bytes inclusive"
         }
       }
     },
@@ -27593,18 +24238,21 @@
             "source_id": {
               "type": "string",
               "minLength": 2,
-              "maxLength": 128
+              "maxLength": 128,
+              "description": "Bounds: 2..128 code points inclusive"
             },
             "law_id": {
               "type": "string",
               "minLength": 2,
-              "maxLength": 256
+              "maxLength": 256,
+              "description": "Bounds: 2..256 code points inclusive"
             },
             "content_hash": {
               "type": "string",
               "minLength": 71,
               "maxLength": 71,
-              "pattern": "^sha256:[0-9a-f]{64}$"
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "description": "Bounds: 71..71 code points inclusive"
             }
           }
         },
@@ -27612,7 +24260,8 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 512,
-          "x-maxBytes": 512
+          "x-maxBytes": 512,
+          "description": "Bounds: 1..512 code points inclusive; <=512 UTF-8 bytes inclusive"
         }
       }
     },
@@ -27638,12 +24287,14 @@
           "type": "string",
           "minLength": 7,
           "maxLength": 128,
-          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "description": "Bounds: 7..128 code points inclusive"
         },
         "failure_family": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 128,
+          "description": "Bounds: 1..128 code points inclusive"
         },
         "predicate_ids": {
           "type": "array",
@@ -27654,8 +24305,10 @@
             "type": "string",
             "minLength": 11,
             "maxLength": 128,
-            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
-          }
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "description": "Bounds: 11..128 code points inclusive"
+          },
+          "description": "Bounds: 0..8 items inclusive"
         },
         "law_bindings": {
           "type": "array",
@@ -27663,7 +24316,8 @@
           "maxItems": 8,
           "items": {
             "$ref": "#/$defs/lane_report_oracle_law_binding"
-          }
+          },
+          "description": "Bounds: 0..8 items inclusive"
         },
         "case_ids": {
           "type": "array",
@@ -27674,8 +24328,10 @@
             "type": "string",
             "minLength": 6,
             "maxLength": 128,
-            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
-          }
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "description": "Bounds: 6..128 code points inclusive"
+          },
+          "description": "Bounds: 0..8 items inclusive"
         },
         "control_ids": {
           "type": "array",
@@ -27686,8 +24342,10 @@
             "type": "string",
             "minLength": 9,
             "maxLength": 128,
-            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
-          }
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "description": "Bounds: 9..128 code points inclusive"
+          },
+          "description": "Bounds: 0..8 items inclusive"
         },
         "evidence_refs": {
           "type": "array",
@@ -27697,30 +24355,31 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256,
-            "x-maxBytes": 256
+            "x-maxBytes": 256,
+            "description": "Bounds: 1..256 code points inclusive; <=256 UTF-8 bytes inclusive"
           },
-          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt."
+          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt. Bounds: 0..8 items inclusive"
         },
         "entry_point": {
           "type": "string",
           "minLength": 1,
           "maxLength": 512,
           "x-maxBytes": 512,
-          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted."
+          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted. Bounds: 1..512 code points inclusive; <=512 UTF-8 bytes inclusive"
         },
         "continues_finding_id": {
           "type": "string",
           "minLength": 11,
           "maxLength": 64,
           "pattern": "^finding:[0-9]+:[0-9]+$",
-          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit."
+          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit. Bounds: 11..64 code points inclusive"
         },
         "variant_of": {
           "type": "string",
           "minLength": 11,
           "maxLength": 64,
           "pattern": "^finding:[0-9]+:[0-9]+$",
-          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding."
+          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding. Bounds: 11..64 code points inclusive"
         }
       }
     },
@@ -27743,7 +24402,8 @@
           "type": "string",
           "minLength": 2,
           "maxLength": 128,
-          "pattern": "^\\S+$"
+          "pattern": "^\\S+$",
+          "description": "Bounds: 2..128 code points inclusive"
         },
         "in_scope": {
           "type": "boolean"
@@ -27759,10 +24419,12 @@
           "type": "string"
         },
         "evidence_refs": {
-          "$ref": "#/$defs/lane_report_review_refs"
+          "$ref": "#/$defs/lane_report_review_refs",
+          "description": "Bounds: 0..32 items inclusive"
         },
         "closure_refs": {
-          "$ref": "#/$defs/lane_report_review_refs"
+          "$ref": "#/$defs/lane_report_review_refs",
+          "description": "Bounds: 0..32 items inclusive"
         },
         "severity": {
           "enum": [
@@ -27785,7 +24447,8 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 512,
-          "x-maxBytes": 512
+          "x-maxBytes": 512,
+          "description": "Bounds: 1..512 code points inclusive; <=512 UTF-8 bytes inclusive"
         },
         "oracle": {
           "$ref": "#/$defs/lane_report_oracle_finding"
@@ -27798,7 +24461,7 @@
       "required": [
         "finding_id"
       ],
-      "anyOf": [
+      "oneOf": [
         {
           "required": [
             "evidence_refs"
@@ -27807,7 +24470,12 @@
         {
           "required": [
             "judged_case_ids"
-          ]
+          ],
+          "not": {
+            "required": [
+              "evidence_refs"
+            ]
+          }
         }
       ],
       "description": "One closure claim of a previously open ranked finding. Supply native evidence refs, exact judged-case IDs, or both as required by the finding. Judged closure requires Main acceptance of the fresh candidate-bound completed Review report; the report alone grants no closure authority. Omission, relabeling, or a confidence change never closes a finding.",
@@ -27816,7 +24484,8 @@
           "type": "string",
           "minLength": 11,
           "maxLength": 64,
-          "pattern": "^finding:[0-9]+:[0-9]+$"
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "description": "Bounds: 11..64 code points inclusive"
         },
         "evidence_refs": {
           "type": "array",
@@ -27827,9 +24496,10 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256,
-            "x-maxBytes": 256
+            "x-maxBytes": 256,
+            "description": "Bounds: 1..256 code points inclusive; <=256 UTF-8 bytes inclusive"
           },
-          "description": "The producer-captured current-subject evidence the closure names, as the control requires."
+          "description": "The producer-captured current-subject evidence the closure names, as the control requires. Bounds: 1..8 items inclusive"
         },
         "judged_case_ids": {
           "type": "array",
@@ -27840,13 +24510,14 @@
             "type": "string",
             "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
             "minLength": 6,
-            "maxLength": 128
+            "maxLength": 128,
+            "description": "Bounds: 6..128 code points inclusive"
           },
-          "description": "The exact complete set of required Main-declared judge=review cases. Source citations are rationale, never native execution receipts."
+          "description": "The exact complete set of required Main-declared judge=review cases. Source citations are rationale, never native execution receipts. Bounds: 1..8 items inclusive"
         }
       }
     },
-    "lane_report_review_block": {
+    "workflow_review_report": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -27866,7 +24537,7 @@
             "revision_required",
             "ready_for_final_proof"
           ],
-          "description": "An attributed Review disposition, not permission to advance. Main accepts the exact report through accept_worker_result. Blocking dispositions remain valid reports.",
+          "description": "The coordinator records an independently obtained Review outcome against its exact candidate through record_review. This disposition is not permission to advance. Blocking dispositions remain valid outcomes.",
           "type": "string"
         },
         "input_candidate": {
@@ -27884,7 +24555,8 @@
           "maxItems": 8,
           "items": {
             "$ref": "#/$defs/lane_report_review_assessment"
-          }
+          },
+          "description": "Bounds: 0..8 items inclusive"
         },
         "remaining_obligations": {
           "type": "array",
@@ -27892,7 +24564,8 @@
           "maxItems": 32,
           "items": {
             "$ref": "#/$defs/lane_report_review_obligation"
-          }
+          },
+          "description": "Bounds: 0..32 items inclusive"
         },
         "findings": {
           "type": "array",
@@ -27900,162 +24573,20 @@
           "maxItems": 64,
           "items": {
             "$ref": "#/$defs/lane_report_review_finding"
-          }
+          },
+          "description": "Bounds: 0..64 items inclusive"
         },
         "resolved_findings": {
           "type": "array",
           "minItems": 0,
           "maxItems": 32,
           "x-maxArrayBytes": 8192,
-          "description": "Optional evidenced closure claims of previously open ranked findings, reported on any disposition. A claim is a claim: the store checks each identity against this work's earlier ranked findings and the evidence each control requires. x-maxArrayBytes bounds the compact JSON serialization of the whole array in UTF-8 bytes; the adapter enforces that aggregate and refuses the report rather than truncating a claim.",
+          "description": "Optional evidenced closure claims of previously open ranked findings, reported on any disposition. A claim is a claim: the store checks each identity against this work's earlier ranked findings and the evidence each control requires. x-maxArrayBytes bounds the compact JSON serialization of the whole array in UTF-8 bytes; the adapter enforces that aggregate and refuses the report rather than truncating a claim. Bounds: 0..32 items inclusive",
           "items": {
             "$ref": "#/$defs/lane_report_resolved_finding"
           }
         }
       }
-    },
-    "worker_packet_review_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "input_candidate",
-        "dependencies"
-      ],
-      "properties": {
-        "input_candidate": {
-          "$ref": "#/$defs/worker_packet_review_candidate"
-        },
-        "dependencies": {
-          "$ref": "#/$defs/worker_packet_review_dependencies"
-        },
-        "size": {
-          "description": "The recorded work size and its model/operator provenance at dispatch. Omitted when unsized; never inferred from the objective or job line estimate.",
-          "$ref": "#/$defs/work_size_summary"
-        },
-        "retained_failed_edit": {
-          "description": "Producer-observed unaccepted delta after failed editing attempts. input_candidate is the qualified descendant; accepted_candidate is the still-accepted baseline. Dispatch requires this exact disclosure when its sealed preparation carries retained recovery proof.",
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "accepted_candidate",
-            "changed_paths"
-          ],
-          "properties": {
-            "accepted_candidate": {
-              "$ref": "#/$defs/worker_packet_review_candidate"
-            },
-            "changed_paths": {
-              "type": "array",
-              "minItems": 0,
-              "maxItems": 4194304,
-              "items": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4194304
-              }
-            }
-          }
-        }
-      }
-    },
-    "worker_packet_review_candidate": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "project_id",
-        "commit",
-        "tree"
-      ],
-      "description": "Review's candidate claim. Acceptance derives authority from the admitted input and the host's clean terminal observation, not these claims.",
-      "properties": {
-        "project_id": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 128
-        },
-        "commit": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
-        },
-        "tree": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
-        }
-      }
-    },
-    "worker_packet_review_dependencies": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "criteria",
-        "architecture_not_applicable"
-      ],
-      "properties": {
-        "criteria": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 8,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "predicate_id",
-              "content_digest"
-            ],
-            "properties": {
-              "predicate_id": {
-                "type": "string",
-                "minLength": 11,
-                "maxLength": 128,
-                "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
-              },
-              "content_digest": {
-                "type": "string",
-                "minLength": 71,
-                "maxLength": 71,
-                "pattern": "^sha256:[0-9a-f]{64}$"
-              }
-            }
-          }
-        },
-        "architecture_digest": {
-          "type": "string",
-          "minLength": 71,
-          "maxLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "architecture_not_applicable": {
-          "type": "boolean"
-        }
-      },
-      "oneOf": [
-        {
-          "properties": {
-            "architecture_not_applicable": {
-              "const": true
-            }
-          },
-          "not": {
-            "required": [
-              "architecture_digest"
-            ]
-          }
-        },
-        {
-          "properties": {
-            "architecture_not_applicable": {
-              "const": false
-            }
-          },
-          "required": [
-            "architecture_digest"
-          ]
-        }
-      ]
     },
     "domain_fact": {
       "title": "Domain fact shard v1",
@@ -28723,6 +25254,129 @@
         }
       }
     },
+    "work_transition_action_variant_record_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id",
+          "description": "Bounds: 1..128 code points inclusive"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version",
+          "description": "Bounds: >=1 value inclusive"
+        },
+        "action_id": {
+          "type": "string",
+          "const": "record_review"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id",
+          "description": "Bounds: 1..128 code points inclusive"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "description": "Bounds: <=32 items inclusive"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "research_bindings": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id",
+                "description": "Bounds: 1..128 code points inclusive"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Bounds: >=1 value inclusive"
+              },
+              "use_role": {
+                "type": "string",
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ]
+              },
+              "required": {
+                "type": "boolean"
+              }
+            }
+          },
+          "description": "Bounds: 1..16 items inclusive"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds",
+          "description": "Bounds: >=1 value inclusive"
+        },
+        "selected_choice": {
+          "type": "string",
+          "enum": [
+            "confirm",
+            "revise",
+            "stop"
+          ]
+        },
+        "decision_context_digest": {
+          "$ref": "#/$defs/digest",
+          "description": "Bounds: 8..128 code points inclusive"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "review": {
+              "$ref": "#/$defs/workflow_review_report"
+            }
+          },
+          "required": [
+            "review"
+          ],
+          "description": "Bounds: <=32 properties inclusive"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      }
+    },
     "retained_workflow_correction_context": {
       "type": "object",
       "additionalProperties": false,
@@ -28764,19 +25418,6 @@
         "strategy": {
           "type": "string",
           "maxLength": 4096
-        },
-        "failure_kind": {
-          "type": "string",
-          "maxLength": 64
-        },
-        "failure_detail": {
-          "type": "string"
-        },
-        "failed_attempt_id": {
-          "$ref": "#/$defs/id"
-        },
-        "failed_attempt_epoch": {
-          "$ref": "#/$defs/version"
         },
         "source_event_id": {
           "$ref": "#/$defs/id",
@@ -28943,7 +25584,7 @@
             "null"
           ],
           "minItems": 0,
-          "maxItems": 8,
+          "maxItems": 32,
           "items": {
             "type": "string",
             "minLength": 1,
@@ -30139,7 +26780,7 @@
         "source_event_frontier": {
           "type": "integer",
           "minimum": 0,
-          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn."
+          "description": "The work item's context frontier at read time."
         },
         "required_reading": {
           "type": "array",
@@ -30165,15 +26806,6 @@
             "$ref": "#/$defs/work_context_domain_group"
           }
         },
-        "oracle_receipts": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/worker_oracle_receipt"
-          },
-          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance."
-        },
         "subject_commit": {
           "type": "string",
           "minLength": 40,
@@ -30188,7 +26820,7 @@
           "items": {
             "$ref": "#/$defs/retained_native_oracle_preparation"
           },
-          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority."
+          "description": "Captured native preparation records, with their exact subject, environment and control bundle. No raw output or alternative readiness authority."
         },
         "research_findings": {
           "type": "array",

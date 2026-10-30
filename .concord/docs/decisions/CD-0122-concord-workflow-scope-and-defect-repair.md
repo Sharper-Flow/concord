@@ -4,7 +4,7 @@
 - **Date:** 2026-09-09
 - **Scope:** Concord workflow participation, outside project work, and defect repair
 - **Approval:** The operator approved this repository policy.
-- **Related:** CD-0089, CD-0102, CD-0104, and CD-0213
+- **Related:** CD-0089, CD-0104, CD-0213, and CD-0242
 - **Preserves:** Product law, repository review and merge evidence, worktree
   isolation, and host-owned roles
 
@@ -15,8 +15,8 @@ non-consent checks remain required.
 
 ## Context
 
-Concord coordinates explicitly managed development. Native Task authorization
-under CD-0102 applies to explicitly managed participation.
+Concord coordinates explicitly managed development. Native Task execution
+remains host-owned under CD-0242 D6.
 
 A defect in Concord workflow can also block normal recording or execution. A
 safe repository repair needs a route that does not invent workflow state while
@@ -48,7 +48,7 @@ required checks remain the review and merge evidence. Git branches and worktrees
 remain the implementation boundary.
 
 Host permissions, session identity, session directories, and managed
-participation remain host-owned under CD-0102 and CD-0104. A repository policy
+participation remain host-owned under CD-0104 and CD-0242 D6. A repository policy
 change does not change those host roles.
 
 ## Consequences

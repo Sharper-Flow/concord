@@ -142,17 +142,13 @@ CD-0222 makes Product law architecture-bound and primary:
 - every Product-changing work contract names one home Domain, all affected
   Domains, exact governing law revisions, authorized additions/modifications,
   and verification obligations;
-- overlapping affected Domains require a version-pinned resolution before both
-  items hold execution authority; dependency, blocking, and compatibility answers
-  are routine under CD-0013 D11, while merger and supersession require operator
-  approval only under CD-0243 D2-D7;
-- changing either work contract invalidates its prior overlap resolution; and
+- concurrent edits to the same law or Domain reconcile through Git, without a
+  shared-Domain execution gate or compatibility resolution (CD-0222 D6); and
 - the checks rerun transactionally at every authoritative consequential action.
 
-Exact law-write overlap is not the only trigger. Independently introduced law can
-contradict inside one Domain without sharing an ID, so same-Domain overlap still
-requires an explicit decision. Semantic similarity may suggest that review; it
-cannot author the decision.
+Independently introduced law can contradict inside one Domain without sharing
+an ID. The later-merging item integrates main and reassesses changed dependencies
+under CD-0222 D6-D7. Semantic similarity cannot author a law decision.
 
 The current-law view stays pruned structurally: one canonical Domain home per law,
 explicit supersession, no dangling relations, and superseded law outside the
@@ -176,7 +172,7 @@ shows the legislative moments explicitly.
 | Change validation detected spec conflicts | **Preserved as an outcome, redesigned structurally** through Git-derived law checks and typed refusals. |
 | Spec deltas modified or superseded accepted law | **Preserved as an outcome** through Git law deltas and revision identity, with approval following CD-0243 D2 and D4. |
 | Agreement/design checkpoints surfaced legislative choices | **Preserved as explicit decisions** with operator consent only under the six classes, without requiring one universal workflow shape. |
-| Cross-change architecture overlap was not authoritative | **Added by CD-0222** through Domain-bound contracts and version-pinned resolutions. |
+| Concurrent changes may affect the same architecture | **CD-0222 D6-D7** requires Git integration and dependency-specific revalidation, not an overlap gate. |
 
 Concord does not call, mirror, or dual-write predecessor runtime state. These rows
 record public lesson evidence only.
@@ -187,7 +183,7 @@ record public lesson evidence only.
 
 CD-0035 capture-time governing-requirement enforcement and CD-0036 breaking-law
 cutovers are implemented. CD-0222 is accepted constitutional law, but its Domain
-identity, architecture-bound contract, overlap-resolution,
+identity, architecture-bound contract,
 and read-surface mechanisms remain follow-up implementation work. Issue #192 does
 not claim those runtime outcomes are complete.
 
@@ -200,7 +196,7 @@ not claim those runtime outcomes are complete.
 | [`specs-as-laws.md`](./specs-as-laws.md) §2 | The guiding principle: specs are laws; law-change authority follows CD-0230 D4. |
 | [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | **Accepted CD-0012** — the counterpart direction. This document governs scope **contraction** under spec-law pressure; CD-0012 governs outcome **substitution and dilution**, reusing this document's three-option flow and audit shape. Nothing in this document is altered by it. |
 | [`decisions/CD-0036-breaking-law-cutovers.md`](./decisions/CD-0036-breaking-law-cutovers.md) | **Accepted CD-0036** — exact revision pins, compatible same-ID amendments, and digest-based staleness on law supersession (CD-0242 D7). |
-| [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | **Accepted CD-0222** — Domain-owned law, architecture-bound work contracts, concurrent-overlap resolution, and retained SQLite execution authority. CD-0213 places business grouping in Linear. |
+| [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | **Accepted CD-0222** — Domain-owned law, architecture-bound work contracts, Git reconciliation of concurrent changes, and retained SQLite execution authority. CD-0213 places business grouping in Linear. |
 
 ---
 

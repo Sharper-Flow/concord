@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureConcordAdapter } from "./concord"
-import { configureCoreBinary } from "./dispatch"
+import { configureCoreBinary } from "./core-runtime"
 import { configureHostLease } from "./host-lease"
 import { manifestDigest } from "./generated-contracts"
 import { armedClaimedWorktree, resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
@@ -125,7 +125,6 @@ afterEach(async () => {
 
 async function start(ctx = context()) {
   const result = await plugin.tool.concord_work_start.execute(args, ctx)
-  await plugin["tool.execute.after"]({ tool: "concord_work_start", sessionID, callID: "start-call", args }, result)
   return JSON.parse(result.output)
 }
 

@@ -63,6 +63,7 @@ func TestSupersessionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 		}
 	}
 	j := &candidateJourney{fixture: workContextFixture{store: s, workID: workID, owner: f.owner, operator: f.operator}, s: s, workID: workID, repo: f.repo, acceptor: f.owner}
+	reviewGateStartStep(t, s, workID, "execution", "start_execution", f.owner)
 	run := j.observeRun(t, "successor-proof")
 	j.bindVerification(t, run)
 	qAcceptCriterionReview(t, j.fixture, f.repo, run.OperationRef)
@@ -70,6 +71,7 @@ func TestSupersessionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 		t.Fatal(err)
 	}
 	run = j.observeRun(t, "successor-refine")
+	reviewGateStartStep(t, s, workID, "refine", "checkpoint_refine", f.owner)
 	j.bindVerification(t, run)
 	qAcceptCriterionReview(t, j.fixture, f.repo, run.OperationRef)
 	if err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "delivery:successor", "delivery_state": "asserted"}, f.owner); err != nil {

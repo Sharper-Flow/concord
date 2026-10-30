@@ -28,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:709102b0bc67e4c824fe646669b68e13964f7594d665f2c99e88a670af4179b1",
+  "sha256": "sha256:7dd830d690e5d41fa234b289d29760558026dded8d82299e7ff74535cc450bff",
   "status": "accepted",
   "summary": "Splices a mandatory alignment step into implementation and break-fix whose single advance action records the backlog search and its closed outcome in a dedicated alignment table, composed into the families' canonical source.",
   "tags": [

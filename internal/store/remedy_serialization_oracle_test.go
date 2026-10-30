@@ -84,32 +84,6 @@ func serializedRemedyDetail(t *testing.T, encoded []byte) string {
 	return remedy
 }
 
-func TestPendingWorkerLaunchRemedyVisible(t *testing.T) {
-	failure := store.PendingWorkerLaunchRefusalFixture(t)
-	if failure.Kind != store.KindOperationConflict {
-		t.Fatalf("pending launch refusal kind changed: %+v", failure)
-	}
-	encoded := serializeRemedyRefusal(t, failure, "operation_conflict")
-	var wire struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(encoded, &wire); err != nil {
-		t.Fatal(err)
-	}
-	message := wire.Error.Message
-	if !strings.Contains(message, "unresolved launch outcome") {
-		t.Fatalf("refusal does not state the launch safety cause: %s", encoded)
-	}
-	remedy := serializedRemedyDetail(t, encoded)
-	for _, want := range []string{"reconcile", "launch outcome", "another attempt"} {
-		if !strings.Contains(remedy, want) {
-			t.Fatalf("serialized pending launch remedy lost %q: %s", want, encoded)
-		}
-	}
-}
-
 func TestBootstrapOriginRemedyVisible(t *testing.T) {
 	failure := store.BootstrapOriginRefusalFixture(t)
 	if failure.Kind != store.KindInvalidOperation {

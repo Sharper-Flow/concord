@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import re
 import sys
 from pathlib import Path
@@ -18,7 +17,6 @@ SCHEMA_SOURCE = Path("internal/store/schema.go")
 STORE_SOURCE = Path("internal/store")
 GENERATED = "generated_work_sizes.go"
 PAYLOAD_SCHEMA = Path("contracts/agent-tool-surface-payloads.schema.json")
-PACKET_SCHEMA = Path("contracts/agent-lane-packet.schema.json")
 HOST_SURFACE = Path("contracts/host-tool-surface.v1.json")
 # A capture declares what the change touches; the model decides the size, so
 # no size_inputs object may carry a size an agent could propose.
@@ -96,23 +94,6 @@ def check_payload_schema(root: Path, declared: list[str], findings: list[str]) -
         if not isinstance(node, dict) or node.get("$ref") != "#/$defs/work_size_inputs":
             findings.append(f"schema-coverage: {operation}.size_inputs does not reference $defs/work_size_inputs")
     check_no_proposed_size(defs.get("work_size_inputs"), f"{PAYLOAD_SCHEMA}#/$defs/work_size_inputs", findings)
-    check_review_size_schema(root, defs, findings)
-
-
-def check_review_size_schema(root: Path, payload_defs: dict, findings: list[str]) -> None:
-    packet = load_json_finding(root, PACKET_SCHEMA, findings)
-    if not isinstance(packet, dict):
-        return
-    defs = packet.get("$defs", {})
-    reference = defs.get("lane_review_input", {}).get("properties", {}).get("size", {})
-    if reference.get("$ref") != "#/$defs/lane_work_size_summary":
-        findings.append("schema-coverage: lane_review_input.size does not reference $defs/lane_work_size_summary")
-    if defs.get("lane_work_size_class") != payload_defs.get("work_size_class"):
-        findings.append("schema-closure: lane_work_size_class differs from the canonical work_size_class")
-    expected = copy.deepcopy(payload_defs.get("work_size_summary", {}))
-    expected.get("properties", {})["model_size"] = {"$ref": "#/$defs/lane_work_size_class"}
-    if defs.get("lane_work_size_summary") != expected:
-        findings.append("schema-closure: lane_work_size_summary differs from the canonical work_size_summary")
 
 
 def check_host_surface(root: Path, findings: list[str]) -> None:

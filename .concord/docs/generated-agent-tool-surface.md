@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:b48ac34a31d495669124ec261b4956082a72d27851a28711b0b27bb96b2fdd0f`
-Payload schema digest: `sha256:6842d53ec25747c5d39f0f45c420ce6a488a297df31f03aad54e70a9ee0546fb`
+Manifest digest: `sha256:103c0e9f6ed835c5c02386d5c39a38ec11e7ea69d8c05b30b1822c021fbbc150`
+Payload schema digest: `sha256:d6aa13b05a115412ee729c3ab0313282f4b157e8885918d89f8514f29e3aed23`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -40,8 +40,6 @@ Envelope schema: `1.0`
 | `concord_work_transition.lifecycle` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.remove` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.workflow_action` | `mutation` | `—` | `work_transition` | `workflow_action` | `workflow_definition` |
-| `concord_work_transition.worker_reconcile` | `mutation` | `—` | `work_transition` | `recovery` | `always` |
-| `concord_work_transition.worker_abandon` | `mutation` | `—` | `work_transition` | `recovery` | `always` |
 | `concord_work_transition.worktree_claim` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.session_vacate` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.project_handoff_record` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |

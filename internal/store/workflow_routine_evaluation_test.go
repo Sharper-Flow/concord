@@ -8,18 +8,6 @@ import (
 	"time"
 )
 
-// The evaluation authority owner keeps independent evaluation and completion
-// recording separate. Under consequence_v1 there is no operator substitution
-// for verdicts, completion, or repair requests: the independent evaluator
-// invokes record_verdict under its own authenticated identity, the coordinator
-// completes without an operator actor, and a correction request is a repair
-// request, not an evaluation. Every retained gate — executor refusal, worker
-// refusal, evidence binding, model distinctness, operator-typed premise
-// confirmation — must hold. New-policy owners are exercised through the
-// synthetic definition value (fixture shape plus the discriminator); no
-// unreleased builtin is registered, so builtin-only end-to-end pins wait for
-// the promotion slice.
-
 // routinePolicyDefinition copies a registered fixture definition and declares
 // consequence_v1 on the copy. The registry keeps the legacy version; only the
 // pure and transactional owners under test see the declared policy.
@@ -101,7 +89,7 @@ func TestRoutineEvaluation(t *testing.T) {
 	t.Run("new policy refuses operator-substituted verdicts", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-verdict-substitution"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
+		s := seedDeliveredItemAtAcceptance(t, workID)
 		operator := operatorVerdictActor(t, workID)
 		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -120,7 +108,7 @@ func TestRoutineEvaluation(t *testing.T) {
 	t.Run("new policy refuses operator-substituted completion", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-completion-substitution"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
+		s := seedDeliveredItemAtAcceptance(t, workID)
 		_, operator, coordinator := seedRoutineActors(t, s, workID)
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
 		version := readWorkVersion(t, s, workID)
@@ -137,45 +125,6 @@ func TestRoutineEvaluation(t *testing.T) {
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "consequence_v1 takes no operator substitution") {
 			t.Fatalf("consequence_v1 completion with an operator actor returned %v, want the no-substitution refusal", err)
-		}
-	})
-
-	t.Run("worker authority refuses evaluation", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-new-worker-verdict"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		reviewer, _, _ := seedRoutineActors(t, s, workID)
-		reviewerRef := ownerRefForTest(t, reviewer)
-		lane := BuiltinLaneDefinitions()[0]
-		dispatch := workerDispatchEvent(workID, "routine-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:" + workID, "lane_actor_ref": reviewerRef})
-		dispatch.Actor = reviewerRef
-		dispatch.OccurredAt = time.Unix(9, 30).UTC()
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
-			t.Fatalf("seed worker dispatch: %v", err)
-		}
-		var authority WorkflowEvaluationAuthority
-		err := s.readSnapshot(context.Background(), func(q queryer) error {
-			var innerErr error
-			authority, innerErr = workflowEvaluationAuthority(context.Background(), q, workID, reviewerRef)
-			return innerErr
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if authority != WorkflowWorkerEvaluator {
-			t.Fatalf("dispatched reviewer authority = %q, want worker", authority)
-		}
-		version := readWorkVersion(t, s, workID)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		fields := map[string]json.RawMessage{"predicate_id": json.RawMessage(`"predicate:primary"`), "verdict_kind": json.RawMessage(`"ok"`), "evaluation_evidence": json.RawMessage(`["evidence:operator-verdict"]`)}
-		_, err = workflowRecordVerdictEvents(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: workID, OperationID: "routine-worker-" + workID}, reviewerRef, fields, "routine-worker-"+workID, version)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized {
-			t.Fatalf("worker-authority verdict returned %v, want the unauthorized refusal", err)
 		}
 	})
 
@@ -216,7 +165,7 @@ func TestRoutineEvaluation(t *testing.T) {
 	t.Run("unbound evidence refuses under new policy", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-unbound-evidence"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
+		s := seedDeliveredItemAtAcceptance(t, workID)
 		reviewer, _, _ := seedRoutineActors(t, s, workID)
 		reviewerRef := ownerRefForTest(t, reviewer)
 		version := readWorkVersion(t, s, workID)
@@ -232,47 +181,6 @@ func TestRoutineEvaluation(t *testing.T) {
 			t.Fatalf("unbound evaluation evidence returned %v, want the missing-evidence refusal", err)
 		}
 	})
-	t.Run("seam admits the executing coordinator under new policy", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-new-executing-completion"
-		s, owner := seedDeliveredItemAtAcceptance(t, workID)
-		seedRoutineActors(t, s, workID)
-		coordinatorRef := ownerRefForTest(t, owner)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		if err := workflowCompletionCallerAuthority(context.Background(), tx, workID, coordinatorRef); err != nil {
-			t.Fatalf("consequence_v1 completion authority refused the initiating coordinator: %v", err)
-		}
-	})
-
-	t.Run("seam refuses worker completion authority under new policy", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-new-worker-completion"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		_, _, coordinator := seedRoutineActors(t, s, workID)
-		coordinatorRef := ownerRefForTest(t, coordinator)
-		lane := BuiltinLaneDefinitions()[0]
-		dispatch := workerDispatchEvent(workID, "routine-completion-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:" + workID + "-completion", "lane_actor_ref": coordinatorRef})
-		dispatch.Actor = coordinatorRef
-		dispatch.OccurredAt = time.Unix(9, 45).UTC()
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
-			t.Fatalf("seed completion-worker dispatch: %v", err)
-		}
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		err = workflowCompletionCallerAuthority(context.Background(), tx, workID, coordinatorRef)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "a worker cannot accept results, associate criterion proof, or complete work") {
-			t.Fatalf("worker-authority completion returned %v, want the worker refusal", err)
-		}
-	})
-
 	t.Run("new policy keeps verdict gates for coordinator completion", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-completion-gates"

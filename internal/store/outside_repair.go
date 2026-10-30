@@ -248,9 +248,6 @@ func validateOutsideRepairFold(ctx context.Context, tx *sql.Tx, event Event, p w
 		if actorClass != string(ActorAgent) {
 			return workProjection{}, newFailure(KindUnauthorized, "outside_repair", "ordinary outside repair requires a recorded agent", false, "use the authenticated outside-repair boundary")
 		}
-		if err := workflowRequireMain(ctx, tx, event.SubjectID, event.Actor); err != nil {
-			return workProjection{}, err
-		}
 	}
 	work, err := readWork(ctx, tx, event.SubjectID)
 	if err != nil {
@@ -392,24 +389,24 @@ func requireNoOutsideRepairTx(ctx context.Context, q queryer, workID, op string)
 	return nil
 }
 
-// An outside hold cannot strand a worker or an unfinished operation. Failed
-// and completed attempts are terminal evidence, not execution blockers.
+// An outside hold cannot strand an unfinished action or durable operation.
 func requireOutsideRepairExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID string) error {
 	stopped, err := workExecutionStoppedTx(ctx, tx, workID, "")
 	if err != nil {
 		return err
 	}
-	if stopped {
-		_, err = pendingOperationForWork(ctx, tx, workID)
-		var failure *Failure
-		if failureAs(err, &failure) && failure.Kind == KindProjectionNotFound {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
+	if !stopped {
+		return newFailure(KindNotTerminal, "outside_repair", "work has an unfinished workflow action", false, "settle the existing execution through its declared terminal route before outside repair")
 	}
-	return newFailure(KindNotTerminal, "outside_repair", "work has an outstanding worker attempt or workflow operation", false, "settle the existing execution through its declared terminal route before outside repair")
+	_, err = pendingOperationForWork(ctx, tx, workID)
+	var failure *Failure
+	if failureAs(err, &failure) && failure.Kind == KindProjectionNotFound {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return newFailure(KindNotTerminal, "outside_repair", "work has an outstanding workflow operation", false, "settle the existing execution through its declared terminal route before outside repair")
 }
 
 func newOutsideRepairRouteFailure(op, detail string) *Failure {

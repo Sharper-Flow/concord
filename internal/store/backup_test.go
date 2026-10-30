@@ -408,26 +408,16 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if landing.AlreadyRecorded || landing.ProjectID != "project" {
 		t.Fatalf("landing=%+v, want the evidence session freshly recorded in project", landing)
 	}
-	// One completed retained worker report: the dispatch and its completion
-	// report are retained events, folded into the worker attempt row.
-	lane := BuiltinLaneDefinitions()[0]
-	attemptID := "attempt:evidence-retained-report"
-	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "evidence-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("f", 64)}),
-	}}}); err != nil {
+	// This trusted state fixture tests byte preservation, not native execution.
+	report := reviewBlockFixture()
+	report.InputCandidate.ProjectID, report.OutputCandidate.ProjectID = "project", "project"
+	state := WorkflowReviewState{Candidate: &report.OutputCandidate, Findings: report.Findings,
+		Accepted: &WorkflowAcceptedReview{ReportRef: "evidence-recorded-review", ReportDigest: reviewDigest(report), ActorRef: ownerRef, Report: *report}}
+	memberMigrationExec(t, s.db, `INSERT INTO write_guard(active) VALUES(1)`)
+	if err := writeWorkflowReviewFacts(ctx, s.db, workID, state); err != nil {
 		t.Fatal(err)
 	}
-	completion := jobBoundCompletionEvent(workID, "evidence-completed", attemptID, lane, time.Unix(31, 0).UTC(), nil, landedDirectory)
-	var report WorkerCompletedPayload
-	if err := json.Unmarshal(completion.Payload, &report); err != nil || len(report.Evidence) == 0 {
-		t.Fatalf("retained completion must contain reported evidence: %+v %v", report, err)
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completion}}); err != nil {
-		t.Fatal(err)
-	}
+	memberMigrationExec(t, s.db, `DELETE FROM write_guard`)
 
 	// The work-context selection: the context consumer runs the current
 	// research-enabled workflow.break_fix head, and the selection is authored
@@ -484,12 +474,12 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	}
 	if _, err := applyWorkflowActionRawTx(ctx, actionTx, newWriteScope(actionTx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: contextWork, ExpectedVersion: contextActionVersion, ActionID: "record_work_context",
-		Payload: json.RawMessage(mustJSONValue(map[string]any{
+		Payload: mustJSONValue(map[string]any{
 			"required_reading":      []map[string]any{},
 			"finding_refs":          []string{},
 			"context_findings":      []map[string]any{},
 			"research_finding_refs": []map[string]any{researchSelectionEntry(pack.PackID, 1, "f1", workContextTestChild)},
-		})),
+		}),
 		ResearchBindings:     []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true}},
 		Actor:                contextOwner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64),
@@ -590,7 +580,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		{"workflow_instances", `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,completed_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`},
 		{"workflow_contracts", `SELECT work_id,contract_version,premise,spec_mandate,law_boundary_version,definition_ref,definition_digest FROM workflow_contracts ORDER BY work_id,contract_version`},
 		{"law_pins", `SELECT work_id,contract_version,law_id,content_hash FROM workflow_contract_law_revisions ORDER BY work_id,law_id`},
-		{"worker_attempts", `SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,dispatch_event_id,dispatch_payload,terminal_event_id,terminal_kind,terminal_payload,terminal_occurred_at FROM worker_attempts ORDER BY attempt_id`},
+		{"workflow_review_state", `SELECT work_id,state FROM workflow_review_state ORDER BY work_id`},
 		{"linear_issue_links", `SELECT work_id,remote_issue_uuid,human_key,url,created_at,updated_at FROM linear_issue_links ORDER BY work_id`},
 		{"worktree_entries", `SELECT set_id,project_id,claim_op_id,state FROM worktree_entries ORDER BY set_id,project_id,claim_op_id`},
 		{"worktree_occupancy", `SELECT worktree_id,session_ref,recorded_at,has_process_identity FROM worktree_occupancy ORDER BY session_ref`},
@@ -628,8 +618,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if wantLawPin := want["law_pins"][0]; wantLawPin != workID+"\x1f1\x1fspec:one\x1fsha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("law pin = %q, want the pinned spec:one revision", wantLawPin)
 	}
-	if len(want["worker_attempts"]) != 1 || !strings.Contains(want["worker_attempts"][0], "\x1fcompleted\x1f") {
-		t.Fatalf("worker attempts = %v, want the one completed retained report", want["worker_attempts"])
+	if len(want["workflow_review_state"]) != 1 || !strings.Contains(want["workflow_review_state"][0], `"report_ref":"evidence-recorded-review"`) {
+		t.Fatalf("Review state = %v, want the one exact recorded report", want["workflow_review_state"])
 	}
 	if len(want["linear_issue_links"]) != 1 || !strings.HasPrefix(want["linear_issue_links"][0], workID+"\x1fuuid-evidence-1\x1fCON-9001\x1fhttps://linear.app/example/issue/CON-9001\x1f") {
 		t.Fatalf("linear identities = %v, want the recorded CON-9001 identity", want["linear_issue_links"])

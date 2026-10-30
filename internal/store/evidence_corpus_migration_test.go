@@ -55,18 +55,12 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 			}
 		}
 	}
-	for i := range definition.StepGraph.Steps {
-		if definition.StepGraph.Steps[i].ID == "verify" && !slices.Contains(definition.StepGraph.Steps[i].Actions, "dispatch_worker") {
-			definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, "dispatch_worker")
-		}
-	}
 	registered, err := BuiltinWorkflowRegistry().Register(definition)
 	if err != nil {
 		t.Fatal(err)
 	}
 	base := seedWorkflowReturnRouteFixtureWithDefinition(t, work, registered, "repair", []string{}, []string{})
 	owner, _ := WorkflowActorRef(base.owner)
-	worker, _ := WorkflowActorRef(base.operator)
 	seedWorkflowAuthority(t, base.store, "evidence-corpus-producer", work, "principal/corpus", "request/corpus", []string{"evidence:corpus"})
 	version := readWorkVersion(t, base.store, work)
 	c := historicalFactCorpus{}
@@ -102,7 +96,7 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 		}
 		return add(kind, p, true)
 	}
-	action(WorkflowActionStarted, "verify", "dispatch_worker", 1, nil)
+	action(WorkflowActionStarted, "verify", "checkpoint_context", 1, nil)
 	action(WorkflowActionStarted, "verify", "checkpoint_context", 2, nil)
 	action(WorkflowActionFailed, "verify", "", 2, nil)
 	action(WorkflowActionFailed, "verify", "", 2, nil)
@@ -140,9 +134,6 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 		"content_hash": testManifestDigest, "reason": "Publish the verified work note", "expected_version": version,
 	}, false)
 	c.events[len(c.events)-1].PayloadVersion = 3
-	for range 2 {
-		add(WorkerDispatched, map[string]any{"lane_actor_ref": worker}, false)
-	}
 	completed := func() {
 		add(WorkflowCompleted, map[string]any{"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": owner, "premise_confirmed": false, "evidence_count": 1, "changed_refs_digest": testManifestDigest, "impact_verdict": "non-breaking"}, true)
 	}
@@ -163,7 +154,7 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 	correct(last)
 	c.parents = func(t *testing.T, s *Store, guard string) {
 		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates", "durable_operations"}, map[string]map[string]string{
-			"workflow_instances": {"definition_version": "26", "current_step": "'verify'", "completion_payload": "NULL", "completion_occurred_at": "NULL", "unhealthy_verdict_seq": "0"},
+			"workflow_instances": {"definition_version": "26", "current_step": "'verify'", "completion_payload": "NULL", "completion_occurred_at": "NULL", "unhealthy_verdict_seq": "0", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"},
 			"workflow_contracts": {"definition_version": "26", "supersession_seq": "0", "last_healthy_seq": "0"},
 			"durable_operations": {"workflow_type_version": "26"},
 		}, guard)
@@ -194,12 +185,6 @@ DELETE FROM ` + guard); err != nil {
 			return foldWorkflowEvidenceBound(ctx, tx, e)
 		case "work.observation_recorded":
 			return foldWorkObservationRecorded(ctx, tx, e)
-		case WorkerDispatched:
-			var p WorkerDispatchedPayload
-			if err := json.Unmarshal(e.Payload, &p); err != nil {
-				return err
-			}
-			return pinWorkerDispatchedLaneActor(ctx, tx, e, p)
 		case WorkflowCompleted:
 			return foldWorkflowCompleted(ctx, tx, e, nil)
 		case WorkflowDeliveryCorrected:
@@ -252,17 +237,22 @@ func assertEvidenceCorpus142(t *testing.T) {
 	live := supported.current(t)
 	old := c.prefix(t, 141)
 	queries := []string{
-		`SELECT json_array(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,json_remove(latest_start_payload,'$.expected_version','$.resulting_version'),latest_dispatch_start_seq,latest_dispatch_start_event_id,json_remove(latest_dispatch_start_payload,'$.expected_version','$.resulting_version')) FROM workflow_step_epochs ORDER BY work_id,step_id`,
+		`SELECT json_array(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,json_remove(latest_start_payload,'$.expected_version','$.resulting_version')) FROM workflow_step_epochs ORDER BY work_id,step_id`,
 		`SELECT json_array(work_id,action_id,exit_seq) FROM workflow_phase_exits WHERE action_id NOT IN ('request_correction','record_delivery') ORDER BY work_id,action_id`,
 		`SELECT json_array(work_id,step_id,action_id,production_seq) FROM workflow_artifact_actions WHERE step_id='verify' ORDER BY work_id,step_id,action_id`,
 		`SELECT json_array(work_id,contract_version,supersession_seq) FROM workflow_contracts ORDER BY work_id,contract_version`,
 		`SELECT json_array(work_id,binding_seq,binding_id,actor,json_remove(payload,'$.expected_version','$.resulting_version')) FROM workflow_evidence_bindings ORDER BY work_id,binding_seq`,
-		`SELECT json_array(actor_ref,first_dispatch_seq) FROM workflow_worker_actors ORDER BY actor_ref`,
 		`SELECT json_array(observation_id,recorded_seq) FROM work_observations ORDER BY observation_id`,
 	}
 	want := workerFactsQueryRows(t, live, queries)
 	advanceHistoricalPrefix(t, old.db, 152)
 	assertEvidenceLegacySelections(t, old, c.events)
+	// This corpus has no dispatch start. Its historical dispatch frontier stays
+	// at the declared defaults, before native Task retirement removes the columns.
+	var nondefaultDispatches int
+	if err := old.db.QueryRow(`SELECT count(*) FROM workflow_step_epochs WHERE latest_dispatch_start_seq<>0 OR latest_dispatch_start_event_id<>'' OR json_remove(latest_dispatch_start_payload,'$.expected_version','$.resulting_version')<>'{}'`).Scan(&nondefaultDispatches); err != nil || nondefaultDispatches != 0 {
+		t.Fatalf("historical dispatch frontiers changed: nondefault=%d err=%v", nondefaultDispatches, err)
+	}
 	if err := Migrate(t.Context(), old.db); err != nil {
 		t.Fatal(err)
 	}
@@ -280,6 +270,37 @@ func assertEvidenceCorpus142(t *testing.T) {
 func TestEvidenceExplicitCorpusMigration142(t *testing.T) {
 	assertEvidenceCorpus142(t)
 	assertEvidenceSupersession142(t)
+	t.Run("correction before production", assertEvidenceCorrection142)
+}
+
+func assertEvidenceCorrection142(t *testing.T) {
+	t.Helper()
+	c := evidenceExplicitCorpus(t)
+	for i, e := range c.events {
+		var fields workflowCorrectionCompletionFields
+		if e.Kind != WorkflowActionCompleted {
+			continue
+		}
+		if err := json.Unmarshal(e.Payload, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if fields.ActionID != "request_correction" {
+			continue
+		}
+		c.events = c.events[:i+1]
+		old := c.prefix(t, 141)
+		advanceHistoricalPrefix(t, old.db, 142)
+		var raw string
+		if err := old.db.QueryRow(`SELECT state FROM workflow_correction_state WHERE work_id='evidence-corpus'`).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		want := workflowJSON(correctionStateFact{Records: []correctionRecordFact{{Seq: int64(i + 1), SourceID: e.EventID, Fields: fields}}})
+		if raw != want {
+			t.Fatalf("migration 142 lost the unconsumed correction: got %s want %s", raw, want)
+		}
+		return
+	}
+	t.Fatal("corpus has no correction before production")
 }
 
 func assertEvidenceSupersession142(t *testing.T) {
@@ -298,7 +319,7 @@ func assertEvidenceSupersession142(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := historicalFactCorpus{parents: func(t *testing.T, s *Store, guard string) {
-		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"definition_version": "26"}, "workflow_contracts": {"definition_version": "26"}}, guard)
+		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"definition_version": "26", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"}, "workflow_contracts": {"definition_version": "26"}}, guard)
 		if guard == "write_guard" {
 			// This current corpus starts without a law home. Capture that
 			// explicit state before its first effect; historical prefixes
@@ -387,7 +408,8 @@ func assertEvidenceLegacySelections(t *testing.T, s *Store, events []Event) {
 	}
 	var lastVerdict, lastCompletion, lastAssertion, lastCorrection Event
 	var verdictSeq, unhealthySeq, correctionSeq, priorCorrection, completionSeq, assertionSeq int64
-	var unboundAcceptance int64
+	var correctionBoundary int64
+	var correctionRecords []correctionRecordFact
 	type production struct {
 		step, action   string
 		seq, atVerdict int64
@@ -410,18 +432,22 @@ func assertEvidenceLegacySelections(t *testing.T, s *Store, events []Event) {
 			action, _ := p["action_id"].(string)
 			step, _ := p["step_id"].(string)
 			steps[step] = seq
-			if action == "accept_worker_result" && p["worker_job"] == nil {
-				unboundAcceptance = seq
-			}
 			if action == "accept_worker_result" && p["review_advance_held"] == true {
 				continue
 			}
 			if action == "request_correction" {
 				correctionSeq = seq
 				correctionEvent = e
+				var fields workflowCorrectionCompletionFields
+				if err := json.Unmarshal(e.Payload, &fields); err != nil {
+					t.Fatal(err)
+				}
+				correctionBoundary = 0
+				correctionRecords = []correctionRecordFact{{Seq: seq, SourceID: e.EventID, Fields: fields}}
 			}
 			exits[action] = seq
 			if action == "record_finding" || action == "record_decision" || action == "record_delivery" {
+				correctionBoundary, correctionRecords = seq, nil
 				key := step + ":" + action
 				previous := artifacts[key]
 				previous.step, previous.action, previous.seq = step, action, seq
@@ -470,10 +496,7 @@ func assertEvidenceLegacySelections(t *testing.T, s *Store, events []Event) {
 	for step, seq := range steps {
 		row(`SELECT json_array(completion_seq) FROM workflow_step_completions WHERE work_id='evidence-corpus' AND step_id=?`, []any{seq}, step)
 	}
-	var fields workflowCorrectionCompletionFields
-	if err := json.Unmarshal(correctionEvent.Payload, &fields); err != nil {
-		t.Fatal(err)
-	}
-	wantCorrection := correctionStateFact{Boundary: unboundAcceptance, Unresolved: map[string]bool{}, Records: []correctionRecordFact{{Seq: correctionSeq, SourceID: correctionEvent.EventID, Fields: fields}}, Repairs: map[string]checksRepairFact{}}
+	wantCorrection := correctionStateFact{Boundary: correctionBoundary, Records: correctionRecords}
 	row(`SELECT json_array(state) FROM workflow_correction_state WHERE work_id='evidence-corpus'`, []any{string(mustJSONValue(wantCorrection))})
+	assertHistoricalReceipts(t, s.db, []histEventRow{{Seq: correctionSeq, EventID: correctionEvent.EventID, Kind: correctionEvent.Kind, SubjectType: string(correctionEvent.SubjectType), SubjectID: correctionEvent.SubjectID, Actor: correctionEvent.Actor, Version: correctionEvent.PayloadVersion, Payload: string(correctionEvent.Payload)}})
 }

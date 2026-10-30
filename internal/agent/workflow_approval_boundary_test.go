@@ -200,7 +200,6 @@ func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 		ActiveContractVersions: []int64{1, 2},
 		DecisionDomainsPresent: true,
 		DecisionDomains:        []string{"product"},
-		EvaluatorAuthority:     store.WorkflowIndependentEvaluator,
 		Policy:                 store.WorkflowApprovalPolicyResult{Policy: store.WorkflowApprovalPolicyConsequenceV1, Class: store.WorkflowApprovalClassRoutine, Consent: store.WorkflowConsentNone, Reason: "routine"},
 	}
 	if workflowApprovalBoundaryChanged(base, base) {
@@ -227,7 +226,6 @@ func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 		{"active contract versions", func(s *store.WorkflowApprovalBoundaryState) { s.ActiveContractVersions = []int64{1, 2, 3} }},
 		{"decision-domain presence", func(s *store.WorkflowApprovalBoundaryState) { s.DecisionDomainsPresent = false }},
 		{"decision domains", func(s *store.WorkflowApprovalBoundaryState) { s.DecisionDomains = []string{"preference"} }},
-		{"evaluator authority", func(s *store.WorkflowApprovalBoundaryState) { s.EvaluatorAuthority = store.WorkflowOperatorRequired }},
 		{"classification", func(s *store.WorkflowApprovalBoundaryState) { s.Policy.Consent = store.WorkflowConsentRequired }},
 	} {
 		t.Run(vector.name, func(t *testing.T) {

@@ -3,8 +3,7 @@
     "agent-adapter",
     "agent-call-boundary",
     "agent-contract",
-    "agent-evolution",
-    "worker-lanes"
+    "agent-evolution"
   ],
   "authority": {
     "contract_version": 1,

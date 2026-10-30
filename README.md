@@ -76,16 +76,17 @@ Every change progresses through five deterministic enforcement stages:
    - *Why*: Prevents changes from bleeding across packages or breaking trunk.
    - *How*: Concord boots each task in an isolated Git worktree pinned to an
      approved path scope. Operations outside the assigned paths are refused.
-3. **Collect cryptographic evidence.**
-   - *Why*: Guarantees that claimed results actually ran.
-   - *How*: Dispatched tools produce Ed25519-signed reports bound to execution
-     attempt nonces, command exit codes, and diff digests. The engine rejects
-     replayed or tampered evidence.
-4. **Enforce independent review.**
-   - *Why*: Eliminates author self-approval.
-   - *How*: Distinct worker lanes (`concord-review`, `concord-verify`) inspect
-     candidate diffs in clean environments, evaluating results against the
-     original predicates before work can leave the execution stage.
+3. **Capture verification evidence.**
+   - *Why*: A claimed result is not proof that a check ran.
+   - *How*: Native verification retains producer receipts bound to the prepared
+     recipe, environment, and exact candidate. The workflow checks those receipts
+     separately from the coordinator's acceptance verdict.
+4. **Require independent review.**
+   - *Why*: The author must not approve their own work.
+   - *How*: The coordinator obtains independent review through the host's native
+     Task tool and records its typed outcome against the current candidate.
+     Concord checks the recorded subject and findings, not which subagent
+     produced the review. The coordinator owns that independence claim.
 5. **Gate terminal transitions with operator approval.**
    - *Why*: Keeps the operator in control of consequential decisions.
    - *How*: When an agent requests a `completed` transition, Concord validates
@@ -116,13 +117,11 @@ bin/oc-test targeted -- go test ./internal/agent \
 ### Authority enforced outside the prompt
 
 Registered-client policies restrict operations by capability, Product, Project,
-and agent scope. Worker reports require Ed25519 signatures bound to the specific
-attempt; timestamp and nonce checks reject expired or replayed assertions.
-Authenticating a worker report does not grant that worker permission to accept
-its own result.
+and agent scope. Workflow gates check current subjects, evidence, and approval
+boundaries. Native Task execution remains host-owned; Concord does not attest
+which subagent produced a recorded review.
 
-Inspect the [authorization checks](internal/agent/authority.go),
-[signed-evidence validation](internal/agent/worker_evidence.go), and
+Inspect the [authorization checks](internal/agent/authority.go) and
 [authority refusal tests](internal/agent/authority_refusal_kind_test.go).
 
 ### Current-state authority and explicit durability
@@ -160,26 +159,20 @@ across every transaction phase during install, upgrade, and uninstall. The
 
 ## Batteries included
 
-Concord ships with primary agent profiles, specialized worker lanes, and
+Concord ships with primary agent profiles, read-only utilities, and
 portable skills ready for OpenCode out of the box.
 
-### Agent profiles and worker lanes
+### Agent profiles and utilities
 
 - **Primary roles**: `Concord` coordinates work with the operator; `Concord-RTE`
   sequences multi-session dependencies; `Concord-Planner` structures requirements
   and planning intake.
-- **Implementation and review**: `concord-implement` executes changes in
-  isolated worktrees within locked scope; `concord-review` performs independent
-  reviews against approved acceptance criteria.
-- **Verification and research**: `concord-verify` runs deterministic
-  verification gates; `concord-research` investigates questions and records
-  structured findings; `concord-design` handles scoped visual UI/UX changes.
 - **Read-only utilities**: `concord-explore` analyzes repository structure;
-  `concord-advisor` provides unprompted second opinions on architectural
-  questions.
+  `concord-lookup` investigates external sources; `concord-advisor` provides
+  independent second opinions on bounded problems.
 
-Worker lane definitions embed their instructions directly, so execution integrity
-never depends on an agent remembering to load an optional skill.
+The host's native Task tool owns delegation. Concord neither launches subagents
+nor wraps their prompts or results.
 
 ### Portable skills and methods
 
@@ -220,11 +213,11 @@ Concord separates responsibilities across three focused layers:
   - *Why*: Keeps external tracker state from polluting local runtime invariants while allowing operators to manage milestones in their tool of choice.
   - *How*: Agents read and write Linear through the Linear MCP server. Concord records at most one issue key and URL per work item; the binary makes no Linear API call and holds no Linear credential.
 
-The trust boundary is the local workstation: the operating system user account, the OpenCode process, the adapter, and the host credential service. Concord does not defend against arbitrary code already running under that account. See the [transport contract](.concord/docs/agent-adapter-transport-contract.md#21-client-registration-and-key-storage), [core architecture](.concord/docs/core-architecture.md), and [managed development authority](.concord/docs/managed-development-authority.md).
+The trust boundary is the local workstation: the operating system user account, the OpenCode process, and the adapter. Concord does not defend against arbitrary code already running under that account. See the [transport contract](.concord/docs/agent-adapter-transport-contract.md), [core architecture](.concord/docs/core-architecture.md), and [managed development authority](.concord/docs/managed-development-authority.md).
 
 ### Specialized graphs over monolithic DAGs
 
-Complex agent workflows cannot fit into a single directed acyclic graph (DAG) without conflating scheduling, execution recovery, and architectural authority. Concord isolates five specialized graphs:
+Complex agent workflows cannot fit into a single directed acyclic graph (DAG) without conflating scheduling, execution recovery, and architectural authority. Concord isolates four specialized graphs:
 
 1. **Task coordination graph (`blocks`, `depends_on`)**
    - *Why*: Manages inter-task dependencies and parallel execution queues.
@@ -232,13 +225,10 @@ Complex agent workflows cannot fit into a single directed acyclic graph (DAG) wi
 2. **State execution graph (Workflow state machines)**
    - *Why*: Real engineering requires retries, rollbacks, and recovery paths that break strict DAG acyclicity.
    - *How*: Workflow definitions link execution stages through directed graphs with explicit cycle validation for approved retry and premise-recovery routes. Inspect the [graph validator](internal/store/workflow_registry.go) and [recovery routes](internal/store/workflow_recovery_routes.go).
-3. **Worker dispatch graph (Prerequisites)**
-   - *Why*: Prevents a worker from launching before prior stages produce valid inputs.
-   - *How*: Prerequisites pin specific job revisions and output digests within a work item. [Readiness checks](internal/store/worker_jobs.go) verify dependencies before a worker receives an execution packet.
-4. **Architectural authority graph (Domains and specifications)**
+3. **Architectural authority graph (Domains and specifications)**
    - *Why*: Tracks how specifications and codebases relate across multi-repository projects.
    - *How*: Law relations model refinement, supersession, and conflict across specifications. Domain relations declare boundary dependencies, shared contracts, and replacements. Inspect the [knowledge model](internal/store/knowledge_manifest.go) and [law validation](internal/store/law_boundary.go).
-5. **Provenance graph (Evidence bindings)**
+4. **Provenance graph (Evidence bindings)**
    - *Why*: Records who produced what without prematurely declaring work accepted.
    - *How*: [Evidence bindings](internal/store/workflow.go) tie immutable artifacts to specific producers, run timestamps, and watermark digests. Gathering evidence and evaluating acceptance remain decoupled operations.
 

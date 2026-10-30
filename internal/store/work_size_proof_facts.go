@@ -37,28 +37,22 @@ func writeWorkSizeProofFacts(ctx context.Context, q migrationRunner, workID stri
 }
 
 // Called only after admission, on completed actions and approved/superseded
-// contracts. The terminal owner is immutable after completion, so its exact
-// report and sequence are the same report the admitted acceptance selected.
+// contracts. The completed action carries the exact recorded Review.
 func advanceWorkSizeProofFactsTx(ctx context.Context, tx *sql.Tx, event Event) error {
-	actionID, attemptID := "", ""
+	actionID := ""
 	review := false
 	switch event.Kind {
 	case WorkflowContractApproved, WorkflowContractSuperseded:
 	case WorkflowActionCompleted:
 		var action workflowActionCompletedPayload
 		if err := json.Unmarshal(event.Payload, &action); err != nil {
-			return err
+			return wrapFailure(KindInvariantViolation, "work_size", "a stored workflow action completion is malformed", false, "restore a verified backup into a new path with concord restore, then swap", err)
 		}
-		actionID, attemptID = action.ActionID, action.WorkerAttemptID
+		actionID = action.ActionID
 		switch actionID {
 		case "checkpoint_refine":
-		case "accept_worker_evidence", "accept_worker_result":
-			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND attempt_id=? AND capability_class='review' AND lifecycle_state='completed')`, event.SubjectID, attemptID).Scan(&review); err != nil {
-				return err
-			}
-			if !review {
-				return nil
-			}
+		case "record_review":
+			review = action.Review != nil
 		default:
 			return nil
 		}
@@ -70,7 +64,7 @@ func advanceWorkSizeProofFactsTx(ctx context.Context, tx *sql.Tx, event Event) e
 		return err
 	}
 	if err := advanceWorkSizeProofWindow(&state, event.Kind, actionID, event.EventID, review, func() (bool, error) {
-		return workSizeReviewFindsInScopeTx(ctx, tx, event.SubjectID, attemptID, event.Seq)
+		return workSizeReviewFindsInScope(string(event.Payload), event.Seq)
 	}); err != nil {
 		return err
 	}
@@ -83,7 +77,7 @@ func advanceWorkSizeProofWindow(state *workSizeProofFacts, kind, actionID, event
 		state.Accepted, state.Refined = false, false
 	case actionID == "checkpoint_refine":
 		state.Refined = state.Accepted
-	case review && (actionID == "accept_worker_evidence" || actionID == "accept_worker_result"):
+	case review && actionID == "record_review":
 		if state.Refined {
 			found, err := qualifies()
 			if err != nil {
@@ -140,8 +134,7 @@ func backfillWorkSizeProofWindow(ctx context.Context, q migrationRunner, workID 
 	}
 	rows, err := q.QueryContext(ctx, `SELECT e.seq,e.event_id,e.kind,
 		coalesce(json_extract(e.payload,'$.action_id'),''),coalesce(json_extract(e.payload,'$.worker_attempt_id'),''),
-		EXISTS(SELECT 1 FROM worker_attempts a WHERE a.work_id=e.subject_id AND a.attempt_id=json_extract(e.payload,'$.worker_attempt_id')
-			AND a.capability_class='review' AND a.lifecycle_state='completed')
+		(e.kind='workflow.action_completed' AND json_extract(e.payload,'$.review') IS NOT NULL)
 		FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=? AND e.seq>?
 		AND e.kind IN (?,?,?) ORDER BY e.seq`, workID, boundary, WorkflowActionCompleted, WorkflowContractApproved, WorkflowContractSuperseded)
 	if err != nil {
@@ -170,16 +163,31 @@ func backfillWorkSizeProofWindow(ctx context.Context, q migrationRunner, workID 
 	}
 	var state workSizeProofFacts
 	for _, e := range effects {
-		if e.kind == WorkflowActionCompleted && e.action != "checkpoint_refine" && !(e.review && (e.action == "accept_worker_evidence" || e.action == "accept_worker_result")) {
+		if e.action == "accept_worker_evidence" || e.action == "accept_worker_result" {
+			var terminalSeq int64
+			var raw string
+			err := q.QueryRowContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind='worker.completed' AND json_extract(payload,'$.attempt_id')=? AND seq<? AND json_extract(payload,'$.review') IS NOT NULL ORDER BY seq DESC LIMIT 1`, workID, e.attempt, e.seq).Scan(&terminalSeq, &raw)
+			if err == sql.ErrNoRows {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			e.action, e.review = "record_review", true
+			if err := advanceWorkSizeProofWindow(&state, e.kind, e.action, e.id, true, func() (bool, error) { return workSizeReviewFindsInScope(raw, terminalSeq) }); err != nil {
+				return err
+			}
+			continue
+		}
+		if e.kind == WorkflowActionCompleted && e.action != "checkpoint_refine" && !(e.review && e.action == "record_review") {
 			continue
 		}
 		if err := advanceWorkSizeProofWindow(&state, e.kind, e.action, e.id, e.review, func() (bool, error) {
-			var terminalSeq int64
 			var raw string
-			if err := q.QueryRowContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? AND seq<? ORDER BY seq DESC LIMIT 1`, workID, WorkerCompleted, e.attempt, e.seq).Scan(&terminalSeq, &raw); err != nil {
+			if err := q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE seq=?`, e.seq).Scan(&raw); err != nil {
 				return false, err
 			}
-			return workSizeReviewFindsInScope(raw, terminalSeq)
+			return workSizeReviewFindsInScope(raw, e.seq)
 		}); err != nil {
 			return err
 		}

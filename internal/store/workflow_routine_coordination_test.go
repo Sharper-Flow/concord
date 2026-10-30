@@ -150,40 +150,6 @@ func unsignedDeliveryCorrectionRequest(t *testing.T, s *Store, workID string, ve
 	return request
 }
 
-// seedRecordedWorkerLaneActor records one lane workflow actor and its
-// event-owned dispatch on the completed work, so the correction actor check
-// can reject the recorded worker-lane identity the dispatch pinned. It
-// returns the lane actor ref and the work version after the actor event.
-func seedRecordedWorkerLaneActor(t *testing.T, s *Store, workID string, version int64) (string, int64) {
-	t.Helper()
-	lane := BuiltinLaneDefinitions()[0]
-	laneActor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/lane:" + lane.ID, SessionRef: "session/" + workID + "-lane", ActorClass: ActorAgent}
-	laneRef, err := WorkflowActorRef(laneActor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	actorEvent := workflowEvent("lane-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"actor_ref": laneRef, "principal_ref": laneActor.PrincipalRef, "client_ref": laneActor.ClientRef,
-		"agent_ref": laneActor.AgentRef, "session_ref": laneActor.SessionRef, "actor_class": "agent",
-	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{actorEvent}, ExpectedVersions: workVersion(workID, version)}); err != nil {
-		t.Fatal(err)
-	}
-	dispatch := Event{
-		EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(50, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(map[string]any{
-			"attempt_id": "attempt:" + workID + "-lane", "lane_id": lane.ID, "lane_digest": lane.Digest,
-			"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
-			"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
-		}),
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
-		t.Fatalf("record the dispatched lane: %v", err)
-	}
-	return laneRef, version + 1
-}
-
 func TestRoutineCoordination(t *testing.T) {
 	t.Parallel()
 
@@ -581,18 +547,6 @@ func TestRoutineCoordination(t *testing.T) {
 			failure := routineFailure(t, err)
 			if failure.Kind != KindUnauthorized {
 				t.Fatalf("v2 correction attributed to an operator substitute error = %v, want unauthorized", err)
-			}
-		})
-		t.Run("a v2 correction rejects a recorded worker-lane actor", func(t *testing.T) {
-			t.Parallel()
-			const workID = "routine-coord-correction-v2-lane"
-			s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
-			laneRef, currentVersion := seedRecordedWorkerLaneActor(t, s, workID, version)
-			event := routineCorrectionEvent("routine-correction-v2-lane", workID, laneRef, currentVersion, targetEventID, targetSeq, targetPayloadVersion, nil)
-			err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, currentVersion)})
-			failure := routineFailure(t, err)
-			if failure.Kind != KindUnauthorized {
-				t.Fatalf("v2 correction attributed to a recorded worker-lane actor error = %v, want unauthorized", err)
 			}
 		})
 	})

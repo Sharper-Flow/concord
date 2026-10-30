@@ -5,8 +5,7 @@
   "date": "2026-09-27T00:00:00Z",
   "evidence": [
     "contracts/concord-knowledge-index.v1.schema.json",
-    "internal/store/workflow_law_revision.go",
-    "adapter/opencode/packet.ts"
+    "internal/store/workflow_law_revision.go"
   ],
   "home_domain_id": "product-memory",
   "id": "CD-0180",
@@ -25,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:502f139f4fffb2ba8110958fba2fd8f280a9bbfe051a92405bf5a2b59d31e5c3",
+  "sha256": "sha256:e3c384449ca90cfb47c25af7a6d89f3c8d04682666bda71ef043e18f8e757d19",
   "status": "accepted",
   "summary": "Spec acceptance criteria resolve through a third binding form, a work-item predicate reference of work_id plus predicate_id that the closed schema and the Go manifest model declare additively and authoring checks validate by shape, while discharge stays the work-item side's per-predicate verdict, and the law context resolves the dispatching work item's bindings so the packet lists which criterion each of its predicates discharges.",
   "tags": [

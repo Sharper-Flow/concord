@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { configureCoreBinary, type AgentLanePacket, type DispatchRunner } from "./dispatch"
-import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
+import { configureCoreBinary, type CoreRunner } from "./core-runtime"
 import { manifestDigest } from "./generated-contracts"
 import { configureHostLease } from "./host-lease"
 import { configureConcordAdapter, consumeAddressedProjectHandoff, projectHandoffConsumeKey, work_trace } from "./concord"
@@ -30,7 +29,7 @@ const context = () =>
 // refuse closed before the transport runs (CD-0111 D2). The runner models
 // the real two-leg transport: `concord project-resolve` for the ambient
 // context, then `concord invoke` for the typed consume.
-async function fakeHost(runner: DispatchRunner) {
+async function fakeHost(runner: CoreRunner) {
   configureHostLease({
     release: { coreBinary: "concord", releaseRoot: "/releases/v11.0.0" },
     runner: {
@@ -227,24 +226,7 @@ describe("consumeAddressedProjectHandoff", () => {
   })
 })
 
-// The Project-session retirement read composes the core's derived state with
-// this session's own adapter dispatch-window quiescence (CD-0182 amendment).
-// The core cannot see the adapter's windows, so a core answer of
-// ready_to_close_or_replace must downgrade to pending while this session
-// holds an open, in-flight, settling, or refused window — and a clean session
-// passes the core answer through unchanged. Every state below is driven on
-// the real shared window instance through the real tool path.
-describe("project_retirement composes adapter dispatch-window quiescence", () => {
-  const retirePacket: AgentLanePacket = {
-    schema_version: "1.0",
-    attempt_id: "attempt-1",
-    lane_id: "implement",
-    lane_digest: "sha256:" + "a".repeat(64),
-    work_id: "work-1",
-    step_id: "execution",
-    inputs: { task: "do the bounded thing", constraints: [], binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "bounded_findings" } },
-  }
-  const windows = () => dispatchWindows()
+describe("project_retirement preserves the core's derived state", () => {
   const hostCall = (operation: string, input: Record<string, unknown>) => ({ request: { operation, input } })
   const rawHostResult = async (result: Promise<string | { output: string }>) => {
     const value = await result
@@ -256,7 +238,7 @@ describe("project_retirement composes adapter dispatch-window quiescence", () =>
   const readyAnswer = () =>
     coreEnvelope("concord_work_trace", "project_retirement", "ok", {
       query_id: "CD-0182.R1",
-      result: { work_id: "work-1", project_id: "project-receive", session_ref: "session-receive", state: "ready_to_close_or_replace", recorded_handoff: true, artifacts_preserved: true, workers_stopped: true, vacate_landed: true, blockers: [] },
+      result: { work_id: "work-1", project_id: "project-receive", session_ref: "session-receive", state: "ready_to_close_or_replace", recorded_handoff: true, artifacts_preserved: true, vacate_landed: true, blockers: [] },
     })
 
   async function readRetirement() {
@@ -265,21 +247,6 @@ describe("project_retirement composes adapter dispatch-window quiescence", () =>
     return rawHostResult(work_trace.execute(hostCall("project_retirement", { work_id: "work-1" }), context()) as Promise<{ output: string }>)
   }
 
-  // bind moves an open window into the in-flight state the way the host's
-  // Task hook does; claim and refuse walk the settle path. The window pins a
-  // real resolvable directory, so the authorization identity check passes.
-  async function openThenBind() {
-    windows().open("session-receive", retirePacket, "", process.cwd())
-    await windows().bind(TASK_TOOL_ID, "session-receive", { subagent_type: "concord-implement", prompt: "attempt-1", description: "bounded worker" }, "call-1", async () => process.cwd(), process.cwd())
-  }
-
-  afterEach(() => {
-    const record = windows().inFlightAttempt("session-receive")
-    if (record) windows().finishSettlement("session-receive", "call-1", record)
-    windows().close("session-receive")
-    windows().releaseRetained("session-receive", "attempt-1", "implement")
-  })
-
   test("a clean session passes the core's derived ready state through", async () => {
     const result = await readRetirement()
     expect(result.outcome).toBe("ok")
@@ -287,35 +254,4 @@ describe("project_retirement composes adapter dispatch-window quiescence", () =>
     expect(result.result.blockers).toEqual([])
   })
 
-  test("an open dispatch window downgrades readiness to pending", async () => {
-    windows().open("session-receive", retirePacket, "", process.cwd())
-    const result = await readRetirement()
-    expect(result.result.state).toBe("pending")
-    expect(result.result.blockers.join(" ")).toContain("open dispatch window")
-    expect(result.result.blockers.join(" ")).toContain("implement lane")
-  })
-
-  test("an in-flight worker attempt downgrades readiness to pending", async () => {
-    await openThenBind()
-    const result = await readRetirement()
-    expect(result.result.state).toBe("pending")
-    expect(result.result.blockers.join(" ")).toContain("in-flight worker attempt")
-  })
-
-  test("a settling attempt downgrades readiness to pending", async () => {
-    await openThenBind()
-    expect(windows().claimSettlement("session-receive")).not.toBeNull()
-    const result = await readRetirement()
-    expect(result.result.state).toBe("pending")
-    expect(result.result.blockers.join(" ")).toContain("still settling")
-  })
-
-  test("a refused settle downgrades readiness to pending", async () => {
-    await openThenBind()
-    const record = windows().claimSettlement("session-receive")!
-    windows().refuseSettlement("session-receive", record)
-    const result = await readRetirement()
-    expect(result.result.state).toBe("pending")
-    expect(result.result.blockers.join(" ")).toContain("worker_abandon release")
-  })
 })

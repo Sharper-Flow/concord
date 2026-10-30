@@ -6,11 +6,11 @@ import unittest
 from pathlib import Path
 
 import run
-from evaluation import (claim_in_scope, dispatch_in_scope, continuity_in_scope,
+from evaluation import (claim_in_scope, review_in_scope, continuity_in_scope,
                         evaluate, served_correction_step, served_input_correction,
                         start_in_scope)
 from scenarios import (BOUNDARY_NOTICE, PARTIAL_CONTINUATION, SCENARIOS, START, TRANSITION,
-                       WORK, TRACE, RUNTIME,
+                       WORK, TRACE, RUNTIME, REVIEW_FIELDS,
                        WORKTREE, OTHER_REPO, SAME_REPO_PROJECT, BASE_SHA,
                        move_notice, runtime_response, start_ok)
 
@@ -18,10 +18,10 @@ MOVE_NOTICE_SOURCE = Path(__file__).resolve().parents[2] / "move-notice.ts"
 CONCORD_SOURCE = Path(__file__).resolve().parents[2] / "concord.ts"
 
 
-def dispatch_args():
+def review_args():
     return {"request": {"operation": "workflow_action", "input": {
-        "work_id": WORK, "expected_version": 1, "action_id": "dispatch_worker",
-        "idempotency_key": "fixture-dispatch", "fields": {"lane_id": "implement"},
+        "work_id": WORK, "expected_version": 1, "action_id": "record_review",
+        "idempotency_key": "fixture-review", "fields": copy.deepcopy(REVIEW_FIELDS),
     }}}
 
 
@@ -45,7 +45,7 @@ def observation(case):
             args, result = claim_args(case)
             notice = case["transition"].get("notice")
         elif tool == TRANSITION:
-            args, result = dispatch_args(), case["responses"][tool]
+            args, result = review_args(), case["responses"][tool]
         elif tool == TRACE:
             args, result = {"request": {"operation": "continuity", "input": {
                 "work_id": WORK, "page": {"cursor": None, "limit": 1},
@@ -160,7 +160,7 @@ class EvaluationTests(unittest.TestCase):
         del events[0]
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
-    def test_duplicate_dispatch(self):
+    def test_duplicate_review(self):
         case = SCENARIOS["native-route-discovery"]
         calls, events = observation(case)
         calls.append(copy.deepcopy(calls[-1]))
@@ -173,12 +173,12 @@ class EvaluationTests(unittest.TestCase):
         events.insert(0, {"type": "tool_use", "part": {"tool": "bash", "state": {"status": "error"}}})
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
-    def test_changed_dispatch_scope(self):
-        for key, value in (("work_id", "foreign"), ("expected_version", True), ("action_id", "complete"), ("fields", {"lane_id": "review"}), ("idempotency_key", " ")):
+    def test_changed_review_scope(self):
+        for key, value in (("work_id", "foreign"), ("expected_version", True), ("action_id", "complete"), ("fields", {"review": {}}), ("idempotency_key", " ")):
             with self.subTest(key=key):
-                args = dispatch_args()
+                args = review_args()
                 args["request"]["input"][key] = value
-                self.assertFalse(dispatch_in_scope(args))
+                self.assertFalse(review_in_scope(args))
 
     def test_order_matters(self):
         case = SCENARIOS["native-route-discovery"]
@@ -299,15 +299,13 @@ class EvaluationTests(unittest.TestCase):
                 events[0]["part"]["state"]["output"] = output
                 self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
-    def test_dispatch_after_an_armed_boundary_fails(self):
-        # The claim notice names an active turn-move boundary, so a dispatch
-        # in the same turn is outside the admitted sequence.
+    def test_review_is_outside_the_placement_only_assignment(self):
         case = SCENARIOS["same-repository-second-project"]
         calls, events = observation(case)
         refused = {"outcome": "error", "error": {"reason_code": "authorization_denied"}}
-        calls.append({"tool": TRANSITION, "args": dispatch_args(), "result": refused})
+        calls.append({"tool": TRANSITION, "args": review_args(), "result": refused})
         events.insert(1, {"type": "tool_use", "part": {"tool": TRANSITION, "state": {
-            "status": "completed", "input": dispatch_args(), "output": json.dumps(refused),
+            "status": "completed", "input": review_args(), "output": json.dumps(refused),
         }}})
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
@@ -524,13 +522,13 @@ class EvaluationTests(unittest.TestCase):
                 events[-2]["part"]["text"] = json.dumps(final)
                 self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
-    def test_scheduled_continuation_does_not_admit_dispatch(self):
+    def test_scheduled_continuation_does_not_admit_another_mutation(self):
         case = SCENARIOS["stale-context-continuation-scheduled"]
         calls, events = observation(case)
         refused = {"outcome": "error", "error": {"reason_code": "authorization_denied"}}
-        calls.append({"tool": TRANSITION, "args": dispatch_args(), "result": refused})
+        calls.append({"tool": TRANSITION, "args": review_args(), "result": refused})
         events.insert(1, {"type": "tool_use", "part": {"tool": TRANSITION, "state": {
-            "status": "completed", "input": dispatch_args(), "output": json.dumps(refused),
+            "status": "completed", "input": review_args(), "output": json.dumps(refused),
         }}})
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
@@ -751,9 +749,9 @@ class ServedInputCorrectionTests(unittest.TestCase):
         calls, events = refusal_prefixed_observation(
             case, TRANSITION, malformed_claim_args(), served_correction_refusal())
         refused = {"outcome": "error", "error": {"reason_code": "authorization_denied"}}
-        calls.append({"tool": TRANSITION, "args": dispatch_args(), "result": refused})
+        calls.append({"tool": TRANSITION, "args": review_args(), "result": refused})
         events.insert(2, {"type": "tool_use", "part": {"tool": TRANSITION, "state": {
-            "status": "completed", "input": dispatch_args(), "output": json.dumps(refused),
+            "status": "completed", "input": review_args(), "output": json.dumps(refused),
         }}})
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 

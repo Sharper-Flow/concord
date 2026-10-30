@@ -8,59 +8,54 @@ import (
 )
 
 func TestWorkflowActionStartCurrentFactsWithoutLog(t *testing.T) {
-	f := seedCrossAttemptFixture(t, "action-start-current-facts")
-	defer f.s.Close()
-	f.dispatch(t, f.attemptR, f.researchLane, f.dispatcher)
+	const workID = "action-start-current-facts"
+	const step = "execution"
+	s, _, _ := seedOrdinaryExecutorAtExecution(t, workID)
+	defer s.Close()
 	ctx := context.Background()
-	seq, epoch, found, err := latestWorkflowActionStart(ctx, f.s.db, f.workID, f.step)
+	seq, epoch, found, err := latestWorkflowActionStart(ctx, s.db, workID, step)
 	if err != nil || !found || seq <= 0 || epoch <= 0 {
 		t.Fatalf("start fixture: seq=%d epoch=%d found=%v err=%v", seq, epoch, found, err)
 	}
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, f.s.db, BuiltinWorkflowRegistry(), f.workID)
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, s.db, BuiltinWorkflowRegistry(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatchStart, err := readWorkflowActionStartTx(ctx, f.s.db, f.workID, f.step, true)
-	if err != nil || dispatchStart.Seq != seq {
-		t.Fatalf("dispatch start fixture: %+v, %v", dispatchStart, err)
+	first, err := readWorkflowActionStartTx(ctx, s.db, workID, step)
+	if err != nil || first.Seq != seq {
+		t.Fatalf("ordinary start fixture: %+v, %v", first, err)
 	}
-	for _, action := range workflowStep(entry.Definition, f.step).Actions {
-		if action == "dispatch_worker" {
-			continue
-		}
-		version := readWorkVersion(t, f.s, f.workID)
-		start := workflowEventWithActor("non-dispatch-start", WorkflowActionStarted, f.workID, dispatchStart.Actor, map[string]any{
-			"work_id": f.workID, "expected_version": version, "resulting_version": version + 1,
-			"step_id": f.step, "action_id": action, "attempt_epoch": epoch + 1,
-			"actor_ref": dispatchStart.Actor, "accepted_inputs_digest": testManifestDigest, "idempotency_identity": "non-dispatch-start",
-		})
-		if err := applyWorkflowTestOperation(ctx, f.s, Operation{Events: []Event{start}}); err != nil {
-			t.Fatal(err)
-		}
-		break
+	version := readWorkVersion(t, s, workID)
+	start := workflowEventWithActor("newer-ordinary-start", WorkflowActionStarted, workID, first.Actor, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"step_id": step, "action_id": "start_execution", "attempt_epoch": epoch + 1,
+		"actor_ref": first.Actor, "accepted_inputs_digest": testManifestDigest, "idempotency_identity": "newer-ordinary-start",
+	})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}}); err != nil {
+		t.Fatal(err)
 	}
-	retained, err := readWorkflowActionStartTx(ctx, f.s.db, f.workID, f.step, true)
-	if err != nil || retained.Seq != dispatchStart.Seq || retained.EventID != dispatchStart.EventID || string(retained.Payload) != string(dispatchStart.Payload) {
-		t.Fatalf("non-dispatch start erased dispatch pairing: %+v, %v", retained, err)
+	retained, err := readWorkflowActionStartTx(ctx, s.db, workID, step)
+	if err != nil || retained.Seq <= seq || retained.EventID != start.EventID || retained.Actor != first.Actor || string(retained.Payload) != string(start.Payload) {
+		t.Fatalf("newest start lost exact actor/payload/identity: %+v, %v", retained, err)
 	}
-	assertWorkerFactsLogBlind(t, f.s, map[string]func() (any, error){
+	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
 		"G22-prewrite-start": func() (any, error) {
-			seq, epoch, found, err := latestWorkflowActionStartAt(ctx, f.s.db, f.workID, f.step, int64(1)<<62)
+			seq, epoch, found, err := latestWorkflowActionStartAt(ctx, s.db, workID, step, int64(1)<<62)
 			return struct {
 				Seq, Epoch int64
 				Found      bool
 			}{seq, epoch, found}, err
 		},
-		"G22-dispatch-start": func() (any, error) { return readWorkflowActionStartTx(ctx, f.s.db, f.workID, f.step, true) },
+		"G22-fenced-start": func() (any, error) { return readWorkflowActionStartTx(ctx, s.db, workID, step) },
 		"G22-pass-boundary": func() (any, error) {
-			seq, active, err := workflowStepPassBoundary(ctx, f.s.db, entry.Definition, f.workID, f.step, "workflow_action")
+			seq, active, err := workflowStepPassBoundary(ctx, s.db, entry.Definition, workID, step, "workflow_action")
 			return struct {
 				Seq    int64
 				Active bool
 			}{seq, active}, err
 		},
 		"G22-latest-start": func() (any, error) {
-			seq, epoch, found, err := latestWorkflowActionStart(ctx, f.s.db, f.workID, f.step)
+			seq, epoch, found, err := latestWorkflowActionStart(ctx, s.db, workID, step)
 			return struct {
 				Seq, Epoch int64
 				Found      bool
@@ -77,7 +72,7 @@ func TestWorkflowDerivedStartPairCurrentFactsWithoutLog(t *testing.T) {
 	if err := runVerdictActionAs(t, f.store, work, "checkpoint_repair", json.RawMessage(`{}`), 0, actor); err != nil {
 		t.Fatal(err)
 	}
-	start, err := readWorkflowActionStartTx(t.Context(), f.store.db, work, "repair", false)
+	start, err := readWorkflowActionStartTx(t.Context(), f.store.db, work, "repair")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,19 +96,16 @@ func TestWorkflowDerivedStartPairCurrentFactsWithoutLog(t *testing.T) {
 }
 
 func TestWorkflowHeldReviewDoesNotRecordPhaseExit(t *testing.T) {
-	j, _ := descendantReviewFixture(t, "held-review-phase-exit")
-	attempt, epoch := completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+	j := pReturnReviewFixture(t, "held-review-phase-exit", "workflow.implementation", "")
 	var before int64
-	if err := j.s.db.QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='accept_worker_result'`, j.workID).Scan(&before); err != nil {
+	if err := j.s.db.QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='record_review'`, j.workID).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner); err != nil {
-		t.Fatal(err)
-	}
+	completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
 	assertNoExit := func() {
 		t.Helper()
 		var n int64
-		if err := j.s.db.QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='accept_worker_result'`, j.workID).Scan(&n); err != nil {
+		if err := j.s.db.QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='record_review'`, j.workID).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		if n != before {
@@ -121,8 +113,6 @@ func TestWorkflowHeldReviewDoesNotRecordPhaseExit(t *testing.T) {
 		}
 	}
 	assertNoExit()
-	// The independent prefix includes an unbound held Review beside the
-	// current producer's held Review; neither may qualify as a phase exit.
 	assertWorkflowCurrentFactsWithIndependentMigration142(t, j.s)
 	assertNoExit()
 }

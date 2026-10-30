@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-27
-- **Scope:** The knowledge manifest's criterion bindings, the law context projection, and the lane packet's law context
+- **Scope:** The knowledge manifest's criterion bindings and the continuity law-context projection
 - **Related:** CD-0114, CD-0159, CD-0177
 - **Approval:** The operator approved this decision in contract version 1 of
   work item `work-439bd3dfda3079826824710f`.
@@ -35,14 +35,13 @@ field shapes at authoring. No repository check judges discharge. A CI check
 cannot reach the store, so whether the named predicate passed is the work-item
 side's per-predicate verdict.
 
-### D3. The packet's law context lists the bound criteria
+### D3. The continuity law context lists the bound criteria
 
-The law_subjects projection carries each law's authored bindings, and the
-continuity read resolves the ones naming the dispatching work item into that
-law's criteria. The packet's `inputs.law_context` carries them on the law's
-entry, so the worker reads which criterion each of this item's predicates
-discharges. The
-verdict path is unchanged, because the predicate verdicts and the
+The `law_subjects` projection carries each law's authored bindings, and the
+continuity read resolves the ones naming the current work item into that
+law's criteria. Its `law_context` carries them on the law's
+entry, so the agent reads which criterion each of this item's predicates
+discharges. The verdict path is unchanged, because the predicate verdicts and the
 law-revision pins already bind the item to the exact law it discharges.
 
 ## Alternatives considered
@@ -50,7 +49,7 @@ law-revision pins already bind the item to the exact law it discharges.
 - Let a repository check verify discharge against the store. Rejected: a CI check
   cannot reach the store, and a check that pretended to would decide
   correctness it cannot observe.
-- Teach the packet to parse the manifest itself. Rejected: the adapter would
+- Parse the manifest again in the adapter. Rejected: the adapter would
   grow a second manifest reader beside the store's, and the two would drift.
 - Bind criteria to whole work items without predicates. Rejected: the
   per-predicate verdict is the discharge unit, so an item-level link proves
@@ -76,5 +75,3 @@ rule of migration 98.
   criterion order and drops another work's bindings and scenario bindings.
 - `python3 scripts/test-knowledge-index.py` proves the authoring side
   validates the closed shapes.
-- `bun test adapter/opencode/packet.test.ts` proves the packet lists the
-  bound criteria on the law's line.

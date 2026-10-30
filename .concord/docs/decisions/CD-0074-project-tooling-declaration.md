@@ -12,7 +12,7 @@
   CD-0055 (D1), [`../capability-placement.md`](../capability-placement.md) §3–§4,
   [`../predecessor-operational-coverage.md`](../predecessor-operational-coverage.md)
 - **Preserves:** CD-0043 D1's host-owned methodology boundary; CD-0040 D6's
-  probe-family limit; the closed lane registry and packet/report schemas
+  probe-family limit
 
 ## Context
 
@@ -22,10 +22,8 @@ by reading `AGENTS.md` prose, guessing, or not at all. The infrequent tools
 lose worst: a scanner that is configured but deliberately kept out of CI is
 invisible, so it never gets used.
 
-Nothing in Concord declares per-project tooling. A Project is a database row
-plus a locator; the lane packet carries no environment field; workers report
-`verification_commands` after the fact, and nothing tells them what exists
-beforehand (issue #510).
+A Project locator alone does not declare configured tools or sanctioned check
+commands. An agent needs that declaration before choosing verification.
 
 ## Decision
 

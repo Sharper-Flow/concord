@@ -12,7 +12,7 @@ import (
 )
 
 func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T) {
-	for _, actionID := range []string{"approve_contract", "dispatch_worker"} {
+	for _, actionID := range []string{"approve_contract", "record_review"} {
 		t.Run(actionID, func(t *testing.T) {
 			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 			version := seedAgentWorkflow(t, s, grant)
@@ -65,7 +65,7 @@ func TestWorkflowActionPreflightRefusesRetiredInitiative(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	for _, actionID := range []string{"approve_contract", "dispatch_worker"} {
+	for _, actionID := range []string{"approve_contract", "record_review"} {
 		t.Run(actionID, func(t *testing.T) {
 			raw, err := json.Marshal(actionMutationInput{WorkID: "work-1", ExpectedVersion: version, ActionID: actionID, IdempotencyKey: "retired-preflight-" + actionID})
 			if err != nil {

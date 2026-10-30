@@ -88,6 +88,9 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Name == "event_log_retirement" {
 		return retireEventLog(ctx, q, m.SQL)
 	}
+	if m.Name == "native_task_cutover" {
+		return applyNativeTaskCutover(ctx, q, m.SQL)
+	}
 	if _, err := q.ExecContext(ctx, m.SQL); err != nil {
 		return wrapFailure(KindUnavailable, "migrate",
 			fmt.Sprintf("migration %d (%s) failed", m.Version, m.Name), false,
@@ -95,9 +98,6 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	}
 	if m.Name == "effect_receipts" {
 		return backfillEffectReceiptDigests(ctx, q)
-	}
-	if m.Name == "continue_review_job_satisfaction" {
-		return restoreContinueReviewJobSatisfaction(ctx, q)
 	}
 	if m.Name == "workflow_evidence_current_facts" {
 		if err := backfillWorkflowCorrectionFacts(ctx, q); err != nil {
@@ -112,7 +112,7 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 		if _, err := q.ExecContext(ctx, `INSERT OR IGNORE INTO fold_guard(active) VALUES(1)`); err != nil {
 			return err
 		}
-		for _, backfill := range []func(context.Context, migrationRunner) error{backfillWorkContextFacts, backfillOracleFindingFacts, backfillWorkflowReviewFacts, backfillWorkSizeProofFacts} {
+		for _, backfill := range []func(context.Context, migrationRunner) error{backfillWorkContextFacts, backfillWorkflowReviewFacts, backfillWorkSizeProofFacts} {
 			if err := backfill(ctx, q); err != nil {
 				return err
 			}
@@ -8169,6 +8169,77 @@ DROP TABLE managed_resources;
 -- fold guards goes. An older binary names the table on every knowledge index
 -- rebuild, so the removal is breaking.
 DROP TABLE law_coverage_anchors;
+`,
+	},
+	{
+		Version:  167,
+		Name:     "native_task_cutover",
+		Breaking: true,
+		SQL: `
+UPDATE workflow_review_state AS review SET state=json_set(state,'$.finding_sources',json(COALESCE((
+ SELECT json_group_object(json_extract(notebook.finding,'$.finding_id'),json_object(
+  'canonical_id',COALESCE(json_extract(fact.value,'$.FindingID'),json_extract(preserved.value,'$.canonical_id'),'finding:'||notebook.source_seq||':'||notebook.ordinal),
+  'domain_id',COALESCE(NULLIF(json_extract(fact.value,'$.DomainID'),''),NULLIF(json_extract(preserved.value,'$.domain_id'),''),'unresolved'),
+  'event_id',receipt.event_id,
+  'kind',receipt.kind,
+  'seq',notebook.source_seq,
+  'ordinal',notebook.ordinal,
+  'oracle',json(COALESCE(json_extract(fact.value,'$.SourceOracle'),json_extract(job.recorded_payload,'$.acceptance_oracle'),json_extract(preserved.value,'$.oracle'),'null'))))
+ FROM work_context_findings AS notebook
+ JOIN effect_receipts AS receipt ON receipt.effect_seq=notebook.source_seq AND receipt.subject_type='work_item' AND receipt.subject_id=notebook.work_id
+ LEFT JOIN worker_oracle_finding_facts AS legacy ON legacy.work_id=notebook.work_id
+  LEFT JOIN json_each(legacy.findings) AS fact ON notebook.source_seq=json_extract(fact.value,'$.SourceEventSeq')
+   AND notebook.ordinal=json_extract(fact.value,'$.SourceOrdinal')
+  LEFT JOIN worker_job_revisions AS job ON job.work_id=notebook.work_id
+   AND job.job_id=json_extract(fact.value,'$.source_job.job_id')
+   AND job.revision=json_extract(fact.value,'$.source_job.revision')
+   AND job.digest=json_extract(fact.value,'$.source_job.digest')
+  LEFT JOIN json_each(review.state,'$.finding_sources') AS preserved
+   ON preserved.key=json_extract(notebook.finding,'$.finding_id')
+   AND json_extract(preserved.value,'$.seq')=notebook.source_seq
+   AND json_extract(preserved.value,'$.ordinal')=notebook.ordinal
+ WHERE notebook.work_id=review.work_id AND notebook.finding_class='ranked'
+ AND notebook.source_seq=(SELECT MIN(original.source_seq) FROM work_context_findings AS original
+  WHERE original.work_id=notebook.work_id AND original.finding_class='ranked'
+  AND json_extract(original.finding,'$.finding_id')=json_extract(notebook.finding,'$.finding_id'))
+ AND EXISTS(
+  SELECT 1 FROM json_each(review.state,'$.findings') AS retained
+  WHERE json_extract(retained.value,'$.finding_id')=json_extract(notebook.finding,'$.finding_id'))
+),'{}')));
+DROP TABLE workflow_group_members;
+DROP TABLE workflow_member_groups;
+DROP TABLE workflow_member_callers;
+DROP TABLE workflow_worker_actors;
+DROP TABLE worker_oracle_finding_facts;
+DROP TABLE worker_attempt_dispositions;
+DROP TABLE worker_authorizations;
+DROP TABLE worker_attempts;
+DROP TABLE worker_job_revisions;
+CREATE TABLE worktree_entries_native (
+ set_id TEXT NOT NULL,
+ project_id TEXT NOT NULL,
+ claim_op_id TEXT NOT NULL,
+ branch TEXT NOT NULL,
+ base_sha TEXT NOT NULL,
+ path TEXT NOT NULL,
+ repository_id TEXT NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('active','reclaimed')),
+ verified_at TEXT NOT NULL,
+ reclaimed_at TEXT,
+ git_facts TEXT NOT NULL DEFAULT '{}',
+ PRIMARY KEY(set_id,project_id)
+);
+INSERT INTO worktree_entries_native SELECT set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts FROM worktree_entries WHERE member_id='';
+DROP TABLE worktree_entries;
+ALTER TABLE worktree_entries_native RENAME TO worktree_entries;
+DROP INDEX worktree_claims_one_active;
+ALTER TABLE worktree_claims DROP COLUMN member_id;
+CREATE UNIQUE INDEX worktree_claims_one_active ON worktree_claims(work_id,project_id) WHERE state IN ('pending','verified');
+ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_seq;
+ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_event_id;
+ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_payload;
+ALTER TABLE workflow_instances DROP COLUMN latest_non_dispatch_start_seq;
+ALTER TABLE workflow_instances DROP COLUMN result_disposition;
 `,
 	},
 }

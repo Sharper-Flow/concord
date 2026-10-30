@@ -14,7 +14,7 @@ import (
 // production: any growth in the widest shape fails this exact figure first,
 // and the pin moves only by a deliberate re-derivation beside the ceilings'
 // own next-power-of-two assertions.
-const derivedRequestWireMaxBytes = 58685409
+const derivedRequestWireMaxBytes = 10415091
 
 // The shared action ceilings derive from the widest admitted shape, not a
 // shortlist: this test enumerates every admitted workflow-action variant the
@@ -41,23 +41,22 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	// criteria: 8*1233 + 2 brackets + 7 commas = 9873.
 	// Dependencies: 9873+428+5 value bytes + 67 syntax bytes = 10373.
 	// Work size: 2*9 enum + 20 version + 386 time + 55 syntax bytes = 479.
-	// Retained disclosure: candidate + bounded native diff paths + 40 syntax bytes.
-	// Descriptor: candidate + dependencies + size + retained disclosure + 68 syntax bytes.
-	dependencies := defs["worker_packet_review_dependencies"].(map[string]any)["properties"].(map[string]any)
+	// Descriptor: candidate + dependencies + size + 44 syntax bytes.
+	dependencies := defs["lane_report_review_dependencies"].(map[string]any)["properties"].(map[string]any)
 	criteria := dependencies["criteria"].(map[string]any)
 	for _, row := range []struct {
 		name string
 		node any
 		want int
 	}{
-		{"candidate", defs["worker_packet_review_candidate"], 1575},
+		{"candidate", defs["lane_report_review_candidate"], 1575},
 		{"criterion", criteria["items"], 1233},
 		{"criteria", criteria, 9873},
-		{"dependencies", defs["worker_packet_review_dependencies"], 10373},
+		{"dependencies", defs["lane_report_review_dependencies"], 10373},
 		{"work size", defs["work_size_summary"], 479},
-		{"descriptor", defs["worker_packet_review_input"], 25179936},
+		{"descriptor", defs["continuity_review_input"], 12471},
 	} {
-		got, err := schemawire.Max(row.node, row.name, schemawire.Options{Defs: defs, PathBounds: map[string]int{row.name + "/retained_failed_edit/changed_paths": store.WorkerReviewRetainedPathsMaxBytes}})
+		got, err := schemawire.Max(row.node, row.name, schemawire.Options{Defs: defs})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -83,26 +82,14 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	if store.WorkContextActionFindingsMax != 16 {
 		t.Fatalf("WorkContextActionFindingsMax = %d, want 16; the finding-reference derivation rests on it", store.WorkContextActionFindingsMax)
 	}
-	// The packet identities and writer bounds are the shared ones: the
-	// packet figures come from the common derivation the dispatch request
-	// proof uses, and the union of writer-owned member bounds carries each
-	// variant's prefix, so one options set serves every variant's walk.
+	// Writer-owned bounds apply to every current variant's schema walk.
 	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
-	packet := derivedPacketFigure(t, defs, findingRefMax)
 	digestWire := 2 + len("sha256:") + 64
 	commitOIDWire := 2 + 64
-	const recordJob = "work_transition_action_variant_record_worker_job"
 	const recordContext = "work_transition_action_variant_record_work_context"
-	lawSourceHash := "/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash"
 	opt := schemawire.Options{
 		Defs: defs,
-		RefBounds: map[string]int{
-			"worker_acceptance_oracle":   store.OracleCombinedMaxBytes,
-			"worker_failure_observation": store.WorkerFailureAttributionMaxBlockBytes,
-			"worker_packet":              packet + store.DispatchContextAggregateMaxBytes - 1,
-		},
 		PathBounds: map[string]int{
-			recordJob + "/fields/oneOf" + lawSourceHash: digestWire,
 			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_repository_file/commit_oid": commitOIDWire,
 			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_knowledge/content_hash":     digestWire,
 		},

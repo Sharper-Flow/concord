@@ -2,68 +2,99 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"testing"
 )
 
-// Independent pre-cutover window selection, retained only as a parity oracle.
+// The independent oracle reads migration inputs, never a live worker route.
 func g11LegacyWindow(ctx context.Context, q queryer, workID string) (workSizeProofFacts, error) {
 	var boundary int64
 	if err := q.QueryRowContext(ctx, `SELECT coalesce(max(effect_seq),0) FROM work_size_assessments WHERE work_id=?`, workID).Scan(&boundary); err != nil {
 		return workSizeProofFacts{}, err
 	}
-	rows, err := q.QueryContext(ctx, `SELECT e.seq,e.event_id,e.kind,
-coalesce(json_extract(e.payload,'$.action_id'),''),coalesce(json_extract(e.payload,'$.worker_attempt_id'),''),
-EXISTS(SELECT 1 FROM worker_attempts a WHERE a.work_id=e.subject_id AND a.attempt_id=json_extract(e.payload,'$.worker_attempt_id') AND a.capability_class='review' AND a.lifecycle_state='completed')
-FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=? AND e.seq>? AND e.kind IN (?,?,?) ORDER BY e.seq`, workID, boundary, WorkflowActionCompleted, WorkflowContractApproved, WorkflowContractSuperseded)
+	rows, err := q.QueryContext(ctx, `SELECT seq,event_id,kind,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND seq>? ORDER BY seq`, workID, boundary)
 	if err != nil {
 		return workSizeProofFacts{}, err
 	}
-	type legacyEffect struct {
-		seq                       int64
-		id, kind, action, attempt string
-		review                    bool
+	type effect struct {
+		seq      int64
+		id, kind string
+		raw      []byte
 	}
-	var effects []legacyEffect
+	var effects []effect
 	for rows.Next() {
-		var e legacyEffect
-		if err := rows.Scan(&e.seq, &e.id, &e.kind, &e.action, &e.attempt, &e.review); err != nil {
+		var e effect
+		if err := rows.Scan(&e.seq, &e.id, &e.kind, &e.raw); err != nil {
 			rows.Close()
 			return workSizeProofFacts{}, err
 		}
 		effects = append(effects, e)
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return workSizeProofFacts{}, err
-	}
-	if err := rows.Close(); err != nil {
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
 		return workSizeProofFacts{}, err
 	}
 	var state workSizeProofFacts
 	for _, e := range effects {
-		switch {
-		case e.kind != WorkflowActionCompleted:
+		if e.kind == WorkflowContractApproved || e.kind == WorkflowContractSuperseded {
 			state.Accepted, state.Refined = false, false
-		case e.action == "checkpoint_refine":
+			continue
+		}
+		if e.kind != WorkflowActionCompleted {
+			continue
+		}
+		var payload struct {
+			Action  string       `json:"action_id"`
+			Attempt string       `json:"worker_attempt_id"`
+			Review  *ReviewBlock `json:"review"`
+		}
+		if err := json.Unmarshal(e.raw, &payload); err != nil {
+			return state, err
+		}
+		if payload.Action == "checkpoint_refine" {
 			state.Refined = state.Accepted
-		case e.review && (e.action == "accept_worker_evidence" || e.action == "accept_worker_result"):
-			if state.Refined {
-				var seq int64
-				var raw string
-				if err := q.QueryRowContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? AND seq<? ORDER BY seq DESC LIMIT 1`, workID, WorkerCompleted, e.attempt, e.seq).Scan(&seq, &raw); err != nil {
+			continue
+		}
+		raw, seq := e.raw, e.seq
+		if payload.Action == "accept_worker_result" || payload.Action == "accept_worker_evidence" {
+			// An old acceptance selects the latest genuine earlier terminal.
+			payload.Review = nil
+			for _, terminal := range effects {
+				if terminal.seq >= e.seq {
+					break
+				}
+				if terminal.kind != "worker.completed" {
+					continue
+				}
+				var report struct {
+					Attempt string       `json:"attempt_id"`
+					Review  *ReviewBlock `json:"review"`
+				}
+				if err := json.Unmarshal(terminal.raw, &report); err != nil {
 					return state, err
 				}
-				found, err := workSizeReviewFindsInScope(raw, seq)
-				if err != nil {
-					return state, err
-				}
-				if found {
-					state.Proofs = append(state.Proofs, e.id)
+				if report.Attempt == payload.Attempt && report.Review != nil {
+					payload.Review, raw, seq = report.Review, terminal.raw, terminal.seq
 				}
 			}
-			state.Accepted, state.Refined = true, false
+		} else if payload.Action != "record_review" {
+			continue
 		}
+		if payload.Review == nil {
+			continue
+		}
+		if state.Refined {
+			found, err := workSizeReviewFindsInScope(string(raw), seq)
+			if err != nil {
+				return state, err
+			}
+			if found {
+				state.Proofs = append(state.Proofs, e.id)
+			}
+		}
+		state.Accepted, state.Refined = true, false
 	}
 	return state, nil
 }
@@ -75,14 +106,14 @@ func g11CheckParity(t *testing.T, f *g11Fixture) {
 		t.Fatal(err)
 	}
 	live, err := readWorkSizeProofFacts(t.Context(), f.db, "work")
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !reflect.DeepEqual(live, want) {
+		t.Fatalf("prefix %d: live=%+v; oracle=%+v, %v", f.seq, live, want, err)
 	}
-	if !reflect.DeepEqual(live, want) {
-		t.Fatalf("prefix %d: live=%+v; legacy=%+v", f.seq, live, want)
-	}
-	// Backfill must use the caller's transaction and retain its guard. A single
-	// connection pool makes any accidental Store-backed nested read deadlock.
+	g11CheckBackfill(t, f, want)
+}
+
+func g11CheckBackfill(t *testing.T, f *g11Fixture, want workSizeProofFacts) {
+	t.Helper()
 	tx, err := f.db.BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +136,7 @@ func g11CheckParity(t *testing.T, f *g11Fixture) {
 	if !reflect.DeepEqual(backfilled, want) || guard != 1 {
 		t.Fatalf("prefix %d: backfill=%+v; want %+v; guard=%d", f.seq, backfilled, want, guard)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Rollback(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -113,35 +144,23 @@ func g11CheckParity(t *testing.T, f *g11Fixture) {
 func TestG11ProofFactsBackfillParity(t *testing.T) {
 	f := newG11Fixture(t)
 	g11CheckParity(t, f)
-	effects := []struct {
-		kind    string
-		payload any
-	}{
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "checkpoint_refine"}},
-		{WorkerCompleted, WorkerCompletedPayload{AttemptID: "a", Review: &WorkerReviewBlock{Disposition: "revision_required", Findings: []WorkerReviewFinding{{Severity: "P1"}}}}},
-		{WorkerCompleted, WorkerCompletedPayload{AttemptID: "b", Review: &WorkerReviewBlock{Findings: []WorkerReviewFinding{{Severity: "P0", Oracle: &WorkerOracleFinding{Classification: OracleClassificationDeliveryBlocker}}}}}},
-		{WorkerCompleted, WorkerCompletedPayload{AttemptID: "clean", Review: &WorkerReviewBlock{Disposition: "clean"}}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "a"}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "checkpoint_refine"}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "record_design"}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_evidence", WorkerAttemptID: "b"}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "a"}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "checkpoint_refine"}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "a"}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "checkpoint_refine"}},
-		{WorkflowContractApproved, map[string]any{}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "a"}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "checkpoint_refine"}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "clean"}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "b"}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "checkpoint_refine"}},
-		{WorkflowContractSuperseded, map[string]any{}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_evidence", WorkerAttemptID: "b"}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "checkpoint_refine"}},
-		{WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "a"}},
+	for _, action := range []string{"checkpoint_refine", "record_review", "checkpoint_refine", "record_design", "record_review", "record_review", "checkpoint_refine", "record_review", "checkpoint_refine"} {
+		if action == "record_review" {
+			f.review(t, reviewBlockFixture())
+		} else {
+			f.action(t, action)
+		}
+		g11CheckParity(t, f)
 	}
-	for _, e := range effects {
-		f.apply(t, e.kind, e.payload)
+	for _, kind := range []string{WorkflowContractApproved, WorkflowContractSuperseded} {
+		f.apply(t, kind, map[string]any{})
+		g11CheckParity(t, f)
+		f.review(t, reviewBlockFixture())
+		g11CheckParity(t, f)
+		f.action(t, "checkpoint_refine")
+		clean := reviewBlockFixture()
+		clean.Disposition, clean.Findings = "ready_for_final_proof", []ReviewFinding{}
+		f.review(t, clean)
 		g11CheckParity(t, f)
 	}
 	basis, err := workSizeReviewBasisTx(t.Context(), f.db, "work")
@@ -150,30 +169,47 @@ func TestG11ProofFactsBackfillParity(t *testing.T) {
 	}
 	f.assess(t, basis)
 	g11CheckParity(t, f)
-	f.action(t, "accept_worker_result", "a")
-	g11CheckParity(t, f)
-	f.action(t, "checkpoint_refine", "")
-	g11CheckParity(t, f)
-	f.action(t, "accept_worker_result", "b")
+	f.review(t, reviewBlockFixture())
+	f.action(t, "checkpoint_refine")
+	f.review(t, reviewBlockFixture())
 	g11CheckParity(t, f)
 }
 
 func TestG11BackfillUsesLegacyReportSelection(t *testing.T) {
 	f := newG11Fixture(t)
-	f.report(t, "a")
-	f.action(t, "accept_worker_result", "a")
-	f.action(t, "checkpoint_refine", "")
-	proof := f.action(t, "accept_worker_result", "a")
-	// A migration uses the exact legacy log selection, not a convenient current
-	// owner substitution. This divergence is not an admitted live terminal edit.
-	if _, err := f.db.Exec(`UPDATE worker_attempts SET terminal_payload='{}'; DELETE FROM work_size_proof_facts`); err != nil {
-		t.Fatal(err)
+	report := reviewBlockFixture()
+	clean := reviewBlockFixture()
+	clean.Disposition, clean.Findings = "ready_for_final_proof", []ReviewFinding{}
+	// Historical literals remain confined to the migration fixture.
+	for _, e := range []struct {
+		kind    string
+		payload any
+	}{
+		{"worker.completed", map[string]any{"attempt_id": "a", "review": report}},
+		{WorkflowActionCompleted, map[string]any{"action_id": "accept_worker_result", "worker_attempt_id": "a"}},
+		{WorkflowActionCompleted, map[string]any{"action_id": "checkpoint_refine"}},
+		{"worker.completed", map[string]any{"attempt_id": "a", "review": clean}},
+		{WorkflowActionCompleted, map[string]any{"action_id": "accept_worker_result", "worker_attempt_id": "a"}},
+		{WorkflowActionCompleted, map[string]any{"action_id": "checkpoint_refine"}},
+		{"worker.completed", map[string]any{"attempt_id": "a", "review": report}},
+		{WorkflowActionCompleted, map[string]any{"action_id": "accept_worker_evidence", "worker_attempt_id": "a"}},
+		{"worker.completed", map[string]any{"attempt_id": "a", "review": clean}},
+	} {
+		f.apply(t, e.kind, e.payload)
+		want, err := g11LegacyWindow(t.Context(), f.db, "work")
+		if err != nil {
+			t.Fatal(err)
+		}
+		g11CheckBackfill(t, f, want)
+	}
+	want, err := g11LegacyWindow(t.Context(), f.db, "work")
+	if err != nil || len(want.Proofs) != 1 {
+		t.Fatalf("historical proof selection=%+v %v", want, err)
 	}
 	if err := backfillWorkSizeProofFacts(t.Context(), f.db); err != nil {
 		t.Fatal(err)
 	}
-	g11Proofs(t, f, proof.EventID)
-	// A failed migration remains entirely within the caller's rollback scope.
+	g11Proofs(t, f, want.Proofs...)
 	tx, err := f.db.BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -187,5 +223,5 @@ func TestG11BackfillUsesLegacyReportSelection(t *testing.T) {
 	if err := tx.Rollback(); err != nil {
 		t.Fatal(err)
 	}
-	g11Proofs(t, f, proof.EventID)
+	g11Proofs(t, f, want.Proofs...)
 }

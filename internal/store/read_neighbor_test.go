@@ -253,25 +253,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "workflowEvaluationAuthority", run: func() error {
-			actorRef, err := WorkflowActorRef(actor)
-			if err != nil {
-				return err
-			}
-			var authority WorkflowEvaluationAuthority
-			err = s.readSnapshot(ctx, func(q queryer) error {
-				var innerErr error
-				authority, innerErr = workflowEvaluationAuthority(ctx, q, "neighbor-work", actorRef)
-				return innerErr
-			})
-			if err != nil {
-				return err
-			}
-			if authority == "" {
-				return fmt.Errorf("empty evaluation authority")
-			}
-			return nil
-		}},
 		{name: "ExternalObservationsForWork", run: func() error {
 			observations, err := s.ExternalObservationsForWork(ctx, "neighbor-work", time.Now(), 10)
 			if err != nil {

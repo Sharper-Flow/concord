@@ -1,23 +1,19 @@
-// Registered roles hold disjoint Concord authority. Lanes have no workflow
-// tools. Capability-bound helpers authenticate the held dispatch separately
-// from the generated role ceiling.
+// Registered primary and utility roles retain their declared tool boundaries.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { agentLanes, agentUtilities } from "./generated-agent-lanes"
 import { guardPrimaryRole, PrimaryRoleRefusal } from "./primary-role"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { configureHostLease } from "./host-lease"
 import { syntheticHostVersionFixture } from "./host-version.test-support"
-import { WorkerCapabilityError } from "./lane_capabilities"
 
 syntheticHostVersionFixture()
 
 const MUTATING = ["concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_start", "concord_work_transition"]
 const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_domain"]
 const WORKFLOW_CATALOG = [...MUTATING, ...READS].sort()
-const CATALOG = [...WORKFLOW_CATALOG, "concord_worker_read", "concord_worker_check", "concord_worker_diff"].sort()
-const LANE_AGENTS = agentLanes.map((lane) => `concord-${lane.id}`)
-const UTILITY_AGENTS = agentUtilities.map((utility) => `concord-${utility.id}`)
+const CATALOG = WORKFLOW_CATALOG
+const utilityRegistry = await Bun.file(new URL("../../contracts/agent-utilities.v1.json", import.meta.url)).json() as { utilities: { id: string }[] }
+const UTILITY_AGENTS = utilityRegistry.utilities.map((utility) => `concord-${utility.id}`)
 
 let registered: string[] = []
 let plugin: Awaited<ReturnType<typeof ConcordAdapterPlugin>> | undefined
@@ -41,14 +37,14 @@ describe("primary role guard", () => {
     expect(registered).toEqual(CATALOG)
   })
 
-  test("a lane refusal names the tool, the role, and the lane boundary", async () => {
+  test("a utility refusal names the tool, the role, and the utility boundary", async () => {
     const guarded = guardPrimaryRole("concord_work_transition", recording().definition)
-    const refusal = await guarded.execute({}, context("concord-implement")).catch((error: unknown) => error)
+    const refusal = await guarded.execute({}, context("concord-explore")).catch((error: unknown) => error)
     expect(refusal).toBeInstanceOf(PrimaryRoleRefusal)
     const message = String((refusal as Error).message)
     expect(message).toContain("concord_work_transition")
-    expect(message).toContain("concord-implement")
-    expect(message).toContain("dispatch packet")
+    expect(message).toContain("concord-explore")
+    expect(message).toContain("declared tool set")
     expect(message).toContain("records nothing")
   })
 
@@ -82,8 +78,8 @@ describe("primary role guard", () => {
     }
   })
 
-  test("every lane and utility is refused every workflow tool before transport", async () => {
-    for (const agent of [...LANE_AGENTS, ...UTILITY_AGENTS]) {
+  test("every utility is refused every workflow tool before transport", async () => {
+    for (const agent of UTILITY_AGENTS) {
       for (const toolID of WORKFLOW_CATALOG) {
         const { calls, definition } = recording()
         const guarded = guardPrimaryRole(toolID, definition)
@@ -93,46 +89,11 @@ describe("primary role guard", () => {
     }
   })
 
-  test("the bounded reader passes the role ceiling only for lanes with repository read capability", async () => {
-    for (const lane of agentLanes) {
-      const { calls, definition } = recording()
-      const call = guardPrimaryRole("concord_worker_read", definition).execute({}, context(`concord-${lane.id}`))
-      if (lane.capabilities.includes("read_repository")) {
-        expect(await call).toBe("ran")
-        expect(calls).toHaveLength(1)
-      } else {
-        await expect(call).rejects.toBeInstanceOf(PrimaryRoleRefusal)
-        expect(calls).toEqual([])
-      }
-    }
-    for (const agent of UTILITY_AGENTS) {
-      const { calls, definition } = recording()
-      await expect(guardPrimaryRole("concord_worker_read", definition).execute({}, context(agent))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
-      expect(calls).toEqual([])
-    }
-  })
-
   test("a step with no agent identity is refused every registered tool", async () => {
     for (const agent of [undefined, "", 7]) {
       for (const toolID of CATALOG) {
         const { calls, definition } = recording()
         await expect(guardPrimaryRole(toolID, definition).execute({}, context(agent))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
-        expect(calls).toEqual([])
-      }
-    }
-  })
-
-  test("the bounded checker passes the role ceiling only for execution-capable lanes", async () => {
-    for (const agent of [...LANE_AGENTS, ...UTILITY_AGENTS]) {
-      const lane = agentLanes.find((entry) => `concord-${entry.id}` === agent)
-      const granted = lane?.capabilities.some((capability) => ["run_tests", "run_targeted_checks", "run_validators"].includes(capability))
-      const { calls, definition } = recording()
-      const call = guardPrimaryRole("concord_worker_check", definition).execute({}, context(agent))
-      if (granted) {
-        expect(await call).toBe("ran")
-        expect(calls).toHaveLength(1)
-      } else {
-        await expect(call).rejects.toBeInstanceOf(PrimaryRoleRefusal)
         expect(calls).toEqual([])
       }
     }
@@ -155,7 +116,7 @@ describe("primary role guard", () => {
 
   test("the guard reads one generated registry covering exactly the registered roles", () => {
     const agents = Object.keys(roleDeniedConcordTools).sort()
-    expect(agents).toEqual(["Concord-RTE", "Concord", "Concord-Planner", ...LANE_AGENTS, ...UTILITY_AGENTS].sort())
+    expect(agents).toEqual(["Concord-RTE", "Concord", "Concord-Planner", ...UTILITY_AGENTS].sort())
     // Neither full primary profile denies a tool; Planner denies exactly the
     // work-state writers. Every remaining refusal is a lane or utility
     // boundary.
@@ -165,14 +126,8 @@ describe("primary role guard", () => {
     expect(roleDeniedConcordTools["Concord"].tools).toEqual([])
     expect(roleDeniedConcordTools["Concord-RTE"].boundary).toBe("")
     expect(roleDeniedConcordTools["Concord"].boundary).toBe("")
-    for (const agent of [...LANE_AGENTS, ...UTILITY_AGENTS]) {
-      const lane = agentLanes.find((entry) => `concord-${entry.id}` === agent)
-      const granted = new Set<string>()
-      if (lane?.capabilities.includes("read_repository")) granted.add("concord_worker_read")
-      if (lane?.capabilities.some((capability) => capability === "inspect_diff")) granted.add("concord_worker_diff")
-      if (lane?.capabilities.some((capability) => ["run_tests", "run_targeted_checks", "run_validators"].includes(capability))) granted.add("concord_worker_check")
-      const expected = CATALOG.filter((tool) => !granted.has(tool))
-      expect([...roleDeniedConcordTools[agent].tools].sort()).toEqual(expected)
+    for (const agent of UTILITY_AGENTS) {
+      expect([...roleDeniedConcordTools[agent].tools].sort()).toEqual(CATALOG)
       expect(roleDeniedConcordTools[agent].boundary.length).toBeGreaterThan(0)
     }
   })
@@ -180,11 +135,8 @@ describe("primary role guard", () => {
   test("the plugin registers every Concord tool behind the guard", async () => {
     for (const toolID of WORKFLOW_CATALOG) {
       const definition = Reflect.get(plugin!.tool, toolID)
-      await expect(definition.execute({ request: { operation: "lifecycle", input: {} } }, context("concord-implement"))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
+      await expect(definition.execute({ request: { operation: "lifecycle", input: {} } }, context("concord-explore"))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
     }
-    // An agent name alone supplies no attempt or source-reading authority.
-    await expect(plugin!.tool.concord_worker_read.execute({ ordinal: 0, offset: 0, length: 1 }, context("concord-implement"))).rejects.toBeInstanceOf(WorkerCapabilityError)
-    await expect(plugin!.tool.concord_worker_check.execute({ control_id: "control:missing" }, context("concord-implement"))).rejects.toBeInstanceOf(WorkerCapabilityError)
   })
 })
 

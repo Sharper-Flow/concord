@@ -1,16 +1,13 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
-	"github.com/sharper-flow/concord/internal/store"
 )
 
 // The closed read schema retains the failure disposition without claiming
@@ -19,9 +16,8 @@ func checkpointFailedReviewCorrectionContext() map[string]any {
 	return map[string]any{
 		"disposition":   "failed",
 		"predicate_ids": []string{"predicate:return-route"}, "evidence_refs": []string{"evidence:return-route-verification"},
-		"diagnosis":         "the checkpoint review attempt failed and the latest verification verdict is not healthy",
-		"strategy":          "return to the repair step and dispatch a fresh attempt",
-		"failed_attempt_id": "attempt:work-1:failed-review", "failed_attempt_epoch": 1,
+		"diagnosis":       "the checkpoint has no accepted Review and the latest verification verdict is not healthy",
+		"strategy":        "return to the repair step and obtain current Review",
 		"source_event_id": "request_correction-work-1-9:semantic", "source_event_seq": 9,
 	}
 }
@@ -64,22 +60,10 @@ func TestFailedReviewCorrectionContextFitsTheClosedSchemas(t *testing.T) {
 func TestFailedReviewCorrectionBoundaryRequiresAcceptedCurrentReview(t *testing.T) {
 	f := newSpineExecutionFixture(t)
 	f.verify(t)
-	f.recordJob(t)
-	f.completeWorker(t)
+	f.prepareControl(t)
+	f.implement(t)
 	f.proof = f.verify(t)
-	f.recordJob(t)
-	const failedAttempt = "attempt:failed-correction-review"
-	f.startWorker(t, "review", failedAttempt)
-	failure := agentWorkerFailedAttributedEvent("failed-correction-review", store.WorkerFailedPayload{
-		AttemptID: failedAttempt, ReadbackModel: "openai/test-model", FailureKind: store.WorkerFailureWorkerError, Detail: "review lane failed",
-	})
-	failure.SubjectID, failure.OccurredAt = f.work, time.Now().UTC()
-	if err := f.s.Transact(context.Background(), func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkerEvidenceOperationTx(context.Background(), tx, failure)
-		return err
-	}); err != nil {
-		t.Fatalf("record failed review through the terminal seam: %v", err)
-	}
+	f.prepareControl(t)
 	fields := map[string]any{
 		"diagnosis":     "The review failed before producing an accepted correction disposition.",
 		"strategy":      "Obtain current Review before requesting implementation correction.",
@@ -98,7 +82,7 @@ func TestFailedReviewCorrectionBoundaryRequiresAcceptedCurrentReview(t *testing.
 	}
 	// Current Review, not a caller-authored non-ok verdict or operator
 	// substitution, owns the correction prerequisite.
-	f.recordJob(t)
+	f.prepareControl(t)
 	f.review(t, "correction_required", "")
 	accepted := f.read(t)
 	if accepted.Pinned.Pin.Review == nil || accepted.Pinned.Pin.Review.Accepted == nil || accepted.Pinned.Pin.Review.Accepted.Report.Disposition != "correction_required" {
@@ -131,7 +115,6 @@ func TestFailedReviewCorrectionBoundaryRequiresAcceptedCurrentReview(t *testing.
 		})
 	}
 	beforeCorrection := f.read(t)
-	attempts := countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`)
 	challenges := countWorkflowApprovalChallenges(t, f.s)
 	input := map[string]any{
 		"work_id": f.work, "expected_version": beforeCorrection.Pinned.Pin.Version, "action_id": "request_correction",
@@ -143,14 +126,14 @@ func TestFailedReviewCorrectionBoundaryRequiresAcceptedCurrentReview(t *testing.
 	if current.Pinned.Step != "execution" || correction == nil || correction.SourceEventID == "" || !reflect.DeepEqual(correction.PredicateIDs, []string{"predicate:primary"}) || !reflect.DeepEqual(correction.EvidenceRefs, []string{reportRef}) {
 		t.Fatalf("current correction lost its bounded return context: %+v", current.Pinned)
 	}
-	if !reflect.DeepEqual(beforeCorrection.Pinned.Contract, current.Pinned.Contract) || !reflect.DeepEqual(beforeCorrection.Pinned.Pin.Review, current.Pinned.Pin.Review) || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`) != attempts || countWorkflowApprovalChallenges(t, f.s) != challenges || f.env.HostApproval != nil {
-		t.Fatal("correction changed contract, Review, attempts, or consent state")
+	if !reflect.DeepEqual(beforeCorrection.Pinned.Contract, current.Pinned.Contract) || !reflect.DeepEqual(beforeCorrection.Pinned.Pin.Review, current.Pinned.Pin.Review) || countWorkflowApprovalChallenges(t, f.s) != challenges || f.env.HostApproval != nil {
+		t.Fatal("correction changed contract, Review or consent state")
 	}
 	before = premiseConsentSnapshot(t, f.s)
 	if replay := spineOK(t, f.call(t, "concord_work_transition", "workflow_action", input)); !replay.Replayed || !reflect.DeepEqual(before, premiseConsentSnapshot(t, f.s)) {
 		t.Fatal("correction replay changed authority")
 	}
-	f.recordJob(t)
+	f.prepareControl(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	// A ready Review closes the correction prerequisite: the superseded
 	// disposition cannot reopen the return.

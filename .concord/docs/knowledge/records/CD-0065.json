@@ -22,9 +22,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b41e94a0b217ea6266ca74e1b3f0726ba5ac1b843928d205401a4e0474cfae4d",
+  "sha256": "sha256:cd721741b19513a664325082423efba8e6ef4bad854c6d0bd97ad0a9d2ed2e8c",
   "status": "accepted",
-  "summary": "The conformance corpus runs current production definitions by reference, with no version pins (CD-0242 D14). Its twelve scenarios and fifteen cases run through the production action boundary and assert authoritative rows and events. No definition exists solely to give the corpus a non-Product-changing target. Obligations the corpus does not carry, such as Domain overlap refusal, require their own current behavioral controls.",
+  "summary": "The conformance corpus runs current production definitions by reference without version pins, through the production action boundary. No definition exists solely to give the corpus a non-Product-changing target. Outcome contracts, completion atomicity, exact evidence subjects and current Review retain behavioral proof. Store controls prove that a shared Domain alone blocks no boundary under CD-0222 D6.",
   "tags": [
     "conformance",
     "workflow-definitions",

@@ -87,24 +87,14 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, owner); err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_work_context", json.RawMessage(mustJSONValue(map[string]any{
+	if err := runVerdictActionAs(t, s, workID, "record_work_context", mustJSONValue(map[string]any{
 		"required_reading": []map[string]any{{"domain_id": workContextTestChild, "reason": marker + "-reading", "source": map[string]any{"kind": "repository_file", "project_id": "project", "path": ".concord/docs/spec.md", "commit_oid": base}}},
 		"context_findings": []map[string]any{
 			workContextFinding(workContextTestChild, "rejected_approach", marker+"-rejected", ""),
 			workContextFinding(workContextTestChild, "open_question", marker+"-question", ""),
+			workContextFinding(workContextTestChild, "observation", marker+"-observation", ""),
 		},
-	})), 0, owner); err != nil {
-		t.Fatal(err)
-	}
-	lane := BuiltinLaneDefinitions()[0]
-	// The attempt's original dispatch authorization precedes the generic
-	// dispatch evidence and names the active claim the completion reports.
-	recordWorkerFixtureDispatchAuthorization(t, s, workID, "close-git-attempt", "execution", ownerRef)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerDispatchEvent(workID, "close-git-attempt", lane, nil)}}); err != nil {
-		t.Fatal(err)
-	}
-	findings := []WorkerContextFinding{{Kind: "observation", Statement: marker + "-worker", SubjectRef: ".concord/docs/spec.md", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompletedContextFindingsEvent(workID, "close-git-worker-completed", "close-git-attempt", preferredModelForLane(lane), lane, findings, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))}}); err != nil {
+	}), 0, owner); err != nil {
 		t.Fatal(err)
 	}
 
@@ -143,34 +133,10 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err != nil || verified.ExitCode != 0 || verified.SubjectRef != "commit:"+base {
 		t.Fatalf("capture passing command receipt on the close candidate: %+v err=%v", verified, err)
 	}
-	f := workContextFixture{store: s, workID: workID, owner: owner, operator: reviewer}
-	j := &candidateJourney{fixture: f, s: s, workID: workID, repo: claimed.Entry.Path}
-	job := reviewSubjectReadyRevision(t, f)
-	const reviewAttempt = "review:close-git"
-	if err := descendantDispatch(t, j, "review", reviewAttempt, job, nil); err != nil {
-		t.Fatalf("dispatch close Review: %v", err)
-	}
-	j.laneDispatch(t, reviewAttempt, "review", &job)
-	report := currentReviewBlockForTest(t, s, workID, reviewAttempt, "ready_for_final_proof")
-	report.Assessments = []WorkerReviewAssessment{{PredicateID: "predicate:context-close", Assessment: "supported", ReceiptRefs: []string{verified.OperationRef}}}
-	reviewLane := reviewGateLane(t, "review")
-	reviewEvidence := []WorkerReportEvidence{}
-	for _, obligation := range reviewLane.EvidenceObligations {
-		if obligation != "severity" {
-			reviewEvidence = append(reviewEvidence, WorkerReportEvidence{Obligation: obligation, Detail: "Reviewed the unchanged close candidate."})
-		}
-	}
-	reviewEvent := Event{EventID: "close-git-review-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted),
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: reviewAttempt, ReadbackModel: preferredModelForLane(reviewLane), ReportSchemaVersion: WorkerReportSchemaVersion,
-			WorkerDirectory: claimed.Entry.Path, EvidenceOrigin: WorkerEvidenceReported, Evidence: reviewEvidence, WorkerJob: &job, Review: report})}
-	prepared, err := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: reviewAttempt, EventID: reviewEvent.EventID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(ctx, prepared), s, reviewEvent)
-	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": reviewAttempt, "attempt_epoch": reviewSubjectWindow(t, s, workID, reviewAttempt).AttemptEpoch}, owner); err != nil {
-		t.Fatalf("accept close Review: %v", err)
+	report := currentReviewBlockForTest(t, s, workID, "ready_for_final_proof")
+	report.Assessments = []ReviewAssessment{{PredicateID: "predicate:context-close", Assessment: "supported", ReceiptRefs: []string{verified.OperationRef}}}
+	if err := recordReviewForTest(t, s, workID, owner, report); err != nil {
+		t.Fatalf("record close Review: %v", err)
 	}
 	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "acceptance", ownerRef); err != nil {
 		t.Fatal(err)
@@ -227,7 +193,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	for _, finding := range view.Findings {
 		retained[finding.Statement] = finding.Status
 	}
-	for _, suffix := range []string{"rejected", "question", "worker"} {
+	for _, suffix := range []string{"rejected", "question", "observation"} {
 		if retained[marker+"-"+suffix] != WorkContextFindingStatusReported {
 			t.Errorf("closed finding %s is not retained as reported: %v", suffix, retained)
 		}

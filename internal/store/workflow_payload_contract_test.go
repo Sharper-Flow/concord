@@ -211,22 +211,6 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 	}
 }
 
-func TestDispatchWorkerIntentNamesThePublicAdapterField(t *testing.T) {
-	t.Parallel()
-	definition := currentWorkflowDefinition(t)
-	intents := workPinIntents(definition, "execution", 11)
-	for _, intent := range intents {
-		if intent.ActionID != "dispatch_worker" {
-			continue
-		}
-		if len(intent.RequiredFields) != 1 || intent.RequiredFields[0] != "lane_id" {
-			t.Fatalf("dispatch_worker required fields = %v, want [lane_id]", intent.RequiredFields)
-		}
-		return
-	}
-	t.Fatal("execution step has no dispatch_worker intent")
-}
-
 func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 	t.Parallel()
 	definition := currentWorkflowDefinition(t)

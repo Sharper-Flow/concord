@@ -272,26 +272,6 @@
       "rationale": "This column stores the current review-proof window as JSON, not an enum; its CHECK requires valid JSON."
     },
     {
-      "table": "worker_attempts",
-      "column": "capability_class",
-      "authority": "check"
-    },
-    {
-      "table": "worker_attempts",
-      "column": "failure_kind",
-      "authority": "check"
-    },
-    {
-      "table": "worker_attempts",
-      "column": "lifecycle_state",
-      "authority": "check"
-    },
-    {
-      "table": "worker_attempts",
-      "column": "terminal_kind",
-      "authority": "check"
-    },
-    {
       "table": "workflow_actors",
       "column": "actor_class",
       "authority": "check"

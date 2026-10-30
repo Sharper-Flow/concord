@@ -8,8 +8,8 @@
   `addOrchestratorContinuityHook|change:researcher:orchestrator-continuity|adv-researcher|1`).
 - **Scope:** Orchestrator prompt continuity; adapter plugin surface;
   `ContinuitySnapshot` payload; agent-tool surface version.
-- **Related:** CD-0016, CD-0031, CD-0034, CD-0043, CD-0072, CD-0084, CD-0098,
-  CD-0104, CD-0223.
+- **Related:** CD-0016, CD-0031, CD-0043, CD-0072, CD-0084, CD-0098,
+  CD-0104, CD-0242.
 - **Approval:** Directory-based work resolution: Concord (CON) issue CON-910
   (2026-10-13), under the Snowball coordinator's operator-delegated approval;
   managed-parent exclusion: coordinator-approved 2026-10-17.
@@ -65,9 +65,8 @@ The adapter plugin entry (`concord-plugin.ts`) registers
 
 The hook never resolves work from the launcher identity environment.
 `work_start` moves the session directory and leaves that environment
-unchanged, so the environment names the launch item after a move. A session
-under a managed parent is a dispatched lane, and its dispatch packet is its
-complete Concord context (CD-0223).
+unchanged, so the environment names the launch item after a move. Native
+subagent prompts remain host-owned; the hook creates no subagent packet.
 
 The render path is pinned to `sessionboot.Build`. The envelope render stamps
 wall-clock `ObservedAt` and is nondeterministic; using it would break
@@ -86,8 +85,7 @@ forbidden.
 
 `ContinuitySnapshot` gains `step_actions` — the current step's `actions[]` from
 the verified workflow definition. This is the same class of content as the boot
-packet's workflow-step line: durable-state projection. CD-0043 D2 provenance
-binding applies only if methodology prose is ever injected; none is.
+packet's workflow-step line: durable-state projection, not methodology prose.
 
 `ManifestDigest` is the machine identity for skew checks.
 

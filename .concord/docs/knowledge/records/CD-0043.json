@@ -10,7 +10,7 @@
     ".concord/docs/predecessor-operational-coverage.md",
     "skills/README.md"
   ],
-  "home_domain_id": "worker-lanes",
+  "home_domain_id": "agent-adapter",
   "id": "CD-0043",
   "kind": "decision",
   "path": ".concord/docs/decisions/CD-0043-host-owned-lane-methodology.md",
@@ -21,13 +21,13 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c23d2c4a5687bfdfd12f3971cc423b9c42d357184c44e5d4acc390fe40123f96",
+  "sha256": "sha256:bf10d3cd3f0ac5930b308835cea41a34d05aa8bb86a3c6d2f9e50c311da804e9",
   "status": "accepted",
-  "summary": "Concord owns the lane contract, evidence boundary, and provenance record; host-specific lane procedure reaches a dispatch only through the CD-0034 enumerable host instruction surface. Under CD-0246, a lane's generated definition carries the portable engineering method its purpose uses. Under CD-0245 and CD-0246, skills/ admits skills that operate Concord-defined structure or carry portable methods; a worker never depends on a skill for its method. The deferring coverage rows name the host owner.",
+  "summary": "Host-specific procedure stays host-owned and is not durable coordination state. Portable methods and skills operating Concord-defined structure ship through the existing skill path. Coverage deferrals name the host; neither a loaded method nor a report establishes Product truth or verification evidence.",
   "tags": [
-    "lanes",
+    "host",
     "methodology",
     "prompt-authority"
   ],
-  "title": "Lane methodology is host-owned and provenance-recorded"
+  "title": "Host-specific methodology stays host-owned"
 }

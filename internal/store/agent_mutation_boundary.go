@@ -404,7 +404,6 @@ type WorkflowApprovalBoundaryState struct {
 	ActiveContractVersions []int64
 	DecisionDomainsPresent bool
 	DecisionDomains        []string
-	EvaluatorAuthority     WorkflowEvaluationAuthority
 	Policy                 WorkflowApprovalPolicyResult
 }
 
@@ -472,11 +471,7 @@ func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry Defin
 		}
 		state.DecisionDomainsPresent, state.DecisionDomains = present, domains
 	}
-	actorRef, err := WorkflowActorRef(request.Actor)
-	if err != nil {
-		return state, err
-	}
-	if state.EvaluatorAuthority, err = workflowEvaluationAuthority(ctx, q, request.WorkID, actorRef); err != nil {
+	if _, err := WorkflowActorRef(request.Actor); err != nil {
 		return state, err
 	}
 	facts, err := workflowApprovalBoundaryFacts(request, state)
@@ -491,10 +486,6 @@ func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry Defin
 
 func workflowApprovalBoundaryFacts(request WorkflowActionPreflightRequest, state WorkflowApprovalBoundaryState) (WorkflowApprovalFacts, error) {
 	facts := WorkflowApprovalFacts{ActiveDecisionDomains: state.DecisionDomains}
-	if workflowOperatorVerdictActions[request.ActionID] {
-		// The existing legacy fact: an independent evaluator never becomes consent.
-		facts.OperatorRequired = state.EvaluatorAuthority == WorkflowOperatorRequired
-	}
 	if (request.ActionID == "approve_contract" || request.ActionID == "supersede_contract") && workflowApprovalPolicyRequiresDecisionFact(state.Definition.Definition) {
 		var fields map[string]json.RawMessage
 		if len(request.Payload) != 0 {

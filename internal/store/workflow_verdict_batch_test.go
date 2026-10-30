@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -24,8 +23,8 @@ func batchVerdictContractPredicates(workID string) []map[string]any {
 	return predicates
 }
 
-// The fixture captures VerifyWorktree receipts and an independently dispatched
-// Review. No caller verdict or evidence-kind binding can substitute for them.
+// Criterion proof binds captured VerifyWorktree receipts and a subject-bound
+// Review. A caller verdict or evidence-kind binding cannot substitute for them.
 func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion int, beforeProduction ...func(workContextFixture)) (workContextFixture, string, [][]string) {
 	t.Helper()
 	var predicates []map[string]any
@@ -52,23 +51,7 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 	if !dependencies.ArchitectureNotApplicable {
 		acceptCurrentReviewForTest(t, f, repo, "continue")
 	}
-	job := reviewSubjectReadyRevision(t, f)
-	if err := descendantDispatch(t, j, "implement", "p:implementation", job, nil); err != nil {
-		t.Fatal(err)
-	}
-	j.laneDispatch(t, "p:implementation", "implementation", &job)
-	editDir := repo + "/internal/store/" + job.JobID
-	if err := os.MkdirAll(editDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(editDir+"/value.go", []byte("package fixture\nconst Value = 7\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	j.commit(t, "Concord Test", "Implement the checked fixture")
-	j.completeLane(t, "p:implementation", "implementation", &job, nil)
-	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": "p:implementation", "attempt_epoch": j.dispatchEpoch(t, "p:implementation")}, f.owner); err != nil {
-		t.Fatal(err)
-	}
+	conformanceImplementChange(t, j, "criterion-proof")
 	refs := make([][]string, criteria)
 	for i := range refs {
 		for k := 0; k < receiptsPerCriterion; k++ {
@@ -84,6 +67,9 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": refs[0][0], "producer_id": f.owner.PrincipalRef, "producer_run_ref": refs[0][0], "producer_watermark": "request:p:0:0"}), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
+	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "commit:" + runTestGit(t, repo, "rev-parse", "HEAD")}), 0, f.owner); err != nil {
+		t.Fatalf("bind the checked candidate artifact: %v", err)
+	}
 	owner, _ := WorkflowActorRef(f.owner)
 	if err := advanceWorkflowTestInstanceToStep(t.Context(), f.store, workID, "acceptance", owner); err != nil {
 		t.Fatal(err)
@@ -93,33 +79,11 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 
 func pAcceptReceiptReview(t *testing.T, f workContextFixture, repo string, refs [][]string) {
 	t.Helper()
-	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
-	job := reviewSubjectReadyRevision(t, f)
-	attempt := "p:review:" + job.JobID
-	if err := descendantDispatch(t, j, "review", attempt, job, nil); err != nil {
-		t.Fatal(err)
-	}
-	j.laneDispatch(t, attempt, "review", &job)
-	report := currentReviewBlockForTest(t, f.store, f.workID, attempt, "ready_for_final_proof")
-	for i, proof := range refs {
-		report.Assessments = append(report.Assessments, WorkerReviewAssessment{PredicateID: fmt.Sprintf("predicate:p%d", i), Assessment: "supported", ReceiptRefs: proof})
-	}
-	lane := reviewGateLane(t, "review")
-	event := jobBoundCompletionEvent(f.workID, attempt+":completed", attempt, lane, time.Now().UTC(), &job, repo)
-	var payload WorkerCompletedPayload
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	payload.Review = report
-	event.Payload = mustJSONValue(payload)
-	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), f.store, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attempt, EventID: event.EventID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(t.Context(), prepared), f.store, event)
-	if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": j.dispatchEpoch(t, attempt)}, f.owner); err != nil {
-		t.Fatal(err)
-	}
+	completeCurrentReviewForTest(t, f, repo, "ready_for_final_proof", func(report *ReviewBlock) {
+		for i, proof := range refs {
+			report.Assessments = append(report.Assessments, ReviewAssessment{PredicateID: fmt.Sprintf("predicate:p%d", i), Assessment: "supported", ReceiptRefs: proof})
+		}
+	})
 }
 
 func pReceiptBatch(refs [][]string, indexes ...int) json.RawMessage {
@@ -130,14 +94,14 @@ func pReceiptBatch(refs [][]string, indexes ...int) json.RawMessage {
 	return mustJSONValue(map[string]any{"verdicts": entries})
 }
 
-func pConfirmReceiptPremise(t *testing.T, f workContextFixture, repo string) error {
+func pConfirmReceiptPremise(t *testing.T, f workContextFixture) error {
 	t.Helper()
 	ctx := t.Context()
-	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, f.store, PrepareWorkerDispatchRequest{WorkID: f.workID, SessionWorktree: repo})
+	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, f.store, PrepareWorkflowSubjectRequest{WorkID: f.workID})
 	if err != nil {
 		return err
 	}
-	ctx = WithWorkerDispatchPreparation(ctx, prepared)
+	ctx = WithWorkflowSubjectPreparation(ctx, prepared)
 	version := readWorkVersion(t, f.store, f.workID)
 	id := fmt.Sprintf("confirm-%s-%d", f.workID, version)
 	return f.store.Transact(ctx, func(tx *Transaction) error {
@@ -251,14 +215,6 @@ func TestWorkflowVerdictBatchAtomicRefusal(t *testing.T) {
 	} {
 		assertRecoveryRefusalWithoutEffect(t, f.store, f.workID, KindInvalidPayload, func() error { return runVerdictActionAs(t, f.store, f.workID, "record_verdict", payload, 0, f.owner) })
 	}
-	// Main may have executed; a dispatched worker still cannot associate proof.
-	var worker WorkflowActor
-	if err := f.store.db.QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=(SELECT json_extract(dispatch_payload,'$.lane_actor_ref') FROM worker_attempts WHERE work_id=? AND attempt_id='p:implementation')`, f.workID).Scan(&worker.PrincipalRef, &worker.ClientRef, &worker.AgentRef, &worker.SessionRef, &worker.ActorClass); err != nil {
-		t.Fatal(err)
-	}
-	assertRecoveryRefusalWithoutEffect(t, f.store, f.workID, KindUnauthorized, func() error {
-		return runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0, 1), 0, worker)
-	})
 	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0, 1), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +267,7 @@ func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
 }
 
 func TestWorkflowVerdictBatchOmissionStaysMissing(t *testing.T) {
-	f, repo, refs := pReceiptFixture(t, "batch-omission-current", 3, 1)
+	f, _, refs := pReceiptFixture(t, "batch-omission-current", 3, 1)
 	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0, 1), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +290,7 @@ func TestWorkflowVerdictBatchOmissionStaysMissing(t *testing.T) {
 	if err != nil || len(missing) != 0 {
 		t.Fatalf("full coverage still missing=%v err=%v", missing, err)
 	}
-	if err := pConfirmReceiptPremise(t, f, repo); err != nil {
+	if err := pConfirmReceiptPremise(t, f); err != nil {
 		t.Fatalf("confirm after full coverage: %v", err)
 	}
 	if step := currentStep(t, f.store, f.workID); step != "release" {

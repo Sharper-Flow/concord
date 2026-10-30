@@ -1,4 +1,4 @@
-import { concordBinaryPath, defaultRunner, type DispatchRunner } from "./dispatch"
+import { concordBinaryPath, defaultRunner, type CoreRunner } from "./core-runtime"
 import { hostControlPlane } from "./move-session"
 
 const CONTINUITY_TTL_MS = 10_000
@@ -22,7 +22,7 @@ export type ContinuitySessionSource = {
   sessionDirectory(sessionID: string, signal?: AbortSignal): Promise<string>
 }
 
-type ContinuityOptions = { runner?: DispatchRunner; now?: () => number; sessions?: ContinuitySessionSource }
+type ContinuityOptions = { runner?: CoreRunner; now?: () => number; sessions?: ContinuitySessionSource }
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -53,9 +53,8 @@ export function createContinuityTransform(options: ContinuityOptions = {}) {
       // no session to resolve, so it renders no block and does not throw.
       const sessionID = typeof input?.sessionID === "string" ? input.sessionID : ""
       if (!sessionID) return
-      // A session with a managed parent is a dispatched lane; the dispatch
-      // packet is the lane's complete Concord context (CD-0017 D4), so the
-      // lane gets no continuity block of its parent's work.
+      // Native Task children must not receive their parent's coordinator
+      // continuity. The host owns each child's context.
       // The transform runs on every chat completion, so both host reads carry
       // their own deadline: a wedged host read must never stall system-prompt
       // assembly.

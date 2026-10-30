@@ -21,7 +21,7 @@ func TestWorkflowEvidenceCurrentFactsWithoutLog(t *testing.T) {
 	})}}); err != nil {
 		t.Fatal(err)
 	}
-	bound, err := oracleClosureProducerBoundTx(ctx, s.db, work, "evidence:gate-proof", "current-proof-producer")
+	bound, err := workflowEvidenceTupleBound(ctx, s.db, work, "verification", "evidence:gate-proof", 0)
 	if err != nil || !bound {
 		t.Fatalf("positive binding fixture: bound=%v err=%v", bound, err)
 	}
@@ -39,9 +39,6 @@ func TestWorkflowEvidenceCurrentFactsWithoutLog(t *testing.T) {
 		return read(tx)
 	}
 	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
-		"P25-oracle-producer-binding": func() (any, error) {
-			return oracleClosureProducerBoundTx(ctx, s.db, work, "evidence:gate-proof", "current-proof-producer")
-		},
 		"P38-blocking-staleness": func() (any, error) {
 			return inTx(func(tx *sql.Tx) (any, error) { return nil, verifyBlockingStaleness(ctx, tx, work, definition, nil) })
 		},
@@ -70,7 +67,7 @@ func TestWorkflowEvidenceCurrentFactsMigrationBackfill(t *testing.T) {
 	s, _ := seedCompletionGateCase(t, work, completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	defer s.Close()
 	queries := []string{
-		`SELECT json_array(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload,latest_dispatch_start_seq,latest_dispatch_start_event_id,latest_dispatch_start_payload) FROM workflow_step_epochs ORDER BY work_id,step_id`,
+		`SELECT json_array(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload) FROM workflow_step_epochs ORDER BY work_id,step_id`,
 		`SELECT json_array(work_id,action_id,exit_seq) FROM workflow_phase_exits ORDER BY work_id,action_id`,
 		`SELECT json_array(work_id,step_id,action_id,production_seq,verdict_seq,verdict_production_seq) FROM workflow_artifact_actions ORDER BY work_id,step_id,action_id`,
 		`SELECT json_array(work_id,contract_version,supersession_seq) FROM workflow_contracts ORDER BY work_id,contract_version`,

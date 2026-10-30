@@ -3,7 +3,6 @@ package store
 import (
 	"database/sql"
 	"errors"
-	"reflect"
 	"testing"
 )
 
@@ -33,8 +32,10 @@ func TestEffectReceiptReadPreservesHeaderScan(t *testing.T) {
 				want, digest, wantErr = Event{}, "", nil
 			}
 			got, found, err := readEffectReceipt(t.Context(), s.db, tc.id)
-			if !reflect.DeepEqual(got.event(), want) || got.PayloadDigest != digest || found != wantFound {
-				t.Fatalf("receipt/header scan differ: got=%+v found=%t want=%+v found=%t", got, found, want, wantFound)
+			wantReceipt := effectReceiptHeader(want)
+			wantReceipt.PayloadDigest = digest
+			if got.EffectReceipt != wantReceipt || found != wantFound {
+				t.Fatalf("receipt/header scan differ: got=%+v found=%t want=%+v found=%t", got, found, wantReceipt, wantFound)
 			}
 			if (err == nil) != (wantErr == nil) || (err != nil && err.Error() != wantErr.Error()) {
 				t.Fatalf("scan errors differ: got=%v want=%v", err, wantErr)

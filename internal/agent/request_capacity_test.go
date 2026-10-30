@@ -10,16 +10,6 @@ import (
 	"github.com/sharper-flow/concord/internal/testutil/schemawire"
 )
 
-// The request transport budget is derived, not guessed: this test composes
-// the declared maxima of one dispatch invoke request through the shared
-// test-support witness — the closed dispatch action input with its worker
-// packet, the call envelope's host-owned identities under their downstream
-// owners' bounds — and proves the request transport limit holds this shape.
-// The widest admitted action shape, not this one, derives the shared
-// ceilings' exact rounding (workflow_action_capacity_test.go); this per-shape
-// proof keeps its ceiling comparison and its envelope construction, which
-// the widest-shape derivation shares.
-
 // invokeRequestWireBytes composes the whole invoke request's wire figure
 // from one derived action input: the call envelope's host-owned identities
 // under their downstream owners' bounds, then the four-member request
@@ -88,45 +78,7 @@ func invokeRequestWireBytes(t *testing.T, defs map[string]any, opt schemawire.Op
 	return request
 }
 
-// derivedPacketFigure walks the current packet (CD-0242 D14). The walker bounds its writer-owned members:
-// the acceptance oracle and the checks-repair metadata are writer-bounded
-// members the generated schema leaves unstated, the writer-stamped
-// date-times carry the core writer's RFC3339Nano UTC serialization, and
-// the three context members ride the context aggregate exactly once.
-func derivedPacketFigure(t *testing.T, defs map[string]any, findingRefMax int) int {
-	t.Helper()
-	const name = "worker_packet"
-	jobPath := name + "/inputs/worker_job/"
-	jobRef := "worker_packet_worker_job"
-	bounds := map[string]int{
-		name + "/inputs/review_input/worker_packet_review_input/retained_failed_edit/changed_paths": store.WorkerReviewRetainedPathsMaxBytes,
-		name + "/inputs/design_record/workflow_design_record/recorded_at":                           32,
-		name + "/inputs/proposal_record/workflow_proposal_record/recorded_at":                       32,
-	}
-	bounds[jobPath+jobRef+"/checks_repair"] = store.WorkerJobChecksRepairMaxBytes
-	bounds[jobPath+jobRef+"/direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash"] = 71
-	bounds[jobPath+jobRef+"/acceptance_oracle"] = store.OracleCombinedMaxBytes
-	opt := schemawire.Options{
-		Defs:       defs,
-		PathBounds: bounds,
-		Excludes: map[string]bool{
-			name + "/inputs/work_context": true,
-			name + "/inputs/checkpoint":   true,
-			name + "/inputs/correction":   true,
-		},
-		FindingRefMax: findingRefMax,
-	}
-	size, err := schemawire.Max(defs[name], name, opt)
-	if err != nil {
-		t.Fatalf("the %s derivation hit an unbudgeted member: %v", name, err)
-	}
-	return size
-}
-
-// TestRequestBudgetDerivesFromDeclaredMaxima composes the declared maxima
-// of one dispatch invoke request and proves this shape stays inside the
-// request transport limit. The exact rounding both ceilings share derives
-// from the widest admitted action shape, not from this dispatch subset.
+// Review's declared maximum composes with the authenticated host envelope.
 func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	defs, _ := payloadschema.Document()["$defs"].(map[string]any)
 	if defs == nil {
@@ -137,19 +89,22 @@ func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	}
 	// Quotes count: the reference serializes inside quotation marks.
 	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
-	packet := derivedPacketFigure(t, defs, findingRefMax)
 	opt := schemawire.Options{
 		Defs: defs,
 		RefBounds: map[string]int{
-			"worker_packet": packet + store.DispatchContextAggregateMaxBytes - 1,
+			"worker_acceptance_oracle": store.OracleCombinedMaxBytes,
 		},
 		FindingRefMax: findingRefMax,
 	}
-	input, err := schemawire.Max(defs["work_transition_action_variant_dispatch_worker"], "work_transition_action_variant_dispatch_worker", opt)
+	const variant = "work_transition_action_variant_record_review"
+	if defs[variant] == nil {
+		t.Fatal("record_review is absent from the generated contract; regenerate from the workflow owner")
+	}
+	input, err := schemawire.Max(defs[variant], variant, opt)
 	if err != nil {
 		t.Fatalf("the request derivation hit an unbudgeted member: %v", err)
 	}
-	// The call envelope's host-owned identities wrap the derived dispatch
+	// The call envelope's host-owned identities wrap the derived Review
 	// input; the shared builder keeps this per-shape proof and the
 	// widest-shape derivation on one construction.
 	request := invokeRequestWireBytes(t, defs, opt, input)

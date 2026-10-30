@@ -2,13 +2,10 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -40,23 +37,20 @@ type workflowActionGuardContext struct {
 
 	staleRecovery             bool
 	recoveryBind              bool
-	workerFailureRecovery     bool
-	correctionRecovery        bool
 	correctionRequestRecovery bool
 	correctionRequestMissing  string
 	// admissionState and admissionDecision carry the fold's one admission
 	// derivation: the tx-scoped loader's folded state and workflowAdmit's
 	// decision over it. Guards consume them instead of re-deriving the
 	// conditions per site.
-	admissionState          *WorkflowAdmissionState
-	admissionDecision       *WorkflowAdmissionDecision
-	deliveryProofRuns       []workflowVerificationRun
-	deliveryIntegrationRuns []workflowVerificationRun
-	actorRef                string
-	eventActor              string
-	operatorRef             string
-	actorRecordPrefix       *workflowActorRecordPrefix
-	operatorNeedsRecord     bool
+	admissionState      *WorkflowAdmissionState
+	admissionDecision   *WorkflowAdmissionDecision
+	deliveryProofRuns   []workflowVerificationRun
+	actorRef            string
+	eventActor          string
+	operatorRef         string
+	actorRecordPrefix   *workflowActorRecordPrefix
+	operatorNeedsRecord bool
 }
 
 type workflowActionGuardFunc func(*workflowActionGuardContext) error
@@ -71,45 +65,16 @@ type workflowActionGuard struct {
 // consults this table at each phase point in its sequence.
 var workflowActionGuards = map[string]workflowActionGuard{
 	"supersede_contract":     {guardPhaseRecovery, guardSupersedeContractRecovery},
-	"reject_worker_result":   {guardPhaseRecovery, guardRejectWorkerResultRecovery},
 	"request_correction":     {guardPhaseRecovery, guardRequestCorrectionRecovery},
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
 	"record_verdict":         {guardPhaseBoundary, guardRecordVerdictArtifactFreshness},
-	"accept_worker_result":   {guardPhaseClaim, guardAcceptWorkerResultDeliveryRoute},
-	"accept_worker_evidence": {guardPhaseClaim, guardAcceptWorkerEvidenceRoute},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"cross_context_boundary": {guardPhaseClaim, guardNoRestartDispatch},
 	"record_delivery":        {guardPhaseClaim, guardDeliveryAdmission},
 }
 
-func guardRejectWorkerResultRecovery(g *workflowActionGuardContext) error {
-	if !g.correctionRecovery {
-		return newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable without a completed result", false, "accept or reject the completed worker result")
-	}
-	// The refusal binds the exact attempt pair the payload names; no
-	// availability boolean for another open result authorizes it.
-	fields, fieldsErr := workflowActionObject(g.defaultedPayload())
-	if fieldsErr != nil {
-		return fieldsErr
-	}
-	attemptID, attemptOK := workflowFieldString(fields, "attempt_id")
-	epoch, epochOK := workflowFieldIntOK(fields, "attempt_epoch")
-	if !attemptOK || attemptID == "" || !epochOK {
-		return newFailure(KindInvalidPayload, "workflow_action", "reject_worker_result requires the exact attempt_id and attempt_epoch of a completed result", false, "supply the attempt pair the work pin advertises")
-	}
-	if _, err := validateWorkerResultRejection(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", attemptID, epoch, 0); err != nil {
-		return err
-	}
-	// On an oracle-capable history the rejection's open finding
-	// set must exactly equal the derived open set — omission never closes
-	// a finding. Oracle-free histories keep the legacy optional field.
-	return g.validateCorrectionOpenFindings()
-}
-
-// validateCorrectionOpenFindings is the derived-set equality both correction
-// surfaces share: the payload's open_finding_ids must equal the
-// lineage's derived open set whenever the work's history ever dispatched
-// under an oracle-bearing job revision.
+// Historical oracle metadata does not require a new worker finding report.
+// Explicit finding references must still name the exact retained open set.
 func (g *workflowActionGuardContext) validateCorrectionOpenFindings() error {
 	fields, fieldsErr := workflowActionObject(g.defaultedPayload())
 	if fieldsErr != nil {
@@ -209,120 +174,10 @@ func stepDeclaresAction(definition WorkflowDefinition, stepID, actionID string) 
 	return false
 }
 
-// workflowWorkerFailureRecovery reports whether the engine admits the
-// hold-mode record_worker_failure recovery at the current step.
-//
-// A frozen definition that predates record_worker_failure (version 4 and
-// earlier) admits it wherever a failed dispatched attempt stands. The
-// recovery action is not added to the pinned definition, so the query
-// preserves the definition digest.
-//
-// CD-0193 D1: the checkpoint pair keeps record_worker_failure off the
-// human_checkpoint steps' declared actions, so a failed attempt there admits
-// the same hold-mode record as an engine recovery. The record leaves the
-// pinned definition digest unchanged, dispositions the attempt, and the
-// checkpoint stops holding, so the operator's own gate opens.
-func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeRecorded bool) (bool, error) {
-	if currentStep == "" {
-		return false, nil
-	}
-	if !slices.Contains(definition.AvailableActions, "record_worker_failure") {
-		return workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, excludeRecorded)
-	}
-	if stepDeclaresAction(definition, currentStep, "record_worker_failure") {
-		return false, nil
-	}
-	if step := workflowStep(definition, currentStep); step == nil || step.Kind != WorkflowStepHumanCheckpoint {
-		return false, nil
-	}
-	failedAttemptID, bindingErr := workflowLatestFailedWorkerAuthorization(ctx, q, workID, currentStep)
-	if bindingErr != nil {
-		return false, bindingErr
-	}
-	attemptID, lifecycle, found, err := latestDispatchedAttemptAtStep(ctx, q, workID, currentStep, 0)
-	if failedAttemptID != "" {
-		attemptID, lifecycle, found = failedAttemptID, "failed", true
-	}
-	if err != nil || !found {
-		return false, err
-	}
-	if lifecycle != "failed" {
-		return false, nil
-	}
-	if !excludeRecorded {
-		return true, nil
-	}
-	recorded, err := workerRecordedFailureCountTx(ctx, q, workID, attemptID)
-	if err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect recorded worker failures", true, "retry once the worker attempt projection is readable", err)
-	}
-	return recorded == 0, nil
-}
-
-// workflowLatestFailedWorkerAuthorization also finds terminal launches without
-// worker dispatch evidence. Only the latest authorization at this step may
-// supply recovery identity; an older failure cannot replace a newer launch.
-func workflowLatestFailedWorkerAuthorization(ctx context.Context, q queryer, workID, stepID string) (string, error) {
-	var attemptID, lifecycle string
-	err := q.QueryRowContext(ctx, `SELECT a.attempt_id,a.lifecycle_state FROM worker_authorizations c JOIN worker_attempts a ON a.work_id=c.work_id AND a.attempt_id=c.attempt_id WHERE c.work_id=? AND json_extract(c.payload,'$.step_id')=? ORDER BY c.seq DESC LIMIT 1`, workID, stepID).Scan(&attemptID, &lifecycle)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", wrapFailure(KindUnavailable, "workflow_failure_recovery", "cannot inspect the latest authorized worker attempt", true, "retry once the worker authorization is readable", err)
-	}
-	if lifecycle != "failed" {
-		return "", nil
-	}
-	return attemptID, nil
-}
-
-// workflowFailedWorkerAttempt reports a failed worker attempt opened after
-// the step's latest action start. The step-start bound is the failure
-// recovery bound: a fresh fenced attempt at the step supersedes every earlier
-// failure there.
-func workflowFailedWorkerAttempt(ctx context.Context, q queryer, workID, currentStep, subject string, excludeRecorded bool) (bool, error) {
-	if currentStep == "" {
-		return false, nil
-	}
-	start, err := readWorkflowActionStartTx(ctx, q, workID, currentStep, false)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the current workflow action start", true, "retry once the workflow projection is readable", err)
-	}
-	return workflowFailedWorkerAttemptSince(ctx, q, workID, start.Seq, subject, excludeRecorded)
-}
-
-// workflowFailedWorkerAttemptSince reports a failed worker attempt whose
-// authorization or dispatch evidence follows sinceSeq. Callers pass their
-// attempt window's bound: contract correction passes the step's pass boundary, so a
-// failure recorded in a previous pass cannot open correction in the pass that
-// returned to the step (CD-0133 D1).
-func workflowFailedWorkerAttemptSince(ctx context.Context, q queryer, workID string, sinceSeq int64, subject string, excludeRecorded bool) (bool, error) {
-	query := `SELECT EXISTS(SELECT 1 FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='failed'
- AND ((a.dispatch_seq>0 AND a.dispatch_seq>?) OR EXISTS (
-  SELECT 1 FROM worker_authorizations d WHERE d.work_id=a.work_id AND d.attempt_id=a.attempt_id AND d.seq>?))`
-	args := []any{workID, sinceSeq, sinceSeq}
-	if excludeRecorded {
-		query += ` AND NOT EXISTS (SELECT 1 FROM worker_attempt_dispositions f WHERE f.work_id=a.work_id AND f.attempt_id=a.attempt_id AND f.action_id='record_worker_failure')`
-	}
-	query += `)`
-	var available int
-	if err := q.QueryRowContext(ctx, query, args...).Scan(&available); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect failed worker attempts", true, "retry once the worker attempt projection is readable", err)
-	}
-	return available != 0, nil
-}
-
 // workflowContractCorrectionAvailable reports whether operator-approved
-// contract correction is open on the current step. A human checkpoint carries
-// the route unconditionally. A worker-dispatch step admits correction before
-// dispatch, after a worker failure, or after a worker result rejection. An
-// authorized dispatch window counts even before a worker report exists. The
-// pinned complete step admits correction only when the complete-step state
-// gate passes.
+// contract correction is open on the current step. Approval and contract
+// version checks stay at the action boundary; the complete step also requires
+// its contradiction observation.
 func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
 	if !workflowContractCorrectionCheckpoint(definition, currentStep) {
 		return false, nil
@@ -338,62 +193,7 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&contracts); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the active workflow contract", true, "retry once the workflow projection is readable", err)
 	}
-	if contracts > 1 {
-		return true, nil
-	}
-	if contracts != 1 {
-		return false, nil
-	}
-	correction, correctionErr := workflowCorrectionContextForDispatch(ctx, q, workID, currentStep, "")
-	if correctionErr != nil {
-		return false, correctionErr
-	}
-	// A rejected job's unresolved obligations keep contract correction open;
-	// accepting a different revision does not satisfy those obligations.
-	if correction != nil && correction.Disposition == "rejected" {
-		return true, nil
-	}
-	boundary, started, err := workflowStepPassBoundary(ctx, q, definition, workID, currentStep, subject)
-	if err != nil {
-		return false, err
-	}
-	if !started {
-		return true, nil
-	}
-	var dispatched int
-	if err := q.QueryRowContext(ctx, `SELECT
- EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND dispatch_seq>=?)
- OR EXISTS(SELECT 1 FROM worker_authorizations WHERE work_id=? AND seq>=?)
- OR EXISTS(SELECT 1 FROM workflow_step_epochs WHERE work_id=? AND latest_dispatch_start_seq>=?)`, workID, boundary, workID, boundary, workID, boundary).Scan(&dispatched); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect worker dispatch authorization", true, "retry once the workflow projection is readable", err)
-	}
-	if dispatched == 0 {
-		return true, nil
-	}
-	if decision, err := workflowRefineReviewCorrectionDecision(ctx, q, workID, definition, currentStep, subject, boundary); err != nil || decision != workflowRefineReviewCorrectionNotApplicable {
-		return decision == workflowRefineReviewCorrectionOpen, err
-	}
-	// The failure check reads the same pass boundary as the dispatch check,
-	// so both answers describe one pass: a failure recorded before the
-	// return edge cannot reopen correction while the new pass's worker is
-	// live (CD-0133 D1).
-	failed, err := workflowFailedWorkerAttemptSince(ctx, q, workID, boundary, subject, false)
-	if err != nil || !failed {
-		return false, err
-	}
-	unrecorded, err := workflowFailedWorkerAttemptSince(ctx, q, workID, boundary, subject, true)
-	if err != nil {
-		return false, err
-	}
-	return !unrecorded, nil
-}
-
-func workflowWorkerFailureRecoveryAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
-	return workflowWorkerFailureRecovery(ctx, q, workID, definition, currentStep, subject, true)
-}
-
-func workflowWorkerFailureRecoveryMayFold(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
-	return workflowWorkerFailureRecovery(ctx, q, workID, definition, currentStep, subject, false)
+	return contracts > 0, nil
 }
 
 func workflowEvidenceBindingStep(definition WorkflowDefinition, currentStep string) string {
@@ -593,7 +393,15 @@ func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, current
 	if step.Kind == WorkflowStepHumanCheckpoint {
 		return slices.Contains(step.Actions, "confirm_premise")
 	}
-	return slices.Contains(step.Actions, "dispatch_worker")
+	// Contract revision follows the step's authored outcome or producing
+	// start, independently of Review intake or execution delegation.
+	for _, action := range step.Actions {
+		switch action {
+		case "record_proposal", "record_design", "record_finding", "record_report", "start_execution", "checkpoint_repair", "checkpoint_refine":
+			return true
+		}
+	}
+	return false
 }
 
 // workflowCompleteStepCorrectionAvailable reports whether the pinned complete
@@ -629,33 +437,7 @@ func workflowCompleteStepCorrectionAvailable(ctx context.Context, q queryer, wor
 	if contracts == 0 {
 		return false, nil
 	}
-	unsettled, err := workflowUnsettledWorkerAttempt(ctx, q, workID, subject, beforeSeq)
-	if err != nil || unsettled {
-		return false, err
-	}
 	return workflowContradictionObservationRecorded(ctx, q, workID, subject, beforeSeq)
-}
-
-// workflowUnsettledWorkerAttempt reports a worker attempt that still holds
-// the work: a dispatched attempt, a completed report without an accepted or
-// rejected disposition or split replacement, or a failed attempt without a
-// recorded failure.
-// Correction at the complete step never strands one.
-func workflowUnsettledWorkerAttempt(ctx context.Context, q queryer, workID, subject string, beforeSeq int64) (bool, error) {
-	var unsettled int
-	if err := q.QueryRowContext(ctx, `SELECT
- (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='dispatched') +
- (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='completed' AND NOT EXISTS (
-		SELECT 1 FROM worker_attempt_dispositions f WHERE f.work_id=a.work_id
-		  AND f.action_id IN (`+workerAttemptDisposalActions+`)
-		  AND f.attempt_id=a.attempt_id AND (?=0 OR f.seq<?))) +
- (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='failed' AND NOT EXISTS (
-		SELECT 1 FROM worker_attempt_dispositions f WHERE f.work_id=a.work_id
-		  AND f.action_id='record_worker_failure'
-		  AND f.attempt_id=a.attempt_id AND (?=0 OR f.seq<?)))`, workID, workID, beforeSeq, beforeSeq, workID, beforeSeq, beforeSeq).Scan(&unsettled); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect unsettled worker attempts", true, "retry once the worker attempt projection is readable", err)
-	}
-	return unsettled != 0, nil
 }
 
 // workflowContradictionObservationRecorded reports a same-work observation
@@ -831,13 +613,6 @@ func guardSignedPremiseActor(g *workflowActionGuardContext, newPolicy bool) erro
 	if ref == g.actorRef {
 		return newFailure(KindUnauthorized, "workflow_action", "operator actor cannot relabel the invoking agent", false, "approve from an independent operator identity")
 	}
-	authority, err := workflowEvaluationAuthority(g.ctx, g.tx, g.request.WorkID, g.actorRef)
-	if err != nil {
-		return err
-	}
-	if authority == WorkflowWorkerEvaluator {
-		return newFailure(KindUnauthorized, "workflow_action", "worker actors cannot submit operator decisions", false, "return the worker report to the coordinator")
-	}
 	var recordedPrincipal, recordedClient, recordedAgent, recordedSession string
 	var recordedClass ActorClass
 	recordErr := g.tx.QueryRowContext(g.ctx, `SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, ref).Scan(&recordedPrincipal, &recordedClient, &recordedAgent, &recordedSession, &recordedClass)
@@ -883,50 +658,6 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 	if !decision.Admitted {
 		return workflowExecutionAdmissionFailure(*decision, g.request.ProjectTooling)
 	}
-	// On a job-capable pin the payload-blind accept admission is local
-	// acceptance and carries no delivery facet (CD-0205), so the
-	// delivery-asserting accept applies the one delivery admission here,
-	// where the payload names the assertion. The accepting attempt's own
-	// dispatched revision counts as satisfied for the population check; the
-	// core derives that binding from the attempt's dispatch record, so the
-	// caller never asserts it. Its pending satisfaction supplies no
-	// integration: missing integration evidence refuses the combined route
-	// exactly as it refuses record_delivery.
-	if g.request.ActionID == "accept_worker_result" && workflowWorkerJobsActive(g.entry.Definition) {
-		fields, fieldsErr := workflowActionObject(g.defaultedPayload())
-		if fieldsErr != nil {
-			return fieldsErr
-		}
-		accepting, acceptingErr := workflowDispatchedJobForAttempt(g.ctx, g.tx, g.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
-		if acceptingErr != nil {
-			return acceptingErr
-		}
-		// The combined action integrates its pending result before delivery.
-		// Judge both proof facets against that output, using the fold's candidate
-		// selection rather than the pre-acceptance candidate cached above.
-		delivery, proofRuns, integrationRuns, err := loadWorkflowDeliveryAdmission(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, workflowFieldStringDefault(fields, "attempt_id", ""))
-		if err != nil {
-			return err
-		}
-		projected := *state
-		projected.Delivery = delivery
-		if state.Review != nil {
-			auth, result, err := readReviewAttempt(g.ctx, g.tx, g.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
-			if err != nil {
-				return err
-			}
-			review, err := projectWorkflowReviewAcceptance(g.ctx, g.tx, g.request.WorkID, *state.Review, auth, result, g.actorRef)
-			if err != nil {
-				return err
-			}
-			projected.Review = &review
-		}
-		state = &projected
-		g.deliveryProofRuns, g.deliveryIntegrationRuns = proofRuns, integrationRuns
-		if delivery := workflowAdmitDeliveryForAccept(g.entry.Definition, *state, WorkflowAdmissionDecision{}, accepting); delivery.Failure != nil {
-			return workflowExecutionAdmissionFailure(delivery, g.request.ProjectTooling)
-		}
-	}
 	if state.Delivery.ProofRequired && g.request.ProjectTooling != nil {
 		qualifying, why, err := workflowVerificationProof(g.deliveryProofRuns, g.request.ProjectTooling)
 		if err != nil {
@@ -937,100 +668,6 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 			failure.Detail += " " + ProjectToolingDeclaredText(g.request.ProjectTooling)
 			return failure
 		}
-	}
-	// The integration facet re-validates the same runs against the request's
-	// declared tooling, the split the refine proof keeps: a qualifying run of
-	// an undeclared tool covers no required Project.
-	if failure := workflowIntegrationToolingFailure(state.Delivery, g.deliveryIntegrationRuns, g.request.ProjectTooling); failure != nil {
-		failure.Detail += " " + ProjectToolingDeclaredText(g.request.ProjectTooling)
-		return failure
-	}
-	return nil
-}
-
-// workflowAcceptDeliveryAdmissionActive reports whether the pinned definition
-// and step admit the combined accept-and-delivery route (CD-0198 D4): a
-// definition declaring the accept-delivery capability, at its refinement step.
-// The CD-0166 delivery gate stays record_delivery-only.
-func workflowAcceptDeliveryAdmissionActive(definition WorkflowDefinition, currentStep string) bool {
-	if currentStep == "" || workflowRefinementStepID(definition) != currentStep {
-		return false
-	}
-	return workflowCapabilities(definition).has(WorkflowCapabilityAcceptDelivery)
-}
-
-func guardAcceptWorkerEvidenceRoute(g *workflowActionGuardContext) error {
-	fields, err := workflowActionObject(g.defaultedPayload())
-	if err != nil {
-		return err
-	}
-	if workflowAcceptCarriesDeliveryAssertion(fields) {
-		return newFailure(KindInvalidPayload, "workflow_action", "review evidence acceptance cannot carry delivery fields", false, "assert delivery through the declared delivery route")
-	}
-	if definitionStepAllows(g.entry.Definition, g.currentStep, "accept_worker_evidence") {
-		return nil
-	}
-	return validateRefineReviewEvidenceDisposition(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, fields, "workflow_action", 0)
-}
-
-// guardAcceptWorkerResultDeliveryRoute composes the accept_worker_result
-// claim guard (CD-0198 D4). At the delivery-admitting refinement step the
-// accept carries its delivery fields and runs guardDeliveryAdmission;
-// everywhere else the delivery fields refuse. A plain accept at the admitting step refuses with the
-// delivery-admission remedy: the refine step exits only through an admitted
-// delivery assertion, so the CD-0192 refine-exit proof can no longer be
-// crossed by an advancing accept that carries no artifact.
-func guardAcceptWorkerResultDeliveryRoute(g *workflowActionGuardContext) error {
-	fields, fieldsErr := workflowActionObject(g.defaultedPayload())
-	if fieldsErr != nil {
-		return fieldsErr
-	}
-	if err := guardAcceptWorkerResultChanges(g, fields); err != nil {
-		return err
-	}
-	artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
-	state := workflowFieldStringDefault(fields, "delivery_state", "")
-	// Payload-bound advance derivation while the folded hold stands.
-	if g.admissionState.UnconsumedUnboundRejection {
-		mode, modeOK := workflowActionExecutionMode(g.entry.Definition, "accept_worker_result")
-		advances := modeOK && mode == ActionAdvance
-		if advances && artifact == "" && state == "" && workflowWorkerJobsActive(g.entry.Definition) {
-			job, jobErr := workflowDispatchedJobForAttempt(g.ctx, g.tx, g.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
-			if jobErr != nil {
-				return jobErr
-			}
-			advances = job == nil
-		}
-		if failure := workflowRejectionAdvanceFailure(true, "accept_worker_result", advances); failure != nil {
-			return failure
-		}
-	}
-	if workflowAcceptDeliveryAdmissionActive(g.entry.Definition, g.currentStep) {
-		// On a job-capable pin a plain accept of a job-bound attempt is local
-		// acceptance of that one worker job: the step stays held (CD-0205).
-		// An attempt dispatched without a job binding has no local
-		// disposition to record, and the refine step still exits only through
-		// an admitted delivery assertion.
-		if artifact == "" && state == "" && workflowWorkerJobsActive(g.entry.Definition) {
-			job, jobErr := workflowDispatchedJobForAttempt(g.ctx, g.tx, g.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
-			if jobErr != nil {
-				return jobErr
-			}
-			if job != nil {
-				return nil
-			}
-		}
-		if artifact == "" || state == "" {
-			return newFailure(KindInvalidOperation, "workflow_action",
-				"the refine step exits only through an admitted delivery assertion: record_delivery, or an accept_worker_result carrying delivery_artifact and delivery_state asserted",
-				false, "run worktree_verify on the refined work, bind the run's evidence, then accept the result with delivery_artifact and delivery_state asserted")
-		}
-		return guardDeliveryAdmission(g)
-	}
-	if artifact != "" || state != "" {
-		return newFailure(KindInvalidPayload, "workflow_action",
-			"accept_worker_result carries fields.delivery_artifact and fields.delivery_state only at the delivery-admitting refinement step",
-			false, "drop the delivery fields here, or assert the delivery through record_delivery")
 	}
 	return nil
 }
@@ -1081,16 +718,12 @@ func (g *workflowActionGuardContext) foldedAdmissionState() (*WorkflowAdmissionS
 	if g.admissionState != nil {
 		return g.admissionState, nil
 	}
-	state, proofRuns, integrationRuns, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
+	state, proofRuns, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
 	if err != nil {
-		return nil, err
-	}
-	if err := bindWorkflowReviewRequest(g.ctx, g.tx, &state, g.request.WorkID, g.request.ActionID, g.request.Payload, g.request.Actor); err != nil {
 		return nil, err
 	}
 	g.admissionState = &state
 	g.deliveryProofRuns = proofRuns
-	g.deliveryIntegrationRuns = integrationRuns
 	return &state, nil
 }
 
@@ -1103,22 +736,13 @@ func (g *workflowActionGuardContext) foldedAdmissionDecision() (*WorkflowAdmissi
 		return nil, err
 	}
 	decision := workflowAdmit(g.entry.Definition, *state, g.request.ActionID)
+	if decision.Admitted || decision.OffStep || decision.AdvanceHeld || decision.OperatorQuestionClosed {
+		if err := validateWorkflowReviewRequest(g.ctx, g.tx, g.request.WorkID, g.request.ActionID, g.request.Payload); err != nil {
+			return nil, err
+		}
+	}
 	g.admissionDecision = &decision
 	return &decision, nil
-}
-
-// workflowAcceptCarriesDeliveryAssertion reports whether one accept payload
-// carries the CD-0198 D4 delivery fields, the shape whose acceptance advances
-// the refinement step.
-func workflowAcceptCarriesDeliveryAssertion(fields map[string]json.RawMessage) bool {
-	return workflowFieldStringDefault(fields, "delivery_artifact", "") != "" || workflowFieldStringDefault(fields, "delivery_state", "") != ""
-}
-
-// workflowAcceptAdvancesStep reports whether an accept_worker_result
-// completion leaves its step: only the combined accept-and-delivery at the
-// refinement step does (CD-0198 D4).
-func workflowAcceptAdvancesStep(definition WorkflowDefinition, stepID string, fields map[string]json.RawMessage) bool {
-	return workflowAcceptDeliveryAdmissionActive(definition, stepID) && workflowAcceptCarriesDeliveryAssertion(fields)
 }
 
 // defaultedPayload returns the action payload with an empty payload
@@ -1335,32 +959,24 @@ func workflowActionAdvancesStep(definition WorkflowDefinition, actionID string) 
 // event. Continuity's typed event is the durable action boundary; appending a
 // generic completion after it would make the checkpoint immediately stale, so
 // the continuity actions are excluded.
-//
-// For dispatch_worker the second return is the canonical lane-packet digest
-// (sha256:hex of canonicalJSON(worker_packet)). Empty for every other verb,
-// because every other action carries no worker packet; the caller must not
-// surface the digest on the response result unless the string is non-empty.
-// CD-0067 D2/D6: the digest is the value the worker-dispatch evidence
-// boundary quotes on its signed assertion, so the core returns it to the
-// adapter rather than letting the adapter compute it.
-func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoch int64, events []Event) ([]Event, string, error) {
+func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoch int64, events []Event) ([]Event, error) {
 	if workflowActionOmitsGenericCompletion(in.request.ActionID) {
-		return events, "", nil
+		return events, nil
 	}
 	fields, fieldsErr := workflowActionObject(in.payload)
 	if fieldsErr != nil {
-		return events, "", fieldsErr
+		return events, fieldsErr
 	}
 	completionValues := map[string]any{
 		"step_id": in.currentStep, "action_id": in.request.ActionID, "attempt_epoch": attemptEpoch, "result_evidence_refs": in.evidenceRefs,
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
 	}
-	if in.request.ActionID == "record_worker_job" {
-		var err error
-		events, err = appendWorkflowMemberCompletion(in, fields, events, completionValues)
+	if in.request.ActionID == "record_review" {
+		report, err := decodeRecordedReview(in.payload)
 		if err != nil {
-			return events, "", err
+			return events, err
 		}
+		completionValues["review"] = report
 	}
 	if in.request.ActionID == "record_verdict" {
 		// The batched form declares its entry count on the completion, so the
@@ -1370,7 +986,7 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		if _, batchPresent := fields["verdicts"]; batchPresent {
 			entries, entriesErr := normalizeWorkflowVerdictEntries(fields)
 			if entriesErr != nil {
-				return events, "", entriesErr
+				return events, entriesErr
 			}
 			completionValues["verdict_entry_count"] = len(entries)
 		}
@@ -1379,204 +995,24 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
 		state := workflowFieldStringDefault(fields, "delivery_state", "")
 		if artifact == "" || state == "" {
-			return events, "", newFailure(KindInvalidPayload, "workflow_action", "record_delivery requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
+			return events, newFailure(KindInvalidPayload, "workflow_action", "record_delivery requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
 		}
 		completionValues["delivery_artifact"] = artifact
 		completionValues["delivery_state"] = state
 	}
-	if in.request.ActionID == "accept_worker_result" {
-		if err := bindWorkflowAcceptedResultCompletion(in, fields, completionValues); err != nil {
-			return events, "", err
-		}
-	}
-	var workerPacketDigest string
-	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "accept_worker_evidence" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
-		completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
-		completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
-	}
-	if in.request.ActionID == "dispatch_worker" {
-		var err error
-		workerPacketDigest, err = bindWorkflowDispatchPacketCompletion(in, fields, completionValues)
-		if err != nil {
-			return events, "", err
-		}
-	}
-	if in.request.ActionID == "reject_worker_result" || in.request.ActionID == "request_correction" {
-		if err := bindWorkflowCorrectionCompletion(in, fields, completionValues); err != nil {
-			return events, "", err
-		}
+	if in.request.ActionID == "request_correction" {
+		bindWorkflowCorrectionCompletion(fields, completionValues)
 	}
 	resultVersion := in.request.ExpectedVersion + int64(len(events)) + 1
 	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
-	return events, workerPacketDigest, nil
+	return events, nil
 }
 
-func bindWorkflowAcceptedResultCompletion(in workflowActionAssemblyInput, fields map[string]json.RawMessage, completionValues map[string]any) error {
-	// CD-0205: an acceptance records the worker-job disposition it
-	// satisfies. The binding is derived here from the accepted attempt's
-	// worker.dispatched event — the caller never asserts it — so the
-	// correction window closes on a recorded disposition under the exact
-	// dispatched job, and an unrelated accepted job cannot close another
-	// job's window by name.
-	if err := validateReviewAcceptance(in.ctx, in.tx, in.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""), in.eventActor); err != nil {
-		return err
-	}
-	acceptedJob, jobErr := workflowDispatchedJobForAttempt(in.ctx, in.tx, in.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
-	if jobErr != nil {
-		return jobErr
-	}
-	if acceptedJob != nil {
-		completionValues["worker_job"] = map[string]any{"job_id": acceptedJob.JobID, "revision": acceptedJob.Revision, "digest": acceptedJob.Digest}
-	}
-	// CD-0227 D2/D3: the acceptance holds the observed delivered
-	// paths to the job's path scope and its evidenced caller repairs
-	// (CD-0242 D6 keeps scope and ownership checks).
-	if repairErr := admitWorkerDeliveredPathsTx(in.ctx, in.tx, in.request.WorkID, in.entry.Definition, acceptedJob, workflowFieldStringDefault(fields, "attempt_id", "")); repairErr != nil {
-		return repairErr
-	}
-	// CD-0198 D4: the combined accept asserts the same delivery fields on the
-	// same completion event a record_delivery appends, so delivery readers
-	// identify the assertion by its asserted fields rather than by action_id.
-	// The guard already required the fields; this refuses closed if the
-	// route ever runs without them. Local acceptance of a job-bound attempt
-	// carries no delivery assertion and holds the step (CD-0205).
-	if workflowAcceptDeliveryAdmissionActive(in.entry.Definition, in.currentStep) {
-		artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
-		state := workflowFieldStringDefault(fields, "delivery_state", "")
-		localJobAccept := artifact == "" && state == "" && acceptedJob != nil && workflowWorkerJobsActive(in.entry.Definition)
-		if (artifact == "" || state == "") && !localJobAccept {
-			return newFailure(KindInvalidPayload, "workflow_action", "the combined accept requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
-		}
-		if artifact != "" && state != "" {
-			completionValues["delivery_artifact"] = artifact
-			completionValues["delivery_state"] = state
-		}
-	}
-	// Main's local acceptance records the disposition without advancing;
-	// only combined acceptance and delivery leaves refinement.
-	if !workflowAcceptAdvancesStep(in.entry.Definition, in.currentStep, fields) {
-		completionValues["review_advance_held"] = true
-	}
-	return nil
-}
-
-func bindWorkflowDispatchPacketCompletion(in workflowActionAssemblyInput, fields map[string]json.RawMessage, completionValues map[string]any) (string, error) {
-	// CD-0059 D1/D5: the dispatch_worker completion carries the authorized
-	// attempt_id into the durable record so the worker-dispatch evidence
-	// boundary can prove the window exists and has not been consumed. The
-	// start already records the attempt_epoch; the completion binds the
-	// attempt identity. CD-0067 D2 additionally binds the canonical
-	// digest of the lane packet so the durable record names what the
-	// window was opened for, not only which attempt it was opened
-	// against. CD-0067 D6: the digest returned here is the value the
-	// adapter quotes on its signed dispatch assertion — the adapter
-	// does not compute the digest itself, so the assertion's evidence
-	// is bound to the exact bytes the core digested and authorized.
-	attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
-	completionValues["worker_attempt_id"] = attemptID
-	packetRaw := workflowFieldRaw(fields, "worker_packet")
-	// Preflight enforces worker_packet is present and decodes to one
-	// strict JSON object, so an empty raw here means a defensive
-	// fallback; refuse closed with the same typed failure rather
-	// than record a half-bound attempt.
-	if len(packetRaw) == 0 {
-		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is absent from the action payload", false, "supply the lane packet bound to this work item and attempt")
-	}
-	var packetFields map[string]json.RawMessage
-	if err := json.Unmarshal(packetRaw, &packetFields); err != nil {
-		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is not a JSON object", false, "supply the lane packet bound to this work item and attempt")
-	}
-	packetWorkID, workIDOK := workflowFieldString(packetFields, "work_id")
-	packetAttemptID, attemptIDOK := workflowFieldString(packetFields, "attempt_id")
-	if !workIDOK || !attemptIDOK {
-		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is missing work_id or attempt_id", false, "supply the lane packet bound to this work item and attempt")
-	}
-	if packetWorkID != in.request.WorkID {
-		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet.work_id does not match the action's work_id", false, "supply the lane packet bound to this work item and attempt")
-	}
-	if packetAttemptID != attemptID {
-		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet.attempt_id does not match fields.attempt_id", false, "supply the lane packet bound to this work item and attempt")
-	}
-	// The lane-step dispatch join is composed onto every
-	// step kind some lane may dispatch, so the step admitting the action
-	// does not by itself admit the lane. Resolve the packet's lane
-	// identity and refuse when that lane's capability class is not
-	// dispatchable at the current step's kind.
-	packetLaneID, laneIDOK := workflowFieldString(packetFields, "lane_id")
-	packetLaneDigest, laneDigestOK := workflowFieldString(packetFields, "lane_digest")
-	if !laneIDOK || !laneDigestOK {
-		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is missing a complete lane identity", false, "supply the lane packet bound to this work item and attempt")
-	}
-	lane, laneErr := LookupLane(packetLaneID, packetLaneDigest)
-	if laneErr != nil {
-		return "", laneErr
-	}
-	if in.step != nil && !LaneStepDispatchAllowed(lane.CapabilityClass, in.step.Kind) {
-		// The inverse read of the join turns the refusal into a read:
-		// the caller sees the classes this step kind admits and can
-		// pick one instead of guessing.
-		admitted := strings.Join(LaneStepDispatchClasses(in.step.Kind), ", ")
-		return "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step; the step admits capability classes "+admitted, false, "dispatch the lane at a step kind the lane-step dispatch join admits")
-	}
-	if in.tx != nil {
-		if err := bindWorkerDispatchCompletionTx(in, lane, packetRaw, completionValues); err != nil {
-			return "", err
-		}
-	}
-	// The registry lane identity rides the completion so the fold can
-	// bind the attempt durably in flight from the record alone, without
-	// re-reading the packet bytes.
-	completionValues["worker_lane_id"] = lane.ID
-	completionValues["worker_lane_digest"] = lane.Digest
-	completionValues["worker_capability_class"] = lane.CapabilityClass
-	canonical, err := canonicalJSON(packetRaw)
-	if err != nil {
-		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet does not decode as canonical JSON", false, "supply the lane packet bound to this work item and attempt")
-	}
-	sum := sha256.Sum256(canonical)
-	workerPacketDigest := "sha256:" + hex.EncodeToString(sum[:])
-	completionValues["worker_packet_digest"] = workerPacketDigest
-	// The typed outcome predicate ids are extracted from the same packet
-	// bytes this digest covers, so the durable record carries the
-	// discharge obligations the fold enforces on the completion. The
-	// payload schema preflight already admitted the packet shape; this
-	// read re-checks the identity rules the obligations rest on.
-	predicateIDs, predicateErr := workerPacketPredicateIDs(packetRaw)
-	if predicateErr != nil {
-		return "", predicateErr
-	}
-	// The list is recorded unconditionally, empty when the packet
-	// declared no typed predicates, so the fold can refuse a dispatch
-	// record that carries no list instead of skipping the discharge
-	// requirement: absence is a malformed record, never an empty one.
-	// A nil extraction marshals as null, which the fold reads as
-	// absence, so it normalizes to the empty list here.
-	if predicateIDs == nil {
-		predicateIDs = []string{}
-	}
-	completionValues["worker_packet_predicate_ids"] = predicateIDs
-	if in.request.SessionWorktreeIdentity != "" {
-		completionValues["worker_worktree_identity"] = in.request.SessionWorktreeIdentity
-	}
-	return workerPacketDigest, nil
-}
-
-func bindWorkflowCorrectionCompletion(in workflowActionAssemblyInput, fields map[string]json.RawMessage, completionValues map[string]any) error {
+func bindWorkflowCorrectionCompletion(fields map[string]json.RawMessage, completionValues map[string]any) {
 	completionValues["correction_diagnosis"] = workflowFieldStringDefault(fields, "diagnosis", "")
 	completionValues["correction_strategy"] = workflowFieldStringDefault(fields, "strategy", "")
 	completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")
 	completionValues["correction_evidence_refs"] = workflowFieldStrings(fields, "evidence_refs")
-	// the optional coordinator attribution derives here, inside
-	// the authenticated action transaction: the request carries the
-	// direct producer observation alone and the store derives the core
-	// identity from the cited combined run or the exact action attempt.
-	block, blockErr := deriveCoordinatorCorrectionAttributionTx(in.ctx, in.tx, in.request.WorkID, in.request.ActionID, fields)
-	if blockErr != nil {
-		return blockErr
-	}
-	if block != nil {
-		completionValues["failure_attribution"] = block
-	}
 	// The derived open finding set serializes onto the correction
 	// record of both surfaces. A rejection carries it directly; a
 	// correction request carries it beside the predicate list the legacy
@@ -1585,112 +1021,6 @@ func bindWorkflowCorrectionCompletion(in workflowActionAssemblyInput, fields map
 	if _, present := fields["open_finding_ids"]; present {
 		completionValues["correction_open_finding_ids"] = workflowFieldStrings(fields, "open_finding_ids")
 	}
-	return nil
-}
-
-func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDefinition, packetRaw json.RawMessage, completionValues map[string]any) error {
-	state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(in.ctx, in.tx, in.request.WorkID, in.entry.Definition, in.currentStep, "worker_dispatch", in.registry)
-	if err != nil {
-		return err
-	}
-	if err := bindWorkflowReviewRequest(in.ctx, in.tx, &state, in.request.WorkID, "dispatch_worker", in.request.Payload, in.request.Actor); err != nil {
-		return err
-	}
-	if decision := workflowAdmit(in.entry.Definition, state, "dispatch_worker"); !decision.Admitted {
-		return decision.Failure
-	}
-	if err := validateWorkerPacketBinding(in.ctx, in.tx, in.request.WorkID, in.request.ExpectedVersion, lane, packetRaw); err != nil {
-		return err
-	}
-	if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
-		return err
-	}
-	// The packet consumes the current work-context view and correction;
-	// admission compares the pinned bytes against current state.
-	admittedContext, contextErr := admittedWorkerPacketWorkContext(in.ctx, in.tx, in.request.WorkID, packetRaw)
-	if contextErr != nil {
-		return contextErr
-	}
-	if admittedContext != nil && admittedContext.SubjectCommit != "" {
-		completionValues["worker_subject_commit"] = admittedContext.SubjectCommit
-	}
-	// Every authorization records the admitted view's source-event frontier,
-	// or explicit zero when no view is present. Terminal reports bind to it.
-	dispatchFrontier := int64(0)
-	if admittedContext != nil {
-		dispatchFrontier = admittedContext.SourceEventFrontier
-	}
-	completionValues["worker_context_frontier"] = dispatchFrontier
-	// The packet carries the latest context checkpoint, so directions
-	// recorded before the spawn reach the dispatched worker.
-	if err := validateWorkerPacketCheckpoint(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
-		return err
-	}
-	// The law context, design, proposal, and work text are typed members
-	// held to current records, never adapter-authored prose.
-	if err := validateWorkerPacketRecords(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
-		return err
-	}
-	// CD-0205: dispatch, report, and acceptance bind the selected job revision.
-	job, repairReview, jobErr := validateWorkerPacketJob(in.ctx, in.tx, in.entry.Definition, in.request.WorkID, lane, packetRaw)
-	if jobErr != nil {
-		return jobErr
-	}
-	// Selected-job readiness keeps its specific refusal. No new authorization
-	// may commit while an earlier own worker can still affect this assignment.
-	assignment := workerRestartAssignment{stepID: in.currentStep, laneID: lane.ID}
-	if job != nil {
-		assignment.jobID = job.JobID
-	}
-	if err := guardWorkerDispatchRestart(in.ctx, in.tx, in.request.WorkID, in.eventActor, assignment, in.request.SessionWorktreeIdentity); err != nil {
-		return err
-	}
-	// A confirming review binds its exact repairing revision and accepted
-	// result. This records the review assignment, not another launch authority.
-	if repairReview != nil {
-		acceptanceSeq, found, acceptanceErr := workerChecksRepairConfirmingAcceptanceSeqTx(in.ctx, in.tx, in.request.WorkID, *repairReview)
-		if acceptanceErr != nil {
-			return acceptanceErr
-		}
-		if !found || acceptanceSeq == 0 {
-			return newFailure(KindInvariantViolation, "workflow_action", "the confirming review dispatch binds no recorded repairing acceptance", false, "accept the repairing result before dispatching its confirming review")
-		}
-		completionValues["checks_repair_review"] = map[string]any{"worker_job": *repairReview, "repairing_acceptance_seq": acceptanceSeq}
-	}
-	if job != nil {
-		completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
-		// The packet validation held the packet's caller exclusions equal to
-		// the core's computed set, so the completion retains them from the
-		// same bytes for the caller-scope boundary (CD-0227 D1).
-		if exclusions := workerPacketCallerExclusions(packetRaw); len(exclusions) > 0 {
-			completionValues["worker_caller_exclusions"] = exclusions
-		}
-	}
-	// Revalidate the sealed pre-transaction preparation with SQL only,
-	// including the accepted implementation subject for a review dispatch.
-	if err := admitWorkerDispatchSubjectFreshness(in.ctx, in.tx, in.request, in.entry.Definition, lane, admittedContext); err != nil {
-		return err
-	}
-	if err := bindRetainedReviewCompletion(in.ctx, lane, job, completionValues); err != nil {
-		return err
-	}
-	if err := freezeReviewDispatchPreparationsTx(in.ctx, in.tx, in.request.WorkID, lane, job, repairReview, completionValues); err != nil {
-		return err
-	}
-	if err := validateWorkerReviewInput(in.ctx, in.tx, in.request.WorkID, lane, in.entry.Definition, packetRaw); err != nil {
-		return err
-	}
-	// The whole context answers to one aggregate bound before dispatch
-	// effects, including a retry derived from a combined rejection.
-	if err := refuseOverBoundDispatchContext(packetRaw); err != nil {
-		return err
-	}
-	// Every required reading resolved before dispatch. Revalidate sealed
-	// witnesses against source registrations with SQL only.
-	if err := admitWorkerDispatchReadingResolutionTx(in.ctx, in.tx, in.request.WorkID, admittedContext); err != nil {
-		return err
-	}
-	return nil
 }
 
 func workflowDefinitionRequiresDeliveryPayload(definition WorkflowDefinition) bool {

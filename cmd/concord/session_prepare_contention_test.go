@@ -44,7 +44,7 @@ func TestSessionPrepareIdentityContentionKeepsRetryRoute(t *testing.T) {
 		out.Reset()
 		errOut.Reset()
 		return runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, ""), s, &out, &errOut,
-			func(string) error { return nil }, hostCommandAt(defaultHostResolution()), identity,
+			hostCommandAt(defaultHostResolution()), identity,
 			func(context.Context, string, string, string) ([]byte, error) {
 				bootCalls++
 				return []byte(`{"watermark":"test"}`), nil

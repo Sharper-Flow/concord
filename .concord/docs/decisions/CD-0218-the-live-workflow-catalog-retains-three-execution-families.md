@@ -107,7 +107,9 @@ Before publication, carry every unaffected obligation from those records into
 the accepted successor text or an approved coherent successor set. Retain the
 bootstrap/platform floor, explicit end-state and independent-verdict rules,
 research-pack guarantees, vocabulary ownership, the identities active work
-needs, mandatory backlog search, and CD-0198's evidence and approval floors. Each launch carries its own authority, and its scope and safety checks remain ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+needs, mandatory backlog search and CD-0198's evidence and approval floors.
+Native Task remains host-owned; workflow result recording keeps scope and
+safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).
 
 Do not publish this draft with only a prose exception to still-accepted rules.
 The publication owner must update old record status, manifest identities,
@@ -159,13 +161,6 @@ than publish competing overrides.
   Given a running retained-family item has an ordinary stale-law recovery route
   When the operator approves its exact successor contract at an eligible step
   Then the ordinary re-pin commits without requiring disproved-premise correction
-```
-
-```gherkin
-  Given a terminal failed attempt whose dispatch actor differs from its terminal producer
-  When the store derives its workflow failure record
-  Then the record actor is the matching dispatch completion's actor
-  And only that disposer may write the fenced checkpoint until the next dispatch
 ```
 
 ## Alternatives considered
@@ -230,13 +225,6 @@ set at the D5 boundary.
 - Criterion 7 keeps its ordinary-recovery anchors:
   `go test ./internal/store/ -run TestStaleLawHoldsLateVerdictUntilRePin`
   and `go test ./internal/store/ -run TestCompleteStepCorrectionStaleLawStaysBehindTheGate`.
-- Criterion 8's derived-failure actor and fenced checkpoint anchors are:
-  `go test ./internal/store/ -run TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent`,
-  `go test ./internal/store/ -run TestDerivedDispositionWriterAdmitsItsOwnFencedCheckpoint`,
-  `go test ./internal/store/ -run TestDerivedDispositionRefusesTheDisposedLaneCheckpoint`
-  and `go test ./internal/store/ -run TestDerivedDispositionWriterLosesThePenAtTheNextDispatch`.
-  The last two refuse the disposed lane's checkpoint and, after the next dispatch
-  re-pins a lane, the former disposer's checkpoint.
 
 Retained research failure derivation is covered by
 `internal/store.TestResearchDerivedFailureRetriesAndRebuilds`.

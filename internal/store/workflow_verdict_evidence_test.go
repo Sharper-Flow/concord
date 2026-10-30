@@ -71,7 +71,6 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 	if err != nil {
 		t.Fatal(err)
 	}
-	lane := BuiltinLaneDefinitions()[0]
 	setup := []Event{
 		workflowEvent("owner-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
 		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowWorkerFixtureRef, "version": 2, "digest": workflowFixtureDefinition(t, 2).Digest, "work_kind": workflowFixtureWorkKind}),
@@ -79,7 +78,7 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 		workflowActionCompletedFixture("discovery-"+workID, workID, ownerRef, 5, "discovery", "record_discovery"),
 		workflowActionCompletedFixture("design-"+workID, workID, ownerRef, 6, "design", "record_design"),
 		workflowEventWithActor("contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 7, "resulting_version": 8, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "required_evidence": requiredEvidence, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
-		workflowEventWithActor("start-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 8, "resulting_version": 9, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": ownerRef, "execution_model": preferredModelForLane(lane)}),
+		workflowEventWithActor("start-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 8, "resulting_version": 9, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": ownerRef, "execution_model": "model:fixture"}),
 	}
 	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
 	reviewerRef, err := WorkflowActorRef(reviewer)
@@ -91,25 +90,6 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}
-	attemptID := "attempt:" + workID
-	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
-	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("e", 64)})}
-	var preparedEvents []Event
-	if err := s.Transact(ctx, func(tx *Transaction) error {
-		var err error
-		preparedEvents, err = PrepareLaneActorDispatch(ctx, tx, dispatch, owner.PrincipalRef, owner.ClientRef)
-		if err != nil {
-			return err
-		}
-		_, err = AppendLaneActorDispatchTx(ctx, tx, preparedEvents)
-		return err
-	}); err != nil {
-		t.Fatalf("lane actor dispatch: %v", err)
-	}
-	attemptEpoch := latestStepStartEpoch(t, s, workID, "execution")
-	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID), EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane)})}
-	terminalCtx := prepareWorkerTerminalDelivery(t, s, workID, attemptID, completed.EventID)
-	workerTerminalEventThroughSeamCtx(t, terminalCtx, s, completed)
 	if prebind {
 		if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:seeded-verification"}`)); err != nil {
 			t.Fatalf("bind verification evidence: %v", err)
@@ -118,8 +98,8 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 			t.Fatalf("bind review evidence: %v", err)
 		}
 	}
-	if err := runVerdictAction(t, s, workID, "accept_worker_result", json.RawMessage(mustJSON(map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch}))); err != nil {
-		t.Fatalf("accept worker result: %v", err)
+	if err := runVerdictAction(t, s, workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:fixture", "delivery_state": "asserted"})); err != nil {
+		t.Fatalf("record fixture delivery: %v", err)
 	}
 	return s, owner, reviewer
 }

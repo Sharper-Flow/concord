@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -60,6 +61,13 @@ func (r *publicationTestRunner) RunNoninteractive(ctx context.Context, repo stri
 		out = r.transform(args, out)
 	}
 	return out, err
+}
+
+func memberMigrationExec(t *testing.T, db *sql.DB, query string, args ...any) {
+	t.Helper()
+	if _, err := db.ExecContext(t.Context(), query, args...); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func publicationEdit(t *testing.T, s *Store, query string, args ...any) {

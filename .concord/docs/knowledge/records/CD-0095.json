@@ -16,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1531a11bbaab32ded544be649a071173fc3b1752e94f28f07e8f98409d5d641f",
+  "sha256": "sha256:8b4780f070eff032f6cff2b70efe91b9c4c79dc2749a4617080d0e245e71f05f",
   "status": "accepted",
   "summary": "Allows work_transition.worktree_reclaim from a registered Project default checkout when the addressed work item is terminal, because a terminal item holds no live implementation surface. Non-terminal work keeps the CD-0092 refusal.",
   "tags": [

@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -42,11 +44,25 @@ func cliPayloadDigest(t *testing.T, raw []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func seedCLIAuthorization(t *testing.T, tx *sql.Tx, workID, attemptID, actor, startPayload, completionPayload string) {
+func mustJSON(t *testing.T, value any) string {
 	t.Helper()
-	startSeq := seedCLIReceipt(t, tx, store.Event{EventID: "dispatch-start-" + attemptID, Kind: store.WorkflowActionStarted, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: actor, PayloadVersion: 1, Payload: []byte(startPayload)})
-	completionSeq := seedCLIReceipt(t, tx, store.Event{EventID: "dispatch-completed-" + attemptID, Kind: store.WorkflowActionCompleted, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: actor, PayloadVersion: 2, Payload: []byte(completionPayload)})
-	if _, err := tx.Exec(`INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload) VALUES(?,?,?,?,?,?,?)`, workID, attemptID, completionSeq, completionPayload, "dispatch-completed-"+attemptID, startSeq, startPayload); err != nil {
+	raw, err := json.Marshal(value)
+	if err != nil {
 		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func hideGitDir(t *testing.T, path string) func() {
+	t.Helper()
+	gitDir := filepath.Join(path, ".git")
+	hidden := filepath.Join(t.TempDir(), "git")
+	if err := os.Rename(gitDir, hidden); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		if err := os.Rename(hidden, gitDir); err != nil {
+			t.Error(err)
+		}
 	}
 }

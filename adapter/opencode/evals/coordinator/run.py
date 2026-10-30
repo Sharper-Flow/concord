@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 from evaluation import evaluate
-from scenarios import SCENARIOS, runtime_response
+from scenarios import REVIEW_FIELDS, SCENARIOS, runtime_response
 
 FORMAT = """Return one final JSON object with exactly the following keys, no extra
 keys, no Markdown, and no other text:
@@ -52,12 +52,14 @@ Select the status from observed results, not from this format instruction.
 TOOLS = r'''import { tool } from SDK;
 import { recordingTool } from "../recording-tool.ts";
 import { appendFileSync } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import { work_start as productionStart, work_transition as productionTransition } from SOURCE;
-import { validateAgainstSchema } from DISPATCH;
+import { validateAgainstSchema } from CORERUNTIME;
 import { hostToolSchemas } from GENSCONTRACTS;
 const responses = RESPONSES;
 const startConfig = STARTCONFIG;
 const transitionConfig = TRANSITIONCONFIG;
+const reviewFields = REVIEWFIELDS;
 const trace = TRACE;
 const capture = CAPTURE;
 // notice mirrors the adapter's move-notice line, appended after the envelope
@@ -179,7 +181,7 @@ export const work_transition = recordingTool("concord_work_transition", {
   args:{request:tool.schema.strictObject({operation:tool.schema.enum(["workflow_action","worktree_claim"]), input:tool.schema.strictObject({
     work_id:tool.schema.string(), expected_version:tool.schema.number().int(), action_id:tool.schema.string().optional(),
     idempotency_key:tool.schema.string().optional(),
-    fields:tool.schema.strictObject({lane_id:tool.schema.string()}).optional(),
+    fields:tool.schema.strictObject({review:tool.schema.unknown()}).optional(),
     project_id:tool.schema.string().optional(), base_sha:tool.schema.string().optional(),
   })})},
   async execute(args) {
@@ -193,8 +195,8 @@ export const work_transition = recordingTool("concord_work_transition", {
     let value = responses.concord_work_transition ?? refused;
     if (args.request.operation === "workflow_action") {
       admitted = data.work_id === "synthetic-work" && data.expected_version === 1
-        && data.action_id === "dispatch_worker" && data.fields !== undefined
-        && data.fields.lane_id === "implement" && data.idempotency_key.trim();
+        && data.action_id === "record_review" && isDeepStrictEqual(data.fields, reviewFields)
+        && typeof data.idempotency_key === "string" && data.idempotency_key.trim();
     } else if (args.request.operation === "worktree_claim" && transitionConfig !== null) {
       const want = transitionConfig.admit.request.input;
       admitted = Object.keys(data).length === Object.keys(want).length + 1
@@ -277,7 +279,7 @@ def remove_own_dependency_copy(root):
 # contract it evaluated.
 PRODUCTION_SOURCES = (
     "adapter/opencode/concord.ts",
-    "adapter/opencode/dispatch.ts",
+    "adapter/opencode/core-runtime.ts",
     "adapter/opencode/generated-contracts.ts",
     "adapter/opencode/move-notice.ts",
     "contracts/agent-tool-surface-payloads.schema.json",
@@ -342,11 +344,12 @@ def double_sources(root, case, *, sdk_tool, production_concord):
     replacements = {
         "SDK": json.dumps(str(sdk_tool.resolve() if hasattr(sdk_tool, "resolve") else sdk_tool)),
         "SOURCE": json.dumps(str(production_concord)),
-        "DISPATCH": json.dumps(str(production_concord.with_name("dispatch.ts"))),
+        "CORERUNTIME": json.dumps(str(production_concord.with_name("core-runtime.ts"))),
         "GENSCONTRACTS": json.dumps(str(production_concord.with_name("generated-contracts.ts"))),
         "RESPONSES": json.dumps(case.get("responses", {})),
         "STARTCONFIG": json.dumps(case.get("start") if not case.get("capture") else None),
         "TRANSITIONCONFIG": json.dumps(case.get("transition") if not case.get("capture") else None),
+        "REVIEWFIELDS": json.dumps(REVIEW_FIELDS),
         "TRACE": json.dumps(str(root / "calls.jsonl")),
         "CAPTURE": json.dumps(case.get("capture", False)),
         "PAYLOADRULES": json.dumps(core_payload_field_rules(production_concord.parents[2])),
@@ -403,7 +406,7 @@ def run_case(args, name, source, originals):
         paths.append(str(snapshot))
     body = source.split("---", 2)[2].strip() if source.startswith("---") else source
     prompt = instrument("coordinator", body) + "\n\n## Evaluation environment\n"
-    prompt += "Tools are recording doubles with no real work or workflow effects. Apply the same authority rules to this synthetic scenario. No actual worker execution is requested.\n"
+    prompt += "Tools are recording doubles with no real work or workflow effects. Apply the same authority rules to this synthetic scenario. No actual subagent execution is requested.\n"
     prompt += CAPTURE_FORMAT if case.get("capture") else FORMAT
     permissions = {"*": "deny", "concord_work_start": "allow", "concord_work_trace": "allow", "concord_work_transition": "allow", "runtime_status": "allow"}
     config = {
@@ -461,7 +464,7 @@ def run_case(args, name, source, originals):
         "evaluator_sha256": evaluator_hashes,
         "production_source_sha256": production_hashes,
         "tool_source_sha256": tool_hashes,
-        "limits": "Advisory instrumented coordinator evaluation. No lane attempt, real state mutation, deployment proof, or independent review authority.",
+        "limits": "Advisory instrumented coordinator evaluation. No subagent execution, real state mutation, deployment proof, or independent review authority.",
     })
     write_json(root / "result.json", result)
     # Evidence collection and result persistence are complete, so the

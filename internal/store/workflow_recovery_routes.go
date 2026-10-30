@@ -349,7 +349,7 @@ func validateWorkflowRecoveryRouteIdentity(route WorkflowRecoveryRoute, steps ma
 }
 
 func validateWorkflowRecoveryRoutePlacement(definition WorkflowDefinition, route WorkflowRecoveryRoute, routeStep WorkflowStep, terminals map[string]bool) error {
-	reviewLoop := routeStep.Kind == WorkflowStepExternalEffect && slices.Contains(routeStep.Actions, "dispatch_worker") && slices.Contains(routeStep.Actions, "accept_worker_result")
+	reviewLoop := routeStep.Kind == WorkflowStepExternalEffect && slices.Contains(routeStep.Actions, "record_review")
 	if route.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict {
 		if !slices.Contains(routeStep.Actions, "record_verdict") && !slices.Contains(routeStep.Actions, "confirm_premise") && !terminals[route.Step] && !reviewLoop {
 			return definitionFailure(KindInvalidDefinition, "unhealthy_verdict recovery route sits on a step with no criterion, premise, or execution Review: "+route.Step)
@@ -374,7 +374,7 @@ func validateWorkflowRecoveryRouteProducer(definition WorkflowDefinition, route 
 	if slices.Contains(target.Actions, "approve_contract") {
 		return definitionFailure(KindInvalidDefinition, "recovery route target declares approve_contract: "+route.Target)
 	}
-	producer := slices.Contains(target.Actions, "dispatch_worker") || len(workflowStepArtifactActions(definition, route.Target)) > 0
+	producer := slices.Contains(target.Actions, "record_review") || len(workflowStepArtifactActions(definition, route.Target)) > 0
 	for _, actionID := range target.Actions {
 		mode, ok := workflowActionExecutionMode(definition, actionID)
 		producer = producer || (ok && mode == ActionFenced)

@@ -84,8 +84,8 @@ inference. Conventional Commit titles are load-bearing for release semver.
 | Local conformance workload and host admission | header comment in [`bin/oc-test`](bin/oc-test) |
 | Changed-behavior test selection, widening, and local evidence | [`TESTING.md`](TESTING.md) |
 | Which quality tools and check commands are declared ready | [`.concord/tooling.v1.json`](.concord/tooling.v1.json) |
-| Adapter layout, tests, and the `worker-*` boundary | [`adapter/opencode/README.md`](adapter/opencode/README.md) |
-| Which files are generated, from which inputs | [`scripts/generate-agent-contracts.py`](scripts/generate-agent-contracts.py); [`scripts/generate-agent-lanes.py`](scripts/generate-agent-lanes.py) |
+| Adapter layout, tests, and native Task ownership | [`adapter/opencode/README.md`](adapter/opencode/README.md) |
+| Which files are generated, from which inputs | [`scripts/generate-agent-contracts.py`](scripts/generate-agent-contracts.py); [`scripts/generate-agent-profiles.py`](scripts/generate-agent-profiles.py) |
 | PR title grammar and its semver effect | [`scripts/check-commit-title.py`](scripts/check-commit-title.py); [`scripts/release.py`](scripts/release.py) |
 | How a release is built and published | [`.github/workflows/release.yml`](.github/workflows/release.yml) |
 | What is proved versus merely present | Each decision's Verification section and [`.concord/docs/decisions/CD-0249-decisions-carry-no-coverage-records.md`](.concord/docs/decisions/CD-0249-decisions-carry-no-coverage-records.md); [`.concord/docs/reachability-exceptions.v1.json`](.concord/docs/reachability-exceptions.v1.json) |

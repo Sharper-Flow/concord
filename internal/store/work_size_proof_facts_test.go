@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-// This fixture exercises the maintaining seam without unrelated workflow
-// admission. Assessments use the production fold, including basis validation.
 type g11Fixture struct {
 	db  *sql.DB
 	seq int64
@@ -23,7 +21,6 @@ func newG11Fixture(t *testing.T) *g11Fixture {
 	if _, err := db.Exec(`CREATE TABLE work_items(id TEXT PRIMARY KEY,kind TEXT,lifecycle TEXT);
 INSERT INTO work_items VALUES('work','task','in_progress'),('other','task','in_progress');
 CREATE TABLE fold_guard(active INTEGER); INSERT INTO fold_guard VALUES(1);
-CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,capability_class TEXT,lifecycle_state TEXT,terminal_kind TEXT,terminal_seq INTEGER,terminal_payload TEXT,PRIMARY KEY(work_id,attempt_id));
 CREATE TABLE work_size_assessments(event_id TEXT,work_id TEXT,sequence INTEGER,model_version INTEGER,size_class TEXT,inputs_json TEXT,footprint_json TEXT,recorded_at TEXT,effect_seq INTEGER,review_basis TEXT);
 ` + workSizeProofFactsDDL); err != nil {
 		t.Fatal(err)
@@ -47,13 +44,9 @@ func (f *g11Fixture) apply(t *testing.T, kind string, payload any) Event {
 			t.Fatal(err)
 		}
 	}
-	switch kind {
-	case WorkerCompleted:
-		p := payload.(WorkerCompletedPayload)
-		_, err = tx.Exec(`INSERT INTO worker_attempts VALUES(?,?,'review','completed',?,?,?)`, e.SubjectID, p.AttemptID, WorkerCompleted, e.Seq, string(e.Payload))
-	case WorkSized:
+	if kind == WorkSized {
 		err = foldWorkSized(t.Context(), tx, e)
-	default:
+	} else {
 		err = advanceWorkSizeProofFactsTx(t.Context(), tx, e)
 	}
 	if err != nil {
@@ -76,14 +69,14 @@ func (f *g11Fixture) assess(t *testing.T, basis []string) {
 	f.apply(t, WorkSized, workSizedPayload{ModelVersion: 2, Size: size, Inputs: in, Footprint: workSizeFootprintFixture(), ReviewBasis: basis})
 }
 
-func (f *g11Fixture) action(t *testing.T, action, attempt string) Event {
+func (f *g11Fixture) action(t *testing.T, action string) {
 	t.Helper()
-	return f.apply(t, WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: action, WorkerAttemptID: attempt})
+	f.apply(t, WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: action})
 }
 
-func (f *g11Fixture) report(t *testing.T, attempt string) Event {
+func (f *g11Fixture) review(t *testing.T, report *ReviewBlock) Event {
 	t.Helper()
-	return f.apply(t, WorkerCompleted, WorkerCompletedPayload{AttemptID: attempt, Review: &WorkerReviewBlock{Disposition: "correction_required", Findings: []WorkerReviewFinding{{Severity: "P2"}}}})
+	return f.apply(t, WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "record_review", Review: report})
 }
 
 func g11Proofs(t *testing.T, f *g11Fixture, want ...string) {
@@ -96,22 +89,19 @@ func g11Proofs(t *testing.T, f *g11Fixture, want ...string) {
 
 func TestG11ProofWindowLogBlind(t *testing.T) {
 	f := newG11Fixture(t)
-	f.report(t, "a")
-	f.action(t, "accept_worker_evidence", "a")
-	f.action(t, "checkpoint_refine", "")
-	f.report(t, "b")
-	proof := f.action(t, "accept_worker_result", "b")
+	f.review(t, reviewBlockFixture())
+	f.action(t, "checkpoint_refine")
+	proof := f.review(t, reviewBlockFixture())
 	if _, err := f.db.Exec(`ALTER TABLE domain_events RENAME TO hidden_domain_events`); err != nil {
 		t.Fatal(err)
 	}
 	f.log = false
 	g11Proofs(t, f, proof.EventID)
-	// Every maintaining effect and the assessment fold also stay log-blind.
 	f.apply(t, WorkflowContractApproved, map[string]any{})
 	g11Proofs(t, f, proof.EventID)
-	f.action(t, "accept_worker_result", "a")
-	f.action(t, "checkpoint_refine", "")
-	second := f.action(t, "accept_worker_evidence", "b")
+	f.review(t, reviewBlockFixture())
+	f.action(t, "checkpoint_refine")
+	second := f.review(t, reviewBlockFixture())
 	g11Proofs(t, f, proof.EventID, second.EventID)
 	f.apply(t, WorkflowContractSuperseded, map[string]any{})
 	f.assess(t, []string{proof.EventID, second.EventID})
@@ -121,43 +111,22 @@ func TestG11ProofWindowLogBlind(t *testing.T) {
 	}
 }
 
-func TestG11AcceptedReportLogBlind(t *testing.T) {
-	f := newG11Fixture(t)
-	terminal := f.report(t, "review")
-	if _, err := f.db.Exec(`ALTER TABLE domain_events RENAME TO hidden_domain_events`); err != nil {
-		t.Fatal(err)
-	}
-	got, err := workSizeReviewFindsInScopeTx(t.Context(), f.db, "work", "review", terminal.Seq+1)
-	if err != nil || !got {
-		t.Fatalf("report=%v %v", got, err)
-	}
-	// The strict predecessor bound remains admission's bound, not a replay API.
-	if _, err := workSizeReviewFindsInScopeTx(t.Context(), f.db, "work", "review", terminal.Seq); err == nil {
-		t.Fatal("accepted a terminal at the acceptance sequence")
-	}
-	if _, err := workSizeReviewFindsInScopeTx(t.Context(), f.db, "other", "review", terminal.Seq+1); err == nil {
-		t.Fatal("read another work's report")
-	}
-}
-
 func TestG11ContractAndAssessmentReset(t *testing.T) {
 	for _, kind := range []string{WorkflowContractApproved, WorkflowContractSuperseded} {
 		t.Run(kind, func(t *testing.T) {
 			f := newG11Fixture(t)
-			f.report(t, "a")
-			f.action(t, "checkpoint_refine", "")
-			f.action(t, "accept_worker_result", "a")
+			f.action(t, "checkpoint_refine")
+			f.review(t, reviewBlockFixture())
 			g11Proofs(t, f)
-			f.action(t, "checkpoint_refine", "")
-			proof := f.action(t, "accept_worker_result", "a")
-			f.action(t, "checkpoint_refine", "")
+			f.action(t, "checkpoint_refine")
+			proof := f.review(t, reviewBlockFixture())
+			f.action(t, "checkpoint_refine")
 			f.apply(t, kind, map[string]any{})
-			f.action(t, "accept_worker_result", "a")
+			f.review(t, reviewBlockFixture())
 			g11Proofs(t, f, proof.EventID)
-			f.action(t, "checkpoint_refine", "")
-			proof2 := f.action(t, "accept_worker_evidence", "a")
+			f.action(t, "checkpoint_refine")
+			proof2 := f.review(t, reviewBlockFixture())
 			basis := []string{proof.EventID, proof2.EventID}
-			// A mismatched assessment refuses before clearing the consumed window.
 			tx, err := f.db.BeginTx(t.Context(), nil)
 			if err != nil {
 				t.Fatal(err)
@@ -171,18 +140,16 @@ func TestG11ContractAndAssessmentReset(t *testing.T) {
 			}
 			g11Proofs(t, f, basis...)
 			f.assess(t, basis)
-			if _, err := f.db.Exec(`UPDATE work_size_assessments SET size_class='larger' WHERE work_id='work'`); err != nil {
-				t.Fatal(err)
-			}
-			f.action(t, "checkpoint_refine", "")
-			f.action(t, "accept_worker_result", "a")
+			memberMigrationExec(t, f.db, `UPDATE work_size_assessments SET size_class='larger' WHERE work_id='work'`)
+			f.action(t, "checkpoint_refine")
+			f.review(t, reviewBlockFixture())
 			g11Proofs(t, f)
 			got, err := workSizeReviewBasisTx(t.Context(), f.db, "work")
 			if err != nil || !reflect.DeepEqual(got, basis) {
 				t.Fatalf("recorded basis=%v %v; want %v", got, err, basis)
 			}
-			f.action(t, "checkpoint_refine", "")
-			proof3 := f.action(t, "accept_worker_result", "a")
+			f.action(t, "checkpoint_refine")
+			proof3 := f.review(t, reviewBlockFixture())
 			g11Proofs(t, f, proof3.EventID)
 		})
 	}
@@ -190,28 +157,20 @@ func TestG11ContractAndAssessmentReset(t *testing.T) {
 
 func TestG11RepeatedReviewAndNonReview(t *testing.T) {
 	f := newG11Fixture(t)
-	f.report(t, "a")
-	f.report(t, "b")
-	f.report(t, "implementation")
-	if _, err := f.db.Exec(`UPDATE worker_attempts SET capability_class='implementation' WHERE attempt_id='implementation'`); err != nil {
-		t.Fatal(err)
-	}
-	f.action(t, "accept_worker_result", "a")
-	f.action(t, "checkpoint_refine", "")
-	f.action(t, "accept_worker_result", "implementation")
-	b := f.action(t, "accept_worker_evidence", "b")
-	f.action(t, "accept_worker_result", "a")
-	g11Proofs(t, f, b.EventID)
-	f.action(t, "checkpoint_refine", "")
-	a := f.action(t, "accept_worker_result", "a")
-	g11Proofs(t, f, b.EventID, a.EventID)
-	if _, err := f.db.Exec(`UPDATE work_size_assessments SET size_class='small' WHERE work_id='work'`); err != nil {
-		t.Fatal(err)
-	}
+	f.review(t, reviewBlockFixture())
+	f.action(t, "checkpoint_refine")
+	f.action(t, "record_delivery")
+	f.action(t, "record_design")
 	g11Proofs(t, f)
-	if _, err := f.db.Exec(`UPDATE work_size_assessments SET size_class='larger' WHERE work_id='work'`); err != nil {
-		t.Fatal(err)
-	}
+	b := f.review(t, reviewBlockFixture())
+	f.review(t, reviewBlockFixture())
+	g11Proofs(t, f, b.EventID)
+	f.action(t, "checkpoint_refine")
+	a := f.review(t, reviewBlockFixture())
+	g11Proofs(t, f, b.EventID, a.EventID)
+	memberMigrationExec(t, f.db, `UPDATE work_size_assessments SET size_class='small' WHERE work_id='work'`)
+	g11Proofs(t, f)
+	memberMigrationExec(t, f.db, `UPDATE work_size_assessments SET size_class='larger' WHERE work_id='work'`)
 	g11Proofs(t, f, b.EventID, a.EventID)
 }
 
@@ -219,18 +178,13 @@ func TestG11NonLargerReportMaintenance(t *testing.T) {
 	for _, size := range []WorkSize{WorkSizeSmall, WorkSizeCrucial} {
 		t.Run(string(size), func(t *testing.T) {
 			f := newG11Fixture(t)
-			if _, err := f.db.Exec(`UPDATE work_size_assessments SET size_class=? WHERE work_id='work'`, size); err != nil {
-				t.Fatal(err)
-			}
-			f.report(t, "a")
-			f.action(t, "accept_worker_result", "a")
-			f.action(t, "checkpoint_refine", "")
-			proof := f.action(t, "accept_worker_evidence", "a")
+			memberMigrationExec(t, f.db, `UPDATE work_size_assessments SET size_class=? WHERE work_id='work'`, size)
+			f.review(t, reviewBlockFixture())
+			f.action(t, "checkpoint_refine")
+			proof := f.review(t, reviewBlockFixture())
 			g11Proofs(t, f)
 			g11CheckParity(t, f)
-			if _, err := f.db.Exec(`UPDATE work_size_assessments SET size_class='larger' WHERE work_id='work'`); err != nil {
-				t.Fatal(err)
-			}
+			memberMigrationExec(t, f.db, `UPDATE work_size_assessments SET size_class='larger' WHERE work_id='work'`)
 			g11Proofs(t, f, proof.EventID)
 		})
 	}
@@ -238,24 +192,13 @@ func TestG11NonLargerReportMaintenance(t *testing.T) {
 
 func TestG11CorruptNonLargerReportRefusesWithoutReset(t *testing.T) {
 	f := newG11Fixture(t)
-	if _, err := f.db.Exec(`UPDATE work_size_assessments SET size_class='small' WHERE work_id='work'`); err != nil {
-		t.Fatal(err)
+	memberMigrationExec(t, f.db, `UPDATE work_size_assessments SET size_class='small' WHERE work_id='work'`)
+	f.review(t, reviewBlockFixture())
+	f.action(t, "checkpoint_refine")
+	e := Event{Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: "work", Seq: f.seq + 1, EventID: "g11:corrupt-review", Payload: []byte(`{"action_id":"record_review","review":42}`)}
+	if _, err := decodeRecordedReview(e.Payload); err == nil {
+		t.Fatal("record_review decoder admitted a malformed review")
 	}
-	f.report(t, "a")
-	f.action(t, "accept_worker_result", "a")
-	f.action(t, "checkpoint_refine", "")
-	// JSON-valid but type-invalid bytes require corruption or an out-of-band
-	// write: the terminal producer's registered decoder refuses them.
-	e := Event{Kind: WorkerCompleted, PayloadVersion: 2, SubjectType: SubjectWorkItem, SubjectID: "work", Payload: []byte(`{"attempt_id":"a","review":42}`)}
-	var report WorkerCompletedPayload
-	if err := decodeClosedWorkerPayload(e, &report); err == nil {
-		t.Fatal("terminal decoder admitted a malformed review")
-	}
-	if _, err := f.db.Exec(`UPDATE worker_attempts SET terminal_payload=? WHERE attempt_id='a'`, string(e.Payload)); err != nil {
-		t.Fatal(err)
-	}
-	// The effective-size read still skips proof derivation, but the maintaining
-	// seam refuses corrupt data rather than discarding a potentially needed proof.
 	g11Proofs(t, f)
 	before, err := readWorkSizeProofFacts(t.Context(), f.db, "work")
 	if err != nil {
@@ -265,8 +208,6 @@ func TestG11CorruptNonLargerReportRefusesWithoutReset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.Kind, e.Seq, e.EventID = WorkflowActionCompleted, f.seq+1, "g11:corrupt-accept"
-	e.Payload = mustJSONValue(workflowActionCompletedPayload{ActionID: "accept_worker_evidence", WorkerAttemptID: "a"})
 	requireFailureKind(t, advanceWorkSizeProofFactsTx(t.Context(), tx, e), KindInvariantViolation, "corrupt non-larger report")
 	if err := tx.Rollback(); err != nil {
 		t.Fatal(err)
@@ -280,19 +221,19 @@ func TestG11CorruptNonLargerReportRefusesWithoutReset(t *testing.T) {
 func TestG11FindingSeverityTies(t *testing.T) {
 	for _, severity := range []string{"P0", "P1", "P2", "P3", "high", "medium"} {
 		for _, classification := range []string{"", OracleClassificationDeliveryBlocker, OracleClassificationUncoveredCase, OracleClassificationOracleDefect, OracleClassificationFollowUp} {
-			for _, disposition := range []string{"correction_required", "revision_required", "clean"} {
+			for _, disposition := range []string{"correction_required", "revision_required", "ready_for_final_proof"} {
 				for _, resolved := range []bool{false, true} {
 					t.Run(fmt.Sprintf("%s/%s/%s/resolved=%v", severity, classification, disposition, resolved), func(t *testing.T) {
-						finding := WorkerReviewFinding{FindingID: "reported-id", Severity: severity}
+						finding := ReviewFinding{FindingID: "reported-id", Severity: severity}
 						if classification != "" {
-							finding.Oracle = &WorkerOracleFinding{Classification: classification}
+							finding.Oracle = &ReviewOracleFinding{Classification: classification}
 						}
-						p := WorkerCompletedPayload{ContextFindings: make([]WorkerContextFinding, 2), Review: &WorkerReviewBlock{Disposition: disposition, Findings: []WorkerReviewFinding{finding}}}
+						report := &ReviewBlock{Disposition: disposition, Findings: []ReviewFinding{finding}}
 						if resolved {
-							p.Review.ResolvedFindings = []WorkerOracleResolution{{FindingID: workerRankedFindingID(90, 2, 0)}}
+							report.ResolvedFindings = []ReviewResolution{{FindingID: "finding:90:0"}}
 						}
-						want := (severity == "P0" || severity == "P1" || severity == "P2") && ((classification == "" && disposition != "clean") || (classification != "" && classification != OracleClassificationFollowUp && !resolved))
-						got, err := workSizeReviewFindsInScope(string(mustJSONValue(p)), 90)
+						want := (severity == "P0" || severity == "P1" || severity == "P2") && ((classification == "" && disposition != "ready_for_final_proof") || (classification != "" && classification != OracleClassificationFollowUp && !resolved))
+						got, err := workSizeReviewFindsInScope(string(mustJSONValue(map[string]any{"review": report})), 90)
 						if err != nil || got != want {
 							t.Fatalf("qualifies=%v %v; want %v", got, err, want)
 						}
@@ -301,14 +242,18 @@ func TestG11FindingSeverityTies(t *testing.T) {
 			}
 		}
 	}
-	// A continuation resolves by its original identity, not its report slot.
-	p := WorkerCompletedPayload{Review: &WorkerReviewBlock{Findings: []WorkerReviewFinding{{Severity: "P1", Oracle: &WorkerOracleFinding{Classification: OracleClassificationDeliveryBlocker, ContinuesFindingID: "finding:earlier"}}}, ResolvedFindings: []WorkerOracleResolution{{FindingID: "finding:earlier"}}}}
-	got, err := workSizeReviewFindsInScope(string(mustJSONValue(p)), 90)
+	// Historical context findings still offset canonical oracle finding IDs.
+	legacy := map[string]any{"context_findings": []any{map[string]any{}, map[string]any{}}, "review": &ReviewBlock{Findings: []ReviewFinding{{Severity: "P1", Oracle: &ReviewOracleFinding{Classification: OracleClassificationDeliveryBlocker}}}, ResolvedFindings: []ReviewResolution{{FindingID: "finding:90:2"}}}}
+	if got, err := workSizeReviewFindsInScope(string(mustJSONValue(legacy)), 90); err != nil || got {
+		t.Fatalf("legacy offset resolution=%v %v", got, err)
+	}
+	p := &ReviewBlock{Findings: []ReviewFinding{{Severity: "P1", Oracle: &ReviewOracleFinding{Classification: OracleClassificationDeliveryBlocker, ContinuesFindingID: "finding:earlier"}}}, ResolvedFindings: []ReviewResolution{{FindingID: "finding:earlier"}}}
+	got, err := workSizeReviewFindsInScope(string(mustJSONValue(map[string]any{"review": p})), 90)
 	if err != nil || got {
 		t.Fatalf("resolved continuation=%v %v", got, err)
 	}
-	p.Review.ResolvedFindings[0].FindingID = "reported-id"
-	got, err = workSizeReviewFindsInScope(string(mustJSONValue(p)), 90)
+	p.ResolvedFindings[0].FindingID = "reported-id"
+	got, err = workSizeReviewFindsInScope(string(mustJSONValue(map[string]any{"review": p})), 90)
 	if err != nil || !got {
 		t.Fatalf("unresolved continuation=%v %v", got, err)
 	}
@@ -319,20 +264,15 @@ func TestG11FindingSeverityTies(t *testing.T) {
 
 func TestG11ProofFactsGuardAndRollback(t *testing.T) {
 	f := newG11Fixture(t)
-	if _, err := f.db.Exec(`DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
+	memberMigrationExec(t, f.db, `DELETE FROM fold_guard`)
 	for _, statement := range []string{`INSERT INTO work_size_proof_facts VALUES('other','{}')`, `UPDATE work_size_proof_facts SET state='{}'`, `DELETE FROM work_size_proof_facts`} {
 		if _, err := f.db.Exec(statement); err == nil || !strings.Contains(err.Error(), "fold-only") {
 			t.Fatalf("unguarded %s: %v", statement, err)
 		}
 	}
-	if _, err := f.db.Exec(`INSERT INTO fold_guard VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	f.report(t, "a")
-	f.action(t, "accept_worker_result", "a")
-	f.action(t, "checkpoint_refine", "")
+	memberMigrationExec(t, f.db, `INSERT INTO fold_guard VALUES(1)`)
+	f.review(t, reviewBlockFixture())
+	f.action(t, "checkpoint_refine")
 	before, err := readWorkSizeProofFacts(t.Context(), f.db, "work")
 	if err != nil {
 		t.Fatal(err)
@@ -341,8 +281,7 @@ func TestG11ProofFactsGuardAndRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := Event{Kind: WorkflowContractSuperseded, SubjectID: "work", Seq: 100}
-	if err := advanceWorkSizeProofFactsTx(t.Context(), tx, e); err != nil {
+	if err := advanceWorkSizeProofFactsTx(t.Context(), tx, Event{Kind: WorkflowContractSuperseded, SubjectID: "work", Seq: 100}); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Rollback(); err != nil {
@@ -352,9 +291,7 @@ func TestG11ProofFactsGuardAndRollback(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("rollback=%+v %v; want %+v", after, err, before)
 	}
-	if _, err := f.db.Exec(`DROP TABLE work_size_proof_facts`); err != nil {
-		t.Fatal(err)
-	}
+	memberMigrationExec(t, f.db, `DROP TABLE work_size_proof_facts`)
 	if _, err := deriveWorkSizeProofsTx(t.Context(), f.db, "work"); err == nil {
 		t.Fatal("missing facts silently reconstructed from log")
 	}

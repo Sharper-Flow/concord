@@ -2,10 +2,8 @@ package store
 
 import (
 	"context"
-	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 // The reservation rows a contract's own law addition folds. The FK chain
@@ -152,95 +150,6 @@ func TestMandateRecoveryStaysWithPlainBindingOutsideTheContractAdditions(t *test
 	}
 	if failure.RecoveryAction != `run bind_evidence on step "repair" before record_verdict` {
 		t.Fatalf("recovery=%q, want the plain bind_evidence route", failure.RecoveryAction)
-	}
-}
-
-// A completed worker result at the dispatch step leaves rejection as the
-// first admitted correction route: the refusal names the conditional
-// bind_evidence guidance and reject_worker_result, then the supersession it
-// reopens.
-func TestMandateRecoveryNamesRejectionFirstAtAWorkerDispatchStep(t *testing.T) {
-	t.Parallel()
-	workID := "mandate-recovery-reject"
-	s, _, _, _ := seedCompletedWorkerAtExecution(t, workID)
-	seedMandateContract(t, s, workID)
-	seedReservedLawAddition(t, s, workID)
-	entry := workflowFixtureDefinition(t, 2)
-	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, entry.Definition, "execution", "accept_worker_result"))
-	if !strings.Contains(failure.RecoveryAction, "only when the branch adds") {
-		t.Fatalf("recovery=%q, want the conditional bind_evidence guidance", failure.RecoveryAction)
-	}
-	if !strings.Contains(failure.RecoveryAction, "reject_worker_result, then supersede_contract, before accept_worker_result") {
-		t.Fatalf("recovery=%q, want reject_worker_result then supersede_contract", failure.RecoveryAction)
-	}
-	if strings.Contains(failure.RecoveryAction, "record_worker_failure") {
-		t.Fatalf("recovery=%q, want no record_worker_failure route", failure.RecoveryAction)
-	}
-}
-
-// A failed dispatched attempt's terminal derives its own failure record
-// (CD-0198 D5), so the refusal at the binding step names no failure-record
-// route: the failure is already dispositioned, and no live step declares
-// record_worker_failure.
-func TestMandateRecoveryNamesNoFailureRecordOnceTheTerminalDerivedIt(t *testing.T) {
-	t.Parallel()
-	workID := "mandate-recovery-failure"
-	f, attemptID, _ := seedCurrentRepairWorker(t, workID)
-	s := f.store
-	failed := s2WorkerFailedAttributedEvent(workID, attemptID, "failed-"+workID, preferredModelForLane(laneForID(t)), WorkerFailureAbandoned, "the host observed that the lane never reported", time.Unix(30, 0).UTC())
-	if err := s2WorkerFailedLive(t, s, failed); err != nil {
-		t.Fatal(err)
-	}
-	if records := s2DerivedFailureRecords(t, s, workID, attemptID); len(records) != 1 {
-		t.Fatalf("derived failure records = %+v, want one", records)
-	}
-	// The fixture already approved contract 1 with its architecture binding;
-	// the contract now mandates the law it adds and reserves.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-UPDATE workflow_contracts SET spec_mandate='["CD-0189"]' WHERE work_id=?1 AND contract_version=1;
-INSERT INTO workflow_law_addition_reservations(product_id,law_id,owner_work_id,owner_contract_version,home_domain_id) SELECT product_id,'CD-0189',work_id,1,home_domain_id FROM workflow_architecture_bindings WHERE work_id=?1 AND contract_version=1;
-INSERT INTO workflow_contract_law_additions(work_id,contract_version,product_id,law_id,home_domain_id,reservation_owner_work_id,reservation_owner_contract_version) SELECT work_id,1,product_id,'CD-0189',home_domain_id,work_id,1 FROM workflow_architecture_bindings WHERE work_id=?1 AND contract_version=1;
-DELETE FROM write_guard`, workID); err != nil {
-		t.Fatal(err)
-	}
-	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	for _, step := range definition.StepGraph.Steps {
-		if slices.Contains(step.Actions, "record_worker_failure") {
-			t.Fatalf("live step %s declares record_worker_failure", step.ID)
-		}
-	}
-	bindingStep := workflowEvidenceBindingStep(definition, "repair")
-	if bindingStep == "" {
-		t.Fatal("the live definition carries no bind_evidence step at repair")
-	}
-	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, definition, bindingStep, "record_verdict"))
-	if !strings.Contains(failure.RecoveryAction, "only when the branch adds") {
-		t.Fatalf("recovery=%q, want the conditional bind_evidence guidance", failure.RecoveryAction)
-	}
-	if strings.Contains(failure.RecoveryAction, "record_worker_failure") {
-		t.Fatalf("recovery=%q, want no record_worker_failure route over the derived record", failure.RecoveryAction)
-	}
-}
-
-// A live dispatched worker admits no correction route: no completed result to
-// reject and no failure to record. The refusal then names the conditional
-// bind_evidence guidance alone and no correction route the step does not
-// admit.
-func TestMandateRecoveryNamesNoCorrectionRouteWhileAWorkerIsLive(t *testing.T) {
-	t.Parallel()
-	workID := "mandate-recovery-live"
-	s, _ := seedDispatchedWorkerAtExecution(t, workID)
-	seedMandateContract(t, s, workID)
-	seedReservedLawAddition(t, s, workID)
-	entry := workflowFixtureDefinition(t, 2)
-	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, entry.Definition, "execution", "accept_worker_result"))
-	if !strings.Contains(failure.RecoveryAction, `only when the branch adds "CD-0189"`) {
-		t.Fatalf("recovery=%q, want conditional bind_evidence guidance", failure.RecoveryAction)
-	}
-	for _, route := range []string{"supersede_contract", "reject_worker_result", "record_worker_failure"} {
-		if strings.Contains(failure.RecoveryAction, route) {
-			t.Fatalf("recovery=%q, must not name %s at a step that admits no correction route", failure.RecoveryAction, route)
-		}
 	}
 }
 

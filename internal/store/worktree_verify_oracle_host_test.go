@@ -675,8 +675,8 @@ func TestNativeTargetAxisSelector(t *testing.T) {
 	if !errors.As(err, &mismatchFailure) || mismatchFailure.Kind != KindUnavailable {
 		t.Fatalf("unsorted check selector must refuse: %v", err)
 	}
-	if !strings.Contains(mismatchFailure.RecoveryAction, `["check","alpha","shell-value"]`) || !strings.Contains(mismatchFailure.RecoveryAction, "record_worker_job") {
-		t.Fatalf("selector refusal hides the closed selector or recorded-revision remedy: %+v", mismatch)
+	if !strings.Contains(mismatchFailure.RecoveryAction, `["check","alpha","shell-value"]`) || !strings.Contains(mismatchFailure.RecoveryAction, "prepar") || strings.Contains(mismatchFailure.RecoveryAction, "record_worker_job") {
+		t.Fatalf("selector refusal hides the closed selector or preparation remedy: %+v", mismatch)
 	}
 }
 

@@ -31,10 +31,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0172"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0193"
     }
   ],
   "path": ".concord/docs/decisions/CD-0201-workflow-action-admission-is-derived-once-and-every-reachable-state-stays-live.md",
@@ -45,7 +41,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0f50a76f7325d7462681b40340c31062a4dbdf614506a6a4486ad76e61e539e8",
+  "sha256": "sha256:5d6b0d222dbc6c67deaefaee5ca902b7f29fb3f2416dcd933bcf3dcb538fd02a",
   "status": "accepted",
   "summary": "One tx-scoped loader and pure workflowAdmit function own admission across all sites, derived from current rows; payload and identity checks stay at existing boundaries. Oracle work consumes one ranked-finding lineage, counts its open findings, and exposes canonical IDs and retained receipts through shared correction/context readers. Dispatch refuses above 32 blockers without truncation. Readiness, oracle defects, and uncovered cases retain declared preparation, correction, supersession, or stop recovery without erasing open blockers. The registered definitions keep the liveness law and conformance checks over modeled dimensions.",
   "tags": [

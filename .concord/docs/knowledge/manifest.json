@@ -1,7 +1,6 @@
 {
   "dispositions": [],
   "exclusions": [
-    ".concord/docs/agent-lanes-contract.md",
     ".concord/docs/generated-agent-tool-surface.md",
     ".concord/docs/research/"
   ],

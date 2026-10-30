@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2bffb3c95bd98d3e829af0c0e4788884f88d6a2870183518e568ec4352b16f2a",
+  "sha256": "sha256:5b4758957f093c1c743706a024770b4bac91f628eb125548028109cf31e6f559",
   "status": "accepted",
   "summary": "Every Concord tool export returns the ToolResult the host declares. The pinned host reads a string output and splits it without a guard, so returning the raw envelope threw a TypeError and no tool call could succeed. The envelope now travels as JSON text in output as its only carrier, an oversize result becomes a bounded error envelope, the execute boundary drops the concealing any, and the spent TS2322 allowance is removed.",
   "tags": [

@@ -183,7 +183,7 @@ class BunNativeTests(unittest.TestCase):
                     self.assertTrue(any(case["file"] == file and case["outcome"] == "pass" for case in observed))
 
     def test_pinned_bun_real_outcomes_and_legacy_invocation(self):
-        pin = json.loads((ROOT / ".concord/oracles/adapter/dispatch-acceptance.v1.json").read_text())["pin"]["bun"]
+        pin = json.loads((ROOT / ".concord/oracles/adapter/native-acceptance.v1.json").read_text())["pin"]["bun"]
         self.assertEqual(subprocess.run(["bun", "--version"], capture_output=True, text=True,
                                         timeout=10).stdout.strip(), pin)
         with tempfile.TemporaryDirectory() as temporary:

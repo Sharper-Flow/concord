@@ -65,14 +65,15 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 	c := acceptDeliveryCandidateAt(t, workID, "workflow.break_fix", "repair", false)
 	fixture := workflowReturnRouteFixture{store: c.f.store, owner: c.f.owner, operator: c.f.operator}
 	s := fixture.store
-	parkWorkflowInstanceAt(t, s, workID, "refine")
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "refine")
 	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 	c.j.bindVerification(t, c.early)
 	acceptCurrentReviewForTest(t, c.f, c.j.repo, "continue")
-	seedAcceptedImplementationDeliveryAt(t, s, workID, fixture.owner, "refine")
-	// Exercise gate recovery after the repair changed the reviewed candidate. A plain result
-	// disposition cannot itself assert delivery or move refine (CD-0242 D5).
-	parkWorkflowInstanceAt(t, s, workID, "delivery")
+	pReturnProduce(t, c.j, "unreviewed-repair")
+	qualifyReviewSubjectForTest(t, s, workID, c.j.repo)
+	// Gate recovery requires candidate or dependency movement, not merely a
+	// non-ready disposition on an otherwise current Review.
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "delivery")
 	reviewGateRequireStep(t, s, workID, "delivery")
 
 	pinnedRef, pinnedDigest := reviewGateInstancePin(t, s, workID)
@@ -184,7 +185,7 @@ func TestDeliveryGateCorrectionNeedsOutstandingReview(t *testing.T) {
 	}
 	err := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator)
 	var failure *Failure
-	if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "outstanding post-rejection review") {
+	if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "requires an outstanding Review correction") {
 		t.Fatalf("unsupported gate return = %v, want the outstanding-review refusal", err)
 	}
 }

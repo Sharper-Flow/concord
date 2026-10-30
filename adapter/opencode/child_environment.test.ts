@@ -6,10 +6,6 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
 const gateFiles = [
-  "dispatch_route_end_to_end.test.ts",
-  "dispatch_route_end_to_end.case.ts",
-  "native_target_dispatch_end_to_end.test.ts",
-  "native_target_dispatch_end_to_end.case.ts",
   "project_handoff_end_to_end.test.ts",
   "project_handoff_end_to_end.case.ts",
   "session-vacate-reoccupy.test.ts",

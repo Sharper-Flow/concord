@@ -209,12 +209,7 @@ func ProjectToolingDeclaredText(tooling *ProjectToolingManifest) string {
 // RefineProofManifestRequired reports whether the named action on the work
 // item's pinned definition runs a guard that reads the Project tooling
 // manifest, so the caller must resolve it before the action's transaction
-// opens (CD-0192). record_delivery runs the guard wherever it is gated, and
-// accept_worker_result runs the same admission at the delivery-admitting
-// refinement step (CD-0198 D4). bind_evidence resolves the manifest on a size-capable
-// pin that holds a recorded split, so the automatic integration discharge
-// can keep only runs of declared tools. Every other action
-// resolves nothing.
+// opens. Only a gated record_delivery action reads that manifest.
 func RefineProofManifestRequired(ctx context.Context, s *Store, workID, actionID string) (bool, error) {
 	if s == nil || s.db == nil {
 		return false, newFailure(KindUnavailable, "project_tooling", "store is not open", false, "open the authority database")
@@ -230,12 +225,6 @@ func RefineProofManifestRequired(ctx context.Context, s *Store, workID, actionID
 	switch actionID {
 	case "record_delivery":
 		return workflowRefineProofGateActive(entry.Definition, currentStep), nil
-	case "accept_worker_result":
-		return workflowAcceptDeliveryAdmissionActive(entry.Definition, currentStep), nil
-	case "bind_evidence":
-		// The split-integration proof obligation is retired with the split
-		// system (CD-0242 D6); bind_evidence carries no derived obligation.
-		return false, nil
 	default:
 		return false, nil
 	}

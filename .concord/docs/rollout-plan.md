@@ -43,8 +43,8 @@ Runtime implementation proceeds only when all of these are true:
    boundary freshness.
 6. CD-0008 fixes mechanism hardening: immutable evidence subjects and typed degradation.
    [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-   governs current-state recovery and schema evolution; [D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-   governs each attempt's scope, assignment, and subject bindings.
+   governs current-state recovery and schema evolution; [D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)
+   gives native Task execution to the host while workflow stages retain subject-bound outcomes.
 7. CD-0215 fixes research context as bounded working context, not a second
    durable-knowledge authority.
 8. The accepted storage-spine conformance slice has a public verification plan.

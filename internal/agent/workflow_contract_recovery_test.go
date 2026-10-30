@@ -80,7 +80,7 @@ DELETE FROM write_guard`); err != nil {
 	// A non-serious supersession is routine under consequence_v1, even when
 	// recovery repairs a duplicate projection. No second approval is consumed.
 	env.HostApproval = nil
-	challengesBefore := verifyWallChallenges(t, s)
+	challengesBefore := countWorkflowApprovalChallenges(t, s)
 	approvalsBefore := agentRowsSnapshot(t, s, `SELECT * FROM agent_approvals`)
 	results := make(chan struct {
 		response agentcontract.Envelope
@@ -133,7 +133,7 @@ DELETE FROM write_guard`); err != nil {
 	if approvingActor != store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef) || agentRowsSnapshot(t, s, `SELECT * FROM agent_approvals`) != approvalsBefore {
 		t.Fatalf("routine recovery did not remain agent-attributed and approval-free: approving_actor=%s", approvingActor)
 	}
-	if got := verifyWallChallenges(t, s); got != challengesBefore {
+	if got := countWorkflowApprovalChallenges(t, s); got != challengesBefore {
 		t.Fatalf("routine recovery minted approval challenges: %d -> %d", challengesBefore, got)
 	}
 	replayed, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: recoveryInput}, env)

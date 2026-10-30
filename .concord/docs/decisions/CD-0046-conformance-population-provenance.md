@@ -10,7 +10,7 @@
   public record is
   [issue #223 comment](https://github.com/Sharper-Flow/concord/issues/223#issuecomment-5360747462)
 - **Related:** CD-0011 §*Accepted load profile calibration* and §*Calibration
-  record*, CD-0044 §D3, [`design-constraints.md`](../design-constraints.md),
+  record*, [`design-constraints.md`](../design-constraints.md),
   issue #223, issue #189, issue #187, issue #55
 - **Preserves:** CD-0011's falsifier list, its retention decision, the
   accepted load profile, the correctness-precedes-latency precedence, and
@@ -48,9 +48,9 @@ labeled the result authoritative. CD-0011's second condition — that local
 runs "remain `inconclusive` even when the threshold is exceeded" — had no
 code path implementing it.
 
-CD-0044 §D3 already promoted the population-identity half of this clause into
-the concurrency invariant. The remaining half — *who* may report an accepted
-verdict — is what this decision binds.
+The conformance population keeps its declared identity under CD-0011. This
+decision binds who may report an accepted verdict; native Task execution
+supplies no conformance-population authority.
 
 ## Decision
 
@@ -160,8 +160,8 @@ this so a later reader does not wire it into the threshold.
 - The acceptance profile's refusal of `CONCORD_CONFORMANCE_UNPACED=1` is
   preserved: unpaced max-rate spin remains diagnostic-only stress
   evidence.
-- No third-party dependency. No generated file is touched. The CD-0044
-  population-identity clause is preserved and the CD-0011 falsifier list
+- No third-party dependency. No generated file is touched. The CD-0011
+  population identity and falsifier list
   is unchanged.
 
 ## Rejected alternatives

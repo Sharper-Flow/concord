@@ -172,34 +172,6 @@ func TestWorkflowAdmissionCarriedExitLogBlind(t *testing.T) {
 	}
 }
 
-func TestWorkflowAdmissionHeldAndLocalAcceptLogBlind(t *testing.T) {
-	for _, held := range []bool{true, false} {
-		t.Run(fmt.Sprintf("review-held-%t", held), func(t *testing.T) {
-			s := openTemp(t)
-			seedStepWork(t, s, "admission-exits")
-			p := workflowActionCompletedPayload{StepID: "findings", ActionID: "accept_worker_result", ReviewAdvanceHeld: held}
-			if !held {
-				p.WorkerJob = &WorkerJobBinding{JobID: "local-job", Revision: 1, Digest: "sha256:" + strings.Repeat("a", 64)}
-			}
-			admissionExitFixture(t, s, "workflow.research", p)
-			admissionExitPinFixture(t, s, "workflow.research", "conclude")
-			var phaseExits int
-			if err := s.db.QueryRow(`SELECT count(*) FROM workflow_phase_exits WHERE work_id='admission-exits'`).Scan(&phaseExits); err != nil || phaseExits != 0 {
-				t.Fatalf("phase exits = %d, %v; fixture must have none", phaseExits, err)
-			}
-			frontierWriteOnlyLog(t, s)
-			tx, err := s.db.BeginTx(t.Context(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer tx.Rollback()
-			if err := requireOperatorVerdictExit(t.Context(), tx, "admission-exits"); err != nil {
-				t.Fatalf("held/local completed acceptance must count without a phase exit or log: %v", err)
-			}
-		})
-	}
-}
-
 func TestWorkflowAdmissionDefinitionFamilyLogBlind(t *testing.T) {
 	for _, tc := range []struct {
 		name, target string

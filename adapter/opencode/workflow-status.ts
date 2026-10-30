@@ -1,6 +1,6 @@
-import { defaultRunner, concordBinaryPath, CoreBinaryUnavailable, type DispatchRunner } from "./dispatch"
+import { defaultRunner, concordBinaryPath, CoreBinaryUnavailable, type CoreRunner } from "./core-runtime"
 import { hostControlPlane } from "./move-session"
-import { mutationResult } from "./packet"
+import { mutationResult } from "./mutation-result"
 
 export type WorkflowStatusContext = { sessionID: string; abort: AbortSignal }
 
@@ -78,7 +78,7 @@ const TERMINAL_LIFECYCLES: ReadonlySet<string> = new Set(["completed", "cancelle
 // because a non-terminal pin can never complete. The verb prints nothing for
 // a work item outside the completed lifecycle, and a failed call is a
 // best-effort warning, never a mutation failure: the receipt is a notice.
-export async function formatWorkClosureReceipt(value: unknown, options: { runner?: DispatchRunner; binary?: string; abort?: AbortSignal; warnings?: string[] } = {}): Promise<string | null> {
+export async function formatWorkClosureReceipt(value: unknown, options: { runner?: CoreRunner; binary?: string; abort?: AbortSignal; warnings?: string[] } = {}): Promise<string | null> {
   const pin = workPin(value)
   if (!pin || !TERMINAL_LIFECYCLES.has(pin.lifecycle)) return null
   const runner = options.runner ?? defaultRunner
@@ -112,7 +112,7 @@ function workPins(envelope: unknown): WorkPin[] {
   return pins.every((pin): pin is WorkPin => pin !== null) ? pins : []
 }
 
-type WorkStateReporterOptions = { runner?: DispatchRunner; binary?: string }
+type WorkStateReporterOptions = { runner?: CoreRunner; binary?: string }
 
 function rememberSession<T>(entries: Map<string, T>, sessionID: string, value: T): void {
   while (!entries.has(sessionID) && entries.size >= MAX_CACHED_SESSIONS) {

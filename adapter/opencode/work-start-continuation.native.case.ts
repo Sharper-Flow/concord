@@ -32,7 +32,7 @@ const adapterURL = (name: string) => new URL(name, import.meta.url).href
 writeFileSync(plugin, `
 import Plugin from ${JSON.stringify(adapterURL("./concord-plugin.ts"))}
 import { configureConcordAdapter } from ${JSON.stringify(adapterURL("./concord.ts"))}
-import { configureCoreBinary } from ${JSON.stringify(adapterURL("./dispatch.ts"))}
+import { configureCoreBinary } from ${JSON.stringify(adapterURL("./core-runtime.ts"))}
 import { configureHostLease } from ${JSON.stringify(adapterURL("./host-lease.ts"))}
 import { armedClaimedWorktree, unlandedClaimedWorktree } from ${JSON.stringify(adapterURL("./claimed-worktree.ts"))}
 import { appendFileSync } from "node:fs"

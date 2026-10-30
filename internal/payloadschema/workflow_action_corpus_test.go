@@ -141,6 +141,17 @@ func corpusSampleWithFallback(document map[string]any, branch map[string]any, pa
 	if !ok {
 		object = map[string]any{}
 	}
+	// A discriminating branch pins its selector with a const property; the
+	// sample must carry it or the parent's default selects another branch.
+	if properties, ok := branch["properties"].(map[string]any); ok {
+		for name, raw := range properties {
+			if property, ok := raw.(map[string]any); ok {
+				if value, pinned := property["const"]; pinned {
+					object[name] = value
+				}
+			}
+		}
+	}
 	for _, name := range corpusRequired(branch) {
 		if _, exists := object[name]; exists {
 			continue
@@ -642,7 +653,7 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 			variantNames = append(variantNames, name)
 		}
 	}
-	if len(variantNames) < 30 {
+	if len(variantNames) < 26 {
 		t.Fatalf("corpus found only %d action variants", len(variantNames))
 	}
 	for _, variantName := range variantNames {
@@ -661,8 +672,7 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 				t.Fatalf("%s sample is not an object", shapeName)
 			}
 			// Each shape answers to its own union: the core variants compose
-			// the core input, and a divergent public payload (dispatch_worker,
-			// whose core attempt identity the adapter authors) composes the
+			// the core input, and a divergent public payload composes the
 			// public input the agent boundary actually validates.
 			unionName := "work_transition_action_input"
 			if strings.HasPrefix(shapeName, "work_transition_action_public_variant_") {
@@ -694,39 +704,12 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 	}
 }
 
-// TestWorkerJobLegacyOracleAbsenceStaysOffPublishedInput requires an oracle
-// on every live job-authoring surface. The frozen job and packet schemas
-// retain oracle-free recorded revisions without granting authoring authority.
-func TestWorkerJobLegacyOracleAbsenceStaysOffPublishedInput(t *testing.T) {
-	defs := Document()["$defs"].(map[string]any)
-	sample := corpusSample(Document(), map[string]any{"$ref": "#/$defs/work_transition_action_variant_record_worker_job"}).(map[string]any)
-	delete(sample["fields"].(map[string]any), "acceptance_oracle")
-	raw, err := json.Marshal(sample)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, shapeName := range []string{
-		"work_transition_action_variant_record_worker_job",
-		"work_transition_action_input",
-		"work_transition_action_public_input",
-	} {
-		if _, declared := defs[shapeName]; !declared {
-			t.Fatalf("live schema %s is not declared; refusing an unknown name proves nothing", shapeName)
-		}
-		if err := Validate(shapeName, raw); err == nil {
-			t.Fatalf("oracle-absent job admitted by live %s", shapeName)
-		}
-	}
-	publicVariant := "work_transition_action_public_variant_record_worker_job"
-	if _, declared := defs[publicVariant]; declared {
-		if err := Validate(publicVariant, raw); err == nil {
-			t.Fatalf("oracle-absent job admitted by live %s", publicVariant)
-		}
-	}
+// TestLegacyActionInputBridgeStaysRetired keeps the authored legacy-input
+// bridge out of the live public document.
+func TestLegacyActionInputBridgeStaysRetired(t *testing.T) {
 	if HasIn(Document(), "work_transition_action_legacy_input") {
 		t.Fatal("the live public document still declares work_transition_action_legacy_input; the authored legacy-input bridge is retired")
 	}
-
 }
 
 // TestRecordAlignmentExactLegalCombination pins the reported fault: the

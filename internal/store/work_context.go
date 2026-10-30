@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -89,10 +88,10 @@ type WorkContextReading struct {
 }
 
 // WorkContextFindingView is one assembled finding of the current view. The
-// finding wire is the shared WorkerContextFinding; the identity fields are
+// finding wire is the shared WorkContextFinding; the identity fields are
 // core-derived from the source event, never authored. SourceKind is empty
 // for a generic context finding and review_finding for a ranked review
-// finding, whose Oracle tie and lifecycle the lineage owns.
+// finding, whose Oracle tie and lifecycle the Review state owns.
 type WorkContextFindingView struct {
 	FindingID            string   `json:"finding_id"`
 	Kind                 string   `json:"kind"`
@@ -107,11 +106,11 @@ type WorkContextFindingView struct {
 	SourceEventSeq       int64    `json:"source_event_seq"`
 	Ordinal              int      `json:"ordinal"`
 	// SourceKind separates the ranked review findings from the
-	// generic worker-claim notebook: a ranked entry carries
+	// generic claim notebook: a ranked entry carries
 	// review_finding here, its Oracle tie below, and generic claim fields
 	// projected from the finding.
 	SourceKind string               `json:"source_kind,omitempty"`
-	Oracle     *WorkerOracleFinding `json:"oracle,omitempty"`
+	Oracle     *ReviewOracleFinding `json:"oracle,omitempty"`
 }
 
 // WorkContextDomainGroup partitions the current view's readings and findings
@@ -126,11 +125,8 @@ type WorkContextDomainGroup struct {
 // WorkContextView is the current work context the tx-scoped reader
 // assembles: the latest declaration anchor's required reading, the active
 // findings (anchor findings, selected earlier findings, and subsequent
-// terminal-report findings), and the Domain grouping. SourceEventFrontier is
-// the highest sequence among the work item's context-source events
-// (declarations and terminal worker reports) at read time, so a packet built
-// from this view goes stale exactly when a context source changes, and
-// unrelated work events do not invalidate it.
+// retained findings), and the Domain grouping. SourceEventFrontier is the
+// highest sequence among the work item's context-source events.
 type WorkContextView struct {
 	SubjectCommit       string                    `json:"subject_commit,omitempty"`
 	OraclePreparations  []NativeOraclePreparation `json:"oracle_preparations,omitempty"`
@@ -144,11 +140,6 @@ type WorkContextView struct {
 	// the 32-slot view bound and the whole-view byte bound; the member is
 	// omitted when the declaration selects none.
 	ResearchFindings []WorkContextResearchFindingView `json:"research_findings,omitempty"`
-	// OracleReceipts are the prior typed control-execution receipts this
-	// work retained, in log order: reported evidence a later
-	// lane receives as regression baselines with their exact identities,
-	// never as current-subject acceptance.
-	OracleReceipts []WorkerOracleReceipt `json:"oracle_receipts,omitempty"`
 }
 
 // workflowWorkContextRecordedPayload is the durable declaration event. The
@@ -157,11 +148,11 @@ type WorkContextView struct {
 // never carries its own sequence.
 type workflowWorkContextRecordedPayload struct {
 	WorkflowVersionFields
-	StepID          string                 `json:"step_id"`
-	AttemptEpoch    int64                  `json:"attempt_epoch"`
-	RequiredReading []WorkContextReading   `json:"required_reading"`
-	FindingRefs     []string               `json:"finding_refs"`
-	ContextFindings []WorkerContextFinding `json:"context_findings"`
+	StepID          string               `json:"step_id"`
+	AttemptEpoch    int64                `json:"attempt_epoch"`
+	RequiredReading []WorkContextReading `json:"required_reading"`
+	FindingRefs     []string             `json:"finding_refs"`
+	ContextFindings []WorkContextFinding `json:"context_findings"`
 	// ResearchSelections stores references only: the optional member is
 	// absent and empty for the same meaning, and a new full declaration
 	// explicitly replaces its research selections.
@@ -282,8 +273,8 @@ func workContextCommitOID(oid string) bool {
 // validateWorkContextActionFinding enforces one action finding's closed
 // shape: the shared report wire plus the required domain identity the
 // action declaration always carries.
-func validateWorkContextActionFinding(finding WorkerContextFinding) error {
-	if err := validateWorkerContextFindingEntry(finding); err != nil {
+func validateWorkContextActionFinding(finding WorkContextFinding) error {
+	if err := validateWorkContextFindingEntry(finding); err != nil {
 		return err
 	}
 	if !validateWorkContextDomainID(finding.DomainID) {
@@ -601,7 +592,7 @@ func decodeWorkContextDeclarationFields(fields map[string]json.RawMessage) (work
 			return payload, workContextFailure(KindInvalidPayload, "work_context", "context_findings must be an array of closed finding entries", "supply the context_findings array")
 		}
 	} else {
-		payload.ContextFindings = []WorkerContextFinding{}
+		payload.ContextFindings = []WorkContextFinding{}
 	}
 	if raw := fields["research_finding_refs"]; len(raw) != 0 {
 		decoder := json.NewDecoder(strings.NewReader(string(raw)))
@@ -657,7 +648,7 @@ func foldWorkflowWorkContextRecorded(ctx context.Context, tx *sql.Tx, event Even
 
 // workContextFindingView derives one view finding from a stored finding and
 // its source event identity.
-func workContextFindingView(finding WorkerContextFinding, origin string, eventID string, eventSeq int64, ordinal int) WorkContextFindingView {
+func workContextFindingView(finding WorkContextFinding, origin string, eventID string, eventSeq int64, ordinal int) WorkContextFindingView {
 	return WorkContextFindingView{
 		FindingID:            fmt.Sprintf("finding:%d:%d", eventSeq, ordinal),
 		Kind:                 finding.Kind,
@@ -677,7 +668,7 @@ func workContextFindingView(finding WorkerContextFinding, origin string, eventID
 // workContextOriginForKind maps a findings-bearing event kind to the view's
 // origin vocabulary.
 func workContextOriginForKind(kind string) string {
-	if kind == WorkflowWorkContextRecorded {
+	if kind == WorkflowWorkContextRecorded || kind == WorkflowActionCompleted {
 		return WorkContextOriginDeclaration
 	}
 	return WorkContextOriginWorkerReport
@@ -715,12 +706,9 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	if anchorErr != nil && anchorErr != sql.ErrNoRows {
 		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the latest work context declaration", true, "retry once the database is readable", anchorErr)
 	}
-	// One lineage read feeds the whole assembly — the ranked
-	// ordinals a declaration may select, the open findings the view can
-	// never drop, and the retained receipts a later lane receives.
-	lineage, lineageErr := readWorkerOracleFindingLineageTx(ctx, q, workID)
-	if lineageErr != nil {
-		return nil, lineageErr
+	review, reviewErr := readWorkflowReviewFacts(ctx, q, workID)
+	if reviewErr != nil {
+		return nil, reviewErr
 	}
 	byID := make(map[string]WorkContextFindingView)
 	order := make([]string, 0, WorkContextViewFindingsMax+1)
@@ -738,25 +726,15 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 		}
 		view.RequiredReading = append(view.RequiredReading, payload.RequiredReading...)
 		anchorResearch = payload.ResearchSelections
-		if err := appendWorkContextAnchorFindings(ctx, q, workID, anchor, anchorSeq, payload, lineage, addFinding); err != nil {
+		if err := appendWorkContextAnchorFindings(ctx, q, workID, anchor, anchorSeq, payload, &review, addFinding); err != nil {
 			return nil, err
 		}
 	}
 	if err := appendWorkContextReportFindings(ctx, q, workID, anchorSeq, addFinding); err != nil {
 		return nil, err
 	}
-	// The ranked oracle findings and the retained receipts project
-	// from the same one lineage the correction and convergence surfaces
-	// read. Open ranked findings ride the view unconditionally: a
-	// coordinator's context selection can drop generic claims, never an
-	// open oracle blocker. Closed findings ride only through an explicit
-	// selection above.
-	projectWorkerOracleOpenFindings(lineage, addFinding)
-	if len(lineage.retainedReceipts) > oracleRetainedReceiptsMax {
-		return nil, oracleFindingFailure(KindLimitExceeded, fmt.Sprintf("the work retains %d oracle receipts above the %d view bound; the read refuses instead of truncating", len(lineage.retainedReceipts), oracleRetainedReceiptsMax), "supersede the active contract through its approved recovery route or stop the work")
-	}
-	if len(lineage.retainedReceipts) > 0 {
-		view.OracleReceipts = lineage.retainedReceipts
+	if err := projectOpenReviewContextFindings(review, addFinding); err != nil {
+		return nil, err
 	}
 	// The anchor's research selections resolve in authored order through
 	// the canonical selected-read helper. Unresolved entries stay visible
@@ -791,20 +769,20 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 			fmt.Sprintf("the current work context measures %d bytes of canonical JSON, above the %d-byte view bound and the read refuses instead of truncating", len(viewJSON), WorkContextCombinedMaxBytes),
 			workContextOverflowRecovery())
 	}
-	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.ResearchFindings) == 0 && len(view.RequiredReading) == 0 && len(view.OracleReceipts) == 0 && len(view.OraclePreparations) == 0 && view.SubjectCommit == "" {
+	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.ResearchFindings) == 0 && len(view.RequiredReading) == 0 && len(view.OraclePreparations) == 0 && view.SubjectCommit == "" {
 		return nil, nil
 	}
 	return &view, nil
 }
 
-func appendWorkContextAnchorFindings(ctx context.Context, q queryer, workID string, anchor Event, anchorSeq int64, payload workflowWorkContextRecordedPayload, lineage *workerOracleFindingLineage, addFinding func(WorkContextFindingView)) error {
+func appendWorkContextAnchorFindings(ctx context.Context, q queryer, workID string, anchor Event, anchorSeq int64, payload workflowWorkContextRecordedPayload, review *WorkflowReviewState, addFinding func(WorkContextFindingView)) error {
 	for ordinal, finding := range payload.ContextFindings {
 		addFinding(workContextFindingView(finding, WorkContextOriginDeclaration, anchor.EventID, anchorSeq, ordinal))
 	}
 	// Resolve the anchor's selected earlier findings through one query
 	// per distinct referenced sequence, bounded by the selection bound.
 	for _, ref := range payload.FindingRefs {
-		finding, err := readSelectedWorkContextFinding(ctx, q, workID, ref, lineage)
+		finding, err := readSelectedWorkContextFinding(ctx, q, workID, ref, review)
 		if err != nil {
 			return err
 		}
@@ -813,7 +791,7 @@ func appendWorkContextAnchorFindings(ctx context.Context, q queryer, workID stri
 	return nil
 }
 
-func readSelectedWorkContextFinding(ctx context.Context, q queryer, workID, ref string, lineage *workerOracleFindingLineage) (WorkContextFindingView, error) {
+func readSelectedWorkContextFinding(ctx context.Context, q queryer, workID, ref string, review *WorkflowReviewState) (WorkContextFindingView, error) {
 	seq, ordinal, ok := parseWorkContextFindingRef(ref)
 	if !ok {
 		return WorkContextFindingView{}, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration carries a malformed finding ref "+ref, "restore a verified backup into a new path with concord restore, then swap")
@@ -838,7 +816,7 @@ func readSelectedWorkContextFinding(ctx context.Context, q queryer, workID, ref 
 	case ordinal < len(generic)+len(ranked):
 		// A selected ranked finding projects with its tie and
 		// source kind, never into the generic claim notebook.
-		return rankedFindingView(ranked[ordinal-len(generic)], event.EventID, seq, ordinal, lineage), nil
+		return rankedFindingView(ranked[ordinal-len(generic)], event.Kind, event.EventID, seq, ordinal, review), nil
 	default:
 		return WorkContextFindingView{}, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration selects finding "+ref+" the source event does not hold", "restore a verified backup into a new path with concord restore, then swap")
 	}
@@ -851,8 +829,8 @@ func appendWorkContextReportFindings(ctx context.Context, q queryer, workID stri
 	// page of 33 proves the work-wide view past the 32-finding bound.
 	rows, err := q.QueryContext(ctx, `SELECT DISTINCT f.source_seq,r.event_id,r.kind FROM work_context_findings f
 		JOIN effect_receipts r ON r.effect_seq=f.source_seq AND r.subject_type='work_item' AND r.subject_id=f.work_id
-		WHERE f.work_id=? AND r.kind IN (?,?) AND f.source_seq>? AND f.finding_class='generic'
-		ORDER BY f.source_seq DESC LIMIT ?`, workID, WorkerCompleted, WorkerFailed, anchorSeq, workContextReportEventScanRows)
+		WHERE f.work_id=? AND r.kind<>? AND f.source_seq>? AND f.finding_class='generic'
+		ORDER BY f.source_seq DESC LIMIT ?`, workID, WorkflowWorkContextRecorded, anchorSeq, workContextReportEventScanRows)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "work_context_read", "cannot read terminal-report findings", true, "retry once the database is readable", err)
 	}
@@ -885,7 +863,7 @@ func appendWorkContextReportFindings(ctx context.Context, q queryer, workID stri
 			return wrapFailure(KindUnavailable, "work_context_read", "cannot read terminal-report findings", true, "retry once the database is readable", sourceErr)
 		}
 		for ordinal, finding := range findings {
-			addFinding(workContextFindingView(finding, WorkContextOriginWorkerReport, row.event.EventID, row.seq, ordinal))
+			addFinding(workContextFindingView(finding, workContextOriginForKind(row.event.Kind), row.event.EventID, row.seq, ordinal))
 		}
 	}
 	return nil
@@ -1005,123 +983,4 @@ func groupWorkContextByDomain(view *WorkContextView, orderedDomains []string) {
 			view.DomainGroups = append(view.DomainGroups, *group)
 		}
 	}
-}
-
-func admittedWorkerPacketWorkContext(ctx context.Context, q queryer, workID string, packetRaw json.RawMessage) (*WorkContextView, error) {
-	var packet struct {
-		Inputs struct {
-			WorkContext json.RawMessage `json:"work_context"`
-		} `json:"inputs"`
-	}
-	if err := json.Unmarshal(packetRaw, &packet); err != nil {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is malformed", false, "supply the lane packet bound to this work item and attempt")
-	}
-	current, err := readWorkContextView(ctx, q, workID)
-	if err != nil {
-		return nil, err
-	}
-	present := len(packet.Inputs.WorkContext) != 0 && string(packet.Inputs.WorkContext) != "null"
-	if current == nil {
-		if present {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "worker packet carries work context without a current work context view", false, "build the packet from the current work pin")
-		}
-		return nil, nil
-	}
-	if !present {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current work context", false, "build a fresh packet from the current work pin")
-	}
-	decoder := json.NewDecoder(strings.NewReader(string(packet.Inputs.WorkContext)))
-	decoder.DisallowUnknownFields()
-	var claimed WorkContextView
-	if err := decoder.Decode(&claimed); err != nil {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "worker packet inputs.work_context is not one closed work-context view", false, "build a fresh packet from the current work pin")
-	}
-	claimedJSON, claimedErr := json.Marshal(claimed)
-	currentJSON, currentErr := json.Marshal(current)
-	if claimedErr != nil || currentErr != nil || !bytes.Equal(claimedJSON, currentJSON) {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current work context", false, "build a fresh packet from the current work pin")
-	}
-	// Byte equality stays necessary and becomes insufficient: an equal
-	// view carrying a required unresolved research selection refuses before
-	// a worker launches. The normal dispatch and the core-derived
-	// reject/retry dispatch share this one admission owner.
-	if err := requireResolvedResearchSelections(current); err != nil {
-		return nil, err
-	}
-	return current, nil
-}
-
-// DispatchContextAggregateMaxBytes is the whole-dispatch-context bound: the
-// canonical JSON object of exactly the packet's present work_context,
-// checkpoint, and correction members may not exceed 64 KiB of UTF-8 bytes,
-// member names and delimiters included. It is a dispatch capacity and owns
-// its own population: the declaration combined bound, the view findings
-// bound, the per-entry bounds, and the terminal findings bound protect
-// different populations and stay untouched. The whole-action decode budget
-// composes the packet's other declared maxima around this aggregate —
-// TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima derives that
-// composition from the generated contract, so no copied packet-parts
-// nominal exists.
-const DispatchContextAggregateMaxBytes = 64 * 1024
-
-// measureDispatchContextAggregateBytes measures one pure population: the
-// canonical JSON object formed from exactly the packet input members whose
-// keys are present — inputs.work_context, inputs.checkpoint, and
-// inputs.correction — with member names and JSON delimiters included. Each
-// present member is canonicalized through the shared encoder, so the count
-// is UTF-8 canonical bytes, never the raw packet's whitespace and never a
-// rune count. An absent key contributes no member bytes, so a packet with
-// none of the three members measures the two bytes of "{}". A present key
-// carrying JSON null is a present member and measures its canonical name
-// and value; the closed packet schema refuses such a member, so the shape
-// owner rejects it before this measurement ever runs in live admission.
-func measureDispatchContextAggregateBytes(packetRaw json.RawMessage) (int, error) {
-	var packet struct {
-		Inputs struct {
-			WorkContext json.RawMessage `json:"work_context"`
-			Checkpoint  json.RawMessage `json:"checkpoint"`
-			Correction  json.RawMessage `json:"correction"`
-		} `json:"inputs"`
-	}
-	if err := json.Unmarshal(packetRaw, &packet); err != nil {
-		return 0, workContextFailure(KindInvalidPayload, "work_context", "the worker packet does not decode as one JSON object", "supply the lane packet bound to this work item and attempt")
-	}
-	members := map[string]json.RawMessage{}
-	for name, raw := range map[string]json.RawMessage{
-		"work_context": packet.Inputs.WorkContext,
-		"checkpoint":   packet.Inputs.Checkpoint,
-		"correction":   packet.Inputs.Correction,
-	} {
-		if len(raw) == 0 {
-			continue
-		}
-		canonical, err := canonicalJSON(raw)
-		if err != nil {
-			return 0, workContextFailure(KindInvalidPayload, "work_context", "the packet's "+name+" member cannot be canonicalized for measurement", "supply the closed typed member the packet schema declares")
-		}
-		members[name] = canonical
-	}
-	object, err := json.Marshal(members)
-	if err != nil {
-		return 0, wrapFailure(KindInvariantViolation, "work_context", "the dispatch context aggregate cannot be measured", false, "repair the packet members", err)
-	}
-	return len(object), nil
-}
-
-// refuseOverBoundDispatchContext refuses a dispatch whose present context
-// members measure above the aggregate bound. The refusal is whole and keeps
-// the whole request: no findings, preparations, checkpoint directions, or
-// correction state is omitted to fit, and the error names the measured bytes
-// and the bound.
-func refuseOverBoundDispatchContext(packetRaw json.RawMessage) error {
-	measured, err := measureDispatchContextAggregateBytes(packetRaw)
-	if err != nil {
-		return err
-	}
-	if measured <= DispatchContextAggregateMaxBytes {
-		return nil
-	}
-	return workContextFailure(KindLimitExceeded, "work_context",
-		fmt.Sprintf("the dispatch context members measure %d bytes of canonical JSON, above the %d-byte aggregate dispatch context bound; the request is refused whole and never trimmed", measured, DispatchContextAggregateMaxBytes),
-		"reduce the retained work context, checkpoint, or correction through their own owners, then rebuild and dispatch a fresh packet")
 }

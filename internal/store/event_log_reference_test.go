@@ -24,16 +24,13 @@ type eventLogAllowance struct {
 var eventLogMigrationAllowances = []eventLogAllowance{
 	{"internal/store/effect_receipts.go", "backfillEffectReceiptDigests", "145/151: applyMigration / retireEventLog"},
 	{"internal/store/event_log_retirement.go", "retireEventLog", "151: applyMigration"},
+	{"internal/store/review_migration.go", "readLegacyReviewRecords", "148: backfillWorkflowReviewFacts"},
 	{"internal/store/work_context_facts.go", "backfillWorkContextFacts", "148: applyMigration"},
 	{"internal/store/work_size_proof_facts.go", "backfillWorkSizeProofWindow", "148: backfillWorkSizeProofFacts"},
-	{"internal/store/worker_oracle_finding_facts.go", "backfillOracleFindingFacts", "148: applyMigration"},
-	{"internal/store/worker_oracle_finding_facts.go", "backfillOracleFindingWork", "148: backfillOracleFindingFacts"},
 	{"internal/store/workflow_admission_migration.go", "workflowAdmissionFactsMigrationReady", "149: migrations.Applies"},
-	{"internal/store/workflow_correction.go", "readWorkflowCorrectionStateForMigration", "142: backfillWorkflowCorrectionFacts"},
 	{"internal/store/workflow_correction_facts.go", "backfillWorkflowCorrectionFacts", "142: applyMigration"},
 	{"internal/store/workflow_delivery_receipts.go", "backfillWorkflowDeliveryAssertionReceipts", "147: applyMigration"},
 	{"internal/store/workflow_healthy_frontier.go", "backfillWorkflowHealthySequences", "142: applyMigration"},
-	{"internal/store/workflow_review_facts.go", "backfillWorkflowReviewFacts", "148: applyMigration"},
 }
 
 func TestEventLogReferences(t *testing.T) {

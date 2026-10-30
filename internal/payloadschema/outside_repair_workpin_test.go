@@ -10,7 +10,7 @@ func TestOutsideRepairWorkPinTypedAbsence(t *testing.T) {
 		"work_id": "work-fixture", "title": "repair", "linear_issue_key": "",
 		"project_id": "project-fixture", "project_display_name": "fixture",
 		"version": 1, "lifecycle": "needed", "cancelled_instance_closes": 0,
-		"workflow_type": "", "step": "", "attempt": nil,
+		"workflow_type": "", "step": "",
 		"pending_operator_decision": nil, "driving_sessions": []any{},
 		"watermark": "seq:1", "next_valid_intents": []any{},
 	}

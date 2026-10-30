@@ -33,8 +33,6 @@ var mutationDurabilityDeclarations = map[string]mutationDurability{
 	"concord_work_transition.lifecycle":                {},
 	"concord_work_transition.remove":                   {initial: true, replay: true},
 	"concord_work_transition.workflow_action":          {replay: true},
-	"concord_work_transition.worker_reconcile":         {},
-	"concord_work_transition.worker_abandon":           {},
 	"concord_work_transition.worktree_claim":           {initial: true, replay: true},
 	"concord_work_transition.session_vacate":           {},
 	"concord_work_transition.project_handoff_record":   {},

@@ -100,7 +100,7 @@ func TestWorkflowAdmissionMigration149Parity(t *testing.T) {
 		kind   string
 		fields map[string]any
 	}{
-		{WorkflowActionStarted, map[string]any{"action_id": "dispatch_worker", "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "admission-migration-start"}},
+		{WorkflowActionStarted, map[string]any{"action_id": "checkpoint_context", "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "admission-migration-start"}},
 		{WorkflowActionCheckpointed, map[string]any{"step_kind": string(step.Kind), "checkpoint_payload": map[string]any{}, "request_id": "admission-migration-checkpoint"}},
 		{WorkflowActionFailed, map[string]any{"failure_kind": "timeout", "recoverable": true}},
 	} {

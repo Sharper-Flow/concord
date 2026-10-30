@@ -10,7 +10,7 @@
 - **Related:** [CD-0060](CD-0060-domain-registry-enactment.md),
   [CD-0020](CD-0020-retain-knowledge-index-shape.md), [CD-0036](CD-0036-breaking-law-cutovers.md),
   [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md), [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md),
-  and [CD-0223](CD-0223-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-carries-only-declared-context.md).
+  and [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md).
 - **Preserves:** CD-0002 and CD-0011 storage authority and falsifiers;
   CD-0215 D2 to D8 research-pack authority; CD-0036 breaking cutovers; the
   surviving store query bounds and authority over exact Domain-detail reads;
@@ -293,7 +293,7 @@ owns each authoritative workflow mutation. They apply at:
 - contract approval and revision;
 - execution claim or dispatch;
 - checkpoint and evidence binding;
-- worker/native-result acceptance;
+- subject-bound stage results and native receipts;
 - verdict and premise confirmation;
 - any Concord-authorized merge/ship decision or acceptance of its result; and
 - completion and compaction.

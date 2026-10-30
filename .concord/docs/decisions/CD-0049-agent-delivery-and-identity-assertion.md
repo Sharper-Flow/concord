@@ -8,26 +8,14 @@
   #253, #254, #257
 - **Approval:** Operator accepted the drafted decision on 2026-08-21; the public
   record is [issue #257](https://github.com/Sharper-Flow/concord/issues/257)
-- **Related:** CD-0016 (context continuity, typed agent identity, no
-  `agent_definitions` table), CD-0017 (typed workers and model routing), CD-0031
-  (core-derived session context packet), CD-0034 (host prompt provenance),
-  CD-0043 (host-owned lane methodology)
+- **Related:** CD-0016 (context continuity and typed session identity),
+  CD-0031 (core-derived session context), CD-0061 (orchestrator identity),
+  CD-0154 (host-owned numbered agents)
 
 ## Context
 
-CD-0017 D1 makes every worker lane a typed, versioned, digest-pinned
-Concord-owned definition, on the stated premise that generic host agents drift
-on policy, authority, evidence, and result shape at the delegation boundary.
-The agent that performs the dispatching has no definition. CD-0016 anticipated
-this, blocked restart dispatch until a typed agent registry existed, reserved
-`typed_agent_type`, `typed_agent_version`, and `typed_agent_ruleset_digest` on
-`workflow_context_boundaries`, and stated that Concord provides no
-generic-agent fallback. CD-0017 read the requirement as covering sub-agents and
-delivered a lane registry; the half CD-0016 depended on was never built.
-
-Two questions blocked progress on both halves. Where does a Concord-owned agent
-definition go on an operator's host, and who confirms that the definition
-Concord installed is the one that actually ran.
+Managed session preparation needs an explicit agent identity. A host fallback
+to a different agent cannot establish the identity Concord requires.
 
 Host behaviour was verified against an installed OpenCode build rather than
 inferred from documentation. Three placements work: the global agent directory,
@@ -39,15 +27,6 @@ with an unknown name does not fail — it warns, falls back to the operator's
 default agent, and exits zero.
 
 ## Decision
-
-### D1. Lane agent definitions are delivered per project
-
-The installer places generated lane definitions into a project's
-`.opencode/agents/`. Global placement is refused because it reaches every
-project on the operator's machine with no available scoping. Environment-supplied
-placement is refused for lane definitions because `host_provenance` under CD-0034
-is computed by hashing agent definitions read from the filesystem, and a
-definition carried in the environment presents no file to hash.
 
 ### D2. Concord asserts agent identity before managed action
 
@@ -95,8 +74,6 @@ unsolved and is not settled here.
 
 ## Invariants
 
-1. A Concord-owned lane definition reaches a host only through a project's
-   `.opencode/agents/`.
 2. No Concord code path treats the presence of an `--agent` argument as evidence
    that the named agent ran.
 3. A managed session either records the typed agent identity session-prepare
@@ -119,9 +96,5 @@ authorizes nothing. Each such client must be re-registered with the agents it
 presents. That interruption is the cost of the fail-closed default, and it is
 accepted here rather than avoided by trusting existing rows.
 
-This decision does not settle how lane methodology reaches a worker. CD-0043 D2
-names a channel that records paths without injecting them, and an inline agent
-definition supplied at launch can carry a prompt, which is a candidate channel
-D2 currently lacks. Whether methodology should travel that way is deliberately
-left open, because deciding delivery and methodology under one record would
-conflate a placement question with a content question.
+Native Task identity is not attested by this managed-session identity check
+([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).

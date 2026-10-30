@@ -28,13 +28,6 @@ func readEffectReceipt(ctx context.Context, q queryer, eventID string) (effectRe
 	return effectReceipt{receipt}, found, err
 }
 
-func (r effectReceipt) event() Event {
-	return Event{
-		EventID: r.EventID, Seq: r.Seq, Kind: r.Kind, SubjectType: SubjectType(r.SubjectType),
-		SubjectID: r.SubjectID, Actor: r.Actor, PayloadVersion: r.PayloadVersion,
-	}
-}
-
 func effectReceiptHeader(event Event) sqlitedb.EffectReceipt {
 	return sqlitedb.EffectReceipt{
 		EventID: event.EventID, Seq: event.Seq, Kind: event.Kind, SubjectType: string(event.SubjectType),

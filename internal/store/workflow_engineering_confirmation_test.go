@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 )
 
 // The premise authority owner keeps the confirm_premise action for both
@@ -208,25 +207,6 @@ func TestEngineeringConfirmation(t *testing.T) {
 		_, err = runEngineeringConfirmation(t, s2, engineeringConfirmationDefinition(t), noInvestigation, ownerRefForTest(t, coordinator2), nil, confirmationFields(true, ""))
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "investigation artifact") {
 			t.Fatalf("engineering confirmation without investigation returned %v, want the missing-investigation refusal", err)
-		}
-	})
-
-	t.Run("worker authority refuses to confirm as coordinator", func(t *testing.T) {
-		t.Parallel()
-		const workID = "engineering-confirm-worker"
-		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
-		coordinatorRef := ownerRefForTest(t, coordinator)
-		lane := BuiltinLaneDefinitions()[0]
-		dispatch := workerDispatchEvent(workID, "engineering-confirm-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:" + workID, "lane_actor_ref": coordinatorRef})
-		dispatch.Actor = coordinatorRef
-		dispatch.OccurredAt = time.Unix(9, 50).UTC()
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
-			t.Fatalf("seed worker dispatch: %v", err)
-		}
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, coordinatorRef, nil, confirmationFields(true, ""))
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized {
-			t.Fatalf("worker-authority confirmation returned %v, want the unauthorized refusal", err)
 		}
 	})
 
@@ -471,7 +451,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		// Clause 5 authority: the stale v1 coordinator row cannot satisfy the
 		// decision-bearing successor's operator requirement.
 		contractV2 := workflowCompletionContractData{Version: 2, DecisionDomains: []string{"product"}, DecisionDomainsPresent: true}
-		if err := workflowPremiseConfirmationAuthority(context.Background(), forgedTx, definition, contractV2, workID, coordinatorRef); err == nil {
+		if err := workflowPremiseConfirmationAuthority(context.Background(), forgedTx, definition, contractV2, coordinatorRef); err == nil {
 			t.Fatal("clause 5 accepted the stale coordinator confirmation for the decision-bearing successor")
 		}
 		// Wrong-direction authority: an operator-substituted claim on
@@ -480,7 +460,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		if err := workflowPremiseConfirmedAuthorityTx(context.Background(), forgedTx, definition, workID, 1, operatorRef, "operator"); err == nil {
 			t.Fatal("operator authority accepted on an engineering contract")
 		}
-		if err := workflowPremiseConfirmationAuthority(context.Background(), forgedTx, definition, workflowCompletionContractData{Version: 1, DecisionDomains: []string{}, DecisionDomainsPresent: true}, workID, operatorRef); err == nil {
+		if err := workflowPremiseConfirmationAuthority(context.Background(), forgedTx, definition, workflowCompletionContractData{Version: 1, DecisionDomains: []string{}, DecisionDomainsPresent: true}, operatorRef); err == nil {
 			t.Fatal("clause 5 accepted an operator-typed confirmation for engineering")
 		}
 		if err := forgedTx.Rollback(); err != nil {

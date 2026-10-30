@@ -54,7 +54,7 @@ func TestRecordedHistoricalProjectionMigrationPreservesRows(t *testing.T) {
 		attempt, model, role, lifecycle, failure string
 	}{
 		{"attempt-migrated-preferred", "openai/gpt-5.6-luna", "preferred", "dispatched", ""},
-		{"attempt-migrated-undeclared", "anthropic/claude-unexpected", "undeclared", "failed", WorkerFailureModelIdentity},
+		{"attempt-migrated-undeclared", "anthropic/claude-unexpected", "undeclared", "failed", "model_identity"},
 	} {
 		at := time.Unix(int64(30+i), 0).UTC()
 		extra := map[string]any{
@@ -161,9 +161,9 @@ func TestRecordedHistoricalProjectionMigrationPreservesRows(t *testing.T) {
 		wantBytes[attempt] = attemptBytes(attempt)
 	}
 	log := histEventRows(t, s)
-	if err := migrateRestoredStage(ctx, db); err != nil {
-		t.Fatal(err)
-	}
+	// CD-0242 D6 retires worker rows at native Task cutover. Check their
+	// historical readback before that boundary, not in the current store.
+	advanceHistoricalPrefix(t, db, nativeTaskRetirementMigration(t).Version-1)
 	assertUniverse := func(stage string) {
 		t.Helper()
 		var got string
@@ -180,6 +180,11 @@ func TestRecordedHistoricalProjectionMigrationPreservesRows(t *testing.T) {
 			t.Fatalf("migration changed %s row bytes: %s, want %s", attempt, got, row)
 		}
 	}
+	assertHistoricalReceipts(t, db, log)
+	if err := migrateRestoredStage(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	assertUniverse("native Task cutover")
 	assertHistoricalReceipts(t, db, log)
 	assertEventLogAbsent(t, s)
 }

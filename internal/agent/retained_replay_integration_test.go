@@ -68,7 +68,7 @@ func TestRetainedWorkflowInvokeAcrossManifestChange(t *testing.T) {
 	}
 }
 
-func TestRetainedReconcileInvokeAcrossManifestChange(t *testing.T) {
+func TestRetainedMutationInvokeAcrossManifestChange(t *testing.T) {
 	ctx := t.Context()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -76,23 +76,13 @@ func TestRetainedReconcileInvokeAcrossManifestChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	tool, operation := "concord_work_transition", "worker_reconcile"
-	raw := retryJSON(map[string]any{"work_id": "work-1", "attempt_id": "attempt-retained", "task_part_id": "part-retained", "idempotency_key": "retained-reconcile"})
+	tool, operation := "concord_work_transition", "worktree_reclaim"
+	reclaimInput := func(key string, version int) json.RawMessage {
+		return retryJSON(map[string]any{"work_id": "work-1", "project_id": "project-1", "expected_version": version, "idempotency_key": key})
+	}
+	raw := reclaimInput("retained-reconcile", 1)
 	base := agentcontract.NewBase("original", tool, operation)
-	packetDigest := "sha256:" + strings.Repeat("a", 64)
-	payload := retryJSON(map[string]any{
-		"changed_refs": []any{}, "next_valid_intents": []any{},
-		"worker_recovery": map[string]any{
-			"packet_digest": packetDigest, "worker_worktree": "/synthetic/worker", "coordinator_session": "original-session",
-			"attempt_epoch": 9, "dispatch_event_id": "original-dispatch", "lifecycle_state": "dispatched",
-			"packet_schema_version": "2.0", "report_schema_version": "2.0",
-			"dispatch": map[string]any{
-				"attempt_id": "attempt-retained", "lane_id": "concord-review", "lane_digest": packetDigest, "capability_class": "review",
-				"packet_schema_version": "2.0", "report_schema_version": "2.0", "packet_digest": packetDigest, "readback_model": "synthetic/model",
-				"host_provenance": map[string]any{"digest": packetDigest, "sources": []any{map[string]any{"kind": "agent_definition", "path": "synthetic-agent.md", "sha256": packetDigest}}},
-			},
-		},
-	})
+	payload := retryJSON(map[string]any{"changed_refs": []any{}, "next_valid_intents": []any{}})
 	first := agentcontract.NewOKMutation(base, payload, nil, nil)
 	first.ResolvedScope = &agentcontract.Scope{ProductID: "product-1", ProjectIDs: []string{"project-1"}}
 	scope := mutationResponseScope(map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}, first, nil, false)
@@ -141,7 +131,7 @@ func TestRetainedReconcileInvokeAcrossManifestChange(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			invalid := retryJSON(map[string]any{"work_id": "work-1", "attempt_id": "attempt-retained", "task_part_id": "part-retained", "idempotency_key": invalidKey.IdempotencyKey})
+			invalid := reclaimInput(invalidKey.IdempotencyKey, 1)
 			before := mutationProjectionState(t, s)
 			response, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: tool, Operation: operation, Input: invalid}, env))
 			if err != nil || response.Error == nil || response.Error.Kind != "malformed_response" || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RecoveryAction.Kind != "contact_operator" || response.Error.RetrySafe || !response.Replayed {
@@ -152,7 +142,7 @@ func TestRetainedReconcileInvokeAcrossManifestChange(t *testing.T) {
 			}
 		})
 	}
-	changedInput := retryJSON(map[string]any{"work_id": "work-1", "attempt_id": "different-attempt", "task_part_id": "part-retained", "idempotency_key": key.IdempotencyKey})
+	changedInput := reclaimInput(key.IdempotencyKey, 2)
 	conflict, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: tool, Operation: operation, Input: changedInput}, env))
 	if err != nil || conflict.Error == nil || conflict.Error.Kind != "idempotency_conflict" {
 		t.Fatalf("changed intent received retained response: err=%v error=%+v", err, conflict.Error)
@@ -164,9 +154,8 @@ func TestRetainedReconcileInvokeAcrossManifestChange(t *testing.T) {
 	}
 }
 
-// A receipt-shaped mutation whose effect reports no auxiliary changed
-// references (worker_reconcile, worker_abandon) commits an explicit empty
-// list. Its retained response replays once per retry without re-running the
+// A mutation whose effect reports no auxiliary changed references commits an
+// explicit empty list. Its retained response replays once per retry without re-running the
 // effect, through both the early and the transactional replay owner.
 func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 	ctx := context.Background()
@@ -175,9 +164,9 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := runtime{Store: s, Authority: service, Envelope: mutationEnvelope(grant, scopeVersion), Tool: "concord_work_transition", Operation: "worker_reconcile"}
+	r := runtime{Store: s, Authority: service, Envelope: mutationEnvelope(grant, scopeVersion), Tool: "concord_work_transition", Operation: "worktree_reclaim"}
 	op, _ := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
-	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "attempt_id": "attempt-retained", "task_part_id": "part-retained", "idempotency_key": "retained-reconcile"})
+	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1", "expected_version": 1, "idempotency_key": "retained-reconcile"})
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}
 	effects := 0
@@ -229,7 +218,7 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 // list is a record the producer never completed; it stays an explicit
 // possible-effect reconciliation, never a successful empty placeholder.
 func TestRetainedReplayRefusesUncapturedChangedRefs(t *testing.T) {
-	r := runtime{Tool: "concord_work_transition", Operation: "worker_reconcile"}
+	r := runtime{Tool: "concord_work_transition", Operation: "worktree_reclaim"}
 	base := agentcontract.NewBase("uncaptured", r.Tool, r.Operation)
 	complete := agentcontract.NewOKMutation(base, mutationPayload(nil, nil), nil, nil)
 	scopeJSON, _ := json.Marshal(mutationResponseScope(nil, complete, nil, false))

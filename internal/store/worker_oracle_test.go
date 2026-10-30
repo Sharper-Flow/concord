@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -60,17 +61,29 @@ func testOracleGraph() *AcceptanceOracle {
 	}
 }
 
-// A valid multi-entry owner graph passes the closed validator, and each
-// structural mutation refuses. The validator reads no registry, so the same
-// proof holds for replay: the graph alone decides.
+// Native preparation retains owner, case, control and combined-byte validation.
 func TestOwnerOracleGraph(t *testing.T) {
 	t.Parallel()
-	jobPredicates := []string{"predicate:one", "predicate:two"}
-	if err := validateAcceptanceOracle(testOracleGraph(), jobPredicates); err != nil {
-		t.Fatalf("valid multi-owner oracle refused: %v", err)
+	validateNativeParts := func(oracle *AcceptanceOracle) error {
+		owners := map[string]OracleOwner{}
+		for _, owner := range oracle.Owners {
+			if err := validateOracleOwnerEntry(owner); err != nil {
+				return err
+			}
+			owners[owner.OwnerID] = owner
+		}
+		if err := validateOracleCases(oracle.Cases, owners); err != nil {
+			return err
+		}
+		for _, control := range oracle.Controls {
+			if err := validateOracleControlDefinition(control); err != nil {
+				return err
+			}
+		}
+		return validateOracleCombinedBound(oracle)
 	}
-	if err := validateAcceptanceOracle(nil, jobPredicates); err == nil {
-		t.Fatal("absent oracle passed the validator")
+	if err := validateNativeParts(testOracleGraph()); err != nil {
+		t.Fatalf("valid native oracle parts refused: %v", err)
 	}
 	cloneOracle := func(mutation func(oracle *AcceptanceOracle)) *AcceptanceOracle {
 		oracle := testOracleGraph()
@@ -82,31 +95,12 @@ func TestOwnerOracleGraph(t *testing.T) {
 		oracle   *AcceptanceOracle
 		wantText string
 	}{
-		{"no owners", cloneOracle(func(o *AcceptanceOracle) { o.Owners = nil }), "owners"},
-		{"no cases", cloneOracle(func(o *AcceptanceOracle) { o.Cases = nil }), "cases"},
-		{"no controls", cloneOracle(func(o *AcceptanceOracle) { o.Controls = nil }), "controls"},
-		{"duplicate owner", cloneOracle(func(o *AcceptanceOracle) { o.Owners = append(o.Owners, o.Owners[0]) }), "declared twice"},
 		{"duplicate case", cloneOracle(func(o *AcceptanceOracle) { o.Cases = append(o.Cases, o.Cases[0]) }), "declared twice"},
-		{"duplicate control", cloneOracle(func(o *AcceptanceOracle) { o.Controls = append(o.Controls, o.Controls[0]) }), "declared twice"},
-		{"owner id without prefix", cloneOracle(func(o *AcceptanceOracle) { o.Owners[0].OwnerID = "entry" }), "owner_id"},
 		{"case id without prefix", cloneOracle(func(o *AcceptanceOracle) { o.Cases[0].CaseID = "immutable" }), "case_id"},
-		{"control id without prefix", cloneOracle(func(o *AcceptanceOracle) { o.Controls[0].ControlID = "immutable" }), "control_id"},
 		{"case names undeclared owner", cloneOracle(func(o *AcceptanceOracle) { o.Cases[0].OwnerID = "owner:missing" }), "undeclared owner"},
-		{"control names undeclared owner", cloneOracle(func(o *AcceptanceOracle) { o.Controls[0].OwnerID = "owner:missing" }), "undeclared owner"},
-		{"case names undeclared control", cloneOracle(func(o *AcceptanceOracle) { o.Cases[0].ControlIDs = []string{"control:missing"} }), "undeclared control"},
-		{"control names undeclared case", cloneOracle(func(o *AcceptanceOracle) {
-			o.Controls[0].CaseIDs = []string{"case:immutable", "case:rerecord", "case:ghost"}
-		}), "undeclared case"},
-		{"nonreciprocal control", cloneOracle(func(o *AcceptanceOracle) { o.Controls[1].CaseIDs = []string{"case:bind"} }), "does not name back"},
-		{"nonreciprocal case", cloneOracle(func(o *AcceptanceOracle) { o.Cases[2].ControlIDs = []string{"control:bind", "control:immutable"} }), "does not name back"},
 		{"owner predicate wrong shape", cloneOracle(func(o *AcceptanceOracle) { o.Owners[0].PredicateIDs = []string{"pred:not-declared"} }), "predicate grammar"},
 		{"owner predicate duplicated", cloneOracle(func(o *AcceptanceOracle) { o.Owners[0].PredicateIDs = []string{"predicate:one", "predicate:one"} }), "twice"},
 		{"control predicate duplicated", cloneOracle(func(o *AcceptanceOracle) { o.Controls[0].PredicateIDs = []string{"predicate:one", "predicate:one"} }), "twice"},
-		{"job predicate uncovered by owner", cloneOracle(func(o *AcceptanceOracle) {
-			o.Owners[0].PredicateIDs = []string{"predicate:one"}
-			o.Owners[1].PredicateIDs = []string{"predicate:three"}
-		}), "without an owning owner"},
-		{"job predicate uncovered by control", cloneOracle(func(o *AcceptanceOracle) { o.Controls[0].PredicateIDs = []string{"predicate:two"} }), "without an exercising control"},
 		{"empty obligation", cloneOracle(func(o *AcceptanceOracle) { o.Owners[0].Obligation = "" }), "obligation"},
 		{"mechanism path traversal", cloneOracle(func(o *AcceptanceOracle) { o.Owners[0].Mechanism.Path = "../outside.go" }), "contained repository path"},
 		{"mechanism absolute path", cloneOracle(func(o *AcceptanceOracle) { o.Owners[0].Mechanism.Path = "/etc/passwd" }), "contained repository path"},
@@ -133,15 +127,10 @@ func TestOwnerOracleGraph(t *testing.T) {
 		{"cwd absolute", cloneOracle(func(o *AcceptanceOracle) { o.Controls[0].Cwd = "/tmp" }), "cwd"},
 		{"expected result fail", cloneOracle(func(o *AcceptanceOracle) { o.Controls[0].ExpectedResult = "fail" }), "expected_result"},
 		{"evidence role trusted", cloneOracle(func(o *AcceptanceOracle) { o.Controls[0].RequiredEvidenceRole = "trusted" }), "required_evidence_role"},
-		{"readiness refs empty", cloneOracle(func(o *AcceptanceOracle) { o.Controls[0].ReadinessEvidenceRefs = nil }), "readiness evidence"},
-		{"readiness ref duplicated", cloneOracle(func(o *AcceptanceOracle) { o.Controls[0].ReadinessEvidenceRefs = []string{"evidence:a", "evidence:a"} }), "readiness evidence"},
-		{"readiness ref oversized", cloneOracle(func(o *AcceptanceOracle) {
-			o.Controls[0].ReadinessEvidenceRefs = []string{"evidence:" + strings.Repeat("x", 2100)}
-		}), "readiness evidence"},
 	}
 	for _, refusal := range refusals {
 		t.Run(refusal.name, func(t *testing.T) {
-			err := validateAcceptanceOracle(refusal.oracle, jobPredicates)
+			err := validateNativeParts(refusal.oracle)
 			if err == nil {
 				t.Fatalf("oracle mutation %q passed the closed validator", refusal.name)
 			}
@@ -179,7 +168,7 @@ func TestOwnerOracleGraph(t *testing.T) {
 	for i := range oversized.Controls {
 		oversized.Controls[i].ReadinessEvidenceRefs = []string{"evidence:" + strings.Repeat("r", 400), "evidence:" + strings.Repeat("s", 400)}
 	}
-	err := validateAcceptanceOracle(oversized, jobPredicates)
+	err := validateOracleCombinedBound(oversized)
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("oversized oracle error = %v, want the combined-bound refusal", err)
 	}
@@ -207,101 +196,51 @@ func TestOwnerOracleGraphRefusesControlCharacterArgv(t *testing.T) {
 	t.Parallel()
 	oracle := testOracleGraph()
 	oracle.Controls[0].Argv = []string{"go", "test\n./..."}
-	if err := validateAcceptanceOracle(oracle, []string{"predicate:one", "predicate:two"}); err == nil {
+	if err := validateOracleControlDefinition(oracle.Controls[0]); err == nil {
 		t.Fatal("argument vector with a control character passed the closed validator")
 	}
 }
 
-// A newer oracle satisfies an older one only when every previously required
-// control is retained byte-identically, including its pinned recipe; a
-// strengthened inventory may add controls, and a dropped oracle never
-// retains anything.
-func TestOwnerOracleControlsRetained(t *testing.T) {
-	t.Parallel()
-	previous := testOracleGraph()
-	if !oracleControlsRetained(nil, nil) {
-		t.Fatal("no previous oracle must retain vacuously")
-	}
-	if !oracleControlsRetained(previous, previous) {
-		t.Fatal("identical oracle did not retain its controls")
-	}
-	latest := testOracleGraph()
-	latest.Controls = append(latest.Controls, OracleControl{
-		ControlID: "control:added", OwnerID: "owner:entry",
-		PredicateIDs: []string{"predicate:one"}, CaseIDs: []string{"case:immutable"},
-		RecipeSource: WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
-		Argv:         oracleGoArgv("added"),
-		Cwd:          "internal/store", ExpectedResult: "pass", RequiredEvidenceRole: "reported",
-		ReadinessEvidenceRefs: []string{"evidence:oracle-ready"},
-	})
-	if !oracleControlsRetained(previous, latest) {
-		t.Fatal("a strengthened inventory with byte-identical old controls did not retain")
-	}
-	// The added case must be reciprocal for the latest graph to be valid at
-	// all; the retention witness only compares old controls.
-	dropped := testOracleGraph()
-	dropped.Controls = dropped.Controls[1:]
-	if oracleControlsRetained(previous, dropped) {
-		t.Fatal("a deleted required control counted as retained")
-	}
-	repinned := testOracleGraph()
-	repinned.Controls[0].RecipeSource.CommitOID = strings.Repeat("2d0a", 10)
-	if oracleControlsRetained(previous, repinned) {
-		t.Fatal("a re-pinned recipe counted as retained")
-	}
-	retitled := testOracleGraph()
-	retitled.Controls[0].Argv = oracleGoArgv("immutability-v2")
-	if oracleControlsRetained(previous, retitled) {
-		t.Fatal("a changed argument vector counted as retained")
-	}
-	reroled := testOracleGraph()
-	reroled.Controls[0].RequiredEvidenceRole = "independently_executed"
-	if oracleControlsRetained(previous, reroled) {
-		t.Fatal("a changed evidence role counted as retained")
-	}
-	// Refreshing every control's readiness references to a new candidate's
-	// preparations is not a rewrite: the bundle digest excludes readiness
-	// references, and the exact native-readiness gate re-proves them at
-	// record time.
-	refreshed := testOracleGraph()
-	for i := range refreshed.Controls {
-		refreshed.Controls[i].ReadinessEvidenceRefs = []string{"worktree_verify:fixture-prepare-next-candidate"}
-	}
-	if !oracleControlsRetained(previous, refreshed) {
-		t.Fatal("a readiness-reference refresh on unchanged obligations counted as a rewrite")
-	}
-	if oracleControlsRetained(previous, nil) {
-		t.Fatal("a dropped oracle counted as retaining its controls")
-	}
-}
-
-// Oracle capability derives only from the declared acceptance_oracle member.
-func TestOwnerOracleActiveDerivesFromDeclaredMember(t *testing.T) {
-	t.Parallel()
-	capable := BuiltinWorkflowDefinitions()
-	for _, definition := range capable {
-		if !workflowOwnerOracleActive(definition) {
-			t.Fatalf("%s declares record_worker_job without the oracle member", definition.Ref)
-		}
-	}
-	// The declared member is the only derivation: a definition whose
-	// record_worker_job payload omits the field is not oracle-capable even
-	// at the newest version shape.
-	stripped := cloneWorkflowDefinition(capable[0])
-	for index := range stripped.ActionDefinitions {
-		if stripped.ActionDefinitions[index].ID != "record_worker_job" {
-			continue
-		}
-		fields := stripped.ActionDefinitions[index].Payload.Fields
-		kept := fields[:0]
-		for _, field := range fields {
-			if field.Name != "acceptance_oracle" {
-				kept = append(kept, field)
+func TestNativeOracleBundleShapeRefusals(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	raw := mustJSONValue(f.bundle)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*NativeOracleControlBundle)
+	}{
+		{"valid", func(b *NativeOracleControlBundle) {}},
+		{"no cases", func(b *NativeOracleControlBundle) { b.Cases = nil }},
+		{"owner id without prefix", func(b *NativeOracleControlBundle) { b.Owner.OwnerID = "entry"; b.Control.OwnerID = "entry" }},
+		{"control id without prefix", func(b *NativeOracleControlBundle) { b.Control.ControlID = "control" }},
+		{"control names undeclared owner", func(b *NativeOracleControlBundle) { b.Control.OwnerID = "owner:missing" }},
+		{"case names undeclared owner", func(b *NativeOracleControlBundle) { b.Cases[0].OwnerID = "owner:missing" }},
+		{"case names undeclared control", func(b *NativeOracleControlBundle) { b.Cases[0].ControlIDs = []string{"control:missing"} }},
+		{"control names undeclared case", func(b *NativeOracleControlBundle) { b.Control.CaseIDs = []string{"case:missing"} }},
+		{"duplicate case", func(b *NativeOracleControlBundle) {
+			b.Cases = append(b.Cases, b.Cases[0])
+			b.Control.CaseIDs = append(b.Control.CaseIDs, "case:another")
+		}},
+		{"readiness supplied before preparation", func(b *NativeOracleControlBundle) { b.Control.ReadinessEvidenceRefs = []string{"evidence:invented"} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var bundle NativeOracleControlBundle
+			if err := json.Unmarshal(raw, &bundle); err != nil {
+				t.Fatal(err)
 			}
-		}
-		stripped.ActionDefinitions[index].Payload.Fields = kept
-	}
-	if workflowOwnerOracleActive(stripped) {
-		t.Fatal("capability survived stripping the declared member")
+			tc.mutate(&bundle)
+			tx, err := f.s.db.BeginTx(t.Context(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			err = validateNativeBundleAuthorityTx(t.Context(), tx, f.work, 1, bundle)
+			if tc.name == "valid" {
+				if err != nil {
+					t.Fatalf("valid native bundle refused: %v", err)
+				}
+			} else if !hasFailureKind(err, KindInvalidPayload) {
+				t.Fatalf("native shape refusal = %v, want invalid_payload", err)
+			}
+		})
 	}
 }

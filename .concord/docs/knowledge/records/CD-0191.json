@@ -7,7 +7,6 @@
   "date": "2026-09-28T00:00:00Z",
   "evidence": [
     "adapter/opencode/concord.ts",
-    "adapter/opencode/dispatch-window.ts",
     "adapter/opencode/host-lease.ts",
     "scripts/install.py"
   ],
@@ -28,14 +27,14 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7c51caedc775130fc6e5d385347c248d5b2bef4f884f95167168d833ab314a86",
+  "sha256": "sha256:68259744c834234079ab952c978948ec6e93cb69d3bab7db47855fbbd893c9a9",
   "status": "accepted",
-  "summary": "The adapter compares its stamped release root with the host's current symlink at every tool call, and any difference is stale. Every result from a stale session carries one bounded notice naming both versions and the restart remedy, the dispatch_worker action refuses before any core call with the stale_context refusal kind so no worker attempt opens on replaced lane text, and the installer's retention output names the holder sessions per retained release. Reads and every other mutation keep working, and CD-0111 D1 and D2 stay in force.",
+  "summary": "Each Concord call compares the pinned release with the installed current link. An observed mismatch in either direction adds one bounded notice with versions and reload remedy, including a full-warning fallback. Existing calls keep working under their pinned pair. Installer retention names holder sessions. No subagent-launch gate or worker-dispatch refusal remains.",
   "tags": [
     "release",
     "session-boot",
     "lane-dispatch",
     "installer"
   ],
-  "title": "A stale session sees its replaced release and cannot dispatch a worker"
+  "title": "A stale session sees its replaced release"
 }

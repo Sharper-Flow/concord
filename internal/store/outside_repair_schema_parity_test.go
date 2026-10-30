@@ -18,8 +18,8 @@ import (
 
 // Independent regression probes invoke the production host publisher
 // (adapter/opencode/concord.ts publishedRequestSchema) and the host validator
-// (adapter/opencode/dispatch.ts validateAgainstSchema) through Bun, exactly as
-// the host dispatch path does, and the core boundary is exercised through the
+// (adapter/opencode/core-runtime.ts validateAgainstSchema) through Bun, exactly as
+// the host runtime does, and the core boundary is exercised through the
 // owning core validators with the live builtin registry's own declarations.
 //
 // The Unicode probe also covers workflow reference list items, which the
@@ -120,7 +120,7 @@ for (const probe of probes) {
   results.push({ id: probe.id, admit: !!admit, failures: failures.slice(0, 4) });
 }
 console.log(JSON.stringify({ results }));
-`, filepath.Join(repoRoot, "adapter", "opencode", "concord.ts"), filepath.Join(repoRoot, "adapter", "opencode", "generated-contracts.ts"), filepath.Join(repoRoot, "adapter", "opencode", "dispatch.ts"))
+`, filepath.Join(repoRoot, "adapter", "opencode", "concord.ts"), filepath.Join(repoRoot, "adapter", "opencode", "generated-contracts.ts"), filepath.Join(repoRoot, "adapter", "opencode", "core-runtime.ts"))
 }
 
 // outsideRepairPublication is one published-boundary verdict: whether the

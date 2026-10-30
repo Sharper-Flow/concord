@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -93,7 +94,7 @@ func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, fact
 		t.Fatal(err)
 	}
 	snapshot := &newDomainShapeProjection(commit, manifest, architecture).Snapshot
-	if err := reconstructDomainShapeReadingSnapshot(ctx, runner, &dispatchReadingWitness{sourceRepo: root}, shards, snapshot); err != nil {
+	if err := populateDomainShapeCorpusSnapshot(ctx, root, shards, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	for _, selector := range selectors {
@@ -115,7 +116,7 @@ func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, fact
 		if !found {
 			t.Fatalf("selector %+v omitted %s", selector, factID)
 		}
-		selection.GoverningLaw = domainShapeManifestGoverningLaw(manifest, selection)
+		selection.GoverningLaw = domainShapeCorpusGoverningLaw(manifest, selection)
 		carried := map[string]bool{}
 		for _, record := range selection.GoverningLaw {
 			carried[record] = law == nil || law[record]
@@ -132,4 +133,55 @@ func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, fact
 		t.Logf("selector=%+v result_bytes=%d", selector, len(raw))
 	}
 	return law
+}
+
+func populateDomainShapeCorpusSnapshot(ctx context.Context, repo string, shards knowledgeShards, snapshot *DomainShapeSnapshot) error {
+	if len(shards.facts) != 0 {
+		commit, hash, checks, err := domainShapeToolingAt(ctx, KnowledgeHome{RepoPath: repo}, snapshot.KnowledgeCommit)
+		if err != nil {
+			return err
+		}
+		snapshot.ToolingCommit, snapshot.ToolingContentHash, snapshot.RequiredChecks = commit, hash, checks
+	}
+	names := make([]string, 0, len(shards.facts))
+	for name := range shards.facts {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		raw := shards.facts[name]
+		var fact DomainFact
+		if err := decodeStrictKnowledgeJSON(raw, &fact); err != nil || name != fact.ID+".json" {
+			return fmt.Errorf("invalid corpus fact shard: %s", name)
+		}
+		snapshot.Facts = append(snapshot.Facts, fact)
+		snapshot.FactContentHashes[fact.ID] = domainShapeBytesHash(raw)
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	snapshot.ContentHash = domainShapeBytesHash(raw)
+	return nil
+}
+
+func domainShapeCorpusGoverningLaw(manifest KnowledgeManifest, selection DomainShapeResult) []string {
+	explicit := map[string]bool{}
+	for _, item := range selection.Facts {
+		for _, law := range item.Fact.GoverningLawIDs {
+			explicit[law] = true
+		}
+	}
+	selected := func(id string) bool { return slices.Contains(selection.DomainIDs, id) }
+	laws := []string{}
+	for _, record := range manifest.Records {
+		if record.Status != "accepted" || !manifestLawBearingKinds[record.Kind] || record.HomeDomainID == "" {
+			continue
+		}
+		if explicit[record.ID] || selected(record.HomeDomainID) || slices.ContainsFunc(record.AppliesToDomainIDs, selected) {
+			laws = append(laws, record.ID)
+		}
+	}
+	slices.Sort(laws)
+	return laws
 }

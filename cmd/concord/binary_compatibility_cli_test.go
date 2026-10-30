@@ -10,12 +10,15 @@ import (
 
 func TestCLIRefusesBinarySkewBeforeMutation(t *testing.T) {
 	path := freshMigratedCLIDatabase(t)
-	seedAuthorizedDispatchWindow(t, path, "work-con411", "attempt-con411")
 	s, err := store.Open(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
+	seedLocatorAuthority(t, s, initLocatorRepo(t))
+	if _, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil); err != nil {
+		t.Fatal(err)
+	}
 	db := s.DatabaseForTesting()
 	digest := "sha256:" + strings.Repeat("a", 64)
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);

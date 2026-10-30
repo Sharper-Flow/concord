@@ -31,6 +31,7 @@ func smallImplementationAtRelease(t *testing.T) acceptDeliveryCandidate {
 	}
 
 	tooling := refineProofTooling(ProjectDeclaredTool{ID: "candidate-head", Invocation: "git rev-parse --verify HEAD^{commit}"})
+	reviewGateStartStep(t, c.f.store, c.f.workID, "execution", "start_execution", c.f.owner)
 	acceptDeliveryBindFresh(t, c, "small-delivery")
 	delivery := json.RawMessage(`{"delivery_artifact":"artifact:small-route","delivery_state":"asserted"}`)
 	for _, step := range []string{"execution", "refine", "delivery"} {
@@ -40,7 +41,7 @@ func smallImplementationAtRelease(t *testing.T) acceptDeliveryCandidate {
 				t.Fatal(err)
 			}
 		}
-		if err := runDeliveryAdmissionAction(t, c.f.store, c.f.workID, "record_delivery", delivery, tooling, c.f.owner); err != nil {
+		if err := runDeliveryAdmissionAction(t, c.f.store, c.f.workID, delivery, tooling, c.f.owner); err != nil {
 			t.Fatalf("%s delivery: %v", step, err)
 		}
 	}
@@ -65,10 +66,10 @@ func TestSmallImplementationCompletionRetainsMandatoryOutcomes(t *testing.T) {
 		detail string
 	}{
 		{name: "complete"},
-		{name: "missing-contract-predicates", damage: `DELETE FROM workflow_contract_predicates WHERE work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "accepted Review on the current candidate"},
+		{name: "missing-contract-predicates", damage: `DELETE FROM workflow_contract_predicates WHERE work_id='small-route-outcomes'`, kind: KindStaleRequiresReview, detail: "recorded Review does not cover the current candidate and dependencies"},
 		{name: "missing-criterion-proof", damage: `DELETE FROM workflow_predicate_verdicts WHERE work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "workflow verdict is missing"},
-		{name: "missing-producer-receipt", damage: `DELETE FROM durable_operations WHERE json_extract(result_payload,'$.lease_id')='candidate-observe-early' AND work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "requires a passing producer receipt on the final candidate"},
-		{name: "review-not-accepted", damage: `UPDATE workflow_review_state SET state=json_set(state,'$.accepted',json('null')) WHERE work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "accepted Review on the current candidate"},
+		{name: "missing-producer-receipt", damage: `DELETE FROM durable_operations WHERE json_extract(result_payload,'$.lease_id')='candidate-observe-early' AND work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "requires a passing final-subject receipt"},
+		{name: "review-not-accepted", damage: `UPDATE workflow_review_state SET state=json_set(state,'$.accepted',json('null')) WHERE work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "current candidate has no recorded Review"},
 		{name: "blocking-review", damage: `UPDATE workflow_review_state SET state=json_set(state,'$.accepted.report.disposition','correction_required') WHERE work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "ready_for_final_proof"},
 	}
 	for _, tc := range cases {

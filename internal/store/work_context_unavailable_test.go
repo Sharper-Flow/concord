@@ -150,70 +150,23 @@ func TestWorkContextUnavailableCompoundReads(t *testing.T) {
 	assertWorkContextCompoundReads(t, fixture, expectWorkContextAvailable)
 	seedWorkContextOverflow(t, fixture)
 	assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)
-	// The core strict dispatch control: with the current view over its
-	// bound, the dispatch admission refuses with the reader's own strict
-	// kind, and the refusal leaves zero dispatch effects beside an
-	// unchanged version, unchanged durable operations, and unchanged event
-	// rows — the overflow is never dropped or truncated into a packet.
-	job := seedReadyWorkerJob(t, fixture)
-	rows, version, operations := currentEffectRows(t, fixture.store), readWorkVersion(t, fixture.store, fixture.workID), durableOperationCount(t, fixture)
-	dispatchErr := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-ctx-strict-refusal", job, nil))
-	if !hasFailureKind(dispatchErr, KindLimitExceeded) {
-		t.Fatalf("strict dispatch refusal = %v, want %s from the over-bound work context reader", dispatchErr, KindLimitExceeded)
-	}
-	assertZeroDispatchEffects(t, fixture)
-	if got := readWorkVersion(t, fixture.store, fixture.workID); got != version {
-		t.Fatalf("refused dispatch moved the version to %d, want %d", got, version)
-	}
-	if got := durableOperationCount(t, fixture); got != operations {
-		t.Fatalf("refused dispatch left %d durable operations, want %d", got, operations)
-	}
-	if !reflect.DeepEqual(rows, currentEffectRows(t, fixture.store)) {
-		t.Fatal("refused dispatch changed retained event headers, order, or bytes")
-	}
 }
 
-// Terminal-report custody, per completed and per failed: an authorized
-// job-bound dispatch runs on the bounded live view, and a terminal report
-// that pushes the work-wide view past its bound is retained in full — the
-// authenticated ingest succeeds, the attempt lands terminal, the strict read
-// refuses with the bound kind, and the compound reads surface the unavailable
-// marker without changing one event row. One later bounded live declaration
-// drops the report's optional findings, restores the available view, and
-// leaves the retained terminal payload byte-identical by event ID.
-func TestWorkContextUnavailableTerminalCustody(t *testing.T) {
+// Historical claims stay byte-identical when their current view overflows,
+// compound reads report unavailability, and a new declaration deselects them.
+func TestWorkContextUnavailableHistoricalClaimCustody(t *testing.T) {
 	t.Parallel()
-	retained := []WorkerContextFinding{{Kind: "observation", Statement: "retained but unselected", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
+	retained := []WorkContextFinding{{Kind: "observation", Statement: "retained but unselected", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
 	for _, tc := range []struct {
-		name     string
-		terminal func(t *testing.T, s *Store, workID, attemptID, model string) Event
+		name, kind string
 	}{
-		{"completed", func(t *testing.T, s *Store, workID, attemptID, model string) Event {
-			completion := oracleCompletionEvent(t, s, workID, attemptID, "terminal-custody-completed", func(payload *WorkerCompletedPayload) {
-				payload.ContextFindings = retained
-			})
-			// The sealed terminal ingest derives observed_delivery inside the
-			// transaction; no caller can supply it. Drop the direct-route
-			// fixture members so the custody run rides the core observation
-			// route, and the seam rebinds the reported size to the sealed tree.
-			return checksRepairSealedCompletion(t, completion)
-		}},
-		{"failed", func(t *testing.T, s *Store, workID, attemptID, model string) Event {
-			event := s2WorkerFailedAttributedEvent(workID, attemptID, "terminal-custody-failed", model, WorkerFailureWorkerError, "bounded worker error", time.Unix(3, 0).UTC())
-			var payload WorkerFailedPayload
-			if err := json.Unmarshal(event.Payload, &payload); err != nil {
-				t.Fatal(err)
-			}
-			payload.ContextFindings = retained
-			event.Payload = mustJSONValue(payload)
-			return event
-		}},
+		{"completed", "worker.completed"},
+		{"failed", "worker.failed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fixture := seedWorkContextFixture(t, "ctx-custody-"+tc.name)
 			defer fixture.store.Close()
 			s := fixture.store
-			job := seedReadyWorkerJob(t, fixture)
 			if err := fixture.recordWorkContext(t, map[string]any{"context_findings": countOverflowFindings("first")}); err != nil {
 				t.Fatalf("first live declaration refused: %v", err)
 			}
@@ -226,26 +179,16 @@ func TestWorkContextUnavailableTerminalCustody(t *testing.T) {
 			if viewErr != nil || view == nil || len(view.Findings) != len(refs)+len(second) {
 				t.Fatalf("bounded live view = (%+v, %v), want exactly %d findings", view, viewErr, len(refs)+len(second))
 			}
-			attemptID := "attempt-custody-" + tc.name
-			if err := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, attemptID, job, view)); err != nil {
-				t.Fatalf("authorized work-context dispatch refused: %v", err)
-			}
-			recordJobBoundWorkerDispatch(t, s, fixture.workID, attemptID, &job)
-			terminal := tc.terminal(t, s, fixture.workID, attemptID, preferredModelForLane(laneForID(t)))
-			workerTerminalEventThroughSeamCtx(t, prepareWorkerTerminalDelivery(t, s, fixture.workID, attemptID, terminal.EventID), s, terminal)
-			var state string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state); err != nil {
-				t.Fatal(err)
-			}
-			if state != tc.name {
-				t.Fatalf("attempt %s lifecycle_state = %q, want %q", attemptID, state, tc.name)
-			}
+			seq := seedContextFactTerminal(t, fixture, tc.kind, map[string]any{"context_findings": retained})
 			if view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID); view != nil || !hasFailureKind(viewErr, KindLimitExceeded) {
 				t.Fatalf("strict read after the report = (%+v, %v), want nil with %s", view, viewErr, KindLimitExceeded)
 			}
-			var terminalPayload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=?`, terminal.EventID).Scan(&terminalPayload); err != nil {
+			var findingJSON string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT finding FROM work_context_findings WHERE work_id=? AND source_seq=? AND ordinal=0`, fixture.workID, seq).Scan(&findingJSON); err != nil {
 				t.Fatal(err)
+			}
+			if findingJSON != string(mustJSONValue(retained[0])) {
+				t.Fatalf("historical claim changed during retention: %s", findingJSON)
 			}
 			before := currentEffectRows(t, s)
 			assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)
@@ -257,11 +200,11 @@ func TestWorkContextUnavailableTerminalCustody(t *testing.T) {
 			}
 			assertWorkContextCompoundReads(t, fixture, expectWorkContextAvailable)
 			var retainedPayload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=?`, terminal.EventID).Scan(&retainedPayload); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT finding FROM work_context_findings WHERE work_id=? AND source_seq=? AND ordinal=0`, fixture.workID, seq).Scan(&retainedPayload); err != nil {
 				t.Fatal(err)
 			}
-			if retainedPayload != terminalPayload {
-				t.Fatalf("retained terminal payload changed by event ID %s:\nbefore %s\nafter  %s", terminal.EventID, terminalPayload, retainedPayload)
+			if retainedPayload != findingJSON {
+				t.Fatalf("retained historical claim changed at source %d:\nbefore %s\nafter  %s", seq, findingJSON, retainedPayload)
 			}
 		})
 	}
@@ -343,17 +286,24 @@ func TestWorkContextUnavailableNativeCustody(t *testing.T) {
 			defer fixture.store.Close()
 			s := fixture.store
 			seedMandatoryNativeEvidence(t, fixture, tc.blockers)
-			seedNativeRunForTest(t, s, fixture.workID, "run:native-custody-"+fmt.Sprint(tc.blockers))
+			id := "run:native-custody-" + fmt.Sprint(tc.blockers)
+			event, err := buildNativeRunEvent(id, fixture.workID, fixture.owner, time.Unix(1, 0).UTC(), readWorkVersion(t, s, fixture.workID), "start", id, "routing://fixture", "started", "https://evidence.invalid/runs/fixture", nativeDigest([]byte(id)), "2026-10-10T00:00:00Z")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}}); err != nil {
+				t.Fatal(err)
+			}
 			view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
 			var failure *Failure
 			if view != nil || !errors.As(viewErr, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.Detail, tc.detail) || strings.Contains(failure.Detail, tc.otherDetail) {
 				t.Fatalf("blocker-%d strict read = (%+v, %v), want %s naming %q and not %q", tc.blockers, view, viewErr, KindLimitExceeded, tc.detail, tc.otherDetail)
 			}
-			lineage, lineageErr := readWorkerOracleFindingLineageTx(context.Background(), s.DatabaseForTesting(), fixture.workID)
+			lineage, lineageErr := readWorkflowReviewFacts(context.Background(), s.DatabaseForTesting(), fixture.workID)
 			if lineageErr != nil {
 				t.Fatal(lineageErr)
 			}
-			if got := len(lineage.openFindingIDs()); got != tc.blockers {
+			if got := len(lineage.Findings); got != tc.blockers {
 				t.Fatalf("open ranked lineage = %d, want the seeded %d blockers", got, tc.blockers)
 			}
 			preparations, prepErr := readSelectedOraclePreparations(context.Background(), s.DatabaseForTesting(), fixture.workID)
@@ -445,7 +395,8 @@ func TestWorkContextUnavailableInventories(t *testing.T) {
 		defer fixture.store.Close()
 		s := fixture.store
 		db := s.DatabaseForTesting()
-		bootstrapOracleFixtureSubject(t, s, fixture.workID)
+		repo, _ := reviewSubjectClaim(t, s, fixture.workID)
+		qualifyReviewSubjectForTest(t, s, fixture.workID, repo)
 		// Clone the baseline one-control fixture into a bounded graph of 32
 		// distinct controls and cases. Every clone preserves the owner,
 		// predicate, and recipe fields and changes only its identity, its
@@ -479,34 +430,21 @@ func TestWorkContextUnavailableInventories(t *testing.T) {
 		// one complete preparation the production completeness check admits,
 		// and the seeding writes each exact run ref back into its control.
 		seedOraclePreparationFieldsFixture(t, s, fixture.workID, oracle)
-		// Record the ready job through the authoring action, so the full
-		// admission — the qualified subject and every exact per-control
-		// preparation join — accepts the complete inventory. No raw
-		// historical projection is isolated here: the admission itself is
-		// part of the proof.
-		fields := map[string]any{
-			"job_id": "job:ctx-preparation-inventory", "objective": "carry the bounded selected-preparation inventory",
-			"stopping_condition": "every selected control passes with its qualified preparation",
-			"path_scope":         []string{"internal/store"}, "checks": []string{"go test ./internal/store/"},
-			"reserved_integration": "integration evidence binds at the parent effect step",
-			"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
-			"acceptance_oracle": oracle,
-		}
-		if err := recordWorkerJobActionForTest(t, s, fixture.workID, fixture.owner, fields); err != nil {
-			t.Fatalf("the complete preparation inventory refused authoring: %v", err)
-		}
 		events, leases := currentEffectRows(t, s), workContextVerifyLeaseRows(t, s, fixture.workID)
 		// Gather every selected control's receipt and prove the complete
 		// serialized metadata alone passes the bound: no control is skipped
 		// and no receipt is forged, foreign, or stale.
-		jobs, err := readWorkerJobRevisions(context.Background(), db, fixture.workID)
-		if err != nil || len(jobs) != 1 || !jobs[0].Ready || jobs[0].AcceptanceOracle == nil {
-			t.Fatalf("job revisions = (%d rows, %v), want one ready oracle job", len(jobs), err)
+		var graph AcceptanceOracle
+		if err := json.Unmarshal(mustJSONValue(oracle), &graph); err != nil {
+			t.Fatal(err)
 		}
-		selected := jobs[0]
+		version, err := activeWorkflowContractVersion(t.Context(), db, fixture.workID, "fixture")
+		if err != nil {
+			t.Fatal(err)
+		}
 		var gathered []NativeOraclePreparation
-		for _, control := range selected.AcceptanceOracle.Controls {
-			bundle, err := nativeBundleForControl(selected.AcceptanceOracle, control.ControlID)
+		for _, control := range graph.Controls {
+			bundle, err := nativeBundleForControl(&graph, control.ControlID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -515,7 +453,7 @@ func TestWorkContextUnavailableInventories(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if preparation == nil || preparation.ContractVersion != selected.ContractVersion || preparation.BundleDigest != nativeBundleDigest(bundle) {
+				if preparation == nil || preparation.ContractVersion != version || preparation.BundleDigest != nativeBundleDigest(bundle) {
 					t.Fatalf("control %s preparation = %+v, want a qualified receipt for the selected job's version and bundle", control.ControlID, preparation)
 				}
 				gathered = append(gathered, *preparation)
@@ -546,63 +484,6 @@ func TestWorkContextUnavailableInventories(t *testing.T) {
 		}
 		if !reflect.DeepEqual(leases, workContextVerifyLeaseRows(t, s, fixture.workID)) {
 			t.Fatal("the inventory reads changed a retained native verify-lease custody row")
-		}
-	})
-	t.Run("receipt inventory", func(t *testing.T) {
-		fixture := seedWorkContextFixture(t, "ctx-unavailable-receipts")
-		defer fixture.store.Close()
-		s := fixture.store
-		db := s.DatabaseForTesting()
-		// Projection-only reproduction of the supersession recovery
-		// inventory (TestOwnerOracleReceiptViewRecoversAfterContractSupersession):
-		// one synthetic reported receipt past the retained bound enters the
-		// receipt owner beside no dispatch and no attempt, and feeds
-		// the current lineage writer in that transaction. This makes no
-		// live-terminal admission claim: the separate completed and failed
-		// custody tests prove the valid terminal route. The refusal under test
-		// is the reader's classification of over-bound retained lineage.
-		receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable"}, Result: OracleReceiptResultNotRun}
-		payload := mustJSONValue(WorkerCompletedPayload{Evidence: []WorkerReportEvidence{{OracleReceipt: &receipt}}})
-		if err := s.Transact(context.Background(), func(tx *Transaction) error {
-			scope, err := beginWrite(context.Background(), tx.tx)
-			if err != nil {
-				return err
-			}
-			for i := range oracleRetainedReceiptsMax + 1 {
-				id := "receipt-history-" + itoa(i)
-				event := Event{EventID: id, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "actor:fixture", OccurredAt: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC), PayloadVersion: 6, Payload: payload}
-				seq, err := appendPreparedEvent(t.Context(), tx.tx, event)
-				if err != nil {
-					return err
-				}
-				event.Seq = seq
-				if err := writeOracleFindingFactsTx(context.Background(), tx.tx, event); err != nil {
-					return err
-				}
-			}
-			return scope.close(context.Background())
-		}); err != nil {
-			t.Fatal(err)
-		}
-		lineage, err := readWorkerOracleFindingLineageTx(context.Background(), db, fixture.workID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(lineage.retainedReceipts) != oracleRetainedReceiptsMax+1 {
-			t.Fatalf("retained receipt lineage = %d, want exactly %d, one above the %d-receipt view bound", len(lineage.retainedReceipts), oracleRetainedReceiptsMax+1, oracleRetainedReceiptsMax)
-		}
-		events := currentEffectRows(t, s)
-		var failure *Failure
-		view, viewErr := readWorkContextView(context.Background(), db, fixture.workID)
-		if view != nil || !errors.As(viewErr, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.Detail, "oracle receipts") {
-			t.Fatalf("strict view = (%+v, %v), want nil with %s naming the retained receipts", view, viewErr, KindLimitExceeded)
-		}
-		state := assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)
-		if state.pinMarker == "" || state.continuityMarker == "" || state.embeddedMarker == "" {
-			t.Fatal("a compound read surface omits the work_context_unavailable marker")
-		}
-		if !reflect.DeepEqual(events, currentEffectRows(t, s)) {
-			t.Fatal("the inventory reads changed retained event headers, order, or bytes")
 		}
 	})
 }

@@ -19,7 +19,10 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	f.proof = f.verify(t)
 	f.prepareControl(t)
 	beforeReview := f.read(t)
-	candidate := *beforeReview.Pinned.Pin.Review.Candidate
+	if beforeReview.Pinned.Pin.Review == nil || beforeReview.Pinned.Pin.Review.Dependencies == nil {
+		t.Fatal("qualified candidate has no current Review dependency identities")
+	}
+	candidate := store.ReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, f.path, "rev-parse", "HEAD"), Tree: gitRun(t, f.path, "rev-parse", "HEAD^{tree}")}
 	report := &store.ReviewBlock{
 		Disposition: "correction_required", InputCandidate: candidate, OutputCandidate: candidate,
 		Dependencies: *beforeReview.Pinned.Pin.Review.Dependencies,
@@ -60,8 +63,17 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	}
 	reportRef := accepted.Pinned.Pin.Review.Accepted.ReportRef
 	fields["evidence_refs"] = []string{reportRef}
-	t.Run("accepted report still requires durable binding", func(t *testing.T) { refuse(t, "request_correction", fields) })
-	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": reportRef}))
+	t.Run("accepted report durably binds correction evidence", func(t *testing.T) {
+		var bindings int
+		if err := f.s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')='review' AND json_extract(payload,'$.immutable_subject_ref')=?`, f.work, reportRef).Scan(&bindings); err != nil || bindings != 1 {
+			t.Fatalf("accepted Review report bindings=%d, want one: %v", bindings, err)
+		}
+		if err := store.WorkflowActionPreflightWithRegistry(t.Context(), f.s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{
+			WorkID: f.work, ExpectedVersion: accepted.Pinned.Pin.Version, ActionID: "request_correction", Payload: retryJSON(fields), Actor: actor, SessionWorktree: f.path,
+		}); err != nil {
+			t.Fatalf("accepted report's correction preflight refused: %v", err)
+		}
+	})
 	for _, vector := range []struct {
 		name, field string
 		value       []string
@@ -115,7 +127,6 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	f.review(t, "ready_for_final_proof", f.proof)
 	t.Run("ready Review closes the correction prerequisite", func(t *testing.T) { refuse(t, "request_correction", fields) })
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
-	spineOK(t, f.action(t, "record_delivery", delivery))
 	if current := f.read(t); current.Pinned.Step != "refine" || current.Pinned.Pin.Review.Candidate == nil || current.Pinned.Pin.Review.Candidate.Commit != gitRun(t, f.path, "rev-parse", "HEAD") {
 		t.Fatalf("corrective execution did not exit on its accepted checked candidate: %+v", current.Pinned)
 	}

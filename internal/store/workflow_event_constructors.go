@@ -530,10 +530,9 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, request Workfl
 
 // workflowVerdictReceiptAssociations validates a whole batch against one read
 // snapshot before either preflight admits it or event construction records it.
+// The action boundary validates the authenticated actor tuple; a new actor's
+// registration is still queued before its verdicts in the same transaction.
 func workflowVerdictReceiptAssociations(ctx context.Context, tx queryer, workID, verdictActor string, fields map[string]json.RawMessage) ([]workflowVerdictRecordedPayload, error) {
-	if err := requireActor(ctx, tx, verdictActor); err != nil {
-		return nil, err
-	}
 	entries, entriesErr := normalizeWorkflowVerdictEntries(fields)
 	if entriesErr != nil {
 		return nil, entriesErr

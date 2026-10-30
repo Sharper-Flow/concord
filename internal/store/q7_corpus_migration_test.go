@@ -61,7 +61,7 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 	c.parents = func(t *testing.T, s *Store, guard string) {
 		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{
 			"work_items":         {"lifecycle": "'needed'", "transition_from": "NULL", "transition_reason": "''", "transition_actor": "''", "transition_evidence_refs": "'[]'", "transition_seq": "0", "transition_version": "1"},
-			"workflow_instances": {"definition_version": "26"}, "workflow_contracts": {"definition_version": "26"},
+			"workflow_instances": {"definition_version": "26", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"}, "workflow_contracts": {"definition_version": "26"},
 		}, guard)
 		corpusWorkParents(t, s, guard, "q7-corpus-related", "q7-corpus-next", "q7-start-only")
 		if guard != "fold_guard" {

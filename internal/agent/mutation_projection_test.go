@@ -397,9 +397,9 @@ func TestMutationProjectionRequiresRetainedIdentity(t *testing.T) {
 	_, _, pin := enrichmentPinFixture(t)
 	refs := make([]string, 32)
 	for i := range refs {
-		refs[i] = strings.Repeat("<", 256)
+		refs[i] = fmt.Sprintf("%02d%s", i, strings.Repeat("<", 126))
 	}
-	pin.Correction = &store.WorkflowCorrectionContext{Disposition: "correction_required", PredicateIDs: []string{"predicate:primary"}, EvidenceRefs: refs,
+	pin.Correction = &store.WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: []string{"predicate:primary"}, EvidenceRefs: refs,
 		Diagnosis: strings.Repeat("<", 4096), Strategy: strings.Repeat("<", 4096), SourceEventID: "correction-context", SourceEventSeq: 1}
 	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: pin.WorkID, Version: strconv.FormatInt(pin.Version, 10)}}
 	payload, intents, err := enrichMutationPayload(mutationPayload(changed, nil), []store.WorkPin{pin})

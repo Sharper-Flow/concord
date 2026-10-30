@@ -2,12 +2,37 @@ package store
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 )
+
+func adapterNativeRecipeControl() OracleControl {
+	return OracleControl{
+		Argv:    []string{"check", "adapter-move", "adapter-publication", "adapter-transport"},
+		Cwd:     "adapter/opencode",
+		CaseIDs: []string{"case:adapter-native"},
+	}
+}
+
+func TestAdapterNativeRecipeSelector(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".concord", "oracles", "adapter", "native-acceptance.v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := decodeNativeTargetManifest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	control := adapterNativeRecipeControl()
+	witnesses, err := nativeTargetSelector(manifest, control)
+	if err != nil || !slices.Equal(witnesses, control.Argv[1:]) {
+		t.Fatalf("adapter recipe control does not name its exact closed selector: %v, %v", witnesses, err)
+	}
+}
 
 func TestAdapterNativeRecipeGenerated(t *testing.T) {
 	root := filepath.Join("..", "..")
@@ -36,7 +61,7 @@ func TestAdapterNativeRecipeRecordsReady(t *testing.T) {
 	f := &nativeTargetFixture{
 		s: seed.store, work: work, repo: repo, head: head,
 		root: "adapter/opencode", recipePath: recipePath,
-		controlArgv: []string{"check", "adapter-transport", "adapter-move", "adapter-publication"},
+		controlArgv: adapterNativeRecipeControl().Argv,
 	}
 	f.seedTargetAuthority(t)
 	f.bundle.Owner.Mechanism = OracleMechanism{ProjectID: "project", Path: "adapter/opencode/concord-plugin.ts", EntryPoint: "ConcordPlugin"}

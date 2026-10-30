@@ -116,6 +116,7 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 			} {
 				spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": binding.EvidenceKind, "evidence_ref": binding.ImmutableSubjectRef}))
 			}
+			f.review(t, "ready_for_final_proof", f.proof)
 			f.advanceToAcceptance(t)
 			spineOK(t, f.call(t, "concord_work_define", "observation_record", map[string]any{
 				"work_id": f.work, "statement": "Reassessment retains the checked candidate and unchanged approved criterion.",

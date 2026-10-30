@@ -35,9 +35,9 @@ func TestBackupOlderSchemaWithAcceptedImplementationJob(t *testing.T) {
 		body any
 	}{
 		{"worker.job_recorded", job},
-		{WorkflowActionCompleted, map[string]any{"action_id": "dispatch_worker", "worker_attempt_id": "attempt:backup", "worker_capability_class": "implementation", "worker_job": map[string]any{"job_id": job["job_id"], "revision": 1, "digest": digest}}},
+		{WorkflowActionCompleted, map[string]any{"step_id": "execution", "action_id": "dispatch_worker", "worker_attempt_id": "attempt:backup", "worker_capability_class": "implementation", "worker_job": map[string]any{"job_id": job["job_id"], "revision": 1, "digest": digest}}},
 		{"worker.completed", map[string]any{"attempt_id": "attempt:backup", "observed_delivery": delivery}},
-		{WorkflowActionCompleted, map[string]any{"action_id": "accept_worker_result", "worker_attempt_id": "attempt:backup"}},
+		{WorkflowActionCompleted, map[string]any{"step_id": "execution", "action_id": "accept_worker_result", "worker_attempt_id": "attempt:backup"}},
 	}
 	for i, event := range events {
 		exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item','work-backup','operator',?,1,?)`, fmt.Sprintf("backup-event-%d", i), event.kind, retirementUpgradeTime, string(mustJSONValue(event.body)))

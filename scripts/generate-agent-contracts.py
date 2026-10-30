@@ -1267,20 +1267,16 @@ def project_native_oracle_metadata(defs: dict) -> None:
         execute["properties"][name] = copy.deepcopy(request["properties"][name])
         execute["required"].append(name)
     execute["properties"].update({
-        "authorization_event_id": {"$ref": "#/$defs/id"},
-        "authorization_seq": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
-        "start_seq": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
         "observed_test_names": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
                                 "items": {"$ref": "#/$defs/native_oracle_test_name"}},
         "observed_witness_ids": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
                                  "items": {"type": "string", "minLength": 1, "maxLength": 256,
                                            "pattern": "^[^\\x00-\\x1f\\x7f]*$"}},
     })
-    execute["required"].extend(["authorization_event_id", "authorization_seq", "start_seq"])
     project_phase_into_branches(execute, {name: copy.deepcopy(execute["properties"][name]) for name in
-                                          ("preparation_run_ref", "authorization_event_id", "authorization_seq", "start_seq",
-                                           "input_manifest_digest", "binary_digest", "observed_test_names", "observed_witness_ids")},
-                                ["preparation_run_ref", "authorization_event_id", "authorization_seq", "start_seq"])
+                                          ("preparation_run_ref", "input_manifest_digest", "binary_digest",
+                                           "observed_test_names", "observed_witness_ids")},
+                                ["preparation_run_ref"])
     # The family branches restate the phase fields they inherited from the
     # preparation union; an execute branch speaks the execute phase grammar.
     for branch in execute.get("oneOf", []):

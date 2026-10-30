@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 
@@ -12,13 +11,17 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CD-0112/CD-0138: the session that executed an external-effect step leaves it
-// through record_delivery, and a hand-off summary never moves the step. The
-// mandatory refinement pass also needs its own fenced start and delivery.
+// A hand-off summary holds the producer step. Ready Review advances its
+// checked candidate to refinement, whose own start and delivery remain required.
 func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	f := newSpineFixtureForFamily(t, "workflow.break_fix")
+	f := newSpineExecutionFixtureForFamily(t, "workflow.break_fix")
+	f.verify(t)
+	f.prepareControl(t)
+	f.implement(t)
+	f.proof = f.verify(t)
+	f.prepareControl(t)
 	s := f.s
 	execActor := store.WorkflowActor{PrincipalRef: f.env.PrincipalRef, ClientRef: f.env.ClientRef, AgentRef: f.env.AgentRef, SessionRef: f.env.SessionRef, ActorClass: store.ActorAgent}
 	currentStep := func() string {
@@ -75,36 +78,13 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 		t.Fatalf("cross_context_boundary moved the step to %q", step)
 	}
 
-	// Delivery after the repair fenced start advances to the mandatory refine step.
+	f.review(t, "ready_for_final_proof", f.proof)
 	delivery := map[string]any{"delivery_artifact": "artifact:repair", "delivery_state": "asserted"}
-	if err := try("record_delivery", delivery); err != nil {
-		t.Fatalf("record_delivery after start_repair refused: %v", err)
-	}
 	if step := currentStep(); step != "refine" {
-		t.Fatalf("record_delivery left the step at %q, want refine", step)
+		t.Fatalf("ready Review left the step at %q, want refine", step)
 	}
-	// CD-0198 D3: the current head derives the refine start from the
-	// qualifying checkpoint; the callable start is gone from it.
-	refineEntry := "start_refine"
-	{
-		var ref string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, f.work).Scan(&ref); err != nil {
-			t.Fatal(err)
-		}
-		if pinned, ok := store.BuiltinWorkflowRegistry().Current(ref); ok {
-			declares := false
-			for _, step := range pinned.Definition.StepGraph.Steps {
-				if slices.Contains(step.Actions, "start_refine") {
-					declares = true
-				}
-			}
-			if !declares {
-				refineEntry = "checkpoint_refine"
-			}
-		}
-	}
-	if err := try(refineEntry, map[string]any{}); err != nil {
-		t.Fatalf("%s refused: %v", refineEntry, err)
+	if err := try("checkpoint_refine", map[string]any{}); err != nil {
+		t.Fatalf("checkpoint_refine refused: %v", err)
 	}
 	if err := try("bind_evidence", map[string]any{"evidence_kind": "artifact"}); err != nil {
 		t.Fatalf("refine artifact binding refused: %v", err)
@@ -115,7 +95,7 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 		t.Fatalf("refine verification binding refused: %v", err)
 	}
 	if err := try("record_delivery", delivery); err != nil {
-		t.Fatalf("record_delivery after start_refine refused: %v", err)
+		t.Fatalf("record_delivery after checkpoint_refine refused: %v", err)
 	}
 	if step := currentStep(); step != "delivery" {
 		t.Fatalf("refine record_delivery left the step at %q, want delivery", step)

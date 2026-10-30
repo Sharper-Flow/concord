@@ -2349,15 +2349,16 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
         prepare_result = preparation | {"control_id": "control:one", "stages": []}
         self.validate(prepare_result, "native_oracle_result")
         execute = prepare_result | {"phase": "execute", "qualification": "pass",
-            "preparation_run_ref": "run:prepare", "authorization_event_id": "event:dispatch", "authorization_seq": 9, "start_seq": 8,
+            "preparation_run_ref": "run:prepare",
             "input_manifest_digest": "sha256:" + "c" * 64, "binary_digest": "sha256:" + "d" * 64, "observed_test_names": ["TestOne"]}
         self.validate(execute, "native_oracle_result")
         for invalid in (prepare_result | {"attempt_id": "attempt-1"}, execute | {"attempt_id": "attempt-1"},
-                        execute | {"worker_job_binding": {}}, execute | {"qualification": "ready"},
+                        execute | {"worker_job_binding": {}}, execute | {"authorization_event_id": "event:dispatch"},
+                        execute | {"start_seq": 8}, execute | {"qualification": "ready"},
                         prepare_result | {"qualification": "pass"}):
             with self.assertRaises(ValueError):
                 self.validate(invalid, "native_oracle_result")
-        for field in ("authorization_event_id", "preparation_run_ref"):
+        for field in ("preparation_run_ref",):
             missing = dict(execute)
             missing.pop(field)
             with self.assertRaises(ValueError):
@@ -2431,7 +2432,7 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
         target_prepare_result = target | {"control_id": "control:one", "stages": []}
         self.validate(target_prepare_result, "native_oracle_result")
         target_execute = target_prepare_result | {"phase": "execute", "qualification": "pass",
-            "preparation_run_ref": "run:prepare", "authorization_event_id": "event:dispatch", "authorization_seq": 9, "start_seq": 8,
+            "preparation_run_ref": "run:prepare",
             "input_manifest_digest": "sha256:" + "c" * 64, "binary_digest": "sha256:" + "d" * 64,
             "observed_witness_ids": [witness]}
         self.validate(target_execute, "native_oracle_result")

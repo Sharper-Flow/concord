@@ -114,7 +114,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("gate recovery approve_contract: %+v", response.Error)
 	}
 
-	// The execution pass, its bound review evidence, and the refinement pass.
+	// Ready Review advances execution into the mandatory refinement pass.
 	recordApprovedWorkDesign(t, s, service, env, "work-1", "gate-recovery-design")
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "start_execution", "idempotency_key": "gate-execution-start"}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("gate recovery start_execution: %+v", response.Error)
@@ -128,11 +128,8 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("gate recovery integration bind: %+v", response.Error)
 	}
 	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "ready_for_final_proof", false)
-	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-execution", "delivery_state": "asserted"}, "idempotency_key": "gate-execution-delivery"}); response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("gate recovery execution delivery: %+v", response.Error)
-	}
 	if stepOf() != "refine" {
-		t.Fatalf("step after execution delivery = %q, want refine", stepOf())
+		t.Fatalf("step after ready execution Review = %q, want refine", stepOf())
 	}
 	// The canonical head derives the refine start from the qualifying
 	// checkpoint pair; the callable start_refine retired with it.
@@ -162,7 +159,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	// Main's repair acceptance changed the integrated candidate. The earlier
 	// continue Review cannot authorize delivery of this different candidate.
 	deliveryRefusal := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-recovery", "delivery_state": "asserted"}, "idempotency_key": "gate-recovery-delivery"})
-	if deliveryRefusal.Outcome != agentcontract.OutcomeError || deliveryRefusal.Error == nil || deliveryRefusal.Error.Kind != "missing_evidence" || deliveryRefusal.Error.EffectState != "none" || !strings.Contains(deliveryRefusal.Error.Message, "accepted Review on the current candidate and depended-on revisions") {
+	if deliveryRefusal.Outcome != agentcontract.OutcomeError || deliveryRefusal.Error == nil || deliveryRefusal.Error.Kind != "stale_requires_review" || deliveryRefusal.Error.EffectState != "none" || deliveryRefusal.Error.Message != "recorded Review does not cover the current candidate and dependencies" {
 		t.Fatalf("repair delivery exit = %+v, want a zero-effect current-candidate Review refusal", deliveryRefusal.Error)
 	}
 	recordFinding("closed", "ready_for_final_proof")
@@ -214,15 +211,14 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("step after gate return = %q, want execution", got)
 	}
 
-	// The return asserted no further delivery: the execution pass's own
-	// delivery assertion is the only one, and the parked change never
-	// claimed one of its own.
+	// Ready Review advanced execution, not delivery. Neither the refused
+	// delivery nor the parked gate's correction may assert delivery.
 	var deliveries int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts r JOIN workflow_delivery_state d ON d.assertion_id=r.event_id WHERE r.subject_id='work-1' AND r.kind=? AND json_extract(d.payload,'$.action_id')='record_delivery'`, store.WorkflowActionCompleted).Scan(&deliveries); err != nil {
 		t.Fatal(err)
 	}
-	if deliveries != 1 {
-		t.Fatalf("gate recovery recorded %d delivery assertions, want the one execution-pass assertion", deliveries)
+	if deliveries != 0 {
+		t.Fatalf("Review progression or gate recovery recorded %d delivery assertions, want none", deliveries)
 	}
 	var definitionDigest string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&definitionDigest); err != nil {

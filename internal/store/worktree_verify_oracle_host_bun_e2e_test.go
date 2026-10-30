@@ -267,8 +267,12 @@ func TestNativeTargetAxisBunCandidateInputs(t *testing.T) {
 	if _, err := f.s.VerifyWorktree(context.Background(), f.request("deps-subject", nil)); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.executeErr(t, "deps"); err == nil || !strings.Contains(err.Error(), "candidate dependency inputs differ from pinned preparation") {
-		t.Fatalf("differing dependency inputs were not refused: %v", err)
+	if err := f.executeErr(t, "deps"); failureKind(err) != KindMissingEvidence || !strings.Contains(err.Error(), "preparation does not name the exact clean execution subject") {
+		t.Fatalf("changed candidate reused its prior preparation: %v", err)
+	}
+	prepare := NativeOracleRequest{Phase: "prepare", ExpectedContractVersion: 1, ControlBundle: &f.bundle}
+	if _, err := f.s.VerifyWorktree(t.Context(), f.request("deps-prepare", &prepare)); err == nil || !strings.Contains(err.Error(), "candidate dependency inputs differ from pinned preparation") {
+		t.Fatalf("differing dependency inputs prepared: %v", err)
 	}
 	gitRunStore(t, f.repo, "checkout", "HEAD~1", "--", "plugin/package.json")
 	for i, tree := range []string{"plugin/node_modules/left/index.js", "plugin/lib/node_modules/x/index.js", "plugin/.venv/node_modules/x/index.js"} {

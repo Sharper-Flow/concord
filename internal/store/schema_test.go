@@ -708,12 +708,10 @@ func TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T)
 	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('pre-existing-work','pre-existing','research',1,?,'research','routing-v1',?,'openai/gpt-5.6-luna','preferred','','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64), sqlitedb.RoutingPolicyManifestDigest); err != nil {
 		t.Fatalf("seed v43 worker attempt: %v", err)
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	// The write guard must be re-deactivated so a direct INSERT is rejected
+	advanceHistoricalPrefix(t, db, 44)
+	// The fold guard must be deactivated so a direct INSERT is rejected
 	// by the trigger rather than permitted because the guard is open.
-	if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	for _, column := range []string{"routing_policy_version", "routing_policy_digest", "resolved_model", "resolution_role", "fallback_reason"} {
@@ -731,12 +729,22 @@ func TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T)
 	}
 	// The lifecycle CHECK that references readback_model survives the
 	// migration; a 'completed' attempt must still carry a 3+-char readback.
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.ExecContext(ctx, `UPDATE worker_attempts SET lifecycle_state='completed', readback_model='', completed_at='2026-08-22T00:00:00Z' WHERE attempt_id='pre-existing'`); err == nil {
 		t.Fatal("completed-with-empty-readback bypassed the lifecycle CHECK")
+	} else if !strings.Contains(err.Error(), "CHECK constraint failed") {
+		t.Fatalf("invalid historical lifecycle refused outside its CHECK: %v", err)
 	}
-	// The write-seam-only triggers must be reinstalled so direct INSERT is refused.
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	// Migration 44 must reinstall the fold-only triggers.
 	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('direct','direct','research',?,'research','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64)); err == nil {
-		t.Fatal("direct INSERT bypassed the write guard")
+		t.Fatal("direct INSERT bypassed the fold guard")
+	} else if !strings.Contains(err.Error(), "worker_attempts is fold-only") {
+		t.Fatalf("direct INSERT refused outside the fold guard: %v", err)
 	}
 }
 
@@ -1829,27 +1837,6 @@ func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
 	); err != nil {
 		t.Fatalf("manifest record for migration 44: %v", err)
 	}
-	// Everything above targets migration 44. Carry the replay the rest of the
-	// way so the head assertion below keeps meaning what it says: the replay
-	// reached the current schema, not merely the migration this test opened on.
-	for _, m := range migrations[44:] {
-		if err := applyMigration(ctx, db, m); err != nil {
-			t.Fatalf("migration %d (%s): %v", m.Version, m.Name, err)
-		}
-		if _, err := db.ExecContext(ctx,
-			`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`,
-			m.Version, m.Name, m.checksum(), appliedAt,
-		); err != nil {
-			t.Fatalf("manifest record for migration %d: %v", m.Version, err)
-		}
-	}
-	var latest int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&latest); err != nil {
-		t.Fatalf("read schema version: %v", err)
-	}
-	if want := migrations[len(migrations)-1].Version; latest != want {
-		t.Fatalf("replay ended at version %d, want %d", latest, want)
-	}
 	for _, column := range []string{"routing_policy_version", "routing_policy_digest", "resolved_model", "resolution_role", "fallback_reason"} {
 		var count int
 		if err := db.QueryRowContext(ctx,
@@ -1868,16 +1855,28 @@ func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
 	if replayReadback != "openai/gpt-5.6-luna" {
 		t.Fatalf("replay readback_model = %q, want openai/gpt-5.6-luna", replayReadback)
 	}
-	// The current write guard must reject direct INSERT after the full replay.
+	// Migration 44's fold guard must reject direct INSERT before cutover.
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
 		"replay-work", "replay-44-attempt", "research",
 		"sha256:"+strings.Repeat("a", 64), "research",
 		"openai/gpt-5.6-luna", "1.0", "1.0", "dispatched", appliedAt,
 	); err == nil {
-		t.Fatal("post-replay INSERT bypassed the write guard")
-	} else if !strings.Contains(err.Error(), "write-seam-only") {
-		t.Fatalf("post-replay INSERT refused outside the write guard: %v", err)
+		t.Fatal("historical INSERT bypassed the fold guard")
+	} else if !strings.Contains(err.Error(), "worker_attempts is fold-only") {
+		t.Fatalf("historical INSERT refused outside the fold guard: %v", err)
+	}
+	// CD-0242 D6 retires the worker owner. Historical readback above is
+	// checked at schema 44; the remaining migrations must still reach head.
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var latest, workerTables int
+	if err := db.QueryRowContext(ctx, `SELECT max(version),(SELECT count(*) FROM sqlite_schema WHERE name='worker_attempts') FROM schema_migrations`).Scan(&latest, &workerTables); err != nil {
+		t.Fatal(err)
+	}
+	if latest != CurrentSchemaVersion() || workerTables != 0 {
+		t.Fatalf("migration chain ended at version %d with %d worker tables, want %d/0", latest, workerTables, CurrentSchemaVersion())
 	}
 }
 

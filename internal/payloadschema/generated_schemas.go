@@ -969,6 +969,27 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "type": "object"
     },
+    "continuity_review_input": {
+      "additionalProperties": false,
+      "description": "The native-qualified Review subject and the exact criterion and architecture revisions a Review must judge. Recording a Review rechecks them through its own sealed preparation.",
+      "properties": {
+        "dependencies": {
+          "$ref": "#/$defs/lane_report_review_dependencies"
+        },
+        "input_candidate": {
+          "$ref": "#/$defs/lane_report_review_candidate"
+        },
+        "size": {
+          "$ref": "#/$defs/work_size_summary",
+          "description": "The recorded work size and its model/operator provenance. Omitted when unsized; never inferred."
+        }
+      },
+      "required": [
+        "input_candidate",
+        "dependencies"
+      ],
+      "type": "object"
+    },
     "continuity_snapshot": {
       "additionalProperties": false,
       "properties": {
@@ -1171,6 +1192,9 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "proposal_record": {
               "$ref": "#/$defs/workflow_proposal_record"
+            },
+            "review_input": {
+              "$ref": "#/$defs/continuity_review_input"
             },
             "spec_mandate": {
               "items": {
@@ -6672,14 +6696,6 @@ const GeneratedPayloadSchemaDocument = `{
                 ]
               },
               "properties": {
-                "authorization_event_id": {
-                  "$ref": "#/$defs/id"
-                },
-                "authorization_seq": {
-                  "maximum": 9223372036854775807,
-                  "minimum": 1,
-                  "type": "integer"
-                },
                 "binary_digest": {
                   "$ref": "#/$defs/native_oracle_digest"
                 },
@@ -6843,11 +6859,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "minItems": 0,
                   "type": "array"
                 },
-                "start_seq": {
-                  "maximum": 9223372036854775807,
-                  "minimum": 1,
-                  "type": "integer"
-                },
                 "stderr": {
                   "$ref": "#/$defs/native_oracle_stream"
                 },
@@ -6900,10 +6911,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "streams_complete",
                 "control_id",
                 "stages",
-                "preparation_run_ref",
-                "authorization_event_id",
-                "authorization_seq",
-                "start_seq"
+                "preparation_run_ref"
               ],
               "then": {
                 "properties": {
@@ -7025,14 +7033,6 @@ const GeneratedPayloadSchemaDocument = `{
                 }
               ],
               "properties": {
-                "authorization_event_id": {
-                  "$ref": "#/$defs/id"
-                },
-                "authorization_seq": {
-                  "maximum": 9223372036854775807,
-                  "minimum": 1,
-                  "type": "integer"
-                },
                 "binary_digest": {
                   "$ref": "#/$defs/native_oracle_digest"
                 },
@@ -7226,11 +7226,6 @@ const GeneratedPayloadSchemaDocument = `{
                   "minItems": 0,
                   "type": "array"
                 },
-                "start_seq": {
-                  "maximum": 9223372036854775807,
-                  "minimum": 1,
-                  "type": "integer"
-                },
                 "stderr": {
                   "$ref": "#/$defs/native_oracle_stream"
                 },
@@ -7302,10 +7297,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "streams_complete",
                 "control_id",
                 "stages",
-                "preparation_run_ref",
-                "authorization_event_id",
-                "authorization_seq",
-                "start_seq"
+                "preparation_run_ref"
               ],
               "then": {
                 "properties": {
@@ -7344,14 +7336,6 @@ const GeneratedPayloadSchemaDocument = `{
             }
           ],
           "properties": {
-            "authorization_event_id": {
-              "$ref": "#/$defs/id"
-            },
-            "authorization_seq": {
-              "maximum": 9223372036854775807,
-              "minimum": 1,
-              "type": "integer"
-            },
             "binary_digest": {
               "$ref": "#/$defs/native_oracle_digest"
             },
@@ -7577,11 +7561,6 @@ const GeneratedPayloadSchemaDocument = `{
               "minItems": 0,
               "type": "array"
             },
-            "start_seq": {
-              "maximum": 9223372036854775807,
-              "minimum": 1,
-              "type": "integer"
-            },
             "stderr": {
               "$ref": "#/$defs/native_oracle_stream"
             },
@@ -7650,10 +7629,7 @@ const GeneratedPayloadSchemaDocument = `{
             "streams_complete",
             "control_id",
             "stages",
-            "preparation_run_ref",
-            "authorization_event_id",
-            "authorization_seq",
-            "start_seq"
+            "preparation_run_ref"
           ],
           "then": {
             "oneOf": [

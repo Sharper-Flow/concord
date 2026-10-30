@@ -84,14 +84,14 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	delivery := map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}
 	version := f.read(t).Pinned.Pin.Version
 	refused := f.action(t, "record_delivery", delivery)
-	if refused.Error == nil || refused.Error.Kind != "missing_evidence" || refused.Error.EffectState != agentcontract.EffectNone || f.read(t).Pinned.Pin.Version != version {
+	if refused.Error == nil || refused.Error.Kind != "stale_requires_review" || refused.Error.Message != "recorded Review does not cover the current candidate and dependencies" || refused.Error.EffectState != agentcontract.EffectNone || f.read(t).Pinned.Pin.Version != version {
 		t.Fatalf("changed obligation used the old Review or committed an effect: %+v", refused.Error)
 	}
 	f.prepareControl(t)
 	f.review(t, "correction_required", "")
 	report := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": report}))
-	if unmet := f.action(t, "record_delivery", delivery); unmet.Error == nil || unmet.Error.Kind != "missing_evidence" || !strings.Contains(unmet.Error.Message, "correction_required") {
+	if unmet := f.action(t, "record_delivery", delivery); unmet.Error == nil || unmet.Error.Kind != "missing_evidence" || unmet.Error.Message != "Review has not reached ready_for_final_proof without remaining obligations" || unmet.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("an unmet changed obligation left execution without correction: %+v", unmet.Error)
 	}
 	spineOK(t, f.action(t, "request_correction", map[string]any{

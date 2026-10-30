@@ -360,10 +360,13 @@ func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
 // evaluation and premise confirmation still remain before completion.
 func (f *spineFixture) advanceToAcceptance(t *testing.T) {
 	t.Helper()
+	if step := f.read(t).Pinned.Step; step != "refine" {
+		t.Fatalf("ready Review left the step at %q, want refine", step)
+	}
 	delivery := map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}
-	spineOK(t, f.action(t, "record_delivery", delivery))
 	spineOK(t, f.action(t, "checkpoint_refine", map[string]any{}))
 	f.proof = f.verify(t)
+	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "evidence_ref": "commit:" + f.proofCommit}))
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	spineOK(t, f.action(t, "record_delivery", delivery))
 	spineOK(t, f.action(t, "record_delivery", delivery))

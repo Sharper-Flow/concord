@@ -351,10 +351,13 @@ func TestCrucialReviewExitRefusesHighOrMediumFinding(t *testing.T) {
 }
 
 func TestReviewStateReadsCrucialFromEffectiveSize(t *testing.T) {
-	db, _ := g32ReviewFixture(t)
+	s := openTemp(t)
+	defer s.Close()
+	const workID = "review-effective-size"
+	seedWork(t, s, workID)
 	read := func() bool {
 		t.Helper()
-		state, err := loadWorkflowReviewState(t.Context(), db, "work-history")
+		state, err := loadWorkflowReviewState(t.Context(), s.db, workID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -363,7 +366,9 @@ func TestReviewStateReadsCrucialFromEffectiveSize(t *testing.T) {
 	if read() {
 		t.Fatal("an unsized item is crucial")
 	}
-	if _, err := db.Exec(`INSERT INTO work_size_assessments(work_id,sequence,model_version,size_class,inputs_json,footprint_json,recorded_at) VALUES('work-history',1,1,'crucial','{}','{}','t')`); err != nil {
+	inputs := workSizeInputsFixture()
+	inputs.Declared.Security = true
+	if err := applyWorkEvent(t, s, workSizedEvent("review-effective-size:sized", workID, WorkSizeModelVersion, WorkSizeCrucial, inputs), nil); err != nil {
 		t.Fatal(err)
 	}
 	if !read() {

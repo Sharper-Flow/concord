@@ -198,23 +198,21 @@ func TestNativeTargetGitMetadataCapacity(t *testing.T) {
 	if err != nil || view == nil {
 		t.Fatalf("two full-tag preparations blocked work-context reads: %v", err)
 	}
-	if len(view.OraclePreparations) != 2 {
-		t.Fatalf("context selected %d preparations, want original and current", len(view.OraclePreparations))
+	if len(view.OraclePreparations) != 1 {
+		t.Fatalf("context selected %d preparations, want only the current subject", len(view.OraclePreparations))
 	}
 	raw, err := json.Marshal(view.OraclePreparations)
 	if err != nil || strings.Contains(string(raw), "git_metadata") {
 		t.Fatalf("work context duplicated full receipt-only Git inventories: %s, %v", raw, err)
 	}
 	for _, prep := range view.OraclePreparations {
-		want := first.Oracle.BuildEnvironmentDigest
-		if prep.RunRef == f.prepare.OperationRef {
-			want = f.prepare.Oracle.BuildEnvironmentDigest
-		} else if prep.RunRef != first.OperationRef {
-			t.Fatalf("context replaced its qualified preparation: %s", prep.RunRef)
-		}
-		if prep.BuildEnvironmentDigest != want {
+		if prep.RunRef != f.prepare.OperationRef || prep.SubjectCommit != f.head || prep.BuildEnvironmentDigest != f.prepare.Oracle.BuildEnvironmentDigest {
 			t.Fatal("compact context lost its descriptor-bound environment identity")
 		}
+	}
+	retained, err := readOraclePreparationReceiptTx(t.Context(), f.s.db, f.work, "project", first.OperationRef)
+	if err != nil || retained == nil || retained.RunRef != first.OperationRef || retained.SubjectCommit != first.Oracle.SubjectCommit || retained.BuildEnvironmentDigest != first.Oracle.BuildEnvironmentDigest {
+		t.Fatalf("current selection lost the prior preparation's exact retained receipt: %+v, %v", retained, err)
 	}
 }
 

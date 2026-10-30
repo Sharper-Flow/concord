@@ -19,16 +19,13 @@ func TestCriterion13ProducerFactsSurviveStageExitAndFreshSession(t *testing.T) {
 	f.implement(t)
 	f.proof = f.verify(t)
 	f.prepareControl(t)
+	producer := f.read(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	before := f.read(t)
-	if before.Pinned.Pin.Review == nil || before.Pinned.Pin.Review.Accepted == nil {
+	if producer.Pinned.Step != "execution" || before.Pinned.Step != "refine" || before.Pinned.Pin.Review == nil || before.Pinned.Pin.Review.Accepted == nil {
 		t.Fatal("producer Review did not reach its accepting consumer")
 	}
 	delivery := map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}
-	spineOK(t, f.action(t, "record_delivery", delivery))
-	if got := f.read(t).Pinned.Step; got == before.Pinned.Step {
-		t.Fatal("accepted producer facts did not authorize the execution exit")
-	}
 	spineOK(t, f.action(t, "checkpoint_refine", map[string]any{}))
 	spineOK(t, f.action(t, "record_delivery", delivery))
 	spineOK(t, f.action(t, "record_delivery", delivery))

@@ -333,12 +333,12 @@ func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 	if err != nil {
 		return err
 	}
-	if err := bindWorkflowReviewRequest(g.ctx, g.tx, &admission, request.WorkID, request.ActionID, request.Payload, request.Actor); err != nil {
-		return err
-	}
 	decision := workflowAdmit(g.entry.Definition, admission, request.ActionID)
 	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed {
 		return workflowExecutionAdmissionFailure(decision, request.ProjectTooling)
+	}
+	if err := validateWorkflowReviewRequest(g.ctx, g.tx, request.WorkID, request.ActionID, request.Payload); err != nil {
+		return err
 	}
 	g.admissionState = &admission
 	g.admissionDecision = &decision

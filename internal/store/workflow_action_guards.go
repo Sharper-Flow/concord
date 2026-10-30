@@ -714,9 +714,6 @@ func (g *workflowActionGuardContext) foldedAdmissionState() (*WorkflowAdmissionS
 	if err != nil {
 		return nil, err
 	}
-	if err := bindWorkflowReviewRequest(g.ctx, g.tx, &state, g.request.WorkID, g.request.ActionID, g.request.Payload, g.request.Actor); err != nil {
-		return nil, err
-	}
 	g.admissionState = &state
 	g.deliveryProofRuns = proofRuns
 	return &state, nil
@@ -731,6 +728,11 @@ func (g *workflowActionGuardContext) foldedAdmissionDecision() (*WorkflowAdmissi
 		return nil, err
 	}
 	decision := workflowAdmit(g.entry.Definition, *state, g.request.ActionID)
+	if decision.Admitted || decision.OffStep || decision.AdvanceHeld || decision.OperatorQuestionClosed {
+		if err := validateWorkflowReviewRequest(g.ctx, g.tx, g.request.WorkID, g.request.ActionID, g.request.Payload); err != nil {
+			return nil, err
+		}
+	}
 	g.admissionDecision = &decision
 	return &decision, nil
 }

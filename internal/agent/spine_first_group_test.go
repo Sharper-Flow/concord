@@ -13,8 +13,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// First entry without Review applies only where no architecture is recorded;
-// the break-fix family has none.
+// Native verification qualifies a clean subject without manufacturing Review.
 func TestSpineFirstGroupFailedProofPreservesUnreviewedCandidate(t *testing.T) {
 	f := newSpineExecutionFixtureForFamily(t, "workflow.break_fix")
 	f.verify(t)
@@ -34,11 +33,11 @@ func TestSpineFirstGroupFailedProofPreservesUnreviewedCandidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitRun(t, f.path, "add", "pkg/value.go")
-	gitRun(t, f.path, "commit", "-qm", "finish the relaunched assignment")
+	gitRun(t, f.path, "commit", "-qm", "finish the checked repair")
 	f.verify(t)
 	after := f.read(t).Pinned.Pin
-	if after.Review.Accepted != nil || after.Review.Candidate == nil || after.Review.Candidate.Commit != gitRun(t, f.path, "rev-parse", "HEAD") {
-		t.Fatalf("same-assignment relaunch lost its result or required Review: %+v", after.Review)
+	if after.Review.Accepted != nil || after.Review.Candidate != nil || after.WorkContext == nil || after.WorkContext.SubjectCommit != gitRun(t, f.path, "rev-parse", "HEAD") {
+		t.Fatalf("native verification lost its qualified subject or manufactured Review: context=%+v Review=%+v", after.WorkContext, after.Review)
 	}
 }
 
@@ -51,8 +50,8 @@ func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 	}
 	f.implement(t)
 	before := f.read(t).Pinned.Pin
-	if before.Review.Candidate == nil || before.Review.Accepted != nil {
-		t.Fatalf("first result did not produce the unreviewed integrated candidate: %+v", before.Review)
+	if before.WorkContext == nil || before.WorkContext.SubjectCommit != gitRun(t, f.path, "rev-parse", "HEAD") || before.Review.Candidate != nil || before.Review.Accepted != nil {
+		t.Fatalf("native verification did not retain the unreviewed subject: context=%+v Review=%+v", before.WorkContext, before.Review)
 	}
 	assertHeld := func() {
 		t.Helper()
@@ -61,8 +60,8 @@ func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 			t.Fatalf("a progressed execution reopened its first group: %+v", refused)
 		}
 		after := f.read(t).Pinned.Pin
-		if after.Version != before.Version || after.Lifecycle != before.Lifecycle || !reflect.DeepEqual(after.Review, before.Review) {
-			t.Fatal("refused group opening changed the candidate, disposition, findings, or lifecycle")
+		if after.Version != before.Version || after.Lifecycle != before.Lifecycle || !reflect.DeepEqual(after.Review, before.Review) || !reflect.DeepEqual(after.WorkContext, before.WorkContext) {
+			t.Fatal("refused delivery changed the qualified subject, Review, or lifecycle")
 		}
 	}
 	assertHeld()

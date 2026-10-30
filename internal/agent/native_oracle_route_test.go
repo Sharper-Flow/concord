@@ -59,8 +59,8 @@ func TestNativeOracleInputDecodesFixedStoreRequest(t *testing.T) {
 func TestNativeOracleExecuteUnpreparedControlRefusesBeforeLeaseThroughAgent(t *testing.T) {
 	s, service, grant, _, _, _ := tiersFixture(t)
 	response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", nativeExecuteInput())
-	if response.Error == nil || response.Error.Kind != "unauthorized" || response.Error.EffectState != agentcontract.EffectNone {
-		t.Fatalf("unprepared execution did not reach native authorization refusal: %+v", response.Error)
+	if response.Error == nil || response.Error.Kind != "missing_evidence" || response.Error.EffectState != agentcontract.EffectNone {
+		t.Fatalf("unprepared execution did not reach native preparation refusal: %+v", response.Error)
 	}
 	var leases int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worktree_verify_leases`).Scan(&leases); err != nil {

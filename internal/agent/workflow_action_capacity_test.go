@@ -14,7 +14,7 @@ import (
 // production: any growth in the widest shape fails this exact figure first,
 // and the pin moves only by a deliberate re-derivation beside the ceilings'
 // own next-power-of-two assertions.
-const derivedRequestWireMaxBytes = 58685409
+const derivedRequestWireMaxBytes = 10415091
 
 // The shared action ceilings derive from the widest admitted shape, not a
 // shortlist: this test enumerates every admitted workflow-action variant the
@@ -42,19 +42,19 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	// Dependencies: 9873+428+5 value bytes + 67 syntax bytes = 10373.
 	// Work size: 2*9 enum + 20 version + 386 time + 55 syntax bytes = 479.
 	// Descriptor: candidate + dependencies + size + 44 syntax bytes.
-	dependencies := defs["worker_packet_review_dependencies"].(map[string]any)["properties"].(map[string]any)
+	dependencies := defs["lane_report_review_dependencies"].(map[string]any)["properties"].(map[string]any)
 	criteria := dependencies["criteria"].(map[string]any)
 	for _, row := range []struct {
 		name string
 		node any
 		want int
 	}{
-		{"candidate", defs["worker_packet_review_candidate"], 1575},
+		{"candidate", defs["lane_report_review_candidate"], 1575},
 		{"criterion", criteria["items"], 1233},
 		{"criteria", criteria, 9873},
-		{"dependencies", defs["worker_packet_review_dependencies"], 10373},
+		{"dependencies", defs["lane_report_review_dependencies"], 10373},
 		{"work size", defs["work_size_summary"], 479},
-		{"descriptor", defs["worker_packet_review_input"], 12471},
+		{"descriptor", defs["continuity_review_input"], 12471},
 	} {
 		got, err := schemawire.Max(row.node, row.name, schemawire.Options{Defs: defs})
 		if err != nil {
@@ -89,9 +89,6 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	const recordContext = "work_transition_action_variant_record_work_context"
 	opt := schemawire.Options{
 		Defs: defs,
-		RefBounds: map[string]int{
-			"worker_acceptance_oracle": store.OracleCombinedMaxBytes,
-		},
 		PathBounds: map[string]int{
 			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_repository_file/commit_oid": commitOIDWire,
 			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_knowledge/content_hash":     digestWire,

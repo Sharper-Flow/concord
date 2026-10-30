@@ -270,7 +270,7 @@ func validateRecordedReview(ctx context.Context, q queryer, work string, report 
 	if err != nil {
 		return err
 	}
-	if err := validateReviewCandidates(report, current, workflowSubjectPreparationFrom(ctx), state.Candidate); err != nil {
+	if err := validateReviewCandidates(report, current, state.Candidate); err != nil {
 		return err
 	}
 	deps, err := workflowReviewDependencies(ctx, q, work)
@@ -291,7 +291,7 @@ func validateRecordedReview(ctx context.Context, q queryer, work string, report 
 	return nil
 }
 
-func bindWorkflowReviewRequest(ctx context.Context, q queryer, state *WorkflowAdmissionState, work, action string, payload json.RawMessage, actor WorkflowActor) error {
+func validateWorkflowReviewRequest(ctx context.Context, q queryer, work, action string, payload json.RawMessage) error {
 	if action != "record_review" {
 		return nil
 	}
@@ -302,15 +302,20 @@ func bindWorkflowReviewRequest(ctx context.Context, q queryer, state *WorkflowAd
 	return validateRecordedReview(ctx, q, work, report)
 }
 
-func validateReviewCandidates(report *ReviewBlock, current *WorktreeVerifyResult, prepared *WorkflowSubjectPreparation, retained *ReviewCandidate) error {
+func validateRecordedReviewObservation(ctx context.Context, work string, report *ReviewBlock) error {
+	prepared := workflowSubjectPreparationFrom(ctx)
+	if prepared == nil || prepared.workID != work || prepared.candidate == nil || *prepared.candidate != report.OutputCandidate {
+		return reviewFailure(KindStaleRequiresReview, "Review output does not name the observed Project, commit and tree", "review the exact qualified clean candidate")
+	}
+	return nil
+}
+
+func validateReviewCandidates(report *ReviewBlock, current *WorktreeVerifyResult, retained *ReviewCandidate) error {
 	if report.InputCandidate.ProjectID != report.OutputCandidate.ProjectID {
 		return reviewFailure(KindUnauthorized, "Review input and output name different Projects", "record one Project's exact candidate")
 	}
 	if current == nil || current.ProjectID != report.OutputCandidate.ProjectID || current.SubjectRef != "commit:"+report.OutputCandidate.Commit {
 		return reviewFailure(KindStaleRequiresReview, "Review output is not the current qualified clean candidate", "qualify the exact candidate and record its Review")
-	}
-	if prepared == nil || prepared.candidate == nil || *prepared.candidate != report.OutputCandidate {
-		return reviewFailure(KindStaleRequiresReview, "Review output does not name the observed Project, commit and tree", "review the exact qualified clean candidate")
 	}
 	if report.InputCandidate.Commit == report.OutputCandidate.Commit && report.InputCandidate.Tree != report.OutputCandidate.Tree {
 		return reviewFailure(KindOutcomeMismatch, "unchanged Review commit names different trees", "retain the exact candidate tree")
@@ -451,7 +456,7 @@ func workflowResearchCriterionReceipt(ctx context.Context, q queryer, work, pred
 			}
 		}
 	}
-	return reviewFailure(KindMissingEvidence, "criterion "+predicate+" cites no evidenced research finding", "select the exact pack, revision and finding through record_work_context")
+	return reviewFailure(KindMissingEvidence, "criterion "+predicate+" reference "+workflowRefExcerpt(ref)+" cites no evidenced research finding", "select the exact pack, revision and sourced finding through record_work_context, then cite its research view reference in receipt_refs")
 }
 
 func workflowReviewedCommandReceipt(ctx context.Context, q queryer, work, predicate, ref, subject, project string) error {
@@ -494,6 +499,9 @@ func workflowResearchCriterionFamily(ctx context.Context, q queryer, work string
 }
 
 func verifyWorkflowCriterionAssociation(ctx context.Context, q queryer, work string, association workflowVerdictRecordedPayload) error {
+	if err := requireActor(ctx, q, association.VerdictActorRef); err != nil {
+		return err
+	}
 	state, err := loadWorkflowReviewState(ctx, q, work)
 	if err != nil {
 		return err

@@ -55,11 +55,12 @@ func lawUpgradePrefixForDefinition(t *testing.T, id, step string, contract, boun
 		lawUpgradeCompletionHistory(t, s, id, owner)
 	}
 	before := sixClassSnapshot(t, s.db, "work_items", "workflow_instances", "workflow_contracts", "workflow_contract_predicates", "workflow_actors", "effect_receipts")
-	if err := Migrate(t.Context(), s.db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, s.db, prefix+1)
 	if got := sixClassSnapshot(t, s.db, "work_items", "workflow_instances", "workflow_contracts", "workflow_contract_predicates", "workflow_actors", "effect_receipts"); !reflect.DeepEqual(got, before) {
 		t.Fatal("migration rewrote retained workflow facts")
+	}
+	if err := Migrate(t.Context(), s.db); err != nil {
+		t.Fatal(err)
 	}
 	lawUpgradeNoBaseline(t, s, id)
 	return s, owner

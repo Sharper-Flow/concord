@@ -263,9 +263,8 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	}
 	// One admission derivation for the preflight: the tx-scoped loader folds
 	// the instance history into the abstract admission state once, and the
-	// pure workflowAdmit decides. The refusal applies here except the review
-	// gate's own fresh-review refusal (its payload-bound ready-review
-	// carve-out), the operator-approval walls, and the closed-question wall,
+	// pure workflowAdmit decides. The refusal applies here except the
+	// operator-approval walls and the closed-question wall,
 	// which the approval-gated mutation boundary and the selection chain own
 	// before the fold refuses them. A staleness, impact, wall, or
 	// step-legality refusal is never deferred. The recovery flags and the
@@ -275,12 +274,12 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if admissionErr != nil {
 		return RegisteredDefinition{}, admissionErr
 	}
-	if err := bindWorkflowReviewRequest(ctx, tx, &admission, request.WorkID, request.ActionID, request.Payload, request.Actor); err != nil {
-		return RegisteredDefinition{}, err
-	}
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
 	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed {
 		return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
+	}
+	if err := validateWorkflowReviewRequest(ctx, tx, request.WorkID, request.ActionID, request.Payload); err != nil {
+		return RegisteredDefinition{}, err
 	}
 	staleRecovery := decision.RecoveryRoute
 	if request.ActionID == "supersede_contract" {

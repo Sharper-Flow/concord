@@ -2,8 +2,10 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
@@ -27,6 +29,9 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 			{"resumed Main", func(ref string) map[string]any {
 				return map[string]any{"verdicts": []any{entry("predicate:first", ref)}}
 			}, "", 1, ""},
+			{"resumed Main unproved last criterion", func(ref string) map[string]any {
+				return map[string]any{"verdicts": []any{entry("predicate:first", ref), entry("predicate:second", "research:invented")}}
+			}, KindMissingEvidence, 0, "research:invented"},
 			{"unapproved last criterion", func(ref string) map[string]any {
 				return map[string]any{"verdicts": []any{entry("predicate:first", ref), entry("predicate:foreign", ref)}}
 			}, KindInvalidPayload, 0, ""},
@@ -84,14 +89,52 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 				}
 				before := contractCorrectionEffectSnapshot(t, f.store, workID)
 				actor := f.owner
-				if tc.name == "resumed Main" {
+				resumed := strings.HasPrefix(tc.name, "resumed Main")
+				if resumed {
 					actor.SessionRef += ":resumed"
+				}
+				actorRef := mustActorRef(t, actor)
+				actorsBefore := countWorkflowActor(t, f.store, actorRef)
+				if resumed && actorsBefore != 0 {
+					t.Fatal("resumed Main fixture already recorded its actor")
 				}
 				preflight := WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 					WorkID: workID, ExpectedVersion: readWorkVersion(t, f.store, workID), ActionID: "record_verdict", Payload: payload, Actor: actor,
 				})
 				if after := contractCorrectionEffectSnapshot(t, f.store, workID); after != before {
 					t.Fatal("criterion preflight changed durable state")
+				}
+				if got := countWorkflowActor(t, f.store, actorRef); got != actorsBefore {
+					t.Fatal("criterion preflight recorded its actor")
+				}
+				if tc.name == "resumed Main" && preflight == nil {
+					rollback := errors.New("roll back the accepted criterion action")
+					version := readWorkVersion(t, f.store, workID)
+					err := f.store.Transact(t.Context(), func(tx *Transaction) error {
+						_, err := ApplyWorkflowActionTx(t.Context(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+							WorkID: workID, ExpectedVersion: version, ActionID: "record_verdict", Payload: payload, Actor: actor,
+							AcceptedInputsDigest: testManifestDigest, IdempotencyIdentity: "criterion-rollback", OperationID: "criterion-rollback",
+							PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "criterion-rollback", RequestID: "criterion-rollback",
+							ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
+						})
+						if err != nil {
+							return err
+						}
+						var actors, verdicts int
+						if err := tx.tx.QueryRow(`SELECT (SELECT count(*) FROM workflow_actors WHERE actor_ref=?),(SELECT count(*) FROM workflow_predicate_verdicts WHERE work_id=? AND actor=?)`, actorRef, workID, actorRef).Scan(&actors, &verdicts); err != nil {
+							return err
+						}
+						if actors != 1 || verdicts != 1 {
+							return errors.New("criterion action did not record its actor and verdict together")
+						}
+						return rollback
+					})
+					if !errors.Is(err, rollback) {
+						t.Fatalf("accepted criterion action did not reach rollback: %v", err)
+					}
+					if after := contractCorrectionEffectSnapshot(t, f.store, workID); after != before || countWorkflowActor(t, f.store, actorRef) != 0 {
+						t.Fatal("rolled-back criterion action retained effects or its actor")
+					}
 				}
 				err = runVerdictActionAs(t, f.store, workID, "record_verdict", payload, 0, actor)
 				if tc.kind != "" {
@@ -112,8 +155,20 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 					if after := contractCorrectionEffectSnapshot(t, f.store, workID); after != before {
 						t.Fatal("refused criterion batch changed durable state")
 					}
+					if got := countWorkflowActor(t, f.store, actorRef); got != actorsBefore {
+						t.Fatal("refused criterion batch recorded its actor")
+					}
 				} else if preflight != nil || err != nil {
 					t.Fatalf("current criterion proof refused: preflight=%v mutation=%v", preflight, err)
+				}
+				if tc.name == "resumed Main" {
+					if got := countWorkflowActor(t, f.store, actorRef); got != 1 {
+						t.Fatalf("accepted criterion action recorded %d actors, want 1", got)
+					}
+					var actorSeq, verdictSeq int64
+					if err := f.store.db.QueryRow(`SELECT (SELECT effect_seq FROM effect_receipts WHERE subject_id=? AND actor=? AND kind=?),(SELECT min(verdict_seq) FROM workflow_predicate_verdicts WHERE work_id=? AND actor=?)`, workID, actorRef, WorkflowActorRecorded, workID, actorRef).Scan(&actorSeq, &verdictSeq); err != nil || actorSeq >= verdictSeq {
+						t.Fatalf("actor registration must precede its verdict: actor=%d verdict=%d err=%v", actorSeq, verdictSeq, err)
+					}
 				}
 				if got := currentStep(t, f.store, workID); got != step {
 					t.Fatalf("criterion association advanced from %s to %s", step, got)
@@ -143,6 +198,15 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 					}
 					if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, workID, association); err != nil {
 						t.Fatalf("recorded criterion association cannot substantiate acceptance: %v", err)
+					}
+					unrecorded := actor
+					unrecorded.SessionRef += ":unrecorded"
+					association.VerdictActorRef = mustActorRef(t, unrecorded)
+					if countWorkflowActor(t, f.store, association.VerdictActorRef) != 0 {
+						t.Fatal("negative association fixture already recorded its actor")
+					}
+					if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, workID, association); !hasFailureKind(err, KindProjectionNotFound) {
+						t.Fatalf("stored association admitted an unrecorded actor: %v", err)
 					}
 				}
 			})

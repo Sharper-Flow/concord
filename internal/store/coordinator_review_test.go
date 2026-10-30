@@ -124,6 +124,9 @@ func TestCoordinatorReviewCandidatesRequireExactObservedInputAndOutput(t *testin
 		{"missing-observation", func(_ *ReviewBlock, _ **WorktreeVerifyResult, p **WorkflowSubjectPreparation, _ **ReviewCandidate) {
 			*p = nil
 		}, false},
+		{"foreign-observation", func(_ *ReviewBlock, _ **WorktreeVerifyResult, p **WorkflowSubjectPreparation, _ **ReviewCandidate) {
+			(*p).workID = "work:other"
+		}, false},
 		{"wrong-observed-tree", func(_ *ReviewBlock, _ **WorktreeVerifyResult, p **WorkflowSubjectPreparation, _ **ReviewCandidate) {
 			(*p).candidate.Tree = strings.Repeat("e", 40)
 		}, false},
@@ -142,14 +145,51 @@ func TestCoordinatorReviewCandidatesRequireExactObservedInputAndOutput(t *testin
 			candidate := ReviewCandidate{ProjectID: "project:one", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}
 			report := ReviewBlock{InputCandidate: candidate, OutputCandidate: candidate}
 			observed := candidate
-			prepared := &WorkflowSubjectPreparation{candidate: &observed}
+			prepared := &WorkflowSubjectPreparation{workID: "work:one", candidate: &observed}
 			current := &WorktreeVerifyResult{ProjectID: candidate.ProjectID, SubjectRef: "commit:" + candidate.Commit}
 			retained := &ReviewCandidate{ProjectID: candidate.ProjectID, Commit: strings.Repeat("d", 40), Tree: candidate.Tree}
 			tc.change(&report, &current, &prepared, &retained)
-			if err := validateReviewCandidates(&report, current, prepared, retained); (err == nil) != tc.valid {
+			err := validateReviewCandidates(&report, current, retained)
+			if err == nil {
+				err = validateRecordedReviewObservation(WithWorkflowSubjectPreparation(t.Context(), prepared), "work:one", &report)
+			}
+			if (err == nil) != tc.valid {
 				t.Fatalf("candidate admission=%v, valid=%v", err, tc.valid)
 			}
 		})
+	}
+}
+
+func TestCoordinatorReviewPreflightDefersObservationToAtomicFold(t *testing.T) {
+	j, _ := retainedReviewFixture(t, "review-preflight-observation")
+	report := currentReviewBlockForTest(t, j.s, j.workID, "", "continue")
+	preflight := func() error {
+		return WorkflowActionPreflightWithRegistry(t.Context(), j.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+			WorkID: j.workID, ExpectedVersion: readWorkVersion(t, j.s, j.workID), ActionID: "record_review",
+			Payload: mustJSONValue(map[string]any{"review": report}), Actor: j.fixture.owner,
+		})
+	}
+	before := j.effects(t)
+	if err := preflight(); err != nil {
+		t.Fatalf("SQL-only inspection requires a premature Git observation: %v", err)
+	}
+	if j.effects(t) != before {
+		t.Fatal("Review inspection changed durable state")
+	}
+	tree := report.OutputCandidate.Tree
+	report.InputCandidate.Tree, report.OutputCandidate.Tree = strings.Repeat("e", 40), strings.Repeat("e", 40)
+	if err := preflight(); err != nil {
+		t.Fatalf("inspection compared a tree before native observation: %v", err)
+	}
+	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, report); !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("live Review admitted a tree the native probe did not observe: %v", err)
+	}
+	if j.effects(t) != before {
+		t.Fatal("refused Review changed durable state")
+	}
+	report.InputCandidate.Tree, report.OutputCandidate.Tree = tree, tree
+	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, report); err != nil {
+		t.Fatalf("live Review refused the exact native observation: %v", err)
 	}
 }
 

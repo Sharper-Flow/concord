@@ -32,8 +32,8 @@ expand approved Product, Project, Domain, outcome or law authority.
 ### D4. Generated artifacts retain their owner
 
 Change a generator's authorized inputs and regenerate its projections; never
-hand-edit generated files. Changing a source, record status, authority tier or
-coverage claim is source authoring. Refreshing a hash or canonical encoding
+hand-edit generated files. Changing a source, record status or authority tier
+is source authoring. Refreshing a hash or canonical encoding
 approves neither content nor evidence.
 
 ### D5. Host permission and review remain separate

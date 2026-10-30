@@ -1,7 +1,7 @@
 # CD-0058: Concord does not route models
 
 - **Status:** Accepted
-- **Date:** 2026-08-21
+- **Date:** 2026-08-22
 - **Scope:** Concrete model selection
 - **Related:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D6
 

@@ -24524,16 +24524,23 @@
       "required": [
         "finding_id"
       ],
-      "if": {
-        "required": [
-          "evidence_refs"
-        ]
-      },
-      "else": {
-        "required": [
-          "judged_case_ids"
-        ]
-      },
+      "oneOf": [
+        {
+          "required": [
+            "evidence_refs"
+          ]
+        },
+        {
+          "required": [
+            "judged_case_ids"
+          ],
+          "not": {
+            "required": [
+              "evidence_refs"
+            ]
+          }
+        }
+      ],
       "description": "One closure claim of a previously open ranked finding. Supply native evidence refs, exact judged-case IDs, or both as required by the finding. Judged closure requires Main acceptance of the fresh candidate-bound completed Review report; the report alone grants no closure authority. Omission, relabeling, or a confidence change never closes a finding.",
       "properties": {
         "finding_id": {

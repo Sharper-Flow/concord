@@ -24,7 +24,7 @@ type eventLogAllowance struct {
 var eventLogMigrationAllowances = []eventLogAllowance{
 	{"internal/store/effect_receipts.go", "backfillEffectReceiptDigests", "145/151: applyMigration / retireEventLog"},
 	{"internal/store/event_log_retirement.go", "retireEventLog", "151: applyMigration"},
-	{"internal/store/review_migration.go", "backfillWorkflowReviewFacts", "148: applyMigration"},
+	{"internal/store/review_migration.go", "readLegacyReviewRecords", "148: backfillWorkflowReviewFacts"},
 	{"internal/store/work_context_facts.go", "backfillWorkContextFacts", "148: applyMigration"},
 	{"internal/store/work_size_proof_facts.go", "backfillWorkSizeProofWindow", "148: backfillWorkSizeProofFacts"},
 	{"internal/store/workflow_admission_migration.go", "workflowAdmissionFactsMigrationReady", "149: migrations.Applies"},

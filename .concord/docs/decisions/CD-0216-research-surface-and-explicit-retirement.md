@@ -96,4 +96,4 @@ Candidate anchors include `internal/agent.TestResearchRetireAuthorizationBeforeB
 `internal/agent.TestResearchRetireSchemaBounds`, and
 `internal/agent.TestResearchRetireDryRunAndReplay` in `internal/agent/research_surface_test.go`.
 They are source references, not execution receipts or complete coverage claims.
-Integrated coverage remains unmeasured until the parent supplies the missing witnesses.
+Integrated conformance evidence remains outstanding until the parent supplies the missing witnesses.

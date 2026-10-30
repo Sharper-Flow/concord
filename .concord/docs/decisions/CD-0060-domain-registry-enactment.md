@@ -43,7 +43,7 @@ The registry declares seven child Domains under `product-root:concord`:
 durable-authority        SQLite authority, current rows, snapshots, migrations
 workflow-engine          workflow contracts, actions, verdicts, terminal law
 agent-surface            typed tool surface, lanes, transport, result envelope
-product-memory           knowledge index, law records, coverage, retention
+product-memory           knowledge index, law records, retention
 work-coordination        work-item semantics, relations, claims, observations
 operator-surface         terminal launcher, CLI verbs, installation
 repository-verification  the authority a repository check may hold

@@ -546,4 +546,4 @@ CD-0244's added Domain-shape requirements.
 - `go test ./internal/store -run 'TestBlockedSessionsRoutesAttentionUnderBurst|TestDispatchAdmitsPacketConsumingLatestCheckpoint'` and its companion witness selectors prove coordination without global navigation artifacts.
 - `python3 scripts/test-check-package-domains.py` proves package-grain coverage and Domain reference checks, not CD-0244's code-root roles or fact ownership. The existing validator still enforces the replaced multi-Domain listing rule until that implementation changes.
 - `internal/store.TestAuthorizedFailedRetrySurvivesRegistryChange` proves a Domain registry change leaves in-progress work admitted (D7).
-- `internal/store.TestDomainFootprintJoinsPackageMapLawEvidenceAndCoverage` proves the footprint join and its order.
+- `internal/store.TestDomainFootprintJoinsPackageMapLawEvidence` proves the footprint join and its order.

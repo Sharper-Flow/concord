@@ -82,5 +82,5 @@ tail regression that the falsifier must detect.
   the PR #341 paced-overshoot signature is inconclusive with a clean control.
 - `internal/store.TestConformanceControlCommitOvershootFires` — paced majority
   and control overshoot fire.
-- The knowledge index and law coverage are regenerated from the per-record
-  shards and pass their validators.
+- The knowledge index is regenerated from the per-record shards and passes its
+  validators.

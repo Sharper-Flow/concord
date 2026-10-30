@@ -105,7 +105,7 @@ a probabilistic or judgment-shaped verdict is D4 and never blocks.
 4. This decision governs the repository validator plane only. The coordination
    plane's prior exclusion of heuristic authority is unchanged and remains the
    stronger rule.
-5. This record's satisfied coverage names the surviving store-boundary tests,
+5. This record's Verification section names the surviving store-boundary tests,
    transaction-scope test, and reachability checker.
 
 ## Rejected alternatives
@@ -133,5 +133,5 @@ warn-only guard over an invisible hang is noise nobody reads.
 - `internal/store.TestStoreBoundaryRepoIsClean` checks the production tree, and
   `internal/store.TestStoreBoundaryFixtureViolations` proves the boundary's
   finding classes and allowed scopes through the toolchain parser.
-- The required Go suite runs those tests. This record's coverage names them
+- The required Go suite runs those tests. This record's Verification section names them
   with the reachability checker as its surviving anchors.

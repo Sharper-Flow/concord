@@ -10,6 +10,11 @@ import (
 // checkout. Git authorship does not confer workflow authority.
 func reviewSubjectClaim(t *testing.T, s *Store, workID string) (string, string) {
 	t.Helper()
+	return reviewSubjectClaimObserved(t, s, workID, true)
+}
+
+func reviewSubjectClaimObserved(t *testing.T, s *Store, workID string, observe bool) (string, string) {
+	t.Helper()
 	ctx := t.Context()
 	root := t.TempDir()
 	var projectVersion int64
@@ -40,6 +45,9 @@ func reviewSubjectClaim(t *testing.T, s *Store, workID string) (string, string) 
 	gitRunStore(t, dir, "add", "-A")
 	gitRunStore(t, dir, "commit", "-m", "review subject seed")
 	head := runTestGit(t, dir, "rev-parse", "--verify", "HEAD^{commit}")
+	if !observe {
+		return dir, head
+	}
 	git.worktrees[dir] = claimed.Entry.Branch
 	git.worktreeRepos[dir] = dir
 	git.branches[claimed.Entry.Branch] = head

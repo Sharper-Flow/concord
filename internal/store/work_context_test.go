@@ -1010,8 +1010,8 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}
 	gitRunStore(t, repo, "branch", "-m", branch)
 	journey := &candidateJourney{fixture: fixture, s: fixture.store, workID: fixture.workID, repo: repo}
-	if err := journey.action(t, "start_execution", map[string]any{}, fixture.owner); err != nil {
-		t.Fatalf("start ordinary execution: %v", err)
+	if err := journey.action(t, "checkpoint_repair", map[string]any{}, fixture.owner); err != nil {
+		t.Fatalf("start ordinary repair: %v", err)
 	}
 	conformanceImplementChange(t, journey, "ctx-no-promotion-candidate")
 	request := journey.request("ctx-no-promotion-proof", nil)
@@ -1053,6 +1053,9 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		if err := journey.action(t, action, fields, fixture.owner); err != nil {
 			t.Fatalf("current completion route %s: %v", action, err)
 		}
+	}
+	if err := journey.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "evidence_ref": delivery["delivery_artifact"]}, fixture.owner); err != nil {
+		t.Fatalf("bind delivered artifact: %v", err)
 	}
 	if err := journey.action(t, "record_verdict", criterionAssociationPayload(proof.OperationRef, "predicate:work-context"), fixture.owner); err != nil {
 		t.Fatalf("associate captured criterion proof: %v", err)

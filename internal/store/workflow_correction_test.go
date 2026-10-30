@@ -253,6 +253,11 @@ func seedCompleteStep(t *testing.T, workID, definitionRef, verdictStep, complete
 	t.Helper()
 	effectStep := workflowUnhealthyVerdictRouteTarget(mustBuiltinDefinition(t, definitionRef).Definition, verdictStep)
 	fixture := seedWorkflowReturnRouteFixture(t, workID, definitionRef, effectStep)
+	if stepDeclaresAction(mustBuiltinDefinition(t, definitionRef).Definition, effectStep, "checkpoint_repair") {
+		if err := runVerdictActionAs(t, fixture.store, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
+			t.Fatalf("start the repair pass: %v", err)
+		}
+	}
 	reviewer := completeCompleteStepReview(t, fixture, workID, verdictStep, completeStep)
 	return fixture, reviewer
 }

@@ -297,8 +297,8 @@ func TestRoutineRecovery(t *testing.T) {
 		// A correction request records no dedicated event kind: it is a
 		// workflow.action_completed whose action_id is request_correction.
 		completed, ok := registeredEventKind(WorkflowActionCompleted)
-		if !ok || completed.CurrentVersion != 7 {
-			t.Fatalf("action_completed registration = %#v, want v7", completed)
+		if !ok || completed.CurrentVersion != 8 {
+			t.Fatalf("action_completed registration = %#v, want v8", completed)
 		}
 	})
 

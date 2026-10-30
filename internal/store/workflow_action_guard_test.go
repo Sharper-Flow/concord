@@ -17,20 +17,15 @@ import (
 // guard in applyWorkflowActionRawTx. Two guards are deliberately absent,
 // because each applies to every action and the dispatcher therefore calls them
 // directly: guardOperatorPremiseActor and guardRecordedActorTuple. The folded
-// admission owns the spec-mandate boundary. dispatch_worker carries no guard
-// either: workflowAdmit owns its design-currency boundary, and the packet
-// and identity checks the fold keeps are not action guards. record_alignment
+// admission owns the spec-mandate boundary. record_alignment
 // carries no guard: its cross-field payload rule is declared on the registry
 // payload and enforced by validateWorkflowActionPayload like every other
 // payload-shape rule (CON-412).
 var guardedActions = map[string]workflowActionGuardPhase{
 	"supersede_contract":     guardPhaseRecovery,
-	"reject_worker_result":   guardPhaseRecovery,
 	"request_correction":     guardPhaseRecovery,
 	"complete":               guardPhaseBoundary,
 	"record_verdict":         guardPhaseBoundary,
-	"accept_worker_result":   guardPhaseClaim,
-	"accept_worker_evidence": guardPhaseClaim,
 	"link_successor":         guardPhasePostValidation,
 	"cross_context_boundary": guardPhaseClaim,
 	"record_delivery":        guardPhaseClaim,

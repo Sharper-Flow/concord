@@ -38,7 +38,7 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 			}
 			var c acceptDeliveryCandidate
 			if stage == "missing-epoch-proof" {
-				c = acceptDeliveryUnprovedCandidateAt(t, workID, "workflow.implementation", false)
+				c = acceptDeliveryUnobservedCandidateAt(t, workID, "workflow.implementation")
 			} else {
 				c = acceptDeliveryCandidateAt(t, workID, "workflow.implementation", step, false)
 			}
@@ -58,8 +58,7 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 				started:     stage != "before-start", proof: stage == "green-proof",
 			}
 			want := admissionConformanceViewOf(admissionWorkflowState(definition, model))
-			// The unproved corrective candidate also invalidates the old
-			// candidate's criterion association, without changing the Review.
+			// The unobserved fixture has no criterion assessment or association.
 			want.AcceptanceDeliverablesMissing = stage == "missing-epoch-proof"
 			if got := admissionConformanceViewOf(state); got != want {
 				t.Fatalf("%s: loaded admission %+v != expected %+v", stage, got, want)
@@ -177,8 +176,8 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 		t.Fatal(err)
 	}
 	decision := workflowAdmit(entry.Definition, state, "record_delivery")
-	// The bound run, claim observation and early producer run cover the candidate.
-	if !state.Delivery.ProofReady || len(runs) != 3 || !decision.Admitted {
+	// Binding, claim, early verification, and Review qualification cover the candidate.
+	if !state.Delivery.ProofReady || len(runs) != 4 || !decision.Admitted {
 		t.Fatalf("proof snapshot: state=%+v, runs=%+v, decision=%+v", state.Delivery, runs, decision)
 	}
 	for _, cached := range []bool{false, true} {

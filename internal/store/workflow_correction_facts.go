@@ -58,9 +58,6 @@ func writeWorkflowCorrectionFacts(ctx context.Context, q migrationRunner, workID
 
 func correctionStateForEvent(event Event) (correctionStateFact, bool, error) {
 	state := correctionStateFact{Boundary: event.Seq}
-	if event.Kind == WorkflowContractSuperseded {
-		return state, true, nil
-	}
 	if event.Kind != WorkflowActionCompleted {
 		return state, false, nil
 	}

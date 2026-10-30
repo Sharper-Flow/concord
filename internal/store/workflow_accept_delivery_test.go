@@ -70,8 +70,9 @@ func acceptDeliveryBindFresh(t *testing.T, c acceptDeliveryCandidate, id string)
 	c.j.bindVerification(t, c.j.observeRun(t, id))
 }
 
-// The new candidate has a qualified observation but no associated verification.
-func acceptDeliveryUnprovedCandidateAt(t *testing.T, workID, ref string, _ bool) acceptDeliveryCandidate {
+// Qualification is itself green proof without a tooling manifest. This fixture
+// needs a manifest to distinguish candidate observation from a declared check.
+func acceptDeliveryCorrectedCandidateAt(t *testing.T, workID, ref string) acceptDeliveryCandidate {
 	t.Helper()
 	c := acceptDeliveryCandidateAt(t, workID, ref, "refine", false)
 	input := currentReviewBlockForTest(t, c.f.store, workID, "", "ready_for_final_proof").OutputCandidate
@@ -84,6 +85,37 @@ func acceptDeliveryUnprovedCandidateAt(t *testing.T, workID, ref string, _ bool)
 	report := currentReviewBlockForTest(t, c.f.store, workID, "", "ready_for_final_proof")
 	report.InputCandidate = input
 	if err := recordReviewForTest(t, c.f.store, workID, c.f.owner, report); err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// A retained Review can have no surviving producer receipt. Seed its projection:
+// the live record_review route and its fold require a qualified subject,
+// whose green observation would itself satisfy proof without a manifest.
+func acceptDeliveryUnobservedCandidateAt(t *testing.T, workID, ref string) acceptDeliveryCandidate {
+	t.Helper()
+	definition := mustBuiltinDefinition(t, ref)
+	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "refine", []string{"verification"}, []string{"review", "artifact"})
+	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
+	repo, _ := reviewSubjectClaimObserved(t, f.store, workID, false)
+	c := acceptDeliveryCandidate{f: f, j: &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo, acceptor: f.owner}, definition: definition}
+	reviewGateStartStep(t, f.store, workID, "refine", "checkpoint_refine", f.owner)
+	actor := mustActorRef(t, f.owner)
+	report := currentReviewBlockForTest(t, f.store, workID, "", "ready_for_final_proof")
+	state := WorkflowReviewState{Dependencies: &report.Dependencies}
+	applyWorkflowAcceptedReview(&state, WorkflowAcceptedReview{ReportRef: "retained-review:" + workID, ReportDigest: reviewDigest(report), ActorRef: actor, Report: *report}, map[string]ReviewFinding{})
+	if err := f.store.Transact(t.Context(), func(tx *Transaction) error {
+		guard, err := beginWrite(t.Context(), tx.tx)
+		if err != nil {
+			return err
+		}
+		if err := writeWorkflowReviewFacts(t.Context(), tx.tx, workID, state); err != nil {
+			_ = guard.close(t.Context())
+			return err
+		}
+		return guard.close(t.Context())
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return c
@@ -131,7 +163,7 @@ func TestDeliveryAdmissionRefusals(t *testing.T) {
 				{"no-verification-run", true, false, func(*testing.T, acceptDeliveryCandidate) *ProjectToolingManifest { return nil }, KindMissingEvidence, "no passing producer verification covers the current integrated candidate"},
 				{"stale-run", true, false, func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					c.j.bindVerification(t, c.early)
-					return nil
+					return refineProofTooling(ProjectDeclaredTool{ID: "go-vet", Invocation: "go vet ./..."})
 				}, KindMissingEvidence, "verification does not cover the current integrated candidate"},
 				{"failed-run", true, false, func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					acceptDeliveryUnbindableRun(t, c, "failed", []string{"false"})
@@ -154,7 +186,7 @@ func TestDeliveryAdmissionRefusals(t *testing.T) {
 					completeCurrentReviewForTest(t, c.f, c.j.repo, "correction_required")
 					acceptDeliveryBindFresh(t, c, "corrective")
 					return nil
-				}, KindMissingEvidence, "correction_required"},
+				}, KindMissingEvidence, "Review has not reached ready_for_final_proof"},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					const workID = "delivery-refusal"
@@ -163,8 +195,10 @@ func TestDeliveryAdmissionRefusals(t *testing.T) {
 						step = family.workStep
 					}
 					var c acceptDeliveryCandidate
-					if tc.unproved {
-						c = acceptDeliveryUnprovedCandidateAt(t, workID, family.ref, false)
+					if tc.unproved && tc.name != "stale-run" {
+						c = acceptDeliveryUnobservedCandidateAt(t, workID, family.ref)
+					} else if tc.unproved {
+						c = acceptDeliveryCorrectedCandidateAt(t, workID, family.ref)
 					} else {
 						c = acceptDeliveryCandidateAt(t, workID, family.ref, step, false)
 					}
@@ -231,7 +265,7 @@ func TestDeliveryAssertionReaders(t *testing.T) {
 		t.Fatalf("parked delivery = %+v", parked)
 	}
 	var completions int
-	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_completed_exits WHERE work_id=? AND action_id='record_delivery'`, workID).Scan(&completions); err != nil || completions != 1 {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=? AND delivery_assertion=1`, workID, WorkflowActionCompleted).Scan(&completions); err != nil || completions != 1 {
 		t.Fatalf("asserted delivery completions = %d, %v", completions, err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")

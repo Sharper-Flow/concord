@@ -175,12 +175,12 @@ func TestG32ChangedDependenciesRetainRecordedReview(t *testing.T) {
 			}
 			if change == "criterion" {
 				payload := pContractSuccessor(t, j.s, j.workID, "The same outcome needs a revised criterion.")
-				payload["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "corrected-result"
+				payload["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "fail"
 				if err := runVerdictActionAs(t, j.s, j.workID, "supersede_contract", mustJSONValue(payload), 0, j.fixture.owner); err != nil {
 					t.Fatal(err)
 				}
 			} else {
-				if _, err := j.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_design_records(work_id,work_version,approach,decisions,touched_refs,recorded_at) VALUES(?,2,'Use the revised architecture.','[]','["owner.go"]','2026-01-01T00:00:00Z'); DELETE FROM write_guard`, j.workID); err != nil {
+				if _, err := j.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_design_records(work_id,work_version,approach,decisions,touched_refs,recorded_at) VALUES(?,2,'Use the revised architecture.','[{"id":"decision:owner","question":"Which package owns the behavior?","choice":"The owning package.","rationale":"Keep the invariant local.","rejected":[]}]','["owner.go"]','2026-01-01T00:00:00Z'); DELETE FROM write_guard`, j.workID); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -254,7 +254,8 @@ func TestG32ReviewBackfillParityInterleavings(t *testing.T) {
 	check("omitted finding", "omitted", &baseline.OutputCandidate, "open")
 	complete("implementation", "implementation", repair)
 	accept("implementation")
-	check("implementation has no Review authority", "omitted", &baseline.OutputCandidate, "open")
+	implementation := ReviewCandidate{Commit: repair.OutputCandidate.Commit, Tree: repair.OutputCandidate.Tree}
+	check("implementation has no Review authority", "omitted", &implementation, "open")
 }
 
 func TestG32DeclaredCorrectionLogBlind(t *testing.T) {

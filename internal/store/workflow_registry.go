@@ -1452,7 +1452,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	),
 	"record_delivery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric,
 		actionRefField("delivery_artifact", true), actionEnumField("delivery_state", true, "asserted")),
-	"record_review": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric,
+	"record_review": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
 		actionObjectField("review", true, "workflow_review_report"),
 	),
 	"request_correction": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold, ActionEventGeneric,

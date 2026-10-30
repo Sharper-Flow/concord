@@ -69,8 +69,10 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 	c.j.bindVerification(t, c.early)
 	acceptCurrentReviewForTest(t, c.f, c.j.repo, "continue")
-	// Exercise gate recovery after the repair changed the reviewed candidate. A plain result
-	// disposition cannot itself assert delivery or move refine (CD-0242 D5).
+	pReturnProduce(t, c.j, "unreviewed-repair")
+	qualifyReviewSubjectForTest(t, s, workID, c.j.repo)
+	// Gate recovery requires candidate or dependency movement, not merely a
+	// non-ready disposition on an otherwise current Review.
 	setWorkflowStepForOperatorVerdictTest(t, s, workID, "delivery")
 	reviewGateRequireStep(t, s, workID, "delivery")
 

@@ -127,12 +127,12 @@ func countWorkflowActionStarts(t *testing.T, s *Store, workID string) int {
 func TestWorkflowActionCheckpointedV2BindsActorStepKindAndEpoch(t *testing.T) {
 	t.Parallel()
 	workID := "authority-checkpoint-guards"
-	s, executor, owner := seedOrdinaryExecutorAtExecution(t, workID)
+	s, executor, owner := seedOrdinaryExecutorAtExecutionWithCheckpoint(t, workID, false)
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseVersion := int64(12)
+	baseVersion := int64(11)
 	baseCheckpoints := countWorkflowCheckpoints(t, s, workID)
 	checkpoint := func(id, eventActor, payloadActor, stepID, stepKind string, epoch int64) Event {
 		return workflowEventWithActor(id, WorkflowActionCheckpointed, workID, eventActor, map[string]any{
@@ -347,6 +347,11 @@ func workflowActionCompletedFixture(eventID, workID, actor string, expected int6
 
 func seedOrdinaryExecutorAtExecution(t *testing.T, workID string) (*Store, string, WorkflowActor) {
 	t.Helper()
+	return seedOrdinaryExecutorAtExecutionWithCheckpoint(t, workID, true)
+}
+
+func seedOrdinaryExecutorAtExecutionWithCheckpoint(t *testing.T, workID string, checkpoint bool) (*Store, string, WorkflowActor) {
+	t.Helper()
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
@@ -380,12 +385,14 @@ func seedOrdinaryExecutorAtExecution(t *testing.T, workID string) (*Store, strin
 			"actor_ref": executorRef, "execution_model": "model:fixture",
 		}))
 	}
-	setup = append(setup, workflowEventWithActor("seed-checkpoint-"+workID, WorkflowActionCheckpointed, workID, executorRef, map[string]any{
-		"work_id": workID, "expected_version": 11, "resulting_version": 12, "step_id": "execution", "step_kind": "external_effect", "attempt_epoch": 2,
-		"checkpoint_payload": map[string]any{"action_id": "checkpoint_execution", "cursor": "seed"}, "resume_cursor": "cursor:seed", "actor_ref": executorRef,
-		"request_id": "request:seed-" + workID, "checkpoint_id": "checkpoint:seed-" + workID,
-		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "seed-" + workID,
-	}))
+	if checkpoint {
+		setup = append(setup, workflowEventWithActor("seed-checkpoint-"+workID, WorkflowActionCheckpointed, workID, executorRef, map[string]any{
+			"work_id": workID, "expected_version": 11, "resulting_version": 12, "step_id": "execution", "step_kind": "external_effect", "attempt_epoch": 2,
+			"checkpoint_payload": map[string]any{"action_id": "checkpoint_execution", "cursor": "seed"}, "resume_cursor": "cursor:seed", "actor_ref": executorRef,
+			"request_id": "request:seed-" + workID, "checkpoint_id": "checkpoint:seed-" + workID,
+			"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "seed-" + workID,
+		}))
+	}
 	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}

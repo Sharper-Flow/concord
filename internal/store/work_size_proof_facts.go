@@ -46,7 +46,7 @@ func advanceWorkSizeProofFactsTx(ctx context.Context, tx *sql.Tx, event Event) e
 	case WorkflowActionCompleted:
 		var action workflowActionCompletedPayload
 		if err := json.Unmarshal(event.Payload, &action); err != nil {
-			return err
+			return wrapFailure(KindInvariantViolation, "work_size", "a stored review completion is malformed", false, "restore a verified backup into a new path with concord restore, then swap", err)
 		}
 		actionID = action.ActionID
 		switch actionID {

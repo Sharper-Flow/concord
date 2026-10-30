@@ -41,6 +41,10 @@ func TestResearchCompositionReachesReview(t *testing.T) {
 	if step := readInstanceStep(t, s, workID); step != "findings" {
 		t.Fatalf("research prerequisites reached %q, want findings", step)
 	}
+	apply("record_report", nil)
+	if step := readInstanceStep(t, s, workID); step != "conclude" {
+		t.Fatalf("research report reached %q, want conclude", step)
+	}
 	repo, _ := reviewSubjectClaim(t, s, workID)
 	qualifyReviewSubjectForTest(t, s, workID, repo)
 	report := currentReviewBlockForTest(t, s, workID, "", "ready_for_final_proof")

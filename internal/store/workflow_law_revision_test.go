@@ -310,8 +310,8 @@ func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
 	t.Parallel()
 	const workID = "law-deletion-execution-recovery"
 	s := seedLawRevisionPendingReview(t, workID)
-	if _, _, err := WorkflowActionDefinitionFor(t.Context(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); !hasFailureKind(err, KindInvalidOperation) {
-		t.Fatalf("healthy execution exposed stale recovery: %v", err)
+	if err := checkWorkflowLawRevisionStalenessTx(t.Context(), s.db, workID); err != nil {
+		t.Fatalf("healthy execution has a stale law pin: %v", err)
 	}
 	var approvedBy string
 	if err := s.db.QueryRow(`SELECT approved_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&approvedBy); err != nil {
@@ -489,18 +489,13 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossProcessAcceptance(t *testin
 		t.Fatal(err)
 	}
 	cutover.Stderr = os.Stderr
-	if err := cutover.Start(); err != nil {
-		t.Fatal(err)
-	}
-	cutoverScanner := bufio.NewScanner(cutoverOut)
-	t.Cleanup(func() { _ = cutover.Process.Kill() })
-	if !cutoverScanner.Scan() || cutoverScanner.Text() != "cutover=locked" {
-		t.Fatalf("cutover worker did not establish its transaction lock: %q", cutoverScanner.Text())
-	}
-
 	acceptance := exec.Command(os.Args[0], "-test.run=^TestWorkflowLawRevisionCrossProcessWorker$", "-test.v=false")
 	acceptance.Env = append(os.Environ(), "TEST_CONCORD_LAW_RACE_ROLE=acceptance", "TEST_CONCORD_LAW_RACE_DB="+s.Path(), "TEST_CONCORD_LAW_RACE_WORK="+workID, fmt.Sprintf("TEST_CONCORD_LAW_RACE_VERSION=%d", version))
 	acceptanceOut, err := acceptance.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptanceIn, err := acceptance.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,6 +507,17 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossProcessAcceptance(t *testin
 	t.Cleanup(func() { _ = acceptance.Process.Kill() })
 	if !acceptanceScanner.Scan() || acceptanceScanner.Text() != "acceptance=ready" {
 		t.Fatalf("acceptance worker did not become ready before cutover commit: %q", acceptanceScanner.Text())
+	}
+	if err := cutover.Start(); err != nil {
+		t.Fatal(err)
+	}
+	cutoverScanner := bufio.NewScanner(cutoverOut)
+	t.Cleanup(func() { _ = cutover.Process.Kill() })
+	if !cutoverScanner.Scan() || cutoverScanner.Text() != "cutover=locked" {
+		t.Fatalf("cutover worker did not establish its transaction lock: %q", cutoverScanner.Text())
+	}
+	if _, err := fmt.Fprintln(acceptanceIn, "accept"); err != nil {
+		t.Fatal(err)
 	}
 
 	if _, err := fmt.Fprintln(cutoverIn, "release"); err != nil {
@@ -536,9 +542,6 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 	role := os.Getenv("TEST_CONCORD_LAW_RACE_ROLE")
 	if role == "" {
 		return
-	}
-	if role == "acceptance" {
-		fmt.Println("acceptance=ready")
 	}
 	s, err := Open(context.Background(), os.Getenv("TEST_CONCORD_LAW_RACE_DB"))
 	if err != nil {
@@ -576,12 +579,20 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 		fmt.Println("cutover=committed")
 	case "acceptance":
 		acceptancePayload := mustJSONValue(lawRevisionAcceptancePayload(t, s, workID))
+		acceptanceCtx, err := prepareTerminalTestContext(context.Background(), s, workID, "record_review")
+		if err != nil {
+			t.Fatal(err)
+		}
+		fmt.Println("acceptance=ready")
+		if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
+			t.Fatal(err)
+		}
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "TEST_CONCORD_LAW_RACE_VERSION"), ActionID: "record_review", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+		_, actionErr := applyWorkflowActionRawTx(acceptanceCtx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "TEST_CONCORD_LAW_RACE_VERSION"), ActionID: "record_review", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 		tx.Rollback()
 		var failure *Failure
 		if !failureAs(actionErr, &failure) || failure.Kind != KindStaleLawRevision {
@@ -678,6 +689,10 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 	workID := "law-stale-in-flight"
 	s := seedLawRevisionPendingReview(t, workID)
 	acceptancePayload := mustJSONValue(lawRevisionAcceptancePayload(t, s, workID))
+	acceptanceCtx, err := prepareTerminalTestContext(context.Background(), s, workID, "record_review")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var definitionRef string
 	var definitionDigest string
 	if err := s.db.QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionDigest); err != nil {
@@ -716,7 +731,7 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(acceptanceCtx, tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: currentVersion, ActionID: "record_review", Payload: acceptancePayload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "accept-stale", OperationID: "accept-stale", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "accept-stale", RequestID: "request:accept-stale", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 2, 0, time.UTC),
 	})

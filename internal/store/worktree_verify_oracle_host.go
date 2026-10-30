@@ -225,7 +225,7 @@ func nativeTargetSelector(m nativeTargetOracleManifest, c OracleControl) ([]stri
 			return nil, wrapFailure(KindUnavailable, "native_target", "cannot render the closed selector", false, "repair the pinned harness", renderErr)
 		}
 		return nil, oracleFailure(KindUnavailable, "control argv is not the exact closed "+m.Runner+" selector",
-			"set control argv to the exact closed selector "+string(rendered)+" (the "+m.Runner+" runner identity followed by the sorted distinct case witnesses), then request explicit fresh native preparation")
+			"set control argv to the exact closed selector "+string(rendered)+" (the "+m.Runner+" runner identity followed by the sorted distinct case witnesses), then call worktree_verify with oracle.phase=prepare for fresh native preparation")
 	}
 	return witnesses, nil
 }

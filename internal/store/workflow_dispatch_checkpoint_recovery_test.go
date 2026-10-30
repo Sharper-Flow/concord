@@ -111,7 +111,9 @@ func TestReviewCheckpointCorrectionAvailability(t *testing.T) {
 			check("ordinary producer before Review", true, 1)
 			acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
 			check("recorded corrective Review", true, 1)
-			if _, err := j.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET superseded_by=contract_version+1 WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
+			// This malformed inactive projection retains its referenced row;
+			// availability must not invent an active contract to recover it.
+			if _, err := j.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET superseded_by=contract_version WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 				t.Fatal(err)
 			}
 			check("no active contract", false, 0)

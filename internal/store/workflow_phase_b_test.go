@@ -36,7 +36,7 @@ func TestBuiltinWorkflowRegistryHasTheThreeLiveContractFamilies(t *testing.T) {
 	wantActions := map[string][]string{
 		"workflow.implementation": {"record_proposal", "checkpoint_context", "cross_context_boundary", "record_work_context", "record_alignment", "approve_contract", "record_design", "start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "record_delivery", "request_correction", "record_review", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
 		"workflow.break_fix":      {"record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context", "approve_contract", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "request_correction", "record_review", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
-		"workflow.research":       {"frame_research", "approve_contract", "checkpoint_context", "cross_context_boundary", "record_work_context", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete"},
+		"workflow.research":       {"frame_research", "approve_contract", "checkpoint_context", "cross_context_boundary", "record_work_context", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "record_review", "complete"},
 	}
 	wantTerminals := map[string]string{
 		"workflow.implementation": "release", "workflow.break_fix": "complete", "workflow.research": "complete",
@@ -70,6 +70,15 @@ func TestBuiltinWorkflowRegistryHasTheThreeLiveContractFamilies(t *testing.T) {
 		}
 		if !reflect.DeepEqual(definition.AvailableActions, wantActions[definition.Ref]) {
 			t.Fatalf("%s actions = %v, want %v", definition.Ref, definition.AvailableActions, wantActions[definition.Ref])
+		}
+		if definition.Ref == "workflow.research" {
+			conclude := workflowStep(definition, "conclude")
+			if !reflect.DeepEqual(conclude.Actions, []string{"record_conclusion", "record_verdict", "confirm_premise", "checkpoint_context", "cross_context_boundary", "record_review", "record_work_context"}) {
+				t.Fatalf("research conclude actions = %v, want conclusion, verdict, premise, continuity, Review and context", conclude.Actions)
+			}
+			if mode, ok := workflowActionExecutionMode(definition, "record_review"); !ok || mode != ActionHold {
+				t.Fatalf("research record_review mode = %q, declared = %t, want hold", mode, ok)
+			}
 		}
 		for _, step := range definition.StepGraph.Steps {
 			if !slices.Contains(step.Actions, "checkpoint_context") || !slices.Contains(step.Actions, "cross_context_boundary") {

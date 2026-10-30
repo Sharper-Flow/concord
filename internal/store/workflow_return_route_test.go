@@ -217,6 +217,11 @@ func testWorkflowReturnRoute(t *testing.T, id, family, verdictStep, effect strin
 		t.Fatal("persistent correction completed the work")
 	}
 	reviewGateRequireStep(t, j.s, id, effect)
+	start := "checkpoint_repair"
+	if effect == "execution" {
+		start = "start_execution"
+	}
+	reviewGateStartStep(t, j.s, id, effect, start, j.fixture.owner)
 	proof := j.observeRun(t, "final-proof")
 	if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proof.OperationRef}, j.fixture.owner); err != nil {
 		t.Fatal(err)

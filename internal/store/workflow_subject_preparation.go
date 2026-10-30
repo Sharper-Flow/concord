@@ -41,35 +41,7 @@ func PrepareWorkflowAcceptanceFreshness(ctx context.Context, s *Store, request P
 	}
 	p := &WorkflowSubjectPreparation{workID: request.WorkID}
 	if err := s.readSnapshot(ctx, func(q queryer) error {
-		var err error
-		if err = q.QueryRowContext(ctx, `SELECT w.version,COALESCE(i.current_step,'') FROM work_items w LEFT JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, request.WorkID).Scan(&p.version, &p.step); err != nil {
-			return workflowProjectionError(err, "cannot sample workflow subject version and step")
-		}
-		p.contract, err = activeWorkflowContractVersion(ctx, q, request.WorkID, "workflow_subject")
-		if err != nil && err != sql.ErrNoRows {
-			return err
-		}
-		view, err := readWorkContextView(ctx, q, request.WorkID)
-		if err != nil {
-			return err
-		}
-		p.viewDigest = reviewDigest(view)
-		p.receipt, err = readCurrentOracleSubjectReceipt(ctx, q, request.WorkID)
-		if err != nil || p.receipt == nil {
-			return err
-		}
-		entries, err := worktreeEntriesCore(ctx, q, request.WorkID)
-		if err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			if entry.State == worktreeEntryActive && entry.ProjectID == p.receipt.ProjectID && entry.Path == p.receipt.Path && entry.Branch == p.receipt.Branch {
-				copy := entry
-				p.entry = &copy
-				return nil
-			}
-		}
-		return newFailure(KindStaleRequiresReview, "workflow_subject", "terminal acceptance cannot establish the current subject's claimed worktree", false, "claim and verify the subject's worktree")
+		return p.sample(ctx, q)
 	}); err != nil {
 		return nil, err
 	}
@@ -99,6 +71,38 @@ func PrepareWorkflowAcceptanceFreshness(ctx context.Context, s *Store, request P
 	}
 	p.candidate = &ReviewCandidate{ProjectID: p.receipt.ProjectID, Commit: before.head, Tree: tree}
 	return p, nil
+}
+
+func (p *WorkflowSubjectPreparation) sample(ctx context.Context, q queryer) error {
+	var err error
+	if err = q.QueryRowContext(ctx, `SELECT w.version,COALESCE(i.current_step,'') FROM work_items w LEFT JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, p.workID).Scan(&p.version, &p.step); err != nil {
+		return workflowProjectionError(err, "cannot sample workflow subject version and step")
+	}
+	p.contract, err = activeWorkflowContractVersion(ctx, q, p.workID, "workflow_subject")
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	view, err := readWorkContextView(ctx, q, p.workID)
+	if err != nil {
+		return err
+	}
+	p.viewDigest = reviewDigest(view)
+	p.receipt, err = readCurrentOracleSubjectReceipt(ctx, q, p.workID)
+	if err != nil || p.receipt == nil {
+		return err
+	}
+	entries, err := worktreeEntriesCore(ctx, q, p.workID)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.State == worktreeEntryActive && entry.ProjectID == p.receipt.ProjectID && entry.Path == p.receipt.Path && entry.Branch == p.receipt.Branch {
+			copy := entry
+			p.entry = &copy
+			return nil
+		}
+	}
+	return newFailure(KindStaleRequiresReview, "workflow_subject", "terminal acceptance cannot establish the current subject's claimed worktree", false, "claim and verify the subject's worktree")
 }
 
 func (p *WorkflowSubjectPreparation) revalidateTx(ctx context.Context, tx *sql.Tx, workID string) error {

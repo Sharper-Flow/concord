@@ -281,12 +281,15 @@ func setWorkTerminalForTesting(t *testing.T, s *Store, workID string) {
 }
 
 // CD-0183 D2: the first workflow action moves the lifecycle, and the
-// external-effect step records the execution-start fact. Driving a break-fix
-// workflow to its repair step leaves the item in progress with that fact set.
+// external-effect start records the execution-start fact, not arrival at repair.
 func TestExecutionStartRecordsTheInstanceFact(t *testing.T) {
 	const workID = "claim-at-execution-start"
 	f := seedCurrentWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := f.store
+	if startedAt, _ := instanceExecutionStart(t, s, workID); startedAt != "" {
+		t.Fatal("arrival at repair recorded execution before its qualifying start")
+	}
+	reviewGateStartStep(t, s, workID, "repair", "checkpoint_repair", f.owner)
 	var lifecycle string
 	var startedAt any
 	if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle, i.execution_started_at FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &startedAt); err != nil {

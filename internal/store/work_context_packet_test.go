@@ -79,9 +79,16 @@ func TestWorkPinRefusesWorkContextViewOverflow(t *testing.T) {
 	f := seedWorkContextFixture(t, "ctx-pin-overflow")
 	defer f.store.Close()
 	seedWorkContextOverflow(t, f)
+	if view, err := readWorkContextView(t.Context(), f.store.db, f.workID); !hasFailureKind(err, KindLimitExceeded) {
+		t.Fatalf("overflow fixture view = %+v, %v, want limit_exceeded", view, err)
+	}
 	before := outsideRepairDatabaseSnapshot(t, f.store)
-	if _, err := ReadWorkPin(t.Context(), f.store, f.workID); !hasFailureKind(err, KindLimitExceeded) {
-		t.Fatalf("overflow work pin = %v, want limit_exceeded without truncation", err)
+	pin, err := ReadWorkPin(t.Context(), f.store, f.workID)
+	if err != nil || pin.WorkContext != nil || pin.WorkContextUnavailable == nil || pin.WorkContextUnavailable.Reason != string(KindLimitExceeded) {
+		t.Fatalf("overflow work pin = %+v, %v, want unavailable context without truncation", pin, err)
+	}
+	if err := payloadschema.Validate("work_pin", mustJSONValue(pin)); err != nil {
+		t.Fatalf("overflow work pin fails its closed schema: %v", err)
 	}
 	if outsideRepairDatabaseSnapshot(t, f.store) != before {
 		t.Fatal("refused overflow read changed durable state")

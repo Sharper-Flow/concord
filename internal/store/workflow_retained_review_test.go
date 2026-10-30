@@ -87,7 +87,6 @@ func TestRetainedReviewCandidateBounds(t *testing.T) {
 				if err := os.WriteFile(filepath.Join(j.repo, "seed.txt"), []byte("dirty\n"), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				want = KindProjectionConflict
 			case "foreign_input":
 				report.InputCandidate.Commit = strings.Repeat("f", 40)
 			case "input_tree":
@@ -97,7 +96,7 @@ func TestRetainedReviewCandidateBounds(t *testing.T) {
 			case "contract":
 				payload := pContractSuccessor(t, j.s, j.workID, "The approved outcome needs a corrected approach.")
 				predicates := payload["outcome_predicates"].([]any)
-				predicates[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "corrected-result"
+				predicates[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "fail"
 				if err := runVerdictActionAs(t, j.s, j.workID, "supersede_contract", mustJSONValue(payload), 0, j.fixture.owner); err != nil {
 					t.Fatal(err)
 				}

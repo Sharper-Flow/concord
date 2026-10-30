@@ -84,7 +84,7 @@ func TestNativeSelectorRemedyVisible(t *testing.T) {
 			}
 			remedy, _ := wire.Error.Details["recovery_detail"].(string)
 			argv, _ := json.Marshal([]string{runner, "alpha", "zeta"})
-			if !strings.Contains(remedy, string(argv)) || !strings.Contains(remedy, "record_worker_job") || !strings.Contains(remedy, "prepar") {
+			if !strings.Contains(remedy, string(argv)) || !strings.Contains(remedy, "worktree_verify") || !strings.Contains(remedy, `oracle.phase=prepare`) || strings.Contains(remedy, "record_worker_job") {
 				t.Fatalf("serialized refusal omits the sorted selector or recorded revision/preparation route: %s", encoded)
 			}
 		})

@@ -101,8 +101,8 @@ func TestReviewDescendantPreparedSubjectDriftRefuses(t *testing.T) {
 	descendantCommit(t, j, "c")
 	before := j.effects(t)
 	ctx := WithWorkflowSubjectPreparation(t.Context(), prepared)
-	if err := j.terminalActionContext(t, ctx, "record_review", mustJSONValue(map[string]any{"review": report}), j.fixture.owner, nil); !hasFailureKind(err, KindProjectionConflict) {
-		t.Fatalf("prepared subject drift = %v, want projection_conflict", err)
+	if err := j.terminalActionContext(t, ctx, "record_review", mustJSONValue(map[string]any{"review": report}), j.fixture.owner, nil); !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("prepared subject drift = %v, want stale_requires_review", err)
 	}
 	if j.effects(t) != before {
 		t.Fatal("prepared-subject refusal changed durable state")

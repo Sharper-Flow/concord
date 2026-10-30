@@ -193,10 +193,10 @@ func init() {
 	prep := "/$defs/native_oracle_preparation"
 	// RunRef echoes worktreeVerifyOperationRef, whose widest live arm is the
 	// no-separator fallback over the widest admitted lease id.
-	registerOutputBoundWithTwin(prep+"/properties/run_ref/maxLength", nativeRunRefDerived())
-	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/run_ref/maxLength", nativeRunRefDerived())
-	registerOutputBoundWithTwin(prep+"/properties/work_id/maxLength", inputBound("/$defs/id/maxLength"))
-	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/work_id/maxLength", inputBound("/$defs/id/maxLength"))
+	registerRetainedTwinBound(prep+"/properties/run_ref/maxLength", nativeRunRefDerived())
+	registerRetainedTwinBound(prep+"/oneOf/*/properties/run_ref/maxLength", nativeRunRefDerived())
+	registerRetainedTwinBound(prep+"/properties/work_id/maxLength", inputBound("/$defs/id/maxLength"))
+	registerRetainedTwinBound(prep+"/oneOf/*/properties/work_id/maxLength", inputBound("/$defs/id/maxLength"))
 	// The ambient Project identity has no admission guard anywhere
 	// (internal/store/operator.go:CreateProjectForProduct checks non-empty
 	// only and projects.id carries no length CHECK), and every writer of the
@@ -205,32 +205,32 @@ func init() {
 	for _, branch := range []string{"", "/oneOf/0", "/oneOf/1"} {
 		registerRetainedTwinBound(prep+branch+"/properties/project_id/maxLength", unboundedOutput(projectIDGap, nativeReadSurfaceRefusal, nativeMutationResultRefusal))
 	}
-	registerOutputBoundWithTwin(prep+"/properties/subject_commit/maxLength", shaBound)
-	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/subject_commit/maxLength", shaBound)
-	registerOutputBoundWithTwin(prep+"/properties/bundle_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeBundleDigest"))
-	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/bundle_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeBundleDigest"))
-	registerOutputBoundWithTwin(prep+"/properties/logical_argv_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeOracleInitialResult"))
-	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/logical_argv_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeOracleInitialResult"))
-	registerOutputBoundWithTwin(prep+"/properties/manifest_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "nativeGitFile"))
-	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/manifest_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "nativeGitFile"))
-	registerOutputBoundWithTwin(prep+"/properties/native_plan_sha256/maxLength", nativeDigestDerived(nativeOracleFile, "verifyNativeOracle"))
-	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/native_plan_sha256/maxLength", nativeDigestDerived(nativeOracleFile, "verifyNativeOracle"))
-	registerOutputBoundWithTwin(prep+"/properties/isolation_fingerprint/maxLength", isolationFingerprint)
-	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/isolation_fingerprint/maxLength", isolationFingerprint)
-	registerOutputBoundWithTwin(prep+"/properties/build_environment_digest/maxLength", maxBound(
+	registerRetainedTwinBound(prep+"/properties/subject_commit/maxLength", shaBound)
+	registerRetainedTwinBound(prep+"/oneOf/*/properties/subject_commit/maxLength", shaBound)
+	registerRetainedTwinBound(prep+"/properties/bundle_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeBundleDigest"))
+	registerRetainedTwinBound(prep+"/oneOf/*/properties/bundle_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeBundleDigest"))
+	registerRetainedTwinBound(prep+"/properties/logical_argv_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeOracleInitialResult"))
+	registerRetainedTwinBound(prep+"/oneOf/*/properties/logical_argv_digest/maxLength", nativeDigestDerived(nativeOracleFile, "nativeOracleInitialResult"))
+	registerRetainedTwinBound(prep+"/properties/manifest_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "nativeGitFile"))
+	registerRetainedTwinBound(prep+"/oneOf/*/properties/manifest_digest/maxLength", nativeDigestDerived(nativeOracleGoFile, "nativeGitFile"))
+	registerRetainedTwinBound(prep+"/properties/native_plan_sha256/maxLength", nativeDigestDerived(nativeOracleFile, "verifyNativeOracle"))
+	registerRetainedTwinBound(prep+"/oneOf/*/properties/native_plan_sha256/maxLength", nativeDigestDerived(nativeOracleFile, "verifyNativeOracle"))
+	registerRetainedTwinBound(prep+"/properties/isolation_fingerprint/maxLength", isolationFingerprint)
+	registerRetainedTwinBound(prep+"/oneOf/1/properties/isolation_fingerprint/maxLength", isolationFingerprint)
+	registerRetainedTwinBound(prep+"/properties/build_environment_digest/maxLength", maxBound(
 		nativeDigestDerived(nativeOracleGoFile, "resolveNativeGoEnvironment"),
 		nativeDigestDerived(nativeOracleHostFile, "finalizeNativeTargetEnvironment"),
 	))
-	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/build_environment_digest/maxLength", maxBound(
+	registerRetainedTwinBound(prep+"/oneOf/*/properties/build_environment_digest/maxLength", maxBound(
 		nativeDigestDerived(nativeOracleGoFile, "resolveNativeGoEnvironment"),
 		nativeDigestDerived(nativeOracleHostFile, "finalizeNativeTargetEnvironment"),
 	))
-	registerOutputBoundWithTwin(prep+"/properties/logical_cwd/maxLength", repoPathBytes)
-	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/logical_cwd/maxLength", repoPathBytes)
-	registerOutputBoundWithTwin(prep+"/properties/manifest_blob/maxLength", shaBound)
-	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/manifest_blob/maxLength", shaBound)
-	registerOutputBoundWithTwin(prep+"/properties/files/maxItems", filesBound)
-	registerOutputBoundWithTwin(prep+"/oneOf/*/properties/files/maxItems", filesBound)
+	registerRetainedTwinBound(prep+"/properties/logical_cwd/maxLength", repoPathBytes)
+	registerRetainedTwinBound(prep+"/oneOf/*/properties/logical_cwd/maxLength", repoPathBytes)
+	registerRetainedTwinBound(prep+"/properties/manifest_blob/maxLength", shaBound)
+	registerRetainedTwinBound(prep+"/oneOf/*/properties/manifest_blob/maxLength", shaBound)
+	registerRetainedTwinBound(prep+"/properties/files/maxItems", filesBound)
+	registerRetainedTwinBound(prep+"/oneOf/*/properties/files/maxItems", filesBound)
 	// No finite per-field guard exists on either family: the target identity
 	// concatenates recipe version pins admitted only through the unbounded
 	// dotted-numeric pattern, and the Go family concatenates the go.mod
@@ -244,21 +244,21 @@ func init() {
 	// budget: nativeOracleSelector renders "^(" + join(names, "|") + ")$" and
 	// refuses the render over maxWorktreeVerifyCommandPart bytes, while every
 	// name matches the ASCII test-name grammar whose minimum width is 5.
-	registerOutputBoundWithTwin(prep+"/properties/selected_test_names/maxItems", nativeSelectorNamesDerived())
-	registerOutputBoundWithTwin(prep+"/oneOf/0/properties/selected_test_names/maxItems", nativeSelectorNamesDerived())
+	registerRetainedTwinBound(prep+"/properties/selected_test_names/maxItems", nativeSelectorNamesDerived())
+	registerRetainedTwinBound(prep+"/oneOf/0/properties/selected_test_names/maxItems", nativeSelectorNamesDerived())
 	// Distinct selected witnesses are bounded by the rendered verify-command
 	// shape: nativeTargetSelector prepends exactly one runner literal to the
 	// witness list and refuses more than maxWorktreeVerifyCommandArgs parts.
-	registerOutputBoundWithTwin(prep+"/properties/selected_witness_ids/maxItems", nativeWitnessSelectorDerived())
-	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/selected_witness_ids/maxItems", nativeWitnessSelectorDerived())
-	registerOutputBoundWithTwin(prep+"/properties/selected_witness_ids/items/maxLength", witnessBytes)
-	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/selected_witness_ids/items/maxLength", witnessBytes)
-	registerOutputBoundWithTwin(prep+"/properties/case_to_test_map/patternProperties/^case:*/maxItems", caseMapGoBound)
-	registerOutputBoundWithTwin(prep+"/oneOf/0/properties/case_to_test_map/patternProperties/^case:*/maxItems", caseMapGoBound)
-	registerOutputBoundWithTwin(prep+"/properties/case_to_witness_map/patternProperties/^case:*/maxItems", caseMapTargetBound)
-	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/case_to_witness_map/patternProperties/^case:*/maxItems", caseMapTargetBound)
-	registerOutputBoundWithTwin(prep+"/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", witnessBytes)
-	registerOutputBoundWithTwin(prep+"/oneOf/1/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", witnessBytes)
+	registerRetainedTwinBound(prep+"/properties/selected_witness_ids/maxItems", nativeWitnessSelectorDerived())
+	registerRetainedTwinBound(prep+"/oneOf/1/properties/selected_witness_ids/maxItems", nativeWitnessSelectorDerived())
+	registerRetainedTwinBound(prep+"/properties/selected_witness_ids/items/maxLength", witnessBytes)
+	registerRetainedTwinBound(prep+"/oneOf/1/properties/selected_witness_ids/items/maxLength", witnessBytes)
+	registerRetainedTwinBound(prep+"/properties/case_to_test_map/patternProperties/^case:*/maxItems", caseMapGoBound)
+	registerRetainedTwinBound(prep+"/oneOf/0/properties/case_to_test_map/patternProperties/^case:*/maxItems", caseMapGoBound)
+	registerRetainedTwinBound(prep+"/properties/case_to_witness_map/patternProperties/^case:*/maxItems", caseMapTargetBound)
+	registerRetainedTwinBound(prep+"/oneOf/1/properties/case_to_witness_map/patternProperties/^case:*/maxItems", caseMapTargetBound)
+	registerRetainedTwinBound(prep+"/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", witnessBytes)
+	registerRetainedTwinBound(prep+"/oneOf/1/properties/case_to_witness_map/patternProperties/^case:*/items/maxLength", witnessBytes)
 
 	// -- native_oracle_result (published inside the worktree_verify mutation
 	// result; typed refusal owner is mutationResult) --
@@ -303,8 +303,8 @@ func init() {
 	// Byte-ceiling only: see the preparation rows for the producer argument.
 	registerOutputBound(result+"/oneOf/*/properties/toolchain_identity/maxLength", unboundedOutput(toolchainGap, nativeMutationResultRefusal))
 	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/toolchain_identity/maxLength", unboundedOutput(toolchainGap, nativeMutationResultRefusal))
-	registerOutputBound(result+"/oneOf/*/properties/control_id/maxLength", inputBound("/$defs/native_oracle_request/properties/control_id/maxLength"))
-	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/control_id/maxLength", inputBound("/$defs/native_oracle_request/properties/control_id/maxLength"))
+	registerOutputBound(result+"/oneOf/*/properties/control_id/maxLength", inputBound("/$defs/native_oracle_prepare_control/properties/control_id/maxLength"))
+	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/control_id/maxLength", inputBound("/$defs/native_oracle_prepare_control/properties/control_id/maxLength"))
 	registerOutputBound(result+"/oneOf/*/properties/stages/maxItems", stageBudget)
 	registerOutputBound(result+"/oneOf/*/oneOf/*/properties/stages/maxItems", stageBudget)
 	// Detail carries the failure text: verifyNativeOracle assigns
@@ -365,7 +365,6 @@ const (
 	nativeProjectLocator = "internal/store/project_locator.go"
 	nativeMutationsFile  = "internal/agent/mutations.go"
 	nativeAuthorityFile  = "internal/agent/authority.go"
-	nativeWorkerCtrlFile = "internal/agent/worker_control.go"
 )
 
 // gap texts shared by repeated registrations; each names the exact producing
@@ -624,18 +623,14 @@ func nativeSelectorName(e ast.Expr) (string, bool) {
 // nativeLeaseIdentity verifies the native lease-identity derivation and
 // returns the widest admitted lease id and operation reference in characters.
 //
-// Writers of req.LeaseID, both traced:
-//  1. internal/agent/mutations.go:mutateWorktreeVerify mints
-//     sha256Hex(leaseInput) + ":worktree-verify:" + in.WorkID, where
-//     sha256Hex is the same sha256-prefixed digest form (71 characters) and
-//     in.WorkID is admitted through the payload id def.
-//  2. internal/agent/worker_control.go:verifyWorkerControlAssertionTx admits
-//     the replayed assertion lease id among the bounded(1..128) identities.
+// mutateWorktreeVerify mints sha256Hex(leaseInput) + ":worktree-verify:" +
+// in.WorkID. sha256Hex has the sha256-prefixed digest form, and in.WorkID
+// enters through the payload id admission. No worker assertion writer remains
+// under CD-0242 D6.
 //
 // internal/store/worktrees.go:worktreeVerifyOperationRef then renders
 // "worktree_verify:" + the Cut prefix, or the whole lease id when the
-// separator is absent; the fallback arm is live for writer 2 and is the
-// widest published form.
+// separator is absent. The full lease width bounds either arm.
 func nativeLeaseIdentity(rt *ledgerRuntime, census *boundCensus) (leaseIDChars, runRefChars int64, err error) {
 	digestWidth, err := nativeDigestShape(rt, nativeAuthorityFile, "sha256Hex")
 	if err != nil {
@@ -738,50 +733,7 @@ func nativeLeaseIdentity(rt *ledgerRuntime, census *boundCensus) (leaseIDChars, 
 	if !ok {
 		return 0, 0, fmt.Errorf("native bound: the payload id def has no character capacity")
 	}
-	replay, err := nativeFuncDecl(rt, nativeWorkerCtrlFile, "verifyWorkerControlAssertionTx")
-	if err != nil {
-		return 0, 0, err
-	}
-	replayMax, replayFound := int64(0), false
-	ast.Inspect(replay, func(n ast.Node) bool {
-		rangeStmt, ok := n.(*ast.RangeStmt)
-		if !ok {
-			return true
-		}
-		lit, ok := rangeStmt.X.(*ast.CompositeLit)
-		if !ok {
-			return true
-		}
-		hasLeaseID := false
-		for _, elt := range lit.Elts {
-			if name, ok := nativeSelectorName(elt); ok && name == "LeaseID" {
-				hasLeaseID = true
-			}
-		}
-		if !hasLeaseID {
-			return true
-		}
-		for _, boundedCall := range nativeCalls(rangeStmt.Body, "agentcontract.BoundedBytes") {
-			if len(boundedCall.Args) != 3 {
-				continue
-			}
-			goS, err := nativeGoFile(rt, nativeWorkerCtrlFile)
-			if err != nil {
-				continue
-			}
-			if upper, err := rt.evalNumeric(goS, replay, boundedCall.Args[2]); err == nil {
-				replayMax, replayFound = upper, true
-			}
-		}
-		return true
-	})
-	if !replayFound {
-		return 0, 0, fmt.Errorf("native bound: the worker control assertion no longer bounds its lease id identity")
-	}
 	leaseIDChars = digestWidth + int64(len(separator)) + workIDChars
-	if replayMax > leaseIDChars {
-		leaseIDChars = replayMax
-	}
 	runRefChars = int64(len(prefix)) + leaseIDChars
 	return leaseIDChars, runRefChars, nil
 }
@@ -793,7 +745,7 @@ func nativeLeaseIDDerived() outputBoundSource {
 		if err != nil {
 			return evaluatedBound{}, err
 		}
-		return nativeCharsWidth(leaseIDChars, fmt.Sprintf("derived widest admitted native lease id: mint arm sha256Hex + separator + id admission, replay assertion admission below it (%d characters)", leaseIDChars)), nil
+		return nativeCharsWidth(leaseIDChars, fmt.Sprintf("derived native lease id: sha256Hex + separator + id admission (%d characters)", leaseIDChars)), nil
 	}}
 }
 
@@ -805,6 +757,79 @@ func nativeRunRefDerived() outputBoundSource {
 			return evaluatedBound{}, err
 		}
 		return nativeCharsWidth(runRefChars, fmt.Sprintf("derived worktreeVerifyOperationRef widest arm: fixed prefix plus the widest admitted lease id (%d characters)", runRefChars)), nil
+	}}
+}
+
+// Each preparation contributes its non-optional string keys even when every
+// value is empty. Their serialized width turns the context aggregate refusal
+// into a conservative count bound, without a worker-job control population.
+func nativePreparationCountDerived() outputBoundSource {
+	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
+		const file = "internal/store/work_context_preparations.go"
+		const function = "readSelectedOraclePreparations"
+		fn, err := nativeFuncDecl(rt, file, function)
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		marshals := nativeCalls(fn, "json.Marshal")
+		if len(marshals) != 1 || len(marshals[0].Args) != 1 || ledgerExprText(marshals[0].Args[0]) != "selected" {
+			return evaluatedBound{}, fmt.Errorf("native bound: context must measure the complete selected preparation array")
+		}
+		found, measured := false, false
+		ast.Inspect(fn, func(n ast.Node) bool {
+			assignment, ok := n.(*ast.AssignStmt)
+			if ok && len(assignment.Lhs) == 1 && len(assignment.Rhs) == 1 && ledgerExprText(assignment.Lhs[0]) == "selected" && ledgerExprText(assignment.Rhs[0]) == "[]NativeOraclePreparation{}" {
+				found = true
+			}
+			if ok && len(assignment.Lhs) == 2 && len(assignment.Rhs) == 1 && ledgerExprText(assignment.Lhs[0]) == "raw" && assignment.Rhs[0] == marshals[0] {
+				measured = true
+			}
+			return true
+		})
+		if !found || !measured {
+			return evaluatedBound{}, fmt.Errorf("native bound: context selection is not a NativeOraclePreparation array")
+		}
+		goS, err := rt.loadGo(nativeOracleFile)
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		minimum := int64(0)
+		ast.Inspect(goS.file, func(n ast.Node) bool {
+			typeSpec, ok := n.(*ast.TypeSpec)
+			if !ok || typeSpec.Name.Name != "NativeOraclePreparation" {
+				return true
+			}
+			structure, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				return false
+			}
+			for _, field := range structure.Fields.List {
+				kind, ok := field.Type.(*ast.Ident)
+				if !ok || kind.Name != "string" || field.Tag == nil {
+					continue
+				}
+				tag, err := strconv.Unquote(field.Tag.Value)
+				if err != nil || !strings.HasPrefix(tag, `json:"`) || strings.Contains(tag, ",omitempty") {
+					continue
+				}
+				name := strings.TrimSuffix(strings.TrimPrefix(tag, `json:"`), `"`)
+				// The key, colon and empty string; commas and braces only add bytes.
+				minimum += int64(len(name) + len(`"":""`))
+			}
+			return false
+		})
+		if minimum == 0 {
+			return evaluatedBound{}, fmt.Errorf("native bound: preparation has no required serialized string fields")
+		}
+		guard, err := rt.evaluateSource(goInlineBound(file, function, "len(raw)", boundBytes), census)
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		bytes, ok := guard.capacity(boundBytes)
+		if !ok {
+			return evaluatedBound{}, fmt.Errorf("native bound: preparation aggregate has no byte ceiling")
+		}
+		return workflowItemsEvaluated(bytes/minimum, "context preparation JSON byte ceiling divided by required serialized string-key width"), nil
 	}}
 }
 
@@ -961,6 +986,10 @@ func TestOutputBoundExtractedNativeProofBites(t *testing.T) {
 		name, file, from, to string
 		source               outputBoundSource
 	}{
+		{"preparation selected array", "internal/store/work_context_preparations.go", "json.Marshal(selected)", "json.Marshal(other)", nativePreparationCountDerived()},
+		{"preparation measured bytes", "internal/store/work_context_preparations.go", "raw, err := json.Marshal(selected)", "other, err := json.Marshal(selected)", nativePreparationCountDerived()},
+		{"preparation aggregate refusal", "internal/store/work_context_preparations.go", "if len(raw) > 32*1024 {", "if false {", nativePreparationCountDerived()},
+		{"preparation serialized type", nativeOracleFile, "type NativeOraclePreparation struct {", "type OtherPreparation struct {", nativePreparationCountDerived()},
 		{"blob width", nativeOracleGoFile, "case 40:", "case 41:", nativeGitOIDWidthDerived()},
 		{"blob SHA1", nativeOracleGoFile, "sha1.Sum(object)", "sha1.Sum(other)", nativeGitOIDWidthDerived()},
 		{"blob SHA256", nativeOracleGoFile, "sha256.Sum256(object)", "sha256.Sum256(other)", nativeGitOIDWidthDerived()},

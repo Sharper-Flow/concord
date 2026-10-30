@@ -1131,7 +1131,6 @@ func init() {
 		pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"},
 		pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"},
 	))
-	registerOutputBound("/$defs/mutation_result/properties/worker_packet_digest/maxLength", goPatternBound("internal/store/worker_lanes.go", "workerProvenancePattern"))
 	registerOutputBound("/$defs/mutation_projection_reference_result/properties/projection_reference/properties/read_pointer/properties/input/properties/idempotency_key/maxLength", inputBound("/$defs/work_trace_mutation_result_input/properties/idempotency_key/maxLength"))
 	// Projection references map the already validated original changed refs;
 	// they cannot introduce another work item beyond that result's bound.

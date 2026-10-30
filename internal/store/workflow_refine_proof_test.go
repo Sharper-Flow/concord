@@ -241,10 +241,10 @@ func workerJobIntegrationGreenRun(t *testing.T, s *Store, workID, digest string)
 
 func TestRefineExitRefusesWithoutGreenVerifyRunInEpoch(t *testing.T) {
 	const workID = "refine-proof-refusal"
-	c := acceptDeliveryUnprovedCandidateAt(t, workID, "workflow.implementation", false)
+	c := acceptDeliveryUnobservedCandidateAt(t, workID, "workflow.implementation")
 	s := c.f.store
 
-	// The corrective candidate has no applicable producer receipt.
+	// The retained candidate has no applicable producer receipt.
 	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID, nil), "no passing producer verification covers the current integrated candidate")
 
 	// A binding that names a workflow operation id proves nothing. The
@@ -264,7 +264,7 @@ func TestRefineExitRefusesWithoutGreenVerifyRunInEpoch(t *testing.T) {
 
 func TestRefineExitRefusesAStaleVerifyRun(t *testing.T) {
 	const workID = "refine-proof-stale-run"
-	c := acceptDeliveryUnprovedCandidateAt(t, workID, "workflow.implementation", false)
+	c := acceptDeliveryCorrectedCandidateAt(t, workID, "workflow.implementation")
 	s := c.f.store
 	c.j.bindVerification(t, c.early)
 	// Review qualification also observes the current candidate through Git.
@@ -286,7 +286,7 @@ func TestRefineExitRefusesAStaleVerifyRun(t *testing.T) {
 
 func TestRefineExitRefusesWithoutGreenVerifyRunOnBreakFix(t *testing.T) {
 	const workID = "refine-proof-break-fix"
-	c := acceptDeliveryUnprovedCandidateAt(t, workID, "workflow.break_fix", false)
+	c := acceptDeliveryUnobservedCandidateAt(t, workID, "workflow.break_fix")
 	s := c.f.store
 	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID, nil), "no passing producer verification covers the current integrated candidate")
 	acceptDeliveryBindFresh(t, c, "exit")
@@ -319,14 +319,15 @@ func TestDeclaredToolInvocationAdmitsRefineExitAndUndeclaredArgvRefuses(t *testi
 
 func TestProjectWithoutManifestPassesOnGreenRunRefusesWithoutRun(t *testing.T) {
 	const workID = "refine-proof-no-manifest"
-	c := acceptDeliveryUnprovedCandidateAt(t, workID, "workflow.implementation", false)
+	c := acceptDeliveryUnobservedCandidateAt(t, workID, "workflow.implementation")
 	s := c.f.store
 
 	// No run, no manifest: the refusal states the Project declares none.
 	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID, nil), "the Project declares no checks in .concord/tooling.v1.json")
 
 	// Any green run passes when the Project declares no manifest.
-	acceptDeliveryBindFresh(t, c, "exit")
+	// The producer receipt qualifies without a separate evidence binding.
+	c.j.observeRun(t, "exit")
 	if err := refineProofDelivery(t, s, workID, nil); err != nil {
 		t.Fatalf("record_delivery without a manifest: %v", err)
 	}
@@ -444,17 +445,10 @@ func TestRefineProofManifestRequiredTracksTheGate(t *testing.T) {
 		workID := "refine-proof-required-" + strings.TrimPrefix(ref, "workflow.")
 		fixture := refineProofCurrentFixture(t, workID, ref)
 
-		// The instance sits on refine: both entry routes resolve the
-		// manifest at the admitting refinement step (CD-0198 D4), and
-		// bind_evidence resolves nothing.
-		for _, action := range []string{"record_delivery", "accept_worker_result"} {
-			required, err := RefineProofManifestRequired(context.Background(), fixture.store, workID, action)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !required {
-				t.Fatalf("a %s instance at refine must resolve the tooling manifest for %s", ref, action)
-			}
+		// record_delivery alone exits refine; evidence binding resolves no tooling.
+		required, err := RefineProofManifestRequired(context.Background(), fixture.store, workID, "record_delivery")
+		if err != nil || !required {
+			t.Fatalf("%s record_delivery tooling requirement = (%v, %v), want (true, nil)", ref, required, err)
 		}
 		other, err := RefineProofManifestRequired(context.Background(), fixture.store, workID, "bind_evidence")
 		if err != nil || other {

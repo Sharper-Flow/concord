@@ -754,6 +754,7 @@ func TestDiagnosisRecordAdvancesWithoutExecutionStart(t *testing.T) {
 func proveDerivedCheckpointDelivery(t *testing.T, f workflowReturnRouteFixture, workID string) {
 	t.Helper()
 	j := pReturnClaim(t, f, workID)
+	j.acceptor = f.owner
 	proof := j.observeRun(t, "derived-checkpoint")
 	qAcceptCriterionReview(t, j.fixture, j.repo, proof.OperationRef)
 	j.bindVerification(t, proof)

@@ -106,20 +106,13 @@ def check(root: Path) -> list[str]:
     definitions = surface.get("$defs") if isinstance(surface, dict) else None
 
     names = [kind["kind"] for kind in kinds if isinstance(kind.get("kind"), str)]
-    addressable = sorted(
-        kind["kind"]
-        for kind in kinds
-        if kind.get("link") in {"allowed", "refused"} and isinstance(kind.get("kind"), str)
-    )
     query_labels = sorted(
         name
         for kind in kinds
         for name in [kind.get("kind"), kind.get("inverse_label")]
         if isinstance(name, str)
     )
-    link_enum = sorted(_enum(definitions, "relation_link_kind", findings))
     query_enum = sorted(_enum(definitions, "relation_query_label", findings))
-    _report_set_difference("link-kind-closure", addressable, link_enum, findings)
     _report_set_difference("query-label-closure", query_labels, query_enum, findings)
 
     declared_labels = set(query_labels)

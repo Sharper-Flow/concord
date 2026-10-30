@@ -874,7 +874,7 @@ func researchBoundReadings(f workContextFixture) []map[string]any {
 }
 
 // researchBoundCarrierDeclaration records the fixed 16-finding carrier
-// declaration the tuned declaration selects beside its own 16 findings, so
+// declaration the tuned declaration selects beside its own 15 findings, so
 // the view holds 32 findings while each declaration stays inside its own
 // 16-finding bound.
 func researchBoundCarrierDeclaration(t *testing.T, f workContextFixture, statementLen int) int64 {
@@ -894,7 +894,7 @@ func researchBoundCarrierDeclaration(t *testing.T, f workContextFixture, stateme
 }
 
 // researchBoundDeclaration records the tuned boundary declaration once: the
-// bounded readings, the 16 selected carrier findings, 16 new findings (the
+// bounded readings, the 16 selected carrier findings, 15 new findings (the
 // first of statement length firstLen, the rest restLen, the byte-granular
 // pad), and one research selection. On failure it returns the refusal
 // instead of failing the test.
@@ -920,29 +920,20 @@ func researchBoundDeclaration(t *testing.T, f workContextFixture, packID string,
 }
 
 // tuneResearchBoundView lands the whole serialized view at exactly target
-// bytes by tuning the 16 tuned findings' statement length one byte at a
-// time. A view that overshoots the bound refuses its own read, so the loop
-// shrinks and re-approaches from below until the exact landing holds.
+// bytes by tuning the 15 findings' statement lengths. An over-bound
+// declaration rolls back, so the loop commits below the bound before
+// remeasuring the next declaration's source identities.
 func tuneResearchBoundView(t *testing.T, f workContextFixture, packID string, target int) (carrierSeq int64, firstLen, restLen int) {
 	t.Helper()
 	carrierSeq = researchBoundCarrierDeclaration(t, f, 500)
-	firstLen, restLen = 500, 500
+	firstLen, restLen = 450, 450
 	if err := researchBoundDeclaration(t, f, packID, carrierSeq, firstLen, restLen); err != nil {
 		t.Fatalf("bound declaration refused: %v", err)
 	}
 	for iteration := 0; iteration < 16; iteration++ {
 		view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
 		if err != nil {
-			// The landing overshot the bound, so the read refuses; shrink
-			// and re-approach from below.
-			restLen -= 2
-			if restLen <= 32 {
-				t.Fatalf("view tuning cannot recover below %d bytes: %v", target, err)
-			}
-			if err := researchBoundDeclaration(t, f, packID, carrierSeq, firstLen, restLen); err != nil {
-				t.Fatalf("bound declaration refused while recovering: %v", err)
-			}
-			continue
+			t.Fatalf("read committed bound declaration: %v", err)
 		}
 		raw, err := json.Marshal(view)
 		if err != nil {
@@ -960,7 +951,15 @@ func tuneResearchBoundView(t *testing.T, f workContextFixture, packID string, ta
 			t.Fatalf("view tuning needs statement lengths %d/%d outside the 1024-byte finding bound; recalibrate the fixture", firstLen, restLen)
 		}
 		if err := researchBoundDeclaration(t, f, packID, carrierSeq, firstLen, restLen); err != nil {
-			t.Fatalf("bound declaration refused: %v", err)
+			if !hasFailureKind(err, KindLimitExceeded) {
+				t.Fatalf("bound declaration refused: %v", err)
+			}
+			// The next declaration's sequence and source identities may grow
+			// a digit. Commit below the bound before measuring that new shape.
+			firstLen -= 32
+			if err := researchBoundDeclaration(t, f, packID, carrierSeq, firstLen, restLen); err != nil {
+				t.Fatalf("bound declaration refused while recovering: %v", err)
+			}
 		}
 	}
 	t.Fatalf("view tuning did not converge on %d bytes", target)
@@ -1362,15 +1361,16 @@ func seedMandatoryNativeEvidence(t *testing.T, f workContextFixture, blockers in
 	seedOraclePreparationFieldsFixture(t, f.store, f.workID, oracle)
 	state := WorkflowReviewState{Findings: []ReviewFinding{}, findingSources: map[string]reviewFindingSource{}}
 	for i := 0; i < blockers; i++ {
-		refs := make([]string, 0, 8)
-		for ref := 0; ref < 8; ref++ {
-			refs = append(refs, fmt.Sprintf("evidence:mandatory-%02d-%s", i, strings.Repeat("e", 232)))
+		refs := make([]string, 0, 16)
+		for ref := 0; ref < 16; ref++ {
+			prefix := fmt.Sprintf("evidence:mandatory-%02d-%02d-", i, ref)
+			refs = append(refs, prefix+strings.Repeat("e", 128-len(prefix)))
 		}
 		id := fmt.Sprintf("finding:mandatory-%02d", i)
 		state.Findings = append(state.Findings, ReviewFinding{
 			FindingID: id, Severity: "P1", Confidence: "high", InScope: true, Blocking: true, Status: "open",
 			Detail:       fmt.Sprintf("the mandatory ranked blocker %02d carries its sized detail ", i) + strings.Repeat("m", 455),
-			EvidenceRefs: refs, Oracle: &ReviewOracleFinding{Classification: OracleClassificationDeliveryBlocker, OwnerID: "owner:repair", FailureFamily: fmt.Sprintf("mandatory-family-%02d", i), ControlIDs: []string{"control:fixture"}, EvidenceRefs: refs},
+			EvidenceRefs: refs, ClosureRefs: []string{}, Oracle: &ReviewOracleFinding{Classification: OracleClassificationDeliveryBlocker, OwnerID: "owner:repair", FailureFamily: fmt.Sprintf("mandatory-family-%02d", i), ControlIDs: []string{"control:fixture"}, EvidenceRefs: refs[:8]},
 		})
 		state.findingSources[id] = reviewFindingSource{CanonicalID: fmt.Sprintf("finding:%d:0", 100+i), DomainID: workContextTestChild, EventID: "mandatory-review-" + id, Kind: WorkflowActionCompleted, Seq: int64(100 + i)}
 	}

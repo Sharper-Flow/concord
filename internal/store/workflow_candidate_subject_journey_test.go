@@ -174,6 +174,9 @@ type candidateAtVerify struct {
 func journeyToRefineA(t *testing.T, workID string) *candidateAtVerify {
 	t.Helper()
 	j := &candidateAtVerify{candidateJourney: newCandidateJourney(t, workID)}
+	if err := j.action(t, "checkpoint_repair", map[string]any{}, j.acceptor); err != nil {
+		t.Fatalf("checkpoint_repair: %v", err)
+	}
 	base := j.head(t)
 	j.preparationBase = j.prepare(t, "base")
 	if err := os.WriteFile(filepath.Join(j.repo, "pkg/value.go"), []byte("package oracle\nfunc Value() int { return 7 }\n"), 0o600); err != nil {
@@ -204,6 +207,9 @@ func journeyThroughA(t *testing.T, workID string, reviewRecorded bool) *candidat
 		t.Fatalf("refine run subject = %q, want A %q", j.runA.SubjectRef, j.a)
 	}
 	j.bindVerification(t, j.runA)
+	if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "commit:" + j.a}, j.acceptor); err != nil {
+		t.Fatalf("bind candidate A artifact: %v", err)
+	}
 	for _, gate := range []string{"refine", "delivery"} {
 		if err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:candidate-a", "delivery_state": "asserted"}, j.acceptor); err != nil {
 			t.Fatalf("%s delivery over A: %v", gate, err)

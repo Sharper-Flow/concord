@@ -187,7 +187,7 @@ func TestArchivedFamilyTerminalHistoryStaysReadable(t *testing.T) {
 	}
 }
 
-func TestLiveAuthoringActionUnionTargets30WithRecovery(t *testing.T) {
+func TestLiveAuthoringActionUnionTargets26WithRecovery(t *testing.T) {
 	t.Parallel()
 	declared := map[string]bool{}
 	for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
@@ -199,8 +199,7 @@ func TestLiveAuthoringActionUnionTargets30WithRecovery(t *testing.T) {
 			declared[action] = true
 		}
 	}
-	// The two recovery actions the engine admits off the pinned steps.
-	declared["reject_worker_result"] = true
+	// The recovery action the engine admits off the pinned steps.
 	declared["supersede_contract"] = true
 	names := make([]string, 0, len(declared))
 	for name := range declared {
@@ -208,12 +207,12 @@ func TestLiveAuthoringActionUnionTargets30WithRecovery(t *testing.T) {
 	}
 	sort.Strings(names)
 	want := []string{
-		"accept_worker_evidence", "accept_worker_result", "approve_contract", "bind_evidence",
+		"approve_contract", "bind_evidence",
 		"checkpoint_context", "checkpoint_execution", "checkpoint_refine", "checkpoint_repair",
-		"complete", "confirm_premise", "cross_context_boundary", "dispatch_worker", "frame_research",
+		"complete", "confirm_premise", "cross_context_boundary", "frame_research",
 		"link_successor", "record_alignment", "record_conclusion", "record_delivery", "record_design",
-		"record_diagnosis", "record_finding", "record_proposal", "record_report", "record_verdict",
-		"record_work_context", "record_worker_job", "reject_worker_result", "request_correction",
+		"record_diagnosis", "record_finding", "record_proposal", "record_report", "record_review", "record_verdict",
+		"record_work_context", "request_correction",
 		"revise_candidates", "start_execution", "supersede_contract",
 	}
 	if !slices.Equal(names, want) {
@@ -226,7 +225,8 @@ func TestLiveAuthoringActionUnionTargets30WithRecovery(t *testing.T) {
 		"record_health", "record_option", "record_research",
 		"rollback_run", "run_analysis", "start_action", "start_poc", "start_run",
 		"record_reproduction", "record_root_cause", "start_repair", "start_refine",
-		"record_worker_failure", "record_discovery",
+		"record_worker_failure", "record_discovery", "accept_worker_evidence", "accept_worker_result",
+		"dispatch_worker", "record_worker_job", "reject_worker_result",
 	}
 	for _, action := range retired {
 		if declared[action] {

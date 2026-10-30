@@ -322,7 +322,7 @@ func (s *Store) nativeOracleAdmission(ctx context.Context, req WorktreeVerifyReq
 		return err
 	}
 	if !observed.clean || core == "" || core != observed.head {
-		return oracleFailure(KindMissingEvidence, "native verification requires clean HEAD equal to the current qualified subject", "qualify the exact clean current subject")
+		return oracleFailure(KindMissingEvidence, "native verification requires clean HEAD equal to the current qualified subject", `run worktree_verify with command ["git","rev-parse","--verify","HEAD^{commit}"] and a fresh request identity, then refresh context`)
 	}
 	b, version, err := readNativeOraclePlanInputs(ctx, tx, req, observed.head)
 	if err != nil {

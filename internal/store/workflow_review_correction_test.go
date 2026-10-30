@@ -54,6 +54,12 @@ func reviewGateRefineFixture(t *testing.T, workID, family string) *candidateJour
 	t.Helper()
 	j := pReturnReviewFixture(t, workID, family, "ready_for_final_proof")
 	j.acceptor = j.fixture.owner
+	step := currentStep(t, j.s, workID)
+	if step == "execution" {
+		reviewGateStartStep(t, j.s, workID, step, "start_execution", j.fixture.owner)
+	} else {
+		reviewGateStartStep(t, j.s, workID, step, "checkpoint_repair", j.fixture.owner)
+	}
 	j.bindVerification(t, j.observeRun(t, "execution-integration"))
 	if err := reviewGateRecordDelivery(t, j.s, workID, j.fixture.owner); err != nil {
 		t.Fatalf("deliver reviewed execution: %v", err)

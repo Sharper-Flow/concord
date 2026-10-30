@@ -6,6 +6,7 @@ import (
 	cryptorand "crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -368,6 +369,7 @@ func TestGrantRequestRefusesBearerForbiddenCapabilities(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
 	input := `{"capabilities":["worker_dispatch"],"product_scope":[],"project_scope":[],"agent_scope":[],"reason":"dispatch a nested worker","idempotency_key":"grant-request-worker"}`
+	before := readStoredPolicy(t, s, "client-1")
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "client_policy_grant_request", Input: json.RawMessage(input)}, env)
 	// The published schema carries the closed bearer-safe vocabulary, so the
 	// core's own payload validation refuses before any derivation runs.
@@ -376,18 +378,18 @@ func TestGrantRequestRefusesBearerForbiddenCapabilities(t *testing.T) {
 		t.Fatal("a refused request minted a challenge")
 	}
 	stored := readStoredPolicy(t, s, "client-1")
-	if slices.Contains(stored.Capabilities, "worker_dispatch") {
+	if !reflect.DeepEqual(before, stored) || slices.Contains(stored.Capabilities, "worker_dispatch") {
 		t.Fatalf("refusal widened the stored policy: %+v", stored)
 	}
-	// The derivation carries the same closed vocabulary, so a request that
-	// reaches the handler from a stale published schema still refuses typed
-	// and names the operator route (CD-0044, CD-0071 D1).
-	_, deriveErr := DeriveTrustedClientPolicyExpansion(store.TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "human-1", CapabilitiesJSON: `["work_relate"]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`, AgentScopeJSON: `[]`}, TrustedClientPolicy{Capabilities: []agentcontract.Capability{"worker_dispatch"}})
-	if deriveErr == nil {
-		t.Fatal("derivation accepted a bearer-forbidden capability")
+	// CD-0242 D6 retires worker_dispatch and its operator-grant expectation.
+	// A stale schema must still refuse it as unknown, without a grant route.
+	proposal, deriveErr := DeriveTrustedClientPolicyExpansion(store.TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "human-1", CapabilitiesJSON: `["work_relate"]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`, AgentScopeJSON: `[]`}, TrustedClientPolicy{Capabilities: []agentcontract.Capability{"worker_dispatch"}})
+	var refusal *runtimeFailure
+	if !errors.As(deriveErr, &refusal) || refusal.kind != "invalid_input" || !strings.Contains(refusal.message, "unknown capability") {
+		t.Fatalf("derivation did not refuse the unknown capability: %v", deriveErr)
 	}
-	if !strings.Contains(deriveErr.Error(), "client-policy-expand") {
-		t.Fatalf("derivation refusal names no operator route: %q", deriveErr.Error())
+	if !reflect.DeepEqual(proposal, PolicyExpansionProposal{}) || strings.Contains(refusal.message, "client-policy-expand") {
+		t.Fatalf("derivation proposed a grant or named a retired operator route: %+v %q", proposal, refusal.message)
 	}
 }
 

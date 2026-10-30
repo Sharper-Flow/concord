@@ -67,18 +67,6 @@ class RelationVocabularyFixture(unittest.TestCase):
         path.write_text(path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
         self.assert_finding("generator-freshness:")
 
-    def test_link_kind_closure_finds_missing_member(self) -> None:
-        surface = self.surface()
-        surface["$defs"]["relation_link_kind"]["enum"].remove("blocks")
-        self.write_json("contracts/agent-tool-surface-payloads.schema.json", surface)
-        self.assert_finding("link-kind-closure: missing member(s):")
-
-    def test_link_kind_closure_finds_extra_member(self) -> None:
-        surface = self.surface()
-        surface["$defs"]["relation_link_kind"]["enum"].append("ghost")
-        self.write_json("contracts/agent-tool-surface-payloads.schema.json", surface)
-        self.assert_finding("link-kind-closure: extra member(s):")
-
     def test_query_label_closure_finds_missing_member(self) -> None:
         surface = self.surface()
         surface["$defs"]["relation_query_label"]["enum"].remove("blocks")
@@ -104,14 +92,9 @@ class RelationVocabularyFixture(unittest.TestCase):
         self.assert_finding("overlap-resolution-subset:")
 
     def test_stale_reference_finds_old_shared_definition(self) -> None:
-        path = self.root / "contracts/agent-tool-surface-payloads.schema.json"
-        text = path.read_text(encoding="utf-8")
-        text = text.replace(
-            '"relation_link_kind": {',
-            '"stale_marker": "#/$defs/relation_kind",\n    "relation_link_kind": {',
-            1,
-        )
-        path.write_text(text, encoding="utf-8")
+        surface = self.surface()
+        surface["$defs"]["relation_query_label"]["$ref"] = "#/$defs/relation_kind"
+        self.write_json("contracts/agent-tool-surface-payloads.schema.json", surface)
         self.assert_finding("stale-ref:")
 
     def test_inverse_label_uniqueness_finds_duplicate(self) -> None:

@@ -183,7 +183,7 @@ func TestDeliveryGateCorrectionNeedsOutstandingReview(t *testing.T) {
 	}
 	err := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator)
 	var failure *Failure
-	if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "outstanding post-rejection review") {
+	if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "requires an outstanding Review correction") {
 		t.Fatalf("unsupported gate return = %v, want the outstanding-review refusal", err)
 	}
 }

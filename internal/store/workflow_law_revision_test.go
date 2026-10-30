@@ -293,7 +293,9 @@ func TestWorkflowLawRevisionRecoveryActionIsStaleOnlyAndApprovalRequired(t *test
 	}
 
 	currentWork := "law-recovery-action-current"
-	currentStore := seedLawRevisionPendingReview(t, currentWork)
+	currentFixture := closureBindingFixture(t, currentWork, "release")
+	currentStore := currentFixture.store
+	attachWorkflowLawPin(t, currentStore, currentWork, "sha256:"+strings.Repeat("a", 64))
 	if _, _, err := WorkflowActionDefinitionFor(context.Background(), currentStore, BuiltinWorkflowRegistry(), currentWork, "supersede_contract"); err == nil {
 		t.Fatal("non-stale workflow exposed the contract recovery action")
 	} else {
@@ -393,6 +395,10 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s2.Close() })
+	acceptanceCtx, err := prepareTerminalTestContext(context.Background(), s2, workID, "record_review")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	locked := make(chan struct{})
 	release := make(chan struct{})
@@ -437,7 +443,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 			acceptanceDone <- beginErr
 			return
 		}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: crossVersion, ActionID: "record_review", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-accept", OperationID: "cross-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-accept", RequestID: "request:cross-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+		_, actionErr := applyWorkflowActionRawTx(acceptanceCtx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: crossVersion, ActionID: "record_review", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-accept", OperationID: "cross-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-accept", RequestID: "request:cross-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 		if actionErr == nil {
 			tx.Rollback()
 			acceptanceDone <- nil
@@ -595,6 +601,9 @@ func seedLawRevisionPendingReview(t *testing.T, workID string) *Store {
 		t.Fatal(err)
 	}
 	attachWorkflowLawPin(t, f.store, workID, "sha256:"+strings.Repeat("a", 64))
+	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "spec:one"}), 0, f.owner); err != nil {
+		t.Fatalf("bind mandated law before Review: %v", err)
+	}
 	acceptCurrentReviewForTest(t, f, j.repo, "continue")
 	return f.store
 }

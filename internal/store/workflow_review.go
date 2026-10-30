@@ -258,6 +258,27 @@ func decodeRecordedReview(payload json.RawMessage) (*ReviewBlock, error) {
 	return &report, nil
 }
 
+// validateReviewAssessmentReceiptSubjects refuses a supported assessment that
+// cites a worktree_verify receipt of another subject: a Review of the output
+// candidate cannot relabel an earlier candidate's proof as its own.
+func validateReviewAssessmentReceiptSubjects(ctx context.Context, q queryer, work string, report *ReviewBlock) error {
+	for _, assessment := range report.Assessments {
+		if assessment.Assessment != "supported" {
+			continue
+		}
+		for _, ref := range assessment.ReceiptRefs {
+			producer, err := readOracleVerifySubjectReceipt(ctx, q, work, ref)
+			if err != nil {
+				return err
+			}
+			if producer != nil && (producer.ProjectID != report.OutputCandidate.ProjectID || producer.SubjectRef != "commit:"+report.OutputCandidate.Commit) {
+				return reviewFailure(KindStaleRequiresReview, fmt.Sprintf("criterion %s cites receipt %s of another subject", assessment.PredicateID, ref), "cite receipts captured on the reviewed output candidate")
+			}
+		}
+	}
+	return nil
+}
+
 func validateRecordedReview(ctx context.Context, q queryer, work string, report *ReviewBlock) error {
 	if err := validateReviewBlock(report); err != nil {
 		return err
@@ -271,6 +292,9 @@ func validateRecordedReview(ctx context.Context, q queryer, work string, report 
 		return err
 	}
 	if err := validateReviewCandidates(report, current, state.Candidate); err != nil {
+		return err
+	}
+	if err := validateReviewAssessmentReceiptSubjects(ctx, q, work, report); err != nil {
 		return err
 	}
 	deps, err := workflowReviewDependencies(ctx, q, work)

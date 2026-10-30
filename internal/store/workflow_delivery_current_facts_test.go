@@ -1,13 +1,10 @@
 package store
 
-import (
-	"encoding/json"
-	"testing"
-)
+import "testing"
 
 func TestWorkflowCurrentCorrectionRequestPreservesVerdictWindow(t *testing.T) {
 	const work = "current-correction-consumes-verdict"
-	f := qBuildAcceptance(t, work, "", false)
+	f := qBuildAcceptance(t, work, "artifact:correction-window", true)
 	defer f.store.Close()
 	s := f.store
 	var predicate string
@@ -15,16 +12,12 @@ func TestWorkflowCurrentCorrectionRequestPreservesVerdictWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	var seq int64
-	if err := s.db.QueryRow(`SELECT COALESCE(MAX(effect_seq),0)+1 FROM effect_receipts`).Scan(&seq); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := json.Marshal(workflowVerdictRecordedPayload{ContractVersion: 1, PredicateID: predicate, VerdictKind: "insufficient_evidence"})
-	if err != nil {
+	if err := s.db.QueryRow(`SELECT verdict_seq FROM workflow_predicate_verdicts WHERE work_id=? AND contract_version=1 AND predicate_id=?`, work, predicate).Scan(&seq); err != nil {
 		t.Fatal(err)
 	}
 	// Model a retained unhealthy judgment using its current descriptor. Its
 	// correction baseline belongs to the judgment, not a later request.
-	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_predicate_verdicts(work_id,contract_version,predicate_id,verdict_seq,actor,payload) VALUES(?,1,?,?,'actor:test',?); DELETE FROM write_guard`, work, predicate, seq, string(raw)); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_predicate_verdicts SET payload=json_set(payload,'$.verdict_kind','insufficient_evidence') WHERE work_id=? AND contract_version=1 AND predicate_id=?; DELETE FROM write_guard`, work, predicate); err != nil {
 		t.Fatal(err)
 	}
 	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition

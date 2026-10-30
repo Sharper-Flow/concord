@@ -267,10 +267,18 @@ func TestRefineExitRefusesAStaleVerifyRun(t *testing.T) {
 	c := acceptDeliveryUnprovedCandidateAt(t, workID, "workflow.implementation", false)
 	s := c.f.store
 	c.j.bindVerification(t, c.early)
-	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID, nil), "verification does not cover the current integrated candidate")
+	// Review qualification also observes the current candidate through Git.
+	// Only the Project's declared check can satisfy this proof obligation.
+	tooling := refineProofTooling(ProjectDeclaredTool{ID: "go-vet", Invocation: "go vet ./..."})
+	before := c.j.effects(t)
+	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID, tooling), "verification does not cover the current integrated candidate")
+	if c.j.effects(t) != before {
+		t.Fatal("refused stale proof changed durable state")
+	}
+	reviewGateRequireStep(t, s, workID, "refine")
 
-	acceptDeliveryBindFresh(t, c, "corrected")
-	if err := refineProofDelivery(t, s, workID, nil); err != nil {
+	refineProofCandidateRun(t, s, workID, "corrected", refineProofCandidate(t, s, workID), []string{"go", "vet", "./..."})
+	if err := refineProofDelivery(t, s, workID, tooling); err != nil {
 		t.Fatalf("record_delivery with corrected candidate proof: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")

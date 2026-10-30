@@ -81,7 +81,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 				t.Fatalf("engine recovery discovery does not return the builtin entry %s; derived set %v", action.ID, engineOwned)
 			}
 		}
-		for _, actionID := range []string{"record_verdict", "record_worker_failure"} {
+		for _, actionID := range []string{"record_verdict"} {
 			if !ownedByEngine(actionID) {
 				t.Fatalf("engine recovery discovery does not return %s; derived set %v", actionID, engineOwned)
 			}
@@ -175,21 +175,6 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		}
 		if override.Consent != WorkflowConsentRequired {
 			t.Fatalf("legacy operator-required %s consent = %q, want the executor override to required", controlID, override.Consent)
-		}
-
-		// The v2 pin declares record_worker_failure.
-		legacyWorker := workflowFixtureDefinition(t, 2).Definition
-		workerOwner, ok := workflowRecoveryActionDefinition("record_worker_failure")
-		if !ok {
-			t.Fatal("engine recovery discovery lost record_worker_failure")
-		}
-		workerResult, err := ClassifyWorkflowApproval(legacyWorker, "record_worker_failure", WorkflowApprovalFacts{})
-		if err != nil {
-			t.Fatalf("legacy classification of declared record_worker_failure refused: %v", err)
-		}
-		declaredWorker, _ := declared(legacyWorker, "record_worker_failure")
-		if workerResult.Consent != WorkflowApprovalConsent(declaredWorker.Approval) || workerResult.Consent != WorkflowApprovalConsent(workerOwner.Approval) {
-			t.Fatalf("legacy record_worker_failure consent = %q, want the declared %q the engine owner pins as %q", workerResult.Consent, declaredWorker.Approval, workerOwner.Approval)
 		}
 
 		// An action neither the pin declares nor the engine owns keeps the

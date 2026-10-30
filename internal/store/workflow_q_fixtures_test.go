@@ -56,6 +56,11 @@ func qAssociateCurrentProofAt(t *testing.T, f workContextFixture, verdictStep, a
 	}
 	gitRunStore(t, repo, "branch", "-m", branch)
 	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo, acceptor: f.owner}
+	if artifact != "" {
+		if err := j.action(t, "start_execution", map[string]any{}, f.owner); err != nil {
+			t.Fatalf("start candidate production: %v", err)
+		}
+	}
 	run, err := f.store.VerifyWorktree(t.Context(), j.request("q-proof", nil))
 	if err != nil || run.ExitCode != 0 {
 		t.Fatalf("capture candidate command receipt: %+v, %v", run, err)

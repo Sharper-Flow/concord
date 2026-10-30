@@ -142,7 +142,8 @@ func stalenessSeedDeliveryAt(t *testing.T, s *Store, workID, step string) {
 }
 
 func stalenessVerdictPayload(kind string) string {
-	encoded, _ := json.Marshal(map[string]any{"predicate_id": "predicate:primary", "verdict_kind": kind, "contract_version": 1})
+	actor := stepFixtureActor()
+	encoded, _ := json.Marshal(map[string]any{"predicate_id": "predicate:primary", "verdict_kind": kind, "contract_version": 1, "verdict_actor_ref": DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), "evaluation_evidence": []string{}})
 	return string(encoded)
 }
 

@@ -128,7 +128,7 @@ func TestReviewSubjectBindingIsPublicAndRequired(t *testing.T) {
 	t.Parallel()
 	candidate := store.ReviewCandidate{ProjectID: "project-1", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}
 	review := store.ReviewBlock{Disposition: "continue", InputCandidate: candidate, OutputCandidate: candidate,
-		Dependencies: store.ReviewDependencies{ArchitectureNotApplicable: true, Criteria: []store.ReviewCriterion{{PredicateID: "predicate-1", ContentDigest: "sha256:" + strings.Repeat("c", 64)}}},
+		Dependencies: store.ReviewDependencies{ArchitectureNotApplicable: true, Criteria: []store.ReviewCriterion{{PredicateID: "predicate:primary", ContentDigest: "sha256:" + strings.Repeat("c", 64)}}},
 		Assessments:  []store.ReviewAssessment{}, Findings: []store.ReviewFinding{}, RemainingObligations: []store.ReviewObligation{}}
 	input := map[string]any{"work_id": "work-1", "expected_version": 1, "action_id": "record_review", "idempotency_key": "review-1", "fields": map[string]any{"review": review}}
 	for _, schema := range []string{"work_transition_action_input", "work_transition_action_public_input"} {

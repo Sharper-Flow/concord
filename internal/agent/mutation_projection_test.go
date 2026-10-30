@@ -24,7 +24,8 @@ func TestMutationProjectionCorrectionMutations(t *testing.T) {
 	f.proof = f.verify(t)
 	// HTML escaping expands legal Review and correction text in each required copy
 	// of the correction context. No content may be discarded to fit the wire.
-	detail := strings.Repeat("<", 4096)
+	detail := strings.Repeat("<", 512)
+	correctionText := strings.Repeat("<", 4096)
 	pin := f.read(t).Pinned.Pin
 	candidate := store.ReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, f.path, "rev-parse", "HEAD"), Tree: gitRun(t, f.path, "rev-parse", "HEAD^{tree}")}
 	report := store.ReviewBlock{Disposition: "correction_required", InputCandidate: candidate, OutputCandidate: candidate, Dependencies: *pin.Review.Dependencies,
@@ -35,7 +36,7 @@ func TestMutationProjectionCorrectionMutations(t *testing.T) {
 	spineOK(t, f.action(t, "record_review", map[string]any{"review": report}))
 	reportRef := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": reportRef}))
-	correction := map[string]any{"diagnosis": detail, "strategy": detail, "predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{reportRef}}
+	correction := map[string]any{"diagnosis": correctionText, "strategy": correctionText, "predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{reportRef}}
 	spineOK(t, f.action(t, "request_correction", correction))
 	if err := f.service.ExpandTrustedClientPolicy(t.Context(), f.env.ClientRef, TrustedClientPolicy{Capabilities: []agentcontract.Capability{"work_relate"}}); err != nil {
 		t.Fatal(err)
@@ -45,7 +46,7 @@ func TestMutationProjectionCorrectionMutations(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := f.read(t)
-	if state.Pinned.Pin.Correction == nil || state.Pinned.Pin.Correction.Diagnosis != detail || len(state.Pinned.Pin.Review.Findings) != 2 {
+	if state.Pinned.Pin.Correction == nil || state.Pinned.Pin.Correction.Diagnosis != correctionText || state.Pinned.Pin.Correction.Strategy != correctionText || len(state.Pinned.Pin.Review.Findings) != 2 {
 		t.Fatal("Review correction did not retain its complete context and blockers")
 	}
 	for _, vector := range []struct {
@@ -58,6 +59,12 @@ func TestMutationProjectionCorrectionMutations(t *testing.T) {
 		{"message", "concord_work_relate", "message_send", map[string]any{"recipient_work_id": "work-projection-recipient", "body": "The failed job needs its recorded correction."}},
 	} {
 		t.Run(vector.name, func(t *testing.T) {
+			if vector.operation == "workflow_action" {
+				// Each correction consumes its accepted Review. Record a fresh
+				// Review before exercising another correction's receipt rollback.
+				spineOK(t, f.action(t, "record_review", map[string]any{"review": report}))
+				correction["evidence_refs"] = []string{f.read(t).Pinned.Pin.Review.Accepted.ReportRef}
+			}
 			before := f.read(t).Pinned.Pin.Version
 			input := vector.fields
 			input["work_id"], input["expected_version"], input["idempotency_key"] = f.work, before, "project-"+vector.operation
@@ -116,7 +123,7 @@ func TestMutationProjectionCorrectionMutations(t *testing.T) {
 			if err != nil || committed <= before {
 				t.Fatalf("invalid committed version: %d %v", committed, err)
 			}
-			if err := json.Unmarshal([]byte(record.ResultPayload), &original); err != nil || len(original.Pins) != 1 || original.Pins[0].Version != committed || original.Pins[0].Correction.Diagnosis != detail || len(original.Pins[0].Review.Findings) != 2 || !reflect.DeepEqual(original.Intents, mutationResultIntents(nextIntentsFromPin(original.Pins[0]))) {
+			if err := json.Unmarshal([]byte(record.ResultPayload), &original); err != nil || len(original.Pins) != 1 || original.Pins[0].Version != committed || original.Pins[0].Correction.Diagnosis != correctionText || original.Pins[0].Correction.Strategy != correctionText || len(original.Pins[0].Review.Findings) != 2 || !reflect.DeepEqual(original.Intents, mutationResultIntents(nextIntentsFromPin(original.Pins[0]))) {
 				t.Fatalf("incomplete original pin or intents: err=%v", err)
 			}
 			if err := agentcontract.ValidateOperationPayload(vector.tool, vector.operation, []byte(record.ResultPayload), true); err != nil {

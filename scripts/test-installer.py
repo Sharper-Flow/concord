@@ -2480,6 +2480,7 @@ esac''',
             "concord-instruction-writing",
             "concord-law-writing",
             "concord-retrospective",
+            "concord-review",
             "concord-work-shaping",
         ]
         skill_relatives = {f"skills/{name}/SKILL.md" for name in skill_names}

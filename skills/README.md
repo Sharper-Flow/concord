@@ -28,6 +28,8 @@ the Product's existing authority and checks still own acceptance and publication
   it into independently verifiable outcomes.
 - [Retrospective](concord-retrospective/SKILL.md): move a recurring correction
   to the instruction, check, or document that can hold it.
+- [Review](concord-review/SKILL.md): review a step or change against repository
+  standards and the ticket's end state or plan, including a final clean review.
 
 A method is guidance, not a gate. It adds no workflow step, approval, packet
 field, capability, or check, and it authorizes no source or live-state change.
@@ -40,6 +42,10 @@ writing-for-agents for instruction writing and law writing; diagnosing-bugs, cod
 to-tickets, and retro for the method skills; and domain-modeling for term
 clarification in Domain-shape stewardship. Each adapting skill keeps the
 upstream MIT notice in its `LICENSE` file.
+
+Review adapts the two-axis method from
+[code-review](https://github.com/mattpocock/skills/blob/a496f5513d4a4cf889bc48e189e579f4b0bdf6aa/skills/engineering/code-review/SKILL.md)
+and keeps its upstream MIT notice in `concord-review/LICENSE`.
 
 ## Delivery
 

@@ -64,6 +64,9 @@ SKILL_REFERENCES = {
     "concord-instruction-writing": {
         "admission": ".concord/docs/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
     },
+    "concord-review": {
+        "admission": ".concord/docs/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
+    },
     "concord-diagnosis": {
         "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
         "intake": ".concord/docs/decisions/CD-0211-defect-intake-classifies-recurrence-before-fix.md",

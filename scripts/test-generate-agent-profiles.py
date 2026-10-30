@@ -188,10 +188,11 @@ class ProfileTests(unittest.TestCase):
         bash = checks.permission_rules(frontmatter, "bash")
         self.assertNotIn("*", [pattern for pattern, _ in bash])
         host = [("*", "allow"), ("kill *", "deny"), ("pkill *", "deny"), ("ps *", "deny")]
-        for command in ("kill 123", "pkill opencode", "ps aux", "sudo true", "git commit -m fix", "git -C repo commit -m fix", "git push origin HEAD", "gh pr create", "gh release create v1", "herdr-notify --to peer", "herdr agent prompt peer hello"):
+        for command in ("kill 123", "pkill opencode", "ps aux", "sudo true", "git commit -m fix", "git -C repo commit -m fix", "git push origin HEAD", "git commit-tree abc", "git cherry-pick abc", "git revert abc", "git am patch", "gh pr create", "gh --repo org/repo pr create", "gh release create v1", "gh --repo org/repo release create v1", "herdr-notify --to peer", "herdr agent prompt peer hello", "bash -c 'concord invoke' gh pr view 1"):
             with self.subTest(command=command):
                 self.assertEqual(checks.evaluate(host + bash, command), "deny")
-        for command in ("go test ./internal/agent", "bin/oc-test targeted -- python3 scripts/test-generate-agent-profiles.py", "git diff", "git status"):
+        for command in ("go test ./internal/agent", "bin/oc-test targeted -- python3 scripts/test-generate-agent-profiles.py", "git diff", "git status",
+                        "go test ./cmd/concord -run TestCommandSpecs", "git diff origin/main -- cmd/concord", "git -C /synthetic/concord status", "ls cmd/concord", "gh pr view 1", "gh pr diff 1", "gh pr checks 1"):
             self.assertEqual(checks.evaluate(host + bash, command), "allow", command)
         task = checks.permission_rules(frontmatter, "task")
         for agent in ("concord-explore", "concord-lookup"):
@@ -201,13 +202,15 @@ class ProfileTests(unittest.TestCase):
 
     def test_reviewer_cli_denies_self_asserted_workflow_identity(self):
         bash = checks.permission_rules(checks.split_frontmatter(generator.primary_projection(self.reviewer(), "Role\n")), "bash")
-        for binary in ("concord", "/synthetic/bin/concord"):
+        for binary in ("concord", "/synthetic/bin/concord", "bin/concord", "./concord", "env concord", "env CONCORD_DB=x concord", "xargs concord", "go run ./cmd/concord"):
             for arguments in ("invoke --agent-ref Concord", "work-capture", "work-action", "client register", "client show-extra", "--db state.db invoke", "--help invoke"):
                 command = f"{binary} {arguments}"
                 self.assertEqual(checks.evaluate(bash, command), "deny", command)
-            for arguments in ("--help", "--version", "continuity-block", "client show"):
-                command = f"{binary} {arguments}"
-                self.assertEqual(checks.evaluate(bash, command), "allow", command)
+        for command in ("bash -c 'concord invoke'", 'sh -c "cd repo && concord work-action"', "sh -c 'cd repo;concord invoke'", 'eval "concord invoke"',
+                        "bash -c 'concord invoke' /synthetic/bin/concord --help", "env herdr-notify --to peer", "bash -c 'herdr agent prompt peer hi'"):
+            self.assertEqual(checks.evaluate(bash, command), "deny", command)
+        for arguments in ("--help", "--version", "continuity-block", "client show"):
+            self.assertEqual(checks.evaluate(bash, f"concord {arguments}"), "allow", arguments)
 
     @unittest.skipUnless(os.environ.get("CONCORD_HOST_MERGE_PROBE"), "set CONCORD_HOST_MERGE_PROBE for isolated real-host resolution")
     def test_staged_host_admits_native_review_and_preserves_effective_denials(self):
@@ -239,9 +242,10 @@ class ProfileTests(unittest.TestCase):
                 self.assertEqual(action(reviewer, tool), "deny", tool)
             for tool in ("concord_knowledge", "concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view", "edit", "write"):
                 self.assertEqual(action(reviewer, tool), "allow", tool)
-            for command in ("ps aux", "kill 123", "pkill opencode", "concord invoke", "/synthetic/bin/concord invoke", "concord client register", "git commit -m fix", "git push origin HEAD", "gh pr create", "herdr-notify --to peer"):
+            for command in ("ps aux", "kill 123", "pkill opencode", "concord invoke", "/synthetic/bin/concord invoke", "env concord invoke", "concord client register", "git commit -m fix", "git push origin HEAD", "gh pr create", "herdr-notify --to peer"):
                 self.assertEqual(action(reviewer, "bash", command), "deny", command)
-            self.assertEqual(action(reviewer, "bash", "go test ./internal/agent"), "allow")
+            for command in ("go test ./internal/agent", "go test ./cmd/concord -run TestCommandSpecs"):
+                self.assertEqual(action(reviewer, "bash", command), "allow", command)
             self.assertEqual(action(reviewer, "question"), "deny")
             for agent in ("concord-explore", "concord-lookup"):
                 self.assertEqual(action(reviewer, "task", agent), "allow", agent)

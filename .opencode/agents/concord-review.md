@@ -16,26 +16,35 @@ permission:
     "sudo *": deny
     "rm -rf / *": deny
     "*git *commit *": deny
+    "*git *commit-tree *": deny
+    "*git *cherry-pick *": deny
+    "*git *revert *": deny
+    "*git *am *": deny
     "*git *push *": deny
     "*git *merge *": deny
     "*git *rebase *": deny
     "*git *tag *": deny
-    "*gh pr *": deny
-    "*gh release *": deny
-    "*gh workflow run *": deny
-    "*gh api *": deny
-    "herdr*": deny
-    "*/herdr*": deny
+    "*gh *pr *": deny
+    "*gh *release *": deny
+    "*gh *workflow run *": deny
+    "*gh *api *": deny
+    "*herdr*": deny
     "concord *": deny
-    "*/concord *": deny
+    "* concord *": deny
+    "*'concord *": deny
+    "*\"concord *": deny
+    "* -c *concord*": deny
+    "./concord *": deny
+    "/*/concord *": deny
+    "*bin/concord *": deny
+    "go run *cmd/concord*": deny
     "concord --help": allow
-    "*/concord --help": allow
     "concord --version": allow
-    "*/concord --version": allow
     "concord continuity-block": allow
-    "*/concord continuity-block": allow
     "concord client show": allow
-    "*/concord client show": allow
+    "gh pr view *": allow
+    "gh pr diff *": allow
+    "gh pr checks *": allow
     "git stash *": deny
     "git * stash *": deny
     "*/git stash *": deny

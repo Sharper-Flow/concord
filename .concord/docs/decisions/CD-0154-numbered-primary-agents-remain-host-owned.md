@@ -3,7 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-09-16
 - **Scope:** Ownership and distribution of the `concord-0`, `concord-1`, and
-  `concord-2` OpenCode definitions, and portable named primary profiles
+  `concord-2` OpenCode definitions, portable named primary profiles and native
+  step helpers
 - **Approval:** The operator approved host ownership with repository examples.
   The operator approved retirement of the shaping and driving examples as exact
   text on 2026-10-20 for
@@ -111,7 +112,7 @@ Concord also generates and installs `concord-review` as a native Task step helpe
 from the profile manifest. It loads the shipped review method, reviews the
 assigned step and repairs its in-scope findings. It leaves changes uncommitted;
 the caller commits and owns delivery and workflow state. There is no read-only
-review mode. It may read Concord law and work context, but cannot write Concord
+review mode. It may read Concord law and work context, but must not write Concord
 state, publish, contact the operator or send session notices. It may delegate
 only to exploration and external lookup utilities. Host safety and assigned-path
 permissions remain in force; model selection remains host-owned.

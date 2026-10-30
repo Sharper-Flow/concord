@@ -339,6 +339,11 @@ external lookup. Its shell rules preserve inherited host safety denies. These
 command-text rules are not a sandbox; its role also prohibits direct-store and
 wrapper bypasses.
 
+Hosts that enable reviewer-to-utility delegation must set OpenCode's
+[`subagent_depth`](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/web/src/content/docs/config.mdx)
+to `2`. Its default `1` admits the reviewer but stops nested Tasks; the profile's
+Task allowlist does not override that host ceiling. Concord does not change it.
+
 The read-only utility definitions deny nested Task delegation. If a host wants
 per-agent model fallback behavior, configure the OMR plugin's ordered fallback
 targets under its plugin tuple, for example:

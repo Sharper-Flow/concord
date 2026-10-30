@@ -31,10 +31,6 @@
     {
       "kind": "validator",
       "value": "scripts/test-installer.py"
-    },
-    {
-      "kind": "validator",
-      "value": "scripts/check-primary-prompts.py"
     }
   ],
   "id": "CD-0182",

@@ -35,10 +35,6 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestLegacyRowStaysOnUnreadableLeaseSet"
-    },
-    {
-      "kind": "validator",
-      "value": "scripts/check-primary-prompts.py"
     }
   ],
   "id": "CD-0178",

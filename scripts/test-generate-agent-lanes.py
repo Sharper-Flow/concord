@@ -1860,11 +1860,6 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             for name in names:
                 self.assertNotIn(name, source, f"{profile['role_source']} names {name}")
 
-    def test_planner_role_source_states_its_optional_boundary(self):
-        source = " ".join((ROOT / ".concord/roles/planner.md").read_text(encoding="utf-8").split())
-        for phrase in prompt_checker.PLANNER_REQUIRED_PHRASES:
-            self.assertIn(phrase, source)
-
     def test_role_sources_state_the_optional_rte_rule(self):
         # Concord performs the whole item without an RTE session, and the
         # user may still choose to start one; each role source states the

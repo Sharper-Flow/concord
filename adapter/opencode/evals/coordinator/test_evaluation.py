@@ -578,10 +578,7 @@ class EvaluationTests(unittest.TestCase):
 
 
 class ServedInputCorrectionTests(unittest.TestCase):
-    """Served-result input-correction gates: correction credit requires the
-    exact production invalid_input/none/correct_request triple with
-    retry_safe false, a corrected in-scope call of the same tool, and full
-    event/log/result fidelity. Nothing else grants correction authority."""
+    """No-effect corrections keep scope, authority and event/result fidelity."""
 
     def test_served_claim_refusal_correction_collapses_the_refused_call(self):
         # The executed production core boundary serves a malformed
@@ -625,10 +622,19 @@ class ServedInputCorrectionTests(unittest.TestCase):
 
     def test_authorization_denial_replay_grants_no_correction(self):
         case = SCENARIOS["same-repository-second-project"]
-        denied = {"outcome": "error", "error": {"reason_code": "authorization_denied",
-                                                "effect_state": "none", "message": "Outside the fixture grant."}}
-        calls, events = refusal_prefixed_observation(case, TRANSITION, malformed_claim_args(), denied)
-        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+        for denied in ({"reason_code": "authorization_denied"},
+                       {"adapter_reason": "lane_tool_refusal"},
+                       {"kind": "unauthorized"}, {"kind": "approval_required"},
+                       {"kind": "unknown_scope"},
+                       {"kind": "invalid_input", "recovery_action": {"kind": "request_approval"}},
+                       {"kind": "invalid_input", "recovery_action": {"kind": "contact_operator"}}):
+            with self.subTest(denied=denied):
+                refusal = {"outcome": "error", "error": {
+                    **denied, "effect_state": "none", "message": "Outside the fixture grant.",
+                }}
+                calls, events = refusal_prefixed_observation(
+                    case, TRANSITION, malformed_claim_args(), refusal)
+                self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
     def test_unchanged_replay_after_correct_request_grants_nothing(self):
         case = SCENARIOS["same-repository-second-project"]
@@ -643,31 +649,39 @@ class ServedInputCorrectionTests(unittest.TestCase):
         events[1]["part"]["state"]["output"] = json.dumps(calls[1]["result"])
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
-    def test_no_effect_or_retry_safe_alone_is_not_correction_authority(self):
-        # A served refusal with effect none and a retry recovery is not the
-        # correction triple: neither its no-effect alone nor its retry_safe
-        # classification admits the extra call.
+    def test_any_no_effect_recovery_label_allows_correction(self):
         case = SCENARIOS["same-repository-second-project"]
-        retryable = {"outcome": "error", "error": {"kind": "resource_busy", "retry_safe": True,
-                                                  "recovery_action": {"kind": "retry_same_request"},
-                                                  "effect_state": "none", "message": "busy"}}
-        calls, events = refusal_prefixed_observation(case, TRANSITION, malformed_claim_args(), retryable)
-        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+        for kind, recovery, retry_safe in (
+            ("resource_busy", "retry_same_request", True),
+            ("invalid_input", "reread_entities", False),
+            ("stale_context", "refresh_context", False),
+            ("version_conflict", "reread_entities", False),
+            ("invalid_input", "correct_request", False),
+        ):
+            with self.subTest(kind=kind, recovery=recovery):
+                refusal = {"outcome": "error", "error": {
+                    "kind": kind, "retry_safe": retry_safe,
+                    "recovery_action": {"kind": recovery}, "effect_state": "none",
+                }}
+                calls, events = refusal_prefixed_observation(
+                    case, TRANSITION, malformed_claim_args(), refusal)
+                self.assertTrue(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
     def test_uncertain_effect_refusal_grants_no_correction(self):
         case = SCENARIOS["same-repository-second-project"]
-        uncertain = {"outcome": "error", "error": {"kind": "invalid_input", "retry_safe": False,
-                                                  "recovery_action": {"kind": "correct_request"},
-                                                  "effect_state": "possible", "message": "uncertain"}}
-        calls, events = refusal_prefixed_observation(case, TRANSITION, malformed_claim_args(), uncertain)
-        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+        for effect in ("possible", "unknown", "partial", None):
+            with self.subTest(effect=effect):
+                uncertain = served_correction_refusal()
+                uncertain["error"]["effect_state"] = effect
+                calls, events = refusal_prefixed_observation(
+                    case, TRANSITION, malformed_claim_args(), uncertain)
+                self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
-    def test_retry_safe_true_on_the_triple_grants_no_correction(self):
-        # The production triple carries retry_safe false; a served shape
-        # claiming retry safety is a different refusal and admits nothing.
+    def test_retry_safe_without_no_effect_grants_no_correction(self):
         case = SCENARIOS["same-repository-second-project"]
         forged = served_correction_refusal()
         forged["error"]["retry_safe"] = True
+        del forged["error"]["effect_state"]
         calls, events = refusal_prefixed_observation(case, TRANSITION, malformed_claim_args(), forged)
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
@@ -680,13 +694,9 @@ class ServedInputCorrectionTests(unittest.TestCase):
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
     def test_refused_claim_identity_drift_grants_no_correction(self):
-        # The refused call must name the same work, Project, base, and
-        # version the corrected call names: identity drift toward a
-        # foreign item is a different request, not a correctable shape of
-        # this one, so the correction exemption never covers it.
         case = SCENARIOS["same-repository-second-project"]
         for field, value in (("work_id", "work-foreign"), ("project_id", "project-foreign"),
-                             ("base_sha", "f" * 40), ("expected_version", 2)):
+                             ("base_sha", "f" * 40)):
             with self.subTest(field=field):
                 args = malformed_claim_args()
                 args["request"]["input"][field] = value
@@ -694,27 +704,22 @@ class ServedInputCorrectionTests(unittest.TestCase):
                     case, TRANSITION, args, served_correction_refusal())
                 self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
-    def test_refused_claim_identity_type_drift_grants_no_correction(self):
-        # Python compares True with 1 and 1 with 1.0 as equal, so value
-        # equality alone cannot hold identity: a version refused as a
-        # bool, a float, or a string never preserves the version the
-        # corrected claim carries as an int.
+    def test_refused_version_can_be_corrected(self):
         case = SCENARIOS["same-repository-second-project"]
-        for value in (True, 1.0, "1"):
+        for value in (2, True, 1.0, "1", None):
             with self.subTest(value=repr(value)):
                 args = malformed_claim_args()
-                args["request"]["input"]["expected_version"] = value
+                if value is None:
+                    del args["request"]["input"]["expected_version"]
+                else:
+                    args["request"]["input"]["expected_version"] = value
                 calls, events = refusal_prefixed_observation(
                     case, TRANSITION, args, served_correction_refusal())
-                self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+                self.assertTrue(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
     def test_refused_claim_omitted_identity_grants_no_correction(self):
-        # A refused claim that names no Project or no version did not
-        # retain the identity the corrected claim carries: an omitted
-        # identity field names nothing, and nothing is not the corrected
-        # value.
         case = SCENARIOS["same-repository-second-project"]
-        for absent in ("project_id", "expected_version"):
+        for absent in ("project_id",):
             with self.subTest(absent=absent):
                 args = malformed_claim_args()
                 del args["request"]["input"][absent]
@@ -818,12 +823,7 @@ class ServedInputCorrectionTests(unittest.TestCase):
 
 
 class CorrectionAuthorityBindingTests(unittest.TestCase):
-    """Correction credit binds to the tools whose executed production
-    boundaries serve the correction triple: concord_work_start's adapter
-    argument boundary and the core's pre-effect worktree_claim payload
-    boundary both serve invalid_input/none/correct_request with retry_safe
-    false. The binding never admits a tool, operation, or refusal shape the
-    executed boundaries do not serve."""
+    """Correction credit stays within the fixture's declared mutation tools."""
 
     def test_executed_claim_triple_is_the_admitted_triple(self):
         # The exact refusal the executed core CLI serves on a malformed
@@ -935,18 +935,6 @@ class TypeSensitiveGateTests(unittest.TestCase):
         self.assertFalse(result["checks"]["trace_matches_event"])
         self.assertFalse(result["passed"])
 
-    def test_corrected_claim_identity_type_drift_breaks_the_correction(self):
-        # The refused claim names the version as a bool; the corrected claim
-        # carries the int. Value equality alone would preserve identity.
-        case = SCENARIOS["same-repository-second-project"]
-        refused = malformed_claim_args()
-        refused["request"]["input"]["expected_version"] = True
-        calls, events = refusal_prefixed_observation(
-            case, TRANSITION, refused, served_correction_refusal())
-        events[0]["part"]["state"]["input"] = copy.deepcopy(refused)
-        result = evaluate(case, calls, events, 0, {"source": "nonce"})
-        self.assertFalse(result["passed"])
-
     def test_final_response_nested_type_drift_breaks_the_match(self):
         # The terminal answer nests a bool where the expected report carries a
         # string; dict equality under == would admit a drifted shape only when
@@ -962,24 +950,21 @@ class TypeSensitiveGateTests(unittest.TestCase):
 
 
 class RelocationGuidanceFixtureTests(unittest.TestCase):
-    """The current coordinator's guidance must state that input
-    correction authority comes from the served production triple —
-    invalid_input kind, effect_state none, recovery_action correct_request —
-    and the six relocation boundaries stay named. These are deterministic
-    fixtures over the shipped profile text, not model-behavior proof."""
+    """Deterministic fixtures over shipped guidance, not model-behavior proof."""
 
     ROOT = Path(__file__).resolve().parents[4]
 
     def guidance(self):
         return (self.ROOT / ".opencode" / "agents" / "Concord.md").read_text()
 
-    def test_coordinator_binds_correction_to_the_served_recovery(self):
-        text = self.guidance()
-        self.assertIn("recovery_action", text)
-        self.assertIn("`correct_request`", text)
-        self.assertIn("`invalid_input`", text)
-        self.assertRegex(text, r"recovery_action[^.]*`correct_request`")
-        self.assertIn("any other served recovery keeps its declared route", text)
+    def test_coordinator_allows_no_effect_correction_without_label_gate(self):
+        text = " ".join(self.guidance().split())
+        self.assertIn("`effect_state: none`", text)
+        self.assertIn("whatever its `recovery_action`", text)
+        self.assertIn("within unchanged authority and approved scope", text)
+        self.assertIn("Never change arguments, split operations, or retry to evade an operator denial", text)
+        self.assertIn("If an effect is possible or unknown, reconcile it before resending", text)
+        self.assertIn("a later no-effect refusal does not clear that uncertainty", text)
 
     def test_coordinator_keeps_the_six_relocation_boundaries(self):
         fixtures = {

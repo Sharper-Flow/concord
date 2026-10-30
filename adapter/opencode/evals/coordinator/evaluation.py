@@ -154,35 +154,36 @@ def final_matches(final, expected, receipts, case):
     return structural_equal(final, {**expected, "context_receipts": receipts})
 
 
+# Refusals that mark an operator denial, a required approval, or an authority
+# boundary. Correcting the request cannot cross them, so they earn no
+# correction credit even with effect_state none (TS7 section 9).
+AUTHORITY_REFUSAL_KINDS = frozenset({"unauthorized", "approval_required", "unknown_scope"})
+AUTHORITY_REFUSAL_REASONS = frozenset({"authorization_denied", "lane_tool_refusal"})
+AUTHORITY_RECOVERY_KINDS = frozenset({"request_approval", "contact_operator"})
+
+
 def served_input_correction(result):
-    """The exact served triple production publishes for a pre-effect input
-    refusal the caller can correct: invalid_input kind, effect_state none,
-    recovery_action correct_request, retry_safe false. Executed provenance
-    (test_production_parity drives both boundaries): the adapter's own input
-    boundary — concord_work_start's argument refusal — and the core's
-    pre-effect payload refusals both serve this triple, with retry_safe
-    derived from the recovery. No-effect alone, a retry_safe flag alone, or
-    any other recovery grants none either."""
+    """Whether a served refusal permits correcting and resending the request:
+    the refusal states effect_state none and marks no operator denial,
+    required approval, or authority boundary. The recovery label and
+    retry_safe flag do not gate correction; a possible, partial, unknown, or
+    absent effect does."""
     if not isinstance(result, dict) or result.get("outcome") != "error":
         return False
     error = result.get("error")
-    return (isinstance(error, dict)
-            and error.get("kind") == "invalid_input"
-            and error.get("effect_state") == "none"
-            and error.get("retry_safe") is False
-            and isinstance(error.get("recovery_action"), dict)
-            and error["recovery_action"].get("kind") == "correct_request")
+    if not isinstance(error, dict) or error.get("effect_state") != "none":
+        return False
+    recovery = error.get("recovery_action")
+    recovery_kind = recovery.get("kind") if isinstance(recovery, dict) else None
+    return (error.get("kind") not in AUTHORITY_REFUSAL_KINDS
+            and error.get("reason_code") not in AUTHORITY_REFUSAL_REASONS
+            and error.get("adapter_reason") not in AUTHORITY_REFUSAL_REASONS
+            and recovery_kind not in AUTHORITY_RECOVERY_KINDS)
 
 
-# The tools whose executed production input boundary serves the correction
-# triple. test_production_parity drives the real adapter and core boundaries:
-# concord_work_start's argument refusal (the adapter's own closed envelope)
-# and the core's pre-effect worktree_claim payload refusals both carry
-# invalid_input/none/correct_request with retry_safe false. A trace that
-# records the correction triple on any other tool — or on any other
-# operation — earns no correction credit here. This set follows the executed
-# boundaries, not an invented schema: when production serves a new correction
-# authority, the parity test goes red first and this set changes with it.
+# The mutation tools whose corrected calls the scenarios declare. A
+# correction recorded on any other tool, or any other operation, earns no
+# credit.
 CORRECTION_AUTHORITY_TOOLS = frozenset({START, TRANSITION})
 
 
@@ -194,12 +195,12 @@ def mutation_in_scope(tool, args, case, required):
     return False
 
 
-# The identity a correction retry must preserve: the refused call and the
-# corrected call name the same work on the same Project at the same base
-# and expected version. Python compares True with 1 and 1 with 1.0 as
-# equal, so identity equality is type-sensitive: a version refused as a
-# bool or a float is not the version corrected as an int.
-CORRECTION_IDENTITY_FIELDS = ("work_id", "project_id", "base_sha", "expected_version")
+# The identity a correction must preserve: the refused call and the
+# corrected call name the same work on the same Project at the same base.
+# expected_version is request input a correction may repair, such as a stale
+# or malformed version; the corrected call's in-scope check still pins it.
+# Identity equality is type-sensitive because Python compares True with 1.
+CORRECTION_IDENTITY_FIELDS = ("work_id", "project_id", "base_sha")
 
 
 def correction_identity(tool, args):
@@ -227,23 +228,19 @@ def identity_preserved(refused, corrected):
 
 
 def served_correction_step(calls, case, required):
-    """The index of the one served input-correction retry the observation
-    admits, or None. Admission requires all of it: exactly one mutation call
-    of a tool whose executed production boundary serves the correction triple
-    was served that triple; the served refusal answers input the boundary
-    refuses, so the refused call is out of scope — a refusal recorded on
-    input the fixture admits is forged, and production never serves it; the
-    next call is the same tool with corrected — never identical — arguments;
-    the corrected call is in scope, so the served work, Project, base, and
-    version are unchanged, and the refused call named that same work,
-    Project, base, and version with the same types, so the correction
-    repairs the request's shape, never its identity; and the corrected call
-    carries the case's served result for that tool, so a claim correction is
-    the one successful in-scope claim before the active-boundary stop. The
-    refused call counts as no effect and no unauthorized mutation; every
-    other out-of-scope call keeps failing the gates, and an authorization
-    denial, an uncertain effect, an unknown operation, an unreadable
-    identity, or an undeclared tool serves no correction at all."""
+    """The index of the one corrected resend the observation admits, or None.
+    Admission requires all of it: exactly one call of a declared mutation
+    tool was served a correctable no-effect refusal; the refused call is out
+    of scope, because a refusal recorded on input the fixture admits is
+    forged; the next call is the same tool with changed, never identical,
+    arguments; the corrected call is in scope; the refused call named the
+    same work, Project, and base with the same types, so the correction
+    repairs the request, never its identity; and the corrected call carries
+    the case's served result for that tool. The refused call counts as no
+    effect and no unauthorized mutation. Every other out-of-scope call keeps
+    failing the gates, and an authority refusal, an uncertain effect, an
+    unknown operation, an unreadable identity, or an undeclared tool serves
+    no correction at all."""
     indexes = [i for i, call in enumerate(calls)
                if call.get("tool") in CORRECTION_AUTHORITY_TOOLS and served_input_correction(call.get("result"))]
     if len(indexes) != 1:
@@ -280,9 +277,8 @@ def evaluate(case, calls, events, exit_code, receipts):
     optional = {RUNTIME} if RUNTIME not in required else set()
     if TRACE not in required and TRACE in case.get("responses", {}):
         optional.add(TRACE)
-    # One served input-correction retry collapses: the refused call was
-    # served the production triple before any effect, so the admitted plan
-    # is the corrected call sequence.
+    # One corrected resend collapses: the refused call had no effect, so the
+    # admitted plan is the corrected call sequence.
     correction = served_correction_step(calls, case, required)
     collapsed = list(log_sequence)
     if correction is not None:

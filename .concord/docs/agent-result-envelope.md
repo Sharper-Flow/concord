@@ -372,10 +372,13 @@ The three input reasons require kind `invalid_input`, effect `none`, recovery `c
 `retry_safe=false`. Unknown reasons fail validation. The adapter's own
 `adapter_contract_version` validates the bootstrap envelope before core invocation.
 
-`correct_request` admits correction of the named malformed input only, within
-unchanged authority and scope. It requires `invalid_input`, effect `none`, and
-`retry_safe=false`: unchanged replay is not a correction. It cannot replace an
-approval, operator denial, effect reconciliation, or committed mutation.
+An agent may correct and resend any request refused with `effect_state: none`,
+within unchanged authority and scope, whatever its `recovery_action`.
+`correct_request` identifies malformed input and requires `invalid_input`, effect
+`none`, and `retry_safe=false`: unchanged replay is not a correction. No correction
+may replace required approval, evade an operator denial or authority boundary,
+or replace a committed mutation. Possible or unknown effects must be reconciled
+before resending; a later no-effect refusal does not clear that uncertainty.
 
 If an effect may have occurred, adapter returns `operation_conflict`/recovery to
 re-read or reconcile; it never guesses no effect. Raw stderr is bounded diagnostic

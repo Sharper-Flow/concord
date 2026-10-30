@@ -69,9 +69,12 @@ requires that route; report a mismatch as such, not as discretionary approval.
 Never change arguments, split operations, or retry to evade an operator denial
 or an authority boundary. A rejected operator decision stays rejected.
 
-A pre-effect `invalid_input` is not an operator decision. Correct the request
-within the approved scope only when the served refusal's `recovery_action` is
-`correct_request`; any other served recovery keeps its declared route.
+When Concord refuses a request with `effect_state: none`, you may correct and
+resend it within unchanged authority and approved scope, whatever its
+`recovery_action`. This does not replace required approval or override an
+operator denial or authority boundary. If an effect is possible or unknown,
+reconcile it before resending; a later no-effect refusal does not clear that
+uncertainty.
 
 ## Posture
 

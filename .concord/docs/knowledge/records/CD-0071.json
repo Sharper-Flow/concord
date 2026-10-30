@@ -23,9 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b3de1fc76311eb175e8d7c6076a4ce939627c3fc9e0606cdffd6b0f11da40934",
+  "sha256": "sha256:62e02c3f0501018eb61d6a931f97d466f2504528c890720844540c12ecd9e7ef",
   "status": "accepted",
-  "summary": "D1 establishes that the authority system's boundary is the model's output stream, not the agent's process, because the seven agent_* tables carry no trigger, the database is same-UID writable, and signing gates issuance only; D2 withdraws the process-level adversary asserted in CD-0044's context and third rejected alternative while leaving its decisions D1-D6 and its verification list binding; D3 accepts absent tamper-evidence on the authority tables as coherent rather than deferred, closing the question CD-0008 left open; D4 divides the system into load-bearing mechanisms (git-derived scope resolution, cross_scope gate, manifest-digest pinning, typed refusals, the approval checkpoint, principal_ref) and non-load-bearing ones (Ed25519 signing, nonce replay, key rotation, grant expiry, use counts) and names issue #465 as the successor for the latter; D5 holds that a process boundary requires a separate UID and a UID-checked socket, which CD-0003 and CD-0042 foreclose; D6 closes the build-a-grant-revoke reading of issue #450, making the three revocation methods removal candidates rather than connection candidates.",
+  "summary": "The authority system constrains model output, not hostile same-UID processes. Authority tables need no tamper-evidence against that excluded adversary. Git-derived scope, cross_scope capability, manifest-digest pinning, typed refusals and principal_ref remain load-bearing. A process boundary would require a separate UID and a UID-checked socket, which CD-0003 and CD-0042 foreclose. Client revocation and key rotation remain reachable; per-grant revocation is not required.",
   "tags": [
     "authority",
     "threat-model",

@@ -278,11 +278,10 @@ func testOutsideRepairReconcileOutstandingExecution(t *testing.T, state string) 
 	}
 	// Reconciliation must protect outstanding execution even when a hold
 	// already exists in the current rows.
-	hold := outsideRepairTestRequest(t, s, seed.workID, "hold")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
-		VALUES(?,?,'active','fixture with outstanding execution','{}','2026-10-23T00:00:00Z');
-		DELETE FROM write_guard`, seed.workID, hold.ApprovalRef); err != nil {
+		INSERT INTO outside_repair_dispositions(work_id,state,reason,evidence_json,recorded_at)
+		VALUES(?,'active','fixture with outstanding execution','{}','2026-10-23T00:00:00Z');
+		DELETE FROM write_guard`, seed.workID); err != nil {
 		t.Fatal(err)
 	}
 	req := outsideRepairTestRequest(t, s, seed.workID, "reconcile")

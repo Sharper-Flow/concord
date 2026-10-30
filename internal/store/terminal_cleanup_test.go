@@ -46,7 +46,7 @@ func TestTerminalCleanupDefersUnreleasedOwners(t *testing.T) {
 		{"held_verify_lease", KindResourceBusy, []string{lease}},
 		{"ref_preservation_debt", KindOperationConflict, []string{`INSERT INTO worktree_ref_outcomes(set_id,project_id,claim_op_id,branch,phase,reason,recorded_at) VALUES('wts:work-done','proj-web','claim','work/closed','restoration_owed','restore','now')`}},
 		{"pending_vacate", KindOperationConflict, []string{`INSERT INTO session_vacate_requests VALUES('work-done','session-fixture','proj-web','/synthetic/work','/synthetic/main',1,0)`}},
-		{"outside_repair", KindOutsideRepairActive, []string{`INSERT INTO outside_repair_dispositions VALUES('work-done','approval:fixture','active','repair','{}','now')`}},
+		{"outside_repair", KindOutsideRepairActive, []string{`INSERT INTO outside_repair_dispositions VALUES('work-done','active','repair','{}','now')`}},
 		{"unknown_worker_launch", KindOperationConflict, []string{`INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) VALUES('work-done','attempt-fixture',1,'{}')`}},
 		{"dispatched_worker", KindOperationConflict, []string{attempt}},
 		{"unaccepted_worker_result", KindOperationConflict, []string{attempt, `UPDATE worker_attempts SET lifecycle_state='completed',completed_at='now'`}},
@@ -303,7 +303,7 @@ func terminalCleanupFixtureForKind(t *testing.T, kind string, beforeCancel ...fu
 		if err := runVerdictActionAs(t, s, "work-done", "record_verdict", criterionAssociationPayload(ref, "predicate:first", "predicate:second"), 0, f.owner); err != nil {
 			t.Fatalf("associate research criteria: %v", err)
 		}
-		if err := runApprovalActionTx(t, s, BuiltinWorkflowRegistry(), "work-done", "confirm_premise", f.owner, nil, "confirm", "", `{}`); err != nil {
+		if err := runCoordinatorActionTx(t, s, BuiltinWorkflowRegistry(), "work-done", "confirm_premise", f.owner, "confirm", `{}`); err != nil {
 			t.Fatalf("confirm research premise: %v", err)
 		}
 		if err := closureBind(t, f, "work-done", "review", hash); err != nil {

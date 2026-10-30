@@ -155,13 +155,6 @@ func applyRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *writeSco
 	retryRequest.AcceptedInputsDigest = "sha256:" + hex.EncodeToString(sum[:])
 	retryResult, err := applyWorkflowActionRawTx(withWorkerDispatchRetryRecursion(ctx), tx, scope, registry, retryRequest)
 	if err != nil {
-		// The combined call carries no approval of its own, so a retry the
-		// dispatch admission holds for approval refuses whole and names the
-		// routes that can carry it.
-		var failure *Failure
-		if failureAs(err, &failure) && failure.Kind == KindApprovalRequired {
-			return result, record, newFailure(KindApprovalRequired, "workflow_action", "the combined retry dispatch requires operator approval the combined call cannot carry: reject without the retry payload, then dispatch_worker with the approval it requires", false, "reject without the retry payload, then dispatch_worker with the approval it requires")
-		}
 		return result, record, err
 	}
 	record = retryDispatchRecord{AttemptID: retryAttemptID, Packet: packetRaw}

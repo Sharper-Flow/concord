@@ -163,34 +163,34 @@ func seedRefineFirstPass(t *testing.T, workID string) (workflowReturnRouteFixtur
 // complete + accept cycle, then confirms the premise so the failure edge
 // returns the item to refine. The caller then repairs the stale design with
 // a supersede that carries the replacement design.
-func returnRefineFromAcceptance(t *testing.T, fixture workflowReturnRouteFixture, workID string, _, operator WorkflowActor) {
+func returnRefineFromAcceptance(t *testing.T, fixture workflowReturnRouteFixture, workID string) {
 	t.Helper()
 	s, owner := fixture.store, fixture.owner
 	if step := currentStep(t, s, workID); step != "acceptance" {
 		t.Fatalf("step = %q, want acceptance before the return", step)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", refineRecoverySuccessor(2, ""), owner, operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", refineRecoverySuccessor(2, ""), owner); err != nil {
 		t.Fatalf("supersede_contract without design_record at acceptance: %v", err)
 	}
 	verdict := json.RawMessage(`{"contract_version":2,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", verdict, owner, operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", verdict, owner); err != nil {
 		t.Fatalf("record_verdict: %v", err)
 	}
 	if _, err := WorkflowActorRef(owner); err != nil {
 		t.Fatal(err)
 	}
 	correction := json.RawMessage(`{"diagnosis":"the corrected contract needs re-production at the route target","strategy":"repeat the implementation external effect with the new contract","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, owner, operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, owner); err != nil {
 		t.Fatalf("request_correction between verdict and confirm_premise: %v", err)
 	}
 	_ = acceptReturnRouteWorkerLabeled(t, fixture, workID, "return-refine-failure")
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), owner, operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), owner); err != nil {
 		t.Fatalf("confirm_premise: %v", err)
 	}
 	if step := currentStep(t, s, workID); step != "refine" {
 		t.Fatalf("step = %q, want refine after the return edge", step)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", refineRecoverySuccessor(3, refineRecoveryDesign), owner, operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", refineRecoverySuccessor(3, refineRecoveryDesign), owner); err != nil {
 		t.Fatalf("supersede_contract with design_record at the returned refine: %v", err)
 	}
 	design, err := readCurrentWorkflowDesign(context.Background(), s.DatabaseForTesting(), workID)

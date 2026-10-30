@@ -24,7 +24,7 @@ func TestWithheldOperatorQuestionStatesItsReason(t *testing.T) {
 	seedIssue31DomainRegistry(t, s)
 	definition := seedWithheldQuestionWorkflow(t, s, workID)
 
-	// A step with no approval-required action withholds nothing. The absent
+	// A step with no question-bearing action withholds nothing. The absent
 	// question there is the shape of the step, not a gate the caller can open.
 	question, withheld, err := workflowOperatorQuestionTx(ctx, s.DatabaseForTesting(), workID, "repair", 1, definition, WorkflowReadContract{})
 	if err != nil {
@@ -57,20 +57,15 @@ func TestWithheldOperatorQuestionStatesItsReason(t *testing.T) {
 		t.Errorf("withheld remedy = %q, want %q", withheld.Remedy, wantRemedy)
 	}
 
-	// The pin carries the same reason, so a caller that reads before it acts
-	// never has to provoke a refusal to learn why the question is closed.
+	// The pin of a contract-less legacy pin reads no contract block, so it
+	// carries neither a pending nor a withheld question; the projection
+	// above is the selection-time answer.
 	pin, err := ReadWorkPin(ctx, s, workID)
 	if err != nil {
 		t.Fatalf("pin read failed: %v", err)
 	}
-	if pin.PendingOperatorDecision != nil {
-		t.Fatal("pin published a question the gate withholds")
-	}
-	if pin.WithheldOperatorDecision == nil || pin.WithheldOperatorDecision.ActionID != "confirm_premise" {
-		t.Fatalf("pin withheld decision = %+v, want confirm_premise with a reason", pin.WithheldOperatorDecision)
-	}
-	if pin.WithheldOperatorDecision.Reason != withheld.Reason {
-		t.Errorf("pin reason %q differs from the gate's %q", pin.WithheldOperatorDecision.Reason, withheld.Reason)
+	if pin.PendingOperatorDecision != nil || pin.WithheldOperatorDecision != nil {
+		t.Fatalf("pin published question=%+v withheld=%+v for a contract-less pin", pin.PendingOperatorDecision, pin.WithheldOperatorDecision)
 	}
 
 	// Once the artifact resolves, the question opens and nothing is withheld.
@@ -90,7 +85,7 @@ func TestWithheldOperatorQuestionStatesItsReason(t *testing.T) {
 // TestConfirmPremiseRefusalNamesTheMissingArtifact pins the call-path refusal.
 // Without it the selection guard falls through to a message that reports a
 // question which expired, and the caller is sent to refresh context instead of
-// to the observation that opens the question.
+// to the observation that opens the confirmation.
 func TestConfirmPremiseRefusalNamesTheMissingArtifact(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
@@ -99,6 +94,7 @@ func TestConfirmPremiseRefusalNamesTheMissingArtifact(t *testing.T) {
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
 	seedWithheldQuestionWorkflow(t, s, workID)
+	seedActiveBreakFixContract(t, s, workID)
 
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
@@ -111,7 +107,7 @@ func TestConfirmPremiseRefusalNamesTheMissingArtifact(t *testing.T) {
 	defer tx.Rollback()
 	err = validateWorkflowOperatorSelectionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ActionID: "confirm_premise", ExpectedVersion: version,
-		SelectedChoice: "confirm", DecisionContextDigest: "sha256:" + strings.Repeat("a", 64),
+		SelectedChoice: "confirm",
 	})
 
 	var failure *Failure
@@ -131,11 +127,11 @@ func TestConfirmPremiseRefusalNamesTheMissingArtifact(t *testing.T) {
 }
 
 // TestUnavailableConfirmationIsNotAdvertised holds the intent-projection side
-// of the question gate. The pin states what the caller may do, and a
-// confirm_premise whose question is closed would refuse at the selection
-// guard, so the pin must not advertise it. A closed question is not only the
-// withheld gate: an absent contract leaves no question either, and both states
-// must hide the action. Once the question opens, the action returns.
+// of the confirmation gate. The pin states what the caller may do, and a
+// confirm_premise whose deliverables are missing would refuse at the
+// selection guard, so the pin must not advertise it. An active contract
+// projects neither a question nor a withholding; once the deliverables
+// stand, the action returns.
 func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	ctx := context.Background()
 	workID := "hidden-confirmation-work"
@@ -143,9 +139,6 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	f, _, refs := pReceiptFixture(t, workID, 1, 1)
 	s := f.store
 	seedWork(t, s, otherWorkID)
-	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET decision_domains='["product"]' WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
-		t.Fatal(err)
-	}
 
 	pinIntents := func() (pin WorkPin) {
 		pin, err := ReadWorkPin(ctx, s, workID)
@@ -158,63 +151,35 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 		return workPinContainsAction(pin.NextValidIntents, "confirm_premise")
 	}
 
-	// The withheld gate closes the question, so confirm_premise is unavailable
-	// and the intent projection must not offer it. record_verdict, which no
-	// approval gate holds, stays advertised.
-	withheld := pinIntents()
-	if withheld.PendingOperatorDecision != nil || withheld.WithheldOperatorDecision == nil {
-		t.Fatalf("withheld question = %+v / %+v, want withheld only", withheld.PendingOperatorDecision, withheld.WithheldOperatorDecision)
+	// The confirmation gate closes the action while the deliverables stand
+	// missing, and the active contract projects neither question nor
+	// withholding: the investigation artifact changes nothing there.
+	hidden := pinIntents()
+	if hidden.PendingOperatorDecision != nil || hidden.WithheldOperatorDecision != nil {
+		t.Fatalf("active-contract pin = %+v / %+v, want neither", hidden.PendingOperatorDecision, hidden.WithheldOperatorDecision)
 	}
-	if advertised(withheld) {
-		t.Fatal("pin advertised confirm_premise while its question was withheld")
+	if advertised(hidden) {
+		t.Fatal("pin advertised confirm_premise while its deliverables were missing")
 	}
-	if !workPinContainsAction(withheld.NextValidIntents, "record_verdict") {
-		t.Fatal("pin dropped record_verdict, which the question gate does not hold")
-	}
-
-	// An absent contract leaves no question either; the confirmation is
-	// unavailable there for the same reason and must stay hidden.
-	bare := openTemp(t)
-	seedWork(t, bare, workID)
-	seedWorkflowLaw(t, bare)
-	seedIssue31DomainRegistry(t, bare)
-	seedWithheldQuestionWorkflow(t, bare, workID)
-	if _, err := bare.db.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM workflow_contracts WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
-		t.Fatal(err)
-	}
-	contractless, err := ReadWorkPin(ctx, bare, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if contractless.PendingOperatorDecision != nil || contractless.WithheldOperatorDecision != nil {
-		t.Fatalf("contractless question = %+v / %+v, want none", contractless.PendingOperatorDecision, contractless.WithheldOperatorDecision)
-	}
-	if advertised(contractless) {
-		t.Fatal("pin advertised confirm_premise without an approved contract")
-	}
-
-	// With the investigation artifact recorded, the
-	// question opens. The confirmation stays hidden until its deliverables
-	// stand, because the pin reads the admission that execution enforces.
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("6", 16), []string{"root", otherWorkID})
-	open := pinIntents()
-	if open.PendingOperatorDecision == nil || open.PendingOperatorDecision.ActionID != "confirm_premise" {
-		t.Fatalf("open question = %+v, want confirm_premise", open.PendingOperatorDecision)
+	if still := pinIntents(); still.PendingOperatorDecision != nil || still.WithheldOperatorDecision != nil || advertised(still) {
+		t.Fatalf("artifact read changed the active-contract pin: %+v / %+v advertised=%v", still.PendingOperatorDecision, still.WithheldOperatorDecision, advertised(still))
 	}
-	if advertised(open) {
-		t.Fatal("pin advertised confirm_premise while its verdict was missing")
-	}
+
+	// With the verdict recorded, the deliverables stand and the
+	// confirmation returns.
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
 	if !advertised(pinIntents()) {
-		t.Fatal("pin hid confirm_premise while its question was open and its deliverables stood")
+		t.Fatal("pin hid confirm_premise while its deliverables stood")
 	}
 }
 
-// seedWithheldQuestionWorkflow puts a break-fix instance at one step with an
-// approved contract, which is the least state a pin read and the selection
-// guard both need.
+// seedWithheldQuestionWorkflow puts a break-fix instance at one step with no
+// active contract: the legacy pin whose confirmation folds the human
+// question path. The instance row is the least state the projection and the
+// selection guard both need.
 func seedWithheldQuestionWorkflow(t *testing.T, s *Store, workID string) WorkflowReadDefinition {
 	t.Helper()
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
@@ -242,16 +207,6 @@ func seedWithheldQuestionWorkflow(t *testing.T, s *Store, workID string) Workflo
 	}
 	if _, err := db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref) VALUES(?,?,?,?,'running',?)`,
 		workID, registered.Definition.Ref, digest, "verify", actorRef); err != nil {
-		t.Fatal(err)
-	}
-	// The operator question belongs to decision-bearing work: a
-	// consequence_v1 pin stores the contract's declared Product domain.
-	var decisionDomains any
-	if workflowApprovalPolicyRequiresDecisionFact(registered.Definition) {
-		decisionDomains = `["product"]`
-	}
-	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains) VALUES(?,1,'withheld question premise','internal_sqlite','[]','[]','2026-08-01T00:00:00Z',?,'[]','[]',1,'prototype_internal',?)`,
-		workID, actorRef, decisionDomains); err != nil {
 		t.Fatal(err)
 	}
 	return WorkflowReadDefinition{Ref: registered.Definition.Ref, Digest: digest}

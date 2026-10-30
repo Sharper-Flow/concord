@@ -103,7 +103,4 @@ func TestHostRestartDoesNotSupplyRetryAuthority(t *testing.T) {
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT (SELECT count(*) FROM worker_authorizations WHERE work_id='work-1' AND json_extract(payload,'$.retry_convergence.basis')='host_changed')+(SELECT count(*) FROM worker_attempt_dispositions WHERE work_id='work-1' AND json_extract(payload,'$.retry_convergence.basis')='host_changed')`); got != 0 {
 		t.Fatalf("host restart supplied %d convergence credits", got)
 	}
-	if got := verifyWallChallenges(t, s); got != 0 {
-		t.Fatalf("host-credit refusal created %d consent challenges", got)
-	}
 }

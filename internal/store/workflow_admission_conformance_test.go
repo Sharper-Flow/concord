@@ -42,26 +42,26 @@ func admissionReviewViewOf(state *WorkflowReviewState) admissionReviewView {
 }
 
 type admissionConformanceView struct {
-	Step, Lifecycle, InstanceState                                               string
-	RefinementWorkflow                                                           bool
-	ActiveContracts                                                              int64
-	LateCriterionAssociation, LawPinStale, DesignStale, ArtifactStale            bool
-	Review                                                                       admissionReviewView
-	WorkerFailureRecovery, CorrectionRecovery, CorrectionRequestRecovery         bool
-	UnconsumedUnboundRejection, DispatchHold, PendingOperatorDecision            bool
-	AcceptanceDeliverablesMissing                                                bool
-	ApprovalPolicy, ConfirmationAuthority                                        string
-	ConfirmationFactFailure, CompleteStepCorrection, ContractCorrectionAvailable bool
-	DeliveryStarted, DeliveryProofRequired, DeliveryProofReady                   bool
-	DeliveryFailure, DeliveryProofFailure, DeliveryJobsRecorded                  bool
-	DeliveryJobsUnsatisfiedKeys, DeliveryJobsScopeKeys                           string
-	DeliveryJobsIntegrated                                                       bool
-	DeliveryJobsUndischargedSplit                                                string
-	MandatePresent, MandateMissing                                               bool
-	MandateBindingStep                                                           string
-	MandateAddedByContract                                                       bool
-	MandateCorrectionAction                                                      string
-	MandateFailure                                                               bool
+	Step, Lifecycle, InstanceState                                       string
+	RefinementWorkflow                                                   bool
+	ActiveContracts                                                      int64
+	LateCriterionAssociation, LawPinStale, DesignStale, ArtifactStale    bool
+	Review                                                               admissionReviewView
+	WorkerFailureRecovery, CorrectionRecovery, CorrectionRequestRecovery bool
+	UnconsumedUnboundRejection, DispatchHold, PendingOperatorDecision    bool
+	AcceptanceDeliverablesMissing                                        bool
+	ConfirmationAuthority                                                string
+	CompleteStepCorrection, ContractCorrectionAvailable                  bool
+	DeliveryStarted, DeliveryProofRequired, DeliveryProofReady           bool
+	DeliveryFailure, DeliveryProofFailure, DeliveryJobsRecorded          bool
+	DeliveryJobsUnsatisfiedKeys, DeliveryJobsScopeKeys                   string
+	DeliveryJobsIntegrated                                               bool
+	DeliveryJobsUndischargedSplit                                        string
+	MandatePresent, MandateMissing                                       bool
+	MandateBindingStep                                                   string
+	MandateAddedByContract                                               bool
+	MandateCorrectionAction                                              string
+	MandateFailure                                                       bool
 }
 
 func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConformanceView {
@@ -76,9 +76,8 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 		UnconsumedUnboundRejection: state.UnconsumedUnboundRejection,
 		DispatchHold:               state.DispatchHold, PendingOperatorDecision: state.PendingOperatorDecision,
 		AcceptanceDeliverablesMissing: state.AcceptanceDeliverablesMissing != nil,
-		ApprovalPolicy:                state.ApprovalPolicy, ConfirmationAuthority: string(state.ConfirmationAuthority),
-		ConfirmationFactFailure: state.ConfirmationFactFailure != nil,
-		CompleteStepCorrection:  state.CompleteStepCorrection, ContractCorrectionAvailable: state.ContractCorrectionAvailable,
+		ConfirmationAuthority:         string(state.ConfirmationAuthority),
+		CompleteStepCorrection:        state.CompleteStepCorrection, ContractCorrectionAvailable: state.ContractCorrectionAvailable,
 		DeliveryStarted: state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
 		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,
 		DeliveryJobsRecorded: state.Delivery.JobsRecorded, DeliveryJobsUnsatisfiedKeys: state.Delivery.JobsUnsatisfiedKeys,
@@ -132,7 +131,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	journey := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
 	s, workID := f.store, f.workID
 	definition := pinnedWorkflowDefinitionForTest(t, s, workID)
-	model := admissionModelState{step: "repair", contracts: 1, engineering: true}
+	model := admissionModelState{step: "repair", contracts: 1}
 	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, definition, model, "before worker job")
 	job := WorkerJobBinding{JobID: "job:conformance"}
 	for round := 1; round <= 2; round++ {

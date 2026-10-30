@@ -33,15 +33,9 @@ type WorkflowActionExecutionRequest struct {
 	// worktree matches its active claim. It binds later worker evidence to that
 	// claim without placing a machine path in a public event.
 	SessionWorktreeIdentity string
-	// OperatorActor and OperatorApprovalRef are populated only after the signed
-	// approval for an operator-authorized action has been verified and consumed.
-	// It is never decoded from workflow action payload.
-	OperatorActor       *WorkflowActor
-	OperatorApprovalRef string
-	// ApprovedTakeover names the held attempt whose exact approval the
-	// boundary consumed for this fenced start. It is never decoded from
-	// request input.
-	ApprovedTakeover     *WorkflowStartTakeover
+	// ExpectedTakeover pins the boundary read of the held epoch and holder.
+	// It is never decoded from request input.
+	ExpectedTakeover     *WorkflowStartTakeover
 	AcceptedInputsDigest string
 	IdempotencyIdentity  string
 	OperationID          string
@@ -52,16 +46,7 @@ type WorkflowActionExecutionRequest struct {
 	AcceptedScope        string
 	LawModifies          []string
 	ContractDigest       string
-	// Approval binding is copied from the authenticated mutation boundary into
-	// a recovery event. Admission verified and consumed the approval row
-	// against these exact values; the fold re-checks the recorded binding for
-	// self-consistency and the operator actor from the log, so a replay
-	// re-derives the admission without the mutable approval row.
-	ApprovalOperationDigest string
-	ApprovalScopeJSON       string
-	ApprovalVersionsJSON    string
-	ApprovalConsequence     string
-	Now                     time.Time
+	Now                  time.Time
 	// ResearchBindings declares the pack revisions this action's work item
 	// starts relying on (CD-0216). The engine binds each consumer and proves
 	// freshness fail-closed inside this action's transaction; there is no
@@ -196,7 +181,7 @@ func workflowDeclaredActionDefinition(definition WorkflowDefinition, actionID st
 		// A consequence_v1 pin's initial contract approval resolves through
 		// the selected decision-fact declaration; a typed selection refusal
 		// propagates and every other declared action stays exactly as pinned.
-		if actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(definition) {
+		if actionID == "approve_contract" && workflowDeclaresDecisionDomains(definition) {
 			return workflowDecisionFactInitialActionDefinition(definition)
 		}
 		return action, nil
@@ -318,10 +303,10 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 	assemblyInput := workflowActionAssemblyInput{
 		ctx: ctx, tx: tx,
 		entry: entry, request: request, currentStep: currentStep, step: step, payload: payload, evidenceRefs: evidenceRefs,
-		eventActor: guards.eventActor, operatorRef: guards.operatorRef,
-		actorRecordPrefix: guards.actorRecordPrefix, operatorNeedsRecord: guards.operatorNeedsRecord,
-		admission: guards.admissionState,
-		registry:  registry,
+		eventActor:        guards.eventActor,
+		actorRecordPrefix: guards.actorRecordPrefix,
+		admission:         guards.admissionState,
+		registry:          registry,
 	}
 	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
 	if err != nil {
@@ -336,7 +321,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 		// a new session identity). Complete is the one action that does not
 		// consume the assembly's events, so they travel as a prefix here;
 		// without them a restarted session cannot complete.
-		return applyCompleteWorkflowActionTx(ctx, tx, scope, registry, entry, request, guards.eventActor, payload, assembly.events)
+		return applyCompleteWorkflowActionTx(ctx, tx, scope, registry, request, guards.eventActor, payload, assembly.events)
 	}
 	var workerPacketDigest string
 	assembly.events, workerPacketDigest, err = appendGenericWorkflowCompletion(assemblyInput, assembly.attemptEpoch, assembly.events)
@@ -560,7 +545,7 @@ func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, reques
 }
 
 // guardWorkflowActionActor resolves the request actor and runs the actor
-// tuple, operator premise, and held-attempt takeover guards.
+// tuple, correction recovery, and held-attempt takeover guards.
 func guardWorkflowActionActor(guards *workflowActionGuardContext, request WorkflowActionExecutionRequest) error {
 	actorRef, err := WorkflowActorRef(request.Actor)
 	if err != nil {
@@ -574,11 +559,11 @@ func guardWorkflowActionActor(guards *workflowActionGuardContext, request Workfl
 	if err := guardWorkflowMemberAction(guards.ctx, guards.tx, request); err != nil {
 		return err
 	}
-	if err := guardOperatorPremiseActor(guards); err != nil {
+	if err := guardCorrectionRecovery(guards); err != nil {
 		return err
 	}
 	if action := workflowActionDefinitionByID(guards.entry.Definition, request.ActionID); WorkflowActionOpensHeldAttempt(action) {
-		if err := guardStartTakeover(guards.ctx, guards.tx, action, request.WorkID, actorRef, workflowDispatchAssignment(request.Payload), request.SessionWorktreeIdentity, request.ApprovedTakeover); err != nil {
+		if err := guardStartTakeover(guards.ctx, guards.tx, action, request.WorkID, actorRef, workflowDispatchAssignment(request.Payload), request.SessionWorktreeIdentity, request.ExpectedTakeover); err != nil {
 			return err
 		}
 	}
@@ -859,22 +844,10 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	}
 }
 
-func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
+func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return Event{}, err
-	}
-	// Completion takes operator authority under the same recorded-delivery
-	// condition as the verdict. Evidence and outcome gates still apply.
-	// consequence_v1 rejects the operator claim outright: the authenticated
-	// coordinator completes without substitution.
-	if request.OperatorActor != nil {
-		if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
-			return Event{}, newFailure(KindUnauthorized, "complete_workflow", "consequence_v1 takes no operator substitution for completion; the authorized coordinator completes under its own identity", false, "complete as the authenticated coordinator")
-		}
-		if err := requireOperatorVerdictExit(ctx, tx, request.WorkID); err != nil {
-			return Event{}, err
-		}
 	}
 	if workflowCompletionCommitDrifted(fields) {
 		return Event{}, newFailure(KindMissingEvidence, "complete_workflow", "immutable evidence commit does not match the current commit", false, "rebind_evidence")
@@ -1166,178 +1139,4 @@ func workerAttemptEvidenceKind(capability string) string {
 	default:
 		return "artifact"
 	}
-}
-
-// Operator evaluation requires an advancing action from the pinned workflow's
-// preceding step, not merely a completed worker attempt.
-func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) error {
-	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), workID)
-	if err != nil {
-		return err
-	}
-	var currentStep string
-	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindProjectionNotFound, "workflow_action", "workflow instance does not exist", false, "initialize the workflow before requesting operator evaluation")
-		}
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect the current workflow step", true, "retry once the database is readable", err)
-	}
-	if workflowStep(registered.Definition, currentStep) == nil {
-		return newFailure(KindInvariantViolation, "workflow_action", "current workflow step is outside the pinned definition", false, "reread the workflow definition pin")
-	}
-	verdictStep := operatorVerdictStep(registered.Definition, currentStep)
-	if verdictStep == "" {
-		return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit or another definition-backed advancing exit", false, "request operator evaluation from the pinned verdict step")
-	}
-	advancingActions := advancingActionsBeforeStep(registered.Definition, verdictStep)
-	if len(advancingActions) == 0 {
-		return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit or another definition-backed advancing exit", false, "complete the pinned workflow step before requesting operator evaluation")
-	}
-	exits, err := readWorkflowExits(ctx, tx, workID)
-	if err != nil {
-		return err
-	}
-	for _, exit := range exits {
-		if advancingActions[exit.stepID][exit.actionID] {
-			return nil
-		}
-	}
-	// A carried-forward instance keeps each completion's family. Resolve
-	// that family's current graph when the instance graph cannot vouch for
-	// an exit that preceded the verdict step.
-	if carriedExitSatisfiedItsPinnedDefinition(verdictStep, exits) {
-		return nil
-	}
-	return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit or another definition-backed advancing exit", false, "complete the pinned workflow step before requesting operator evaluation")
-}
-
-// operatorVerdictStep returns the step that records the verdict: the current
-// step when it declares record_verdict, else the nearest such step reached
-// backward over forward edges, or "" when none exists.
-func operatorVerdictStep(definition WorkflowDefinition, currentStep string) string {
-	if slices.Contains(workflowStep(definition, currentStep).Actions, "record_verdict") {
-		return currentStep
-	}
-	visited := map[string]bool{currentStep: true}
-	queue := []string{currentStep}
-	for len(queue) != 0 {
-		stepID := queue[0]
-		queue = queue[1:]
-		for _, edge := range definition.StepGraph.Edges {
-			if edge.To != stepID || edge.Kind != WorkflowEdgeForward || visited[edge.From] {
-				continue
-			}
-			visited[edge.From] = true
-			step := workflowStep(definition, edge.From)
-			if step != nil && slices.Contains(step.Actions, "record_verdict") {
-				return step.ID
-			}
-			queue = append(queue, edge.From)
-		}
-	}
-	return ""
-}
-
-// advancingActionsBeforeStep maps each step with a forward edge into stepID to
-// the advancing actions it declares.
-func advancingActionsBeforeStep(definition WorkflowDefinition, stepID string) map[string]map[string]bool {
-	advancingActions := make(map[string]map[string]bool)
-	for _, edge := range definition.StepGraph.Edges {
-		if edge.To != stepID || edge.Kind != WorkflowEdgeForward {
-			continue
-		}
-		step := workflowStep(definition, edge.From)
-		if step == nil {
-			continue
-		}
-		for _, actionID := range step.Actions {
-			if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
-				if advancingActions[edge.From] == nil {
-					advancingActions[edge.From] = make(map[string]bool)
-				}
-				advancingActions[edge.From][actionID] = true
-			}
-		}
-	}
-	return advancingActions
-}
-
-// readWorkflowExits reads the latest completion per family/step/action class,
-// newest first. Held and local completions also witness these admission classes.
-func readWorkflowExits(ctx context.Context, tx *sql.Tx, workID string) ([]workflowExitRecord, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT step_id,action_id,definition_ref,exit_seq FROM workflow_completed_exits WHERE work_id=? ORDER BY exit_seq DESC`, workID)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect the workflow exits", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	var exits []workflowExitRecord
-	for rows.Next() {
-		var exit workflowExitRecord
-		if err := rows.Scan(&exit.stepID, &exit.actionID, &exit.definitionRef, &exit.seq); err != nil {
-			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan the workflow exits", true, "retry once the database is readable", err)
-		}
-		exits = append(exits, exit)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the workflow exits", true, "retry once the database is readable", err)
-	}
-	return exits, nil
-}
-
-// workflowExitRecord names one current completion class and its latest witness.
-type workflowExitRecord struct {
-	seq           int64
-	stepID        string
-	actionID      string
-	definitionRef string
-}
-
-// carriedExitSatisfiedItsPinnedDefinition accepts a recorded exit that
-// advanced out of a step directly preceding the verdict step under the
-// current definition of the family selected when it completed. An empty
-// family means no definition had been selected and contributes no fallback.
-func carriedExitSatisfiedItsPinnedDefinition(verdictStep string, exits []workflowExitRecord) bool {
-	byFamily := make(map[string]map[string]bool)
-	for _, exit := range exits {
-		if exit.definitionRef == "" {
-			continue
-		}
-		advancing, resolved := byFamily[exit.definitionRef]
-		if !resolved {
-			advancing = nil
-			if entry, ok := BuiltinWorkflowRegistry().Current(exit.definitionRef); ok {
-				advancing = workflowVerdictPredecessorAdvancingExits(entry.Definition, verdictStep)
-			}
-			byFamily[exit.definitionRef] = advancing
-		}
-		if advancing[exit.stepID+"\x00"+exit.actionID] {
-			return true
-		}
-	}
-	return false
-}
-
-// workflowVerdictPredecessorAdvancingExits returns the advancing exits out of
-// the verdict step's direct forward predecessors under one definition, keyed
-// as stepID plus action ID. A definition that does not declare the verdict
-// step as a record_verdict step contributes nothing.
-func workflowVerdictPredecessorAdvancingExits(definition WorkflowDefinition, verdictStep string) map[string]bool {
-	verdict := workflowStep(definition, verdictStep)
-	if verdict == nil || !slices.Contains(verdict.Actions, "record_verdict") {
-		return nil
-	}
-	advancing := map[string]bool{}
-	for _, edge := range definition.StepGraph.Edges {
-		if edge.To != verdictStep || edge.Kind != WorkflowEdgeForward {
-			continue
-		}
-		if step := workflowStep(definition, edge.From); step != nil {
-			for _, actionID := range step.Actions {
-				if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
-					advancing[edge.From+"\x00"+actionID] = true
-				}
-			}
-		}
-	}
-	return advancing
 }

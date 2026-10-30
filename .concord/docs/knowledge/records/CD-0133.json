@@ -40,7 +40,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ac43c51a75e796089e8f5383ca00fc6497eca6ea86ff1d6d20bc850729e4e49c",
+  "sha256": "sha256:df59476383ae0f4bded2955e64c437af8859267f36d73196ef5620071f0d92d9",
   "status": "accepted",
   "summary": "Admits operator-approved contract correction before dispatch, after recorded failure, or after refinement review evidence acceptance when every current authorization has a terminal disposition. Exact approval, atomic design replacement, no definition change, worker fences, audit history, and overlap checks remain required.",
   "tags": [

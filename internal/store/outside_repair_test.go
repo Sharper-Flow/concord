@@ -2,9 +2,7 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -36,10 +34,7 @@ func seedOutsideRepairTestWork(t *testing.T, s *Store, workID string) {
 // database or forge is involved in store tests.
 func outsideRepairSampleEvidence() workflowproof.Evidence {
 	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	// AuthorityRef models the receipt the agent boundary records:
-	// "approval:" plus the consumed approval reference, which the published
-	// outside_repair_evidence contract admits as an id-shaped string.
-	e := workflowproof.Evidence{AuthorityRef: "approval:outside-repair-sample", ObservedAt: at.Add(2 * time.Hour), Repository: "octo-org/concord", ReleaseTag: "v1.2.3", ReleaseURL: "https://github.com/octo-org/concord/releases/tag/v1.2.3", ReleaseSHA: strings.Repeat("1", 40), PublishedAt: at.Add(time.Hour)}
+	e := workflowproof.Evidence{AuthorityRef: "client:outside-repair-sample", ObservedAt: at.Add(2 * time.Hour), Repository: "octo-org/concord", ReleaseTag: "v1.2.3", ReleaseURL: "https://github.com/octo-org/concord/releases/tag/v1.2.3", ReleaseSHA: strings.Repeat("1", 40), PublishedAt: at.Add(time.Hour)}
 	for i := int64(1); i <= 2; i++ {
 		head := strings.Repeat(jsonInt(i+1), 40)
 		e.PullRequests = append(e.PullRequests, workflowproof.PullRequestEvidence{URL: "https://github.com/octo-org/concord/pull/" + jsonInt(i), Number: i, HeadSHA: head, MergeSHA: strings.Repeat(jsonInt(i+3), 40), MergedAt: at,
@@ -53,13 +48,7 @@ func outsideRepairTestRequest(t *testing.T, s *Store, workID, operation string) 
 	t.Helper()
 	version := readWorkVersion(t, s, workID)
 	eventID := workID + ":" + operation + ":" + jsonInt(version)
-	hash := sha256.Sum256([]byte(eventID))
-	ref := hex.EncodeToString(hash[:])
-	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES('client/concord-1','active','principal/operator','[]','[]','[]','2026-09-10T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-	insertConsumedApproval(t, s, ref, workID, version)
-	return OutsideRepairRequest{OutsideRepairApproval: OutsideRepairApproval{ApprovalRef: ref, ApprovalOperationDigest: deliveryCorrectionDigest, ApprovalScopeJSON: deliveryCorrectionScopeJSON(workID), ApprovalVersionsJSON: deliveryCorrectionVersionsJSON(version), ApprovalConsequence: deliveryCorrectionConsequence}, WorkID: workID, Reason: "bounded outside defect repair", EventID: eventID, ExpectedVersion: version, OccurredAt: time.Date(2026, 10, 1, 15, 0, 0, 0, time.UTC)}
+	return OutsideRepairRequest{Actor: WorkflowActor{PrincipalRef: "principal/coordinator", ClientRef: "client/concord-1", AgentRef: "agent/main", SessionRef: "session/main", ActorClass: ActorAgent}, WorkID: workID, Reason: "bounded outside defect repair", EventID: eventID, ExpectedVersion: version, OccurredAt: time.Date(2026, 10, 1, 15, 0, 0, 0, time.UTC)}
 }
 
 func outsideRepairApply(t *testing.T, s *Store, req OutsideRepairRequest, kind string, evidence workflowproof.Evidence) error {
@@ -111,16 +100,13 @@ func TestOutsideRepairRecoveryNamesOnlyDeclaredReconcileRoute(t *testing.T) {
 	}
 }
 
-func TestOutsideRepairHoldRequiresApprovalNotCompletionEvidence(t *testing.T) {
+func TestOutsideRepairHoldRequiresActorNotCompletionEvidence(t *testing.T) {
 	s := openTemp(t)
 	work := "outside-hold"
 	seedOutsideRepairTestWork(t, s, work)
 	req := outsideRepairTestRequest(t, s, work, "hold")
 	bad := req
-	bad.ApprovalRef = ""
-	assertFailureKind(t, outsideRepairApply(t, s, bad, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}), KindInvalidPayload)
-	bad = req
-	bad.ApprovalOperationDigest = "sha256:" + strings.Repeat("a", 64)
+	bad.Actor.ActorClass = ActorOperator
 	assertFailureKind(t, outsideRepairApply(t, s, bad, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}), KindUnauthorized)
 	if got := readWorkVersion(t, s, work); got != 3 {
 		t.Fatalf("refused hold changed version: %d", got)
@@ -384,7 +370,7 @@ func TestOutsideRepairGenericAppendCannotAcquireAuthority(t *testing.T) {
 	work := "outside-generic"
 	seedOutsideRepairTestWork(t, s, work)
 	for _, kind := range []string{WorkflowOutsideRepairDispositionSet, WorkflowOutsideRepairReconciled, WorkflowOutsideRepairResumed} {
-		e := workflowTypedEvent(work+":"+kind, kind, work, "actor:forged", time.Now(), 3, map[string]any{"reason": "forged", "state": "active", "approval_ref": "approval:forged"})
+		e := workflowTypedEvent(work+":"+kind, kind, work, "actor:forged", time.Now(), 3, map[string]any{"reason": "forged", "state": "active"})
 		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{e}, ExpectedVersions: workVersion(work, 3)})
 		if err == nil {
 			t.Fatalf("generic append accepted %s", kind)
@@ -392,12 +378,14 @@ func TestOutsideRepairGenericAppendCannotAcquireAuthority(t *testing.T) {
 	}
 }
 
-func TestOutsideRepairFoldRejectsFabricatedApprovalAndEvidence(t *testing.T) {
+func TestOutsideRepairFoldRejectsUnrecordedActorAndFabricatedEvidence(t *testing.T) {
 	s := openTemp(t)
 	work := "outside-fold"
 	seedOutsideRepairTestWork(t, s, work)
-	e := workflowTypedEvent("outside-forged", WorkflowOutsideRepairDispositionSet, work, "actor:forged", time.Now(), 3, map[string]any{"reason": "forged", "state": "active", "approval_ref": "approval:forged"})
-	assertFailureKind(t, applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{e}, ExpectedVersions: workVersion(work, 3)}), KindInvalidPayload)
+	e := workflowTypedEvent("outside-forged", WorkflowOutsideRepairDispositionSet, work, "actor:forged", time.Now(), 3, map[string]any{"reason": "forged", "state": "active"})
+	// An unrecorded actor is an authorization refusal (CON-1517): the fold
+	// classifies it as unauthorized, not a payload defect.
+	assertFailureKind(t, applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{e}, ExpectedVersions: workVersion(work, 3)}), KindUnauthorized)
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
 		t.Fatal(err)
 	}
@@ -405,15 +393,15 @@ func TestOutsideRepairFoldRejectsFabricatedApprovalAndEvidence(t *testing.T) {
 	// after assembly. Fold validation must not rely solely on API validation.
 	req := outsideRepairTestRequest(t, s, work, "reconcile")
 	err := s.Transact(context.Background(), func(tx *Transaction) error {
-		operator, err := workflowOperatorFromConsumedApprovalTx(context.Background(), tx.tx, req.binding(), "outside_repair")
+		actorRef, err := WorkflowActorRef(req.Actor)
 		if err != nil {
 			return err
 		}
-		actor := workflowTypedEvent(req.EventID+":actor", WorkflowActorRecorded, work, operator.ref, req.OccurredAt, 5, map[string]any{"actor_ref": operator.ref, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
-		payload, _ := json.Marshal(workflowOutsideRepairReconcilePayload{workflowOutsideRepairDispositionPayload: workflowOutsideRepairDispositionPayload{OutsideRepairApproval: req.OutsideRepairApproval, Reason: req.Reason, State: OutsideRepairStateCompleted}, Evidence: workflowproof.Evidence{}, EvidenceSource: OutsideRepairEvidenceSource})
+		actor := workflowTypedEvent(req.EventID+":actor", WorkflowActorRecorded, work, actorRef, req.OccurredAt, 5, map[string]any{"actor_ref": actorRef, "principal_ref": req.Actor.PrincipalRef, "client_ref": req.Actor.ClientRef, "agent_ref": req.Actor.AgentRef, "session_ref": req.Actor.SessionRef, "actor_class": "agent"})
+		payload, _ := json.Marshal(workflowOutsideRepairReconcilePayload{workflowOutsideRepairDispositionPayload: workflowOutsideRepairDispositionPayload{Reason: req.Reason, State: OutsideRepairStateCompleted}, Evidence: workflowproof.Evidence{}, EvidenceSource: OutsideRepairEvidenceSource})
 		var fields map[string]any
 		_ = json.Unmarshal(payload, &fields)
-		invalid := workflowTypedEvent(req.EventID, WorkflowOutsideRepairReconciled, work, operator.ref, req.OccurredAt, 6, fields)
+		invalid := workflowTypedEvent(req.EventID, WorkflowOutsideRepairReconciled, work, actorRef, req.OccurredAt, 6, fields)
 		_, err = applyWorkflowOperationTx(context.Background(), tx.tx, Operation{Events: []Event{actor, invalid}, ExpectedVersions: workVersion(work, 5)}, newWriteScope(tx.tx))
 		return err
 	})

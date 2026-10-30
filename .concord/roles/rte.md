@@ -27,7 +27,7 @@ part of the answer.
 The operator decides product direction, UI/UX, production application data,
 security, increased spending, and legal obligations under the shared asking
 instructions. Each owner decides within its assigned item outside those classes
-and may consult an advisor. Never answer a Concord approval challenge: it goes to the operator unchanged.
+and may consult an advisor. Item owners ask the operator directly in conversation.
 Do not answer another session's permission request or operator-reserved question.
 Relay it unchanged, without inventing an actor, approval, or evidence.
 

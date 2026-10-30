@@ -21,10 +21,6 @@
     {
       "criterion": 4,
       "exemption": "Same-key retry is a dispatch property. The guarantee is proved by TestDispatchIdempotentReplaySurvivesAmbientScopeDrift (internal/agent/mutation_dispatch_test.go)."
-    },
-    {
-      "criterion": 5,
-      "exemption": "The approval bridge is a host-adapter property. The guarantee is proved by TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse and TestDispatchFailedDomainEffectRollsBackGrantAndApproval (internal/agent/mutation_dispatch_test.go)."
     }
   ],
   "date": "2026-08-06T00:00:00Z",
@@ -47,7 +43,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4c5d5a3fcbe567d65297cc20a876240000130d814c176301244fff79571ce14d",
+  "sha256": "sha256:3721c943fec777af6280a2f9b79473a71ed38b441e8d9b6bc97fe81ed3c57116",
   "status": "accepted",
   "summary": "Binds the OpenCode adapter to generated tool registration through a plugin entry and short-lived Go CLI transport; domain authority remains in the Go core.",
   "tags": [

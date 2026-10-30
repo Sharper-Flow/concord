@@ -17,19 +17,19 @@ contracts, the capability-placement native-authority rule, and the official
 OpenCode custom-tool, plugin, permission, and MCP documentation reviewed
 2026-08-06. The thin TypeScript adapter provides the accepted custom tools
 through a plugin entry module, with transport to the short-lived CLI and the
-host approval bridge.
+host context responsibilities.
 
 ## Contract
 
 Every recorded write is one current-row mutation; no event append exists
 ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2).
 
-The approval bridge applies only to core-minted challenges required by CD-0013 D11, not every consequential mutation. Routine and engineering routes must not create host consent prompts or fabricated approval records. On a decision-bearing challenge, transport the complete typed `work_decision` summary unchanged; the host displays its work, contract version, and decision domains alongside the existing bound facts. Missing required approval transport still fails closed.
+A workflow read may expose a closed `operator_question`; the model answers it through the public action, whose core validation owns the choice and digest checks. CD-0243's classes govern when the human ask happens in conversation. Missing required context transport still fails closed.
 
 The binding contract is sections 1 through 5: the adapter boundary and its
 host responsibilities, the process and transport rules including client
 bootstrap, the registration and schema rules including the hidden
-TS5 envelope, the approval bridge with its `always: []` rule, and the adapter
+TS5 envelope, the operator-question route, and the adapter
 boundary of allowed and forbidden behaviors. Sections 6 through 11 describe
 registration, alternatives, evidence, implementation acceptance, and
 falsifiers, and carry no obligation.
@@ -43,18 +43,16 @@ those definitions under their `concord_*` names through OpenCode's plugin API.
 
 The adapter's domain-tool interface has three host-specific responsibilities:
 
-1. register the accepted tool names, descriptions, and strict schemas once;
+1. register the accepted tool names, descriptions, and strict schemas once; and
 2. inject OpenCode's trusted session, agent, directory, and worktree context into
-   TS5's hidden envelope; and
-3. submit a host permission request through the current tool-context `ask` method
-   when the core returns an exact approval challenge.
+   TS5's hidden envelope.
 
 The plugin entry also registers only the host runtime hooks that accepted
 decisions require. The continuity hook re-asserts core-derived state without
-approval, gating, or payload-validation
+gating or payload-validation
 authority, as [CD-0090 D1–D2](./decisions/CD-0090-per-turn-continuity-re-pin-hook.md#d1-runtime-hooks-and-authority-hooks-are-different-classes)
-requires. Every domain decision, scope resolution, authorization check, approval
-binding, expected-version check, idempotency decision, recorded write, recovery
+requires. Every domain decision, scope resolution, authorization check,
+expected-version check, idempotency decision, recorded write, recovery
 state, and result classification stays in the Go core.
 
 ## 2. Process and transport
@@ -137,42 +135,25 @@ The registered client key stays in the OS credential store and never enters
 model-visible arguments, logs, artifacts, or tool output. Correctness never
 depends on restoring adapter state.
 
-## 4. Approval bridge
+## 4. Operator-question route
 
 Consequential mutation flow:
 
-1. A workflow read may expose a closed `operator_question`. The model calls the
-   built-in question UI and supplies the selected semantic choice and its exact
-   context digest to the public action. The Concord custom tool does not call the
-   question service.
-2. Adapter sends the canonical request with stable idempotency key. Core strictly
-   validates the selection and digest before creating any approval challenge.
-3. Core returns `approval_required` with challenge ID, canonical digest, pinned
-   scope/versions, consequence summary, and approval policy. Workflow checkpoints
-   also include work/action/contract version, selected choice, and bounded premise
-   summary.
-4. Only then does the adapter call current tool-context
-   `ask({ permission, patterns, always, metadata })`, placing the exact checkpoint
-   metadata in `metadata`.
-5. Current `ask` returns `void` on approval and throws on rejection. It provides no
-   typed user reply.
-6. On rejection, adapter returns denied; no core mutation occurs.
-7. On approval, adapter resubmits the identical request/challenge, asserting only
-   that the host request resolved.
-8. Core revalidates digest/scope/versions, derives approval-authority attribution
-   from the trusted-client policy and exact consumed challenge/approval record,
-   creates and consumes TS5's durable approval record, then executes or returns
-   durable-operation state.
+1. A workflow read may expose a closed `operator_question`. The model supplies
+   the selected semantic choice and its exact context digest to the public
+   action. The Concord custom tool does not call the question service.
+2. Adapter sends the canonical request with a stable idempotency key. Core
+   strictly validates the selection and digest before any effect.
+3. Core returns the typed refusal with its pinned facts, or executes and
+   returns the durable-operation state.
 
-The adapter passes `always: []` for consequential calls; OpenCode cannot turn one
-prompt into an unbounded Concord approval. The question is semantic input; `ask` is
-authorization. `ask`, metadata, and the adapter are not approval authority. The
-core is. A recorded operator means approval authority, not an identified human.
+The question is semantic input the core validates; the adapter adds no
+authorization of its own. A recorded operator actor is an attribution fact,
+not an identified human at the host.
 
-`ToolContext.ask` exists in current source but is not documented on OpenCode's
-custom-tool/plugin pages. Release must pin OpenCode and verify its exact input shape,
-void return, rejection behavior, and context field names. Missing/drifted behavior
-fails consequential mutations closed—never approval prose or `approved: true`.
+Release must pin OpenCode and verify its exact tool-context field names.
+Missing or drifted behavior fails consequential mutations closed — never
+approval prose or `approved: true`.
 
 ## 5. Adapter boundary
 
@@ -181,7 +162,6 @@ fails consequential mutations closed—never approval prose or `approved: true`.
 - register the generated current static tool set and strict schemas;
 - capture documented OpenCode execution context;
 - serialize one canonical request and parse one canonical response;
-- call `ask` for one exact core challenge;
 - propagate cancellation and caller budget;
 - classify malformed/non-JSON CLI output as transport failure; and
 - attach adapter/client identity for audit only.
@@ -190,7 +170,7 @@ fails consequential mutations closed—never approval prose or `approved: true`.
 
 - open SQLite or git authority directly;
 - derive Product scope or trust from path;
-- authorize, approve, consume approval, or choose idempotency outcome;
+- authorize or choose idempotency outcome;
 - implement lifecycle, relation, membership, compaction, recovery, or native-system
   rules;
 - cache Product/work state;
@@ -222,7 +202,7 @@ MCP is rejected for v1 because:
 - CD-0003 selects short-lived CLI and forbids a persistent MCP daemon/server;
 - custom tools provide strict schemas and primary-client context;
 - MCP adds process lifecycle, config, timeout, and context failure modes; and
-- generic MCP auth does not replace TS5 scope, approval, or idempotency.
+- generic MCP auth does not replace TS5 scope, capability authorization, or idempotency.
 
 The JSON CLI contract is the stable internal client boundary. A future concrete
 client may add another thin adapter. Persistent MCP requires TS8/TS9 comparison and
@@ -232,7 +212,7 @@ explicit CD-0003 D2 reconsideration. It must preserve the same eight semantics.
 
 | Candidate | Decision |
 |---|---|
-| Agent calls CLI via `bash` | Rejected: loses schemas, hidden TS5 context, approval correlation, and selection reliability. |
+| Agent calls CLI via `bash` | Rejected: loses schemas, hidden TS5 context, and selection reliability. |
 | Thin plugin entry with shared `concord.ts` transport | **Selected:** generated tool registration and accepted host runtime hooks; domain authority stays in Go. |
 | Eight tool files + shared library | Viable but rejected: more deployment/naming surface with no gain. |
 | Local/remote MCP | Rejected for v1: no second client, extra context/lifecycle, no-daemon conflict. |
@@ -248,10 +228,6 @@ explicit CD-0003 D2 reconsideration. It must preserve the same eight semantics.
   hooks: <https://opencode.ai/docs/plugins/>.
 - Permissions use `allow|ask|deny`, input patterns, and per-agent overrides:
   <https://opencode.ai/docs/permissions/>.
-- Current source wires the same `ask` into standalone/plugin tools. `ask` returns
-  `void`; `metadata`, `abort`, and `ask` are undocumented on the user-facing pages:
-  <https://github.com/anomalyco/opencode/blob/dev/packages/plugin/src/tool.ts> and
-  <https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/tool/registry.ts>.
 - MCP local/remote behavior and context caveat:
   <https://opencode.ai/docs/mcp-servers/>.
 
@@ -264,9 +240,7 @@ Before release, prove:
   registered key rotation/revocation takes effect;
 - directory/worktree/session/agent reaches core scope correctly;
 - the registered client key never enters model args, logs, artifacts, or output;
-- pinned `ask` shape, void/throw behavior, `messageID`, challenge approve/reject, and
-  changed-input/version rejection;
-- `always: []` cannot bypass TS5 policy;
+- changed-input and version-mismatch rejection;
 - cancellation before/after commit reports authoritative outcome;
 - malformed stdout/stderr, missing binary, timeout, and crash never report success;
 - transport retry reuses idempotency key;
@@ -277,7 +251,6 @@ Before release, prove:
 
 Reopen TS6 when:
 
-- pinned OpenCode cannot bind challenge safely through void-returning `ask`;
 - custom-tool context cannot populate the TS5 envelope without model plumbing;
 - adapter lifecycle/crash risk exceeds an alternative transport in measured runs;
 - spawn overhead fires CD-0003 reversal;
@@ -286,7 +259,7 @@ Reopen TS6 when:
   permission evidence, and cancellation.
 
 Any replacement preserves one core authority, eight semantics, hidden verified
-context, operation-bound approval, same-key retries, and native-system ownership.
+context, operation-bound authorization, same-key retries, and native-system ownership.
 
 ## Acceptance criteria
 
@@ -310,12 +283,6 @@ context, operation-bound approval, same-key retries, and native-system ownership
   Then it reuses the same request and idempotency key, and never retries a
   mutation with a new key.
 
-- Given a core approval challenge
-  When the host approves
-  Then the adapter resubmits the identical request, the core revalidates
-  digest, scope, and versions, and `always: []` keeps one host prompt from
-  becoming an unbounded approval.
-
 ## Verification
 
 The transport is exercised below scenario grain, so every criterion carries a
@@ -332,7 +299,3 @@ typed exemption in the record naming the test that proves the guarantee.
   (`adapter/opencode/generated-contract-tests.ts`).
 - Criterion 4 is proved by `TestDispatchIdempotentReplaySurvivesAmbientScopeDrift`
   (`internal/agent/mutation_dispatch_test.go`).
-- Criterion 5 is proved by `TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse`
-  and `TestDispatchFailedDomainEffectRollsBackGrantAndApproval`
-  (`internal/agent/mutation_dispatch_test.go`). Section 11 records the
-  falsifiers for each guarantee.

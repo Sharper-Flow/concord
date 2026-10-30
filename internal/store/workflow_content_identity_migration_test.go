@@ -95,11 +95,14 @@ ORDER BY CASE name WHEN 'projects' THEN 0 WHEN 'project_locators' THEN 1 ELSE 2 
 		t.Fatal(err)
 	}
 	oldValues := map[string]map[string]string{
-		"durable_operations":           {"workflow_type_version": "26"},
-		"workflow_contracts":           {"definition_version": "26"},
-		"workflow_instances":           {"definition_version": "26"},
-		"workflow_context_checkpoints": {"workflow_definition_version": "26"},
-		"workflow_context_boundaries":  {"workflow_definition_version": "26"},
+		"durable_operations":             {"workflow_type_version": "26"},
+		"workflow_contracts":             {"definition_version": "26"},
+		"workflow_instances":             {"definition_version": "26"},
+		"workflow_overlap_resolutions":   {"approval_ref": "'approval:historical'"},
+		"outside_repair_dispositions":    {"approval_ref": "'approval:historical'"},
+		"outside_repair_reconciliations": {"approval_ref": "'approval:historical'"},
+		"workflow_context_checkpoints":   {"workflow_definition_version": "26"},
+		"workflow_context_boundaries":    {"workflow_definition_version": "26"},
 		"worker_attempts": {
 			"lane_version":     "19",
 			"dispatch_payload": `'{ "lane_version": 19, '||substr(dispatch_payload,2)`,

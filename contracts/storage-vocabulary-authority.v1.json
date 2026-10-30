@@ -39,23 +39,6 @@
       "authority": "check"
     },
     {
-      "table": "agent_approval_challenges",
-      "column": "consequence",
-      "authority": "check",
-      "validator": "scripts/check-approval-consequence.py"
-    },
-    {
-      "table": "agent_approval_challenges",
-      "column": "status",
-      "authority": "check"
-    },
-    {
-      "table": "agent_approvals",
-      "column": "consequence",
-      "authority": "check",
-      "validator": "scripts/check-approval-consequence.py"
-    },
-    {
       "table": "agent_client_keys",
       "column": "status",
       "authority": "check"

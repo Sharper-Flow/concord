@@ -30,7 +30,7 @@ carries only the current Domain ref.
 
 - The work-pin refusal paths bind the
    CD-0242 D6 anchor: no attempt count, escalation wall, or convergence basis
-   exists, and no dispatch mints a challenge. Until that change lands,
+   exists. Until that change lands,
   `python3 scripts/check-knowledge-index.py` is the executable anchor for this
   record's law registration.
 - The store tests `TestInvestigationArtifactAdmitsSingleItemProductByDomainRef`

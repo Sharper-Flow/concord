@@ -55,8 +55,8 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 				step: pin.Step, contracts: 1,
 				review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
 				jobs:   "satisfied", jobsScope: "project", integration: stage != "missing-epoch-proof",
-				dispatched: stage != "before-start", engineering: true,
-				started: stage != "before-start", proof: stage == "green-proof",
+				dispatched: stage != "before-start",
+				started:    stage != "before-start", proof: stage == "green-proof",
 			}
 			want := admissionConformanceViewOf(admissionWorkflowState(definition, model))
 			// The unproved corrective candidate also invalidates the old

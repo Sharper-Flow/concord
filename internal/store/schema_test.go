@@ -806,7 +806,7 @@ func TestMigrateV8ToV9AddsAgentAuthorityWithoutChangingPriorMigrations(t *testin
 	// agent_grants is absent from this list because migration 57 drops it
 	// (CD-0080 D2). Migration 9 still creates it; the table this sequence
 	// must arrive at is the one head declares.
-	for _, table := range []string{"agent_clients", "agent_client_keys", "agent_nonce_replay", "agent_approval_challenges", "agent_approvals", "idempotency_records"} {
+	for _, table := range []string{"agent_clients", "agent_client_keys", "agent_nonce_replay", "idempotency_records"} {
 		var count int
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil {
 			t.Fatal(err)
@@ -1455,9 +1455,9 @@ func TestMigration55AllowsDeclaredApprovalConsequences(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	db := openV54(t, "approval-consequence-v54-valid.db")
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatalf("migration 55 failed: %v", err)
-	}
+	// Migration 167 later drops the challenges table; the CHECK under test
+	// is read at the last version that still carries it.
+	advanceHistoricalPrefix(t, db, 165)
 	for _, consequence := range []string{"research", "claim"} {
 		clientRef := seedApprovalChallengeClient(t, db, consequence)
 		if err := insertApprovalChallengeAtHead(ctx, db, clientRef, consequence, strings.Repeat(consequence[:1], 64)); err != nil {
@@ -1478,9 +1478,9 @@ func TestMigration55UpgradesValidApprovalConsequences(t *testing.T) {
 	if err := insertApprovalChallenge(ctx, db, grantRef, "intent", strings.Repeat("i", 64)); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatalf("valid approval consequence failed upgrade: %v", err)
-	}
+	// Migration 167 later drops the challenges table; the upgraded row is
+	// read at the last version that still carries it.
+	advanceHistoricalPrefix(t, db, 165)
 	// Migration 57 copies the challenge through a join on agent_grants and
 	// then drops that table, so the upgraded row is addressed by its own
 	// reference and carries the identity tuple the grant used to hold.

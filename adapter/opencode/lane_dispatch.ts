@@ -33,7 +33,6 @@ export interface LaneDispatchInput {
   expected_version: number
   idempotency_key: string
   lane_id: string
-  approval_ref?: string
 }
 
 export interface LaneDispatchDeps {
@@ -97,11 +96,8 @@ function utilityDispatchRefusal(utility: AgentUtility, input: LaneDispatchInput)
   return refusal
 }
 
-// dispatchAttemptID identifies the exact adapter request, not the time at which
-// the request reaches the host. Approval handling can resubmit the unchanged
-// request after a prompt, so a clock-based identity would change its packet and
-// operation digest during that round trip. A new idempotency key mints a new
-// identity for the next retry.
+// dispatchAttemptID identifies the exact adapter request. A new idempotency key
+// mints a new identity for the next retry.
 export function dispatchAttemptID(input: LaneDispatchInput): string {
   const request = JSON.stringify({ work_id: input.work_id, expected_version: input.expected_version, idempotency_key: input.idempotency_key, lane_id: input.lane_id })
   const digest = createHash("sha256").update(request, "utf8").digest("hex")
@@ -241,8 +237,7 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // envelope. lane_id is never forwarded — it is tool-level vocabulary the
   // adapter consumed above.
   const coreDispatch = async (): Promise<unknown> => {
-    const approval = input.approval_ref ? { approval: { approval_ref: input.approval_ref } } : {}
-    return deps.invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: input.work_id, expected_version: input.expected_version, action_id: "dispatch_worker", idempotency_key: input.idempotency_key, fields: { attempt_id: packet.attempt_id, worker_packet: packet }, ...approval } }, deps.context, pinnedWorkerDirectory)
+    return deps.invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: input.work_id, expected_version: input.expected_version, action_id: "dispatch_worker", idempotency_key: input.idempotency_key, fields: { attempt_id: packet.attempt_id, worker_packet: packet } } }, deps.context, pinnedWorkerDirectory)
   }
   let coreResponse: unknown
   try {

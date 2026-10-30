@@ -95,7 +95,7 @@ func TestWorkerJobDependencyContent(t *testing.T) {
 					}
 					binding.AffectedDomainIDs = kept
 				}
-				if err := runApprovalActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "supersede_contract", f.owner, nil, "", "", string(mustJSONValue(fields))); err != nil {
+				if err := runCoordinatorActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "supersede_contract", f.owner, "", string(mustJSONValue(fields))); err != nil {
 					t.Fatalf("supersede through production action: %v", err)
 				}
 				if memberBinding != nil {

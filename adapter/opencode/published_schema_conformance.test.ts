@@ -188,6 +188,7 @@ test("published string bounds admit and refuse with the core in both directions 
         route_conventions: [],
         spec_mandate: [],
         law_modifies: [],
+        decision_domains: [],
         rigor_class: "prototype_internal",
       },
     },
@@ -280,6 +281,7 @@ test("published outcome kinds refuse outcome_kind and outcome_payload.kind disag
       route_conventions: [],
       spec_mandate: [],
       law_modifies: [],
+      decision_domains: [],
       rigor_class: "prototype_internal",
     },
   }

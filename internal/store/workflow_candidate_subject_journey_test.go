@@ -37,7 +37,7 @@ func newCandidateJourney(t *testing.T, workID string) *candidateJourney {
 	t.Helper()
 	// The journey pins the current break-fix definition, under which Main
 	// confirms and completes with no operator substitution.
-	f := seedWorkContextFixtureWithDefinition(t, workID, legacyApprovalPolicyDefinitionForRef(t, "workflow.break_fix"))
+	f := seedWorkContextFixtureWithDefinition(t, workID, currentFixtureDefinition(t, "workflow.break_fix"))
 	t.Cleanup(func() { f.store.Close() })
 	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: t.TempDir()}
 	j.acceptor = WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/candidate-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
@@ -185,10 +185,10 @@ func (j *candidateJourney) terminalAction(t *testing.T, action string, payload j
 		return err
 	}
 	ctx = WithWorkerDispatchPreparation(ctx, prepared)
-	return j.terminalActionContext(t, ctx, action, payload, actor, nil)
+	return j.terminalActionContext(t, ctx, action, payload, actor)
 }
 
-func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Context, action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
+func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Context, action string, payload json.RawMessage, actor WorkflowActor) error {
 	t.Helper()
 	if action == "complete" && knowledgeSourceSetProofFrom(ctx) == nil {
 		var err error
@@ -205,7 +205,7 @@ func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Conte
 	}
 	return j.s.Transact(ctx, func(transaction *Transaction) error {
 		_, err := ApplyWorkflowActionTx(ctx, transaction, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-			WorkID: j.workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: actor, OperatorActor: operator, SelectedChoice: choice,
+			WorkID: j.workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: actor, SelectedChoice: choice,
 			EvidenceRefs: actionEvidenceRefs(action, payload), AcceptedInputsDigest: nativeDigest([]byte(id)), IdempotencyIdentity: id,
 			OperationID: id, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id,
 			RequestID: "request:" + id, ContractDigest: testManifestDigest, Now: time.Now().UTC(),

@@ -18,8 +18,8 @@ import (
 )
 
 // TestDispatchWorkerIsRegisteredWithTheD2Policy proves the brief's D2
-// triple (ActionExternalEffect, ActionApprovalNone, ActionFenced,
-// ActionEventGeneric) is the action policy in the built-in registry.
+// triple (ActionExternalEffect, ActionFenced, ActionEventGeneric) is the
+// action policy in the built-in registry.
 func TestDispatchWorkerIsRegisteredWithTheD2Policy(t *testing.T) {
 	t.Parallel()
 	policy, ok := builtinActionPolicies["dispatch_worker"]
@@ -28,9 +28,6 @@ func TestDispatchWorkerIsRegisteredWithTheD2Policy(t *testing.T) {
 	}
 	if policy.Consequence != ActionExternalEffect {
 		t.Fatalf("dispatch_worker consequence = %s, want external_effect", policy.Consequence)
-	}
-	if policy.Approval != ActionApprovalNone {
-		t.Fatalf("dispatch_worker approval = %s, want none", policy.Approval)
 	}
 	if policy.ExecutionMode != ActionFenced {
 		t.Fatalf("dispatch_worker execution_mode = %s, want fenced", policy.ExecutionMode)
@@ -1245,15 +1242,15 @@ func TestTwoCoordinatorInterleavingKeepsBothDispatchAuthorizations(t *testing.T)
 	if err != nil || takeover == nil || takeover.HeldEpoch != cd781WindowEpoch(t, s, workID, backendAttempt) {
 		t.Fatalf("materialized attempt has no exact takeover binding: %+v, %v", takeover, err)
 	}
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, workID, readWorkVersion(t, s, workID), frontendAttempt, coordinatorB, claimed, "cd781-frontend-unapproved")); !hasFailureKind(err, KindApprovalRequired) {
-		t.Fatalf("coordinator B dispatch over A's unfinished attempt = %v, want approval_required", err)
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, workID, readWorkVersion(t, s, workID), frontendAttempt, coordinatorB, claimed, "cd781-frontend-unapproved")); !hasFailureKind(err, KindOperationConflict) {
+		t.Fatalf("coordinator B dispatch over A's unfinished attempt = %v, want operation_conflict", err)
 	}
 	var frontendRows int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, frontendAttempt).Scan(&frontendRows); err != nil || frontendRows != 0 {
 		t.Fatalf("refused takeover bound %d frontend attempt rows (err %v), want none", frontendRows, err)
 	}
 	approvedFrontend := cd781DispatchRequest(t, s, workID, readWorkVersion(t, s, workID), frontendAttempt, coordinatorB, claimed, "cd781-frontend")
-	approvedFrontend.ApprovedTakeover = takeover
+	approvedFrontend.ExpectedTakeover = takeover
 	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, approvedFrontend); err != nil {
 		t.Fatalf("coordinator B approved dispatch_worker was refused: %v", err)
 	}

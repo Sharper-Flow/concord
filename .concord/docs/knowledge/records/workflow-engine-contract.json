@@ -40,7 +40,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:08f152899cc1cc4f0e374713825943d911b04a5fee6f21695b5f5a3d0dc35849",
+  "sha256": "sha256:f9c10dee80d9abe086096e7087be3444b4f39569a6b2bb8beef4a7bfd436b0e3",
   "status": "accepted",
   "summary": "Defines workflow authority, dispatch, evaluation, and atomic completion over current-state rows with no event log, fold, replay, or rebuild (CD-0242 D2). Each launch carries its own authority with no attempt count or escalation wall (CD-0242 D6), and generated definitions derive from one source (CD-0242 D14). Worker.completed v6 carries reported receipts and canonical ranked-finding resolution, while worker.failed remains v2. Oracle evidence does not supply predicate evaluation or new authority; review verdicts and operator confirmation keep their owners.",
   "tags": [

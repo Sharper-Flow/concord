@@ -69,26 +69,19 @@ func rReviseContract(t *testing.T, s *Store, workID, actorRef string, domains []
 	})
 }
 
-// rConfirmPremise answers confirm_premise through the public action route.
-// operator and digest are set for decision-bearing work only.
-func rConfirmPremise(t *testing.T, f acceptanceRecoveryFixture, actor WorkflowActor, operator *WorkflowActor, digest string) error {
-	t.Helper()
-	return runApprovalActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "confirm_premise", actor, operator, "confirm", digest, `{"selected_choice":"confirm"}`)
-}
-
 // rComplete runs the ordinary public completion as the executing coordinator.
 func rComplete(t *testing.T, f acceptanceRecoveryFixture) error {
 	t.Helper()
-	return runApprovalActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "complete", f.owner, nil, "", "", `{"impact_verdict":"non-breaking"}`)
+	return runCoordinatorActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "complete", f.owner, "", `{"impact_verdict":"non-breaking"}`)
 }
 
 // rAcceptanceModel is the abstract admission state of an rAcceptance item:
 // one active contract, the satisfied worker job in the Project, Main's
 // accepted Review of the current candidate with its criterion association
 // (the model's ok verdict), and the recorded investigation.
-func rAcceptanceModel(engineering bool) admissionModelState {
+func rAcceptanceModel() admissionModelState {
 	return admissionModelState{
-		step: "acceptance", contracts: 1, verdict: "ok", artifact: true, engineering: engineering,
+		step: "acceptance", contracts: 1, verdict: "ok", artifact: true,
 		jobs: "satisfied", jobsScope: "project", integration: true,
 		review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
 	}

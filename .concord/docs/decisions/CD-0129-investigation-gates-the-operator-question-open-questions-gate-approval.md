@@ -1,4 +1,4 @@
-# CD-0129: Investigation gates the operator question, open questions gate approval
+# CD-0129: Investigation gates the operator question, open questions gate contract approval
 
 - **Status:** Accepted
 - **Date:** 2026-09-09
@@ -21,7 +21,7 @@ on an investigation the agent can settle.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, the pending operator question exists only when CD-0013 D11 requires consent. Engineering confirmation has an authenticated non-worker route without a human choice digest, but still requires the recorded investigation and acceptance deliverables. Removing the question does not silently remove those checks or weaken declared open-question research obligations.
+The pending operator question exists only where CD-0243's classes require the conversational ask. Engineering confirmation records the authenticated non-worker coordinator without a human choice digest, but still requires the recorded investigation and acceptance deliverables. Removing the question does not silently remove those checks or weaken declared open-question research obligations.
 
 
 ### D1. The operator question is the obligated surface
@@ -29,7 +29,7 @@ For `approval_policy=consequence_v1`, the pending operator question exists only 
 `workflowOperatorQuestionTx` is the single path that produces a pending
 operator decision. It withholds the question while the work item carries no
 recorded investigation artifact. The question returns when one exists. The
-gate binds to no single action: every approval-required question the path
+gate binds to no single action: every operator question the path
 produces takes it.
 
 ### D2. An artifact names what it compared against
@@ -41,14 +41,14 @@ own. A ref that names nothing cannot satisfy the obligation, and the
 artifact's own work id never counts, because the observation query is
 already keyed by it.
 
-### D3. Open questions require bound research at approval
+### D3. Open questions require bound research at contract approval
 
 `approve_contract` refuses while the item's latest durable context
 checkpoint records pending questions and no research pack revision is bound
 to the item. The trigger is recorded state that `checkpoint_context`
 already requires, not a planner judgement at gate time, because a planner
 that decides research is unnecessary would otherwise pass unchecked.
-Approval admits when the questions close or a revision binds.
+Contract approval admits when the questions close or a revision binds.
 
 ### D4. Architecture stays where it already was
 

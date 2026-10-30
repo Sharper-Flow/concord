@@ -430,7 +430,7 @@ func oracleProducerAuthorityFixture(t *testing.T) oracleRepairFixture {
 	for _, id := range []string{"predicate:one", "predicate:two"} {
 		predicates = append(predicates, map[string]any{"predicate_id": id, "ordinal": len(predicates), "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:producer", "immutable_subject_ref": "commit:producer", "expected_result": "pass"}})
 	}
-	seed := seedWorkflowReturnRouteFixtureWithDefinition(t, "work-w", legacyApprovalPolicyDefinitionForRef(t, "workflow.break_fix"), "repair", []string{"verification"}, []string{"verification", "review", "artifact"}, predicates...)
+	seed := seedWorkflowReturnRouteFixtureWithDefinition(t, "work-w", currentFixtureDefinition(t, "workflow.break_fix"), "repair", []string{"verification"}, []string{"verification", "review", "artifact"}, predicates...)
 	return oracleRepairFixtureFrom(t, "work-w", seed)
 }
 

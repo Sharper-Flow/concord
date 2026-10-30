@@ -52,8 +52,5 @@ func TestOrdinaryRetryReplayPreservesUnknownLaunchFence(t *testing.T) {
 	if after := verifyWallPinCorrection(t, s); after.SourceEventID != correction.SourceEventID || after.FailedAttemptID != failedID || after.FailedAttemptEpoch != correction.FailedAttemptEpoch {
 		t.Fatalf("unmaterialized launch consumed or changed correction: %+v", after)
 	}
-	if verifyWallChallenges(t, s) != 0 {
-		t.Fatal("ordinary launch or refusal minted retry consent")
-	}
 	assertDispatchHasNoRetryBudget(t, s, attempt)
 }

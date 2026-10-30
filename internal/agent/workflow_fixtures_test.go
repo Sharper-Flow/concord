@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -87,24 +86,13 @@ func workflowArchitectureBindingForSeededRegistry(t *testing.T, s *store.Store) 
 	return binding
 }
 
-// seededDomainRegistryContentHash reads the committed registry's content
-// hash, which a law-change text pin names.
-func seededDomainRegistryContentHash(t *testing.T, s *store.Store) string {
-	t.Helper()
-	var hash string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM domain_registries WHERE product_id='product-1'`).Scan(&hash); err != nil {
-		t.Fatal(err)
-	}
-	return hash
-}
-
 func addWorkflowContractApprovalFields(input map[string]any) {
 	input["fields"] = workflowDecisionContractFieldsFixture()
 }
 
 // workflowDecisionContractFieldsFixture is the contract fixture declaring a
-// Product decision: under consequence_v1 its approval and its premise
-// confirmation require the operator's consent.
+// Product decision: the coordinator's premise confirmation follows CD-0243's
+// conversational classes for decision-bearing work.
 func workflowDecisionContractFieldsFixture() map[string]any {
 	fields := workflowContractFieldsFixture()
 	fields["decision_domains"] = []string{"product"}
@@ -124,11 +112,11 @@ func workflowContractFieldsFixture() map[string]any {
 	}
 }
 
-func workflowContractActionInput(t *testing.T, s *store.Store, key, approvalRef string) json.RawMessage {
+func workflowContractActionInput(t *testing.T, s *store.Store, key string) json.RawMessage {
 	t.Helper()
 	fields := workflowDecisionContractFieldsFixture()
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
-	return workflowContractActionInputWithFields(t, key, approvalRef, fields)
+	return workflowContractActionInputWithFields(t, key, fields)
 }
 
 func workflowContractFieldsForSeededRegistry(t *testing.T, s *store.Store) map[string]any {
@@ -138,16 +126,7 @@ func workflowContractFieldsForSeededRegistry(t *testing.T, s *store.Store) map[s
 	return fields
 }
 
-// workflowLegacyContractActionInput is the approval input for a pin under the
-// legacy approval policy, whose contract declares no decision-domain fact.
-func workflowLegacyContractActionInput(t *testing.T, key, approvalRef string) json.RawMessage {
-	t.Helper()
-	fields := workflowContractFieldsFixture()
-	delete(fields, "decision_domains")
-	return workflowContractActionInputWithFields(t, key, approvalRef, fields)
-}
-
-func workflowContractActionInputWithFields(t *testing.T, key, approvalRef string, fields map[string]any) json.RawMessage {
+func workflowContractActionInputWithFields(t *testing.T, key string, fields map[string]any) json.RawMessage {
 	t.Helper()
 	input := map[string]any{
 		"work_id": "work-1",
@@ -157,59 +136,11 @@ func workflowContractActionInputWithFields(t *testing.T, key, approvalRef string
 		"fields":           fields,
 		"idempotency_key":  key,
 	}
-	if approvalRef != "" {
-		input["approval"] = map[string]any{"approval_ref": approvalRef}
-	}
 	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return raw
-}
-
-// challengeApprovalBindings converts the challenge's consequence summary —
-// the wire owner of the exact bindings — into the scope and version maps the
-// host approval must sign. The approval validates equality against the
-// challenge's canonical bindings, so a fixture that signs its own literals
-// breaks whenever the admission binds a value the fixture guessed (the
-// derived failure record's window epoch, for one).
-func challengeApprovalBindings(t *testing.T, summary *agentcontract.ConsequenceSummary) (map[string]any, map[string]any) {
-	t.Helper()
-	if summary == nil {
-		t.Fatal("challenge carries no consequence summary")
-	}
-	scope := map[string]any{}
-	versions := map[string]any{}
-	parseInt := func(text string) (int64, bool) {
-		var value int64
-		_, err := fmt.Sscanf(text, "%d", &value)
-		return value, err == nil
-	}
-	for _, entry := range summary.Scope {
-		key, value, found := strings.Cut(entry, ":")
-		if !found {
-			t.Fatalf("scope binding %q is not key:value", entry)
-		}
-		switch key {
-		case "project_ids", "work_ids", "product_ids":
-			existing, _ := scope[key].([]string)
-			scope[key] = append(existing, value)
-		default:
-			scope[key] = value
-		}
-	}
-	for _, entry := range summary.Versions {
-		key, value, found := strings.Cut(entry, ":")
-		if !found {
-			t.Fatalf("version binding %q is not key:value", entry)
-		}
-		if number, ok := parseInt(value); ok {
-			versions[key] = number
-		} else {
-			versions[key] = value
-		}
-	}
-	return scope, versions
 }
 
 // advanceCapturedWorkToContract walks one captured implementation work item
@@ -277,6 +208,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 			"outcome_predicates":   workflowContractFieldsFixture()["outcome_predicates"],
 			"spec_mandate":         []string{lawID},
 			"law_modifies":         []string{lawID},
+			"decision_domains":     []string{},
 		},
 		"idempotency_key": "wide-architecture-ids",
 	})
@@ -292,7 +224,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 		invalid["affected_domain_ids"] = []string{invalidDomainID}
 		payload, err := json.Marshal(map[string]any{
 			"work_id": "work-1", "expected_version": 7, "action_id": "approve_contract",
-			"fields":          map[string]any{"architecture_binding": invalid, "premise": "The operator stated this premise.", "outcome_predicates": workflowContractFieldsFixture()["outcome_predicates"], "spec_mandate": []string{}, "law_modifies": []string{}},
+			"fields":          map[string]any{"architecture_binding": invalid, "premise": "The operator stated this premise.", "outcome_predicates": workflowContractFieldsFixture()["outcome_predicates"], "spec_mandate": []string{}, "law_modifies": []string{}, "decision_domains": []string{}},
 			"idempotency_key": "invalid-domain-id",
 		})
 		if err != nil {
@@ -343,8 +275,7 @@ func TestApproveContractSchemaAcceptsExplicitEvidenceAndRigor(t *testing.T) {
 	}
 }
 
-// Consent fixtures resolve the current family, just like live work.
-func legacyApprovalPolicyDefinitionForRef(t testing.TB) store.RegisteredDefinition {
+func currentImplementationFixtureDefinition(t testing.TB) store.RegisteredDefinition {
 	t.Helper()
 	const ref = "workflow.implementation"
 	live, err := store.LiveWorkflowDefinitionForRef(ref)
@@ -352,22 +283,4 @@ func legacyApprovalPolicyDefinitionForRef(t testing.TB) store.RegisteredDefiniti
 		t.Fatal(err)
 	}
 	return live
-}
-
-// seedLegacyApprovalPolicyWork pins work-1 to the newest implementation
-// version under the legacy approval policy, for journeys whose operator
-// substitution (CD-0116 verdicts) only that policy keeps. The live selector
-// pins every public capture to the consequence_v1 head, so the fixture
-// initializes the instance directly.
-func seedLegacyApprovalPolicyWork(t *testing.T, s *store.Store, grant Authority) string {
-	t.Helper()
-	ctx := context.Background()
-	registered := legacyApprovalPolicyDefinitionForRef(t)
-	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: actor, Now: fixedTime()})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	return "work-1"
 }

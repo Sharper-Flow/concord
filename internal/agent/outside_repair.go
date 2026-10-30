@@ -35,7 +35,6 @@ const boundedExternalEvidenceWait = 300 * time.Second
 var (
 	outsideRepairRepositoryPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,99}/[a-z0-9][a-z0-9._-]{0,99}$`)
 	outsideRepairReleaseTagPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
-	outsideRepairSelectorPattern   = regexp.MustCompile(`^[1-9][0-9]{0,8}$`)
 )
 
 func outsideRepairReleaseTagBound(tag string) bool {
@@ -54,12 +53,6 @@ func outsideRepairPullRequestsBound(numbers []int64) bool {
 		seen[number] = true
 	}
 	return true
-}
-
-// outsideRepairPullRequestSelectorBound bounds the decimal strings the
-// reconcile challenge binds; validChallengeScope consumes it.
-func outsideRepairPullRequestSelectorBound(selector string) bool {
-	return outsideRepairSelectorPattern.MatchString(selector)
 }
 
 // DefaultExternalEvidenceCommand runs the GitHub CLI by exact argv with
@@ -99,22 +92,20 @@ func (r runtime) outsideRepairCommand(ctx context.Context, args ...string) (stri
 }
 
 type outsideRepairDispositionInput struct {
-	WorkID          string         `json:"work_id"`
-	ExpectedVersion int64          `json:"expected_version"`
-	Reason          string         `json:"reason"`
-	IdempotencyKey  string         `json:"idempotency_key"`
-	Approval        *approvalInput `json:"approval"`
+	WorkID          string `json:"work_id"`
+	ExpectedVersion int64  `json:"expected_version"`
+	Reason          string `json:"reason"`
+	IdempotencyKey  string `json:"idempotency_key"`
 }
 
 type outsideRepairReconcileInput struct {
-	WorkID          string         `json:"work_id"`
-	ExpectedVersion int64          `json:"expected_version"`
-	Reason          string         `json:"reason"`
-	Mode            string         `json:"mode"`
-	ReleaseTag      string         `json:"release_tag"`
-	PullRequests    []int64        `json:"pull_requests"`
-	IdempotencyKey  string         `json:"idempotency_key"`
-	Approval        *approvalInput `json:"approval"`
+	WorkID          string  `json:"work_id"`
+	ExpectedVersion int64   `json:"expected_version"`
+	Reason          string  `json:"reason"`
+	Mode            string  `json:"mode"`
+	ReleaseTag      string  `json:"release_tag"`
+	PullRequests    []int64 `json:"pull_requests"`
+	IdempotencyKey  string  `json:"idempotency_key"`
 }
 
 // outsideRepairLiveWork reads the work item's lifecycle for the hold through
@@ -230,10 +221,10 @@ func (r runtime) planOutsideRepairDisposition(ctx context.Context, base agentcon
 	if liveWorkRefusal := r.outsideRepairLiveWork(ctx, base, in.WorkID); liveWorkRefusal.Error != nil {
 		return liveWorkRefusal, nil, true
 	}
-	if refusal, handled := r.prepareOutsideRepairPlan(base, plan, in.WorkID, in.ExpectedVersion, in.Reason, in.Approval, "", "", nil); handled {
+	if refusal, handled := r.prepareOutsideRepairPlan(base, plan, in.WorkID, in.Reason, "", "", nil); handled {
 		return refusal, nil, true
 	}
-	plan.effect = r.outsideRepairPlanEffect(digest, plan, in.WorkID, in.ExpectedVersion, in.Reason, "", nil)
+	plan.effect = r.outsideRepairPlanEffect(digest, in.WorkID, in.ExpectedVersion, in.Reason, "", nil)
 	return agentcontract.Envelope{}, nil, false
 }
 
@@ -274,25 +265,17 @@ func (r runtime) planOutsideRepairReconcile(ctx context.Context, base agentcontr
 		}
 		evidence = &collected
 	}
-	if refusal, handled := r.prepareOutsideRepairPlan(base, plan, in.WorkID, in.ExpectedVersion, in.Reason, in.Approval, in.Mode, in.ReleaseTag, in.PullRequests); handled {
+	if refusal, handled := r.prepareOutsideRepairPlan(base, plan, in.WorkID, in.Reason, in.Mode, in.ReleaseTag, in.PullRequests); handled {
 		return refusal, nil, true
 	}
-	plan.effect = r.outsideRepairPlanEffect(digest, plan, in.WorkID, in.ExpectedVersion, in.Reason, in.Mode, evidence)
+	plan.effect = r.outsideRepairPlanEffect(digest, in.WorkID, in.ExpectedVersion, in.Reason, in.Mode, evidence)
 	return agentcontract.Envelope{}, nil, false
 }
 
-// prepareOutsideRepairPlan carries the shared outside-repair plan shape. The
-// exact work, expected version, and completed reconcile selectors remain bound
-// even when ordinary coordination requires no operator consent (CD-0243 D7).
-func (r runtime) prepareOutsideRepairPlan(base agentcontract.Envelope, plan *mutationPlan, workID string, expectedVersion int64, reason string, approval *approvalInput, mode, releaseTag string, pullRequests []int64) (agentcontract.Envelope, bool) {
+func (r runtime) prepareOutsideRepairPlan(base agentcontract.Envelope, plan *mutationPlan, workID string, reason string, mode, releaseTag string, pullRequests []int64) (agentcontract.Envelope, bool) {
 	if len([]rune(reason)) < 2 || len([]rune(reason)) > 4096 {
 		return coreError(base, "invalid_input", "outside repair requires a bounded repair reason", "reread_entities", false), true
 	}
-	if approval != nil {
-		plan.approval = approval.ApprovalRef
-	}
-	plan.requiresApproval = approval != nil
-	plan.versions["work"] = expectedVersion
 	plan.scope["work_ids"] = []string{workID}
 	if mode == OutsideRepairModeCompleted {
 		plan.scope["release_tag"] = releaseTag
@@ -305,11 +288,9 @@ func (r runtime) prepareOutsideRepairPlan(base agentcontract.Envelope, plan *mut
 	return agentcontract.Envelope{}, false
 }
 
-// outsideRepairPlanEffect attributes ordinary coordination to the caller.
-// A supplied operator approval still carries its exact consumed binding.
-func (r runtime) outsideRepairPlanEffect(digest string, plan *mutationPlan, workID string, expectedVersion int64, reason, mode string, evidence *workflowproof.Evidence) mutationEffect {
+// outsideRepairPlanEffect attributes coordination to the caller.
+func (r runtime) outsideRepairPlanEffect(digest string, workID string, expectedVersion int64, reason, mode string, evidence *workflowproof.Evidence) mutationEffect {
 	return func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
 		request := store.OutsideRepairRequest{
 			Actor:           memberWorkflowActor(grant),
 			WorkID:          workID,
@@ -317,14 +298,6 @@ func (r runtime) outsideRepairPlanEffect(digest string, plan *mutationPlan, work
 			EventID:         digest + ":outside-repair",
 			ExpectedVersion: expectedVersion,
 			OccurredAt:      r.Authority.now(),
-		}
-		if consumedApprovalRef != "" {
-			approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
-			approvalVersionsJSON, _ := json.Marshal(plan.versions)
-			request.OutsideRepairApproval = store.OutsideRepairApproval{
-				ApprovalRef: consumedApprovalRef, ApprovalOperationDigest: digest,
-				ApprovalScopeJSON: string(approvalScopeJSON), ApprovalVersionsJSON: string(approvalVersionsJSON), ApprovalConsequence: plan.consequence,
-			}
 		}
 		var result store.ApplyOperationResult
 		var err error

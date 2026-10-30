@@ -19,7 +19,7 @@
   ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source));
   CD-0122 D2, the outside-repair authorization this amendment runs
   under; every other route refusal on every other route (CD-0186)
-- **Related:** CD-0013, CD-0059, CD-0067, CD-0116, CD-0122, CD-0124,
+- **Related:** CD-0013, CD-0059, CD-0067, CD-0122, CD-0124,
   CD-0133, CD-0137, CD-0138, CD-0143, CD-0147, CD-0159, CD-0166,
   CD-0172, CD-0173, CD-0186, CD-0187, CD-0193, CD-0197, CD-0201, CD-0203,
   CD-0204, CD-0207, and Concord (CON) issue 861
@@ -77,7 +77,7 @@ whitelist, or a nearest-target order does not own that decision.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, recovery correction requires the authenticated coordinator and exact diagnosis, strategy, predicates/findings, and bound evidence, without an operator approval. This qualifies the signature prerequisite and its conformance assertions below. Declared producer routes, artifact staleness, return targets, and real liveness checks remain required. Each correction is one admitted request with its own bindings ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+Recovery correction requires the authenticated coordinator and exact diagnosis, strategy, predicates/findings, and bound evidence. Declared producer routes, artifact staleness, return targets, and real liveness checks remain required. Each correction is one admitted request with its own bindings ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ### D1. One declared recovery-route table per family
 
@@ -292,7 +292,7 @@ the same function. The pin names the sequence the agent drives:
 A supersede at a noncomplete step changes the objective and holds the
 step. The unhealthy verdict, when it is retained and fresh, drives
 `request_correction` exactly as the engine admits it, with the
-exact operator approval that CD-0143 D1 requires. The fresh
+authenticated coordinator authority that CD-0143 D1 requires. The fresh
 production continuation is the next sequence the pin names. The work
 pin never names a step the declared table does not cover; if the
 declared table carries no route for the current step under the
@@ -301,7 +301,7 @@ and CD-0143 D2 routes already serve, and the gate does not delegate
 the cross-step return.
 
 CD-0172 D1, D2 and CD-0186 stay unchanged in scope: the complete-step
-supersede is exact approval terminal and only implementation and
+supersede binds the exact successor contract and only implementation and
 break_fix admit it, and this amendment does not broaden the
 complete-step supersede. The convention cutoff — that the route
 target is the producer D1 names and that no other work kind or
@@ -352,7 +352,7 @@ Scenario: actual (verify) unhealthy_verdict request_correction to execute
 
 Scenario: approved (verify) request_correction lands at execute
   Given a workflow.generic_one_off v13 instance at verify with a current unhealthy verdict
-  When the agent records request_correction with the exact operator approval
+  When the authenticated coordinator records request_correction
   Then the instance moves to execute
 
 Scenario: revision (verify) successor contract names the route
@@ -368,7 +368,7 @@ Scenario: unhealthy (verify) recorded bad verdict sets the bit
 Scenario: exact correction (verify) request_correction with the bound evidence
   Given a workflow.generic_one_off v13 instance at verify with a current unhealthy verdict
   When the engine reads the request_correction
-  Then the bound evidence and the exact operator approval are present
+  Then the bound evidence and authenticated coordinator authority are present
 
 Scenario: fresh producer (verify) record_delivery at execute clears the bit
   Given a workflow.generic_one_off v13 instance at execute with a fresh record_delivery
@@ -392,7 +392,7 @@ Scenario: actual (complete) unhealthy_verdict request_correction to execute
 
 Scenario: approved (complete) request_correction lands at execute
   Given a workflow.generic_one_off v13 instance at complete with a current unhealthy verdict
-  When the agent records request_correction with the exact operator approval
+  When the authenticated coordinator records request_correction
   Then the instance moves to execute
 
 Scenario: revision (complete) successor contract names the route
@@ -408,7 +408,7 @@ Scenario: unhealthy (complete) recorded bad verdict sets the bit
 Scenario: exact correction (complete) request_correction with the bound evidence
   Given a workflow.generic_one_off v13 instance at complete with a current unhealthy verdict
   When the engine reads the request_correction
-  Then the bound evidence and the exact operator approval are present
+  Then the bound evidence and authenticated coordinator authority are present
 
 Scenario: fresh producer (complete) record_delivery at execute clears the bit
   Given a workflow.generic_one_off v13 instance at execute with a fresh record_delivery

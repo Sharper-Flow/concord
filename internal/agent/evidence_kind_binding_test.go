@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -18,7 +17,7 @@ import (
 // several subjects and are refused at the boundary (#945).
 const ekbMixed = "evidence array carries more than one kind"
 
-func ekbDispatch(t *testing.T, _ context.Context, s *store.Store, service *Service, env CallEnvelope, grant Authority, privateKey ed25519.PrivateKey, workID string, version int64, actionID string, fields map[string]any, evidence []agentcontract.EvidenceRef, key string) (agentcontract.Envelope, int64) {
+func ekbDispatch(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID string, version int64, actionID string, fields map[string]any, evidence []agentcontract.EvidenceRef, key string) (agentcontract.Envelope, int64) {
 	t.Helper()
 	input := map[string]any{"work_id": workID, "expected_version": version, "action_id": actionID, "idempotency_key": key}
 	if fields != nil {
@@ -33,34 +32,19 @@ func ekbDispatch(t *testing.T, _ context.Context, s *store.Store, service *Servi
 	}
 	env.RequestID = "request:" + key + ":" + strconv.FormatInt(version, 10)
 	response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if response.Error != nil && response.Error.Kind == "approval_required" {
-		challengeRef, _ := response.Error.Details["approval_ref"].(string)
-		if challengeRef == "" {
-			t.Fatalf("%s minted no challenge", actionID)
-		}
-		input["approval"] = map[string]any{"approval_ref": challengeRef}
-		approvedRaw, marshalErr := json.Marshal(input)
-		if marshalErr != nil {
-			t.Fatal(marshalErr)
-		}
-		scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{workID}, "scope_version": env.ScopeVersion}
-		approvalEnv := env
-		approvalEnv.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, map[string]any{"work": version}, grant.SessionRef, grant.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-		response = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, approvalEnv)
-	}
 	after := agentCompositionWorkVersion(t, s, workID)
 	return response, after
 }
 
 // ekbWorkAtExecute captures a generic one-off work item and advances it to
 // the execute step, where bind_evidence is a declared action.
-func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, grant Authority, privateKey ed25519.PrivateKey, key string) (string, int64) {
+func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, key string) (string, int64) {
 	t.Helper()
 	seedCurrentWorkflowDomainOnce(t, s)
 	workID := captureCompositionWork(t, ctx, s, service, env, "Evidence kind binding "+key, "task", "workflow.implementation", "ekb-capture-"+key)
 	// The canonical head declares approve_contract behind the pre-contract walk.
 	version := advanceCapturedWorkToContract(t, s, service, env, workID, "ekb-"+key)
-	approved, _ := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "approve_contract", map[string]any{
+	approved, _ := ekbDispatch(t, s, service, env, workID, version, "approve_contract", map[string]any{
 		"premise":              "one bind records one evidence kind",
 		"outcome_predicates":   []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:ekb", "immutable_subject_ref": "commit:ekb", "expected_result": "pass"}}},
 		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
@@ -73,7 +57,7 @@ func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service
 		t.Fatalf("approve_contract: %+v", approved.Error)
 	}
 	after := recordApprovedWorkDesign(t, s, service, env, workID, "ekb-design-"+key)
-	started, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "start_execution", nil, nil, "ekb-start-"+key)
+	started, after := ekbDispatch(t, s, service, env, workID, after, "start_execution", nil, nil, "ekb-start-"+key)
 	if started.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("start_execution: %+v", started.Error)
 	}
@@ -104,19 +88,19 @@ func ekbEvidenceBoundEvents(t *testing.T, s *store.Store, workID string) []strin
 func TestBindEvidenceRefusesMixedKindEvidenceArray(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, grant, privateKey, "mixed")
+	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, "mixed")
 
 	mixed := []agentcontract.EvidenceRef{
 		{Kind: "verification", Authority: "github-actions", LocatorKind: "check_run", Locator: "check:one"},
 		{Kind: "review", Authority: "concord-1", LocatorKind: "pull_request_review", Locator: "review:one"},
 	}
-	response, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "bind_evidence", nil, mixed, "ekb-mixed")
+	response, after := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", nil, mixed, "ekb-mixed")
 	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
 		t.Fatalf("mixed bind outcome=%q error=%+v, want invalid_input", response.Outcome, response.Error)
 	}
@@ -134,19 +118,19 @@ func TestBindEvidenceRefusesMixedKindEvidenceArray(t *testing.T) {
 func TestBindEvidenceRefusesSeveralSubmittedSubjects(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, grant, privateKey, "subjects")
+	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, "subjects")
 
 	homogeneous := []agentcontract.EvidenceRef{
 		{Kind: "artifact", Authority: "github", LocatorKind: "pull_request", Locator: "pr:one"},
 		{Kind: "artifact", Authority: "github", LocatorKind: "pull_request", Locator: "pr:two"},
 	}
-	response, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "bind_evidence", nil, homogeneous, "ekb-subjects")
+	response, after := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", nil, homogeneous, "ekb-subjects")
 	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
 		t.Fatalf("multi-subject bind outcome=%q error=%+v, want invalid_input", response.Outcome, response.Error)
 	}
@@ -172,19 +156,19 @@ func TestBindEvidenceRefusesSeveralSubmittedSubjects(t *testing.T) {
 func TestBindEvidenceRecordsOneEventPerKindForOneLocator(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, grant, privateKey, "per-kind")
+	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, "per-kind")
 
 	perKind := []agentcontract.EvidenceRef{
 		{Kind: "verification", Authority: "github-actions", LocatorKind: "check_run", Locator: "check:one"},
 		{Kind: "review", Authority: "concord-1", LocatorKind: "pull_request_review", Locator: "check:one"},
 	}
-	response, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "bind_evidence", nil, perKind, "ekb-per-kind")
+	response, after := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", nil, perKind, "ekb-per-kind")
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("per-kind bind: %+v", response.Error)
 	}
@@ -224,15 +208,15 @@ func TestBindEvidenceRecordsOneEventPerKindForOneLocator(t *testing.T) {
 func TestBindEvidenceRefusesContradictedExplicitKind(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, grant, privateKey, "contradiction")
+	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, "contradiction")
 
-	response, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "bind_evidence", map[string]any{"evidence_kind": "review"}, []agentcontract.EvidenceRef{{Kind: "verification", Authority: "github-actions", LocatorKind: "check_run", Locator: "check:one"}}, "ekb-contradiction")
+	response, after := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", map[string]any{"evidence_kind": "review"}, []agentcontract.EvidenceRef{{Kind: "verification", Authority: "github-actions", LocatorKind: "check_run", Locator: "check:one"}}, "ekb-contradiction")
 	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
 		t.Fatalf("contradicted kind outcome=%q error=%+v, want invalid_input", response.Outcome, response.Error)
 	}
@@ -250,7 +234,7 @@ func TestBindEvidenceRefusesContradictedExplicitKind(t *testing.T) {
 func TestEvidenceKindRefusalCoversTheBindingFamily(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -266,8 +250,8 @@ func TestEvidenceKindRefusalCoversTheBindingFamily(t *testing.T) {
 	// union (CD-0218 D1), so the family refusal coverage names the actions
 	// that remain authorable.
 	for _, actionID := range []string{"bind_evidence"} {
-		workID, version := ekbWorkAtExecute(t, ctx, s, service, env, grant, privateKey, "family-"+actionID)
-		response, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, actionID, nil, mixed, "ekb-family-"+actionID)
+		workID, version := ekbWorkAtExecute(t, ctx, s, service, env, "family-"+actionID)
+		response, after := ekbDispatch(t, s, service, env, workID, version, actionID, nil, mixed, "ekb-family-"+actionID)
 		if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
 			t.Fatalf("%s mixed bind outcome=%q error=%+v, want invalid_input", actionID, response.Outcome, response.Error)
 		}

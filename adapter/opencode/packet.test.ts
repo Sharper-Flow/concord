@@ -1288,7 +1288,7 @@ const EIGHT_PAYLOADS = [
   { kind: "check", check_ref: "check:con795/eight-0", immutable_subject_ref: "contracts/agent-lane-packet.schema.json", expected_result: "pass" },
   { kind: "check", check_ref: "check:con795/eight-1", immutable_subject_ref: "adapter/opencode/packet.test.ts", expected_result: "pass" },
   { kind: "check", check_ref: "check:con795/eight-2", immutable_subject_ref: "contracts/agent-tool-surface.v1.json", expected_result: "pass" },
-  { kind: "outcome", allowed: ["completed"], decision_record: { question: "q", options_considered: ["o"], decision: "accepted_decision", rationale: "r", consequences: ["c"], inputs: ["i"], poc_findings: "p", supersedes: null, superseded_by: null, unknowns: [], required_to_decide: [], reviewer_actor_ref: `actor:${"a".repeat(64)}`, operator_approval_ref: "approval:con795" } },
+  { kind: "outcome", allowed: ["completed"], decision_record: { question: "q", options_considered: ["o"], decision: "accepted_decision", rationale: "r", consequences: ["c"], inputs: ["i"], poc_findings: "p", supersedes: null, superseded_by: null, unknowns: [], required_to_decide: [], reviewer_actor_ref: `actor:${"a".repeat(64)}` } },
   { kind: "exists", surface: "repository", subjects: ["file/three"] },
 ]
 const EIGHT_CONTRACT = {

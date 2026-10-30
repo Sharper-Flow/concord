@@ -7,7 +7,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
@@ -122,93 +121,6 @@ func TestAgentScopeBoundsTheAgentAClientMayPresent(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestApprovalConsumptionIsTransactionBoundAndSingleUse(t *testing.T) {
-	t.Parallel()
-	db := openAgentDB(t)
-	service := NewService(db)
-	service.Now = fixedTime
-	seedSimpleAuthorityScope(t, db)
-	if err := service.RegisterTrustedClient(context.Background(), testClientRegistration("client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
-		t.Fatal(err)
-	}
-	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1"})
-	ctx := context.Background()
-	invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", HostAssertionDigest: "sha256:host-resolution", ProductID: "product-1", ProjectID: "project-1"}
-	var challenge string
-	if err := db.Transact(ctx, func(tx *store.Transaction) error {
-		var err error
-		challenge, err = service.CreateApprovalChallengeTx(ctx, tx, probedHost(), invocation, ApprovalChallengeSpec{OperationDigest: "sha256:operation", Scope: map[string]any{"product_id": "product-1"}, Versions: map[string]any{"work": 3}, Consequence: "publication", HostAssertionDigest: invocation.HostAssertionDigest, ExpiresAt: fixedTime().Add(time.Hour)})
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	var approval string
-	if err := db.Transact(ctx, func(tx *store.Transaction) error {
-		var err error
-		approval, err = service.CreateApprovalFromChallengeTx(ctx, tx, probedHost(), invocation, challenge)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	check := ApprovalCheck{ApprovalRef: approval, OperationDigest: "sha256:operation", Scope: map[string]any{"product_id": "product-1"}, Versions: map[string]any{"work": 3}, Consequence: "publication", ClientRef: invocation.ClientRef, SessionRef: invocation.SessionRef}
-	if err := db.Transact(ctx, func(tx *store.Transaction) error {
-		if err := service.ValidateAndConsumeApprovalTx(ctx, tx, approval, check); err != nil {
-			return err
-		}
-		return errors.New("sentinel rollback")
-	}); err == nil || err.Error() != "sentinel rollback" {
-		t.Fatalf("rollback error = %v", err)
-	}
-	if err := db.Transact(ctx, func(tx *store.Transaction) error {
-		return service.ValidateAndConsumeApprovalTx(ctx, tx, approval, check)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Transact(ctx, func(tx *store.Transaction) error {
-		return service.ValidateAndConsumeApprovalTx(ctx, tx, approval, check)
-	}); err == nil {
-		t.Fatal("single-use approval reused")
-	}
-}
-
-func TestDirectApprovalAssertionConsumesExistingApprovalWithoutChallenge(t *testing.T) {
-	t.Parallel()
-	db := openAgentDB(t)
-	seedSimpleAuthorityScope(t, db)
-	service, invocation, _ := newAuthorizedService(t, db, "client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
-	ctx := context.Background()
-	invocation.HostAssertionDigest = "sha256:host-resolution"
-	const approvalRef = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	const operationDigest = "sha256:operation"
-	scope := map[string]any{"product_id": "product-1"}
-	versions := map[string]any{"work": 3}
-	check := ApprovalCheck{ApprovalRef: approvalRef, OperationDigest: operationDigest, Scope: scope, Versions: versions, Consequence: "publication", ClientRef: invocation.ClientRef, SessionRef: invocation.SessionRef}
-	if err := db.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InsertApprovalTx(ctx, tx, store.ApprovalInsert{ApprovalRef: approvalRef, OperationDigest: operationDigest, ScopeJSON: `{"product_id":"product-1"}`, VersionJSON: `{"work":3}`, Consequence: check.Consequence, HumanPrincipalRef: invocation.PrincipalRef, ClientRef: invocation.ClientRef, SessionRef: invocation.SessionRef, IssuedAt: fixedTime().Format(time.RFC3339Nano), ExpiresAt: fixedTime().Add(time.Hour).Format(time.RFC3339Nano), MaxUses: 1, ProtectedEvidenceRef: "direct-approval-test", ProtectedEvidenceDigest: "sha256:evidence"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	assertion := HostApprovalAssertion{ChallengeRef: approvalRef, RequestDigest: operationDigest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: invocation.SessionRef, AgentRef: invocation.AgentRef, Worktree: invocation.Worktree, IssuedAt: fixedTime().Format(time.RFC3339Nano)}
-	if err := db.Transact(ctx, func(tx *store.Transaction) error {
-		// An issued approval reference follows the exchange owner's existing
-		// validation and consumption path; it is never re-armed.
-		_, err := service.AcceptHostApprovalTx(ctx, tx, probedHost(), invocation, assertion, check)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	var challenges, used int
-	if err := db.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM agent_approval_challenges`).Scan(&challenges); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_approvals WHERE approval_ref=?`, approvalRef).Scan(&used); err != nil {
-		t.Fatal(err)
-	}
-	if challenges != 0 || used != 1 {
-		t.Fatalf("direct approval state = challenges %d used %d, want 0 and 1", challenges, used)
 	}
 }
 

@@ -18,14 +18,14 @@ envelope. The binding inputs are PM2 global local authority, PM5 membership
 semantics, the accepted TS1 through TS4 contracts, CD-0003's short-lived CLI,
 and the ambient-context native-authority constraints. This record fixes the
 call envelope fields, ambient context resolution and freshness, the principal
-and capability model, human approval evidence, expected versions, and
+and capability model, human consent, expected versions, and
 idempotency.
 ## Contract
 
 The binding contract is sections 1 through 8: the typed call envelope,
 ambient context resolution including ambiguity and explicit scope, context
 freshness, principal and authorization with the capability classes, human
-approval evidence, expected versions, idempotency with its key and replay
+consent, expected versions, idempotency with its key and replay
 contract, and request identity and audit. Sections 9 through 11 record
 scenario requirements, rejected alternatives, and falsifiers, and carry no
 obligation.
@@ -52,7 +52,6 @@ ambient_project_id
 selected_product_id?       # absent while unresolved/ambiguous
 scope_version
 idempotency_key?           # required for mutation; absent for reads
-approval_refs[]            # durable core-issued references, never caller prose
 ```
 
 Tool-specific inputs continue to carry stable work/Project/Product IDs and expected
@@ -101,7 +100,7 @@ only when the intent itself requires it:
 
 There is no generic `target_path`, `target_confirmed`, or `trust_remote` argument.
 Cross-Product mutations require an explicit complete membership/resulting-scope
-intent plus a durable cross-scope approval reference. The core derives Product scope
+intent plus the `cross_scope` capability. The core derives Product scope
 from PM5 memberships and returns it; callers never store Product copies on work.
 
 ## 3. Context freshness
@@ -158,7 +157,7 @@ The core authorizes the tuple:
 principal × tool operation × resolved Product/Project/work scope × consequence class
 ```
 
-Operation definitions declare their required capability and approval class in core
+Operation definitions declare their required capability in core
 code generated from the same canonical contract used by adapters. Plugin prose,
 tool descriptions, instructions, and caller booleans cannot weaken it.
 
@@ -177,46 +176,23 @@ These are policy capabilities, not roles, assignments, or new agent tools. A
 principal receives only the capabilities its trusted client policy declares.
 Product/Project restrictions are evaluated in addition to capability class.
 
-## 5. Human approval evidence
+## 5. Human approval
 
-Approval is a durable core record, referenced by opaque `approval_ref`. It binds:
+Operator consent is conversational, governed by CD-0243 D2's six operator
+approval classes: when a class applies, the agent asks the operator in
+conversation and records the answer in the existing work record; when no class
+applies, no ask is owed. The workflow's declared decision domains name the
+contract's decision class wherever one determines the ask.
 
-- approving human principal and trusted client/session evidence;
-- exact tool operation and canonical input digest;
-- resolved Product/Project/work scope and expected entity versions;
-- consequence summary;
-- issue time, expiry or explicit non-expiring policy, and allowed use count; and
-- revocation/consumption state.
+Authorization is the trusted client's capability scope plus
+the core's own admission checks.
 
-Workflow-action consent follows the definition-pinned policy in CD-0013 D11,
-which applies CD-0243 D2's six operator approval classes.
-Other operation approvals follow CD-0243 D6: each applies only when a D2 class
-applies, and an unclassified approval point is not an approval class.
-An external effect or durable acknowledgement alone does not determine consent.
-Required approvals default to single use. Reuse requires an explicit
-bounded approval policy naming the operation family, scope, expiry, and maximum
-uses. Changing any bound input, version, scope, content/home, or consequence makes
-the approval inapplicable. The core consumes a single-use approval in the same
-transaction that records the authorized domain intent; cross-authority execution
-then follows the durable operation's recovery contract.
-Typed decision domains and their contract version bind wherever they determine consent.
-
-A pending single-use challenge has an explicit fresh-consent re-arm policy.
-Elapsed prompt time alone does not invalidate a fresh affirmative host answer.
-The core must revalidate the unchanged request, scope, versions, consequence,
-caller identity, and host binding before it re-arms an expired unused challenge.
-The replacement deadline uses the original finite challenge interval.
-Re-arm, approval creation, consumption, and authorized intent share one transaction.
-This policy never renews an issued approval, increases use count limits, or
-permits a stale host assertion. Any failure rolls back the whole exchange.
-
-Rejected approval forms:
+Rejected consent forms:
 
 - `approved: true`, `target_confirmed`, or other self-asserted booleans;
 - natural-language approval copied into a tool argument;
-- approval inferred from an earlier unrelated action or chat message;
-- an adapter-only permission check with no core validation; or
-- an approval that survives changed versions/content/scope without revalidation.
+- consent inferred from an earlier unrelated action or chat message; or
+- an adapter-only permission check with no core validation.
 
 ## 6. Expected versions
 
@@ -232,7 +208,7 @@ Every mutation of an existing canonical entity carries its expected version.
   compare-and-swap, or terminal work/version only while discovering an orphan.
 - capture has no prior entity version but requires idempotency.
 
-Version mismatch fails before approval consumption or any effect and returns current
+Version mismatch fails before any effect and returns current
 version plus safe reread/retry guidance under TS7. The core never silently rebases a
 mutation onto newer state.
 
@@ -256,7 +232,7 @@ the record stores the canonical request digest, immutable authorized-scope snaps
 accepted event/durable-operation reference, and latest result identity. The request
 digest excludes transport-attempt fields (`request_id`, refreshed context version)
 but includes all domain inputs, explicit scope selection, expected entity versions,
-and approval-bound consequence content.
+and the consequence-bearing scope selection.
 
 ### 7.2 Replay behavior
 
@@ -270,7 +246,7 @@ Idempotent request replay returns the committed result; no event replay exists
 - Same key + different digest: fail `idempotency_conflict`; create no effect.
 - Original attempt not committed: a retry may execute normally.
 - Original cross-authority attempt partial/pending: return the same durable operation.
-  Before another external step, revalidate its pinned scope/version/approval; pause
+  Before another external step, revalidate its pinned scope and versions; pause
   for renewed authorization when those no longer apply, never start a second
   publication/external effect.
 
@@ -288,10 +264,10 @@ Every replay path reads the same authoritative result owner.
 
 `request_id` is unique per transport attempt and links logs/metrics. It does not
 deduplicate. Recorded mutations and durable operations record principal, client,
-request ID, idempotency identity, approval reference when applicable, resolved
+request ID, idempotency identity, resolved
 scope/version, and resulting entity versions.
 
-Sensitive credentials, approval secrets, raw prompt text, and process exhaust are
+Sensitive credentials, raw prompt text, and process exhaust are
 not copied into Product memory. References identify protected evidence held by its
 own authority.
 
@@ -305,9 +281,8 @@ TS5 adds/requires these variants in the TS1 runner:
 | Shared Project | Mutation blocks with bounded candidates; no Product guessed. |
 | Stale unchanged context read | Read succeeds with explicit refreshed context version. |
 | Stale context mutation | No effect; current scope/version and recovery returned. |
-| Wrong/cross Product | No silent mutation; explicit scope plus valid capability/approval required. |
+| Wrong/cross Product | No silent mutation; explicit scope plus valid `cross_scope` capability required, otherwise `unauthorized`. |
 | Missing/spoofed principal | Mutation denied; caller cannot self-assign identity. |
-| Missing/changed approval | Consequence blocked; approval remains unconsumed on version conflict. |
 | Duplicate delivery | Same key/digest returns same result/effect count; changed digest conflicts. |
 | Partial compaction retry | Same durable operation resumes; no second note/effect. |
 
@@ -319,8 +294,7 @@ TS5 adds/requires these variants in the TS1 runner:
 - Product IDs copied onto work instead of PM5-derived scope.
 - Silent context refresh for mutations.
 - Role strings or model identity supplied by the agent.
-- Plugin-only authorization or approval.
-- Approval text/boolean instead of an operation-bound durable reference.
+- Plugin-only authorization.
 - Request IDs used as idempotency keys.
 - Expiring deduplication before the underlying durable effect can no longer replay.
 - Silent last-write-wins on version conflict.
@@ -334,13 +308,12 @@ Reopen TS5 when:
 - context resolution cannot remain correct across shared/cross-Product Projects;
 - Product-wide default client scope proves too broad for least-privilege operation;
 - unchanged stale-read refresh causes a demonstrated authority error;
-- approval binding cannot survive the selected transport without trusting prose;
 - idempotency records become the dominant retained-state cost; or
 - a supported non-OpenCode client requires a different principal/context proof that
   cannot map to this logical envelope.
 
 Any amendment must preserve core-owned authorization, explicit cross-scope intent,
-expected-version conflict detection, operation-bound approval, and durable retry
+expected-version conflict detection, and durable retry
 identity.
 
 ## Acceptance criteria
@@ -360,15 +333,10 @@ identity.
   Then the core returns the original committed result with no new effect, and
   a changed digest fails `idempotency_conflict`.
 
-- Given a single-use approval bound to exact content
-  When the domain effect fails or the version conflicts
-  Then the approval remains unconsumed, and on success the core consumes it
-  in the same transaction that records the intent.
-
 - Given a mutation spanning outside the selected ambient Product
   When it dispatches
-  Then the core requires the `cross_scope` capability plus a durable approval
-  reference, and self-asserted booleans never authorize.
+  Then the core requires the `cross_scope` capability or returns `unauthorized`,
+  and self-asserted booleans never authorize.
 
 ## Verification
 
@@ -382,14 +350,7 @@ identity.
   `TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect`
   (`internal/agent/context_freshness_test.go`).
 - Criterion 3 is proved by
-  `TestDispatchIdempotentReplaySurvivesAmbientScopeDrift` and
-  `TestMutationDigestBindsIntentNotApprovalTransportReference`
-  (`internal/agent/mutation_dispatch_test.go`,
-  `internal/agent/runtime_test.go`).
-- Criterion 4 is proved by
-  `TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse` and
-  `TestDispatchFailedDomainEffectRollsBackGrantAndApproval`
+  `TestDispatchIdempotentReplaySurvivesAmbientScopeDrift`
   (`internal/agent/mutation_dispatch_test.go`).
-- Criterion 5 is proved by `TestDispatchCrossProductCaptureRequiresBoundApproval`
-  and `TestDispatchCrossProductLinkRequiresCapabilityAndApproval`
+- Criterion 4 is proved by `TestDispatchCrossProductCaptureKeepsCapabilityWithoutConsent`
   (`internal/agent/mutation_dispatch_test.go`).

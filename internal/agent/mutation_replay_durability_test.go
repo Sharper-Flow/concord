@@ -11,6 +11,15 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+func replayFixtureEnvelope(t *testing.T, s *store.Store, grant Authority) CallEnvelope {
+	t.Helper()
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mutationEnvelope(grant, scopeVersion)
+}
+
 // A separate read snapshot pins the WAL while replay writes append to it.
 // Only this synthetic store shortens lock waits; production settings stay fixed.
 func holdReplayDurabilityReader(t *testing.T, s *store.Store) func() {
@@ -96,7 +105,7 @@ func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 			if version := seedAgentWorkflow(t, s, grant); version != 4 {
 				t.Fatalf("fixture workflow version=%d, want 4", version)
 			}
-			env := grantRequestEnvelope(t, s, grant)
+			env := replayFixtureEnvelope(t, s, grant)
 			release := holdReplayDurabilityReader(t, s)
 			request := InvokeRequest{
 				Tool: "concord_work_transition", Operation: "workflow_action",
@@ -121,7 +130,6 @@ func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 			}
 			beforeEvents := countWorkflowEvents(t, s)
 			beforeVersion := workOneVersion(t, s)
-			beforeChallenges := countWorkflowApprovalChallenges(t, s)
 			for _, pinned := range []bool{true, false} {
 				if !pinned {
 					release()
@@ -139,8 +147,8 @@ func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 					t.Fatal(err)
 				}
 				requireReplayCommit(t, s, "durability-replay", before, metadataBefore, true)
-				if countWorkflowEvents(t, s) != beforeEvents || workOneVersion(t, s) != beforeVersion || countWorkflowApprovalChallenges(t, s) != beforeChallenges {
-					t.Fatal("replay repeated the workflow action or approval")
+				if countWorkflowEvents(t, s) != beforeEvents || workOneVersion(t, s) != beforeVersion {
+					t.Fatal("replay repeated the workflow action")
 				}
 				if pinned {
 					requireReplayReaderPinsWAL(t, s)
@@ -155,7 +163,7 @@ func TestWorkflowReplayDurableWriteFailureDoesNotAcknowledge(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	seedAgentWorkflow(t, s, grant)
-	env := grantRequestEnvelope(t, s, grant)
+	env := replayFixtureEnvelope(t, s, grant)
 	release := holdReplayDurabilityReader(t, s)
 	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"durability-replay"}`)}
 	seedCurrentWorkflowActionReplay(t, s, env, request.Input, "completed")
@@ -211,7 +219,7 @@ func TestCompactionReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 			t.Run(operation+"/"+string(kind), func(t *testing.T) {
 				ctx := context.Background()
 				s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_compact"})
-				env := grantRequestEnvelope(t, s, grant)
+				env := replayFixtureEnvelope(t, s, grant)
 				release := holdReplayDurabilityReader(t, s)
 				raw := json.RawMessage(`{"work_id":"work-1","idempotency_key":"compaction-replay"}`)
 				const scope = `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-1"]}`
@@ -278,7 +286,7 @@ func TestOrdinaryMutationReplayDoesNotRequireDurability(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define"})
-	env := grantRequestEnvelope(t, s, grant)
+	env := replayFixtureEnvelope(t, s, grant)
 	release := holdReplayDurabilityReader(t, s)
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Replay","value_statement":"Replay value","kind":"task","project_ids":["project-1"],"idempotency_key":"ordinary-replay"}`)}
 	first, err := Dispatch(ctx, s, service, request, env)

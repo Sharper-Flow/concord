@@ -45,7 +45,7 @@ revision and report; each terminal result is accepted or rejected once ([CD-0242
 
 ## Decision
 
-For `approval_policy=consequence_v1`, failed retry and correction require exact transactional state/evidence bindings, not operator approval. Parent-contract, immutable job/oracle, preparation, packet, receipt, delivery, integration, and independence obligations remain unchanged. Premise confirmation remains required with CD-0013 D11's class-appropriate actor.
+Failed retry and correction require exact transactional state/evidence bindings. Parent-contract, immutable job/oracle, preparation, packet, receipt, delivery, integration, and independence obligations remain required. Premise confirmation requires CD-0013 D11's authenticated coordinator.
 
 ### D1. A worker-job revision is an immutable record under the work item
 

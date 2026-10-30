@@ -242,12 +242,6 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 			proofRef := ""
 			apply := func(actionID string, variant map[string]string) {
 				t.Helper()
-				if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
-					consent, err := ClassifyWorkflowApproval(definition, actionID, WorkflowApprovalFacts{ProposedDecisionDomains: []string{}, ActiveDecisionDomains: []string{}})
-					if err != nil || consent.Consent != WorkflowConsentNone {
-						t.Fatalf("engineering %s requires consent: %+v, %v", actionID, consent, err)
-					}
-				}
 				action, ok := livenessActionDefinition(definition, actionID)
 				if !ok {
 					t.Fatalf("unknown action %s", actionID)
@@ -329,13 +323,13 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 			if err != nil || state != "completed" || events != 1 {
 				t.Fatalf("completion state=%s events=%d err=%v", state, events, err)
 			}
-			if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
+			{
 				var operatorEvents int
 				if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts e JOIN workflow_actors a ON a.actor_ref=e.actor WHERE e.subject_id=? AND a.actor_class='operator'`, workID).Scan(&operatorEvents); err != nil {
 					t.Fatal(err)
 				}
 				if operatorEvents != 0 {
-					t.Fatalf("engineering completion used %d operator-authored events", operatorEvents)
+					t.Fatalf("completion used %d operator-authored events", operatorEvents)
 				}
 			}
 		})

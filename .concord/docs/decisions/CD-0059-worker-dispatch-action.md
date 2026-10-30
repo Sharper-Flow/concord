@@ -17,7 +17,7 @@
 ## Context
 
 The result side of the worker boundary is modeled. `accept_worker_result` is a
-registered action with a consequence class, an approval policy, and an
+registered action with a consequence class and an
 execution mode; an agent reaches it through
 `concord_work_transition.workflow_action`.
 
@@ -54,20 +54,20 @@ execution under CD-0067 D2. This snapshot belongs to the existing fenced
 dispatch; it grants no new capability (each launch carries its own authority ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget))).
 
 This is the placement `.concord/docs/capability-placement.md` §4 selects: a capability
-that mutates durable state and needs validation, authorization, and approval is
+that mutates durable state and needs validation and authorization is
 a core domain operation, exposed only through the accepted adapter. CD-0017 D2
 places the same boundary from the other side — the adapter validates envelopes
 and identity only.
 
 ### D2. Its action policy matches `start_execution`
 
-For `approval_policy=consequence_v1`, a failed-worker retry is a launch admitted like any other, with its own scope, assignment, and subject bindings, and a launch with an unknown effect is reconciled before another launch for that assignment ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). The exact failed attempt,
+A failed-worker retry is a launch admitted like any other, with its own scope, assignment, and subject bindings, and a launch with an unknown effect is reconciled before another launch for that assignment ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). The exact failed attempt,
 epoch, active contract, and job binding remain transactional prerequisites of
 the retry launch, and the store records a fresh fenced attempt and epoch
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 `dispatch_worker` is registered as
-`actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric)`.
+`actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric)`.
 
 Each member follows existing precedent rather than a new judgment:
 
@@ -77,20 +77,15 @@ Each member follows existing precedent rather than a new judgment:
   `workflowActionStartEpochForDispatch` as the epoch-fence flag. A fenced action
   opens a window against the step epoch without advancing the step, which is
   exactly what CD-0017 D4 describes. D4 becomes enforceable by construction.
-- **`ActionApprovalNone`** — dispatch is the routine operation of the system.
-  Gating every lane spawn on human approval would remove the autonomy the lane
-  registry exists to provide. The consequence class already marks the action as
-  externally effectful.
 
-`start_execution` already carries this exact triple. Dispatch is the same
+`start_execution` already carries this policy. Dispatch is the same
 shape: begin externally effectful work under a fence.
 
 ### D3. Dispatch is guarded by a registrable, non-grantable capability
 
 Dispatch requires a new `worker_dispatch` capability. Like `worker_evidence`
 (`internal/agent/authority.go`), it is registrable in a trusted client policy
-and deliberately absent from the grant-request vocabulary: no bearer grant can
-carry it.
+only: no bearer grant can carry it.
 
 `work_transition` is not reused. A worker may hold `work_transition` for other
 reasons, so reusing it would leave CD-0017 D4's nested-worker prohibition
@@ -143,8 +138,8 @@ the check in the worker rather than in the core.
 - `dispatch_worker` appears in the registered action set with the D2 policy.
 - A dispatch admission opens a fenced window; a second advancing action in the same
   step window is refused.
-- A principal without `worker_dispatch` is refused; the capability cannot be
-  obtained through a bearer grant request.
+- A principal without `worker_dispatch` is refused; no bearer grant carries
+  the capability.
 - `dispatchWorker` has a non-test caller reached through
   `concord_work_transition.workflow_action`.
 - An attempt spawned without an authorized dispatch records no

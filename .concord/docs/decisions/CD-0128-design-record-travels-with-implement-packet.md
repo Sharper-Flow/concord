@@ -13,7 +13,7 @@ The implementation workflow has a design step, but `record_design` carried no ty
 
 ## Decision
 
-For `approval_policy=consequence_v1`, a design correction travels with an attributed contract supersession without a separate operator signature. The complete design record, contract binding, packet projection, and audit evidence remain required. Human consent follows CD-0013 D11; a record about an earlier subject authorizes nothing about a changed one ([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)).
+A design correction travels with an attributed contract supersession. The complete design record, contract binding, packet projection, and audit evidence remain required. Human consent follows CD-0243; a record about an earlier subject authorizes nothing about a changed one ([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)).
 
 `record_design` is a typed workflow action of the implementation family ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)). Its durable record contains an approach, one to sixteen typed decisions, and one to sixty-four touched references.
 
@@ -51,7 +51,7 @@ After contract correction, worker dispatch requires a current design when the
 work has an earlier typed design. The work pin omits dispatch until this condition
 holds. Workflows without a typed design remain unchanged.
 
-An operator-approved `supersede_contract` may include a replacement `design_record`
+An attributed `supersede_contract` may include a replacement `design_record`
 with the same bounded content as `record_design`. Contract supersession and the
 replacement record commit in one transaction. This route does not admit the
 standalone design action at a later step or change the canonical definition
@@ -70,6 +70,6 @@ Implementation workers receive the coordinator's recorded approach and decisions
 - The adapter packet tests pass, including design presence, design absence, and context overflow.
 - Agent contracts regenerate without drift.
 - Public correction tests cover stale-design refusal, atomic replacement,
-  approval binding, and restored dispatch admission.
+  contract binding, and restored dispatch admission.
 - Store tests preserve invalidation and the replacement record across recovery
   ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).

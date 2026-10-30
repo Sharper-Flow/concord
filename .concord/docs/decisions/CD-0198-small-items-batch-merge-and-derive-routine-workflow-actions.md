@@ -46,7 +46,7 @@ of scope, as are the tool-schema refusal fixes that CON-408 owns.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, the contract remains mandatory but human signature follows recorded decision domains under CD-0013 D11. Batched verdict recording still requires recorded verdict authority and evidence.
+The attributed contract remains mandatory under CD-0013 D11. Batched verdict recording requires recorded verdict authority and evidence. Operator decisions follow CD-0243 in conversation.
 Implement cannot accept its own result ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). Engineering premise confirmation uses its
 real coordinator identity, and a combined action cannot accept its own result
 or silently omit a predicate.

@@ -20,33 +20,18 @@ import (
 // their original operator authority.
 
 // engineeringConfirmationSeed parks a workflow.implementation item at
-// acceptance on the live journey and records the routine actors. domainsJSON
-// is the active contract's decision fact; "" leaves the fact absent.
-func engineeringConfirmationSeed(t *testing.T, workID, domainsJSON string) (s *Store, owner, reviewer, operator, coordinator WorkflowActor) {
+// acceptance on the live journey and records the routine actors.
+func engineeringConfirmationSeed(t *testing.T, workID string) (s *Store, owner, reviewer, operator, coordinator WorkflowActor) {
 	t.Helper()
-	return engineeringConfirmationFixture(t, workID, domainsJSON, true, true)
+	return engineeringConfirmationFixture(t, workID, true, true)
 }
 
 // engineeringConfirmationFixture is engineeringConfirmationSeed with Main's
 // criterion association and the investigation each made optional.
-func engineeringConfirmationFixture(t *testing.T, workID, domainsJSON string, associate, investigation bool) (s *Store, owner, reviewer, operator, coordinator WorkflowActor) {
+func engineeringConfirmationFixture(t *testing.T, workID string, associate, investigation bool) (s *Store, owner, reviewer, operator, coordinator WorkflowActor) {
 	t.Helper()
-	domains := []string{}
-	if domainsJSON != "" {
-		if err := json.Unmarshal([]byte(domainsJSON), &domains); err != nil {
-			t.Fatal(err)
-		}
-	}
-	f := rAcceptance(t, workID, domains, associate, investigation)
+	f := rAcceptance(t, workID, []string{}, associate, investigation)
 	actors := recordApprovalActors(t, f.store, workID)
-	if domainsJSON == "" {
-		// No live approval writes an absent fact; the projection carries it.
-		if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-			UPDATE workflow_contracts SET decision_domains=NULL WHERE work_id=? AND superseded_by IS NULL;
-			DELETE FROM write_guard`, workID); err != nil {
-			t.Fatal(err)
-		}
-	}
 	return f.store, f.owner, actors.reviewer, actors.operator, actors.coordinator
 }
 
@@ -83,7 +68,7 @@ func seedRoutineReviewersForSelection(t *testing.T, s *Store, workID string) (re
 // runEngineeringConfirmation invokes the confirm_premise constructor directly
 // on the seeded store: the sanctioned transactional seam for a definition the
 // builtin registry does not carry.
-func runEngineeringConfirmation(t *testing.T, s *Store, definition WorkflowDefinition, workID, invokerRef string, operator *WorkflowActor, fields map[string]json.RawMessage) ([]Event, error) {
+func runEngineeringConfirmation(t *testing.T, s *Store, definition WorkflowDefinition, workID, invokerRef string, fields map[string]json.RawMessage) ([]Event, error) {
 	t.Helper()
 	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -93,7 +78,7 @@ func runEngineeringConfirmation(t *testing.T, s *Store, definition WorkflowDefin
 	defer tx.Rollback()
 	choice, digest, rest := confirmationEnvelope(fields)
 	return workflowConfirmPremiseEventsForDefinition(context.Background(), tx, definition, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", SelectedChoice: choice, DecisionContextDigest: digest, OperatorActor: operator, OperationID: "confirm-" + workID,
+		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", SelectedChoice: choice, DecisionContextDigest: digest, OperationID: "confirm-" + workID,
 	}, invokerRef, rest, "confirm-"+workID, version)
 }
 
@@ -129,8 +114,8 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("engineering coordinator confirmation succeeds", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-coordinator"
-		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
-		events, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
+		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID)
+		events, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), confirmationFields(true, ""))
 		if err != nil {
 			t.Fatalf("engineering coordinator confirmation refused: %v", err)
 		}
@@ -158,22 +143,11 @@ func TestEngineeringConfirmation(t *testing.T) {
 		}
 	})
 
-	t.Run("engineering refuses operator substitution", func(t *testing.T) {
-		t.Parallel()
-		const workID = "engineering-confirm-substitution"
-		s, _, _, operator, _ := engineeringConfirmationSeed(t, workID, `[]`)
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, operator), &operator, confirmationFields(true, ""))
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "takes no operator substitution") {
-			t.Fatalf("engineering confirmation with an operator actor returned %v, want the no-substitution refusal", err)
-		}
-	})
-
 	t.Run("engineering refuses a human decision-context digest", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-digest"
-		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, "digest:human-question"))
+		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID)
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), confirmationFields(true, "digest:human-question"))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidInput {
 			t.Fatalf("engineering confirmation with a human digest returned %v, want the invalid-input refusal", err)
@@ -183,8 +157,8 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("engineering refuses a choice other than confirm", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-choice"
-		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(false, ""))
+		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID)
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), confirmationFields(false, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidInput {
 			t.Fatalf("engineering confirmation with revise choice returned %v, want the invalid-input refusal", err)
@@ -194,18 +168,18 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("missing deliverables and investigation refuse through the constructor", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-deliverables"
-		s, _, _, _, coordinator := engineeringConfirmationFixture(t, workID, `[]`, false, true)
+		s, _, _, _, coordinator := engineeringConfirmationFixture(t, workID, false, true)
 		// Main has not associated the accepted Review with the criteria, so
 		// the acceptance deliverables the confirmation requires are absent.
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), confirmationFields(true, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("engineering confirmation without deliverables returned %v, want the missing-evidence refusal", err)
 		}
 		// The investigation artifact is demanded on the no-question route.
 		noInvestigation := "engineering-confirm-investigation"
-		s2, _, _, _, coordinator2 := engineeringConfirmationFixture(t, noInvestigation, `[]`, true, false)
-		_, err = runEngineeringConfirmation(t, s2, engineeringConfirmationDefinition(t), noInvestigation, ownerRefForTest(t, coordinator2), nil, confirmationFields(true, ""))
+		s2, _, _, _, coordinator2 := engineeringConfirmationFixture(t, noInvestigation, true, false)
+		_, err = runEngineeringConfirmation(t, s2, engineeringConfirmationDefinition(t), noInvestigation, ownerRefForTest(t, coordinator2), confirmationFields(true, ""))
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "investigation artifact") {
 			t.Fatalf("engineering confirmation without investigation returned %v, want the missing-investigation refusal", err)
 		}
@@ -214,7 +188,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("worker authority refuses to confirm as coordinator", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-worker"
-		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
+		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID)
 		coordinatorRef := ownerRefForTest(t, coordinator)
 		lane := BuiltinLaneDefinitions()[0]
 		dispatch := workerDispatchEvent(workID, "engineering-confirm-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:" + workID, "lane_actor_ref": coordinatorRef})
@@ -223,7 +197,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 			t.Fatalf("seed worker dispatch: %v", err)
 		}
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, coordinatorRef, nil, confirmationFields(true, ""))
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, coordinatorRef, confirmationFields(true, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized {
 			t.Fatalf("worker-authority confirmation returned %v, want the unauthorized refusal", err)
@@ -233,7 +207,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("operator selection admits engineering without a digest", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-selection-engineering"
-		s, _, _, _, coordinator := engineeringConfirmationFixture(t, workID, `[]`, true, true)
+		s, _, _, _, coordinator := engineeringConfirmationFixture(t, workID, true, true)
 		registry := BuiltinWorkflowRegistry()
 		selectionVersion := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -253,7 +227,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("operator selection refuses a human digest for engineering", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-selection-digest"
-		s, _, _, _, _ := engineeringConfirmationFixture(t, workID, `[]`, true, true)
+		s, _, _, _, _ := engineeringConfirmationFixture(t, workID, true, true)
 		registry := BuiltinWorkflowRegistry()
 		selectionVersion := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -273,30 +247,10 @@ func TestEngineeringConfirmation(t *testing.T) {
 		}
 	})
 
-	t.Run("operator selection keeps the digest requirement for decision work", func(t *testing.T) {
-		t.Parallel()
-		const workID = "engineering-selection-decision"
-		s, _, _, _, _ := engineeringConfirmationFixture(t, workID, `["product"]`, true, true)
-		registry := BuiltinWorkflowRegistry()
-		selectionVersion := readWorkVersion(t, s, workID)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		err = validateWorkflowOperatorSelectionTx(context.Background(), tx, registry, WorkflowActionPreflightRequest{
-			WorkID: workID, ActionID: "confirm_premise", SelectedChoice: "confirm", ExpectedVersion: selectionVersion,
-		})
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "valid decision_context_digest") {
-			t.Fatalf("decision selection without a digest returned %v, want the digest requirement", err)
-		}
-	})
-
 	t.Run("operator selection keeps the investigation requirement for engineering", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-selection-investigation"
-		s, _, _, _, _ := engineeringConfirmationFixture(t, workID, `[]`, true, false)
+		s, _, _, _, _ := engineeringConfirmationFixture(t, workID, true, false)
 		registry := BuiltinWorkflowRegistry()
 		selectionVersion := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -316,49 +270,11 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("engineering records the agent-class coordinator only", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-agent-class"
-		s, _, _, operator, _ := engineeringConfirmationSeed(t, workID, `[]`)
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, operator), nil, confirmationFields(true, ""))
+		s, _, _, operator, _ := engineeringConfirmationSeed(t, workID)
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, operator), confirmationFields(true, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation {
 			t.Fatalf("operator-class invoker confirmation returned %v, want the coordinator-typed refusal", err)
-		}
-	})
-
-	t.Run("decision-bearing keeps the verified operator and human context", func(t *testing.T) {
-		t.Parallel()
-		const workID = "engineering-confirm-decision"
-		s, _, _, operator, coordinator := engineeringConfirmationSeed(t, workID, `["product"]`)
-		coordinatorRef := ownerRefForTest(t, coordinator)
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, coordinatorRef, nil, confirmationFields(true, "digest:human-question"))
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindApprovalRequired {
-			t.Fatalf("decision-bearing confirmation without an operator returned %v, want the approval requirement", err)
-		}
-		events, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, coordinatorRef, &operator, confirmationFields(true, "digest:human-question"))
-		if err != nil {
-			t.Fatalf("decision-bearing operator confirmation refused: %v", err)
-		}
-		var payload struct {
-			ConfirmingActorRef    string `json:"confirming_actor_ref"`
-			ConfirmationAuthority string `json:"confirmation_authority"`
-		}
-		if err := json.Unmarshal(events[0].Payload, &payload); err != nil {
-			t.Fatal(err)
-		}
-		operatorRef := ownerRefForTest(t, operator)
-		if payload.ConfirmingActorRef != operatorRef || payload.ConfirmationAuthority != "operator" {
-			t.Fatalf("decision-bearing confirmation recorded %q/%q, want the verified operator with operator authority", payload.ConfirmingActorRef, payload.ConfirmationAuthority)
-		}
-	})
-
-	t.Run("missing domain fact fails closed under new policy", func(t *testing.T) {
-		t.Parallel()
-		const workID = "engineering-confirm-null-fact"
-		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, "")
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvariantViolation {
-			t.Fatalf("null decision fact returned %v, want the fail-closed invariant-violation refusal", err)
 		}
 	})
 }
@@ -396,7 +312,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		if err := enterWrite(context.Background(), writeTx); err != nil {
 			t.Fatal(err)
 		}
-		writeErr := workflowPremiseConfirmedWriteTx(context.Background(), writeTx, definition, confirmed, workflowPremiseConfirmedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: workID, ExpectedVersion: &expectedV, ResultingVersion: &resultingV}, ContractVersion: 1, ConfirmingActorRef: coordinatorRef, ConfirmationAuthority: "coordinator"})
+		writeErr := workflowPremiseConfirmedWriteTx(context.Background(), writeTx, confirmed, workflowPremiseConfirmedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: workID, ExpectedVersion: &expectedV, ResultingVersion: &resultingV}, ContractVersion: 1, ConfirmingActorRef: coordinatorRef, ConfirmationAuthority: "coordinator"})
 		if leaveErr := leaveWrite(context.Background(), writeTx); writeErr == nil {
 			writeErr = leaveErr
 		}
@@ -433,9 +349,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		}
 		// The v1 confirmation row survives as history, but the active
 		// contract is now v2 and the stale v1 confirmation cannot satisfy it:
-		// a live re-confirmation of v1 refuses as stale, a coordinator
-		// confirmation of v2 refuses as decision-bearing, and the stale v1
-		// row reads as invalid under the clause 5 authority owner.
+		// a live re-confirmation of v1 refuses as stale.
 		staleCurrent := readWorkVersion(t, s, workID)
 		staleTx, staleErr := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if staleErr != nil {
@@ -443,7 +357,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		}
 		defer staleTx.Rollback()
 		staleWrite := workflowPremiseConfirmedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: workID, ExpectedVersion: &staleCurrent, ResultingVersion: new(int64)}, ContractVersion: 1, ConfirmingActorRef: coordinatorRef, ConfirmationAuthority: "coordinator"}
-		confirmErr := workflowPremiseConfirmedWriteTx(context.Background(), staleTx, definition, confirmed, staleWrite)
+		confirmErr := workflowPremiseConfirmedWriteTx(context.Background(), staleTx, confirmed, staleWrite)
 		var failure *Failure
 		if confirmErr == nil || !failureAs(confirmErr, &failure) || !strings.Contains(failure.Detail, "supersession invalidated") {
 			t.Fatalf("stale v1 confirmation write returned %v, want the supersession-invalidated refusal", confirmErr)
@@ -453,7 +367,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		}
 		staleFields := confirmationFields(true, "")
 		staleFields["contract_version"] = json.RawMessage(`1`)
-		_, constructorErr := runEngineeringConfirmation(t, s, definition, workID, coordinatorRef, nil, staleFields)
+		_, constructorErr := runEngineeringConfirmation(t, s, definition, workID, coordinatorRef, staleFields)
 		var constructorFailure *Failure
 		if constructorErr == nil || !failureAs(constructorErr, &constructorFailure) || constructorFailure.Kind != KindInvalidPayload || !strings.Contains(constructorFailure.Detail, "supersession invalidated") {
 			t.Fatalf("constructor stale v1 confirmation returned %v, want the supersession-invalidated refusal", constructorErr)
@@ -462,32 +376,28 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		if forgedErr != nil {
 			t.Fatal(forgedErr)
 		}
-		if err := workflowPremiseConfirmedAuthorityTx(context.Background(), forgedTx, definition, workID, 2, coordinatorRef, "coordinator"); err == nil {
-			t.Fatal("coordinator authority accepted on the decision-bearing successor")
+		if err := workflowPremiseConfirmedAuthorityTx(context.Background(), forgedTx, workID, 2, coordinatorRef, "coordinator"); err != nil {
+			t.Fatalf("coordinator authority refused on the active successor: %v", err)
 		}
-		if err := workflowPremiseConfirmedAuthorityTx(context.Background(), forgedTx, workflowFixtureDefinition(t, 2).Definition, workID, 1, coordinatorRef, "coordinator"); err == nil {
-			t.Fatal("coordinator authority accepted on a legacy contract")
+		// A named contract version other than the active one refuses even
+		// under the right authority: supersession invalidates the stale
+		// confirmation.
+		if err := workflowPremiseConfirmedAuthorityTx(context.Background(), forgedTx, workID, 1, coordinatorRef, "coordinator"); err == nil {
+			t.Fatal("coordinator authority accepted a superseded contract version")
 		}
-		// Clause 5 authority: the stale v1 coordinator row cannot satisfy the
-		// decision-bearing successor's operator requirement.
-		contractV2 := workflowCompletionContractData{Version: 2, DecisionDomains: []string{"product"}, DecisionDomainsPresent: true}
-		if err := workflowPremiseConfirmationAuthority(context.Background(), forgedTx, definition, contractV2, workID, coordinatorRef); err == nil {
-			t.Fatal("clause 5 accepted the stale coordinator confirmation for the decision-bearing successor")
+		// Wrong-direction authority: an operator-typed claim refuses — the
+		// confirmation records the coordinator authority alone.
+		if err := workflowPremiseConfirmedAuthorityTx(context.Background(), forgedTx, workID, 1, operatorRef, "operator"); err == nil {
+			t.Fatal("operator authority accepted")
 		}
-		// Wrong-direction authority: an operator-substituted claim on
-		// engineering refuses — engineering confirms only through the
-		// coordinator authority.
-		if err := workflowPremiseConfirmedAuthorityTx(context.Background(), forgedTx, definition, workID, 1, operatorRef, "operator"); err == nil {
-			t.Fatal("operator authority accepted on an engineering contract")
-		}
-		if err := workflowPremiseConfirmationAuthority(context.Background(), forgedTx, definition, workflowCompletionContractData{Version: 1, DecisionDomains: []string{}, DecisionDomainsPresent: true}, workID, operatorRef); err == nil {
-			t.Fatal("clause 5 accepted an operator-typed confirmation for engineering")
+		if err := workflowPremiseConfirmationAuthority(context.Background(), forgedTx, workID, operatorRef); err == nil {
+			t.Fatal("an operator-typed confirmation actor passed the completion authority owner")
 		}
 		if err := forgedTx.Rollback(); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.DatabaseForTesting().QueryRow(`SELECT 1 FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=2`, workID).Scan(new(any)); err == nil {
-			t.Fatal("the decision-bearing successor inherited a confirmation without an operator")
+			t.Fatal("the successor inherited a confirmation the supersession invalidated")
 		}
 	})
 }

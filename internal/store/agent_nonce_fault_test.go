@@ -126,7 +126,7 @@ func TestPruneAndRecordNonceClassifiesOnlyUniqueViolationsAsReplay(t *testing.T)
 			t.Fatalf("first nonce refused: %v", err)
 		}
 		err := recordNonceFault(t, s, nonce)
-		failure := assertNonceFaultTyped(t, err, KindProjectionConflict, "host approval assertion nonce replayed")
+		failure := assertNonceFaultTyped(t, err, KindProjectionConflict, "host assertion nonce replayed")
 		if failure.RetrySafe || failure.RecoveryAction != "issue a new assertion nonce" {
 			t.Fatalf("replay refusal = retry %v recovery %q, want not retry-safe with the existing recovery", failure.RetrySafe, failure.RecoveryAction)
 		}

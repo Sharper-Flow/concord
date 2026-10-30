@@ -807,9 +807,9 @@ export interface AgentResultEnvelope {
     // Only an authorization denial is unauthorized_dispatch. Other core
     // failures retain their typed error in details.core_error; a transport
     // failure means the adapter could not obtain a core response.
-    kind: "invalid_input" | "blocked" | "error" | "invalid_report" | "agent_identity_mismatch" | "readback_refusal" | "unauthorized_dispatch" | "approval_required" | "transport_failure"
+    kind: "invalid_input" | "blocked" | "error" | "invalid_report" | "agent_identity_mismatch" | "readback_refusal" | "unauthorized_dispatch" | "transport_failure"
     retry_safe: boolean
-    recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation" | "request_approval" | "use_declared_route" | "provide_evidence"
+    recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation" | "use_declared_route" | "provide_evidence"
     message: string
     details?: Record<string, unknown>
     predicate?: ReadbackRefusal
@@ -1765,18 +1765,10 @@ export function coreDispatchFailure(lane: AgentLane | null, packet: Partial<Agen
     failure.error!.retry_safe = false
     return failure
   }
-  if (coreError.kind === "approval_required") {
-    // The challenge metadata stays in details, and the typed summary that owns
-    // the complete scope and version bindings travels with it unchanged.
-    const challenge = isRecord(coreError.details) ? coreError.details : {}
-    const failure = errorEnvelope(lane, packet, "error", "approval_required", message, "request_approval", { details: { ...challenge, ...(isRecord(coreError.consequence_summary) ? { consequence_summary: coreError.consequence_summary } : {}) } })
-    failure.error!.retry_safe = false
-    return failure
-  }
   const action = isRecord(coreError.recovery_action) ? coreError.recovery_action.kind : undefined
   let recovery: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator"
   switch (action) {
-    case "retry_same_request": case "adjust_budget": case "contact_operator": case "reconcile_operation": case "request_approval": case "use_declared_route": case "provide_evidence":
+    case "retry_same_request": case "adjust_budget": case "contact_operator": case "reconcile_operation": case "use_declared_route": case "provide_evidence":
       recovery = action
   }
   const kind = coreError.kind === "unauthorized" || coreError.kind === "unauthorized_dispatch" ? "unauthorized_dispatch" : coreError.kind === "invalid_input" ? "invalid_input" : "error"

@@ -366,7 +366,7 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 			EffectiveArtifact: "https://github.com/Sharper-Flow/concord/pull/1340",
 			Correction: &store.WorkflowReadDeliveryCorrection{
 				EventID: "correction-1", Reason: "asserted repository paths", Artifact: "https://github.com/Sharper-Flow/concord/pull/1340",
-				EvidenceSource: store.DeliveryEvidenceSourceCoordinatorAsserted, ApprovalRef: "approval-1", CorrectedAt: "2026-01-02T00:00:00Z",
+				EvidenceSource: store.DeliveryEvidenceSourceCoordinatorAsserted, CorrectedAt: "2026-01-02T00:00:00Z",
 			},
 		},
 	}
@@ -1039,7 +1039,6 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 	return map[string]string{
 		"concord_product_view.resolve":             `{"product_id":"prod-alpha"}`,
 		"concord_product_view.snapshot":            `{"product_id":"prod-alpha"}`,
-		"concord_product_view.blocked_sessions":    `{"product_id":"prod-alpha"}`,
 		"concord_work_browse.list":                 `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.blocked":              `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.ready":                `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
@@ -1112,25 +1111,6 @@ var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessa
 			}
 		}
 	},
-	// The approval challenge's routing detail must name the seeded session.
-	"concord_product_view.blocked_sessions": func(t *testing.T, result json.RawMessage) {
-		var page struct {
-			Sessions []struct {
-				SessionRef  string `json:"session_ref"`
-				AgentRef    string `json:"agent_ref"`
-				Consequence string `json:"consequence"`
-			} `json:"sessions"`
-		}
-		if err := json.Unmarshal(result, &page); err != nil {
-			t.Fatalf("decode blocked_sessions result: %v", err)
-		}
-		for _, session := range page.Sessions {
-			if session.SessionRef == readPopulationBlockedSessionRef && session.AgentRef == "agent-1" && session.Consequence == "lifecycle" {
-				return
-			}
-		}
-		t.Fatalf("blocked_sessions omits the seeded challenge session, agent, and consequence: %s", result)
-	},
 }
 
 // readPopulationRows names, for each read operation without an exemption, the
@@ -1141,7 +1121,6 @@ var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessa
 var readPopulationRows = map[string][]string{
 	"concord_product_view.resolve":             {"projects"},
 	"concord_product_view.snapshot":            {"previews"},
-	"concord_product_view.blocked_sessions":    {"sessions"},
 	"concord_work_browse.list":                 {"items"},
 	"concord_work_browse.blocked":              {"items"},
 	"concord_work_browse.ready":                {"items"},
@@ -1266,17 +1245,12 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 
 // enrichmentChangedRefs names the changed refs each operation's real effect
 // returns. Every generic-tail mutation returns work-item refs, so enrichment
-// stamps its pin onto the result; worktree_verify answers with a lease ref
-// and product_project_add with a product ref, and neither passes the
-// work-item filter, so their feeds stay honest to what their handlers emit.
+// stamps its pin onto the result; worktree_verify answers with a lease ref,
+// which does not pass the work-item filter.
 func enrichmentChangedRefs(workID string, version int64, opID string) []agentcontract.ChangedRef {
 	switch opID {
 	case "concord_work_transition.worktree_verify":
 		return []agentcontract.ChangedRef{{EntityKind: "worktree_verify_lease", ID: "lease-1", Version: "1"}}
-	case "concord_work_relate.product_project_add":
-		return []agentcontract.ChangedRef{{EntityKind: "product", ID: "product-1", Version: "1"}}
-	case "concord_work_relate.client_policy_grant_request":
-		return []agentcontract.ChangedRef{{EntityKind: "trusted_client", ID: "client-1", Version: "sha256:5a19a2b615a5bb94ba0e848a1a5f9c15d00375cbc1a5d0a0e6b31a4d3a41e6b8"}}
 	default:
 		return []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
 	}

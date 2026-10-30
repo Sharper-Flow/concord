@@ -2,9 +2,7 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
-	"slices"
 	"strings"
 	"testing"
 
@@ -12,17 +10,11 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CD-0013 criterion 25: an operator takeover of a stuck attempt succeeds only
-// with a valid approval_ref. CD-0008 D4 forbids detecting "stuck" by liveness,
-// so the holder is the session that holds the attempt's writing authority. A
-// fresh start_execution by any other session, while the holder has not
-// relinquished, is the takeover. Criterion 21 still holds: the approved
-// takeover opens the next epoch and only that epoch completes.
+// A takeover opens the next epoch under the new session's authenticated identity.
 
 type takeoverFixture struct {
 	s          *store.Store
 	service    *Service
-	privateKey ed25519.PrivateKey
 	owner      CallEnvelope
 	ownerGrant Authority
 	other      CallEnvelope
@@ -32,14 +24,13 @@ type takeoverFixture struct {
 func newTakeoverFixture(t *testing.T) takeoverFixture {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, _ := advanceWorkflowBoundaryToExecution(t, s, service, grant, privateKey, mutationEnvelope(grant, scopeVersion))
-	owner.HostApproval = nil
+	owner, _ := advanceWorkflowBoundaryToExecution(t, s, service, mutationEnvelope(grant, scopeVersion))
 	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-2", "human-2", []agentcontract.Capability{"work_transition"}, []string{"product-1"}, []string{"project-1"})); err != nil {
 		t.Fatal(err)
 	}
@@ -49,26 +40,13 @@ func newTakeoverFixture(t *testing.T) takeoverFixture {
 	}
 	other := mutationEnvelope(otherGrant, scopeVersion)
 	other.RequestID = "other-request"
-	return takeoverFixture{s: s, service: service, privateKey: privateKey, owner: owner, ownerGrant: grant, other: other, otherGrant: otherGrant}
+	return takeoverFixture{s: s, service: service, owner: owner, ownerGrant: grant, other: other, otherGrant: otherGrant}
 }
 
-func (f takeoverFixture) action(t *testing.T, env CallEnvelope, actionID, key string) (agentcontract.Envelope, map[string]any) {
+func (f takeoverFixture) action(t *testing.T, env CallEnvelope, actionID, key string) agentcontract.Envelope {
 	t.Helper()
 	input := map[string]any{"work_id": "work-1", "expected_version": workVersion(t, f.s, "work-1"), "action_id": actionID, "fields": map[string]any{}, "idempotency_key": key}
-	return invokeWorkflowBoundary(t, f.s, f.service, env, input, store.BuiltinWorkflowRegistry()), input
-}
-
-// approveTakeover signs the exact bindings the challenge minted for the caller.
-func approveTakeover(t *testing.T, privateKey ed25519.PrivateKey, env CallEnvelope, grant Authority, challenge agentcontract.Envelope, input map[string]any) (CallEnvelope, map[string]any) {
-	t.Helper()
-	ref, _ := challenge.Error.Details["approval_ref"].(string)
-	if ref == "" {
-		t.Fatalf("challenge carries no approval_ref: %+v", challenge.Error)
-	}
-	approved := cloneWithApproval(t, input, ref)
-	scope, versions := challengeApprovalBindings(t, challenge.Error.ConsequenceSummary)
-	env.HostApproval = signedHostApproval(privateKey, ref, mutationDigest("concord_work_transition", "workflow_action", env, mustJSON(t, approved)), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(ref))
-	return env, approved
+	return invokeWorkflowBoundary(t, f.s, f.service, env, input, store.BuiltinWorkflowRegistry())
 }
 
 func latestExecutionStart(t *testing.T, s *store.Store) (int64, string) {
@@ -85,29 +63,13 @@ func actorRefOf(grant Authority) string {
 	return store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
 }
 
-func TestStartExecutionTakeoverRequiresApprovalBoundToHeldAttempt(t *testing.T) {
+func TestStartExecutionTakeoverKeepsEpochWriterAuthority(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
+	if first := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
-	ownerRef := actorRefOf(f.ownerGrant)
-
-	challenge, input := f.action(t, f.other, "start_execution", "other-start")
-	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		epoch, actor := latestExecutionStart(t, f.s)
-		t.Fatalf("unapproved takeover = outcome %s error %+v (latest epoch %d actor %s), want approval_required", challenge.Outcome, challenge.Error, epoch, actor)
-	}
-	summary := challenge.Error.ConsequenceSummary
-	if summary == nil || !slices.Contains(summary.Scope, "held_attempt_holder:"+ownerRef) || !slices.Contains(summary.Versions, "held_attempt_epoch:1") {
-		t.Fatalf("takeover challenge does not bind the held attempt: %#v", summary)
-	}
-	if epoch, actor := latestExecutionStart(t, f.s); epoch != 1 || actor != ownerRef {
-		t.Fatalf("challenge moved the attempt: epoch %d actor %s", epoch, actor)
-	}
-
-	approvedEnv, approved := approveTakeover(t, f.privateKey, f.other, f.otherGrant, challenge, input)
-	response := invokeWorkflowBoundary(t, f.s, f.service, approvedEnv, approved, store.BuiltinWorkflowRegistry())
+	response := f.action(t, f.other, "start_execution", "other-start")
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved takeover: %+v", response.Error)
 	}
@@ -115,42 +77,11 @@ func TestStartExecutionTakeoverRequiresApprovalBoundToHeldAttempt(t *testing.T) 
 		t.Fatalf("approved takeover epoch %d actor %s, want epoch 2 held by the taker", epoch, actor)
 	}
 	// Criterion 21: the superseded holder's epoch no longer writes.
-	if stale, _ := f.action(t, f.owner, "checkpoint_execution", "owner-stale-checkpoint"); stale.Error == nil || stale.Error.Kind != "unauthorized" {
+	if stale := f.action(t, f.owner, "checkpoint_execution", "owner-stale-checkpoint"); stale.Error == nil || stale.Error.Kind != "unauthorized" {
 		t.Fatalf("superseded holder checkpoint = %+v, want unauthorized", stale.Error)
 	}
-	if current, _ := f.action(t, approvedEnv, "checkpoint_execution", "taker-checkpoint"); current.Outcome != agentcontract.OutcomeOK {
+	if current := f.action(t, f.other, "checkpoint_execution", "taker-checkpoint"); current.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("taker checkpoint: %+v", current.Error)
-	}
-}
-
-func TestStartExecutionTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T) {
-	t.Parallel()
-	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("owner start_execution: %+v", first.Error)
-	}
-	challenge, input := f.action(t, f.other, "start_execution", "other-start")
-	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("unapproved takeover = %+v, want approval_required", challenge.Error)
-	}
-	// The holder restarts its own attempt after the challenge, so the
-	// approval names an epoch that is no longer held.
-	if restart, _ := f.action(t, f.owner, "start_execution", "owner-restart"); restart.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("owner restart: %+v", restart.Error)
-	}
-	approved := cloneWithApproval(t, input, challenge.Error.Details["approval_ref"].(string))
-	approved["expected_version"] = workVersion(t, f.s, "work-1")
-	ref := challenge.Error.Details["approval_ref"].(string)
-	scope, versions := challengeApprovalBindings(t, challenge.Error.ConsequenceSummary)
-	versions["work"] = approved["expected_version"]
-	env := f.other
-	env.HostApproval = signedHostApproval(f.privateKey, ref, mutationDigest("concord_work_transition", "workflow_action", env, mustJSON(t, approved)), scope, versions, f.otherGrant.SessionRef, f.otherGrant.AgentRef, f.otherGrant.Worktree, fixedTime(), nonceForChallenge(ref))
-	response := invokeWorkflowBoundary(t, f.s, f.service, env, approved, store.BuiltinWorkflowRegistry())
-	if response.Error == nil || response.Error.Kind != "approval_invalid" {
-		t.Fatalf("approval bound to epoch 1 over epoch 2 = outcome %s error %+v, want approval_invalid", response.Outcome, response.Error)
-	}
-	if epoch, actor := latestExecutionStart(t, f.s); epoch != 2 || actor != actorRefOf(f.ownerGrant) {
-		t.Fatalf("refused stale takeover moved the attempt: epoch %d actor %s", epoch, actor)
 	}
 }
 
@@ -160,14 +91,10 @@ func TestStartExecutionTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T
 func TestStartExecutionTakeoverFencesHeldAttemptChangeInsideTransaction(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
+	if first := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
-	challenge, input := f.action(t, f.other, "start_execution", "other-start")
-	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("unapproved takeover = %+v, want approval_required", challenge.Error)
-	}
-	approvedEnv, approved := approveTakeover(t, f.privateKey, f.other, f.otherGrant, challenge, input)
+	input := map[string]any{"work_id": "work-1", "expected_version": workVersion(t, f.s, "work-1"), "action_id": "start_execution", "fields": map[string]any{}, "idempotency_key": "other-start"}
 	originalProbe := f.service.ProjectHostProber
 	probes := 0
 	f.service.ProjectHostProber = func(ctx context.Context, directory, worktree string) (store.ResolvedProjectHost, error) {
@@ -183,12 +110,12 @@ func TestStartExecutionTakeoverFencesHeldAttemptChangeInsideTransaction(t *testi
 		}
 		return originalProbe(ctx, directory, worktree)
 	}
-	response := invokeWorkflowBoundary(t, f.s, f.service, approvedEnv, approved, store.BuiltinWorkflowRegistry())
+	response := invokeWorkflowBoundary(t, f.s, f.service, f.other, input, store.BuiltinWorkflowRegistry())
 	f.service.ProjectHostProber = originalProbe
 	if probes < 3 {
 		t.Fatalf("the mutation probed the host %d times, want the third probe to inject the vacate", probes)
 	}
-	if response.Error == nil || response.Error.Kind != "approval_invalid" || !strings.Contains(response.Error.Message, "held attempt changed") {
+	if response.Error == nil || response.Error.Kind != "operation_conflict" || !strings.Contains(response.Error.Message, "held attempt changed") {
 		t.Fatalf("takeover after the holder changed mid-flight = outcome %s error %+v, want the held-attempt fence", response.Outcome, response.Error)
 	}
 	if epoch, actor := latestExecutionStart(t, f.s); epoch != 1 || actor != actorRefOf(f.ownerGrant) {
@@ -199,10 +126,10 @@ func TestStartExecutionTakeoverFencesHeldAttemptChangeInsideTransaction(t *testi
 func TestStartExecutionHolderRestartNeedsNoApproval(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
+	if first := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
-	if restart, _ := f.action(t, f.owner, "start_execution", "owner-restart"); restart.Outcome != agentcontract.OutcomeOK {
+	if restart := f.action(t, f.owner, "start_execution", "owner-restart"); restart.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("holder restart = %+v, want ok without approval", restart.Error)
 	}
 	if epoch, actor := latestExecutionStart(t, f.s); epoch != 2 || actor != actorRefOf(f.ownerGrant) {
@@ -216,14 +143,14 @@ func TestStartExecutionHolderRestartNeedsNoApproval(t *testing.T) {
 func TestStartExecutionAfterHolderVacatesNeedsNoApproval(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
-	if first, _ := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
+	if first := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
 	payload, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1", "session_ref": f.ownerGrant.SessionRef, "source_directory": "/repo-wt", "destination_directory": "/repo"})
 	if err := store.ApplyOperation(context.Background(), f.s, store.Operation{Events: []store.Event{{EventID: "owner-vacated", Kind: "work.session_vacated", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: f.ownerGrant.PrincipalRef, OccurredAt: fixedTime(), PayloadVersion: 2, Payload: payload}}}); err != nil {
 		t.Fatal(err)
 	}
-	if handoff, _ := f.action(t, f.other, "start_execution", "other-start"); handoff.Outcome != agentcontract.OutcomeOK {
+	if handoff := f.action(t, f.other, "start_execution", "other-start"); handoff.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("start after the holder vacated = %+v, want ok without approval", handoff.Error)
 	}
 	if epoch, actor := latestExecutionStart(t, f.s); epoch != 2 || actor != actorRefOf(f.otherGrant) {
@@ -284,12 +211,8 @@ func TestStartExecutionOverLiveLaneRequiresApprovalUntilLaneRelinquishes(t *test
 		t.Fatalf("lane dispatch: %v", err)
 	}
 
-	challenge := start("lane-owner-takeover")
-	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("start over a live lane = outcome %s error %+v, want approval_required", challenge.Outcome, challenge.Error)
-	}
-	if summary := challenge.Error.ConsequenceSummary; summary == nil || laneActor == "" || !slices.Contains(summary.Scope, "held_attempt_holder:"+laneActor) {
-		t.Fatalf("live-lane challenge does not name the lane %q as holder: %#v", laneActor, challenge.Error.ConsequenceSummary)
+	if laneActor == "" {
+		t.Fatal("live lane has no recorded actor")
 	}
 
 	failure := agentWorkerFailedAttributedEvent("live-lane-abandoned", store.WorkerFailedPayload{AttemptID: attemptID, FailureKind: store.WorkerFailureAbandoned, Detail: "operator abandoned the lane"})

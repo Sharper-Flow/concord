@@ -2,16 +2,14 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-28
-- **Scope:** Per-call capability scoping; host approval bindings; the anchor
-  for approval challenges; issue #465
+- **Scope:** Per-call capability scoping; issue #465
 - **Approval:** Operator selected capability scoping without tokens on
   2026-08-28, after review of the two candidates recorded in issue #465. The
   pull request is the public record.
-- **Related:** CD-0071 (D1, D4, D6), CD-0044, CD-0037 D5, CD-0017 D4, CD-0067
+- **Related:** CD-0071 (D1, D4, D6), CD-0044, CD-0017 D4, CD-0067
   D6, CD-0008, CD-0003, CD-0042, issues #465, #450
 - **Preserves:** Git-derived scope resolution and its refusals, the
   `cross_scope` gate, manifest-digest pinning, typed `unauthorized` refusals,
-  the operator approval checkpoint with core-derived consequence summaries,
   `principal_ref` as checked identity, worker evidence signing under CD-0067 D6
 
 ## Context
@@ -65,22 +63,6 @@ unchanged in effect and moved in site.
 identity for idempotency partitioning, worktree claim ownership, workflow actor
 distinctness under CD-0017 D4, and durable operation attribution.
 
-### D3. Host approval keeps its bindings and loses its signature
-
-The operator approval checkpoint is load-bearing under CD-0071 D4 and CD-0037
-D5. Its signature is not the mechanism that makes it so.
-
-Three independent bindings already constrain an approval. The asserted scope and
-versions must equal the values the core computed
-(`internal/agent/authority.go:738`). The challenge must match on
-`operation_digest`, `scope_json`, `version_json`, `consequence`, and
-`host_assertion_digest` (`authority.go:755`). The challenge must be active,
-unexpired, and within its use count. All three remain.
-
-The Ed25519 verification and the nonce record on the host approval path are
-removed. The operator still approves a core-derived consequence summary, and
-tool input still cannot author or widen an approval.
-
 ### D4. Worker evidence signing is out of scope and unchanged
 
 CD-0067 D6 binds worker evidence to the packet it came from, and the proof never
@@ -97,54 +79,9 @@ because worker evidence uses them, not because grant issuance does. The
 
 A later record may revisit worker evidence. This one does not.
 
-### D5. Approval challenges bind to the session identity tuple
-
-A challenge binds to `client_ref`, `session_ref`, `agent_ref`,
-`worktree`, and `directory`, the identity tuple the envelope carries on every
-call. Challenge uniqueness and consumption use this tuple.
-
-### D6. Blocked-session Product scope moves to the session record
-
-`internal/store/blocked_sessions.go:87` joins `agent_grants` to reach a blocked
-session, and line 121 reads `product_scope_json` from the most recent grant for
-a session. The grant table is serving here as a session-to-Product-scope memo
-for an operator read, which is not authority at all.
-
-Resolved Product scope is recorded beside the identity tuple D5 places on
-`agent_approval_challenges`. The launcher read is unchanged in output.
-
-This is the one place where D2 is not purely subtractive, and it is named here
-so that it is not discovered during implementation.
-
-Concord has no session table, no
-session projection, and no session event type; `session_ref` is an opaque string
-carried on grant and approval rows.
-
-*Building the named record would have cost more than a table. Nothing creates a
-session row today, because the `grant` verb was its creation moment and D2
-removes that verb. The only remaining insertion point is lazily on first
-authorization, which makes every authorized read a potential write. CD-0079
-rejected an alternative for that reason, and the objection transposes without
-modification.*
-
-*Resolving Product scope when the launcher reads was also rejected.
-`internal/store/blocked_sessions.go` would have to call the project resolver
-that `cmd/concord` installs onto `agent.Service`, which inverts the dependency
-direction between the store and the layer above it.*
-
-*The challenge row carries the value instead. `blocked_sessions` then reads one
-table with one query, where today it joins `agent_grants` and re-reads
-`product_scope_json` once per session. The accepted cost is that Product scope
-is captured when the challenge is created rather than when the launcher reads.
-A challenge is short-lived and single-use, and the value only filters a display
-list, so a stale value can misplace a row in a view and can never affect
-authority.*
-
 ### D7. The three revocation methods are removed
 
 The operator's revocation surface is `client-revoke` and `client-key-rotate`.
-An approval is single-use, challenge-bound, and expiring. Under CD-0071 D1 a
-caller able to exploit one is able to insert a replacement.
 
 ### D8. CD-0071 D4's "at issuance" wording is amended
 
@@ -153,8 +90,7 @@ authorization. CD-0071 D5 forecloses a process-level authority boundary.
 
 ## Consequences
 
-- `agent_clients`, `agent_client_keys`,
-  `agent_nonce_replay`, `agent_approvals`, `agent_approval_challenges`, and
+- `agent_clients`, `agent_client_keys`, `agent_nonce_replay`, and
   `agent_installation_keys` serve current consumers, the last for cursor
   signing, which is unrelated to agent authority.
 - The worker evidence vector requires canonical encoder discipline and a
@@ -179,9 +115,7 @@ did, and replacing it needs its own argument. Bundling it would put two
 unrelated authority questions behind one approval.
 
 **Keeping the grant record as a read-only attribution row.** Rejected because
-nothing outside the authority path reads it for attribution. Durable operations
-attribute to `principal_ref`, and the one other consumer is the blocked-session
-memo that D6 relocates to where it belongs.
+durable operations attribute to `principal_ref`.
 
 **Amending `unbuilt-revocation-surface` instead of deleting it.** Rejected under
 P41. An exception entry declaring three methods that no longer exist is a
@@ -197,12 +131,5 @@ only caller expiry would bound.
 
 - Every refusal named in D1 has a test at authorization, including the trunk
   firewall, `cross_scope`, and manifest-digest refusals.
-- D3 is proved by an approval test that tampers with asserted scope, with the
-  challenge digest, and with the consequence, and observes a refusal in each
-  case with no signature present.
-- D5 is proved by a challenge test that binds, consumes, and refuses replay
-  against the identity tuple.
-- D6 is proved by a blocked-session read that returns unchanged output with no
-  `agent_grants` table in the schema.
 - `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
   `python3 scripts/check-knowledge-index.py` pass.

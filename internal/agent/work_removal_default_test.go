@@ -81,20 +81,12 @@ func removalDispatch(t *testing.T, s *store.Store, service *Service, env CallEnv
 	return out
 }
 
-func assertShelvingNoConsent(t *testing.T, s *store.Store) {
-	t.Helper()
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`) != 0 {
-		t.Fatal("ordinary shelving created a challenge or approval")
-	}
-}
-
 func TestDefaultCheckoutShelvingRemoval(t *testing.T) {
 	s, service, env, input, _ := defaultRemovalFixture(t)
 	out := removalDispatch(t, s, service, env, input)
 	if out.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("consent-free shelving: %+v", out.Error)
 	}
-	assertShelvingNoConsent(t, s)
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 0 {
 		t.Fatal("execution identity survived")
 	}
@@ -105,7 +97,6 @@ func TestDefaultCheckoutShelvingRemoval(t *testing.T) {
 	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("committed replay: %+v", replay.Error)
 	}
-	assertShelvingNoConsent(t, s)
 	path := s.Path()
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
@@ -122,7 +113,6 @@ func TestDefaultCheckoutShelvingRemoval(t *testing.T) {
 	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("reopened removal replay: %+v", replay.Error)
 	}
-	assertShelvingNoConsent(t, reopened)
 	snapshot, err := Dispatch(t.Context(), reopened, restarted, InvokeRequest{Tool: "concord_product_view", Operation: "snapshot", Input: json.RawMessage(`{"product_id":"product-1"}`)}, env)
 	if err != nil || snapshot.Outcome != agentcontract.OutcomeOK || strings.Contains(string(snapshot.Result), `"work-1"`) {
 		t.Fatalf("removed identity appears in restarted snapshot: %+v %v", snapshot, err)
@@ -212,13 +202,12 @@ func TestDefaultCheckoutShelvingRefusals(t *testing.T) {
 			s, service, env, in, path := defaultRemovalFixture(t)
 			tc.change(t, s, in, path)
 			out := removalDispatch(t, s, service, env, in)
-			if out.Error == nil || out.Error.Kind == "approval_required" || !strings.Contains(out.Error.Message, tc.message) {
+			if out.Error == nil || !strings.Contains(out.Error.Message, tc.message) {
 				t.Fatalf("want %q refusal: %+v", tc.message, out.Error)
 			}
 			if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 0 {
 				t.Fatal("refusal changed removal state")
 			}
-			assertShelvingNoConsent(t, s)
 		})
 	}
 }
@@ -242,25 +231,24 @@ func TestDefaultCheckoutShelvingTransactionRaces(t *testing.T) {
 			}
 			op, _ := agentcontract.ValidateContractOperation("concord_work_transition", "remove")
 			r := runtime{Store: s, Authority: service, Envelope: env, Tool: op.Tool, Operation: op.Operation, Reader: grant}
-			plan := newMutationPlan(env, op)
+			plan := newMutationPlan(env)
 			base := agentcontract.NewBase("shelving-race", op.Tool, op.Operation)
 			digest := mutationDigest(op.Tool, op.Operation, env, raw)
 			if out, err, handled := r.planWorkRemoval(t.Context(), base, raw, digest, grant, op, plan); err != nil || handled {
 				t.Fatalf("plan: %+v %v", out, err)
 			}
-			if plan.requiresApproval || plan.approval != "" || plan.removalProof == nil {
+			if plan.removalProof == nil {
 				t.Fatal("ordinary shelving must retain its proof without requiring consent")
 			}
 			r.removalProof = plan.removalProof
 			removalFixtureSQL(t, s, tc.sql)
-			out, err := r.executeMutation(t.Context(), base, raw, digest, plan.scope, plan.versions, plan.consequence, plan.approval, plan.requiresApproval, nil, nil, plan.intents, plan.effect, nil, nil)
-			if err != nil || out.Error == nil || out.Error.Kind == "approval_required" {
+			out, err := r.executeMutation(t.Context(), base, raw, digest, plan.scope, nil, plan.intents, plan.effect, nil, nil)
+			if err != nil || out.Error == nil {
 				t.Fatalf("race must refuse: %+v %v", out, err)
 			}
 			if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 0 {
 				t.Fatal("race crossed removal boundary")
 			}
-			assertShelvingNoConsent(t, s)
 		})
 	}
 }
@@ -279,7 +267,6 @@ func TestDefaultCheckoutShelvingRollbackAndReplay(t *testing.T) {
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 0 {
 		t.Fatal("rollback left a partial removal effect")
 	}
-	assertShelvingNoConsent(t, s)
 	if _, err := s.DatabaseForTesting().Exec(`DROP TRIGGER removal_test_rollback`); err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +274,6 @@ func TestDefaultCheckoutShelvingRollbackAndReplay(t *testing.T) {
 	if out.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("consent-free retry after rollback: %+v", out.Error)
 	}
-	assertShelvingNoConsent(t, s)
 	for _, tc := range []struct {
 		name   string
 		change func(*CallEnvelope, map[string]any)
@@ -305,10 +291,9 @@ func TestDefaultCheckoutShelvingRollbackAndReplay(t *testing.T) {
 			}
 			tc.change(&changed, input)
 			out := removalDispatch(t, s, service, changed, input)
-			if out.Error == nil || out.Error.Kind == "approval_required" {
+			if out.Error == nil {
 				t.Fatalf("changed replay: %+v", out)
 			}
-			assertShelvingNoConsent(t, s)
 		})
 	}
 	// A fresh service simulates a lost response and process restart. Neither
@@ -325,7 +310,6 @@ func TestDefaultCheckoutShelvingRollbackAndReplay(t *testing.T) {
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 0 {
 		t.Fatal("new-session replay recreated execution, receipt, or consent")
 	}
-	assertShelvingNoConsent(t, s)
 }
 
 func TestDefaultCheckoutShelvingHistoricalRetirement(t *testing.T) {
@@ -339,7 +323,6 @@ func TestDefaultCheckoutShelvingHistoricalRetirement(t *testing.T) {
 		if out.Error == nil || !strings.Contains(out.Error.Message, "still owes cleanup") {
 			t.Fatalf("earlier-generation debt: %+v", out.Error)
 		}
-		assertShelvingNoConsent(t, s)
 	})
 	t.Run("retained symbolic ref", func(t *testing.T) {
 		s, service, env, in, _ := defaultRemovalGenerationsFixture(t, 1, true)
@@ -350,7 +333,6 @@ func TestDefaultCheckoutShelvingHistoricalRetirement(t *testing.T) {
 		if out.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("retained candidate: %+v", out.Error)
 		}
-		assertShelvingNoConsent(t, s)
 		if got := gitRun(t, env.Directory, "symbolic-ref", "refs/heads/work/work-1"); got != "refs/heads/main" {
 			t.Fatalf("protected symbolic ref changed: %s", got)
 		}
@@ -398,13 +380,12 @@ func TestDefaultCheckoutShelvingScopeAndWorkflow(t *testing.T) {
 			}
 			env.ScopeVersion = scope
 			out := removalDispatch(t, s, service, env, in)
-			if out.Error == nil || out.Error.Kind == "approval_required" {
+			if out.Error == nil {
 				t.Fatalf("ineligible scope or workflow: %+v", out)
 			}
 			if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 0 {
 				t.Fatal("ineligible scope or workflow crossed the boundary")
 			}
-			assertShelvingNoConsent(t, s)
 		})
 	}
 }
@@ -465,7 +446,6 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	if err != nil || cancelled.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("managed cancellation: %+v %v", cancelled.Error, err)
 	}
-	assertShelvingNoConsent(t, s)
 	var cancellation string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_object('lifecycle',w.lifecycle,'workflow_state',i.instance_state,'definition',i.definition_digest,'reason',w.transition_reason,'actor',w.transition_actor,'evidence',json(w.transition_evidence_refs),'law',l.law_id,'law_hash',l.content_hash) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id JOIN workflow_contract_law_revisions l ON l.work_id=w.id WHERE w.id='work-1' AND w.lifecycle='cancelled' AND i.instance_state='cancelled' AND i.definition_digest=? AND l.content_hash=?`, definitionPin, lawHash).Scan(&cancellation); err != nil {
 		t.Fatalf("cancellation lost workflow/law pins: %v", err)
@@ -518,10 +498,8 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 		if out.Error == nil || !strings.Contains(out.Error.Message, "still owes cleanup") {
 			t.Fatalf("earlier incarnation debt: %+v", out.Error)
 		}
-		assertShelvingNoConsent(t, s)
 	})
 	out := removalDispatch(t, s, service, env, in)
-	assertShelvingNoConsent(t, s)
 	if out.Outcome != agentcontract.OutcomeOK {
 		if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_law_baselines WHERE work_id='work-1'`) != 1 {
 			t.Fatalf("failed managed shelving left a partial removal effect: %+v", out.Error)
@@ -572,7 +550,6 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	if out.Outcome != agentcontract.OutcomeOK || !out.Replayed {
 		t.Fatalf("restored retained replay: %+v", out.Error)
 	}
-	assertShelvingNoConsent(t, restored)
 	snapshot, err := Dispatch(ctx, restored, restarted, InvokeRequest{Tool: "concord_product_view", Operation: "snapshot", Input: json.RawMessage(`{"product_id":"product-1"}`)}, env)
 	if err != nil || snapshot.Outcome != agentcontract.OutcomeOK || strings.Contains(string(snapshot.Result), `"work-1"`) {
 		t.Fatalf("restored snapshot resurrected execution: %+v %v", snapshot, err)

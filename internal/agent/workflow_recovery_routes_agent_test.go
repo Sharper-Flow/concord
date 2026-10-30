@@ -56,11 +56,11 @@ func recoveryDomainRepository(t *testing.T, s *store.Store) string {
 // Record the job under the active contract, including after supersession.
 func recordRecoveryWorkerJob(t *testing.T, s *store.Store, service *Service, env CallEnvelope, jobID string) {
 	t.Helper()
-	active, err := s.ActiveWorkflowContract(context.Background(), "work-1")
-	if err != nil {
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	recordReadyRetryJobWithChecks(t, s, service, env, jobID, active.Version, []string{"go vet ./..."})
+	recordReadyRetryJobWithChecks(t, s, service, env, jobID, version, []string{"go vet ./..."})
 }
 
 // recoveryProducerLane resolves the producer lane the tuple names.

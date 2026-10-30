@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 )
 
 // The session remains the executing actor after an in-session delivery.
@@ -56,26 +55,6 @@ func operatorVerdictActor(t *testing.T, workID string) WorkflowActor {
 		t.Fatal(err)
 	}
 	return operator
-}
-
-func runOperatorVerdictForPredicate(t *testing.T, s *Store, workID string, owner, operator WorkflowActor, predicateID, evidenceRef string) error {
-	t.Helper()
-	version := readWorkVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	payload, _ := json.Marshal(map[string]any{"predicate_id": predicateID, "verdict_kind": "ok", "evaluation_evidence": []string{evidenceRef}})
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "record_verdict", Payload: payload, Actor: owner, OperatorActor: &operator,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64) + workID, IdempotencyIdentity: "operator-verdict-" + workID, OperationID: "operator-verdict-" + workID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "operator-verdict-" + workID, RequestID: "request:operator-verdict-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
-	})
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 func setWorkflowStepForOperatorVerdictTest(t *testing.T, s *Store, workID, stepID string) {

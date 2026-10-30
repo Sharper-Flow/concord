@@ -281,7 +281,7 @@ success/error vocabulary is needed.
 
 Strict new input/output fields cannot be shown to old clients when omission
 would make an unverified record look ordinary. The first implementation joins
-the major surface amendment already required by CD-0037/CD-0039. Old clients
+the major surface amendment already required by CD-0039. Old clients
 fail negotiation; there is no prose or untyped compatibility alias.
 
 Recorded observations read back unchanged and never acquire external provenance retroactively ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).

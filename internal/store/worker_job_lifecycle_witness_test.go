@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -89,7 +90,8 @@ func TestReviewJobAuthoritySurvivesSupersession(t *testing.T) {
 	defer s.Close()
 	job := &WorkerJobBinding{JobID: "job:old-authority", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, id, f.owner, job)
-	if err := runApprovalActionTx(t, s, BuiltinWorkflowRegistry(), id, "supersede_contract", f.owner, nil, "", "", string(returnRouteSuccessorPayload(2, id, 1))); err != nil {
+	driftRegistryFixture(t, s)
+	if err := runCoordinatorActionTx(t, s, BuiltinWorkflowRegistry(), id, "supersede_contract", f.owner, "", string(registryRepinSuccessorPayload(t, 2, id, 1))); err != nil {
 		t.Fatal(err)
 	}
 	ready, err := readyWorkerJobRevisions(context.Background(), s.db, id)
@@ -469,4 +471,16 @@ func TestWitnessCombinedAcceptChecksPendingCandidateTooling(t *testing.T) {
 			}
 		})
 	}
+}
+
+func registryRepinSuccessorPayload(t *testing.T, contractVersion int64, workID string, predecessor int64) json.RawMessage {
+	t.Helper()
+	var fields map[string]any
+	if err := json.Unmarshal(returnRouteSuccessorPayload(contractVersion, workID, predecessor), &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["premise"] = "recheck the approved contract against the rescanned Domain registry"
+	fields["supersede_reason"] = "the Domain registry changed"
+	fields["audit_evidence"] = []string{"evidence:registry-rescan"}
+	return mustJSONValue(fields)
 }

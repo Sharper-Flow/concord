@@ -20,19 +20,15 @@ import (
 // unreleased builtin is registered, so builtin-only end-to-end pins wait for
 // the promotion slice.
 
-// routinePolicyDefinition copies a registered fixture definition and declares
-// consequence_v1 on the copy. The registry keeps the legacy version; only the
-// pure and transactional owners under test see the declared policy.
+// routinePolicyDefinition copies a registered fixture definition for the
+// local-only resolution family.
 func routinePolicyDefinition(t *testing.T) WorkflowDefinition {
 	t.Helper()
-	definition := workflowFixtureDefinition(t, 2).Definition
-	definition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
-	return definition
+	return workflowFixtureDefinition(t, 2).Definition
 }
 
-// routineDefinitionOnPin copies the instance's own pinned definition and
-// declares consequence_v1 on the copy, so admission derivations see a shape
-// that matches the seeded instance.
+// routineDefinitionOnPin copies the instance's own pinned definition, so
+// admission derivations see a shape that matches the seeded instance.
 func routineDefinitionOnPin(t *testing.T, s *Store, workID string) WorkflowDefinition {
 	t.Helper()
 	var ref string
@@ -43,19 +39,15 @@ func routineDefinitionOnPin(t *testing.T, s *Store, workID string) WorkflowDefin
 	if !ok {
 		t.Fatalf("pinned definition %s is not registered", ref)
 	}
-	definition := registered.Definition
-	definition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
-	return definition
+	return registered.Definition
 }
 
-// seedRoutineActors records an independent reviewer, an operator, and a
-// non-executing coordinator on a delivered seed, and confirms the premise with
-// the operator identity the legacy clause 5 requirement keeps demanding.
-func seedRoutineActors(t *testing.T, s *Store, workID string) (reviewer WorkflowActor, operator WorkflowActor, coordinator WorkflowActor) {
+// seedRoutineActors confirms the delivered premise under a non-worker coordinator.
+func seedRoutineActors(t *testing.T, s *Store, workID string) (reviewer WorkflowActor, coordinator WorkflowActor) {
 	t.Helper()
 	ctx := context.Background()
 	reviewer = WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/independent-reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
-	operator = WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
+	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
 	coordinator = WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: "session/" + workID + "-coordinator", ActorClass: ActorAgent}
 	refs := make([]string, 3)
 	for index, actor := range []WorkflowActor{reviewer, operator, coordinator} {
@@ -74,10 +66,10 @@ func seedRoutineActors(t *testing.T, s *Store, workID string) (reviewer Workflow
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at) VALUES(?,1,?,'2026-01-01T00:00:00Z'); DELETE FROM write_guard`, workID, refs[1]); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at) VALUES(?,1,?,'2026-01-01T00:00:00Z'); DELETE FROM write_guard`, workID, refs[2]); err != nil {
 		t.Fatal(err)
 	}
-	return reviewer, operator, coordinator
+	return reviewer, coordinator
 }
 
 // foldRoutineVerdict folds one ok verdict from the independent evaluator so
@@ -98,53 +90,11 @@ func foldRoutineVerdict(t *testing.T, s *Store, workID string, reviewer Workflow
 func TestRoutineEvaluation(t *testing.T) {
 	t.Parallel()
 
-	t.Run("new policy refuses operator-substituted verdicts", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-new-verdict-substitution"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		operator := operatorVerdictActor(t, workID)
-		version := readWorkVersion(t, s, workID)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		fields := map[string]json.RawMessage{"predicate_id": json.RawMessage(`"predicate:primary"`), "verdict_kind": json.RawMessage(`"ok"`), "evaluation_evidence": json.RawMessage(`["evidence:operator-verdict"]`)}
-		_, err = workflowRecordVerdictEvents(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: workID, OperatorActor: &operator, OperationID: "routine-verdict-" + workID}, "actor:owner", fields, "routine-verdict-"+workID, version)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "accepts no operator-signing substitute") {
-			t.Fatalf("consequence_v1 verdict with an operator actor returned %v, want the no-substitution refusal", err)
-		}
-	})
-
-	t.Run("new policy refuses operator-substituted completion", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-new-completion-substitution"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		_, operator, coordinator := seedRoutineActors(t, s, workID)
-		setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
-		version := readWorkVersion(t, s, workID)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		execution := WorkflowActionExecutionRequest{
-			WorkID: workID, ExpectedVersion: version, ActionID: "complete", Payload: json.RawMessage(`{"impact_verdict":"non-breaking"}`), Actor: coordinator, OperatorActor: &operator,
-			OperationID: "routine-complete-" + workID, Now: time.Unix(11, 0).UTC(),
-		}
-		_, err = applyCompleteWorkflowActionTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), RegisteredDefinition{Definition: routinePolicyDefinition(t)}, execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "consequence_v1 takes no operator substitution") {
-			t.Fatalf("consequence_v1 completion with an operator actor returned %v, want the no-substitution refusal", err)
-		}
-	})
-
 	t.Run("worker authority refuses evaluation", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-worker-verdict"
 		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		reviewer, _, _ := seedRoutineActors(t, s, workID)
+		reviewer, _ := seedRoutineActors(t, s, workID)
 		reviewerRef := ownerRefForTest(t, reviewer)
 		lane := BuiltinLaneDefinitions()[0]
 		dispatch := workerDispatchEvent(workID, "routine-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:" + workID, "lane_actor_ref": reviewerRef})
@@ -183,33 +133,9 @@ func TestRoutineEvaluation(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-correction"
 		fixture := prepareVerdictCorrectionFixture(t, workID)
-		g := routineGuardContext(t, fixture.store, workID, "request_correction", nil, true)
-		if err := guardOperatorPremiseActor(g); err != nil {
+		g := routineGuardContext(t, fixture.store, workID, "request_correction")
+		if err := guardCorrectionRecovery(g); err != nil {
 			t.Fatalf("consequence_v1 repair request without an operator identity refused: %v", err)
-		}
-	})
-
-	t.Run("new policy rejects supplied operator identity on substitution actions", func(t *testing.T) {
-		t.Parallel()
-		for _, actionID := range []string{"record_verdict", "complete", "request_correction"} {
-			const workID = "routine-new-operator-claim"
-			fixture := prepareVerdictCorrectionFixture(t, workID)
-			g := routineGuardContext(t, fixture.store, workID, actionID, &fixture.operator, true)
-			err := guardOperatorPremiseActor(g)
-			var failure *Failure
-			if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "consequence_v1 takes no operator substitution") {
-				t.Fatalf("consequence_v1 %s with a supplied operator identity returned %v, want the no-substitution refusal", actionID, err)
-			}
-		}
-	})
-
-	t.Run("premise confirmation keeps its operator identity under new policy", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-new-premise"
-		fixture := prepareVerdictCorrectionFixture(t, workID)
-		g := routineGuardContext(t, fixture.store, workID, "confirm_premise", &fixture.operator, true)
-		if err := guardOperatorPremiseActor(g); err != nil {
-			t.Fatalf("consequence_v1 premise confirmation with the verified operator identity refused: %v", err)
 		}
 	})
 
@@ -217,7 +143,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-unbound-evidence"
 		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		reviewer, _, _ := seedRoutineActors(t, s, workID)
+		reviewer, _ := seedRoutineActors(t, s, workID)
 		reviewerRef := ownerRefForTest(t, reviewer)
 		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -252,7 +178,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-worker-completion"
 		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		_, _, coordinator := seedRoutineActors(t, s, workID)
+		_, coordinator := seedRoutineActors(t, s, workID)
 		coordinatorRef := ownerRefForTest(t, coordinator)
 		lane := BuiltinLaneDefinitions()[0]
 		dispatch := workerDispatchEvent(workID, "routine-completion-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:" + workID + "-completion", "lane_actor_ref": coordinatorRef})
@@ -278,7 +204,7 @@ func TestRoutineEvaluation(t *testing.T) {
 		const workID = "routine-new-completion-gates"
 		f := qBuildAcceptance(t, workID, "", false)
 		s := f.store
-		_, _, coordinator := seedRoutineActors(t, s, workID)
+		_, coordinator := seedRoutineActors(t, s, workID)
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
 		bindCompletionClosure(t, s, workID, coordinator)
 		version := readWorkVersion(t, s, workID)
@@ -295,7 +221,7 @@ func TestRoutineEvaluation(t *testing.T) {
 			WorkID: workID, ExpectedVersion: version, ActionID: "complete", Payload: json.RawMessage(`{"impact_verdict":"non-breaking"}`), Actor: coordinator,
 			OperationID: "routine-complete-" + workID, Now: time.Unix(11, 0).UTC(),
 		}
-		_, err = applyCompleteWorkflowActionTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation"), execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
+		_, err = applyCompleteWorkflowActionTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "verdict is missing") {
 			t.Fatalf("completion without a verdict returned %v, want the missing-verdict clause refusal", err)
@@ -306,7 +232,7 @@ func TestRoutineEvaluation(t *testing.T) {
 // routineGuardContext builds a direct guard invocation over one seeded store:
 // the entry carries the instance's pinned definition with consequence_v1
 // declared when requested, and the current step comes from the instance.
-func routineGuardContext(t *testing.T, s *Store, workID, actionID string, operator *WorkflowActor, newPolicy bool) *workflowActionGuardContext {
+func routineGuardContext(t *testing.T, s *Store, workID, actionID string) *workflowActionGuardContext {
 	t.Helper()
 	ctx := context.Background()
 	var ref string
@@ -319,9 +245,6 @@ func routineGuardContext(t *testing.T, s *Store, workID, actionID string, operat
 		t.Fatalf("pinned definition %s is not registered", ref)
 	}
 	definition := registered.Definition
-	if newPolicy {
-		definition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
-	}
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
@@ -333,7 +256,7 @@ func routineGuardContext(t *testing.T, s *Store, workID, actionID string, operat
 	return &workflowActionGuardContext{
 		ctx: ctx, tx: tx, currentStep: currentStep,
 		entry:    RegisteredDefinition{Definition: definition},
-		request:  WorkflowActionExecutionRequest{WorkID: workID, ActionID: actionID, OperatorActor: operator},
+		request:  WorkflowActionExecutionRequest{WorkID: workID, ActionID: actionID},
 		actorRef: ownerRefForTest(t, owner),
 	}
 }

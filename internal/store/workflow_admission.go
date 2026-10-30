@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 )
 
@@ -102,7 +101,7 @@ type WorkflowAdmissionState struct {
 	// readers; admission still decides through EvidenceRecoveryRoute.
 	EvidenceRecovery *workflowEvidenceBindingRecoveryState
 	// PendingOperatorDecision reports an open operator question at the
-	// current step: the checkpoint declares an approval-required action and
+	// current step: the checkpoint declares a question-bearing action and
 	// the investigation artifact stands behind it. workflowAdmit refuses
 	// confirm_premise on it — the question-open refusal is the admission's
 	// answer, the one owner the work pin's advertisement reads — while the
@@ -111,23 +110,10 @@ type WorkflowAdmissionState struct {
 	// cannot judge. A folded engineering confirmation authority closes the
 	// question whatever the step shape declares.
 	PendingOperatorDecision bool
-	// ApprovalPolicy is the pinned definition's approval policy: absence
-	// selects the released legacy classification and consequence_v1 the
-	// typed one. The consent consumers read this folded field instead of
-	// re-reading the definition, so every surface answers from one fold.
-	ApprovalPolicy string
 	// ConfirmationAuthority is the folded confirmation authority of the one
-	// active contract: consequence_v1 engineering work records the
-	// authenticated non-worker coordinator's own confirmation, decision
-	// work keeps the verified operator, and legacy pins fold the empty
-	// authority whose shape the question machinery owns.
+	// active contract: any active contract records the authenticated
+	// non-worker coordinator's own confirmation.
 	ConfirmationAuthority WorkflowConfirmationAuthority
-	// ConfirmationFactFailure is the typed refusal a consequence_v1 contract
-	// folds when its declared decision-domain fact is absent or malformed:
-	// the confirmation and completion refuse on it instead of classifying
-	// the work as engineering. Nil on every legacy pin and every well-formed
-	// fact.
-	ConfirmationFactFailure *Failure
 	// AcceptanceDeliverablesMissing is the acceptance gate's refusal while
 	// an open premise question stands without its deliverables: the recorded
 	// verdict, a verdict for every approved predicate, and every required
@@ -164,7 +150,7 @@ type WorkflowAdmissionDecision struct {
 	AdvanceHeld          bool
 	DeliveryProofMissing bool
 	// OperatorQuestionClosed marks the closed-question answer over
-	// confirm_premise: the step declares the approval-required confirmation
+	// confirm_premise: the step declares the checkpoint confirmation
 	// and no operator question stands open behind it. It is an advertisement
 	// wall — the work pin drops the unadmitted
 	// intent, and the interactive refusal plus the payload checks (the
@@ -178,10 +164,9 @@ type WorkflowAdmissionDecision struct {
 
 // WorkflowConfirmationAuthority names the folded confirmation authority of
 // one active contract. A legacy pin folds the empty authority: the declared
-// question machinery stays its confirmation path. consequence_v1 engineering
-// work folds the coordinator authority — the authenticated non-worker
-// coordinator records its own confirmation — and decision-bearing work folds
-// the operator authority: the exact human choice, digest, and identity.
+// question machinery stays its confirmation path. Every active contract —
+// engineering and decision-bearing alike — folds the coordinator authority:
+// the authenticated non-worker coordinator records its own confirmation.
 type WorkflowConfirmationAuthority string
 
 const (
@@ -192,10 +177,6 @@ const (
 	// the executing or initiating non-worker coordinator confirms without a
 	// human question, a human digest, or an operator substitution.
 	WorkflowConfirmationCoordinator WorkflowConfirmationAuthority = "coordinator"
-	// WorkflowConfirmationOperator records a decision confirmation: the
-	// verified operator answers the open question with the closed choice and
-	// the exact decision-context digest.
-	WorkflowConfirmationOperator WorkflowConfirmationAuthority = "operator"
 )
 
 // workflowFailureOf converts a folded boundary error into its typed refusal.
@@ -456,7 +437,6 @@ func (l workflowAdmissionLoad) holdsAndRecovery(state *WorkflowAdmissionState) e
 }
 
 func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *WorkflowAdmissionState) error {
-	state.ApprovalPolicy = definition.ApprovalPolicy
 	// The confirmation authority folds once from the pinned policy and the
 	// contract's declared fact, and every consumer reads this fold: a folded
 	// coordinator authority closes the human question whatever the step shape
@@ -467,14 +447,14 @@ func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID stri
 	// singular active-contract read never runs there and the loader stays
 	// total for workflowAdmitSupersede.
 	if state.ActiveContracts == 1 {
-		fold, foldErr := foldWorkflowConfirmationTx(ctx, q, workID, definition)
+		fold, foldErr := foldWorkflowConfirmationTx(ctx, q, workID)
 		if foldErr != nil {
 			return foldErr
 		}
-		state.ConfirmationAuthority, state.ConfirmationFactFailure = fold.authority, fold.factFailure
+		state.ConfirmationAuthority = fold.authority
 	}
 	action, _ := workflowOperatorQuestionAction(definition, state.Step)
-	state.PendingOperatorDecision = state.ActiveContracts == 1 && state.ConfirmationFactFailure == nil && state.ConfirmationAuthority != WorkflowConfirmationCoordinator && action != ""
+	state.PendingOperatorDecision = state.ActiveContracts == 1 && state.ConfirmationAuthority != WorkflowConfirmationCoordinator && action != ""
 	if state.ActiveContracts == 1 {
 		subjectErr := workflowAcceptedSubjectCurrent(ctx, q, workID)
 		if subjectErr != nil {
@@ -491,7 +471,7 @@ func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID stri
 	// confirmation exactly as they stand behind the operator's question
 	// answer, so the preflight and the work pin answer what the confirmation
 	// enforces. Unrelated steps run no prerequisite read.
-	if action == "" || state.ConfirmationFactFailure != nil {
+	if action == "" {
 		return nil
 	}
 	if !state.PendingOperatorDecision && state.ConfirmationAuthority != WorkflowConfirmationCoordinator {
@@ -539,61 +519,28 @@ func foldWorkflowConfirmationPrerequisites(ctx context.Context, q queryer, workI
 	return nil
 }
 
-// workflowConfirmationFold is the one classification answer the pinned
-// policy and the active contract's declared fact fold to. Every consent
-// consumer — the admission state, the question projection, the selection
-// chain, and the continuity snapshot — reads this fold or the state it
-// populated, never a second classifier.
+// workflowConfirmationFold is the one classification answer the active
+// contract's existence folds to. Every confirmation consumer — the admission
+// state, the question projection, the selection chain, and the continuity
+// snapshot — reads this fold or the state it populated, never a second
+// classification.
 type workflowConfirmationFold struct {
-	authority   WorkflowConfirmationAuthority
-	factFailure *Failure
+	authority WorkflowConfirmationAuthority
 }
 
 // foldWorkflowConfirmationTx folds one active contract's confirmation
-// authority from the pinned policy and its declared decision-domain fact,
-// through the one pure classifier. A consequence_v1 contract whose fact is
-// absent or malformed folds the typed refusal; legacy pins fold the empty
-// authority and read nothing.
-func foldWorkflowConfirmationTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) (workflowConfirmationFold, error) {
+// authority. An active contract folds the coordinator authority; a legacy
+// pin with no active contract folds the empty authority and reads nothing.
+func foldWorkflowConfirmationTx(ctx context.Context, q queryer, workID string) (workflowConfirmationFold, error) {
 	var fold workflowConfirmationFold
-	if definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
-		return fold, nil
-	}
-	version, versionErr := activeWorkflowContractVersion(ctx, q, workID, "workflow_admission")
+	_, versionErr := activeWorkflowContractVersion(ctx, q, workID, "workflow_admission")
 	if versionErr != nil {
 		if versionErr == sql.ErrNoRows {
 			return fold, nil
 		}
 		return fold, versionErr
 	}
-	var stored sql.NullString
-	if err := q.QueryRowContext(ctx, `SELECT decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&stored); err != nil {
-		if err == sql.ErrNoRows {
-			return fold, nil
-		}
-		return fold, wrapFailure(KindUnavailable, "workflow_admission", "cannot read the workflow contract's declared decision fact", true, "retry once the database is readable", err)
-	}
-	var domains []string
-	if stored.Valid {
-		if err := json.Unmarshal([]byte(stored.String), &domains); err != nil {
-			fold.factFailure = newFailure(KindInvariantViolation, "workflow_admission", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-			return fold, nil
-		}
-	}
-	decision, decisionErr := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: domains})
-	if decisionErr != nil {
-		var failure *Failure
-		if !failureAs(decisionErr, &failure) {
-			return fold, decisionErr
-		}
-		fold.factFailure = failure
-		return fold, nil
-	}
-	if decision.Consent == WorkflowConsentNone {
-		fold.authority = WorkflowConfirmationCoordinator
-		return fold, nil
-	}
-	fold.authority = WorkflowConfirmationOperator
+	fold.authority = WorkflowConfirmationCoordinator
 	return fold, nil
 }
 
@@ -728,13 +675,6 @@ func workflowAdmitConfirmationRefused(state WorkflowAdmissionState, actionID str
 		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action", "the artifact the premise confirms is stale: it was not re-produced at its producer step", false, "request_correction to return to the declared producer step, or record a non-ok verdict")
 		return true
 	}
-	if (actionID == "confirm_premise" || actionID == "complete") && state.ConfirmationFactFailure != nil {
-		// A missing or malformed new-policy decision fact is the fold's own
-		// typed refusal: the confirmation and completion refuse on it instead
-		// of classifying the work as engineering or waiting on a question.
-		decision.Failure = workflowFailureOf(state.ConfirmationFactFailure)
-		return true
-	}
 	if (actionID == "confirm_premise" || actionID == "complete") && state.AcceptanceDeliverablesMissing != nil {
 		decision.Failure = workflowFailureOf(state.AcceptanceDeliverablesMissing)
 		return true
@@ -837,15 +777,16 @@ func workflowOperatorDecisionPending(definition WorkflowDefinition, currentStep 
 	return ok
 }
 
-// workflowOperatorQuestionAction names the approval-required action the
-// operator question at one step serves. A human checkpoint opens the question
-// for its first approval-required action. confirm_premise is answered only
-// through that question, so a step that declares it opens the question
-// whatever its kind: version-1 to version-4 ops runbooks declare it on an
-// internal-SQLite cleanup step, and without the question their only edge out
-// of cleanup could never be taken (CD-0203 D2). Every other approval-required
-// action off a human checkpoint, such as request_correction at a delivery
-// gate, opens no question.
+// workflowOperatorQuestionActions names the checkpoint actions whose step
+// exit is gated behind the operator question. They are the fixed declared
+// set; every other advancing action runs without a question wall.
+var workflowOperatorQuestionActions = map[string]bool{
+	"confirm_premise":   true,
+	"approve_contract":  true,
+	"accept_decision":   true,
+	"approve_operation": true,
+}
+
 func workflowOperatorQuestionAction(definition WorkflowDefinition, currentStep string) (string, bool) {
 	step := workflowStep(definition, currentStep)
 	if step == nil {
@@ -856,7 +797,7 @@ func workflowOperatorQuestionAction(definition WorkflowDefinition, currentStep s
 			continue
 		}
 		for _, action := range definition.ActionDefinitions {
-			if action.ID == candidate && action.Approval == ActionApprovalRequired {
+			if action.ID == candidate && workflowOperatorQuestionActions[candidate] {
 				return candidate, true
 			}
 		}

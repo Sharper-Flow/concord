@@ -201,7 +201,7 @@ func TestQAssociateCurrentProofCanLeaveInvestigationMissing(t *testing.T) {
 // Contract-notice folds do not evaluate or complete a candidate.
 func qContractRevisionFixture(t *testing.T, workID string) (*Store, string) {
 	t.Helper()
-	s, owner, _, version := issue31ActorSetup(t, workID)
+	s, owner, version := issue31ActorSetup(t, workID)
 	seedWorkflowLaw(t, s)
 	for _, action := range []string{"record_proposal", "record_discovery", "record_design", "approve_contract"} {
 		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, owner)

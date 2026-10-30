@@ -22,14 +22,6 @@ func seedChecksRepairFixture(t *testing.T, workID, step string) workflowReturnRo
 		[]string{"verification"}, []string{"verification", "review", "artifact"})
 }
 
-func TestChecksRepairHeadsPreserveConsequencePolicy(t *testing.T) {
-	for _, composition := range []WorkflowComposition{currentImplementationComposition(), currentBreakFixComposition()} {
-		if composition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
-			t.Fatalf("%s lost its consequence policy", composition.Ref)
-		}
-	}
-}
-
 func TestChecksRepairDispatchPropagatesUnreadableAuthorization(t *testing.T) {
 	const workID = "checks-repair-unreadable-authorization"
 	const jobID = "job:checks-repair-unreadable"

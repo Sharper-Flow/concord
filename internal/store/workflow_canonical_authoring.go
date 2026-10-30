@@ -64,7 +64,7 @@ func BuiltinWorkflowCanonicalRecoveryActionDefinitions() []WorkflowActionDefinit
 func BuiltinWorkflowDecisionFactActionDefinitions() []WorkflowActionDefinition {
 	var actions []WorkflowActionDefinition
 	for _, head := range BuiltinWorkflowDefinitions() {
-		if !workflowApprovalPolicyRequiresDecisionFact(head) {
+		if !workflowDeclaresDecisionDomains(head) {
 			continue
 		}
 		approve, err := workflowDecisionFactInitialActionDefinition(head)

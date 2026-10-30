@@ -244,9 +244,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "enum": [
             "",
             "blocked",
-            "blocked_sessions",
             "capture",
-            "client_policy_grant_request",
             "continuity",
             "detail",
             "external_observations",
@@ -295,7 +293,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_inspect",
             "worktree_reclaim",
             "worktree_verify",
-            "product_project_add",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement",
@@ -330,7 +327,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Overlaps|Footprint|Shape))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Footprint|Shape))$",
           "type": "string"
         },
         "replayed": {
@@ -487,67 +484,6 @@ const GeneratedEnvelopeSchemaDocument = `{
         "entity_kind",
         "id",
         "version"
-      ],
-      "type": "object"
-    },
-    "consequenceSummary": {
-      "additionalProperties": false,
-      "description": "CD-0037: the typed approval prompt, derived at challenge mint from the exact digest, consequence, scope, versions, and expiry the challenge binds. Required whenever the core minted a challenge; an approval_required refusal that minted nothing carries none. Caller-authored prose may not enter.",
-      "properties": {
-        "consequence": {
-          "maxLength": 64,
-          "minLength": 2,
-          "type": "string"
-        },
-        "expires_at": {
-          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
-          "type": "string"
-        },
-        "operation": {
-          "maxLength": 64,
-          "minLength": 2,
-          "pattern": "^[a-z0-9_]+$",
-          "type": "string"
-        },
-        "operation_digest": {
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "type": "string"
-        },
-        "scope": {
-          "items": {
-            "maxLength": 256,
-            "minLength": 3,
-            "type": "string"
-          },
-          "maxItems": 32,
-          "minItems": 1,
-          "type": "array"
-        },
-        "tool": {
-          "maxLength": 64,
-          "minLength": 8,
-          "pattern": "^concord_[a-z0-9_]+$",
-          "type": "string"
-        },
-        "versions": {
-          "items": {
-            "maxLength": 256,
-            "minLength": 3,
-            "type": "string"
-          },
-          "maxItems": 32,
-          "minItems": 0,
-          "type": "array"
-        }
-      },
-      "required": [
-        "tool",
-        "operation",
-        "consequence",
-        "operation_digest",
-        "scope",
-        "versions",
-        "expires_at"
       ],
       "type": "object"
     },
@@ -1015,9 +951,7 @@ const GeneratedEnvelopeSchemaDocument = `{
         "operation": {
           "enum": [
             "blocked",
-            "blocked_sessions",
             "capture",
-            "client_policy_grant_request",
             "continuity",
             "detail",
             "external_observations",
@@ -1066,7 +1000,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_inspect",
             "worktree_reclaim",
             "worktree_verify",
-            "product_project_add",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement",
@@ -1076,7 +1009,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Overlaps|Footprint|Shape))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Footprint|Shape))$",
           "type": "string"
         },
         "reason_code": {
@@ -1252,10 +1185,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "properties": {
                   "operation": {
                     "enum": [
-                      "client_policy_grant_request",
                       "message_send",
                       "message_withdraw",
-                      "product_project_add",
                       "resolve_overlap",
                       "set_memberships"
                     ],
@@ -1625,7 +1556,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "retry_same_request",
             "refresh_context",
             "reread_entities",
-            "request_approval",
             "provide_evidence",
             "reduce_limit",
             "use_declared_route",
@@ -2132,9 +2062,7 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "set_memberships",
                 "resolve_overlap",
                 "message_send",
-                "message_withdraw",
-                "product_project_add",
-                "client_policy_grant_request"
+                "message_withdraw"
               ],
               "type": "string"
             },
@@ -2168,24 +2096,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "required": [
             "tool",
             "operation"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "blocked_sessions"
-            },
-            "query_id": {
-              "const": "PM1.Q12"
-            },
-            "tool": {
-              "const": "concord_product_view"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
           ]
         },
         {
@@ -2367,33 +2277,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "properties": {
                   "kind": {
                     "const": "contact_operator"
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "kind": {
-                "enum": [
-                  "approval_required",
-                  "approval_invalid"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind"
-            ]
-          },
-          "then": {
-            "properties": {
-              "recovery_action": {
-                "properties": {
-                  "kind": {
-                    "const": "request_approval"
                   }
                 }
               }
@@ -2610,51 +2493,6 @@ const GeneratedEnvelopeSchemaDocument = `{
               "supported_budget_seconds"
             ]
           }
-        },
-        {
-          "if": {
-            "required": [
-              "consequence_summary"
-            ]
-          },
-          "then": {
-            "properties": {
-              "details": {
-                "required": [
-                  "approval_ref"
-                ]
-              }
-            },
-            "required": [
-              "details"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "details": {
-                "properties": {
-                  "approval_ref": {
-                    "maxLength": 128,
-                    "minLength": 16,
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "approval_ref"
-                ]
-              }
-            },
-            "required": [
-              "details"
-            ]
-          },
-          "then": {
-            "required": [
-              "consequence_summary"
-            ]
-          }
         }
       ],
       "properties": {
@@ -2690,9 +2528,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "maxItems": 20,
           "type": "array",
           "uniqueItems": true
-        },
-        "consequence_summary": {
-          "$ref": "#/$defs/consequenceSummary"
         },
         "current_versions": {
           "items": {
@@ -2807,8 +2642,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "ambiguous_scope",
             "stale_context",
             "unauthorized",
-            "approval_required",
-            "approval_invalid",
             "version_conflict",
             "idempotency_conflict",
             "operation_conflict",

@@ -9,11 +9,10 @@ import (
 )
 
 type workerReconcileInput struct {
-	WorkID         string         `json:"work_id"`
-	AttemptID      string         `json:"attempt_id"`
-	TaskPartID     string         `json:"task_part_id"`
-	IdempotencyKey string         `json:"idempotency_key"`
-	Approval       *approvalInput `json:"approval"`
+	WorkID         string `json:"work_id"`
+	AttemptID      string `json:"attempt_id"`
+	TaskPartID     string `json:"task_part_id"`
+	IdempotencyKey string `json:"idempotency_key"`
 }
 
 // Preparation and the post-settlement receipt use the same scoped read of the
@@ -24,9 +23,6 @@ func (r runtime) planWorkerReconcile(_ context.Context, base agentcontract.Envel
 		return base, err, true
 	}
 	plan.scope["work_ids"] = []string{in.WorkID}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 		recovery, err := store.WorkerRecoveryContextTx(ctx, tx, in.WorkID, in.AttemptID, r.Envelope.AmbientProjectID, r.Envelope.Worktree, "client:"+grant.ClientRef+":"+grant.PrincipalRef)
 		if err != nil {

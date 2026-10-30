@@ -43,9 +43,7 @@ and terminal steps never dispatch.
 ### D2. Definition composition derives from the join
 
 `withWorkerActions` composes the action pair onto every non-terminal step
-whose kind the join admits, except approval-gated steps: a step whose only
-advancing exit is an approval-required action keeps that exit alone, so a
-worker acceptance cannot leave it without the operator. A research work item
+whose kind the join admits. A research work item
 dispatches read-only lanes at its read steps like any other family.
 
 ### D3. Dispatch time enforces the lane against the step
@@ -83,11 +81,6 @@ Scenario: A read-only lane is refused at an effect step
   Given a break_fix item at the repair step
   When the coordinator dispatches the research lane
   Then the core refuses with unauthorized_dispatch
-
-Scenario: An approval-gated step keeps its only exit
-  Given a step whose advancing actions require approval
-  When the join composes the worker pair
-  Then the step carries neither dispatch_worker nor accept_worker_result
 
 Scenario: A lane the join does not admit fails generation
   Given a lane class the join does not name

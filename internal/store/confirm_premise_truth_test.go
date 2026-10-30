@@ -8,36 +8,37 @@ import (
 	"testing"
 )
 
-// seedConfirmPremiseQuestion puts a break-fix instance at its verify step
-// with an approved contract and a resolvable investigation artifact, so the
-// confirm_premise question is open. No verdict is recorded, so admission
-// refuses the confirmation itself; the fixture serves the selection checks.
-func seedConfirmPremiseQuestion(t *testing.T, s *Store, workID, otherWorkID string) {
+// seedActiveBreakFixContract gives a seeded break-fix instance an active
+// contract, whose confirmation folds the coordinator authority.
+func seedActiveBreakFixContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	seedWork(t, s, workID)
-	seedWork(t, s, otherWorkID)
-	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
-	seedWithheldQuestionWorkflow(t, s, workID)
-	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("7", 16), []string{"root", otherWorkID})
-}
-
-// TestWorkPinPublishesConfirmPremiseRequiredFields holds the pin side of the
-// single declaration: a pending confirm_premise lists exactly the fields the
-// generated envelope requires at the outer level, in declaration order, so a
-// caller that prepares its call from the pin can no longer omit a field the
-// validator demands. The pin reads the admission, so the intent appears only
-// once the confirmation's deliverables stand.
-func TestWorkPinPublishesConfirmPremiseRequiredFields(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	workID := "confirm-pin-truth"
-	f, _, refs := pReceiptFixture(t, workID, 1, 1)
-	s := f.store
-	// Only the question's decision-domain input differs from engineering work.
-	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET decision_domains='["product"]' WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
 		t.Fatal(err)
 	}
+	digest, err := WorkflowDefinitionDigest(registered.Definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actorRef := DeriveWorkflowActorRef("principal/withheld", "client/withheld", "agent/withheld", "session/withheld")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_digest) VALUES(?,1,'active contract premise','internal_sqlite','[]','[]','2026-08-01T00:00:00Z',?,'[]','[]',1,'prototype_internal','[]',?,?);
+		DELETE FROM write_guard`, workID, actorRef, registered.Definition.Ref, digest); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestWorkPinEngineeringConfirmPremiseOmitsDigest holds the pin side of the
+// coordinator confirmation: an active contract opens no operator question,
+// the pin hides confirm_premise while the confirmation's verdict deliverable
+// is missing, and the advertised intent requires the closed choice alone,
+// because the confirmation refuses a human digest.
+func TestWorkPinEngineeringConfirmPremiseOmitsDigest(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	workID := "confirm-pin-engineering"
+	f, _, refs := pReceiptFixture(t, workID, 1, 1)
+	s := f.store
 	seedComparisonObservation(t, s, workID)
 	missingPin, err := ReadWorkPin(ctx, s, workID)
 	if err != nil {
@@ -48,48 +49,9 @@ func TestWorkPinPublishesConfirmPremiseRequiredFields(t *testing.T) {
 			t.Fatalf("pin advertises confirm_premise while the confirmation refuses its missing verdict: %v", missingPin.NextValidIntents)
 		}
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
-		t.Fatal(err)
+	if missingPin.PendingOperatorDecision != nil || missingPin.WithheldOperatorDecision != nil {
+		t.Fatalf("active-contract pin published question=%+v withheld=%+v, want none", missingPin.PendingOperatorDecision, missingPin.WithheldOperatorDecision)
 	}
-	pin, err := ReadWorkPin(ctx, s, workID)
-	if err != nil {
-		t.Fatalf("pin read failed: %v", err)
-	}
-	if pin.PendingOperatorDecision == nil || pin.PendingOperatorDecision.ActionID != "confirm_premise" {
-		t.Fatalf("pending decision = %+v, want an open confirm_premise question", pin.PendingOperatorDecision)
-	}
-	var confirm *WorkPinIntent
-	for i := range pin.NextValidIntents {
-		if pin.NextValidIntents[i].ActionID == "confirm_premise" {
-			confirm = &pin.NextValidIntents[i]
-			break
-		}
-	}
-	if confirm == nil {
-		t.Fatalf("pin intents %v omit confirm_premise while its question is open", pin.NextValidIntents)
-	}
-	want := []string{"selected_choice", "decision_context_digest"}
-	if len(confirm.RequiredFields) != len(want) {
-		t.Fatalf("confirm_premise required_fields = %v, want %v", confirm.RequiredFields, want)
-	}
-	for i := range want {
-		if confirm.RequiredFields[i] != want[i] {
-			t.Fatalf("confirm_premise required_fields = %v, want %v", confirm.RequiredFields, want)
-		}
-	}
-}
-
-// TestWorkPinEngineeringConfirmPremiseOmitsDigest holds the engineering side
-// of the consequence_v1 declaration: an engineering contract opens no
-// operator question, and the pin's confirm_premise intent requires the closed
-// choice alone, because the confirmation refuses a human digest.
-func TestWorkPinEngineeringConfirmPremiseOmitsDigest(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	workID := "confirm-pin-engineering"
-	f, _, refs := pReceiptFixture(t, workID, 1, 1)
-	s := f.store
-	seedComparisonObservation(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
@@ -111,56 +73,10 @@ func TestWorkPinEngineeringConfirmPremiseOmitsDigest(t *testing.T) {
 	t.Fatalf("engineering pin intents %v omit confirm_premise", pin.NextValidIntents)
 }
 
-// TestConfirmPremiseDigestMismatchRefuses holds the checkpoint the digest
-// protects: a selection whose decision_context_digest does not match the open
-// question refuses as stale, while the question's own digest passes the
-// semantic guard. Choice and digest validation are unchanged by the
-// declaration; the pin merely states them.
-func TestConfirmPremiseDigestMismatchRefuses(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	workID, otherWorkID := "confirm-digest-mismatch", "confirm-digest-mismatch-other"
-	seedConfirmPremiseQuestion(t, s, workID, otherWorkID)
-	question, err := readOperatorQuestionFromWorkPinForTest(ctx, s, workID)
-	if err != nil {
-		t.Fatalf("question read failed: %v", err)
-	}
-	if question == nil || question.ActionID != "confirm_premise" {
-		t.Fatalf("question = %+v, want confirm_premise", question)
-	}
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	run := func(choice, digest string) error {
-		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		return validateWorkflowOperatorSelectionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-			WorkID: workID, ActionID: "confirm_premise", ExpectedVersion: version,
-			SelectedChoice: choice, DecisionContextDigest: digest,
-		})
-	}
-	if err := run("confirm", question.DecisionContextDigest); err != nil {
-		t.Fatalf("the question's own digest must pass the guard: %v", err)
-	}
-	stale := run("confirm", "sha256:"+strings.Repeat("b", 64))
-	var failure *Failure
-	if !errors.As(stale, &failure) {
-		t.Fatalf("a mismatched digest must refuse, got %v", stale)
-	}
-	if failure.Kind != KindStaleRequiresReview || !strings.Contains(failure.Detail, "stale or forged") {
-		t.Fatalf("mismatch refusal = %v, want stale-requires-review naming the digest", stale)
-	}
-}
-
 // TestWithheldReasonNamesObservationRefFormat holds the discoverability side
-// of the premise gate: the withheld reason, which the work pin carries
-// verbatim, names the ref format the gate enforces, so a refused caller can
-// repair in one read instead of reading the store source.
+// of the premise gate: the confirmation refusal names the observation ref
+// format the gate enforces, so a refused caller can repair in one read
+// instead of reading the store source.
 func TestWithheldReasonNamesObservationRefFormat(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -171,6 +87,7 @@ func TestWithheldReasonNamesObservationRefFormat(t *testing.T) {
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
 	seedWithheldQuestionWorkflow(t, s, workID)
+	seedActiveBreakFixContract(t, s, workID)
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
@@ -183,7 +100,7 @@ func TestWithheldReasonNamesObservationRefFormat(t *testing.T) {
 		defer tx.Rollback()
 		return validateWorkflowOperatorSelectionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 			WorkID: workID, ActionID: "confirm_premise", ExpectedVersion: version,
-			SelectedChoice: "confirm", DecisionContextDigest: "sha256:" + strings.Repeat("a", 64),
+			SelectedChoice: "confirm",
 		})
 	}
 	err := validate()
@@ -195,19 +112,6 @@ func TestWithheldReasonNamesObservationRefFormat(t *testing.T) {
 		if !strings.Contains(failure.Detail, want) || !strings.Contains(failure.RecoveryAction, want) {
 			t.Fatalf("refusal detail %q / recovery %q must name the ref format %q", failure.Detail, failure.RecoveryAction, want)
 		}
-	}
-	pin, err := ReadWorkPin(ctx, s, workID)
-	if err != nil {
-		t.Fatalf("pin read failed: %v", err)
-	}
-	if pin.WithheldOperatorDecision == nil {
-		t.Fatal("pin carries no withheld decision while the artifact is missing")
-	}
-	if pin.WithheldOperatorDecision.Reason != failure.Detail {
-		t.Fatalf("pin reason %q differs from the gate's %q", pin.WithheldOperatorDecision.Reason, failure.Detail)
-	}
-	if !strings.Contains(pin.WithheldOperatorDecision.Remedy, "bare domain_id") {
-		t.Fatalf("pin remedy %q must name the ref format", pin.WithheldOperatorDecision.Remedy)
 	}
 }
 

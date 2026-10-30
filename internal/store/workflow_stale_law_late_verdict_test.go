@@ -22,7 +22,7 @@ func TestStaleLawHoldsLateVerdictUntilRePin(t *testing.T) {
 	// The replacement predates this item's owning start. Its retained contract
 	// still pins the deleted law, so this tests stale-pin recovery, not attribution
 	// of a post-start deletion to an uncompleted peer.
-	fixture := seedWorkflowReturnRouteFixtureWithSource(t, workID, legacyApprovalPolicyDefinitionForRef(t, "workflow.research"), "complete", []string{"verification"}, []string{"verification", "review", "artifact"}, func(s *Store) {
+	fixture := seedWorkflowReturnRouteFixtureWithSource(t, workID, currentFixtureDefinition(t, "workflow.research"), "complete", []string{"verification"}, []string{"verification", "review", "artifact"}, func(s *Store) {
 		execInFold(t, s,
 			`DELETE FROM law_domain_homes WHERE law_id='spec:one'`,
 			`DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`,

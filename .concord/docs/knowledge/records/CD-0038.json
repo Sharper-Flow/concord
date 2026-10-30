@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d94059a1c6a6fe52a7ff44c3d8e99709c637909fa56cc7d384c0a7d0a52dfefa",
+  "sha256": "sha256:4737be0eac483d26e44b736d1ea24ac65e7e0488cad2be61d0072052fe758c7d",
   "status": "accepted",
   "summary": "Every operation declares a seconds ceiling; unsupported requests refuse before effects and accepted budgets become one propagated deadline.",
   "tags": [

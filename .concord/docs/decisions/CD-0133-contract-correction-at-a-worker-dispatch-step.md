@@ -21,20 +21,20 @@ guards.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, authenticated attributed supersession replaces the operator-approval prerequisite below. Exact predecessor/successor versions, complete successor content, audit evidence, outstanding-attempt restrictions, and correction admission remain required. The correction does not manufacture verification; CD-0013 D11 governs subsequent decision-bearing confirmation.
+Authenticated attributed supersession requires exact predecessor/successor versions, complete successor content, audit evidence, outstanding-attempt restrictions, and correction admission. The correction does not manufacture verification; CD-0013 D11 governs subsequent confirmation.
 
 ### D1. Admit correction at a worker-dispatch step
 
 `supersede_contract` is available at a non-terminal worker-dispatch step with one
 active contract before any worker dispatch in the current attempt. It is also
 available after the worker's failure is recorded. The action still requires
-the verified operator approval identity, current versions, and audit evidence.
+the authenticated coordinator identity, current versions, and audit evidence.
 
 At the combined-delivery refinement step, accepted review evidence also opens
 correction after every current authorization has a recorded terminal disposition.
 The hold-mode acceptance follows CD-0187 D4 and asserts no delivery. A new
 authorization closes this opportunity even before native dispatch evidence exists.
-The exact successor, versions, and audit evidence still require operator approval.
+The exact successor, versions, and audit evidence remain required.
 
 A dispatch authorization closes the pre-dispatch route even before a worker
 report exists. A live worker, an unaccepted result, or an unrecorded failure does
@@ -65,12 +65,12 @@ correction. Action discovery and mutation preflight agree on that recovery
 route. Correcting a contract does not itself resolve compatibility with other
 work or permit execution through an unresolved overlap.
 
-### D6. Correct the contract and design through one approval
+### D6. Correct the contract and design atomically
 
 The correction payload may include `design_record`: an approach, typed decisions,
 and touched references under the existing design bounds. It replaces an existing
-typed design, not a missing design step. The approval binds the whole payload,
-including the replacement design and expected versions.
+typed design, not a missing design step. The attributed supersession binds the
+whole payload, including the replacement design and expected versions.
 
 The core records the supersession and replacement design atomically. Without a
 replacement, an earlier design remains historical and cannot authorize worker
@@ -84,7 +84,7 @@ ordinary overlap checks remain in force.
 ## Verification
 
 - The contract-correction checkpoint remains available on human checkpoints.
-- Correction before a fenced start and after a start with no dispatch reaches the public signed-approval route.
+- Correction before a fenced start and after a start with no dispatch reaches the public attributed-supersession route.
 - A worker-dispatch step can expose the correction route without a definition
   change (CD-0242 D14).
 - A pending dispatch authorization, live worker, or unrecorded worker failure keeps the correction route closed.

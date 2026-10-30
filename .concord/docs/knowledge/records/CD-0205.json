@@ -54,7 +54,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f81049b6b61eeec898ee24533eced737344d2e35c032756ab09ba91924a33810",
+  "sha256": "sha256:30910816af0a37ea9d90ff211d3ef963b7018b9ed320c6121a06ca8c1894ab90",
   "status": "accepted",
   "summary": "Immutable worker-job revisions bind every admitted lane end to end. Implementation v27 and break-fix v24 require a typed owner/case/control acceptance oracle, with closed source and authority joins and retained readiness evidence. Every predicate retains executable coverage. Main may add Review-judged cases without native controls; recorded executable obligations cannot become judged cases. Definitions have one canonical source and no historical pins. Local acceptance holds the step without delivery; whole-work delivery keeps parent admission and integration evidence. Superseded-contract revisions are not ready. Each launch carries its own scope and subject bindings without attempt-count or convergence walls.",
   "tags": [

@@ -751,8 +751,7 @@
         "superseded_by",
         "unknowns",
         "required_to_decide",
-        "reviewer_actor_ref",
-        "operator_approval_ref"
+        "reviewer_actor_ref"
       ],
       "properties": {
         "question": {
@@ -848,12 +847,6 @@
           "minLength": 70,
           "maxLength": 70,
           "pattern": "^actor:[0-9a-f]{64}$"
-        },
-        "operator_approval_ref": {
-          "type": "string",
-          "minLength": 9,
-          "maxLength": 136,
-          "pattern": "^approval:[a-z0-9][a-z0-9_.:/-]{1,127}$"
         }
       }
     },

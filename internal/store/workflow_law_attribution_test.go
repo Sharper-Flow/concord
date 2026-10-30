@@ -150,7 +150,7 @@ func TestLawAttributionCompletedPeerPreservesStart(t *testing.T) {
 	if err := enactLawChange(t, s, "peer-a", nil, nil); err != nil {
 		t.Fatalf("verified completed peer still blocks law-free A: %v", err)
 	}
-	change, err := deriveLawChange(t, s, "peer-a", lawChangeV1Generic, nil, nil, nil, []string{})
+	change, err := deriveLawChange(t, s, "peer-a", lawChangeV1Generic, nil, nil, nil)
 	if err != nil || change != nil {
 		t.Fatalf("peer edit counted as A's law at approval: %+v %v", change, err)
 	}

@@ -104,8 +104,9 @@ ask for every other command; its Task rules admit only Concord utilities; and it
 is denied every Concord tool that writes work state.
 Those capabilities do not transfer another session's workflow authority or the
 human operator's approval.
-The RTE never answers a Concord approval challenge; it relays it unchanged to
-the human operator. Worker-lane and utility capability boundaries remain.
+The RTE never answers a Concord operator question on the work's behalf; it
+relays it unchanged to the human operator. Worker-lane and utility capability
+boundaries remain.
 The host owns session procedures, model routing, and machine configuration.
 Linear owns planning. Concord adds no session-launch or portfolio API.
 

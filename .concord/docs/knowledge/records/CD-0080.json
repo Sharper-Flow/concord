@@ -9,7 +9,6 @@
     "internal/agent/authority.go",
     "internal/agent/worker_evidence.go",
     "internal/store/schema.go",
-    "internal/store/blocked_sessions.go",
     ".concord/docs/reachability-exceptions.v1.json"
   ],
   "home_domain_id": "agent-call-boundary",
@@ -23,9 +22,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:cc606c29e771cfd69122ac583bc06a1e4ffa07a9ea04e269529b30f2ba9588f5",
+  "sha256": "sha256:21547e76ca95f5a59b06dc64d036fad0b5729e7fe28c7742124c159918a4495c",
   "status": "accepted",
-  "summary": "Authorization becomes the registered client policy intersected with git-derived scope resolved from the invoke envelope on every call. The grant token, the agent_grants table, expiry, and use counts are removed, and host approval keeps its scope, challenge, and consequence bindings without a signature. Worker evidence signing under CD-0067 D6 is out of scope and keeps the client key registry and the nonce table. Approval challenges re-anchor to the session identity tuple, blocked-session Product scope moves to the session record, and the three unbuilt revocation methods are removed. This declines the core-issued opaque session handle CD-0071 D4 anticipated.",
+  "summary": "Authorization becomes the registered client policy intersected with git-derived scope resolved from the invoke envelope on every call. Worker evidence signing under CD-0067 D6 keeps the client key registry and the nonce table. The operator revokes clients and rotates their keys. This declines the core-issued opaque session handle CD-0071 D4 anticipated.",
   "tags": [
     "authority",
     "grants",

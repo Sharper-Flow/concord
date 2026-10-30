@@ -11,7 +11,7 @@
   coordinator (operator-delegated) on 2026-10-09 at 21:54 Eastern Daylight Time (EDT).
   The public pull request
   carries its delivery evidence. This record creates no managed workflow
-  approval record. Its authority tier is `derived` under CD-0159 D3.
+  record. Its authority tier is `derived` under CD-0159 D3.
 - **Related:** CD-0014, CD-0031, CD-0048, CD-0078, CD-0108, CD-0222,
   CD-0163, CD-0176, C14, C17
 - **Preserves:** CD-0078 D1 through D3, CD-0093, CD-0031, CD-0090, CD-0163

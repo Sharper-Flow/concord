@@ -5,8 +5,6 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"os"
-	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -118,34 +116,15 @@ func (f dispatchTakeoverFixture) laneDispatch(t *testing.T, eventID, attemptID s
 	return laneActor
 }
 
-func requireTakeoverChallenge(t *testing.T, challenge agentcontract.Envelope, holder string, epoch int64) {
-	t.Helper()
-	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("dispatch over another session's unfinished attempt = outcome %s error %+v, want approval_required", challenge.Outcome, challenge.Error)
-	}
-	summary := challenge.Error.ConsequenceSummary
-	if summary == nil || holder == "" || !slices.Contains(summary.Scope, "held_attempt_holder:"+holder) || !slices.Contains(summary.Versions, "held_attempt_epoch:"+strconv.FormatInt(epoch, 10)) {
-		t.Fatalf("dispatch takeover challenge does not bind holder %q epoch %d: %#v", holder, epoch, summary)
-	}
-}
-
-func TestDispatchWorkerOverAnotherSessionsInFlightAttemptRequiresBoundApproval(t *testing.T) {
+func TestDispatchWorkerTakeoverPreservesUnresolvedOwnChild(t *testing.T) {
 	t.Parallel()
 	f := newDispatchTakeoverFixture(t)
 	if first, _ := f.dispatch(t, f.owner, "attempt:work-1:owner", "owner-dispatch"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
-	laneActor := f.laneDispatch(t, "owner-lane-dispatched", "attempt:work-1:owner", f.ownerGrant)
-	heldEpoch, ownerRef := latestExecutionStart(t, f.s)
-
-	challenge, input := f.dispatch(t, f.other, "attempt:work-1:other", "other-dispatch")
-	requireTakeoverChallenge(t, challenge, laneActor, heldEpoch)
-	if epoch, actor := latestExecutionStart(t, f.s); epoch != heldEpoch || actor != ownerRef {
-		t.Fatalf("challenge moved the attempt: epoch %d actor %s", epoch, actor)
-	}
-
-	approvedEnv, approved := approveTakeover(t, f.privateKey, f.other, f.otherGrant, challenge, input)
-	if response := f.invoke(t, approvedEnv, approved); response.Outcome != agentcontract.OutcomeOK {
+	f.laneDispatch(t, "owner-lane-dispatched", "attempt:work-1:owner", f.ownerGrant)
+	heldEpoch, _ := latestExecutionStart(t, f.s)
+	if response, _ := f.dispatch(t, f.other, "attempt:work-1:other", "other-dispatch"); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved dispatch takeover: %+v", response.Error)
 	}
 	if epoch, actor := latestExecutionStart(t, f.s); epoch != heldEpoch+1 || actor != actorRefOf(f.otherGrant) {
@@ -155,12 +134,12 @@ func TestDispatchWorkerOverAnotherSessionsInFlightAttemptRequiresBoundApproval(t
 	// The taker's later start must not hide the original caller's unresolved
 	// child, and no takeover approval is requested over it.
 	f.laneDispatch(t, "other-lane-dispatched", "attempt:work-1:other", f.otherGrant)
-	challenges, effects := verifyWallChallenges(t, f.s), agentCurrentEffects(t, f.s)
+	effects := agentCurrentEffects(t, f.s)
 	if again, _ := f.dispatch(t, f.owner, "attempt:work-1:owner-again", "owner-redispatch"); again.Error == nil || again.Error.Kind != "operation_conflict" {
 		t.Fatalf("owner fresh dispatch behind a later takeover start = %+v, want operation_conflict", again.Error)
 	}
-	if verifyWallChallenges(t, f.s) != challenges || agentCurrentEffects(t, f.s) != effects {
-		t.Fatal("refused own-child replacement minted an approval challenge or changed durable progress")
+	if agentCurrentEffects(t, f.s) != effects {
+		t.Fatal("refused own-child replacement changed durable progress")
 	}
 }
 
@@ -175,11 +154,7 @@ func TestDispatchWorkerOverAnotherSessionsLiveLaneBindsTheLane(t *testing.T) {
 	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
-	heldEpoch, _ := latestExecutionStart(t, f.s)
-	laneActor := f.laneDispatch(t, "owner-lane-dispatched", attemptID, f.ownerGrant)
-
-	challenge, _ := f.dispatch(t, f.other, "attempt:work-1:other", "other-dispatch")
-	requireTakeoverChallenge(t, challenge, laneActor, heldEpoch)
+	f.laneDispatch(t, "owner-lane-dispatched", attemptID, f.ownerGrant)
 
 	version, effects := workVersion(t, f.s, "work-1"), agentCurrentEffects(t, f.s)
 	if replay := f.invoke(t, f.owner, original); replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
@@ -217,40 +192,6 @@ func TestDispatchWorkerReplaySurvivesMissingSessionWorktree(t *testing.T) {
 	}
 	if workVersion(t, f.s, "work-1") != version || agentCurrentEffects(t, f.s) != effects {
 		t.Fatal("stored dispatch replay changed durable progress")
-	}
-}
-
-func TestDispatchWorkerTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T) {
-	t.Parallel()
-	f := newDispatchTakeoverFixture(t)
-	if first, _ := f.dispatch(t, f.owner, "attempt:work-1:owner", "owner-dispatch"); first.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("owner dispatch_worker: %+v", first.Error)
-	}
-	f.laneDispatch(t, "owner-lane-dispatched", "attempt:work-1:owner", f.ownerGrant)
-	challenge, input := f.dispatch(t, f.other, "attempt:work-1:other", "other-dispatch")
-	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("unapproved dispatch takeover = %+v, want approval_required", challenge.Error)
-	}
-	// A recorded terminal permits the holder's retry. The earlier takeover
-	// approval must not authorize replacement of that different held epoch.
-	f.failLane(t, "owner-lane-failed", "attempt:work-1:owner")
-	if again, _ := f.dispatch(t, f.owner, "attempt:work-1:owner-again", "owner-redispatch"); again.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("owner re-dispatch: %+v", again.Error)
-	}
-	f.laneDispatch(t, "owner-lane-redispatched", "attempt:work-1:owner-again", f.ownerGrant)
-	movedEpoch, _ := latestExecutionStart(t, f.s)
-	ref := challenge.Error.Details["approval_ref"].(string)
-	approved := cloneWithApproval(t, input, ref)
-	approved["expected_version"] = workVersion(t, f.s, "work-1")
-	scope, versions := challengeApprovalBindings(t, challenge.Error.ConsequenceSummary)
-	versions["work"] = approved["expected_version"]
-	env := f.other
-	env.HostApproval = signedHostApproval(f.privateKey, ref, mutationDigest("concord_work_transition", "workflow_action", env, mustJSON(t, approved)), scope, versions, f.otherGrant.SessionRef, f.otherGrant.AgentRef, f.otherGrant.Worktree, fixedTime(), nonceForChallenge(ref))
-	if response := f.invoke(t, env, approved); response.Error == nil || response.Error.Kind != "approval_invalid" {
-		t.Fatalf("approval bound to the superseded epoch = outcome %s error %+v, want approval_invalid", response.Outcome, response.Error)
-	}
-	if epoch, actor := latestExecutionStart(t, f.s); epoch != movedEpoch || actor != actorRefOf(f.ownerGrant) {
-		t.Fatalf("refused stale takeover moved the attempt: epoch %d actor %s", epoch, actor)
 	}
 }
 
@@ -294,9 +235,6 @@ func TestDispatchWorkerAfterFailedAttemptConsumesCorrectionWithoutConsent(t *tes
 	}
 	if retry, _ := f.dispatch(t, f.other, "attempt:work-1:other", "other-retry"); retry.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("consuming retry after the failure = %+v, want ok without consent", retry.Error)
-	}
-	if challenges := verifyWallChallenges(t, f.s); challenges != 0 {
-		t.Fatalf("retry after a finished attempt minted %d takeover or retry challenges", challenges)
 	}
 	if epoch, actor := latestExecutionStart(t, f.s); epoch != pin.Correction.FailedAttemptEpoch+1 || actor != actorRefOf(f.otherGrant) {
 		t.Fatalf("retry epoch=%d actor=%s, want the next epoch held by the retrying session", epoch, actor)

@@ -28,7 +28,7 @@
     },
     "decisionRecord": {
       "type": "object", "additionalProperties": false,
-      "required": ["question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref", "operator_approval_ref"],
+      "required": ["question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref"],
       "properties": {
         "question": {"type": "string", "minLength": 1, "maxLength": 4096},
         "options_considered": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 1024}},
@@ -41,8 +41,7 @@
         "superseded_by": {"type": ["string", "null"], "minLength": 2, "maxLength": 128},
         "unknowns": {"type": "array", "minItems": 0, "maxItems": 16, "items": {"type": "string", "minLength": 1, "maxLength": 1024}},
         "required_to_decide": {"type": "array", "minItems": 0, "maxItems": 16, "items": {"type": "string", "minLength": 1, "maxLength": 1024}},
-        "reviewer_actor_ref": {"type": "string", "pattern": "^actor:[0-9a-f]{64}$", "minLength": 70, "maxLength": 70},
-        "operator_approval_ref": {"type": "string", "pattern": "^approval:[a-z0-9][a-z0-9_.:/-]{1,127}$", "minLength": 9, "maxLength": 136}
+        "reviewer_actor_ref": {"type": "string", "pattern": "^actor:[0-9a-f]{64}$", "minLength": 70, "maxLength": 70}
       }
     },
     "outcome": {

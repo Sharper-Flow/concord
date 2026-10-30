@@ -51,9 +51,6 @@ func TestWorkerRetryWithoutConsentKeepsFreshIdentityAndReplay(t *testing.T) {
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != attemptsBefore+1 {
 		t.Fatalf("fresh retry and replay left %d attempts, want %d", got, attemptsBefore+1)
 	}
-	if got := verifyWallChallenges(t, s); got != 0 {
-		t.Fatalf("retry minted %d approval challenges", got)
-	}
 	var epoch int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id='work-1' AND attempt_id='attempt:work-1:fresh'`).Scan(&epoch); err != nil || epoch != pin.Correction.FailedAttemptEpoch+1 {
 		t.Fatalf("fresh retry epoch=%d err=%v, want %d", epoch, err, pin.Correction.FailedAttemptEpoch+1)
@@ -121,9 +118,6 @@ func TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket(t *testing.T)
 	result := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
 	if result.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("reread consuming retry=%+v", result.Error)
-	}
-	if got := verifyWallChallenges(t, s); got != 0 {
-		t.Fatalf("retry minted %d consent challenges", got)
 	}
 }
 
@@ -285,21 +279,4 @@ func retryLane(t *testing.T) store.LaneDefinition {
 	}
 	t.Fatal("implement lane is not registered")
 	return store.LaneDefinition{}
-}
-
-func cloneWithApproval(t *testing.T, input map[string]any, ref string) map[string]any {
-	t.Helper()
-	raw, err := json.Marshal(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	approved, err := injectApproval(raw, ref)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out map[string]any
-	if err := json.Unmarshal(approved, &out); err != nil {
-		t.Fatal(err)
-	}
-	return out
 }

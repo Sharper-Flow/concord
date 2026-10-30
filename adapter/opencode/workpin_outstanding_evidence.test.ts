@@ -23,7 +23,7 @@ test("work pin validators accept bounded kind debt and legacy absence", () => {
   }
   for (const state of ["active", "completed"]) {
     const held: Record<string, unknown> = { ...pin, outside_repair_disposition: {
-      work_id: "work-debt", reason: "repair", approval_ref: "approval-fixture", state,
+      work_id: "work-debt", reason: "repair", state,
       recorded_at: "2026-10-17T00:00:00Z",
     } }
     delete held.workflow_definition_digest

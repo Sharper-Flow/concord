@@ -297,7 +297,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	}
 
 	// Correction binds the current criterion and durable evidence. Routine
-	// recovery needs the authenticated coordinator, not an operator signature.
+	// recovery needs the authenticated coordinator.
 	correctionInput := map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "request_correction", "idempotency_key": "gate-recovery-return", "fields": map[string]any{
 		"diagnosis": "the accepted Review judged the previous criterion revision", "strategy": "return to the execution step and reassess the candidate against the current criterion",
 		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:gate-review"},

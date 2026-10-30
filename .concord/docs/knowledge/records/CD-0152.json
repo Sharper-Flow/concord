@@ -16,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:dcc384f2cb86b3abc332be3eeaee41355c2024202a13a50bff3ed00e32e0ddcd",
+  "sha256": "sha256:0e5c89292715421d9b7180862d0c2c32cdb2545115eac4b893af6e65692871e5",
   "status": "accepted",
   "summary": "Derives Project authority from current Product membership, preserves explicit Product selection for shared Projects, and refuses removed or outside-Product Projects before effects.",
   "tags": [

@@ -68,14 +68,6 @@ const (
 	ActionExternalEffect ActionConsequence = "external_effect"
 )
 
-type ActionApproval string
-
-const (
-	ActionApprovalNone        ActionApproval = "none"
-	ActionApprovalConditional ActionApproval = "conditional"
-	ActionApprovalRequired    ActionApproval = "required"
-)
-
 type ActionExecutionMode string
 
 const (
@@ -207,7 +199,6 @@ const WorkerDispatchCapability = "worker_dispatch"
 type WorkflowActionDefinition struct {
 	ID            string              `json:"id"`
 	Consequence   ActionConsequence   `json:"consequence"`
-	Approval      ActionApproval      `json:"approval"`
 	ExecutionMode ActionExecutionMode `json:"execution_mode,omitempty"`
 	// RequiredCapability names the agent capability the dispatcher must
 	// present to invoke this action. It is structural: the runtime reads it
@@ -289,13 +280,7 @@ type WorkflowDefinition struct {
 	ChangesProductTruth *bool    `json:"changes_product_truth,omitempty"`
 	// Capabilities is the canonical sorted union of the behaviors the
 	// definition's parts enable. It is digest-covered manifest content.
-	Capabilities []WorkflowCapability `json:"capabilities"`
-	// ApprovalPolicy is the definition-owned approval-policy discriminator.
-	// Absence selects the released legacy policy; the one explicit value is
-	// WorkflowApprovalPolicyConsequenceV1. It is digest-covered manifest
-	// content whenever it is declared, so a definition cannot change its
-	// policy without its digest detecting the change.
-	ApprovalPolicy        string                        `json:"approval_policy,omitempty"`
+	Capabilities          []WorkflowCapability          `json:"capabilities"`
 	StepGraph             WorkflowStepGraph             `json:"step_graph"`
 	AvailableActions      []string                      `json:"available_actions"`
 	ActionDefinitions     []WorkflowActionDefinition    `json:"action_definitions"`
@@ -425,7 +410,7 @@ func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 	}
 	actions := make(map[string]WorkflowActionDefinition, len(definition.ActionDefinitions))
 	for _, action := range definition.ActionDefinitions {
-		if !validWorkflowID(action.ID) || !validActionConsequence(action.Consequence) || !validActionApproval(action.Approval) || !validActionExecutionMode(action.ExecutionMode) || len(action.Payload.Fields) > 32 {
+		if !validWorkflowID(action.ID) || !validActionConsequence(action.Consequence) || !validActionExecutionMode(action.ExecutionMode) || len(action.Payload.Fields) > 32 {
 			return definitionFailure(KindInvalidDefinition, "action definition is invalid")
 		}
 		if _, exists := actions[action.ID]; exists {
@@ -460,9 +445,6 @@ func validateWorkflowDefinitionIdentity(definition WorkflowDefinition) error {
 	}
 	if *definition.ChangesProductTruth != workKindMayChangeProductTruth(definition.WorkKind) {
 		return definitionFailure(KindInvalidDefinition, "definition product-truth classification does not match its work-kind matrix")
-	}
-	if definition.ApprovalPolicy != "" && definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
-		return definitionFailure(KindInvalidDefinition, "definition approval policy is unknown")
 	}
 	return nil
 }
@@ -574,7 +556,6 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 		WorkKind              WorkKind                      `json:"work_kind"`
 		ChangesProductTruth   *bool                         `json:"changes_product_truth"`
 		Capabilities          []WorkflowCapability          `json:"capabilities"`
-		ApprovalPolicy        string                        `json:"approval_policy,omitempty"`
 		StepGraph             WorkflowStepGraph             `json:"step_graph"`
 		AvailableActions      []string                      `json:"available_actions"`
 		ActionDefinitions     []WorkflowActionDefinition    `json:"action_definitions"`
@@ -588,8 +569,7 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 	}{
 		SchemaVersion: workflowDefinitionSchemaVersion, Ref: definition.Ref, WorkKind: definition.WorkKind,
 		ChangesProductTruth: definition.ChangesProductTruth, Capabilities: definition.Capabilities,
-		ApprovalPolicy: definition.ApprovalPolicy,
-		StepGraph:      definition.StepGraph, AvailableActions: definition.AvailableActions, ActionDefinitions: definition.ActionDefinitions,
+		StepGraph: definition.StepGraph, AvailableActions: definition.AvailableActions, ActionDefinitions: definition.ActionDefinitions,
 		RequiredEvidenceKinds: definition.RequiredEvidenceKinds, OutcomeSchema: definition.OutcomeSchema, RigorRules: definition.RigorRules,
 		StalenessRules: definition.StalenessRules, CompositionRules: definition.CompositionRules, EvaluatorIndependence: definition.EvaluatorIndependence,
 		RecoveryRoutes: definition.RecoveryRoutes,
@@ -762,9 +742,6 @@ func validEdgeKind(kind WorkflowEdgeKind) bool {
 }
 func validActionConsequence(value ActionConsequence) bool {
 	return value == ActionInternalSQLite || value == ActionCrossAuthority || value == ActionExternalEffect
-}
-func validActionApproval(value ActionApproval) bool {
-	return value == ActionApprovalNone || value == ActionApprovalConditional || value == ActionApprovalRequired
 }
 func validActionExecutionMode(value ActionExecutionMode) bool {
 	return value == ActionAdvance || value == ActionHold || value == ActionFenced || value == ActionCheckpoint
@@ -1142,7 +1119,6 @@ const (
 
 type builtinActionPolicy struct {
 	Consequence   ActionConsequence
-	Approval      ActionApproval
 	ExecutionMode ActionExecutionMode
 	EventShape    ActionEventShape
 	Payload       WorkflowPayloadDefinition
@@ -1154,11 +1130,11 @@ type builtinActionPolicy struct {
 	CrossField *WorkflowActionCrossField
 }
 
-func actionPolicy(consequence ActionConsequence, approval ActionApproval, mode ActionExecutionMode, shape ActionEventShape, fields ...WorkflowPayloadField) builtinActionPolicy {
+func actionPolicy(consequence ActionConsequence, mode ActionExecutionMode, shape ActionEventShape, fields ...WorkflowPayloadField) builtinActionPolicy {
 	if fields == nil {
 		fields = []WorkflowPayloadField{}
 	}
-	return builtinActionPolicy{Consequence: consequence, Approval: approval, ExecutionMode: mode, EventShape: shape, Payload: WorkflowPayloadDefinition{Closed: true, Fields: fields}}
+	return builtinActionPolicy{Consequence: consequence, ExecutionMode: mode, EventShape: shape, Payload: WorkflowPayloadDefinition{Closed: true, Fields: fields}}
 }
 
 func publicActionPolicy(policy builtinActionPolicy, fields ...WorkflowPayloadField) builtinActionPolicy {
@@ -1326,7 +1302,7 @@ func nativeRunActionFields(statuses ...string) []WorkflowPayloadField {
 const workflowAlignmentCombinationTeaching = "record_alignment couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination."
 
 var builtinActionPolicies = map[string]builtinActionPolicy{
-	"record_proposal": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
+	"record_proposal": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		actionStringField("problem", true, 4096),
 		actionProseListField("affected", true, 1, 16, "proposal_affected_text"),
 		actionStringField("stakes", true, 2048),
@@ -1334,13 +1310,13 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionProseListField("constraints", false, 0, 16, "proposal_text"),
 		actionProseListField("open_questions", false, 0, 16, "proposal_text"),
 	),
-	"record_discovery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"record_design": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
+	"record_discovery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
+	"record_design": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		WorkflowPayloadField{Name: "approach", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 		actionArrayField("decisions", true, 16, "workflow_design_decision"),
 		actionListField("touched_refs", true, 1, 64),
 	),
-	"approve_contract": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped,
+	"approve_contract": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		actionEnumField("route_convention", false, "workflow_action"),
 		actionListField("route_conventions", false, 0, 16),
 		actionListField("proposed_route_conventions", false, 0, 16),
@@ -1354,10 +1330,10 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionEnumField("rigor_class", false, "prototype_internal", "prototype_trusted", "prototype_public", "prototype_safety_critical", "production_internal", "production_trusted", "production_public", "production_safety_critical", "critical_internal", "critical_trusted", "critical_public", "critical_safety_critical"),
 		actionObjectField("architecture_binding", false, "architecture_binding"),
 	),
-	"start_execution":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"checkpoint_execution": actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"bind_evidence":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped, evidenceBindingActionFields()...),
-	"link_successor": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+	"start_execution":      actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
+	"checkpoint_execution": actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
+	"bind_evidence":        actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped, evidenceBindingActionFields()...),
+	"link_successor": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
 		actionEnumField("relation", false, "forward_link"), actionObjectField("relation_data", false, "workflow_forward_relation"), actionRefField("successor_work_id", true),
 	),
 	// record_verdict's two wire shapes (CD-0198 D1) are one engine
@@ -1370,7 +1346,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	// the single-form policy payload released before the batch does not
 	// declare, so its registry validation reads the restated batched
 	// payload the current definitions pin and publication projects.
-	"record_verdict": actionPolicyWithAlternatives(actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+	"record_verdict": actionPolicyWithAlternatives(actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
 		actionIntegerField("contract_version", false), actionRefField("predicate_id", true),
 		actionEnumField("verdict_kind", false, "ok", "outcome_mismatch", "insufficient_evidence"),
 		actionStringField("verdict_actor_ref", false, 70), actionListField("evaluation_evidence", false, 1, 32),
@@ -1383,16 +1359,16 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 			Remedy:  "move the field into the verdicts entries",
 		},
 	),
-	"confirm_premise": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped,
+	"confirm_premise": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		actionIntegerField("contract_version", false),
 	),
-	"complete": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventCompletion,
+	"complete": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventCompletion,
 		actionStringField("evidence_commit", false, 128), actionStringField("current_commit", false, 128),
 		actionObjectField("payload", false, "workflow_completion_payload"), actionStringField("verdict_actor_ref", false, 70),
 		actionEnumField("impact_verdict", true, "breaking", "non-breaking"), actionListField("evidence_refs", false, 1, 32),
 	),
-	"record_reproduction": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"record_root_cause":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_reproduction": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
+	"record_root_cause":   actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
 	// CD-0156: the mandatory backlog-alignment search. outcome is a required
 	// closed enum so a later reader can tell checked-and-found-nothing from
 	// never-checked. The outcome/related_ids legal input combinations are
@@ -1401,7 +1377,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	// declaration, so the advertised shape and admission refuse one
 	// identical set (CON-412). workflowAlignmentCombinationTeaching
 	// publishes the same rule as text.
-	"record_alignment": actionPolicyWithCombinations(actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
+	"record_alignment": actionPolicyWithCombinations(actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		// The shared actionStringField helper declares a minimum of one, but
 		// every fold bounds a workflow string at two bytes through
 		// workflowString. searched declares the floor it is actually held to,
@@ -1413,10 +1389,10 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		WorkflowPayloadCombination{Field: "outcome", Value: "related_found", Requires: []string{"related_ids"}, Remedy: "name the related work items the search found"},
 		WorkflowPayloadCombination{Field: "outcome", Value: "none_found", Forbids: []string{"related_ids"}, Remedy: "drop related_ids or record outcome related_found"},
 	),
-	"start_repair":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"checkpoint_repair": actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"start_refine":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"checkpoint_refine": actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"start_repair":      actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
+	"checkpoint_repair": actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
+	"start_refine":      actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
+	"checkpoint_refine": actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
 	// CD-0198 D2: the typed diagnosis record. The payload carries one
 	// required section per merged source action: the reproduction record,
 	// the CD-0156 alignment search whose searched/outcome/related_ids
@@ -1424,7 +1400,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	// unchanged, and the root-cause record. The projection fold writes the
 	// same workflow_backlog_alignment rows the alignment action wrote and
 	// creates no relation.
-	"record_diagnosis": actionPolicyWithCombinations(actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
+	"record_diagnosis": actionPolicyWithCombinations(actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		// The bounds match the searched floor the fold enforces through
 		// workflowString: a schema-valid section cannot be refused by the
 		// fold.
@@ -1437,22 +1413,22 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		WorkflowPayloadCombination{Field: "outcome", Value: "related_found", Requires: []string{"related_ids"}, Remedy: "name the related work items the search found"},
 		WorkflowPayloadCombination{Field: "outcome", Value: "none_found", Forbids: []string{"related_ids"}, Remedy: "drop related_ids or record outcome related_found"},
 	),
-	"frame_research": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
-	"record_finding": actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"revise_candidates": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
+	"frame_research": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
+	"record_finding": actionPolicy(ActionCrossAuthority, ActionAdvance, ActionEventGeneric),
+	"revise_candidates": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		actionIntegerField("contract_version", false),
 		actionEnumField("candidate_kind", false, "work_item", "product", "project"), actionRefField("candidate_ref", false),
 		actionListField("added", false, 1, 64), actionListField("candidate_ids", false, 1, 64), actionListField("removed", false, 1, 64),
 	),
-	"record_report":     actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
-	"record_conclusion": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
-	"frame_question":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
-	"record_research":   actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
-	"record_option":     actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"start_poc":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"checkpoint_poc":    actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"discard_poc":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"record_decision": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventCheckpoint,
+	"record_report":     actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
+	"record_conclusion": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
+	"frame_question":    actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
+	"record_research":   actionPolicy(ActionCrossAuthority, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
+	"record_option":     actionPolicy(ActionCrossAuthority, ActionAdvance, ActionEventGeneric),
+	"start_poc":         actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
+	"checkpoint_poc":    actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
+	"discard_poc":       actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
+	"record_decision": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventCheckpoint,
 		WorkflowPayloadField{Name: "question", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 		actionProseListField("options_considered", true, 1, 16, "proposal_text"),
 		actionEnumField("decision", true, "accepted_decision", "insufficient_evidence"),
@@ -1461,24 +1437,24 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionProseListField("inputs", true, 1, 32, "proposal_text"),
 		WorkflowPayloadField{Name: "poc_findings", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 	),
-	"accept_decision":     actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
-	"approve_operation":   actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
-	"start_run":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric, nativeRunActionFields("started", "failed_to_start")...),
-	"checkpoint_run":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"record_health":       actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric, nativeRunActionFields("healthy", "degraded", "failed")...),
-	"rollback_run":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric, nativeRunActionFields("rolled_back", "partially_rolled_back", "rollback_failed")...),
-	"cleanup_run":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric, nativeRunActionFields("cleaned", "cleanup_failed")...),
-	"declare_scope":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
-	"run_analysis":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"checkpoint_analysis": actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"start_action":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"checkpoint_action":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"checkpoint_context": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+	"accept_decision":     actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
+	"approve_operation":   actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
+	"start_run":           actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric, nativeRunActionFields("started", "failed_to_start")...),
+	"checkpoint_run":      actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
+	"record_health":       actionPolicy(ActionCrossAuthority, ActionAdvance, ActionEventGeneric, nativeRunActionFields("healthy", "degraded", "failed")...),
+	"rollback_run":        actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric, nativeRunActionFields("rolled_back", "partially_rolled_back", "rollback_failed")...),
+	"cleanup_run":         actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric, nativeRunActionFields("cleaned", "cleanup_failed")...),
+	"declare_scope":       actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
+	"run_analysis":        actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
+	"checkpoint_analysis": actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
+	"start_action":        actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
+	"checkpoint_action":   actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
+	"checkpoint_context": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
 		actionRefField("checkpoint_id", false), actionIntegerField("checkpoint_sequence", false),
 		actionStringField("active_unit", true, 256), actionStringField("hypothesis", true, 4096), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096),
 		actionListField("touched_refs", true, 1, 64), actionListField("evidence_refs", true, 1, 64), actionListField("pending_questions", true, 0, 16), actionListField("pending_decisions", true, 0, 16),
 	),
-	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
 		actionEnumField("boundary_kind", true, "summary", "restart"), actionEnumField("mode", true, "summary", "restart"), actionRefField("checkpoint_id", true),
 		actionIntegerField("boundary_sequence", false), actionIntegerField("checkpoint_sequence", false), actionStringField("summary", true, 16384),
 		WorkflowPayloadField{Name: "restart", ValueType: PayloadBoolean},
@@ -1490,26 +1466,26 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	// readings, the selected earlier finding references, and the new
 	// bounded findings each answer to a closed item schema the generated
 	// payload contracts carry.
-	"record_work_context": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+	"record_work_context": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
 		actionItemArrayField("required_reading", false, 0, WorkContextRequiredReadingMax, "work_context_reading"),
 		actionListField("finding_refs", false, 0, WorkContextFindingRefsMax),
 		actionItemArrayField("context_findings", false, 0, WorkContextActionFindingsMax, "work_context_finding"),
 	),
-	"record_delivery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric,
+	"record_delivery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric,
 		actionRefField("delivery_artifact", true), actionEnumField("delivery_state", true, "asserted")),
-	"accept_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
+	"accept_worker_result": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true),
 	),
 	// CD-0187: the confirmation-step accept binds a completed worker
 	// attempt's report as evidence and holds the step, so the operator's
 	// own gate stays the step's only advancing exit.
-	"accept_worker_evidence": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+	"accept_worker_evidence": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
 		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true),
 	),
-	"record_worker_failure": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric,
+	"record_worker_failure": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric,
 		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true),
 	),
-	"reject_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric,
+	"reject_worker_result": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric,
 		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionIDListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
 		actionIDListField("open_finding_ids", false, 1, 32),
 		// CD-0198 D5: the optional retry dispatch intent. The member names
@@ -1518,18 +1494,18 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		// definition gates the route at apply time.
 		actionObjectField("retry", false, "reject_retry"),
 	),
-	"request_correction": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold, ActionEventGeneric,
+	"request_correction": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric,
 		actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
 	),
-	"dispatch_worker": publicActionPolicy(actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric,
+	"dispatch_worker": publicActionPolicy(actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric,
 		actionRefField("attempt_id", true), actionObjectField("worker_packet", true, "worker_packet"),
 	), actionRefField("lane_id", true)),
-	"supersede_contract": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
+	"supersede_contract": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped),
 	// CD-0205: record_worker_job records one immutable worker-job revision
 	// under the work aggregate and holds the step. The caller authors the
 	// bounded job; the core derives the parent contract version, the Project
 	// scope, the next revision, and the digest.
-	"record_worker_job": actionPolicyWithAlternatives(actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+	"record_worker_job": actionPolicyWithAlternatives(actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
 		actionRefField("job_id", true),
 		actionStringField("objective", true, 4096),
 		actionStringField("stopping_condition", true, 2048),
@@ -1636,7 +1612,7 @@ func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDef
 		payload = policy.Payload
 		publicPayload = policy.PublicPayload
 	}
-	return WorkflowActionDefinition{ID: id, Consequence: policy.Consequence, Approval: policy.Approval, ExecutionMode: policy.ExecutionMode, Payload: payload, PublicPayload: publicPayload}
+	return WorkflowActionDefinition{ID: id, Consequence: policy.Consequence, ExecutionMode: policy.ExecutionMode, Payload: payload, PublicPayload: publicPayload}
 }
 
 // workflowDecisionFactPayloadFields selects the copied consequence_v1 fact
@@ -1648,7 +1624,7 @@ func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDef
 // byte-identical. The copy leaves every builtin policy slice, pinned
 // declaration, and released field list unmutated.
 func workflowDecisionFactPayloadFields(definition WorkflowDefinition, fields []WorkflowPayloadField) []WorkflowPayloadField {
-	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
+	if !workflowDeclaresDecisionDomains(definition) {
 		return fields
 	}
 	selected := slices.Clone(fields)
@@ -1682,7 +1658,7 @@ func workflowDecisionFactInitialActionDefinition(definition WorkflowDefinition) 
 	if pinned.Consequence == "" {
 		return WorkflowActionDefinition{}, nil
 	}
-	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
+	if !workflowDeclaresDecisionDomains(definition) {
 		return pinned, nil
 	}
 	if !pinned.Payload.Closed {

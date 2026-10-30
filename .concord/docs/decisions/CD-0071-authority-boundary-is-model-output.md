@@ -9,9 +9,9 @@
   recorded in
   [issue #450 comment](https://github.com/Sharper-Flow/concord/issues/450#issuecomment-5402538688)
 - **Related:** CD-0005 D5, CD-0008 (storage tamper-evidence deferral), CD-0044,
-  CD-0037 D5, CD-0017 D4, CD-0003, CD-0042
+  CD-0017 D4, CD-0003, CD-0042
 - **Preserves:** Git-derived scope resolution; the `cross_scope` gate; manifest
-  digest pinning; the operator approval checkpoint; `principal_ref` as checked
+  digest pinning; `principal_ref` as checked
   identity; every refusal the authority system currently returns
 
 ## Context
@@ -40,7 +40,7 @@ Three facts establish this, and none of them is a defect to be repaired:
    declares 204 triggers. They protect projection tables, archived work, and the
    workflow plane against UPDATE and DELETE. Not one
    protects `agent_clients`, `agent_client_keys`, `agent_grants`,
-   `agent_approvals`, `agent_approval_challenges`, `agent_nonce_replay`, or
+   `agent_nonce_replay`, or
    `agent_installation_keys`. The tables the authority system trusts are the
    only ones in the schema with nothing standing over them.
 2. **Nothing separates an agent from the file.** The database is `0600` under a
@@ -95,7 +95,7 @@ that boundary.
 
 ### D3. Absent tamper-evidence on the authority tables is accepted, not deferred
 
-The seven `agent_*` tables carry no trigger, hash chain, or attestation, and
+The `agent_*` tables carry no trigger, hash chain, or attestation, and
 none will be added on the strength of a tamper argument. Under D1 there is no
 adversary such a mechanism would stop: a writer able to forge a row is able to
 drop a trigger, and `checkManifest` compares migration SQL text against compiled
@@ -110,8 +110,7 @@ work on it.
 
 **Load-bearing.** Git-derived scope resolution at authorization, and the refusals it
 produces; the `cross_scope` capability gate; manifest-digest pinning; typed
-`unauthorized` refusals; the operator approval checkpoint with core-derived
-consequence summaries (CD-0037 D5); and `principal_ref`, on which idempotency
+`unauthorized` refusals; and `principal_ref`, on which idempotency
 partitioning, worktree claim ownership, workflow actor authority checks (CD-0017
 D4, CD-0242 D5), and durable operation attribution all depend. These constrain model output
 or carry checked identity. They stay.

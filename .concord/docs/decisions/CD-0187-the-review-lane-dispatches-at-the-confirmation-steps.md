@@ -31,7 +31,7 @@ hold rule that the amended join implies.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, confirmation-step review dispatch remains routine and correction supersession requires no operator signature. Human confirmation depends on the recorded decision domains, not the step-kind label. Review acceptance cannot itself confirm a premise, create evaluator independence, or bypass acceptance deliverables. A record about an earlier subject authorizes nothing about a changed one ([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)).
+Confirmation-step review dispatch and attributed correction supersession preserve the authenticated coordinator's premise-confirmation duty. Review acceptance cannot itself confirm a premise, create evaluator independence, or bypass acceptance deliverables. A record about an earlier subject authorizes nothing about a changed one ([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)).
 
 ### D1. The review class binds the confirmation steps
 
@@ -45,7 +45,7 @@ with an unsatisfiable review requirement.
 The workflow families promoted after this record compose
 `dispatch_worker` and `accept_worker_evidence` onto their `human_checkpoint`
 steps. The hold-mode accept binds a completed attempt's report as evidence and
-keeps the step, so the operator's own gate stays the step's only advancing
+keeps the step, so premise confirmation stays the step's only advancing
 exit. The advancing accept and the failure record stay off these steps.
 
 ### D3. The dispatch hold releases when an accept resolves the attempt
@@ -75,11 +75,11 @@ Both acceptance actions follow [CD-0242 D5](CD-0242-knowledge-first-workflows-ke
 and holds delivery, and evidence acceptance still does not advance refinement.
 The delivery exits retain their verification and assertion requirements.
 
-CD-0133 D1 permits operator-approved correction after this disposition only
+CD-0133 D1 permits attributed correction after this disposition only
 when every current authorization has a recorded terminal disposition. A new
 authorization closes correction before native dispatch evidence exists. The
-operator approves the exact successor contract; evidence acceptance supplies
-no approval and does not reinterpret an old report as a successor result.
+coordinator records the exact successor contract; evidence acceptance does not
+reinterpret an old report as a successor result.
 
 The work pin, preflight, and mutation share the recovery predicate.
 

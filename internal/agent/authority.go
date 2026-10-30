@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -11,8 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -197,10 +194,9 @@ func validPolicyGrants(policy TrustedClientPolicy) bool {
 		return false
 	}
 	for _, capability := range policy.Capabilities {
-		// worker_evidence and worker_dispatch are registrable in a client
-		// policy but deliberately absent from the grant-request vocabulary
-		// below: both authorize client-only signed writes, and no bearer
-		// grant can carry either. worker_dispatch is policy-bound because
+		// worker_evidence and worker_dispatch authorize client-only signed
+		// writes, and no bearer grant can carry either. worker_dispatch is
+		// policy-bound because
 		// CD-0059 D3 makes the nested-worker prohibition structural by
 		// denying workers the capability at the policy layer.
 		if !slices.Contains([]string{"product_read", "work_define", "work_transition", "work_relate", "work_compact", "cross_scope", "research", string(CapabilityWorkerEvidence), string(CapabilityWorkerDispatch)}, string(capability)) {
@@ -243,10 +239,7 @@ func (s *Service) ExpandTrustedClientPolicy(ctx context.Context, clientRef strin
 }
 
 // unionPolicyExpansion returns the mutate closure that unions the canonical
-// additions into every policy dimension under the dimension bounds. The
-// operator verb and the agent grant-request route both apply the union through
-// this one owner, so bounds, ordering, and survival of every existing grant
-// cannot drift between the two routes.
+// additions into every policy dimension under the dimension bounds.
 func unionPolicyExpansion(op string, add canonicalPolicyJSON) func(store.TrustedClientRecord) (store.TrustedClientRecord, error) {
 	return func(current store.TrustedClientRecord) (store.TrustedClientRecord, error) {
 		next := current
@@ -268,116 +261,6 @@ func unionPolicyExpansion(op string, add canonicalPolicyJSON) func(store.Trusted
 		}
 		return next, nil
 	}
-}
-
-// grantRequestCapabilities names the closed capability vocabulary the agent
-// grant-request route may carry. worker_evidence and worker_dispatch are
-// absent because both authorize client-only signed writes (CD-0044): no
-// bearer route may request them, so the operator CLI stays their only path.
-// Tool arguments still cannot add capabilities (CD-0071 D1); this route only
-// proposes, and the core applies a proposal after an independent operator
-// approval in the same transaction.
-var grantRequestCapabilities = map[agentcontract.Capability]struct{}{
-	agentcontract.Capability("product_read"):    {},
-	agentcontract.Capability("work_define"):     {},
-	agentcontract.Capability("work_transition"): {},
-	agentcontract.Capability("work_relate"):     {},
-	agentcontract.Capability("work_compact"):    {},
-	agentcontract.Capability("cross_scope"):     {},
-	agentcontract.Capability("research"):        {},
-}
-
-// TrustedClientPolicyVersion derives the version of a stored trusted client
-// policy: a digest over the stored principal, every policy dimension, and the
-// policy revision the store bumps on every policy write. The grant-request
-// route binds the operator approval to this version, so a policy that changed
-// after the challenge was minted — by any route — invalidates the approval
-// instead of expanding on top of it. The revision makes the version monotonic
-// across writes: a policy whose content is restored to its exact prior state
-// still yields a new version, so an approval minted before a change-then-
-// restore round trip refuses against the restored policy instead of applying.
-func TrustedClientPolicyVersion(current store.TrustedClientRecord) string {
-	return sha256Hex([]byte("client-policy-v2\x00" + current.ClientRef + "|" + current.PrincipalRef + "|" + current.CapabilitiesJSON + "|" + current.ProductScopeJSON + "|" + current.ProjectScopeJSON + "|" + current.AgentScopeJSON + "|" + fmt.Sprintf("%d", current.PolicyRevision)))
-}
-
-// PolicyExpansionProposal is the core-derived exact additive diff between a
-// stored trusted client policy and the requested additions: every entry the
-// client does not hold yet, per dimension, sorted, with the policy version
-// the diff was derived against. It confers no authority; applying it still
-// requires the operator approval and happens only inside the approval
-// transaction.
-type PolicyExpansionProposal struct {
-	ClientRef     string
-	PolicyVersion string
-	Capabilities  []agentcontract.Capability
-	ProductScope  []string
-	ProjectScope  []string
-	AgentScope    []string
-}
-
-// DeriveTrustedClientPolicyExpansion diffs the requested additions against
-// the stored policy and returns only the entries the client does not hold
-// yet. It validates the request vocabulary, the per-dimension bounds, and
-// the union bounds, and changes nothing. The grant-request route runs it
-// before the challenge is minted and again inside the approval transaction,
-// so a policy that moved between the two reads refuses instead of applying.
-func DeriveTrustedClientPolicyExpansion(current store.TrustedClientRecord, additions TrustedClientPolicy) (PolicyExpansionProposal, error) {
-	if current.Status != "active" {
-		return PolicyExpansionProposal{}, newRuntimeFailure("unknown_scope", fmt.Sprintf("trusted client %q is unknown or revoked; the operator registers and restores clients", current.ClientRef), "contact_operator", false)
-	}
-	if !validPolicyGrants(additions) {
-		return PolicyExpansionProposal{}, newRuntimeFailure("invalid_input", "grant-request additions name an unknown capability, duplicate an entry, exceed a policy bound, or carry an out-of-bounds scope value", "reread_entities", false)
-	}
-	for _, capability := range additions.Capabilities {
-		if _, allowed := grantRequestCapabilities[capability]; !allowed {
-			return PolicyExpansionProposal{}, newRuntimeFailure("unauthorized", fmt.Sprintf("capability %q cannot be requested through a bearer route; the operator grants it with concord client-policy-expand", capability), "contact_operator", false)
-		}
-	}
-	var storedCaps, storedProducts, storedProjects, storedAgents []string
-	if json.Unmarshal([]byte(current.CapabilitiesJSON), &storedCaps) != nil || json.Unmarshal([]byte(current.ProductScopeJSON), &storedProducts) != nil || json.Unmarshal([]byte(current.ProjectScopeJSON), &storedProjects) != nil || json.Unmarshal([]byte(current.AgentScopeJSON), &storedAgents) != nil {
-		return PolicyExpansionProposal{}, newRuntimeFailure("internal_error", "the stored trusted client policy is unreadable", "contact_operator", false)
-	}
-	proposal := PolicyExpansionProposal{ClientRef: current.ClientRef, PolicyVersion: TrustedClientPolicyVersion(current)}
-	proposedCaps, err := deltaGrants(capabilityStrings(additions.Capabilities), storedCaps, len(storedCaps), 32)
-	if err != nil {
-		return PolicyExpansionProposal{}, err
-	}
-	proposal.Capabilities = capabilityValues(proposedCaps)
-	if proposal.ProductScope, err = deltaGrants(additions.ProductScope, storedProducts, len(storedProducts), 100); err != nil {
-		return PolicyExpansionProposal{}, err
-	}
-	if proposal.ProjectScope, err = deltaGrants(additions.ProjectScope, storedProjects, len(storedProjects), 100); err != nil {
-		return PolicyExpansionProposal{}, err
-	}
-	if proposal.AgentScope, err = deltaGrants(additions.AgentScope, storedAgents, len(storedAgents), 100); err != nil {
-		return PolicyExpansionProposal{}, err
-	}
-	if len(proposedCaps)+len(proposal.ProductScope)+len(proposal.ProjectScope)+len(proposal.AgentScope) == 0 {
-		return PolicyExpansionProposal{}, newRuntimeFailure("invalid_input", "the grant request adds nothing the client does not hold; name the grants the dependent work needs", "reread_entities", false)
-	}
-	return proposal, nil
-}
-
-// deltaGrants returns the sorted entries of requested that stored does not
-// hold, refusing when adding them would push the dimension past its bound.
-func deltaGrants(requested, stored []string, storedCount, bound int) ([]string, error) {
-	delta := make([]string, 0, len(requested))
-	for _, value := range normalizeStrings(requested) {
-		if !slices.Contains(stored, value) && !slices.Contains(delta, value) {
-			delta = append(delta, value)
-		}
-	}
-	if storedCount+len(delta) > bound {
-		return nil, newRuntimeFailure("invalid_input", "the grant union exceeds the policy bound of "+fmt.Sprint(bound)+" for one dimension; request fewer grants or ask the operator to restate the policy", "reread_entities", false)
-	}
-	return delta, nil
-}
-
-// equalPolicyExpansion reports whether two proposals describe the same diff
-// against the same policy version, so a proposal derived outside the
-// approval transaction can be proven unchanged inside it.
-func equalPolicyExpansion(left, right PolicyExpansionProposal) bool {
-	return left.ClientRef == right.ClientRef && left.PolicyVersion == right.PolicyVersion && slices.Equal(capabilityStrings(left.Capabilities), capabilityStrings(right.Capabilities)) && slices.Equal(left.ProductScope, right.ProductScope) && slices.Equal(left.ProjectScope, right.ProjectScope) && slices.Equal(left.AgentScope, right.AgentScope)
 }
 
 // unionPolicyJSON decodes both canonical JSON arrays, unions them without
@@ -442,13 +325,6 @@ type Authority struct {
 	ScopeVersion      string
 	CandidateProducts []string
 	ScopeSnapshot     map[string]any
-	// PolicyProductScope and PolicyProjectScope snapshot the trusted client
-	// policy verbatim. ProductScope and ProjectScope are derived from the
-	// ambient Project's memberships and cannot see a subject outside them, so
-	// an operation whose named subject sits outside the ambient membership
-	// checks that subject against these policy scopes instead.
-	PolicyProductScope []string
-	PolicyProjectScope []string
 	// MainWorktree records that the grant resolved from the registered
 	// Project's default checkout rather than a linked worktree, so
 	// conditional main-checkout operations can enforce their conditions at
@@ -629,7 +505,7 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 		return Authority{}, err
 	}
 	snapshot := map[string]any{"project_id": resolved.ProjectID, "product_ids": candidateProducts, "scope_version": scopeVersion}
-	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: agentcontract.ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: authorizedProducts, ProjectScope: normalizeStrings(projects), ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, PolicyProductScope: normalizeStrings(policyProducts), PolicyProjectScope: normalizeStrings(policyProjects), MainWorktree: resolved.MainWorktree}, nil
+	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: agentcontract.ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: authorizedProducts, ProjectScope: normalizeStrings(projects), ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, MainWorktree: resolved.MainWorktree}, nil
 }
 
 func (s *Service) authorizedProductProjects(ctx context.Context, tx *store.Transaction, projectID string, products []string) ([]string, error) {
@@ -681,14 +557,6 @@ func intersect(left, right []string) []string {
 	return out
 }
 
-func expiryPassed(stored string, now time.Time) bool {
-	parsed, err := time.Parse(time.RFC3339Nano, stored)
-	if err != nil {
-		return true
-	}
-	return !parsed.After(now)
-}
-
 func capabilityStrings(values []agentcontract.Capability) []string {
 	out := make([]string, len(values))
 	for i, v := range values {
@@ -726,38 +594,8 @@ func containsCapability(values []agentcontract.Capability, value agentcontract.C
 	return false
 }
 
-type ApprovalChallengeSpec struct {
-	OperationDigest     string
-	Scope               map[string]any
-	Versions            map[string]any
-	Consequence         string
-	HostAssertionDigest string
-	ExpiresAt           time.Time
-}
-type ApprovalCheck struct {
-	ApprovalRef             string
-	OperationDigest         string
-	Scope                   map[string]any
-	Versions                map[string]any
-	Consequence             string
-	ClientRef               string
-	SessionRef              string
-	RequireOperatorIdentity bool
-}
-
-type HostApprovalAssertion struct {
-	ChallengeRef  string   `json:"challenge_ref"`
-	RequestDigest string   `json:"request_digest"`
-	Scope         []string `json:"scope"`
-	Versions      []string `json:"versions"`
-	SessionRef    string   `json:"session_ref"`
-	AgentRef      string   `json:"agent_ref"`
-	Worktree      string   `json:"worktree"`
-	IssuedAt      string   `json:"issued_at"`
-}
-
 // normalizeScopeList copies unique scope identities in first-occurrence order.
-// Preserving order and nilness keeps unique lists' raw approval JSON unchanged.
+// Preserve order and nilness for callers that retain the original scope JSON.
 func normalizeScopeList(values []string) []string {
 	if values == nil {
 		return nil
@@ -798,323 +636,6 @@ func scopeListValues(value any) []string {
 	}
 }
 
-func approvalScopeBindings(scope map[string]any) []string {
-	keys := make([]string, 0, len(scope))
-	for key := range scope {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	bindings := make([]string, 0, len(scope))
-	for _, key := range keys {
-		switch value := scope[key].(type) {
-		case string:
-			if value != "" {
-				bindings = append(bindings, key+":"+value)
-			}
-		default:
-			// The summary and host assertion share one unique binding per identity.
-			for _, item := range scopeListValues(value) {
-				if item != "" {
-					bindings = append(bindings, key+":"+item)
-				}
-			}
-		}
-	}
-	sort.Strings(bindings)
-	return bindings
-}
-
-func approvalVersionBindings(versions map[string]any) []string {
-	keys := make([]string, 0, len(versions))
-	for key := range versions {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	bindings := make([]string, 0, len(versions))
-	for _, key := range keys {
-		bindings = append(bindings, key+":"+fmt.Sprint(versions[key]))
-	}
-	sort.Strings(bindings)
-	return bindings
-}
-
-// challengeLifecycleReason is the pure state check a stored challenge must
-// pass before its decision bindings are read. Lifecycle failures carry the
-// binding diagnostic ahead of every decision check.
-func challengeLifecycleReason(challenge store.ApprovalChallengeRecord, validatedAt time.Time) string {
-	switch {
-	case challenge.Status != "active":
-		return "inactive"
-	case expiryPassed(challenge.ExpiresAt, validatedAt):
-		return "expired"
-	}
-	return ""
-}
-
-// challengeDecisionReason is the pure check that a challenge still binds the
-// exact operation, scope, versions, consequence, and host resolution of the
-// checked intent.
-func challengeDecisionReason(challenge store.ApprovalChallengeRecord, check ApprovalCheck, in Invocation) string {
-	storedScope, _ := json.Marshal(check.Scope)
-	storedVersions, _ := json.Marshal(check.Versions)
-	switch {
-	case challenge.OperationDigest != check.OperationDigest:
-		return "operation_digest"
-	case challenge.ScopeJSON != string(storedScope):
-		return "scope"
-	case challenge.VersionJSON != string(storedVersions):
-		return "versions"
-	case challenge.Consequence != check.Consequence:
-		return "consequence"
-	case challenge.HostAssertionDigest != in.HostAssertionDigest:
-		return "host_assertion_digest"
-	}
-	return ""
-}
-
-// challengeBindingReason is the first-failing binding check for a stored
-// challenge at exchange time.
-func challengeBindingReason(challenge store.ApprovalChallengeRecord, check ApprovalCheck, in Invocation, validatedAt time.Time) string {
-	if reason := challengeLifecycleReason(challenge, validatedAt); reason != "" {
-		return reason
-	}
-	return challengeDecisionReason(challenge, check, in)
-}
-
-// hostApprovalReference is the typed outcome of validating one host approval
-// assertion without mutating a row. challenge is nil when the reference
-// names no stored challenge, so the assertion addresses an issued approval.
-// bindingReason is the first failing challenge binding, empty when every
-// binding holds; validatedAt is the core instant the challenge was read at.
-type hostApprovalReference struct {
-	challenge     *store.ApprovalChallengeRecord
-	bindingReason string
-	validatedAt   time.Time
-}
-
-// validateHostApprovalReferenceTx validates the host assertion's exact
-// caller bindings, fresh answer timestamp, canonical scope and versions, and
-// the stored challenge's immutable bindings. It reports the reference kind
-// and deadline state; it does not mutate a row and does not decide a retry.
-func (s *Service) validateHostApprovalReferenceTx(ctx context.Context, tx *store.Transaction, in Invocation, assertion HostApprovalAssertion, check ApprovalCheck) (*hostApprovalReference, error) {
-	if err := s.authorityReady("agent_validate_host_approval"); err != nil {
-		return nil, err
-	}
-	if tx == nil {
-		return nil, transactionInvalid("agent_validate_host_approval")
-	}
-	if assertion.ChallengeRef != check.ApprovalRef || assertion.RequestDigest != check.OperationDigest || assertion.SessionRef != in.SessionRef || assertion.AgentRef != in.AgentRef || assertion.Worktree != in.Worktree {
-		return nil, newRuntimeFailure("approval_invalid", "host approval assertion does not match the requested operation or caller", "request_approval", false)
-	}
-	issued, err := time.Parse(time.RFC3339Nano, assertion.IssuedAt)
-	now, skew := s.now(), s.skew()
-	reason := ""
-	switch {
-	case err != nil:
-		reason = "malformed"
-	case issued.Before(now.Add(-skew)):
-		reason = "expired"
-	case issued.After(now.Add(skew)):
-		reason = "future"
-	}
-	if reason != "" {
-		// The host assertion failed, not the operator's approved decision.
-		// Do not request another approval or disclose malformed host input.
-		failure := newRuntimeFailure("internal_error", "host approval assertion timestamp invalid", "contact_operator", false)
-		failure.Details = map[string]any{"boundary": "host_approval_timestamp", "reason": reason, "validated_at": now.Format(time.RFC3339Nano), "allowed_clock_skew_seconds": skew.Seconds()}
-		if err == nil {
-			failure.Details["issued_at"] = issued.UTC().Format(time.RFC3339Nano)
-		}
-		return nil, failure
-	}
-	wantScope, _ := json.Marshal(approvalScopeBindings(check.Scope))
-	wantVersions, _ := json.Marshal(approvalVersionBindings(check.Versions))
-	assertedScope, _ := json.Marshal(assertion.Scope)
-	assertedVersions, _ := json.Marshal(assertion.Versions)
-	if string(assertedScope) != string(wantScope) || string(assertedVersions) != string(wantVersions) {
-		return nil, newRuntimeFailure("approval_invalid", "host approval assertion scope or versions invalid", "request_approval", false)
-	}
-	reference := &hostApprovalReference{validatedAt: s.now()}
-	challenge, challengeErr := store.ReadApprovalChallengeRefTx(ctx, tx, assertion.ChallengeRef)
-	if challengeErr == nil {
-		reference.challenge = &challenge
-		reference.bindingReason = challengeBindingReason(challenge, check, in, reference.validatedAt)
-	} else {
-		var failure *store.Failure
-		if !errors.As(challengeErr, &failure) || failure.Kind != store.KindProjectionNotFound {
-			return nil, challengeErr
-		}
-	}
-	return reference, nil
-}
-
-// challengeBindingRefusal is the stable wire refusal for a challenge whose
-// bindings no longer hold. A malformed stored deadline never enters the
-// public diagnostic.
-func challengeBindingRefusal(challenge store.ApprovalChallengeRecord, reason string, validatedAt time.Time) error {
-	failure := newRuntimeFailure("approval_invalid", "approval challenge binding invalid: "+reason, "request_approval", false)
-	failure.Details = map[string]any{"boundary": "approval_challenge_binding", "reason": reason, "validated_at": validatedAt.UTC().Format(time.RFC3339Nano)}
-	if expiry, err := time.Parse(time.RFC3339Nano, challenge.ExpiresAt); err == nil {
-		failure.Details["expires_at"] = expiry.UTC().Format(time.RFC3339Nano)
-	}
-	return failure
-}
-
-// AcceptHostApprovalTx is the sole owner of the host-approved challenge
-// exchange. It validates the fresh host answer and every immutable binding,
-// exchanges one pending challenge, and consumes the derived or issued
-// approval in this transaction. Under the accepted pending-challenge policy
-// (CD-0037 D4) it re-arms an active, unused, expired single-use challenge
-// for its original finite interval once the fresh answer and every decision
-// and caller binding still match, then derives and consumes the approval in
-// the same transaction; any failure rolls the whole exchange back. It
-// returns the consumed approval reference.
-func (s *Service) AcceptHostApprovalTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, in Invocation, assertion HostApprovalAssertion, check ApprovalCheck) (string, error) {
-	if err := s.authorityReady("agent_host_approval_accept"); err != nil {
-		return "", err
-	}
-	if tx == nil {
-		return "", transactionInvalid("agent_host_approval_accept")
-	}
-	reference, err := s.validateHostApprovalReferenceTx(ctx, tx, in, assertion, check)
-	if err != nil {
-		return "", err
-	}
-	if reference.challenge == nil {
-		// An issued approval reference follows its existing validation and
-		// consumption path; it is never eligible for challenge re-arming.
-		if err := s.ValidateAndConsumeApprovalTx(ctx, tx, check.ApprovalRef, check); err != nil {
-			return "", err
-		}
-		return check.ApprovalRef, nil
-	}
-	challenge := *reference.challenge
-	if reference.bindingReason == "" {
-		return s.consumeChallengeApprovalTx(ctx, tx, host, in, check)
-	}
-	if reference.bindingReason != "expired" || challengeDecisionReason(challenge, check, in) != "" {
-		return "", challengeBindingRefusal(challenge, reference.bindingReason, reference.validatedAt)
-	}
-	// Pending-challenge policy: only an unchanged decision on an active,
-	// unused, single-use challenge with a parseable finite interval within
-	// the creation bound may re-arm. A malformed stored issue time, a
-	// malformed deadline, or an interval outside the creation bound refuses
-	// closed, and the refusal never moves a deadline or consumes authority.
-	issuedAt, issueErr := time.Parse(time.RFC3339Nano, challenge.IssuedAt)
-	expiresAt, expiryErr := time.Parse(time.RFC3339Nano, challenge.ExpiresAt)
-	interval := expiresAt.Sub(issuedAt)
-	if issueErr != nil || expiryErr != nil || interval <= 0 || interval > 24*time.Hour || challenge.UsedCount != 0 || challenge.MaxUses != 1 {
-		return "", challengeBindingRefusal(challenge, "expired", reference.validatedAt)
-	}
-	identity := store.ChallengeIdentity{ClientRef: in.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Worktree: in.Worktree}
-	now := s.now()
-	if err := store.RearmApprovalChallengeTx(ctx, tx, check.ApprovalRef, identity, challenge.ExpiresAt, now.UTC().Add(interval).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
-		return "", err
-	}
-	return s.consumeChallengeApprovalTx(ctx, tx, host, in, check)
-}
-
-// consumeChallengeApprovalTx derives the ordinary single-use approval from
-// the still-live challenge and consumes it in this transaction.
-func (s *Service) consumeChallengeApprovalTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, in Invocation, check ApprovalCheck) (string, error) {
-	approvalRef, err := s.CreateApprovalFromChallengeTx(ctx, tx, host, in, check.ApprovalRef)
-	if err != nil {
-		return "", err
-	}
-	if err := s.ValidateAndConsumeApprovalTx(ctx, tx, approvalRef, check); err != nil {
-		return "", err
-	}
-	return approvalRef, nil
-}
-
-// CreateApprovalChallengeTx is the only challenge creation path. Identity and
-// scope come from the authorization boundary; callers provide operation intent
-// and the host probed before this transaction opened.
-func (s *Service) CreateApprovalChallengeTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, in Invocation, spec ApprovalChallengeSpec) (string, error) {
-	if err := s.authorityReady("agent_challenge_create"); err != nil {
-		return "", err
-	}
-	if tx == nil || spec.OperationDigest == "" || spec.Scope == nil || spec.Versions == nil || spec.Consequence == "" || spec.HostAssertionDigest == "" || in.HostAssertionDigest != spec.HostAssertionDigest || spec.ExpiresAt.IsZero() {
-		return "", transactionInvalid("agent_challenge_create")
-	}
-	authority, err := s.AuthorizeTx(ctx, tx, host, in)
-	if err != nil {
-		return "", err
-	}
-	if !validChallengeScope(spec.Scope) || !scopeWithinAuthority(spec.Scope, authority) {
-		return "", errors.New("approval scope exceeds authorized scope")
-	}
-	if !validChallengeVersions(spec.Versions) {
-		return "", errors.New("approval challenge versions invalid")
-	}
-	// A challenge must fit the typed prompt before it enters durable state.
-	// Details are not a second owner or an overflow channel for its bindings.
-	if len(approvalScopeBindings(spec.Scope)) > agentcontract.MaxConsequenceSummaryBindings || len(approvalVersionBindings(spec.Versions)) > agentcontract.MaxConsequenceSummaryBindings {
-		return "", newRuntimeFailure("limit_exceeded", "approval scope or version bindings exceed the consequence summary capacity", "reduce_limit", false)
-	}
-	now := s.now()
-	if !spec.ExpiresAt.After(now) || spec.ExpiresAt.Sub(now) > 24*time.Hour {
-		return "", errors.New("challenge expiry outside bound")
-	}
-	scope, _ := json.Marshal(spec.Scope)
-	versions, _ := json.Marshal(spec.Versions)
-	raw := make([]byte, 32)
-	if _, err = rand.Read(raw); err != nil {
-		return "", err
-	}
-	ref := hex.EncodeToString(raw)
-	productScope, _ := json.Marshal(authority.ProductScope)
-	err = store.InsertApprovalChallengeTx(ctx, tx, store.ApprovalChallengeRecord{ChallengeRef: ref, ClientRef: authority.ClientRef, PrincipalRef: authority.PrincipalRef, SessionRef: authority.SessionRef, AgentRef: authority.AgentRef, Directory: authority.Directory, Worktree: authority.Worktree, ProductScopeJSON: string(productScope), OperationDigest: spec.OperationDigest, ScopeJSON: string(scope), VersionJSON: string(versions), Consequence: spec.Consequence, HostAssertionDigest: spec.HostAssertionDigest, IssuedAt: now.Format(time.RFC3339Nano), ExpiresAt: spec.ExpiresAt.UTC().Format(time.RFC3339Nano), Status: "active", MaxUses: 1})
-	if err != nil {
-		return "", err
-	}
-	return ref, nil
-}
-
-// CreateApprovalFromChallengeTx derives identity fields from authorization and
-// atomically consumes the core-issued challenge before recording approval. The
-// host arrives probed from before this transaction opened.
-func (s *Service) CreateApprovalFromChallengeTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, in Invocation, challengeRef string) (string, error) {
-	if err := s.authorityReady("agent_approval_create"); err != nil {
-		return "", err
-	}
-	if tx == nil || len(challengeRef) != 64 {
-		return "", transactionInvalid("agent_approval_create")
-	}
-	authority, err := s.AuthorizeTx(ctx, tx, host, in)
-	if err != nil {
-		return "", err
-	}
-	identity := store.ChallengeIdentity{ClientRef: in.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Worktree: in.Worktree}
-	challenge, err := store.ReadApprovalChallengeTx(ctx, tx, challengeRef, identity)
-	if err != nil {
-		return "", approvalRefusalFor(err, store.KindProjectionNotFound, "approval challenge not found")
-	}
-	challengeExpired := expiryPassed(challenge.ExpiresAt, s.now())
-	if challenge.Status != "active" || challenge.UsedCount >= challenge.MaxUses || challenge.HostAssertionDigest != in.HostAssertionDigest || challengeExpired {
-		return "", approvalInvalid("approval challenge invalid")
-	}
-	var scope map[string]any
-	if json.Unmarshal([]byte(challenge.ScopeJSON), &scope) != nil || !validChallengeScope(scope) || !scopeWithinAuthority(scope, authority) {
-		return "", authorityRefusal("approval challenge exceeds current authorized scope")
-	}
-	if err := store.ConsumeApprovalChallengeTx(ctx, tx, challengeRef, identity, s.now().Format(time.RFC3339Nano)); err != nil {
-		return "", approvalRefusalFor(err, store.KindProjectionConflict, "approval challenge consumption lost race")
-	}
-	raw := make([]byte, 32)
-	if _, err = rand.Read(raw); err != nil {
-		return "", err
-	}
-	ref := hex.EncodeToString(raw)
-	evidenceRef := "approval-challenge:" + challengeRef
-	evidenceDigest := sha256Hex([]byte(challenge.HostAssertionDigest + "|" + challenge.OperationDigest + "|" + challenge.ScopeJSON + "|" + challenge.VersionJSON))
-	err = store.InsertApprovalTx(ctx, tx, store.ApprovalInsert{ApprovalRef: ref, OperationDigest: challenge.OperationDigest, ScopeJSON: challenge.ScopeJSON, VersionJSON: challenge.VersionJSON, Consequence: challenge.Consequence, HumanPrincipalRef: authority.PrincipalRef, ClientRef: authority.ClientRef, SessionRef: authority.SessionRef, IssuedAt: s.now().Format(time.RFC3339Nano), ExpiresAt: challenge.ExpiresAt, MaxUses: 1, ProtectedEvidenceRef: evidenceRef, ProtectedEvidenceDigest: evidenceDigest})
-	if err != nil {
-		return "", err
-	}
-	return ref, nil
-}
-
 func sha256Hex(value []byte) string {
 	sum := sha256.Sum256(value)
 	return "sha256:" + hex.EncodeToString(sum[:])
@@ -1136,22 +657,9 @@ func authorizedScopeFromSnapshot(scopeJSON string) (map[string]any, error) {
 
 // scopeWithinAuthority checks a challenge scope against the authorization the
 // invoking session holds. product_id, product_ids, and project_ids are
-// compared against the derived scopes. The Product–Project link keys
-// project_id and role are deliberately absent here: the linked Project sits
-// outside the derived ProjectScope by construction, because the membership
-// edge the challenge authorizes is the very thing that would admit it. The
-// product_project_add mutation owns their admission instead, with an explicit
-// trusted check that the named Project exists and its current Products sit
-// inside the policy before any challenge is minted. The link scope's product
-// keys share that blind spot — affectedProducts names the linked Project's
-// current memberships plus the destination, none of which the derived
-// Product scope can see for a disjoint Project — so a scope carrying
-// project_id compares them against the policy scopes the trusted check used.
+// compared against the derived scopes.
 func scopeWithinAuthority(scope map[string]any, authority Authority) bool {
 	productScope, projectScope := authority.ProductScope, authority.ProjectScope
-	if _, isLinkScope := scope["project_id"]; isLinkScope {
-		productScope, projectScope = authority.PolicyProductScope, authority.PolicyProjectScope
-	}
 	if product, ok := scope["product_id"].(string); ok && !slices.Contains(productScope, product) {
 		return false
 	}
@@ -1179,230 +687,4 @@ func allScopeStrings(value any, keep func(string) bool) bool {
 		}
 	}
 	return true
-}
-func validChallengeScope(scope map[string]any) bool {
-	for key, value := range scope {
-		if !validChallengeScopeBinding(key, value) {
-			return false
-		}
-	}
-	return true
-}
-
-func validChallengeScopeBinding(key string, value any) bool {
-	switch key {
-	case "governing_requirements":
-		text, ok := value.(string)
-		if !ok || len(text) != 71 || !strings.HasPrefix(text, "sha256:") {
-			return false
-		}
-		_, err := hex.DecodeString(text[7:])
-		return err == nil
-	case "product_id", "scope_version", "project_id", "client_ref", "policy_version", "failed_attempt_id", "held_attempt_holder":
-		text, ok := value.(string)
-		return ok && agentcontract.BoundedBytes(text, 1, 128)
-	case "role":
-		text, ok := value.(string)
-		return ok && (text == "primary" || text == "secondary")
-	case "product_ids", "project_ids", "work_ids", "product_scope", "project_scope", "agent_scope":
-		return validChallengeScopeIDs(value, 100)
-	case "capabilities":
-		return validChallengeScopeIDs(value, 32)
-	case "release_tag":
-		text, ok := value.(string)
-		return ok && outsideRepairReleaseTagBound(text)
-	case "pull_requests":
-		return validChallengePullRequests(value)
-	default:
-		return false
-	}
-}
-
-func validChallengeScopeIDs(value any, bound int) bool {
-	var count int
-	switch ids := value.(type) {
-	case []any:
-		count = len(ids)
-	case []string:
-		count = len(ids)
-	default:
-		return false
-	}
-	return count <= bound && allScopeStrings(value, func(text string) bool { return agentcontract.BoundedBytes(text, 1, 128) })
-}
-
-// The reconcile challenge binds the selected pull-request set as bounded
-// decimal strings, so one approval authorizes that set and no other result.
-func validChallengePullRequests(value any) bool {
-	switch selectors := value.(type) {
-	case []any:
-		if len(selectors) == 0 || len(selectors) > 32 {
-			return false
-		}
-		for _, raw := range selectors {
-			text, ok := raw.(string)
-			if !ok || !outsideRepairPullRequestSelectorBound(text) {
-				return false
-			}
-		}
-	case []string:
-		if len(selectors) == 0 || len(selectors) > 32 {
-			return false
-		}
-		for _, text := range selectors {
-			if !outsideRepairPullRequestSelectorBound(text) {
-				return false
-			}
-		}
-	default:
-		return false
-	}
-	return true
-}
-func validChallengeVersions(versions map[string]any) bool {
-	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true, "target": true, "failed_attempt_epoch": true, "held_attempt_epoch": true, "correction_attempts": true, "product": true, "initiative": true}
-	for key, value := range versions {
-		if !allowed[key] {
-			return false
-		}
-		switch typed := value.(type) {
-		case int:
-			if typed < 1 {
-				return false
-			}
-		case int64:
-			if typed < 1 {
-				return false
-			}
-		case float64:
-			if typed < 1 || typed != float64(int64(typed)) {
-				return false
-			}
-		case json.Number:
-			if n, err := typed.Int64(); err != nil || n < 1 {
-				return false
-			}
-		default:
-			return false
-		}
-	}
-	return true
-}
-func (s *Service) ValidateAndConsumeApprovalTx(ctx context.Context, tx *store.Transaction, ref string, check ApprovalCheck) error {
-	if err := s.authorityReady("agent_approval_consume"); err != nil {
-		return err
-	}
-	if tx == nil {
-		return transactionInvalid("agent_approval_consume")
-	}
-	// Every reference that names no usable approval for this exact check is
-	// an invalid approval (workflow-engine contract §11 step 4), whichever
-	// caller reaches it. Store faults keep their own kind.
-	if _, err := hex.DecodeString(ref); len(ref) != 64 || err != nil {
-		return approvalInvalid("approval reference malformed")
-	}
-	approval, err := store.ReadApprovalTx(ctx, tx, ref)
-	if err != nil {
-		return approvalRefusalFor(err, store.KindProjectionNotFound, "approval not found")
-	}
-	approvalExpired := expiryPassed(approval.ExpiresAt, s.now())
-	if approval.ClientStatus != "active" || approval.RevokedAt != "" || approval.UsedCount >= approval.MaxUses || approvalExpired || approval.OperationDigest != check.OperationDigest || approval.Consequence != check.Consequence || approval.ClientRef != check.ClientRef || approval.SessionRef != check.SessionRef {
-		return approvalInvalid("approval binding invalid")
-	}
-	wantScope, _ := json.Marshal(check.Scope)
-	wantVersions, _ := json.Marshal(check.Versions)
-	if string(wantScope) != approval.ScopeJSON || string(wantVersions) != approval.VersionJSON {
-		return approvalInvalid("approval scope or version invalid")
-	}
-	if err := store.ConsumeApprovalTx(ctx, tx, ref, s.now().Format(time.RFC3339Nano)); err != nil {
-		return approvalRefusalFor(err, store.KindProjectionConflict, "approval was already consumed")
-	}
-	return nil
-}
-
-func approvalInvalid(message string) error {
-	return newRuntimeFailure("approval_invalid", message, "request_approval", false)
-}
-
-// approvalRefusalFor renders the one store outcome that means the approval
-// itself is unusable as the approval_invalid refusal message names. Every
-// other error is a store fault and keeps its own classification.
-func approvalRefusalFor(err error, refusal store.FailureKind, message string) error {
-	var failure *store.Failure
-	if errors.As(err, &failure) && failure.Kind == refusal {
-		return approvalInvalid(message)
-	}
-	return err
-}
-
-// ApprovalAuthorityActorTx derives the operator actor from durable core-owned
-// authority only. The trusted-client policy, consumed challenge, and consumed
-// approval are the identity inputs; no host assertion or model payload can name
-// a human.
-func (s *Service) ApprovalAuthorityActorTx(ctx context.Context, tx *store.Transaction, in Invocation, approvalRef string) (store.WorkflowActor, error) {
-	var actor store.WorkflowActor
-	if err := s.authorityReady("agent_approval_authority"); err != nil {
-		return actor, err
-	}
-	if tx == nil || len(approvalRef) != 64 {
-		return actor, transactionInvalid("agent_approval_authority")
-	}
-	authority, err := store.ReadApprovalAuthorityTx(ctx, tx, approvalRef)
-	if err != nil {
-		return actor, approvalRefusalFor(err, store.KindProjectionNotFound, "consumed approval authority is unavailable")
-	}
-	if authority.ClientRef != in.ClientRef || authority.UsedCount < authority.MaxUses || authority.MaxUses != 1 || !strings.HasPrefix(authority.ProtectedEvidenceRef, "approval-challenge:") {
-		return actor, approvalInvalid("approval authority was not exactly consumed")
-	}
-	challengeRef := strings.TrimPrefix(authority.ProtectedEvidenceRef, "approval-challenge:")
-	if authority.ChallengeStatus != "consumed" {
-		return actor, approvalInvalid("approval challenge was not exactly consumed")
-	}
-	identity := store.ChallengeIdentity{ClientRef: in.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Worktree: in.Worktree}
-	if _, err := store.ReadApprovalChallengeTx(ctx, tx, challengeRef, identity); err != nil {
-		return actor, approvalRefusalFor(err, store.KindProjectionNotFound, "approval challenge is not bound to the invoking session")
-	}
-	policyDigest := sha256Hex([]byte("approval-policy-v1\x00" + authority.ClientRef + "|" + authority.PrincipalRef + "|" + authority.CapabilitiesJSON + "|" + authority.ProductScopeJSON + "|" + authority.ProjectScopeJSON))
-	actor = store.WorkflowActor{
-		PrincipalRef: "approval-authority:" + strings.TrimPrefix(policyDigest, "sha256:"),
-		ClientRef:    authority.ClientRef,
-		AgentRef:     "approval:" + approvalRef,
-		SessionRef:   "challenge:" + challengeRef,
-		ActorClass:   store.ActorOperator,
-	}
-	if err := store.ValidateWorkflowActor(actor); err != nil {
-		return store.WorkflowActor{}, err
-	}
-	actorRef, err := store.WorkflowActorRef(actor)
-	if err != nil {
-		return store.WorkflowActor{}, err
-	}
-	// The invoking agent's principal is registry-owned, not host-owned: the
-	// adapter envelope deliberately carries no principal (issue #808 /
-	// CD-0013 D5 — no host assertion can name a human). Building the
-	// comparison from the raw invocation made every production confirmation
-	// fail on an empty principal while hand-built fixtures passed.
-	executing := store.WorkflowActor{PrincipalRef: authority.PrincipalRef, ClientRef: in.ClientRef, AgentRef: in.AgentRef, SessionRef: in.SessionRef, ActorClass: store.ActorAgent}
-	executingRef, err := store.WorkflowActorRef(executing)
-	if err != nil || actorRef == executingRef {
-		return store.WorkflowActor{}, approvalInvalid("approval authority actor relabels the invoking agent")
-	}
-	return actor, nil
-}
-
-// consequenceSummaryFor derives the CD-0037 typed approval prompt from the
-// exact spec the challenge was minted with. It runs at mint time only: the
-// summary is never stored, so nothing it describes can drift without
-// invalidating the challenge that carries the same facts. Tool and operation
-// come from the validated invocation, never from caller input.
-func consequenceSummaryFor(tool, operation string, spec ApprovalChallengeSpec) *agentcontract.ConsequenceSummary {
-	return &agentcontract.ConsequenceSummary{
-		Tool:            tool,
-		Operation:       operation,
-		Consequence:     spec.Consequence,
-		OperationDigest: spec.OperationDigest,
-		Scope:           approvalScopeBindings(spec.Scope),
-		Versions:        approvalVersionBindings(spec.Versions),
-		ExpiresAt:       spec.ExpiresAt.UTC().Format(time.RFC3339Nano),
-	}
 }

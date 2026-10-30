@@ -45,18 +45,13 @@ func TestAdmissionWorkflowStateKeepsArtifactStaleBit(t *testing.T) {
 func TestAdmissionConfirmationAuthorityRequiresOneContract(t *testing.T) {
 	definition := mustBuiltinDefinition(t, "workflow.research").Definition
 	for _, contracts := range []int64{0, 1, 2} {
-		for _, engineering := range []bool{false, true} {
-			state := admissionModelState{step: "conclude", contracts: contracts, engineering: engineering}
-			want := WorkflowConfirmationAuthority("")
-			if contracts == 1 {
-				want = WorkflowConfirmationOperator
-				if engineering {
-					want = WorkflowConfirmationCoordinator
-				}
-			}
-			if got := admissionWorkflowState(definition, state).ConfirmationAuthority; got != want {
-				t.Errorf("%d active contracts, engineering=%v: confirmation authority=%q, want %q", contracts, engineering, got, want)
-			}
+		state := admissionModelState{step: "conclude", contracts: contracts}
+		want := WorkflowConfirmationAuthority("")
+		if contracts == 1 {
+			want = WorkflowConfirmationCoordinator
+		}
+		if got := admissionWorkflowState(definition, state).ConfirmationAuthority; got != want {
+			t.Errorf("%d active contracts: confirmation authority=%q, want %q", contracts, got, want)
 		}
 	}
 }
@@ -137,21 +132,13 @@ type admissionModelState struct {
 	// bigger after its latest size record. Only the size rerun, a
 	// revise_intent outside workflow_action, releases it.
 	sizeStop bool
-	// engineering is the explicit classification dimension for a
-	// consequence_v1 contract whose declared decision fact is the empty set:
-	// the model folds no pending operator question for engineering work,
-	// whatever the step shape declares, and the conformance lift compares
-	// that answer with the real fold. Absence of the dimension (false on
-	// every legacy enumeration state) keeps the registered legacy
-	// enumeration byte-for-byte in its prior behavior.
-	engineering bool
 	// done is the completed instance with the closed work lifecycle.
 	done bool
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q attempt %q dispatched %v producer %v freshOrigin %v jobDebt %v unboundRejectAt %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q unsatisfied %q scope %q integration %v sizeStop %v engineering %v done %v review %+v)",
-		s.step, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.jobDebt, s.unboundRejectionStep, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.jobsUnsatisfied, s.jobsScope, s.integration, s.sizeStop, s.engineering, s.done, s.review)
+	return fmt.Sprintf("(step %q attempt %q dispatched %v producer %v freshOrigin %v jobDebt %v unboundRejectAt %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q unsatisfied %q scope %q integration %v sizeStop %v done %v review %+v)",
+		s.step, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.jobDebt, s.unboundRejectionStep, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.jobsUnsatisfied, s.jobsScope, s.integration, s.sizeStop, s.done, s.review)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
@@ -324,22 +311,16 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		CorrectionRecovery:          state.attempt == "completed" && stepDeclaresAction(definition, state.step, "dispatch_worker"),
 		UnconsumedUnboundRejection:  workflowStepCarriesRejectionHold(definition, state.step) && state.unboundRejectionStep == state.step,
 		DispatchHold:                admissionDispatchHold(definition, state),
-		PendingOperatorDecision:     state.contracts == 1 && !state.engineering && workflowOperatorDecisionPending(definition, state.step) && state.artifact,
-		ApprovalPolicy:              definition.ApprovalPolicy,
 		CompleteStepCorrection:      admissionCompleteStepCorrection(definition, state),
 		ContractCorrectionAvailable: admissionContractCorrection(definition, state),
 		Delivery:                    delivery,
 		Review:                      admissionReviewState(state),
 	}
-	// The classification dimension folds the confirmation authority beside
-	// the question: an engineering contract records the coordinator's own
-	// confirmation, a decision contract keeps the verified operator, and a
-	// legacy pin keeps the empty authority the question machinery owns.
-	if state.contracts == 1 && definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
-		folded.ConfirmationAuthority = WorkflowConfirmationOperator
-		if state.engineering {
-			folded.ConfirmationAuthority = WorkflowConfirmationCoordinator
-		}
+	// One active contract folds the coordinator authority: its
+	// confirmation is the authenticated non-worker coordinator's own
+	// record, whatever the step shape declares.
+	if state.contracts == 1 {
+		folded.ConfirmationAuthority = WorkflowConfirmationCoordinator
 	}
 	if folded.Delivery.ProofRequired {
 		folded.Delivery.ProofReady = state.proof
@@ -359,21 +340,22 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	}
 	// The acceptance gate folds the recorded verdict: an open premise
 	// question without one refuses confirm_premise, and record_verdict on the
-	// same step stays the exit. Engineering work keeps the same deliverable
-	// gate — its confirmation replaces the question, not the prerequisites —
-	// and folds the recorded-investigation prerequisite beside it: without
-	// the observation the confirmation refuses, never admits behind an
-	// absent prerequisite. An earlier folded failure keeps its place, exactly
-	// as the loader preserves it. Evidence binding is outside the model.
+	// same step stays the exit. The coordinator confirmation keeps the same
+	// deliverable gate — its confirmation replaces the question, not the
+	// prerequisites — and folds the recorded-investigation prerequisite
+	// beside it: without the observation the confirmation refuses, never
+	// admits behind an absent prerequisite. An earlier folded failure keeps
+	// its place, exactly as the loader preserves it. Evidence binding is
+	// outside the model.
 	action, _ := workflowOperatorQuestionAction(definition, state.step)
-	if (folded.PendingOperatorDecision || state.engineering) && action == "confirm_premise" && state.verdict == "" {
+	if state.contracts == 1 && action == "confirm_premise" && state.verdict == "" {
 		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a recorded workflow verdict", false, "record_verdict before confirming the premise")
 	}
-	// The engineering confirmation folds the investigation prerequisite at
-	// every step that hosts the confirmation action — a human checkpoint's
+	// The confirmation folds the investigation prerequisite at every step
+	// that hosts the confirmation action — a human checkpoint's
 	// record_verdict beside confirm_premise — exactly as the loader's
 	// prerequisite fold does.
-	if state.engineering && action != "" && folded.AcceptanceDeliverablesMissing == nil && !state.artifact {
+	if state.contracts == 1 && action != "" && folded.AcceptanceDeliverablesMissing == nil && !state.artifact {
 		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires the recorded investigation artifact", false, "record the investigation observation before confirming")
 	}
 	gate := workflowStepIsDeliveryGate(workflowStep(definition, state.step))
@@ -1566,7 +1548,7 @@ func admissionModelKeyOf(steps []string, state admissionModelState) admissionMod
 	p.put(admissionKeyCode(state.jobsScope, admissionKeyJobScopes), 1)
 	p.put(admissionKeyCount(state.contracts), 8)
 	for _, set := range []bool{state.dispatched, state.attemptProduces, state.attemptFresh, state.jobDebt, state.designStale,
-		state.artifactStale, state.artifact, state.observed, state.started, state.proof, state.integration, state.sizeStop, state.done, state.engineering} {
+		state.artifactStale, state.artifact, state.observed, state.started, state.proof, state.integration, state.sizeStop, state.done} {
 		var bit uint8
 		if set {
 			bit = 1
@@ -1593,7 +1575,7 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 	state.jobsScope = admissionKeyJobScopes[p.get(1)]
 	state.contracts = int64(p.get(8))
 	for _, flag := range []*bool{&state.dispatched, &state.attemptProduces, &state.attemptFresh, &state.jobDebt, &state.designStale,
-		&state.artifactStale, &state.artifact, &state.observed, &state.started, &state.proof, &state.integration, &state.sizeStop, &state.done, &state.engineering} {
+		&state.artifactStale, &state.artifact, &state.observed, &state.started, &state.proof, &state.integration, &state.sizeStop, &state.done} {
 		*flag = p.get(1) == 1
 	}
 	state.review = admissionUnpackReview(&p)
@@ -1602,7 +1584,7 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 
 // admissionModelKeyFields is the number of admissionModelState fields
 // admissionModelKeyOf encodes.
-const admissionModelKeyFields = 25
+const admissionModelKeyFields = 24
 
 func TestAdmissionModelKeyEncodesEveryField(t *testing.T) {
 	if got := reflect.TypeOf(admissionModelState{}).NumField(); got != admissionModelKeyFields {
@@ -1642,19 +1624,10 @@ func TestAdmissionModelKeyRoundTrips(t *testing.T) {
 				mandate: pick(admissionKeyMandates), jobs: pick(admissionKeyJobs), jobsUnsatisfied: pick(admissionKeyJobKeys),
 				jobsScope: pick(admissionKeyJobScopes), contracts: random.Int64N(256),
 				dispatched: flip(), attemptProduces: flip(), attemptFresh: flip(), jobDebt: flip(), designStale: flip(), artifactStale: flip(),
-				artifact: flip(), observed: flip(), started: flip(), proof: flip(), integration: flip(), sizeStop: flip(), done: flip(), engineering: flip(),
+				artifact: flip(), observed: flip(), started: flip(), proof: flip(), integration: flip(), sizeStop: flip(), done: flip(),
 				review: admissionModelReview{report: pick(admissionReviewDispositions), accepted: pick(admissionReviewDispositions), group: pick(admissionReviewGroups), candidate: flip(), changed: flip(), current: flip(), progressed: flip(), blocked: flip()},
 			})
 		}
-	}
-}
-
-func TestAdmissionModelKeyKeepsEngineeringClassification(t *testing.T) {
-	steps := []string{""}
-	plain := admissionModelKeyOf(steps, admissionModelState{})
-	engineering := admissionModelKeyOf(steps, admissionModelState{engineering: true})
-	if plain == engineering {
-		t.Fatalf("admissionModelKeyOf encodes %d fields but states differing only in engineering share key %#v; encode the engineering field so distinct states keep distinct keys", admissionModelKeyFields, plain)
 	}
 }
 

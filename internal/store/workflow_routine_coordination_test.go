@@ -1,37 +1,17 @@
 package store
 
-// The store's own overlap-resolution and delivery-correction owners must
-// enforce the same approval classes the workflow policy defines, not just the
-// agent boundary. Routine overlap kinds (depends_on, blocks)
-// are coordination answers that need no consent; merged_into and supersedes
-// keep the approval requirement behind a consumed one-use approval whose
-// exact kind, direction, and version binding is a Dispatch-layer fact: there
-// the request digest covers the resolution kind and the from-to ordering,
-// and the host assertion signs that digest. The store receives the same
-// binding only as opaque fields — a digest plus recorded scope and version
-// strings — and records them verbatim without re-deriving kind or direction
-// from them. The delivery-correction routine path records
-// the real recorded caller instead of deriving an operator from a consumed
-// approval. A correction request may carry the already-authenticated caller
-// tuple, which the shared actor-prefix owner records when its actor row is
-// absent; a supplied tuple never substitutes a recorded identity.
-
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
 )
 
 // routineResolve drives one overlap resolution through the store's direct
-// entry with the endpoints' current versions. Remaining callers exercise the
-// routine kinds, so any supplied approval claim travels as a bare reference
-// the writer refuses; the destructive classes settle only through the
-// genuine host coverage in internal/agent.
-func routineResolve(t *testing.T, s *Store, from, to, kind, approval, actor, eventID string) error {
+// entry with the endpoints' current versions.
+func routineResolve(t *testing.T, s *Store, from, to, kind, actor, eventID string) error {
 	t.Helper()
 	fromVersion, toVersion := readWorkVersion(t, s, from), readWorkVersion(t, s, to)
 	err := s.Transact(context.Background(), func(tx *Transaction) error {
@@ -39,8 +19,8 @@ func routineResolve(t *testing.T, s *Store, from, to, kind, approval, actor, eve
 			EventID: eventID, FromWorkID: from, ToWorkID: to,
 			FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion,
 			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind,
-			Reason: "routine coordination settlement", ApprovalRef: approval,
-			Actor: actor,
+			Reason: "routine coordination settlement",
+			Actor:  actor,
 		})
 		return err
 	})
@@ -48,18 +28,14 @@ func routineResolve(t *testing.T, s *Store, from, to, kind, approval, actor, eve
 }
 
 // routineOverlapBoundaryEvent builds one raw overlap resolution event at an
-// explicit payload version on the fixture's fixed pair. Approval claims are omitted entirely
-// unless supplied.
-func routineOverlapBoundaryEvent(id, actor string, fromExpected, toExpected int64, kind string, payloadVersion int, approval string) Event {
+// explicit payload version on the fixture's fixed pair.
+func routineOverlapBoundaryEvent(id, actor string, fromExpected, toExpected int64, kind string, payloadVersion int) Event {
 	fromWorkID, toWorkID := "content-left", "content-right"
 	fields := map[string]any{
 		"work_id": fromWorkID, "expected_version": fromExpected, "resulting_version": fromExpected + 1,
 		"to_work_id": toWorkID, "to_expected_version": toExpected, "to_resulting_version": toExpected + 1,
 		"from_contract_version": int64(1), "to_contract_version": int64(1),
 		"resolution_kind": kind, "reason": "routine coordination settlement",
-	}
-	if approval != "" {
-		fields["approval_ref"] = approval
 	}
 	raw, err := json.Marshal(fields)
 	if err != nil {
@@ -71,14 +47,7 @@ func routineOverlapBoundaryEvent(id, actor string, fromExpected, toExpected int6
 	}
 }
 
-// routineCorrectionEvent builds one raw delivery correction event at the
-// routine payload version 2. Approval binding fields are omitted entirely
-// unless supplied, which is the shape the routine path refuses.
-func routineCorrectionEvent(id, workID, actor string, expected int64, targetEventID string, targetSeq int64, targetPayloadVersion int, approval map[string]string) Event {
-	return routineCorrectionEventAt(id, workID, actor, expected, targetEventID, targetSeq, targetPayloadVersion, 2, approval)
-}
-
-func routineCorrectionEventAt(id, workID, actor string, expected int64, targetEventID string, targetSeq int64, targetPayloadVersion, payloadVersion int, approval map[string]string) Event {
+func routineCorrectionEvent(id, workID, actor string, expected int64, targetEventID string, targetSeq int64, targetPayloadVersion int) Event {
 	fields := map[string]any{
 		"work_id": workID, "expected_version": expected, "resulting_version": expected + 1,
 		"target_event_id": targetEventID, "target_seq": targetSeq, "target_payload_version": targetPayloadVersion,
@@ -86,16 +55,13 @@ func routineCorrectionEventAt(id, workID, actor string, expected int64, targetEv
 		"delivery_artifact": deliveryCorrectionMergeRef, "delivery_state": "asserted",
 		"evidence_source": DeliveryEvidenceSourceCoordinatorAsserted,
 	}
-	for key, value := range approval {
-		fields[key] = value
-	}
 	raw, err := json.Marshal(fields)
 	if err != nil {
 		panic(err)
 	}
 	return Event{
 		EventID: id, Kind: WorkflowDeliveryCorrected, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: actor, OccurredAt: time.Unix(42, 0).UTC(), PayloadVersion: payloadVersion, Payload: raw,
+		Actor: actor, OccurredAt: time.Unix(42, 0).UTC(), PayloadVersion: 2, Payload: raw,
 	}
 }
 
@@ -135,17 +101,11 @@ func routineApprovalActorRows(t *testing.T, s *Store) int {
 }
 
 // unsignedDeliveryCorrectionRequest builds the direct-entry correction the
-// routine path admits: the five approval fields are cleared entirely, because
-// the correction carries no approval claim and attributes the real recorded
-// coordinator actor instead. Actor carries the recorded coordinator ref the
-// fixture's own actor event created.
+// routine path admits: the correction carries no approval claim and
+// attributes the real recorded coordinator actor instead. Actor carries the
+// recorded coordinator ref the fixture's own actor event created.
 func unsignedDeliveryCorrectionRequest(t *testing.T, s *Store, workID string, version int64, targetEventID string, targetSeq int64, targetPayloadVersion int) WorkflowDeliveryCorrectionRequest {
 	request := deliveryCorrectionRequest(workID, version, targetEventID, targetSeq, targetPayloadVersion)
-	request.ApprovalRef = ""
-	request.ApprovalOperationDigest = ""
-	request.ApprovalScopeJSON = ""
-	request.ApprovalVersionsJSON = ""
-	request.ApprovalConsequence = ""
 	request.Actor = readWorkflowRecordedActorRef(t, s, workID)
 	return request
 }
@@ -184,18 +144,33 @@ func seedRecordedWorkerLaneActor(t *testing.T, s *Store, workID string, version 
 	return laneRef, version + 1
 }
 
+func overlapContentFixture(t *testing.T) (*Store, WorkflowArchitectureBinding, string) {
+	t.Helper()
+	s, _, binding, _, _, _ := architectureValidationFixture(t, "content-left")
+	overlapFixtureExec(t, s, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) SELECT home_project_id,home_locator_id,product_id,'extra','Extra','Synthetic Domain',status,registry_content_hash,scanned_commit_oid FROM domains WHERE domain_id='child'`)
+	seedWork(t, s, "content-right")
+	overlapFixtureExec(t, s, `UPDATE work_items SET intent_json=json_set(intent_json,'$.governing_requirements',json('[]')) WHERE id IN ('content-left','content-right')`)
+	actor := seedProductChangingContract(t, s, "content-left", binding)
+	seedProductChangingContract(t, s, "content-right", binding)
+	ref, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, binding, ref
+}
+
 func TestRoutineCoordination(t *testing.T) {
 	t.Parallel()
 
-	t.Run("routine overlap kinds resolve without an approval claim", func(t *testing.T) {
+	t.Run("routine overlap kinds resolve unsigned", func(t *testing.T) {
 		t.Parallel()
 		for _, kind := range []string{ResolutionDependsOn, ResolutionBlocks} {
 			t.Run(kind, func(t *testing.T) {
 				t.Parallel()
 				s, _, actor := overlapContentFixture(t)
 				beforeFrom, beforeTo := routinePairVersions(t, s)
-				if err := routineResolve(t, s, "content-left", "content-right", kind, "", actor, "routine-"+kind); err != nil {
-					t.Fatalf("routine %s resolution without an approval claim refused: %v", kind, err)
+				if err := routineResolve(t, s, "content-left", "content-right", kind, actor, "routine-"+kind); err != nil {
+					t.Fatalf("routine %s resolution refused: %v", kind, err)
 				}
 				var relationCount int
 				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE resolution_id=? AND kind=?`, "routine-"+kind, kind).Scan(&relationCount); err != nil {
@@ -203,13 +178,6 @@ func TestRoutineCoordination(t *testing.T) {
 				}
 				if relationCount != 1 {
 					t.Fatalf("routine %s resolution wrote %d relations, want 1", kind, relationCount)
-				}
-				var recordedRef string
-				if err := s.DatabaseForTesting().QueryRow(`SELECT approval_ref FROM workflow_overlap_resolutions WHERE resolution_id=?`, "routine-"+kind).Scan(&recordedRef); err != nil {
-					t.Fatal(err)
-				}
-				if recordedRef != "" {
-					t.Fatalf("routine %s resolution recorded an approval claim %q", kind, recordedRef)
 				}
 				fromVersion, toVersion := routinePairVersions(t, s)
 				if fromVersion != beforeFrom+1 || toVersion != beforeTo+1 {
@@ -226,179 +194,17 @@ func TestRoutineCoordination(t *testing.T) {
 		}
 	})
 
-	t.Run("supplied approval claims refuse on routine kinds", func(t *testing.T) {
+	t.Run("a v2 governing scope cut without cross scope refuses", func(t *testing.T) {
 		t.Parallel()
-		// A supplied approval on a routine path is never consumed or
-		// transformed into human attribution: an unexpected authority claim
-		// is rejected, not accepted as an inert record.
-		for _, kind := range []string{ResolutionDependsOn, ResolutionBlocks} {
-			t.Run(kind, func(t *testing.T) {
-				t.Parallel()
-				s, _, actor := overlapContentFixture(t)
-				beforeFrom, beforeTo := routinePairVersions(t, s)
-				err := routineResolve(t, s, "content-left", "content-right", kind, "approval:routine-supplied", actor, "routine-supplied-claim-"+kind)
-				failure := routineFailure(t, err)
-				if failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "approval") {
-					t.Fatalf("routine %s supplied claim error = %v, want an invalid_payload refusal naming the approval", kind, err)
-				}
-				afterFrom, afterTo := routinePairVersions(t, s)
-				if afterFrom != beforeFrom || afterTo != beforeTo {
-					t.Fatalf("refused supplied claim moved versions %d/%d to %d/%d", beforeFrom, beforeTo, afterFrom, afterTo)
-				}
-				var resolutions int
-				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_overlap_resolutions`).Scan(&resolutions); err != nil {
-					t.Fatal(err)
-				}
-				if resolutions != 0 {
-					t.Fatalf("refused supplied claim left %d resolution rows", resolutions)
-				}
-				if count := routineOverlapEventCount(t, s); count != 0 {
-					t.Fatalf("refused supplied claim left %d resolution events", count)
-				}
-				if rows := routineApprovalActorRows(t, s); rows != 0 {
-					t.Fatalf("the refused claim left %d approval-derived workflow actor rows", rows)
-				}
-			})
+		s, _, actor := overlapContentFixture(t)
+		overlapFixtureExec(t, s, `UPDATE work_items SET intent_json=json_set(intent_json,'$.governing_requirements',json('["audit_required"]')) WHERE id='content-left'`)
+		fromVersion, toVersion := routinePairVersions(t, s)
+		event := routineOverlapBoundaryEvent("routine-v2-scope-cut", actor, fromVersion, toVersion, ResolutionMergedInto, 2)
+		err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion("content-left", fromVersion)})
+		failure := routineFailure(t, err)
+		if failure.Kind != KindUnauthorized || len(failure.Violations) != 1 || failure.Violations[0] != "audit_required" {
+			t.Fatalf("v2 scope cut without cross scope = %v, want the omitted requirement and unauthorized", err)
 		}
-	})
-
-	t.Run("endpoint and content freshness races refuse without effect", func(t *testing.T) {
-		t.Parallel()
-		t.Run("stale from endpoint version", func(t *testing.T) {
-			t.Parallel()
-			s, _, actor := overlapContentFixture(t)
-			fromVersion, toVersion := routinePairVersions(t, s)
-			err := s.Transact(context.Background(), func(tx *Transaction) error {
-				_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
-					EventID: "routine-race-from", FromWorkID: "content-left", ToWorkID: "content-right",
-					FromExpectedVersion: fromVersion - 1, ToExpectedVersion: toVersion,
-					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionDependsOn,
-					Reason: "stale declarer pin", Actor: actor,
-				})
-				return err
-			})
-			assertFailureKind(t, err, KindVersionConflict)
-			if nowFrom, nowTo := routinePairVersions(t, s); nowFrom != fromVersion || nowTo != toVersion {
-				t.Fatalf("refused stale race moved versions to %d/%d", nowFrom, nowTo)
-			}
-		})
-		t.Run("stale to endpoint version", func(t *testing.T) {
-			t.Parallel()
-			s, _, actor := overlapContentFixture(t)
-			fromVersion, toVersion := routinePairVersions(t, s)
-			err := s.Transact(context.Background(), func(tx *Transaction) error {
-				_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
-					EventID: "routine-race-to", FromWorkID: "content-left", ToWorkID: "content-right",
-					FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion - 1,
-					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionDependsOn,
-					Reason: "stale peer pin", Actor: actor,
-				})
-				return err
-			})
-			assertFailureKind(t, err, KindVersionConflict)
-			if nowFrom, nowTo := routinePairVersions(t, s); nowFrom != fromVersion || nowTo != toVersion {
-				t.Fatalf("refused stale race moved versions to %d/%d", nowFrom, nowTo)
-			}
-		})
-		t.Run("stale judged contract content", func(t *testing.T) {
-			t.Parallel()
-			s, binding, actor := overlapContentFixture(t)
-			applyContentSuccessor(t, s, contentSuccessor(t, s, actor, 2, binding, []string{}))
-			fromVersion, toVersion := routinePairVersions(t, s)
-			err := s.Transact(context.Background(), func(tx *Transaction) error {
-				_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
-					EventID: "routine-race-content", FromWorkID: "content-left", ToWorkID: "content-right",
-					FromExpectedVersion: fromVersion, ToExpectedVersion: toVersion,
-					FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionDependsOn,
-					Reason: "resolution pinned to the superseded contract", Actor: actor,
-				})
-				return err
-			})
-			failure := routineFailure(t, err)
-			if failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "not pinned to both current Product contract versions") {
-				t.Fatalf("stale content race error = %v, want the contract-freshness refusal", err)
-			}
-		})
-	})
-
-	t.Run("overlap resolution cycles refuse with rollback", func(t *testing.T) {
-		t.Parallel()
-		// A direct reversal of one pair's resolution is a re-resolution, not
-		// a cycle: the fold invalidates the old pair resolution (and its
-		// relation) before the cycle check runs. The cycle guard fires on an
-		// indirect loop across three pairs, so the witness chains a third
-		// pairwise-overlapping work: A->B, B->C, then the closing C->A.
-		for _, kind := range []string{ResolutionDependsOn, ResolutionBlocks} {
-			t.Run(kind, func(t *testing.T) {
-				t.Parallel()
-				s, binding, actor := overlapContentFixture(t)
-				seedWork(t, s, "content-third")
-				seedProductChangingContract(t, s, "content-third", binding)
-				if err := routineResolve(t, s, "content-left", "content-right", kind, "", actor, "routine-cycle-first-"+kind); err != nil {
-					t.Fatalf("first %s leg refused: %v", kind, err)
-				}
-				if err := routineResolve(t, s, "content-right", "content-third", kind, "", actor, "routine-cycle-second-"+kind); err != nil {
-					t.Fatalf("second %s leg refused: %v", kind, err)
-				}
-				versionsBefore := map[string]int64{}
-				for _, workID := range []string{"content-left", "content-right", "content-third"} {
-					versionsBefore[workID] = readWorkVersion(t, s, workID)
-				}
-				err := routineResolve(t, s, "content-third", "content-left", kind, "", actor, "routine-cycle-third-"+kind)
-				failure := routineFailure(t, err)
-				if failure.Kind != KindCycleDetected {
-					t.Fatalf("closing %s leg error = %v, want cycle_detected", kind, err)
-				}
-				for workID, before := range versionsBefore {
-					if after := readWorkVersion(t, s, workID); after != before {
-						t.Fatalf("refused cycle moved %s from %d to %d", workID, before, after)
-					}
-				}
-				if count := routineOverlapEventCount(t, s); count != 2 {
-					t.Fatalf("cycle rollback left %d resolution events, want only the two settled legs", count)
-				}
-				var relations int
-				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE kind=?`, kind).Scan(&relations); err != nil {
-					t.Fatal(err)
-				}
-				if relations != 2 {
-					t.Fatalf("cycle rollback left %d %s relations, want the two settled legs only", relations, kind)
-				}
-			})
-		}
-	})
-
-	t.Run("current overlap payload admission", func(t *testing.T) {
-		t.Parallel()
-		t.Run("a v2 routine event needs no claim", func(t *testing.T) {
-			t.Parallel()
-			s, _, actor := overlapContentFixture(t)
-			fromVersion, toVersion := routinePairVersions(t, s)
-			event := routineOverlapBoundaryEvent("routine-v2-routine-claimless", actor, fromVersion, toVersion, ResolutionDependsOn, 2, "")
-			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion("content-left", fromVersion)}); err != nil {
-				t.Fatalf("v2 routine event without a claim refused: %v", err)
-			}
-			var storedVersion int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM effect_receipts WHERE event_id=?`, event.EventID).Scan(&storedVersion); err != nil {
-				t.Fatal(err)
-			}
-			if storedVersion != 2 {
-				t.Fatalf("stored v2 payload version = %d, want the source version kept", storedVersion)
-			}
-		})
-		t.Run("a v2 governing scope cut without consent refuses", func(t *testing.T) {
-			t.Parallel()
-			s, _, actor := overlapContentFixture(t)
-			// CD-0243 D7 retains scope-cut consent, not kind-only consent.
-			overlapFixtureExec(t, s, `UPDATE work_items SET intent_json=json_set(intent_json,'$.governing_requirements',json('["audit_required"]')) WHERE id='content-left'`)
-			fromVersion, toVersion := routinePairVersions(t, s)
-			event := routineOverlapBoundaryEvent("routine-v2-destructive-claimless", actor, fromVersion, toVersion, ResolutionMergedInto, 2, "")
-			err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion("content-left", fromVersion)})
-			failure := routineFailure(t, err)
-			if failure.Kind != KindApprovalRequired || len(failure.Violations) != 1 || failure.Violations[0] != "audit_required" {
-				t.Fatalf("v2 scope cut without consent = %v, want the omitted requirement and approval_required", err)
-			}
-		})
 	})
 
 	t.Run("delivery correction keeps its exact target admission", func(t *testing.T) {
@@ -502,7 +308,7 @@ func TestRoutineCoordination(t *testing.T) {
 			const workID = "routine-coord-correction-v2"
 			s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
 			correctionRef := readWorkflowRecordedActorRef(t, s, workID)
-			event := routineCorrectionEvent("routine-correction-v2", workID, correctionRef, version, targetEventID, targetSeq, targetPayloadVersion, nil)
+			event := routineCorrectionEvent("routine-correction-v2", workID, correctionRef, version, targetEventID, targetSeq, targetPayloadVersion)
 			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 				t.Fatalf("v2 correction without an approval claim refused: %v", err)
 			}
@@ -516,9 +322,6 @@ func TestRoutineCoordination(t *testing.T) {
 			if read.DeliveryAssertion == nil || read.DeliveryAssertion.Correction == nil || read.DeliveryAssertion.Correction.Artifact != deliveryCorrectionMergeRef {
 				t.Fatalf("v2 correction overlay read = %+v, want the corrected merge evidence", read.DeliveryAssertion)
 			}
-			if correction := read.DeliveryAssertion.Correction; correction.ApprovalRef != "" {
-				t.Fatalf("v2 correction recorded an approval claim %q", correction.ApprovalRef)
-			}
 			var instanceState string
 			if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&instanceState); err != nil {
 				t.Fatal(err)
@@ -527,30 +330,11 @@ func TestRoutineCoordination(t *testing.T) {
 				t.Fatalf("v2 correction reopened the instance to %q", instanceState)
 			}
 		})
-		t.Run("a v2 correction rejects a supplied approval claim by name", func(t *testing.T) {
-			t.Parallel()
-			const workID = "routine-coord-correction-v2-claim"
-			s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
-			correctionRef := readWorkflowRecordedActorRef(t, s, workID)
-			event := routineCorrectionEvent("routine-correction-v2-claim", workID, correctionRef, version, targetEventID, targetSeq, targetPayloadVersion, map[string]string{
-				"approval_ref": deliveryCorrectionApprovalRef, "approval_operation_digest": deliveryCorrectionDigest,
-				"approval_scope_json": deliveryCorrectionScopeJSON(workID), "approval_versions_json": deliveryCorrectionVersionsJSON(version),
-				"approval_consequence": deliveryCorrectionConsequence,
-			})
-			err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)})
-			failure := routineFailure(t, err)
-			if failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "approval") {
-				t.Fatalf("v2 correction with a supplied claim error = %v, want an invalid_payload refusal naming the approval", err)
-			}
-			if got := readWorkVersion(t, s, workID); got != version {
-				t.Fatalf("refused v2 claim moved version to %d", got)
-			}
-		})
 		t.Run("a v2 correction requires a recorded authenticated actor", func(t *testing.T) {
 			t.Parallel()
 			const workID = "routine-coord-correction-v2-actor"
 			s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
-			event := routineCorrectionEvent("routine-correction-v2-actor", workID, "principal:ghost", version, targetEventID, targetSeq, targetPayloadVersion, nil)
+			event := routineCorrectionEvent("routine-correction-v2-actor", workID, "principal:ghost", version, targetEventID, targetSeq, targetPayloadVersion)
 			err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)})
 			failure := routineFailure(t, err)
 			if failure.Kind != KindUnauthorized {
@@ -576,7 +360,7 @@ func TestRoutineCoordination(t *testing.T) {
 			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{substituteEvent}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 				t.Fatal(err)
 			}
-			event := routineCorrectionEvent("routine-correction-v2-operator", workID, substituteRef, version+1, targetEventID, targetSeq, targetPayloadVersion, nil)
+			event := routineCorrectionEvent("routine-correction-v2-operator", workID, substituteRef, version+1, targetEventID, targetSeq, targetPayloadVersion)
 			err = applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version+1)})
 			failure := routineFailure(t, err)
 			if failure.Kind != KindUnauthorized {
@@ -588,7 +372,7 @@ func TestRoutineCoordination(t *testing.T) {
 			const workID = "routine-coord-correction-v2-lane"
 			s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
 			laneRef, currentVersion := seedRecordedWorkerLaneActor(t, s, workID, version)
-			event := routineCorrectionEvent("routine-correction-v2-lane", workID, laneRef, currentVersion, targetEventID, targetSeq, targetPayloadVersion, nil)
+			event := routineCorrectionEvent("routine-correction-v2-lane", workID, laneRef, currentVersion, targetEventID, targetSeq, targetPayloadVersion)
 			err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, currentVersion)})
 			failure := routineFailure(t, err)
 			if failure.Kind != KindUnauthorized {
@@ -825,53 +609,4 @@ func TestRoutineCorrectionActorPrefix(t *testing.T) {
 		}
 		requireRoutineCorrectionNoEffect(t, s, workID, eventsBefore, actorsBefore, version)
 	})
-}
-
-func overlapContentFixture(t *testing.T) (*Store, WorkflowArchitectureBinding, string) {
-	t.Helper()
-	s, _, binding, _, _, _ := architectureValidationFixture(t, "content-left")
-	overlapFixtureExec(t, s, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) SELECT home_project_id,home_locator_id,product_id,'extra','Extra','Synthetic Domain',status,registry_content_hash,scanned_commit_oid FROM domains WHERE domain_id='child'`)
-	seedWork(t, s, "content-right")
-	overlapFixtureExec(t, s, `UPDATE work_items SET intent_json=json_set(intent_json,'$.governing_requirements',json('[]')) WHERE id IN ('content-left','content-right')`)
-	actor := seedProductChangingContract(t, s, "content-left", binding)
-	seedProductChangingContract(t, s, "content-right", binding)
-	ref, err := WorkflowActorRef(actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return s, binding, ref
-}
-
-func contentSuccessor(t *testing.T, s *Store, actor string, version int64, binding WorkflowArchitectureBinding, modifies []string) Event {
-	t.Helper()
-	return pOverlapContractFacts(t, s, contentSuccessorSource(t, s, actor, version, binding, modifies))
-}
-
-func contentSuccessorSource(t *testing.T, s *Store, actor string, version int64, binding WorkflowArchitectureBinding, modifies []string) Event {
-	t.Helper()
-	mandate := []string{"spec:one"}
-	for _, addition := range binding.LawAdditions {
-		mandate = append(mandate, addition.LawID)
-	}
-	expected := readWorkVersion(t, s, "content-left")
-	return pOverlapContractFacts(t, s, workflowTypedEvent(fmt.Sprintf("content-successor-%d", version), WorkflowContractSuperseded, "content-left", actor, time.Unix(version, 0), expected, map[string]any{
-		"previous_contract_version": version - 1, "new_contract_version": version,
-		"supersede_reason": "synthetic revision", "audit_evidence": []string{"audit:content"},
-		"successor_contract": map[string]any{
-			"contract_version": version, "premise": "updated bounded outcome", "outcome_kind": "check",
-			"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:content", "immutable_subject_ref": "commit:content", "expected_result": "pass"},
-			"required_evidence": []string{"verification", "review"}, "route_conventions": []string{},
-			"spec_mandate": mandate, "law_modifies": modifies, "law_boundary_version": 1,
-			"law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)}},
-			"rigor_class":   "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
-		},
-	}))
-}
-
-func applyContentSuccessor(t *testing.T, s *Store, event Event) {
-	t.Helper()
-	expected := readWorkVersion(t, s, event.SubjectID)
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(event.SubjectID, expected)}); err != nil {
-		t.Fatal(err)
-	}
 }

@@ -39,9 +39,6 @@ func runVerificationCorrectionWall(t *testing.T) {
 				t.Fatal(err)
 			}
 			env := mutationEnvelope(grant, scopeVersion)
-			if got := verifyWallChallenges(t, s); got != 0 {
-				t.Fatalf("the verification journey minted %d approval challenges, want 0", got)
-			}
 			var seedEpoch int64
 			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_dispatch_start_payload,'$.attempt_epoch') FROM workflow_step_epochs WHERE work_id='work-1' ORDER BY latest_dispatch_start_seq DESC LIMIT 1`).Scan(&seedEpoch); err != nil {
 				t.Fatal(err)
@@ -61,9 +58,6 @@ func runVerificationCorrectionWall(t *testing.T) {
 			// Predicate selection remains context, not a retry credit.
 			if attempt.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("verification retry with predicates %v = %+v", tc.finalPredicate, attempt.Error)
-			}
-			if got := verifyWallChallenges(t, s); got != 0 {
-				t.Fatalf("verification retry minted %d approval challenges, want 0", got)
 			}
 			if got := verifyWallDispatchCompletions(t, s, retryID); got != 1 {
 				t.Fatalf("verification retry recorded %d dispatch completions, want 1", got)
@@ -88,9 +82,6 @@ func runVerificationCorrectionWall(t *testing.T) {
 			if blind.Error == nil || blind.Error.Kind != "operation_conflict" || !strings.Contains(blind.Error.Message, "unresolved launch outcome") {
 				t.Fatalf("blind re-dispatch = %+v, want unresolved launch conflict", blind.Error)
 			}
-			if got := verifyWallChallenges(t, s); got != 0 {
-				t.Fatalf("blind re-dispatch minted %d approval challenges, want 0", got)
-			}
 			if got := verifyWallDispatchCompletions(t, s, nextID); got != 0 {
 				t.Fatalf("blind re-dispatch recorded %d dispatch completions, want 0", got)
 			}
@@ -114,9 +105,6 @@ func runVerificationCorrectionWall(t *testing.T) {
 			after := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: afterRaw}, env)
 			if after.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("dispatch after retry failure = %+v", after.Error)
-			}
-			if got := verifyWallChallenges(t, s); got != 0 {
-				t.Fatalf("the whole verification journey minted %d approval challenges, want 0", got)
 			}
 			if got := verifyWallDispatchCompletions(t, s, afterID); got != 1 {
 				t.Fatalf("dispatch after retry failure recorded %d dispatch completions, want 1", got)
@@ -357,8 +345,8 @@ func completeVerificationAttempt(t *testing.T, s *store.Store, grant Authority, 
 }
 
 // runVerificationStoreAction applies one store-level workflow action so the
-// fixture can record verdict and correction records without minting operator
-// approval challenges on the mutation boundary.
+// fixture can record verdict and correction records without an operator
+// question on the mutation boundary.
 func runVerificationStoreAction(t *testing.T, s *store.Store, action string, fields map[string]any, actor store.WorkflowActor, suffix string) {
 	t.Helper()
 	version := workVersion(t, s, "work-1")

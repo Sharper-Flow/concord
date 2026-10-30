@@ -64,14 +64,13 @@ than a silently weakened boundary.
 
 The assertion nonce is consumed in the same transaction that writes the evidence.
 Authorization that commits without its evidence, or evidence that commits
-without its authorization, would both be defects. This is the same transaction
-discipline CD-0013 requires of approval consumption.
+without its authorization, would both be defects.
 
 ### D3. `worker_evidence` is client-policy authority, never grant authority
 
 A new capability authorizes evidence writing. It is registrable in a client
-policy and deliberately absent from the grant-request vocabulary, so no bearer
-token an agent holds can carry it and no agent-tool operation maps to it.
+policy, but no bearer token an agent holds can carry it and no agent-tool
+operation maps to it.
 Revoking the client stops evidence writing immediately.
 
 This keeps the authority where the mechanism can defend it. A grant is a bearer
@@ -127,8 +126,7 @@ holds only if no untrusted process can execute the binary, which is false in an
 envelope defined by many local agents.
 
 **Adding `worker_evidence` to the agent manifest capabilities.** Rejected
-because it would make the capability grant-requestable, which is precisely the
-reachability D3 removes.
+because it would let bearer tokens authorize evidence writes, contrary to D3.
 
 ## Verification
 

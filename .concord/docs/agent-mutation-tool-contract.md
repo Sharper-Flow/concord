@@ -29,7 +29,7 @@ exists ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-sta
 CD-0042 makes the generated current manifest the only pre-go-live surface
 identity. This contract does not authorize partial Domain writes or any planning write.
 
-Approval prerequisites in the operation tables follow CD-0013 D11 and CD-0243 D2: an operation requires operator consent only when one of CD-0243's six approval classes applies. Overlap answers including `merged_into` and `supersedes`, cancellation, removal, delivery correction, same-authorized-Product memberships, ordinary completion, outside repair and both reconciliation modes, local compaction publication/reconciliation, and physical research-pack deletion are agent-owned unless such a class applies. A governing-requirement scope cut remains a product decision. Authority-expanding Product or client-policy changes grant access and require security approval. Explicit cross-Product mutations keep their capability checks. A publication intent replaces approval as the exact content/home lock. Workflow action consent remains definition-pinned. All authentication, capability, version, authorization, evidence, native proof, retention-eligibility, atomicity, and durable-operation checks remain required.
+Operator decisions follow CD-0243 D2 in conversation: an agent asks the operator only when one of its six approval classes applies. A governing-requirement scope cut remains a product decision. Authority-expanding Product or client-policy changes grant access and require security approval. Explicit cross-Product mutations require `cross_scope`, otherwise `unauthorized`. A publication intent is the exact content/home lock. All authentication, capability, version, authorization, evidence, native proof, retention-eligibility, atomicity, and durable-operation checks remain required.
 
 
 The binding contract is sections 1 through 4: the four-tool decision with the
@@ -44,7 +44,7 @@ Concord exposes **four always-visible mutation tools**:
 
 1. `concord_work_define` — capture one work item or replace its mutable intent;
 2. `concord_work_transition` — perform one accepted lifecycle or workflow action
-   with required evidence/approval;
+   with required evidence;
 3. `concord_work_relate` — change work membership or typed work relations while
    preserving graph/supersession invariants;
 4. `concord_work_compact` — publish or reconcile the one canonical durable note for
@@ -56,7 +56,7 @@ that permits collapsing future authority or consequence boundaries.
 
 External native authorities—GitHub, CI, databases, cloud providers, service
 managers, and git itself—retain execution authority. Concord records work intent,
-approval, references, evidence, and status; it does not expose a generic external
+references, evidence, and status; it does not expose a generic external
 `execute` tool or proxy provider APIs. An ops runbook uses these four Concord tools
 for durable coordination and the accepted native tool for the real effect.
 
@@ -86,7 +86,7 @@ not a reading of the instruction: `invariant_violation` naming the omitted
 requirements in `violations`, `contact_operator` recovery, the operator's three
 `options`, and no mutation. Enumeration confers no authority — a caller can match the
 applicable set or fail, and the only path to a reduced set is an operator-approved
-scope cut bound to the challenge the refusal mints.
+scope cut resolved through the `cross_scope` capability.
 
 `capture` is one item only. Multiple discovered needs become separate explicit
 calls so each receives independent identity, value, scope, and conflict handling.
@@ -98,10 +98,10 @@ offered by the work item's accepted workflow definition.
 
 | Operation | Required domain input | Core effect |
 |---|---|---|
-| `lifecycle` | work ID, expected version, target `needed|in_progress|completed|cancelled`, reason, required evidence/approval | Validate PM4 transition and workflow obligations; write the current rows atomically. |
-| `workflow_action` | work ID, expected version, stable action ID offered by the current workflow version, required fields/evidence/approval | Execute the workflow-defined domain action atomically or reject it; action ID is authoritative data, not a caller-invented command. |
+| `lifecycle` | work ID, expected version, target `needed|in_progress|completed|cancelled`, reason, required evidence | Validate PM4 transition and workflow obligations; write the current rows atomically. |
+| `workflow_action` | work ID, expected version, stable action ID offered by the current workflow version, required fields/evidence | Execute the workflow-defined domain action atomically or reject it; action ID is authoritative data, not a caller-invented command. |
 
-`superseded` is excluded from lifecycle input. Contract supersession goes through the operator-approved
+`superseded` is excluded from lifecycle input. Contract supersession goes through the attributed
 `supersede_contract` action, and an overlap resolution that terminalizes a
 work item goes through `concord_work_relate.resolve_overlap` with `supersedes`
 or `merged_into`, which commits the relation and the terminal transition
@@ -114,7 +114,7 @@ record.
 `workflow_action` does not decide workflow registration or gate vocabulary. It is a
 stable indirection to an action already declared by the work item's pinned workflow
 version. The core—not tool prose—validates whether the action is currently offered
-and which evidence/approval it requires.
+and which evidence it requires.
 
 ### 2.3 `concord_work_relate`
 
@@ -124,7 +124,7 @@ one concurrent Domain overlap.
 | Operation | Required domain input | Core effect |
 |---|---|---|
 | `set_memberships` | work ID, expected version, complete resulting Project membership set with optional singular primary | Validate at least one membership, uniqueness, Project identity, and primary cardinality; replace the set atomically and return bounded Product-scope impact. |
-| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, resolution kind `depends_on\|blocks\|merged_into\|supersedes`, reason, and an operator approval for `merged_into` or `supersedes` | Record how two concurrent work items relate and create the typed relation atomically; `supersedes` and `merged_into` commit the terminal transition in the same transaction. |
+| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, resolution kind `depends_on\|blocks\|merged_into\|supersedes`, reason, and the `cross_scope` capability for `merged_into` or `supersedes` when the cut discards declared governing requirements | Record how two concurrent work items relate and create the typed relation atomically; `supersedes` and `merged_into` commit the terminal transition in the same transaction. |
 
 Membership is complete-set replacement because add/remove patches can transiently
 violate at-least-one and primary-cardinality invariants or depend on call order.
@@ -149,13 +149,13 @@ write arbitrary files.
 
 | Operation | Required domain input | Core/cross-authority effect |
 |---|---|---|
-| `publish` | terminal work ID/version; exact proposed note content; resolved home/locator; operator approval over content and home | Follow PM6: validate eligibility/home, commit to git, verify commit/path/work ID/hash, then record the SQLite compaction link. |
+| `publish` | terminal work ID/version; exact proposed note content; resolved home/locator | Follow PM6: validate eligibility/home, commit to git, verify commit/path/work ID/hash, then record the SQLite compaction link. |
 | `reconcile` | durable operation reference and expected operation version (or terminal work/version for orphan discovery); expected proof/recovery intent | Compare-and-swap the durable step, find and verify an orphan/partial publication by work ID, then complete the missing link or return a typed non-destructive recovery outcome without creating a second note. |
 
 Git and SQLite are never described as one atomic transaction. Before the first
 external effect, the core creates a durable operation record identifying the pinned
-terminal work version, approval reference bound to the exact content and home,
-idempotency identity, current step, and recovery state. The PM6 home lock remains
+terminal work version, the exact content and home digest, idempotency
+identity, current step, and recovery state. The PM6 home lock remains
 held through git verification and SQLite linkage; the core revalidates the pinned
 terminal version before recording that link.
 
@@ -186,7 +186,7 @@ It is not a batch.
 
 No v1 mutation accepts arrays of work IDs, heterogeneous operation lists, arbitrary
 transactions, or "continue on error." This avoids false top-level success and keeps
-expected versions, approvals, evidence, idempotency, and recovery attributable to
+expected versions, evidence, idempotency, and recovery attributable to
 one domain intent. A future batch requires a named failing scenario and per-item
 typed outcomes; reducing calls alone is insufficient.
 
@@ -211,8 +211,8 @@ durable results include current step and a safe next action—never a bare "star
 | Tool | TS1 scenarios |
 |---|---|
 | `concord_work_define` | AJ3 capture and spec conflict |
-| `concord_work_transition` | AJ4 start, complete, missing evidence, stale version; AJ8 approval/evidence recording around native execution |
-| `concord_work_relate` | AJ5 operator-approved Domain-overlap resolution |
+| `concord_work_transition` | AJ4 start, complete, missing evidence, stale version; AJ8 budget refusal and native execution |
+| `concord_work_relate` | AJ5 Domain-overlap resolution |
 | `concord_work_compact` | AJ6 publication and partial reconciliation |
 
 Native-run actions (`start_run`, `record_health`, `rollback_run`, `cleanup_run`)
@@ -287,7 +287,7 @@ or storage method is not sufficient evidence.
 
 - Given a transition carrying a stale expected version
   When any mutation tool dispatches it
-  Then the core refuses before approval consumption or any effect and returns
+  Then the core refuses before any effect and returns
   the current version.
 
 - Given a completion without its required evidence

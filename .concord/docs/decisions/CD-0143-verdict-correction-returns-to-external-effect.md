@@ -4,7 +4,7 @@
 - **Date:** 2026-09-13
 - **Scope:** Engine-owned correction after worker delivery and an unhealthy verification verdict
 - **Approval:** The operator approved this bounded workflow change.
-- **Related:** CD-0013, CD-0059, CD-0067, CD-0116, CD-0124, CD-0133, CD-0137, CD-0138
+- **Related:** CD-0013, CD-0059, CD-0067, CD-0124, CD-0133, CD-0137, CD-0138
 - **Preserves:** Contract authority, evidence provenance, operator approval,
   fail-closed completion, and the digests each record binds
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D7, D14)
@@ -21,12 +21,11 @@ workflow to the external effect that produced the result.
 
 ### D1. Admit one typed verdict-correction action
 
-For `approval_policy=consequence_v1`, correction requires the authenticated coordinator, diagnosis, strategy, affected predicates/findings, and bound evidence, but no operator approval or operator identity. This qualification applies to the approval prerequisite and its verification assertions below. Declared returns and fail-closed completion remain unchanged.
+Correction requires the authenticated coordinator, diagnosis, strategy, affected predicates/findings, and bound evidence. Declared returns and fail-closed completion remain required.
 
 The engine exposes `request_correction` when a completed and accepted worker
 result and a current unhealthy verdict exist. The payload requires a diagnosis,
-strategy, affected predicate IDs, bound evidence references, and an exact
-operator approval.
+strategy, affected predicate IDs, and bound evidence references.
 The action holds the checkpoint and records its disposition as current state
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
@@ -62,7 +61,7 @@ verdict and does not weaken evidence or predicate validation.
 - `request_correction` is unavailable without a current unhealthy verdict and one authorized admission ground.
 - The ground is a completed and accepted worker delivery behind that verdict, or a failure record that dispositions the checkpoint's latest failed attempt.
 - A verdict that predates a completed correction request cannot reopen the failed-review return, and the refusal names the stale verdict.
-- Missing fields, unrelated predicates, unbound evidence, and missing operator approval are refused.
+- Missing fields, unrelated predicates, unbound evidence, and unauthorized coordinators are refused.
 - Implementation correction returns to `execution`; break-fix correction returns to `repair`.
 - The correction context exposes the affected predicates and evidence;
 - Completion remains fail-closed until healthy verdicts exist. The CD-0242 D6

@@ -3687,10 +3687,10 @@ test("dispatchWorker aborts when dispatch_worker authorization is refused", asyn
   expect(authorizeCalls).toBe(1)
 })
 
-test("dispatchWorker preserves the core timestamp cause without opening a worker window", async () => {
+test("dispatchWorker preserves the core error cause without opening a worker window", async () => {
   let spawned = 0
   const windows = new DispatchWindows()
-  const cause = { kind: "internal_error", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none", message: "host approval assertion timestamp invalid", details: { boundary: "host_approval_timestamp", reason: "malformed" } }
+  const cause = { kind: "internal_error", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none", message: "workflow projection is unreadable", details: { boundary: "workflow_projection" } }
   const result = await dispatchWorker(packet(), {
     credentials: testCredentials, workerDirectory: WORKER_DIRECTORY, sessionID: SESSION, windows,
     runner: { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } },
@@ -3705,7 +3705,7 @@ test("dispatchWorker preserves the core timestamp cause without opening a worker
 })
 
 // The probe guards execution, not dispatch. Authorization runs first, because
-// an approval challenge or a refused dispatch returns without a worker and must
+// a refused dispatch returns without a worker and must
 // not require a credential. Once authorization passes, a spawn is imminent, so
 // an unreadable credential refuses here rather than after a wasted lane run.
 test("a credential probe failure refuses after authorization and before worker execution", async () => {

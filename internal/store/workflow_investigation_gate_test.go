@@ -223,7 +223,7 @@ func TestOperatorQuestionWithheldForAnyApprovalRequiredAction(t *testing.T) {
 	ctx := context.Background()
 
 	// With no observation the path produces no question, whatever the
-	// approval-required action is. The verify step's confirm_premise question
+	// declared checkpoint action is. The verify step's confirm_premise question
 	// and the planning step's approve_contract question take the same gate.
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {

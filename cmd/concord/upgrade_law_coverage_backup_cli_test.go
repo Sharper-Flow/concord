@@ -155,8 +155,12 @@ func TestUpgradeRetiringLawCoverageSnapshotsTheCoverageTableBeforeTheDrop(t *tes
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("upgrade output is not JSON: %v: %s", err, out)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{166}) || report.SchemaVersion != store.CurrentSchemaVersion() {
-		t.Fatalf("applied = %+v schema = %d, want [166] at %d", report.Applied, report.SchemaVersion, store.CurrentSchemaVersion())
+	var expectedApplied []int
+	for version := 166; version <= store.CurrentSchemaVersion(); version++ {
+		expectedApplied = append(expectedApplied, version)
+	}
+	if !reflect.DeepEqual(report.Applied, expectedApplied) || report.SchemaVersion != store.CurrentSchemaVersion() {
+		t.Fatalf("applied = %+v schema = %d, want %v at %d", report.Applied, report.SchemaVersion, expectedApplied, store.CurrentSchemaVersion())
 	}
 	if !strings.HasPrefix(report.Backup, filepath.Join(root, "backups")+string(filepath.Separator)) {
 		t.Fatalf("the report must name a snapshot under the data root: %+v", report)

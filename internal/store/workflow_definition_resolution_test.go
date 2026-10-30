@@ -369,7 +369,7 @@ func confirmResolutionPremise(t *testing.T, s *Store, registry DefinitionRegistr
 	}
 	choice, digest, rest := confirmationEnvelope(fields)
 	events, err := workflowConfirmPremiseEvents(context.Background(), tx, definition, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", SelectedChoice: choice, DecisionContextDigest: digest, OperatorActor: operator,
+		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", SelectedChoice: choice, DecisionContextDigest: digest,
 		OperationID: "resolution-confirm-" + workID, Now: time.Unix(10, 30).UTC(),
 	}, invoker, rest, "resolution-confirm-"+workID, version)
 	// The store pools one connection: the constructor transaction must leave
@@ -440,11 +440,11 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 	})
 
-	t.Run("both confirmation authorities resolve the verified definition", func(t *testing.T) {
+	t.Run("the coordinator confirmation resolves the verified definition", func(t *testing.T) {
 		t.Parallel()
 		registry, definition := BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation").Definition
 		const engineeringID = "resolution-confirm-engineering"
-		s, _, _, _, coordinator := engineeringConfirmationSeed(t, engineeringID, `[]`)
+		s, _, _, _, coordinator := engineeringConfirmationSeed(t, engineeringID)
 		events, err := confirmResolutionPremise(t, s, registry, definition, engineeringID, coordinator, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)})
 		if err != nil {
 			t.Fatalf("engineering confirmation refused: %v", err)
@@ -469,30 +469,11 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 		// Engineering takes no operator substitution.
 		const substitutedID = "resolution-confirm-substituted"
-		s2, _, _, operator2, coordinator2 := engineeringConfirmationSeed(t, substitutedID, `[]`)
+		s2, _, _, operator2, coordinator2 := engineeringConfirmationSeed(t, substitutedID)
 		_, substitutionErr := confirmResolutionPremise(t, s2, registry, definition, substitutedID, coordinator2, &operator2, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)})
 		var substitutionFailure *Failure
-		if substitutionErr == nil || !failureAs(substitutionErr, &substitutionFailure) || substitutionFailure.Kind != KindUnauthorized {
-			t.Fatalf("engineering confirmation with an operator substitution returned %v, want the unauthorized refusal", substitutionErr)
-		}
-		// Decision-bearing keeps the verified operator and the human context.
-		const decisionID = "resolution-confirm-decision"
-		s3, _, _, operator3, coordinator3 := engineeringConfirmationSeed(t, decisionID, `["product"]`)
-		_, missingOperatorErr := confirmResolutionPremise(t, s3, registry, definition, decisionID, coordinator3, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`), "decision_context_digest": json.RawMessage(`"digest:human-question"`)})
-		var missingOperatorFailure *Failure
-		if missingOperatorErr == nil || !failureAs(missingOperatorErr, &missingOperatorFailure) || missingOperatorFailure.Kind != KindApprovalRequired {
-			t.Fatalf("decision confirmation without an operator returned %v, want the approval requirement", missingOperatorErr)
-		}
-		if _, err := confirmResolutionPremise(t, s3, registry, definition, decisionID, coordinator3, &operator3, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`), "decision_context_digest": json.RawMessage(`"digest:human-question"`)}); err != nil {
-			t.Fatalf("decision confirmation refused with the verified operator: %v", err)
-		}
-		// The decision fact rides contract 2, the reclassified successor.
-		var confirmedOperator string
-		if err := s3.DatabaseForTesting().QueryRow(`SELECT confirmed_by FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=2`, decisionID).Scan(&confirmedOperator); err != nil {
-			t.Fatal(err)
-		}
-		if confirmedOperator != ownerRefForTest(t, operator3) {
-			t.Fatalf("decision confirmation row records %q, want the verified operator", confirmedOperator)
+		if substitutionErr == nil || !failureAs(substitutionErr, &substitutionFailure) || substitutionFailure.Kind != KindInvalidOperation {
+			t.Fatalf("engineering confirmation with an operator substitution returned %v, want the coordinator-typed refusal", substitutionErr)
 		}
 	})
 
@@ -511,13 +492,13 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		// Before Main associates the accepted Review with the criteria the
 		// deliverables check refuses.
 		const unassociatedID = "resolution-deliverables-unassociated"
-		s, _, _, _, _ := engineeringConfirmationFixture(t, unassociatedID, `[]`, false, true)
+		s, _, _, _, _ := engineeringConfirmationFixture(t, unassociatedID, false, true)
 		var failure *Failure
 		if err := readDeliverables(t, s, definition, unassociatedID); !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("deliverables without the criterion association returned %v, want the missing-evidence refusal", err)
 		}
 		const workID = "resolution-deliverables"
-		s2, _, _, _, _ := engineeringConfirmationSeed(t, workID, `[]`)
+		s2, _, _, _, _ := engineeringConfirmationSeed(t, workID)
 		if err := readDeliverables(t, s2, definition, workID); err != nil {
 			t.Fatalf("deliverables refused with the criterion association recorded: %v", err)
 		}

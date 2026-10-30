@@ -408,22 +408,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		{name: "requireRecordedInvestigationArtifactSnapshot", run: func() error {
 			return requireRecordedInvestigationArtifactSnapshot(ctx, s, "neighbor-work")
 		}},
-		{name: "ActiveWorkflowContract", absent: KindProjectionNotFound, run: func() error { _, err := s.ActiveWorkflowContract(ctx, "neighbor-work"); return err }},
-		{name: "readSnapshot latestWorkflowContractVersion", run: func() error {
-			var contractVersion int64
-			err := s.readSnapshot(ctx, func(q queryer) error {
-				var innerErr error
-				contractVersion, innerErr = latestWorkflowContractVersion(ctx, q, "neighbor-work")
-				return innerErr
-			})
-			if err != nil {
-				return err
-			}
-			if contractVersion != 0 {
-				return fmt.Errorf("version=%d, want 0", contractVersion)
-			}
-			return nil
-		}},
 		{name: "readSnapshot activeWorkflowContractVersions", run: func() error {
 			var versions []int64
 			err := s.readSnapshot(ctx, func(q queryer) error {
@@ -688,7 +672,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			_, err := BackupWithOptions(ctx, s, optioned, BackupOptions{SnapshotID: "neighbor-snapshot"})
 			return err
 		}},
-		{name: "BlockedSessions", run: func() error { _, err := s.BlockedSessions(ctx, time.Now(), []string{"prod"}, 100); return err }},
 		{name: "ReadSessionClaimedWorktree", run: func() error {
 			_, err := ReadSessionClaimedWorktree(ctx, s, "neighbor-work", "proj")
 			return err
@@ -738,8 +721,8 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			if err != nil {
 				t.Fatalf("supersede_contract discovery under %s neighbor: %v", mode, err)
 			}
-			if action.ID != "supersede_contract" || action.Approval != ActionApprovalRequired {
-				t.Fatalf("recovery action=%+v, want supersede_contract with required approval", action)
+			if action.ID != "supersede_contract" {
+				t.Fatalf("recovery action=%+v, want supersede_contract", action)
 			}
 			if mode == neighbor.Writer && time.Since(started) >= neighbor.WriterHold {
 				t.Fatal("supersede_contract discovery waited for writer release")

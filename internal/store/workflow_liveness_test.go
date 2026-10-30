@@ -436,12 +436,10 @@ func livenessPayload(definition WorkflowDefinition, action WorkflowActionDefinit
 				continue
 			}
 			actor := livenessActionActor(action.ID)
-			if action.ID == "record_verdict" && !workflowApprovalPolicyRequiresDecisionFact(definition) {
-				// Legacy: the signed operator identity becomes the recorded
-				// verdict actor while the invoking evaluator remains the
-				// authenticated actor for the independent-evaluation guard.
-				// consequence_v1 takes no operator substitution, so the
-				// evaluator records under its own identity.
+			if action.ID == "record_verdict" && !workflowDeclaresDecisionDomains(definition) {
+				// This definition's fixture records the operator-class actor;
+				// the evaluator still supplies the authenticated invocation
+				// checked by the independent-evaluation guard.
 				actor = livenessOperator()
 			}
 			fields[field.Name] = DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef)
@@ -451,8 +449,7 @@ func livenessPayload(definition WorkflowDefinition, action WorkflowActionDefinit
 			// asserted_at is optional; omission is a valid payload.
 			continue
 		}
-		// An explored contract is engineering work: the empty decision-domain
-		// fact admits it without an operator consent challenge.
+		// An explored engineering contract declares an empty decision-domain fact.
 		if field.Name == "decision_domains" && variant[field.Name] == "" {
 			fields[field.Name] = []string{}
 			continue
@@ -636,11 +633,6 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 		return err
 	}
 	label := fmt.Sprintf("liveness-%s-%d", move.action, sequence)
-	// An approval-gated action is answered by the operator, not by the agent.
-	// The explorer supplies that operator so the probe measures the workflow
-	// route rather than the approval boundary, which is proved elsewhere. A
-	// state whose only exit needs the operator is waiting, not stranded.
-	var operator *WorkflowActor
 	selectedChoice := ""
 	decisionDigest := ""
 	actor := livenessActionActor(move.action)
@@ -652,11 +644,7 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 	// is approved, evaluated, confirmed, and completed under the agents' own
 	// identities, and the coordinator confirms the premise with no human
 	// question open.
-	routine := workflowApprovalPolicyRequiresDecisionFact(entry.Definition)
-	if workflowActionAllowsOperatorIdentity(move.action) && !routine {
-		operatorActor := livenessOperator()
-		operator = &operatorActor
-	}
+	routine := workflowDeclaresDecisionDomains(entry.Definition)
 	if move.action == "confirm_premise" && routine {
 		question, questionErr := readOperatorQuestionFromWorkPinForTest(ctx, s, workID)
 		if questionErr != nil {
@@ -749,8 +737,7 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 	request := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: move.action,
 		SelectedChoice: selectedChoice, DecisionContextDigest: decisionDigest,
-		OperatorActor: operator,
-		Payload:       payload, Actor: actor,
+		Payload: payload, Actor: actor,
 		EvidenceRefs:         evidenceRefs,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64),
 		ContractDigest:       testManifestDigest,

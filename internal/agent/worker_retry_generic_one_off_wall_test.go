@@ -9,13 +9,6 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// verifyWallChallenges counts the approval challenges the mutation boundary
-// minted so far: the durable proof a journey minted none.
-func verifyWallChallenges(t *testing.T, s *store.Store) int {
-	t.Helper()
-	return countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`)
-}
-
 // verifyWallDispatchCompletions counts the dispatch completions the fold
 // recorded for one attempt.
 func verifyWallDispatchCompletions(t *testing.T, s *store.Store, attemptID string) int {

@@ -82,7 +82,7 @@ Admission happens after strict input validation. For mutations, the core
 first performs the idempotency lookup: same key and digest returns the original
 committed result even if a later surface lowers the ceiling. A request that has
 not committed is checked against the negotiated operation ceiling before scope
-resolution, approval consumption, or any domain/external effect. Reads have no
+resolution or any domain/external effect. Reads have no
 idempotency record and check the ceiling before query execution. No path may
 lower the request and continue.
 
@@ -152,7 +152,7 @@ false after a commit or an external step may have occurred.
 - `AJ8-budget-refused` binds against the 30-second workflow-action ceiling and
   proves the operation never started or silently clamped 60 to 30.
 - Every operation declares one ceiling not greater than the global maximum.
-- Admission happens before approval consumption and effects.
+- Admission happens before effects.
 - Accepted budgets create one propagated deadline; no hop resets the clock.
 - Read, pre-commit, post-commit, and cross-authority expiry paths return the
   effect state they can prove.

@@ -84,7 +84,6 @@ func TestStoreCorrectionProposalPreservesAuthorityAndEffects(t *testing.T) {
 		want    string
 	}{
 		{"operator denial", store.Failure{Kind: store.KindUnauthorized}, "contact_operator"},
-		{"approval gate", store.Failure{Kind: store.FailureKind("approval_required")}, "request_approval"},
 		{"possible effect", store.Failure{Kind: store.KindInvalidPayload, EffectPossible: true}, "reconcile_operation"},
 		{"committed mutation", store.Failure{Kind: store.KindInvalidPayload, CommittedRefs: []store.SubjectCurrentVersion{{SubjectType: store.SubjectType("work"), SubjectID: "work-1", Version: 2}}}, "reconcile_operation"},
 	} {

@@ -148,7 +148,7 @@ func freshMigratedCLIDatabase(t *testing.T) string {
 func durableCounts(t *testing.T, s *store.Store) map[string]int {
 	t.Helper()
 	counts := make(map[string]int)
-	for _, table := range []string{"effect_receipts", "agent_approvals", "agent_approval_challenges", "idempotency_records", "durable_operations"} {
+	for _, table := range []string{"effect_receipts", "idempotency_records", "durable_operations"} {
 		var count int
 		if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil {
 			t.Fatalf("count %s: %v", table, err)

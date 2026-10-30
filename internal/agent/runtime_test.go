@@ -298,16 +298,6 @@ func TestAuthenticatedCursorBindsOperationAndRejectsTampering(t *testing.T) {
 	}
 }
 
-func TestMutationDigestBindsIntentNotApprovalTransportReference(t *testing.T) {
-	t.Parallel()
-	env := CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1"}
-	without := []byte(`{"work_id":"work-1","expected_version":2,"reason":"complete"}`)
-	with := []byte(`{"work_id":"work-1","expected_version":2,"reason":"complete","approval":{"approval_ref":"` + strings.Repeat("a", 64) + `"}}`)
-	if mutationDigest("concord_work_transition", "lifecycle", env, without) != mutationDigest("concord_work_transition", "lifecycle", env, with) {
-		t.Fatal("approval transport reference changed canonical intent digest")
-	}
-}
-
 func TestResultPayloadNeverSerializesUnsignedStoreCursor(t *testing.T) {
 	t.Parallel()
 	rawCursor := "store-offset-cursor"

@@ -25,7 +25,7 @@ Operator consent follows [CD-0243 D7](CD-0243-four-roles-and-six-operator-approv
 throughout this record, including tables and acceptance criteria.
 Other admission, safety, evidence, and historical-pin requirements remain required.
 
-For `approval_policy=consequence_v1`, CD-0013 D11 and CD-0059 D2 require exact transactional attempt, epoch, contract, and job binding, not failed-retry consent. Fresh attempts, capability checks, signed evidence, and the worker authority boundary remain required. Main controls the loop, and each launch carries its own authority ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) and [D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+CD-0013 D11 and CD-0059 D2 require exact transactional attempt, epoch, contract, and job binding. Fresh attempts, capability checks, signed evidence, and the worker authority boundary remain required. Main controls the loop, and each launch carries its own authority ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) and [D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ### D1. Concord owns a canonical lane registry
 

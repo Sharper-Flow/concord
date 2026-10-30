@@ -24,7 +24,6 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	seedChallenges := verifyWallChallenges(t, s)
 	retryID := "attempt:work-1:escalated-4"
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
@@ -39,9 +38,6 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	if admitted.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("ordinary retry without any approval = %+v", admitted.Error)
 	}
-	if got := verifyWallChallenges(t, s); got != seedChallenges {
-		t.Fatalf("ordinary retry minted %d approval challenges, want 0", got)
-	}
 	if got := verifyWallDispatchCompletions(t, s, retryID); got != 1 {
 		t.Fatalf("ordinary retry recorded %d dispatch completions, want 1", got)
 	}
@@ -52,7 +48,6 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	assertDispatchHasNoRetryBudget(t, s, retryID)
 
 	// The identical request replays its one authorization without a second launch.
-	env.HostApproval = nil
 	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 	if replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed {
 		t.Fatalf("replay of the admitted retry = %+v replayed=%v, want the recorded result", replayed.Error, replayed.Replayed)
@@ -85,9 +80,6 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	blind := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: blindRaw}, env)
 	if blind.Error == nil || blind.Error.Kind != "operation_conflict" || !strings.Contains(blind.Error.Message, "unresolved launch outcome") {
 		t.Fatalf("blind re-dispatch = %+v, want unresolved launch conflict", blind.Error)
-	}
-	if got := verifyWallChallenges(t, s); got != seedChallenges {
-		t.Fatalf("blind re-dispatch minted %d approval challenges, want 0", got)
 	}
 	if got := verifyWallDispatchCompletions(t, s, secondID); got != 0 {
 		t.Fatalf("blind re-dispatch recorded %d dispatch completions, want 0", got)
@@ -128,9 +120,6 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	if renewed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("retry after contract recovery = %+v", renewed.Error)
 	}
-	if got := verifyWallChallenges(t, s); got != seedChallenges {
-		t.Fatalf("the whole escalated journey minted %d approval challenges, want 0", got)
-	}
 	if epoch := escalatedDispatchEpoch(t, s); epoch != renewedWantEpoch {
 		t.Fatalf("retry after contract recovery epoch=%d, want the fresh fenced epoch %d", epoch, renewedWantEpoch)
 	}
@@ -138,28 +127,6 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 		t.Fatal("contract recovery did not advance beyond the failed retry epoch")
 	}
 	assertDispatchHasNoRetryBudget(t, s, secondID)
-}
-
-func assertBindingContains(t *testing.T, bindings any, want string) {
-	t.Helper()
-	list, ok := bindings.([]string)
-	if !ok {
-		raw, err := json.Marshal(bindings)
-		if err != nil {
-			t.Fatalf("bindings %+v marshal: %v", bindings, err)
-		}
-		var decoded []string
-		if err := json.Unmarshal(raw, &decoded); err != nil {
-			t.Fatalf("challenge bindings are not a string list: %+v", bindings)
-		}
-		list = decoded
-	}
-	for _, binding := range list {
-		if binding == want {
-			return
-		}
-	}
-	t.Fatalf("challenge bindings %v omit %q", list, want)
 }
 
 // escalatedDispatchEpoch reads the epoch the latest dispatch start fenced.
@@ -177,7 +144,7 @@ func escalatedDispatchEpoch(t *testing.T, s *store.Store) int64 {
 func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority, failureAt ...time.Time) (int64, string, string) {
 	t.Helper()
 	// The fixture resolves the current workflow family.
-	definition := legacyApprovalPolicyDefinitionForRef(t)
+	definition := currentImplementationFixtureDefinition(t)
 	if got := seedAgentWorkflowAt(t, s, grant, definition); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
@@ -298,7 +265,7 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 }
 
 // supersedeEscalatedCorrectionContract records an engineering successor with
-// unchanged criteria and architecture. It mints no operator challenge.
+// unchanged criteria and architecture.
 func supersedeEscalatedCorrectionContract(t *testing.T, s *store.Store, owner store.WorkflowActor, version, next int64, reason string) {
 	t.Helper()
 	fields := map[string]any{

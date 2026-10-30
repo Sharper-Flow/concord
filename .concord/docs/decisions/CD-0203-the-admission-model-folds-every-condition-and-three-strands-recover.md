@@ -1,16 +1,15 @@
-# CD-0203: The admission model derives every condition and three strands recover
+# CD-0203: The admission model derives every condition and two strands recover
 
 - **Status:** Accepted
 - **Date:** 2026-10-04
 - **Scope:** The workflow liveness, well-formed-exit, and conformance checks;
-  three store admission routes those checks proved stranded
+  two store admission routes those checks proved stranded
 - **Preserves:** CD-0201 D2, the liveness law; CD-0112 D1, continuity actions never move
   the step; every other route refusal keeps its scope (CD-0186)
 - **Related:** CD-0090, CD-0133, CD-0166, CD-0173, CD-0186
 - **Approval:** The operator directed in session chat on 2026-10-02 that the
   checks stay strict, with no named exception, and that the engine routes
-  change until the law holds. The operator approved the fix of all three
-  strands in session chat.
+  change until the law holds.
 
 ## Context
 
@@ -23,24 +22,20 @@ subset could not reach was not checked.
 The checks now derive every condition `workflowAdmit` reads, over the
 registered definitions
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
-The widened checks found three strands in the engine:
+The widened checks found two strands in the engine:
 
 1. A duplicated contract projection at the pinned complete step refused every
    recovery. CD-0172 D1 admitted the complete-step correction only with
    exactly one active contract, and the supersede admission refused duplicate
    recovery at that step.
-2. Version-1 to version-4 ops runbooks declare `confirm_premise` on an
-   internal-SQLite cleanup step. The operator question serves only a human
-   checkpoint, so the approval that `confirm_premise` consumes never opened,
-   and the only edge out of cleanup was never admitted.
-3. Version-1 research declares `frame_research` in advance mode beside
+2. Version-1 research declares `frame_research` in advance mode beside
    `approve_contract` on its frame step. A contractless advance moved the
    work past the only step that binds a contract, and completion refuses
    without one.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, CD-0013 D11 determines whether an operator question is required; engineering confirmation and routine correction/supersession have non-consent routes. The same derived admission state owns those routes and preserves investigation, evidence, recovery targets, and non-hold exits. The registered-version scenarios below retain their operator questions and approval requirements.
+The same derived admission state owns premise confirmation and correction/supersession routes and preserves investigation, evidence, recovery targets, and non-hold exits. CD-0013 D11 requires the authenticated coordinator for premise confirmation; operator decisions follow CD-0243 in conversation.
 
 ### D1. The contract step and the complete step keep their contract routes
 
@@ -55,19 +50,11 @@ single stale contract. The successor names every active version, so one
 supersession repairs the projection and returns the instance to its
 external-effect step.
 
-### D2. The premise question opens wherever confirm_premise is declared
+### D2. Premise confirmation uses the authenticated coordinator
 
-`workflowOperatorQuestionAction` owns which approval-required action the
-operator question at a step serves. A human checkpoint serves its first
-approval-required action. A step of any kind that declares `confirm_premise`
-serves that action, because the operator question is the only route that
-answers it. Other approval-required actions off a human checkpoint open no
-question. `request_correction` at a delivery gate keeps its own approval
-route.
-
-The work pin, the operator question read, the product row, and admission
-call this one function. The investigation artifact and the recorded verdict
-stay required, so the question opens only when its evidence exists.
+The active contract's coordinator confirmation records directly. Admission
+still requires the recorded investigation and verdict evidence. Work-pin,
+selection, continuity, and action admission use the same folded prerequisites.
 
 ### D3. The checks derive every admission condition
 
@@ -81,7 +68,7 @@ Admission code and definition content have separate owners.
 
 ## Alternatives considered
 
-- Name the three strands as exceptions in the checks. Rejected: the
+- Name the strands as exceptions in the checks. Rejected: the
   operator directed that the law holds without exceptions, and an excepted
   strand still strands real work.
 - Repair admission by changing definition content. Rejected: the strand is in
@@ -95,8 +82,8 @@ Admission code and definition content have separate owners.
 
 ## Consequences
 
-A duplicated projection at the complete step recovers through one operator
-approval. Research cannot skip its contract. A future change that
+A duplicated projection at the complete step recovers through one attributed
+supersession. Research cannot skip its contract. A future change that
 strands any registered definition fails the widened checks with a witness.
 
 ## Verification
@@ -110,7 +97,7 @@ Scenario: A contractless advance at the contract step refuses
 
 Scenario: A duplicated projection at the complete step recovers
   Given a completed break-fix item with two active contracts and a later contradiction observation
-  When the operator approves a supersession that names every active version
+  When the authenticated coordinator records a supersession that names every active version
   Then the projection holds one active contract and the instance returns to repair
 
 Scenario: Every registered definition stays live under the full model
@@ -122,5 +109,5 @@ Scenario: Every registered definition stays live under the full model
 - `go test ./internal/store/ -run TestContractStepAdvancesOnlyThroughItsApproval` proves the first scenario.
 - `go test ./internal/store/ -run TestCompleteStepCorrectionRecoversDuplicateProjection` proves the second scenario.
 - `TestCurrentDefinitionsHaveOneSourcePerLiveFamily` checks the current family set.
-- `go test ./internal/store/ -run 'TestRegisteredStepsAdmitTheirApprovalRequiredActions|TestRegisteredNonTerminalStepsCanAdvance'` checks approval-required actions and advancing exits across the registered current definitions.
+- `go test ./internal/store/ -run TestRegisteredNonTerminalStepsCanAdvance` checks advancing exits across the registered current definitions.
 - `go test ./internal/store/ -run 'TestWellFormedAdmissionStateHasNonContinuityExit|TestReachableAdmissionStateReachesTerminal|TestAdmissionConformanceLocalJobAcceptHolds|TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition'` proves the final scenario over current definitions and Review admission.

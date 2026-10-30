@@ -10,7 +10,7 @@
   repository review and merge evidence, and host-owned permissions and roles
 - **Approval:** The operator approved this law change on 2026-10-07,
   relayed by the Snowball coordinator. The public pull request carries its
-  delivery evidence. This repair creates no managed workflow approval record.
+  delivery evidence. This repair creates no managed workflow record.
 - **Approval:** Concord (CON) issue CON-910 (2026-10-13), under the Snowball coordinator's operator-delegated approval.
 
 Operator consent for outside-repair hold and reconciliation follows [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary).
@@ -29,12 +29,11 @@ workflow. A typed disposition must separate the repair from those prompts.
 
 ## Decision
 
-### D1. An operator-approved disposition holds live work for outside repair
+### D1. An attributed disposition holds live work for outside repair
 
 `concord_work_transition.outside_repair` records a typed active disposition on
-one `needed` or `in_progress` work item. The one-use operator approval binds
-the work, its expected version, the reason, and the exact operation. The
-approval consumption and disposition commit in one durable transaction.
+one `needed` or `in_progress` work item. The disposition binds the authenticated
+coordinator, work, expected version, and reason in one durable transaction.
 
 The disposition preserves the workflow's current step, instance state, and
 historical evidence. Continuity names the outside-repair route and suppresses
@@ -44,7 +43,7 @@ reconciliation action. A duplicate active disposition refuses without effect.
 
 The disposition asserts no worker dispatch, verdict, premise confirmation, or
 managed evidence. It admits historical repairs whose pull requests already
-merged. Those repairs use the same approval and reconciliation gates, not
+merged. Those repairs use the same evidence and reconciliation gates, not
 backdated workflow events.
 
 Existing execution-safety admission still applies. Hold and completion require
@@ -55,7 +54,7 @@ while the disposition holds. Failed terminal attempts remain historical facts.
 ### D2. One reconcile action closes or resumes the held work
 
 `concord_work_transition.outside_repair_reconcile` accepts `completed` or
-`resume`. Its one-use approval binds the work version, reason, mode, and,
+`resume`. The reconciliation binds the work version, reason, mode, and,
 for completion, the exact pull-request selectors and release tag.
 
 Completion requires independently fetched evidence from the registered
@@ -73,7 +72,7 @@ Project's GitHub repository:
   required results, merge and publication times, and observation provenance.
 
 The external reads occur before the write transaction. The transaction
-rechecks the work version and consumes the exact approval before it records
+rechecks the work version and coordinator authority before it records
 the receipt. Missing evidence, a failed required check, a foreign repository,
 or a release without a selected merge refuses without effect.
 
@@ -94,8 +93,7 @@ workflow. An item without an active disposition cannot reconcile.
 
 ### D3. The host opens an unpinned repair session in an isolated ordinary worktree
 
-Concord provides no repair command or launcher. The hold, the approvals,
-and the reconciliation of D1 and D2 are untouched. The host owns the repair
+Concord provides no repair command or launcher. The host owns the repair
 setup and session start, under the approved host operational procedure:
 
 - The coordinator or operator creates the repair worktree outside the default
@@ -130,7 +128,7 @@ coordinator reconciles later through D2.
 ## Acceptance criteria
 
 ```gherkin
-Given a live work item and its exact one-use operator approval
+Given a live work item and an authenticated coordinator
 When outside_repair records the active disposition
 Then continuity offers zero managed step actions and zero managed next intents
 And the workflow step and historical evidence remain unchanged
@@ -140,7 +138,7 @@ And the workflow step and historical evidence remain unchanged
 Given an active disposition and authenticated merged pull requests
 And every required check passed on each immutable head
 And a published release contains every selected merge
-When outside_repair_reconcile records completed with the exact operator approval
+When the authenticated coordinator records completed through outside_repair_reconcile
 Then the lifecycle is completed and the Linear status update is enqueued atomically
 And the retained workflow instance is outside_repair without a workflow.completed event
 ```
@@ -152,13 +150,13 @@ Then the work version and all completion projections remain unchanged
 ```
 
 ```gherkin
-Given an active disposition and its exact operator approval
+Given an active disposition and an authenticated coordinator
 When outside_repair_reconcile records resume
 Then managed admission resumes at the unchanged workflow step and lifecycle
 ```
 
 ```gherkin
-Given an active operator-approved disposition
+Given an active disposition
 When the host creates the isolated repair worktree and starts an unmanaged repair session there
 Then the session directory is outside the default checkout and the managed worktree root on a new branch
 And the session receives no managed selection, occupancy, or workflow pin
@@ -181,8 +179,8 @@ No release installation or session restart belongs to this decision's delivery.
 - `internal/store.TestOutsideRepairTypedHoldBaseReproduction` proves the
   missing typed disposition on the base and its accepted hold on this branch
   (CD-0242 D3).
-- `internal/store.TestOutsideRepairHoldRequiresApprovalNotCompletionEvidence`
-  proves approval binding and suppression across recovery (CD-0242 D2).
+- `internal/store.TestOutsideRepairHoldRequiresActorNotCompletionEvidence`
+  proves coordinator authority and suppression without completion evidence.
 - `internal/store.TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses`
   proves managed admission remains held.
 - `internal/store.TestOutsideRepairReconcileBothLiveLifecycles` proves atomic

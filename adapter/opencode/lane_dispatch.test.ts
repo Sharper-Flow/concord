@@ -198,9 +198,9 @@ test("routing selects the lane dispatcher for dispatch_worker with object-form f
   expect(request).toEqual({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-1", lane_id: "research" })
 })
 
-test("unchanged dispatch requests keep their attempt identity across approval resubmission", () => {
+test("dispatch attempt identity follows the idempotency key", () => {
   const request = { work_id: WORK_ID, expected_version: 3, idempotency_key: "retry-1", lane_id: lane.id }
-  expect(dispatchAttemptID(request)).toBe(dispatchAttemptID({ ...request, approval_ref: "challenge-1" }))
+  expect(dispatchAttemptID(request)).toBe(dispatchAttemptID({ ...request }))
   expect(dispatchAttemptID(request)).not.toBe(dispatchAttemptID({ ...request, idempotency_key: "retry-2" }))
 })
 
@@ -777,7 +777,6 @@ test("a core aggregate context bound refusal surfaces without arming a Task wind
 })
 
 for (const refusal of [
-  { kind: "approval_invalid", recovery: "request_approval", retry: false },
   { kind: "internal_error", recovery: "contact_operator", retry: false },
   { kind: "timeout", recovery: "retry_same_request", retry: true },
   { kind: "budget_refused", recovery: "adjust_budget", retry: false },
@@ -788,7 +787,7 @@ for (const refusal of [
     const coreError = {
       kind: refusal.kind, recovery_action: { kind: refusal.recovery }, retry_safe: refusal.retry,
       effect_state: "none", message: `core ${refusal.kind} diagnostic`,
-      details: refusal.kind === "internal_error" ? { boundary: "host_approval_timestamp", reason: "expired", validated_at: "2026-01-01T00:02:01Z", issued_at: "2026-01-01T00:00:00Z" } : {},
+      details: {},
       ...(refusal.kind === "budget_refused" ? { supported_budget_seconds: 30 } : {}),
       ...(refusal.kind === "version_conflict" ? { current_versions: [{ entity_kind: "work", id: WORK_ID, version: "2" }] } : {}),
     }
@@ -814,11 +813,11 @@ for (const refusal of [
   })
 }
 
-test("a possible-effect approval failure reconciles instead of asking for another approval", async () => {
-  const coreError = { kind: "approval_required", effect_state: "possible", retry_safe: false, recovery_action: { kind: "request_approval" }, message: "approval outcome uncertain" }
+test("a possible-effect failure reconciles before another dispatch", async () => {
+  const coreError = { kind: "internal_error", effect_state: "possible", retry_safe: false, recovery_action: { kind: "contact_operator" }, message: "dispatch outcome uncertain" }
   const invoke = async (toolName: string): Promise<unknown> => toolName === "concord_work_trace" ? continuityEnvelope() : toolName === "concord_work_browse" ? scopeEnvelope() : envelope({ outcome: "error", error: coreError })
   const windows = new DispatchWindows()
-  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "possible-approval", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, windows })
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "possible-dispatch", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, windows })
   expect(result.error?.kind).toBe("error")
   expect(result.error?.recovery_action).toBe("reconcile_operation")
   expect(result.error?.retry_safe).toBe(false)
@@ -957,75 +956,6 @@ test("a retry-safe possible effect replays into the committed authorization", as
   expect(result.dispatch_state).toBe("awaiting_worker")
   expect(workflowCalls).toBe(2)
   expect(dispatchInputs[1]).toEqual(dispatchInputs[0])
-})
-
-test("approval challenge and approved resubmission preserve the exact packet identity", async () => {
-  const packets: Record<string, unknown>[] = []
-  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
-    if (toolName === "concord_work_trace") return continuityEnvelope()
-    if (toolName === "concord_work_browse") return scopeEnvelope()
-    if (toolName === "concord_work_transition") {
-      const input = args.input ?? {}
-      packets.push(input.fields as Record<string, unknown>)
-      return input.approval ? coreOkEnvelope() : coreErrorEnvelope("approval_required", "exact operator approval is required")
-    }
-    throw new Error(`unscripted ${toolName}.${args.operation}`)
-  }
-  const request = { work_id: WORK_ID, expected_version: 1, idempotency_key: "retry-approval", lane_id: lane.id }
-  const first = await dispatchLaneWorker(request, { context: contextFor(), invoke: invoke as any })
-  expect(first.error?.kind).toBe("approval_required")
-  const second = await dispatchLaneWorker({ ...request, approval_ref: "challenge-1" }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials })
-  expect(second.outcome).toBe("ok")
-  expect(packets).toHaveLength(2)
-  expect(packets[0].attempt_id).toBe(packets[1].attempt_id)
-  expect(packets[0].worker_packet).toEqual(packets[1].worker_packet)
-})
-
-// The adapter transports a core approval refusal without inferring its cause
-// from correction history. Only core admission can authorize the resubmission.
-test("a core approval refusal forwards its exact consequence bindings", async () => {
-  const challengeDetails = {
-    approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64),
-    work_id: WORK_ID, action_id: "dispatch_worker", contract_version: "1", selected_choice: "", premise_summary: "approved retry objective",
-  }
-  const consequenceSummary = {
-    tool: "concord_work_transition", operation: "workflow_action", consequence: "workflow",
-    operation_digest: challengeDetails.operation_digest,
-    scope: ["product_id:product-dispatch", "work_ids:work-dispatch"],
-    versions: ["contract:1", "work:3"], expires_at: "2026-10-01T00:00:00Z",
-  }
-  let spawned = 0
-  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
-    if (toolName === "concord_work_trace") return continuityEnvelope()
-    if (toolName === "concord_work_browse") return scopeEnvelope()
-    if (toolName === "concord_work_transition") {
-      if (args.input?.approval) return coreOkEnvelope()
-      return envelope({
-        tool: "concord_work_transition", operation: "workflow_action", outcome: "error", authority: "authoritative", freshness: null,
-        error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", message: "core approval is required for this workflow action", details: challengeDetails, consequence_summary: consequenceSummary },
-      })
-    }
-    throw new Error(`unscripted ${toolName}.${args.operation}`)
-  }
-  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
-  const windows = new DispatchWindows()
-  const request = { work_id: WORK_ID, expected_version: 3, idempotency_key: "core-approval", lane_id: lane.id }
-  const first = await dispatchLaneWorker(request, { context: contextFor(), invoke: invoke as any, runner, windows })
-  expect(first.outcome).toBe("error")
-  expect(first.error?.kind).toBe("approval_required")
-  expect(first.error?.recovery_action).toBe("request_approval")
-  const forwarded = first.error!.details!
-  expect(forwarded.approval_ref).toBe("challenge-1")
-  expect(forwarded.operation_digest).toBe("sha256:" + "a".repeat(64))
-  expect(forwarded.work_id).toBe(WORK_ID)
-  expect(forwarded.action_id).toBe("dispatch_worker")
-  expect(forwarded.contract_version).toBe("1")
-  expect(forwarded.premise_summary).toBe("approved retry objective")
-  expect(forwarded.consequence_summary).toEqual(consequenceSummary)
-  expect(spawned).toBe(0)
-  const second = await dispatchLaneWorker({ ...request, approval_ref: "challenge-1" }, { context: contextFor(), invoke: invoke as any, runner, windows, credentials: testCredentials })
-  expect(second.outcome).toBe("ok")
-  expect(spawned).toBe(0)
 })
 
 // product_identity is the distinct product set across the work item's

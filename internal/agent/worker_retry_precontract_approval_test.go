@@ -34,13 +34,9 @@ func TestPreContractWorkerRetryOpensFreshAttemptWithoutConsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before := verifyWallChallenges(t, s)
 	result := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 	if result.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("pre-contract retry without consent = %+v, want ok", result.Error)
-	}
-	if got := verifyWallChallenges(t, s); got != before {
-		t.Fatalf("retry minted a consent challenge: %d -> %d", before, got)
 	}
 	var retryEpoch int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_dispatch_start_payload,'$.attempt_epoch') FROM workflow_step_epochs WHERE work_id='work-1' ORDER BY latest_dispatch_start_seq DESC LIMIT 1`).Scan(&retryEpoch); err != nil {
@@ -67,34 +63,6 @@ func TestPreContractWorkerRetryOpensFreshAttemptWithoutConsent(t *testing.T) {
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != launches {
 		t.Fatalf("unresolved launch refusal created an authorization: %d -> %d", launches, got)
-	}
-}
-
-// A challenge spec whose versions carry a non-positive value is refused for
-// version validity, and the refusal names versions rather than scope
-// authority.
-func TestApprovalChallengeVersionValidityRefusalNamesVersions(t *testing.T) {
-	db := openAgentDB(t)
-	service := NewService(db)
-	service.Now = fixedTime
-	seedSimpleAuthorityScope(t, db)
-	if err := service.RegisterTrustedClient(context.Background(), testClientRegistration("client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
-		t.Fatal(err)
-	}
-	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1"})
-	invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", HostAssertionDigest: "sha256:host-resolution", ProductID: "product-1", ProjectID: "project-1"}
-	err := db.Transact(context.Background(), func(tx *store.Transaction) error {
-		_, err := service.CreateApprovalChallengeTx(context.Background(), tx, probedHost(), invocation, ApprovalChallengeSpec{OperationDigest: "sha256:operation", Scope: map[string]any{"product_id": "product-1"}, Versions: map[string]any{"work": 0}, Consequence: "internal_sqlite", HostAssertionDigest: invocation.HostAssertionDigest, ExpiresAt: fixedTime().Add(time.Hour)})
-		return err
-	})
-	if err == nil {
-		t.Fatal("challenge with work version 0 was minted, want a refusal")
-	}
-	if !strings.Contains(err.Error(), "approval challenge versions invalid") {
-		t.Fatalf("refusal = %v, want it to name version validity", err)
-	}
-	if strings.Contains(err.Error(), "scope") {
-		t.Fatalf("refusal = %v, want no scope-authority attribution", err)
 	}
 }
 

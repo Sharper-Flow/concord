@@ -288,8 +288,8 @@ func TestWorkflowLawRevisionRecoveryActionIsStaleOnlyAndApprovalRequired(t *test
 	if err != nil {
 		t.Fatalf("stale recovery action definition: %v", err)
 	}
-	if action.ID != "supersede_contract" || action.Approval != ActionApprovalRequired {
-		t.Fatalf("stale recovery action=%+v, want operator approval-required action", action)
+	if action.ID != "supersede_contract" {
+		t.Fatalf("stale recovery action=%+v, want supersede_contract", action)
 	}
 
 	currentWork := "law-recovery-action-current"

@@ -38,7 +38,9 @@ not serve.
 
 ## Decision
 
-The retained `resolve_overlap` route uses CD-0013 D11's per-kind consent rule: exact operator approval for merger and supersession, none for dependency, blocking, or compatibility. Every kind still pins both work versions and judged contract content. The retired planning/browsing operations remain retired; changing consent creates no replacement tool or bypass writer.
+The `resolve_overlap` route pins both work versions and judged contract content.
+Operator decisions follow CD-0243 D2 in conversation; no relation kind
+independently requires consent.
 
 The agent surface retires ten operations: `concord_domain.active_work`,
 `concord_domain.observation_record`, `concord_domain.observation_dismiss`,
@@ -64,9 +66,8 @@ Three writers create work-to-work relations, each scoped to its own kinds.
 1. `concord_work_relate.resolve_overlap` writes
    `depends_on`, `blocks`, `merged_into`, and `supersedes`. A `supersedes`
    or `merged_into` resolution commits the relation and the terminal
-   transition in one transaction. A `merged_into` or `supersedes` resolution
-   requires an operator approval pinned to both work versions and both
-   contract versions.
+   transition in one transaction. Every resolution pins both work versions
+   and both contract versions.
 2. Capture writes `raised_from` through its `raised_from_work_id` input.
    The capture transaction inserts that relation row with the work item's
    current rows and runs no cycle check, because capture knows

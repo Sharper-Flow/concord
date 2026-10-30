@@ -356,7 +356,7 @@ func ApplyOperationWithResult(ctx context.Context, s *Store, operation Operation
 
 // ApplyOperationTx applies one domain operation within the opaque store-owned
 // transaction supplied by Transact. It is the mutation seam used when
-// authorization, approval consumption, idempotency, and the domain effect must
+// authorization, fencing, idempotency, and the domain effect must
 // share one transaction. The transaction's write scope is reused when a write
 // region already owns it, so nesting stays depth-counted on one scope.
 func ApplyOperationTx(ctx context.Context, transaction *Transaction, operation Operation) (ApplyOperationResult, error) {

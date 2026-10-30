@@ -16,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c2e18a6be6c8da4103de83e3392ef8f58f38929265b293efeb0b6621692513a9",
+  "sha256": "sha256:dd16c0fb6aaa958f6af1d78e4c0126a6108b7219153c17915e2c6be8d0ae3bcf",
   "status": "accepted",
   "summary": "Allows lifecycle transitions and conditional shelving removal from a registered Project's default checkout. Shelving requires cancelled execution, exact scope, all recorded claims retired, native absence and settled cleanup debt, while preserving existing removal gates and retained authorized replay.",
   "tags": [

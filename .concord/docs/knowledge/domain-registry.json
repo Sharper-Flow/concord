@@ -127,7 +127,7 @@
       "domain_id": "agent-adapter",
       "name": "Agent adapter",
       "parent_domain_id": "agent-surface",
-      "purpose": "Owns OpenCode registration, host context and session placement, the permission bridge, CLI transport, and host-owned wait delivery. It carries the canonical surface without acquiring core call or workflow authority.",
+      "purpose": "Owns OpenCode registration, host context and session placement, CLI transport, and host-owned wait delivery. It carries the canonical surface without acquiring core call or workflow authority.",
       "status": "current"
     },
     {

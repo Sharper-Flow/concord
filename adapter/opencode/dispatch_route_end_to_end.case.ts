@@ -1,7 +1,6 @@
 import { expect } from "bun:test"
 import { Database } from "bun:sqlite"
 import { chmod, mkdir, unlink } from "node:fs/promises"
-import { createHash } from "node:crypto"
 import { delimiter, join } from "node:path"
 import { createInterface } from "node:readline"
 import { Readable } from "node:stream"
@@ -536,8 +535,6 @@ routeDeclaration("accepts an unchanged new-law baseline Review before implementa
     const { binary, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root, "task")
     process.env.OPENCODE_CONFIG = configPath
     const context = contextFor(worktree)
-    const approvals: JSONRecord[] = []
-    context.ask = async (request: JSONRecord) => { approvals.push(request.metadata) }
     const host = bindRouteSessions(worktree, [context.sessionID])
     const calls: Array<{ argv: string[]; input: JSONRecord }> = []
     const runner = realStoreRunner(binary, dbPath, calls, worktree)
@@ -560,7 +557,6 @@ routeDeclaration("accepts an unchanged new-law baseline Review before implementa
     expect(domains.outcome, JSON.stringify(domains)).toBe("ok")
     const lawID = "CD-0901"
     const lawText = "# Synthetic route rule\n\nThe route publishes its marker and knowledge together.\n"
-    const lawHash = "sha256:" + createHash("sha256").update(lawText).digest("hex")
     const lawPath = ".concord/docs/route-rule.md"
     await Bun.write(join(worktree, lawPath), lawText)
     await git(worktree, "add", lawPath)
@@ -570,9 +566,8 @@ routeDeclaration("accepts an unchanged new-law baseline Review before implementa
     await ok("approve_contract", "new-law-contract", {
       premise: "Publish the synthetic route marker and the exact approved route rule in the knowledge index.",
       outcome_predicates: [WORKFLOW_PREDICATE], required_evidence: ["verification", "review"], route_conventions: [],
-      spec_mandate: [lawID], law_modifies: [], decision_domains: ["product"],
+      spec_mandate: [lawID], law_modifies: [], decision_domains: [],
       law_change_reason: "The synthetic Product needs its missing route rule.",
-      law_change_text_pins: [{ law_id: lawID, content_hash: lawHash }],
       architecture_binding: {
         home_domain_id: rootDomain,
         affected_domain_ids: [rootDomain], domain_modifies: [], domain_relation_modifies: [],
@@ -584,10 +579,8 @@ routeDeclaration("accepts an unchanged new-law baseline Review before implementa
       decisions: [{ id: "decision:publication", question: "When is the new rule indexed?", choice: "During implementation.", rationale: "The baseline has no implementation or indexed new law.", rejected: ["Manufacture an indexed law before Review."] }],
       touched_refs: [lawPath, ".concord/docs/knowledge/manifest.json"],
     })
-    expect(approvals).toHaveLength(1)
-    expect(approvals[0].action_id).toBe("approve_contract")
     const approvedContract = dbValue(dbPath, `SELECT premise,spec_mandate,law_change FROM workflow_contracts WHERE work_id='${workID}' AND superseded_by IS NULL`)
-    expect(JSON.parse(approvedContract.law_change).text_pins).toEqual([{ law_id: lawID, content_hash: lawHash }])
+    expect(JSON.parse(approvedContract.law_change).law_ids).toEqual([lawID])
     await recordRouteWorkerJob(workID, invoke, context, [WORKFLOW_PREDICATE], [lawPath, ".concord/docs/knowledge/manifest.json"], ["go test ./oraclekit"], version())
     const dispatch = async (workerLane: (typeof agentLanes)[number], key: string) => {
       context.workerSessionID = `${key}-worker`
@@ -617,7 +610,6 @@ routeDeclaration("accepts an unchanged new-law baseline Review before implementa
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM law_subjects WHERE law_id='${lawID}'`).n).toBe(0)
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM workflow_evidence_bindings WHERE work_id='${workID}' AND json_extract(payload,'$.immutable_subject_ref')='${lawID}'`).n).toBe(0)
     expect(dbValue(dbPath, `SELECT premise,spec_mandate,law_change FROM workflow_contracts WHERE work_id='${workID}' AND superseded_by IS NULL`)).toEqual(approvedContract)
-    expect(approvals).toHaveLength(1)
     const beforeDelivery = version()
     const prematureDelivery = await action("record_delivery", "new-law-before-publication", { delivery_artifact: "https://github.com/synthetic/concord/pull/901", delivery_state: "asserted" })
     expect(prematureDelivery.outcome, JSON.stringify(prematureDelivery)).toBe("error")

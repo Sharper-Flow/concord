@@ -74,7 +74,7 @@ record and does not change this record's law.
 
 ### D2. The liveness law
 
-For CD-0013 D11's consequence policy, the same derivation derives the policy staleness pin, decision-domain class, confirmation authority, and evaluator prerequisites. Engineering states retain contract and confirmation actions without an operator question. Independent evaluator actions must be genuinely admitted before the model counts their exit. Removed consent never supplies evidence or clears a recovery wall. Both liveness checks and real conformance witnesses cover engineering, decision-bearing, and the registered current definitions
+The same derivation derives confirmation authority and evaluator prerequisites. Independent evaluator actions must be genuinely admitted before the model counts their exit. No confirmation supplies missing evidence or clears a recovery wall. Both liveness checks and real conformance witnesses cover the registered current definitions
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 For every registered definition:

@@ -113,8 +113,8 @@ func assertRetirementUpgrade(t *testing.T, db *sql.DB, retired, preserved []stri
 	if err := db.QueryRow(`SELECT version,breaking FROM schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&version, &breaking); err != nil {
 		t.Fatal(err)
 	}
-	if version != 166 || version != CurrentSchemaVersion() || !breaking {
-		t.Fatalf("schema head=(%d, breaking=%v), want breaking 166", version, breaking)
+	if version != CurrentSchemaVersion() || !breaking {
+		t.Fatalf("schema head=(%d, breaking=%v), want breaking %d", version, breaking, CurrentSchemaVersion())
 	}
 }
 

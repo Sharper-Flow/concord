@@ -83,7 +83,7 @@ func TestCriterionAssociationAtPremiseQuestionWithoutDeclaration(t *testing.T) {
 	if err := preflight("record_verdict", payload); err != nil {
 		t.Fatal(err)
 	}
-	if err := runApprovalActionTx(t, f.store, registry, workID, "record_verdict", f.owner, nil, "", "", string(payload)); err != nil {
+	if err := runCoordinatorActionTx(t, f.store, registry, workID, "record_verdict", f.owner, "", string(payload)); err != nil {
 		t.Fatal(err)
 	}
 	if step := currentStep(t, f.store, workID); step != "conclude" {
@@ -92,7 +92,7 @@ func TestCriterionAssociationAtPremiseQuestionWithoutDeclaration(t *testing.T) {
 	if err := preflight("confirm_premise", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	if err := runApprovalActionTx(t, f.store, registry, workID, "confirm_premise", f.owner, nil, "confirm", "", `{}`); err != nil {
+	if err := runCoordinatorActionTx(t, f.store, registry, workID, "confirm_premise", f.owner, "confirm", `{}`); err != nil {
 		t.Fatal(err)
 	}
 	if step := currentStep(t, f.store, workID); step != "complete" {

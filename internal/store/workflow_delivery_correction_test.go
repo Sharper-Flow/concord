@@ -144,21 +144,6 @@ func workflowCompletedFixtureEvent(id, workID, actor, verdictRef string, expecte
 	return event
 }
 
-// insertConsumedApproval inserts an operator approval row in its consumed
-// one-use state, mirroring what the approval boundary leaves behind.
-func insertConsumedApproval(t *testing.T, s *Store, ref, workID string, version int64) {
-	t.Helper()
-	insertConsumedApprovalState(t, s, ref, workID, version, 1)
-}
-
-func insertConsumedApprovalState(t *testing.T, s *Store, ref, workID string, version int64, usedCount int) {
-	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO agent_approvals(approval_ref,operation_digest,scope_json,version_json,consequence,human_principal_ref,client_ref,session_ref,issued_at,expires_at,max_uses,used_count,protected_evidence_ref,protected_evidence_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		ref, deliveryCorrectionDigest, deliveryCorrectionScopeJSON(workID), deliveryCorrectionVersionsJSON(version), deliveryCorrectionConsequence, "principal/operator", "client/concord-1", "session/"+workID+"-approval-"+ref[:4], "2026-09-10T00:00:00Z", "2026-09-11T00:00:00Z", 1, usedCount, "approval-evidence", "sha256:"+strings.Repeat("b", 64)); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // deliveryAssertionEvent reads the delivery assertion at a chosen offset from
 // the latest, returning its event id, sequence, and stored payload version.
 func deliveryAssertionEvent(t *testing.T, s *Store, workID string, offsetFromLatest int) (string, int64, int) {
@@ -178,13 +163,8 @@ func deliveryCorrectionRequest(workID string, version int64, targetEventID strin
 		TargetEventID: targetEventID, TargetSeq: targetSeq, TargetPayloadVersion: targetPayloadVersion,
 		Reason:           "the asserted delivery named repository paths before the pull request merged",
 		DeliveryArtifact: deliveryCorrectionMergeRef, DeliveryState: "asserted",
-		ApprovalRef:             deliveryCorrectionApprovalRef,
-		ApprovalOperationDigest: deliveryCorrectionDigest,
-		ApprovalScopeJSON:       deliveryCorrectionScopeJSON(workID),
-		ApprovalVersionsJSON:    deliveryCorrectionVersionsJSON(version),
-		ApprovalConsequence:     deliveryCorrectionConsequence,
-		EventID:                 "correction-" + workID,
-		OccurredAt:              time.Unix(20, 0).UTC(),
+		EventID:    "correction-" + workID,
+		OccurredAt: time.Unix(20, 0).UTC(),
 	}
 }
 
@@ -355,15 +335,6 @@ func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 	if got := readWorkVersion(t, s, workID); got != version+1 {
 		t.Fatalf("correction version=%d, want the single correction advance (%d)", got, version+1)
 	}
-	// The routine correction mints and consumes no approval row: the unsigned
-	// path spends no operator approval authority.
-	var approvalRows int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_approvals`).Scan(&approvalRows); err != nil {
-		t.Fatal(err)
-	}
-	if approvalRows != 0 {
-		t.Fatalf("the unsigned correction left %d approval rows", approvalRows)
-	}
 	assertion, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
 	if err != nil {
 		t.Fatal(err)
@@ -372,8 +343,7 @@ func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 		t.Fatalf("merge artifact = %+v, want %q", assertion.DeliveryAssertion, request.DeliveryArtifact)
 	}
 
-	// A second correction of the same assertion is refused: one correction
-	// overlays one assertion, and no approval is minted to attempt another.
+	// One correction overlays one assertion.
 	second := unsignedDeliveryCorrectionRequest(t, s, workID, readWorkVersion(t, s, workID), targetEventID, targetSeq, targetPayloadVersion)
 	second.EventID = "correction-" + workID + "-second"
 	requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, second), KindInvalidOperation, "already corrected")
@@ -434,26 +404,6 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 			r.Actor = "principal:absent-coordinator"
 			return r
 		}, wantKind: KindUnauthorized, wantPiece: "requires a recorded coordinator actor"},
-		{name: "supplied approval reference", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
-			r.ApprovalRef = deliveryCorrectionApprovalRef
-			return r
-		}, wantKind: KindInvalidPayload, wantPiece: "accepts no approval claim"},
-		{name: "supplied approval operation digest", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
-			r.ApprovalOperationDigest = deliveryCorrectionDigest
-			return r
-		}, wantKind: KindInvalidPayload, wantPiece: "accepts no approval claim"},
-		{name: "supplied approval scope", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
-			r.ApprovalScopeJSON = deliveryCorrectionScopeJSON(workID)
-			return r
-		}, wantKind: KindInvalidPayload, wantPiece: "accepts no approval claim"},
-		{name: "supplied approval versions", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
-			r.ApprovalVersionsJSON = deliveryCorrectionVersionsJSON(version)
-			return r
-		}, wantKind: KindInvalidPayload, wantPiece: "accepts no approval claim"},
-		{name: "supplied approval consequence", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
-			r.ApprovalConsequence = deliveryCorrectionConsequence
-			return r
-		}, wantKind: KindInvalidPayload, wantPiece: "accepts no approval claim"},
 	}
 	for _, item := range cases {
 		request := item.mutate(valid)
@@ -593,7 +543,7 @@ func TestTerminalDeliveryCorrectionReadReplay(t *testing.T) {
 		t.Fatalf("original assertion changed: %+v", assertion)
 	}
 	correction := assertion.Correction
-	if correction.Artifact != deliveryCorrectionMergeRef || correction.EvidenceSource != "coordinator_asserted" || correction.Reason == "" || correction.ApprovalRef != "" {
+	if correction.Artifact != deliveryCorrectionMergeRef || correction.EvidenceSource != "coordinator_asserted" || correction.Reason == "" {
 		t.Fatalf("correction read = %+v, want the merge evidence under coordinator provenance with no approval claim", correction)
 	}
 	if assertion.EffectiveArtifact != deliveryCorrectionMergeRef {

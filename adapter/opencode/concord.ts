@@ -827,7 +827,7 @@ function vacateReplayRecovery(message: string): string {
 }
 
 // One classifier for a thrown runner error at any invoke stage: the first
-// invoke, the version-skew retry, and the post-approval run. invokeRan marks
+// invoke and the version-skew retry. invokeRan marks
 // the version-skew retry: its first child already ran and may have committed,
 // so a missing binary on the retry no longer proves an absent effect and
 // every mutation throw there takes the mutation classification. A read cannot
@@ -885,7 +885,7 @@ async function resolveSessionDirectory(context: ToolContext): Promise<string> {
 // invokeConcordOperation is the single `concord project-resolve` + `concord invoke`
 // transport for every adapter surface, including host-side callers outside the
 // tool exports below. It owns envelope construction, the closed core-response
-// contract check, and the approval_required resubmission. Native worker
+// contract check. Native worker
 // dispatch can supply the canonical session directory that its window pins.
 async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, context: ToolContext, sessionDirectoryOverride?: string, ambientOverride?: AmbientContext): Promise<CoreConcordEnvelope> {
   const operation = args.operation
@@ -965,86 +965,6 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     }
   } else if (contractFailure) {
     return unknownOutcomeEnvelope(toolName, operation, requestID, false, outcomeMessage(`core response failed the generated TS7 contract: ${contractFailure}`), salvageDetails(result.stdout))
-  }
-  if (response?.outcome === "error" && response?.error?.kind === "approval_required") {
-    const details = response.error.details ?? {}
-    // allOf[16] and allOf[17] of the envelope schema pair `consequence_summary`
-    // with `details.approval_ref`; that pair is the schema's only declaration
-    // that a challenge was minted. allOf[5] permits an approval_required
-    // refusal with no challenge, and one arrives here unchanged instead of
-    // failing challenge validation.
-    if (details.approval_ref === undefined && response.error.consequence_summary === undefined) return response as CoreConcordEnvelope
-    const requiredChallengeFields = ["approval_ref", "operation_digest"]
-    if (toolName === "concord_work_transition" && operation === "workflow_action") {
-      requiredChallengeFields.push("work_id", "action_id", "contract_version", "premise_summary")
-      // `selected_choice` and `decision_context_digest` belong to
-      // `confirm_premise` alone. The tool schema forbids both on every other
-      // action, so the core emits `selected_choice` empty for them. Requiring
-      // it unconditionally rejects a correct challenge and makes every
-      // approval-gated action except `confirm_premise` unreachable.
-      if (args.input?.action_id === "confirm_premise") requiredChallengeFields.push("selected_choice", "decision_context_digest")
-    }
-    if (toolName === "concord_work_relate" && operation === "resolve_overlap") {
-      requiredChallengeFields.push("summary", "resolution_kind", "from_work_id", "to_work_id")
-    }
-    if (toolName === "concord_work_relate" && operation === "client_policy_grant_request") {
-      // The operator must see whose policy widens, at which policy version,
-      // and why before the expansion can apply (CD-0097 D6).
-      requiredChallengeFields.push("summary", "client_ref", "policy_version", "reason")
-    }
-    if (requiredChallengeFields.some((key) => typeof details[key] !== "string" || details[key].length === 0)) return adapterError(toolName, operation, requestID, "malformed_core_response_operator", "core approval challenge lacked exact workflow metadata")
-    if (toolName === "concord_work_transition" && operation === "workflow_action" && Array.from(details.premise_summary ?? "").length > 256) return adapterError(toolName, operation, requestID, "malformed_core_response_operator", "core approval challenge premise summary exceeded the public bound")
-    // The selection binds only where the surface admits one. `confirm_premise`
-    // is the sole action whose schema carries `selected_choice`, and the core
-    // emits the field as an empty string for every other action, so comparing
-    // it against an absent caller value refuses a correct challenge and takes
-    // every approval-gated action with it.
-    const bindsSelection = toolName === "concord_work_transition" && operation === "workflow_action" && args.input?.action_id === "confirm_premise"
-    const consequenceSummary = response.error.consequence_summary
-    if (!consequenceSummary || !Array.isArray(consequenceSummary.scope) || !Array.isArray(consequenceSummary.versions) || consequenceSummary.tool !== toolName || consequenceSummary.operation !== operation || consequenceSummary.operation_digest !== details.operation_digest || (bindsSelection && details.selected_choice !== args.input?.selected_choice)) return adapterError(toolName, operation, requestID, "malformed_core_response_operator", "core approval challenge did not bind the exact workflow selection")
-    // CD-0037 D5: the typed consequence summary rides host permission metadata
-    // unchanged. The host renders the operator prompt; this is transport, not
-    // adapter-owned domain logic.
-    const askMetadata = toolName === "concord_work_transition" && operation === "workflow_action"
-      ? { approval_ref: details.approval_ref, operation_digest: details.operation_digest, scope: consequenceSummary.scope, versions: consequenceSummary.versions, work_id: details.work_id, action_id: details.action_id, contract_version: details.contract_version, selected_choice: details.selected_choice, decision_context_digest: details.decision_context_digest, premise_summary: details.premise_summary, consequence_summary: consequenceSummary }
-      : {
-          approval_ref: details.approval_ref,
-          operation_digest: details.operation_digest,
-          consequence_summary: consequenceSummary,
-          ...(typeof details.summary === "string" ? { summary: details.summary } : {}),
-          scope: consequenceSummary.scope,
-          versions: consequenceSummary.versions,
-          ...(typeof details.resolution_kind === "string" ? { resolution_kind: details.resolution_kind } : {}),
-          ...(typeof details.from_work_id === "string" ? { from_work_id: details.from_work_id } : {}),
-          ...(typeof details.to_work_id === "string" ? { to_work_id: details.to_work_id } : {}),
-          ...(typeof details.client_ref === "string" ? { client_ref: details.client_ref } : {}),
-          ...(typeof details.policy_version === "string" ? { policy_version: details.policy_version } : {}),
-          ...(typeof details.reason === "string" ? { reason: details.reason } : {}),
-        }
-    // Built-in question supplies semantic choice; ToolContext.ask authorizes
-    // only this exact core-issued challenge. OpenCode evaluates permission per
-    // pattern; an empty list skips the policy and never asks the operator.
-    try { await context.ask({ permission: `concord:${toolName}.${operation}`, patterns: [details.operation_digest], always: [], metadata: askMetadata }) } catch (error) {
-      if (error instanceof AdapterContractDefect) throw error
-      return adapterError(toolName, operation, requestID, "cancelled_no_effect", "host approval was rejected")
-    }
-    envelope.host_approval_assertion = { challenge_ref: details.approval_ref, request_digest: details.operation_digest, scope: consequenceSummary.scope, versions: consequenceSummary.versions, session_ref: envelope.session_ref, agent_ref: envelope.agent_ref, worktree: sessionDirectory, issued_at: new Date().toISOString() }
-    const approvedInput = args.input && typeof args.input === "object" && !Array.isArray(args.input) ? { ...args.input, approval: { approval_ref: details.approval_ref } } : null
-    if (!approvedInput) return adapterError(toolName, operation, requestID, "malformed_core_response_operator", "approval resubmission requires object input")
-    try {
-      result = await run(approvedInput)
-    } catch (error) {
-      return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, false)
-    }
-    try { response = singleJSON(result.stdout) } catch (error) {
-      if (vacateOperation) return vacateError(requestID, "vacate_replay", vacateReplayRecovery(String(error)), salvageDetails(result.stdout))
-      return adapterError(toolName, operation, requestID, "unknown_effect", String(error), salvageDetails(result.stdout))
-    }
-    const approvedFailure = coreResponseFailure(response, toolName, operation)
-    if (approvedFailure) {
-      if (vacateOperation) return vacateError(requestID, "vacate_replay", vacateReplayRecovery(`post-approval response failed the TS7 contract: ${approvedFailure}`), salvageDetails(result.stdout))
-      return adapterError(toolName, operation, requestID, "unknown_effect", `post-approval response failed the TS7 contract: ${approvedFailure}`, salvageDetails(result.stdout))
-    }
   }
   return response as CoreConcordEnvelope;
 }
@@ -2074,9 +1994,7 @@ export function laneDispatchRequest(args: any): LaneDispatchInput | { error: str
   if (typeof inner.work_id !== "string" || typeof inner.expected_version !== "number" || typeof inner.idempotency_key !== "string") {
     return null
   }
-  const approval = inner.approval
-  const approvalRef = approval && typeof approval === "object" && !Array.isArray(approval) && typeof (approval as Record<string, unknown>).approval_ref === "string" ? (approval as Record<string, unknown>).approval_ref as string : undefined
-  return { work_id: inner.work_id, expected_version: inner.expected_version, idempotency_key: inner.idempotency_key, lane_id: laneId, ...(approvalRef ? { approval_ref: approvalRef } : {}) }
+  return { work_id: inner.work_id, expected_version: inner.expected_version, idempotency_key: inner.idempotency_key, lane_id: laneId }
 }
 
 // executeWorkTransition is the work_transition tool body. dispatch_worker is

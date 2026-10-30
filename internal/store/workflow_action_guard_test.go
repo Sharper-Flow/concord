@@ -16,7 +16,7 @@ import (
 // guardedActions is the closed set of actions that carry an action-specific
 // guard in applyWorkflowActionRawTx. Two guards are deliberately absent,
 // because each applies to every action and the dispatcher therefore calls them
-// directly: guardOperatorPremiseActor and guardRecordedActorTuple. The folded
+// directly: guardCorrectionRecovery and guardRecordedActorTuple. The folded
 // admission owns the spec-mandate boundary. dispatch_worker carries no guard
 // either: workflowAdmit owns its design-currency boundary, and the packet
 // and identity checks the fold keeps are not action guards. record_alignment
@@ -67,26 +67,6 @@ func TestGuardTableMatchesTheGuardedActionInventory(t *testing.T) {
 		if _, ok := guardedActions[actionID]; !ok {
 			t.Errorf("workflowActionGuards declares %q, which the guarded-action inventory does not list", actionID)
 		}
-	}
-}
-
-func TestOperatorActorIsRejectedOutsidePremiseConfirmation(t *testing.T) {
-	t.Parallel()
-	g := &workflowActionGuardContext{
-		request: WorkflowActionExecutionRequest{
-			ActionID: "record_proposal",
-			OperatorActor: &WorkflowActor{
-				ActorClass: ActorOperator,
-			},
-		},
-	}
-	err := guardOperatorPremiseActor(g)
-	if err == nil {
-		t.Fatal("operator actor on a non-premise action passed, want unauthorized")
-	}
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindUnauthorized {
-		t.Fatalf("operator actor outside premise confirmation returned %v, want KindUnauthorized", err)
 	}
 }
 

@@ -110,10 +110,6 @@
         "capability": {"type": "string", "enum": ["work_transition", "workflow_action", "workflow_read"]}, "scope": {"$ref": "#/$defs/id"}
       }
     },
-    "approvalInput": {
-      "type": "object", "additionalProperties": false, "required": ["required", "approval_ref"],
-      "properties": {"required": {"type": "boolean"}, "approval_ref": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/id"}]}}
-    },
     "operationInput": {
       "type": "object", "additionalProperties": false, "required": ["op_id"],
       "properties": {"op_id": {"$ref": "#/$defs/id"}}
@@ -144,13 +140,13 @@
       }
     },
     "scenarioRequest": {
-      "type": "object", "additionalProperties": false, "required": ["actor_ref", "definition_ref", "action_id", "fields", "idempotency", "grant", "approval", "operation"],
+      "type": "object", "additionalProperties": false, "required": ["actor_ref", "definition_ref", "action_id", "fields", "idempotency", "grant", "operation"],
       "if": {"properties": {"action_id": {"type": "string", "enum": ["capture"]}}},
       "then": {"properties": {"fields": {"required": ["payload"]}}},
       "properties": {
         "actor_ref": {"$ref": "#/$defs/actorRef"}, "definition_ref": {"$ref": "#/$defs/id"}, "expected_version": {"type": "integer", "minimum": 1},
         "action_id": {"$ref": "#/$defs/currentAction"}, "fields": {"$ref": "#/$defs/requestFields"}, "idempotency": {"$ref": "#/$defs/idempotencyInput"},
-        "grant": {"$ref": "#/$defs/grantInput"}, "approval": {"$ref": "#/$defs/approvalInput"}, "operation": {"$ref": "#/$defs/operationInput"}
+        "grant": {"$ref": "#/$defs/grantInput"}, "operation": {"$ref": "#/$defs/operationInput"}
       }
     },
     "readObservation": {

@@ -80,8 +80,8 @@ func TestBuiltinWorkflowRegistryHasTheThreeLiveContractFamilies(t *testing.T) {
 			if action.ID != "checkpoint_context" && action.ID != "cross_context_boundary" {
 				continue
 			}
-			if action.Approval != ActionApprovalNone || len(action.Payload.Fields) == 0 {
-				t.Fatalf("%s continuity action is not closed and unapproved: %+v", definition.Ref, action)
+			if len(action.Payload.Fields) == 0 {
+				t.Fatalf("%s continuity action is not closed: %+v", definition.Ref, action)
 			}
 		}
 		if !reflect.DeepEqual(definition.StepGraph.TerminalSteps, []string{wantTerminals[definition.Ref]}) {
@@ -98,7 +98,7 @@ func TestBuiltinWorkflowRegistryHasTheThreeLiveContractFamilies(t *testing.T) {
 			t.Fatalf("%s omitted artifact/rigor/composition requirements", definition.Ref)
 		}
 		for _, action := range definition.ActionDefinitions {
-			if action.ID == "" || action.Consequence == "" || action.Approval == "" || action.Payload.Fields == nil {
+			if action.ID == "" || action.Consequence == "" || action.Payload.Fields == nil {
 				t.Fatalf("%s has incomplete action metadata: %+v", definition.Ref, action)
 			}
 		}
@@ -159,18 +159,17 @@ func TestBuiltinWorkflowDefinitionsMatchExactPhaseBContractMetadata(t *testing.T
 		evidence []EvidenceKind
 		outcome  WorkflowOutcomeSchema
 		success  []WorkKind
-		approval map[string]ActionApproval
 		external map[string]ActionConsequence
 		cross    map[string]ActionConsequence
 	}
 	want := map[string]expected{
-		"workflow.implementation":     {evidence: []EvidenceKind{EvidenceVerification, EvidenceReview, EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindBreakFix, WorkKindResearch}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"start_execution": ActionExternalEffect, "checkpoint_execution": ActionExternalEffect}},
-		"workflow.break_fix":          {evidence: []EvidenceKind{EvidenceVerification, EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindImplementation, WorkKindResearch}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"start_repair": ActionExternalEffect, "checkpoint_repair": ActionExternalEffect}},
-		"workflow.research":           {evidence: []EvidenceKind{EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}}, success: []WorkKind{WorkKindBreakFix, WorkKindArchitectureSpike, WorkKindStaticAnalysis}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, cross: map[string]ActionConsequence{"record_finding": ActionCrossAuthority}},
-		"workflow.architecture_spike": {evidence: []EvidenceKind{EvidenceReview, EvidenceApproval, EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"accepted_decision", "insufficient_evidence"}, DecisionRecordRequired: true}, success: []WorkKind{WorkKindImplementation, WorkKindResearch, WorkKindStaticAnalysis}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "accept_decision": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"start_poc": ActionExternalEffect, "checkpoint_poc": ActionExternalEffect}, cross: map[string]ActionConsequence{"record_research": ActionCrossAuthority, "record_option": ActionCrossAuthority}},
-		"workflow.ops_runbook":        {evidence: []EvidenceKind{EvidenceApproval, EvidenceNativeRun}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "approve_operation": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"start_run": ActionExternalEffect, "checkpoint_run": ActionExternalEffect, "rollback_run": ActionExternalEffect}, cross: map[string]ActionConsequence{"record_health": ActionCrossAuthority}},
-		"workflow.static_analysis":    {evidence: []EvidenceKind{EvidenceArtifact, EvidenceReview}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"run_analysis": ActionExternalEffect, "checkpoint_analysis": ActionExternalEffect}},
-		"workflow.generic_one_off":    {evidence: []EvidenceKind{EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateOutcome, PredicateCheck}, AllowedOutcomeTokens: []string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}}, success: []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"start_action": ActionExternalEffect, "checkpoint_action": ActionExternalEffect}},
+		"workflow.implementation":     {evidence: []EvidenceKind{EvidenceVerification, EvidenceReview, EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindBreakFix, WorkKindResearch}, external: map[string]ActionConsequence{"start_execution": ActionExternalEffect, "checkpoint_execution": ActionExternalEffect}},
+		"workflow.break_fix":          {evidence: []EvidenceKind{EvidenceVerification, EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindImplementation, WorkKindResearch}, external: map[string]ActionConsequence{"start_repair": ActionExternalEffect, "checkpoint_repair": ActionExternalEffect}},
+		"workflow.research":           {evidence: []EvidenceKind{EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}}, success: []WorkKind{WorkKindBreakFix, WorkKindArchitectureSpike, WorkKindStaticAnalysis}, cross: map[string]ActionConsequence{"record_finding": ActionCrossAuthority}},
+		"workflow.architecture_spike": {evidence: []EvidenceKind{EvidenceReview, EvidenceApproval, EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"accepted_decision", "insufficient_evidence"}, DecisionRecordRequired: true}, success: []WorkKind{WorkKindImplementation, WorkKindResearch, WorkKindStaticAnalysis}, external: map[string]ActionConsequence{"start_poc": ActionExternalEffect, "checkpoint_poc": ActionExternalEffect}, cross: map[string]ActionConsequence{"record_research": ActionCrossAuthority, "record_option": ActionCrossAuthority}},
+		"workflow.ops_runbook":        {evidence: []EvidenceKind{EvidenceApproval, EvidenceNativeRun}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch}, external: map[string]ActionConsequence{"start_run": ActionExternalEffect, "checkpoint_run": ActionExternalEffect, "rollback_run": ActionExternalEffect}, cross: map[string]ActionConsequence{"record_health": ActionCrossAuthority}},
+		"workflow.static_analysis":    {evidence: []EvidenceKind{EvidenceArtifact, EvidenceReview}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch}, external: map[string]ActionConsequence{"run_analysis": ActionExternalEffect, "checkpoint_analysis": ActionExternalEffect}},
+		"workflow.generic_one_off":    {evidence: []EvidenceKind{EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateOutcome, PredicateCheck}, AllowedOutcomeTokens: []string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}}, success: []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff}, external: map[string]ActionConsequence{"start_action": ActionExternalEffect, "checkpoint_action": ActionExternalEffect}},
 	}
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		wantDefinition, ok := want[definition.Ref]
@@ -184,9 +183,6 @@ func TestBuiltinWorkflowDefinitionsMatchExactPhaseBContractMetadata(t *testing.T
 			t.Fatalf("%s rigor metadata mismatch: %+v", definition.Ref, definition.RigorRules)
 		}
 		for _, action := range definition.ActionDefinitions {
-			if expectedApproval, ok := wantDefinition.approval[action.ID]; ok && action.Approval != expectedApproval {
-				t.Fatalf("%s action %s approval=%s want %s", definition.Ref, action.ID, action.Approval, expectedApproval)
-			}
 			if expectedConsequence, ok := wantDefinition.external[action.ID]; ok && action.Consequence != expectedConsequence {
 				t.Fatalf("%s action %s consequence=%s want %s", definition.Ref, action.ID, action.Consequence, expectedConsequence)
 			}
@@ -430,7 +426,7 @@ func TestWorkflowPredicateDecoderIsClosedAndRejectsTrailingData(t *testing.T) {
 		`{"kind":1,"surface":"git:tree","subjects":["path:x"]}`,
 		`{"kind":"exists","surface":"git:tree","subjects":["path:x"],"kind":"absent"}`,
 		`{"kind":"outcome","allowed":["no_change"],"decision_record":{"question":"q","question":"q","options_considered":["a"]}}`,
-		`{"kind":"outcome","allowed":["accepted_decision"],"decision_record":{"question":"q","options_considered":["a"],"decision":"accepted_decision","rationale":"r","consequences":["c"],"inputs":["i"],"poc_findings":"none","supersedes":null,"superseded_by":null,"unknowns":[],"required_to_decide":[],"reviewer_actor_ref":"actor:` + strings.Repeat("a", 64) + `","operator_approval_ref":"approval:a","extra":true}}`,
+		`{"kind":"outcome","allowed":["accepted_decision"],"decision_record":{"question":"q","options_considered":["a"],"decision":"accepted_decision","rationale":"r","consequences":["c"],"inputs":["i"],"poc_findings":"none","supersedes":null,"superseded_by":null,"unknowns":[],"required_to_decide":[],"reviewer_actor_ref":"actor:` + strings.Repeat("a", 64) + `","extra":true}}`,
 	} {
 		if _, err := DecodeWorkflowPredicate([]byte(input)); err == nil {
 			t.Fatalf("invalid predicate accepted: %s", input)
@@ -476,6 +472,32 @@ func TestWorkflowPredicateRoundTripUsesStrictShape(t *testing.T) {
 	}
 	if decoded.Kind != PredicateOutcome || len(decoded.Allowed) != 1 || decoded.Allowed[0] != "no_change" {
 		t.Fatalf("round trip = %+v", decoded)
+	}
+}
+
+func TestWorkflowDecisionRecordKeepsReviewerAndOutcomeGuards(t *testing.T) {
+	t.Parallel()
+	valid := `{"kind":"outcome","allowed":["accepted_decision"],"decision_record":{"question":"q","options_considered":["a"],"decision":"accepted_decision","rationale":"r","consequences":["c"],"inputs":["i"],"poc_findings":"none","supersedes":null,"superseded_by":null,"unknowns":[],"required_to_decide":[],"reviewer_actor_ref":"actor:` + strings.Repeat("a", 64) + `"}}`
+	predicate, err := DecodeWorkflowPredicate([]byte(valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(predicate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeWorkflowPredicate(raw); err != nil {
+		t.Fatalf("decision record round trip: %v", err)
+	}
+	for _, invalid := range []string{
+		strings.Replace(valid, `"reviewer_actor_ref":"actor:`+strings.Repeat("a", 64)+`"`, `"reviewer_actor_ref":"unverified"`, 1),
+		strings.Replace(valid, `"allowed":["accepted_decision"]`, `"allowed":["insufficient_evidence"]`, 1),
+		strings.Replace(valid, `"poc_findings":"none"`, `"poc_findings":""`, 1),
+		strings.Replace(valid, `"options_considered":["a"]`, `"options_considered":["a","a"]`, 1),
+	} {
+		if _, err := DecodeWorkflowPredicate([]byte(invalid)); err == nil {
+			t.Fatalf("invalid decision record accepted: %s", invalid)
+		}
 	}
 }
 

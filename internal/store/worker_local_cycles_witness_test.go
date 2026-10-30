@@ -38,8 +38,6 @@ type localCyclesSnapshot struct {
 	dispatchCompletions int64
 	terminalReports     int
 	correctionOpen      bool
-	approvals           int
-	challenges          int
 }
 
 // localCyclesDispatchCompletions counts the dispatch_worker completions of
@@ -95,13 +93,6 @@ func TestWorkerLocalEditTestCyclesLeaveNoStoreTrace(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var approvals, challenges int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_approvals`).Scan(&approvals); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_approval_challenges`).Scan(&challenges); err != nil {
-			t.Fatal(err)
-		}
 		return localCyclesSnapshot{
 			version:             readWorkVersion(t, s, workID),
 			events:              sequenceWitnessEventCount(t, s, workID),
@@ -110,8 +101,6 @@ func TestWorkerLocalEditTestCyclesLeaveNoStoreTrace(t *testing.T) {
 			dispatchCompletions: localCyclesDispatchCompletions(t, s, workID),
 			terminalReports:     localCyclesTerminalReports(t, s, workID, attempt),
 			correctionOpen:      correction != nil,
-			approvals:           approvals,
-			challenges:          challenges,
 		}
 	}
 	before := snapshot()
@@ -196,9 +185,6 @@ func TestWorkerLocalEditTestCyclesLeaveNoStoreTrace(t *testing.T) {
 	after := snapshot()
 	if after.events != before.events+1 {
 		t.Fatalf("the completion moved the event count from %d to %d, want exactly the one report event", before.events, after.events)
-	}
-	if after.approvals != before.approvals || after.challenges != before.challenges {
-		t.Fatalf("the completion moved the approval tables from (%d,%d) to (%d,%d), want zero approval delta", before.approvals, before.challenges, after.approvals, after.challenges)
 	}
 	if after.correctionOpen {
 		t.Fatal("the completion opened a correction window")

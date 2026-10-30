@@ -1138,7 +1138,7 @@ func TestCrossAttemptCombinedRetryOverAnotherSessionsAttemptRefusesWhole(t *test
 	}
 	if _, err := invokeWorkflowActionForCD0059(ctx, t, f.s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: readWorkVersion(t, f.s, workID), ActionID: "dispatch_worker", Payload: fields, Actor: other,
-		ApprovedTakeover: &WorkflowStartTakeover{HeldEpoch: epochR, HolderActorRef: laneR}, SessionWorktree: dispatchSessionWorktree(t, f.s, workID),
+		ExpectedTakeover: &WorkflowStartTakeover{HeldEpoch: epochR, HolderActorRef: laneR}, SessionWorktree: dispatchSessionWorktree(t, f.s, workID),
 		AcceptedInputsDigest: cd0059TestDigest(t, "combined-takeover-inputs"), ContractDigest: testManifestDigest, Tool: "concord_work_transition",
 		IdempotencyKey: "combined-takeover-review", RequestID: "combined-takeover-review", IdempotencyIdentity: "combined-takeover-review", OperationID: "combined-takeover-review", PrincipalRef: other.PrincipalRef, Now: time.Now().UTC(),
 	}); err != nil {
@@ -1158,8 +1158,8 @@ func TestCrossAttemptCombinedRetryOverAnotherSessionsAttemptRefusesWhole(t *test
 	})
 	_, err = invokeWorkflowActionForCD0059(ctx, t, f.s, combined)
 	var refusal *Failure
-	if !errors.As(err, &refusal) || refusal.Kind != KindApprovalRequired || !strings.Contains(refusal.RecoveryAction, "reject without the retry payload") || !strings.Contains(refusal.Detail, "reject without the retry payload") {
-		t.Fatalf("combined retry over the other session's undecided review = %v, want approval_required naming the rejection-only route", err)
+	if !errors.As(err, &refusal) || refusal.Kind != KindOperationConflict {
+		t.Fatalf("combined retry over the other session's undecided review = %v, want operation_conflict", err)
 	}
 	if rejections := f.rejectionCount(t, f.attemptR, epochR); rejections != 0 {
 		t.Fatalf("rejection completions after the refused combined call = %d, want none", rejections)
@@ -1189,14 +1189,14 @@ func TestCrossAttemptCombinedRetryOverAnotherSessionsAttemptRefusesWhole(t *test
 	retry := func(key string, approved *WorkflowStartTakeover) error {
 		_, err := invokeWorkflowActionForCD0059(ctx, t, f.s, WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: readWorkVersion(t, f.s, workID), ActionID: "dispatch_worker", Payload: retryFields, Actor: f.dispatcher,
-			ApprovedTakeover: approved, SessionWorktree: dispatchSessionWorktree(t, f.s, workID),
+			ExpectedTakeover: approved, SessionWorktree: dispatchSessionWorktree(t, f.s, workID),
 			AcceptedInputsDigest: cd0059TestDigest(t, key+"-inputs"), ContractDigest: testManifestDigest, Tool: "concord_work_transition",
 			IdempotencyKey: key, RequestID: key, IdempotencyIdentity: key, OperationID: key, PrincipalRef: f.dispatcher.PrincipalRef, Now: time.Now().UTC(),
 		})
 		return err
 	}
-	if err := retry("combined-escape-unapproved", nil); !errors.As(err, &refusal) || refusal.Kind != KindApprovalRequired {
-		t.Fatalf("unapproved retry dispatch over the other session's undecided review = %v, want approval_required", err)
+	if err := retry("combined-escape-unapproved", nil); !errors.As(err, &refusal) || refusal.Kind != KindOperationConflict {
+		t.Fatalf("retry dispatch without the takeover read over the other session's held attempt = %v, want operation_conflict", err)
 	}
 	if err := retry("combined-escape-approved", &WorkflowStartTakeover{HeldEpoch: epochV, HolderActorRef: laneV}); err != nil {
 		t.Fatalf("the approved retry dispatch that completes the escape: %v", err)

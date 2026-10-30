@@ -182,7 +182,7 @@ func TestDeliveryGateCorrectionNeedsOutstandingReview(t *testing.T) {
 	if !workPinContainsAction(pin.NextValidIntents, "record_delivery") {
 		t.Fatalf("reviewed gate lost its delivery exit: %#v", pin.NextValidIntents)
 	}
-	err := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator)
+	err := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner)
 	var failure *Failure
 	if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "outstanding post-rejection review") {
 		t.Fatalf("unsupported gate return = %v, want the outstanding-review refusal", err)

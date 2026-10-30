@@ -145,7 +145,7 @@ func TestMemberClaimMigration155PreservesIntegration(t *testing.T) {
 		}
 	}
 	var floor int
-	if err := db.QueryRow(`SELECT max(version) FROM schema_migrations WHERE breaking=1`).Scan(&floor); err != nil || floor != 166 {
+	if err := db.QueryRow(`SELECT max(version) FROM schema_migrations WHERE breaking=1`).Scan(&floor); err != nil || floor != CurrentSchemaVersion() {
 		t.Fatalf("compatibility floor=%d err=%v", floor, err)
 	}
 	if got := memberMigrationRows(t, db, `PRAGMA foreign_key_check`); len(got) != 0 {

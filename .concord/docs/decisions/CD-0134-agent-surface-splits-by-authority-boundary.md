@@ -42,8 +42,8 @@ The registry adds these current children under `agent-surface`:
 | Domain | Boundary | Primary law records |
 |---|---|---|
 | `agent-contract` | Agent jobs, granularity, read intents, mutation intents, and operation contracts | TS1, TS2, TS3, TS4, CD-0216, CD-0035, CD-0038, CD-0069, CD-0113 |
-| `agent-call-boundary` | Scope, authorization, idempotency, result, error, evidence, and pagination semantics | TS5, TS7, CD-0023, CD-0027, CD-0037, CD-0071, CD-0080, CD-0132 |
-| `agent-adapter` | OpenCode registration, host context, permission bridge, and CLI transport | TS6, CD-0084, CD-0085, CD-0087, CD-0088, CD-0090 |
+| `agent-call-boundary` | Scope, authorization, idempotency, result, error, evidence, and pagination semantics | TS5, TS7, CD-0023, CD-0027, CD-0071, CD-0080, CD-0132 |
+| `agent-adapter` | OpenCode registration, host context, and CLI transport | TS6, CD-0084, CD-0085, CD-0087, CD-0088, CD-0090 |
 | `worker-lanes` | Typed lane contracts, dispatch identity, worker evidence, lane visibility, and host-owned worker execution | CD-0017, CD-0034, CD-0043, CD-0044, CD-0054, CD-0056, CD-0058, CD-0063, CD-0064, CD-0067, CD-0070, CD-0081 |
 | `agent-evolution` | Manifest identity, pre-go-live surface change, and deterministic change evidence | TS8, TS9, CD-0024, CD-0042 |
 

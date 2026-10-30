@@ -62,14 +62,14 @@ not a local planning backlog or remote issue writer.
 | Capture a unit of work with value statement, kind, priority, urgency, tags, and Project membership | Covered | `internal/agent/mutations.go` (`concord_work_define.capture`) |
 | Revise the intent of captured work, with a recorded reason | Covered | `internal/agent/mutations.go` (`revise_intent`) |
 | Bind a stated goal to a checkable outcome contract before execution begins | Covered | CD-0012; `internal/store/workflow_outcome.go` |
-| Require human approval at the consequence boundary before autonomous work | Covered | `approve_contract` and `confirm_premise` actions, `internal/store/workflow_dispatch.go` |
+| Ask the operator at an applicable decision boundary before autonomous work | Covered | CD-0243 D2's six classes; `.concord/instructions/asking.md` governs conversational decisions. `internal/store/workflow_dispatch.go` records authenticated coordinator actions, not human consent. |
 | Triage a defect before committing to a fix shape | Covered | `break_fix` workflow definition (reproduce → diagnose → repair → verify), `internal/store/workflow_registry.go` |
 | Declare which laws a unit of work is mandated by, and which it amends | Covered | CD-0015; `spec_mandate` / `law_modifies` in `internal/store/workflow_completion.go` |
 | Block planning and completion on unknown laws or unresolved law conflicts | Covered | CD-0015; `internal/store/workflow_completion.go` |
 | Frame an initiative that spans several units of work, with a narrative and an ordered entry set | Excluded | CD-0213 places Projects, Initiatives, grouping, and ordering in Linear through the Linear MCP server. Concord has no Initiative authoring or entry projection. |
 | Track lightweight future work that is not yet ready to start | Excluded | CD-0213 places the planning backlog in Linear through the Linear MCP server. Concord's managed work records are execution state, not a future-work planning copy. |
 | Audit drift between recorded law and current implementation | Covered | Manifest records carry `evidence` paths; `scripts/check-knowledge-index.py` fails when an evidence path rots (CD-0026). Structural reachability, not semantic verification. |
-| Resolve an ambiguous requirement into a decidable operator choice before commitment | Covered | `operator_question` projection with closed choices and action mapping, `internal/store/workflow_operator.go`; `confirm_premise` requires `selected_choice=confirm` and the matching `decision_context_digest` ([`workflow-engine-contract.md`](./workflow-engine-contract.md) §8.1) |
+| Resolve an ambiguous requirement into a decidable operator choice before commitment | Covered | `.concord/instructions/asking.md` requires investigation and one concrete question when the answer changes the outcome and evidence cannot settle it; CD-0243 owns the conversational decision boundary. |
 
 ## 2. Visibility and portfolio status
 
@@ -88,7 +88,6 @@ Seeing the state of the portfolio without blind spots, across sessions.
 | Navigate portfolio → Product → work from a terminal surface | Excluded | Per CD-0219, the interactive terminal browse surface retired with the launcher TUI, and the session entry route is removed; the operator reaches work through host-started sessions and the store query family, and no Concord surface browses portfolio → Product → work interactively. |
 | See the full Product scope from the operator surface | Excluded | Per CD-0021 D2, "across the full Product scope" means every Product is reachable from the operator's session and the agent read surface, which the store query family delivers to agent and CLI readers. Result sets spanning Products stay excluded by C18 §12 anti-requirement 11 and CD-0014. |
 | Create work from the operator surface without agent authorization | Excluded | Per CD-0021 D1, the operator plans by reaching work and a session that authors it. The operator surface stays read-only and work creation keeps a single write authority. |
-| See which concurrent agent sessions are active and which are blocked on an operator decision | Covered | `concord_product_view.blocked_sessions` (PM1.Q12) resolves active approval challenges to session, agent, worktree, consequence, and block age (`internal/store/blocked_sessions.go`). |
 
 ## 3. Implementation changes
 
@@ -104,7 +103,7 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 | Resume interrupted work without losing workflow position or repeating external effects | Covered | Attempt epochs, claim/checkpoint/complete fencing in `internal/store/fence.go` |
 | Survive a working-window boundary without dropping law, approvals, or position | Covered | CD-0016; `checkpoint_context` and `cross_context_boundary` in `internal/store/workflow_continuity.go` |
 | Restart cleanly into a typed agent after a boundary rather than summarizing | Excluded | CD-0027: pinned continuity is re-derived per call (CD-0016), so a post-boundary session receives exact pinned state rather than a summary; restart would only preserve in-flight working memory, which the host owns. |
-| Cancel work safely, with approval and recorded evidence | Covered | Terminal lifecycle transitions require approval and evidence, `internal/agent/mutations.go` |
+| Cancel work safely, with recorded evidence | Covered | Terminal lifecycle transitions require evidence, `internal/agent/mutations.go`; operator decisions follow CD-0243 D2 in conversation. |
 | Delegate a bounded execution attempt to a typed worker, verify which model actually ran, and record that evidence durably | Covered | CD-0017; `internal/store/worker_lanes.go`, `adapter/opencode/dispatch.ts`, and the `worker-dispatch` / `worker-complete` / `worker-fail` evidence verbs in `cmd/concord/main.go`. [CD-0044](./decisions/CD-0044-worker-evidence-caller-authentication.md) authenticates the caller of those verbs with a signed assertion bound to the exact attempt, so recorded evidence names a verified client rather than an unchecked actor string. |
 | Drive research, implementation, and review lanes through one end-to-end workflow with typed evidence | Not covered | `WF48-lane-pipeline-typed-evidence` proves the owner accepts a registered Implement lane's typed result and the worker cannot accept its own; `adapter/opencode/dispatch_route_end_to_end.case.ts` drives implement, verify, and review on one workflow. No current control dispatches the Research lane on that workflow. |
 | Measure lane prompt behaviour with an evaluation harness | Excluded | Concord keeps no live-model prompt-evaluation harness. End-to-end tests take the simplest direct route, and lane contracts are enforced by the deterministic registry, packet, report, and dispatch checks. |

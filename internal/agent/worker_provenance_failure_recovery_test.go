@@ -144,13 +144,9 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 				"fields": map[string]any{"attempt_id": freshID, "worker_packet": retryMutationPacket(t, s, freshID, pin.Correction)},
 			}
 			// consequence_v1 keeps this engineering retry on ordinary authority.
-			challengesBefore := verifyWallChallenges(t, s)
 			retry := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(retryInput)}, env)
 			if retry.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("fresh retry: %+v", retry.Error)
-			}
-			if got := verifyWallChallenges(t, s); got != challengesBefore {
-				t.Fatalf("engineering retry minted approval challenges: %d -> %d", challengesBefore, got)
 			}
 			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind IN ('worker.dispatched','worker.completed')`); got != acceptedEvidenceBefore {
 				t.Fatalf("recovery changed accepted evidence events from %d to %d", acceptedEvidenceBefore, got)

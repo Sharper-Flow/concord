@@ -132,7 +132,6 @@ func TestFailedReviewCorrectionBoundaryRequiresAcceptedCurrentReview(t *testing.
 	}
 	beforeCorrection := f.read(t)
 	attempts := countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`)
-	challenges := countWorkflowApprovalChallenges(t, f.s)
 	input := map[string]any{
 		"work_id": f.work, "expected_version": beforeCorrection.Pinned.Pin.Version, "action_id": "request_correction",
 		"fields": fields, "idempotency_key": "failed-review-current-correction",
@@ -143,8 +142,8 @@ func TestFailedReviewCorrectionBoundaryRequiresAcceptedCurrentReview(t *testing.
 	if current.Pinned.Step != "execution" || correction == nil || correction.SourceEventID == "" || !reflect.DeepEqual(correction.PredicateIDs, []string{"predicate:primary"}) || !reflect.DeepEqual(correction.EvidenceRefs, []string{reportRef}) {
 		t.Fatalf("current correction lost its bounded return context: %+v", current.Pinned)
 	}
-	if !reflect.DeepEqual(beforeCorrection.Pinned.Contract, current.Pinned.Contract) || !reflect.DeepEqual(beforeCorrection.Pinned.Pin.Review, current.Pinned.Pin.Review) || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`) != attempts || countWorkflowApprovalChallenges(t, f.s) != challenges || f.env.HostApproval != nil {
-		t.Fatal("correction changed contract, Review, attempts, or consent state")
+	if !reflect.DeepEqual(beforeCorrection.Pinned.Contract, current.Pinned.Contract) || !reflect.DeepEqual(beforeCorrection.Pinned.Pin.Review, current.Pinned.Pin.Review) || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`) != attempts {
+		t.Fatal("correction changed contract, Review, or attempts")
 	}
 	before = premiseConsentSnapshot(t, f.s)
 	if replay := spineOK(t, f.call(t, "concord_work_transition", "workflow_action", input)); !replay.Replayed || !reflect.DeepEqual(before, premiseConsentSnapshot(t, f.s)) {

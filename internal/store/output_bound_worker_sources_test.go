@@ -287,9 +287,7 @@ func init() {
 	registerOutputBound(defPacketBinding+"/properties/assigned_result/maxLength", workerGeneratedResultsBound())
 
 	registerOutputBound("/$defs/worker_packet_outcome_predicates/maxItems",
-		maxBound(
-			inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/oneOf/0/properties/outcome_predicates/maxItems"),
-			inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/oneOf/1/properties/outcome_predicates/maxItems")))
+		inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/properties/outcome_predicates/maxItems"))
 
 	// Packet work record: copied verbatim from work_items. Dispatch
 	// admission validates the packet that embeds it, so the narrative and

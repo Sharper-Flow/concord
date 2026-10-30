@@ -74,8 +74,8 @@ Binding: [`../agent-mutation-tool-contract.md`](../agent-mutation-tool-contract.
 
 Trusted clients inject a hidden typed envelope. Core-issued grants bind principal,
 client, scope, capability, expiry, and revocation. Core re-resolves scope every call.
-Mutations require expected versions, operation-bound approval where applicable, and
-durable idempotency. No path/trust/approval booleans.
+Mutations require expected versions and durable idempotency. No path/trust
+booleans. Operator decisions follow CD-0243 D2 in conversation.
 
 Binding: [`../agent-call-context-contract.md`](../agent-call-context-contract.md).
 
@@ -84,7 +84,7 @@ Binding: [`../agent-call-context-contract.md`](../agent-call-context-contract.md
 One globally installed `concord.ts` module exposes the generated current tool set and invokes the
 short-lived Go CLI over argv + JSON stdin/stdout. No plugin hooks, MCP daemon, FFI,
 TypeScript domain logic, or provider proxy. Signed client bootstrap protects grant
-issuance. Current OpenCode `ToolContext.ask` is pinned, tested, and fail-closed.
+issuance.
 
 The current adapter exposes the generated current tool set, including the accepted
 `concord_work_relate.resolve_overlap` operation, and binds the exact manifest digest.
@@ -130,14 +130,12 @@ Binding: [`../agent-tool-surface-measurement.md`](../agent-tool-surface-measurem
 1. The generated current manifest defines one static tool surface; nine remains the hard cap.
 2. Agent surface derives from accepted jobs, never storage/CLI inventory.
 3. Go core owns all domain semantics and authorization.
-4. Adapter owns only host context, transport, schema registration, and permission
-   interaction.
+4. Adapter owns only host context, transport, and schema registration.
 5. Scope/identity use stable IDs; no repeated filesystem target plumbing.
 6. Mutation retries reuse one durable idempotency identity.
-7. Human approval is bound to exact operation/scope/version/consequence.
-8. No false cross-authority atomicity or false top-level success.
-9. Reads/output remain bounded and authority/freshness explicit.
-10. Surface changes are generated, digest-bound, deterministically evidenced, and
+7. No false cross-authority atomicity or false top-level success.
+8. Reads/output remain bounded and authority/freshness explicit.
+9. Surface changes are generated, digest-bound, deterministically evidenced, and
 operator-accepted when authority or consequence changes.
 
 ## Consequences
@@ -153,7 +151,6 @@ operator-accepted when authority or consequence changes.
 ### Cost
 
 - Canonical manifest/code generation and deterministic conformance evidence are mandatory.
-- OpenCode adapter depends on a pinned, currently source-only `ToolContext.ask` API.
 - PM1/TS1 deterministic evidence is substantial before release.
 - New Product domains do not gain tools automatically; they must pass the current
   TS9 evidence contract.
@@ -163,7 +160,7 @@ operator-accepted when authority or consequence changes.
 - CRUD/table/CLI-command tool generation.
 - One mega `query`/`invoke` or generic JSON patch.
 - Advance command-for-command surface.
-- Repeated `target_path`/trust/approval arguments.
+- Repeated `target_path`/trust arguments.
 - Generic plugin domain layer, MCP daemon, FFI, or TypeScript core.
 - Natural-language errors, silent truncation, bare async IDs, or success booleans.
 - Permanent aliases, runtime-hidden registries, or usage-only pruning.
@@ -171,7 +168,7 @@ operator-accepted when authority or consequence changes.
 ## Implementation acceptance
 
 Implementation must satisfy each linked contract, PM1/TS1 deterministic scenarios,
-TS6 transport/grant/approval failure tests, TS7 schema/negative probes, TS8 exact
+TS6 transport/grant failure tests, TS7 schema/negative probes, TS8 exact
 manifest-digest binding, and TS9 deterministic authority/transaction/conformance
 evidence. A passing schema without state/authority evidence is insufficient.
 

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
@@ -156,17 +155,15 @@ func TestTerminalCleanupAfterCompactionSettlement(t *testing.T) {
 func TestTerminalCleanupPublicationRejectsUnreviewedBytes(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
-		approved       bool
 		reviewOriginal bool
 		overrideDigest bool
 	}{
-		{name: "unapproved"},
-		{name: "approved", approved: true},
-		{name: "borrowed_review_digest", approved: true, overrideDigest: true},
-		{name: "wrong_declared_digest", approved: true, reviewOriginal: true, overrideDigest: true},
+		{name: "unreviewed"},
+		{name: "borrowed_review_digest", overrideDigest: true},
+		{name: "wrong_declared_digest", reviewOriginal: true, overrideDigest: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s, service, grant, key, home := agentJobsCompactionFixture(t)
+			s, service, grant, _, home := agentJobsCompactionFixture(t)
 			hash := "sha256:" + strings.Repeat("a", 64)
 			if tc.reviewOriginal {
 				hash = cancelledPublicationContent(t, newCancelledNotePublication(t, s, grant, home, "reviewed-receipt")).ContentDigest
@@ -184,18 +181,6 @@ func TestTerminalCleanupPublicationRejectsUnreviewedBytes(t *testing.T) {
 				publication.digest = mutationDigest("concord_work_compact", "publish", publication.env, publication.input)
 			}
 			request, env := publication.request(), publication.env
-			var approvalRef string
-			if tc.approved {
-				inv := Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: "work_compact", RequiredOperation: "publish", ProductID: env.SelectedProductID}
-				if err := s.Transact(t.Context(), func(tx *store.Transaction) error {
-					var err error
-					approvalRef, err = service.CreateApprovalChallengeTx(t.Context(), tx, probedHost(), inv, ApprovalChallengeSpec{OperationDigest: publication.digest, Scope: publication.scope, Versions: publication.versions, Consequence: "publication", HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: fixedTime().Add(time.Hour)})
-					return err
-				}); err != nil {
-					t.Fatal(err)
-				}
-				request, env = publication.approvedBy(t, key, approvalRef)
-			}
 			head := gitRun(t, home.RepoPath, "rev-parse", "HEAD")
 			response := dispatchMutation(t, s, service, request, env)
 			if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "outcome_mismatch" {
@@ -206,15 +191,6 @@ func TestTerminalCleanupPublicationRejectsUnreviewedBytes(t *testing.T) {
 			}
 			if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM durable_operations WHERE work_id='work-cancelled'`) != 0 || archivedCancelledWorkCount(t, s) != 0 {
 				t.Fatal("refused publication claimed or linked work")
-			}
-			if tc.approved {
-				var status string
-				var uses int
-				if err := s.DatabaseForTesting().QueryRow(`SELECT status,used_count FROM agent_approval_challenges WHERE challenge_ref=?`, approvalRef).Scan(&status, &uses); err != nil || status != "active" || uses != 0 {
-					t.Fatalf("refused publication consumed approval: status=%s uses=%d err=%v", status, uses, err)
-				}
-			} else if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges WHERE consequence='publication'`) != 0 {
-				t.Fatal("mismatching publication requested approval")
 			}
 		})
 	}

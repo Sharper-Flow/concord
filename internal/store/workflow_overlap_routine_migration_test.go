@@ -45,10 +45,12 @@ func overlapRoutineAuthorityMigrationIndex(t *testing.T) int {
 
 // resolutionRowDump renders every resolution row's full column values as one
 // comparable line per row, headed by the column inventory, so the
-// preservation check never restates the table shape in prose.
+// preservation check never restates the table shape in prose. The retired
+// approval_ref column, which migration 167 drops, stays out of the dump so
+// the prefix and head shapes compare on the surviving columns.
 func resolutionRowDump(t *testing.T, db *sql.DB) []string {
 	t.Helper()
-	rows, err := db.QueryContext(context.Background(), `SELECT * FROM workflow_overlap_resolutions ORDER BY resolution_id`)
+	rows, err := db.QueryContext(context.Background(), `SELECT resolution_id,event_seq,product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,resolution_kind,reason,created_at,invalidated_seq FROM workflow_overlap_resolutions ORDER BY resolution_id`)
 	if err != nil {
 		t.Fatal(err)
 	}

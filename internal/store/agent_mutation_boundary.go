@@ -42,13 +42,6 @@ type MutationIdempotencyInsert struct {
 	ObservedAt              time.Time
 }
 
-// WorkflowContractSnapshot is the active contract data needed by mutation
-// preflight and approval responses.
-type WorkflowContractSnapshot struct {
-	Version int64
-	Premise string
-}
-
 // WorkflowInstanceDefinition carries the instance's stored definition metadata.
 type WorkflowInstanceDefinition struct {
 	DefinitionRef    string
@@ -162,39 +155,6 @@ func acceptedInputsDigest(ctx context.Context, q queryer, operationID string) (s
 	return digest, nil
 }
 
-func latestWorkflowContractVersion(ctx context.Context, q queryer, workID string) (int64, error) {
-	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_contract")
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	return version, nil
-}
-
-func (s *Store) ActiveWorkflowContract(ctx context.Context, workID string) (WorkflowContractSnapshot, error) {
-	if s == nil || s.db == nil {
-		return WorkflowContractSnapshot{}, newFailure(KindUnavailable, "workflow_contract", "store is not open", false, "open the authority database")
-	}
-	return activeWorkflowContract(ctx, s.db, workID)
-}
-
-func activeWorkflowContract(ctx context.Context, q queryer, workID string) (WorkflowContractSnapshot, error) {
-	var contract WorkflowContractSnapshot
-	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_contract")
-	if err == sql.ErrNoRows {
-		return WorkflowContractSnapshot{}, newFailure(KindProjectionNotFound, "workflow_contract", "active workflow contract does not exist", false, "approve a workflow contract first")
-	}
-	if err != nil {
-		return WorkflowContractSnapshot{}, err
-	}
-	if err := q.QueryRowContext(ctx, `SELECT contract_version,premise FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&contract.Version, &contract.Premise); err != nil {
-		return WorkflowContractSnapshot{}, wrapFailure(KindUnavailable, "workflow_contract", "cannot read active workflow contract", true, "retry once the database is readable", err)
-	}
-	return contract, nil
-}
-
 func (s *Store) WorkflowInstanceDefinition(ctx context.Context, workID string) (WorkflowInstanceDefinition, bool, error) {
 	if s == nil || s.db == nil {
 		return WorkflowInstanceDefinition{}, false, newFailure(KindUnavailable, "workflow_instance", "store is not open", false, "open the authority database")
@@ -271,8 +231,7 @@ func WorkLifecycleTx(ctx context.Context, transaction *Transaction, workID strin
 }
 
 // WorkLifecycle reads one work item's lifecycle state on the store's own
-// connection, for callers that gate a request before opening a write
-// transaction (the destroy approval preflight).
+// connection, for callers that gate a request before opening a write transaction.
 func (s *Store) WorkLifecycle(ctx context.Context, workID string) (string, error) {
 	if s == nil || s.db == nil {
 		return "", newFailure(KindUnavailable, "work_lifecycle", "store is not open", false, "open the authority database")
@@ -370,10 +329,6 @@ func AgentMutationDigest(tool, operation, selectedProduct, ambientProject string
 	var input any
 	_ = json.Unmarshal(raw, &input)
 	if object, ok := input.(map[string]any); ok {
-		// Approval references are core-issued authorization handles, not domain
-		// intent. Excluding them lets a persisted challenge authorize the exact
-		// original intent when it is resubmitted with its opaque reference.
-		delete(object, "approval")
 		delete(object, "idempotency_key")
 	}
 	canonical, _ := json.Marshal(struct {
@@ -393,124 +348,4 @@ func ValidateMutationBoundaryRecords(input MutationIdempotencyInsert) error {
 		}
 	}
 	return nil
-}
-
-// WorkflowApprovalBoundaryState is one read of the consent boundary facts for
-// one workflow action request. It runs no admission guard and authorizes nothing.
-type WorkflowApprovalBoundaryState struct {
-	Definition             RegisteredDefinition
-	WorkVersion            int64
-	ContractVersion        int64
-	ActiveContractVersions []int64
-	DecisionDomainsPresent bool
-	DecisionDomains        []string
-	EvaluatorAuthority     WorkflowEvaluationAuthority
-	Policy                 WorkflowApprovalPolicyResult
-}
-
-func ReadWorkflowApprovalBoundary(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest) (WorkflowApprovalBoundaryState, error) {
-	if s == nil || s.db == nil {
-		return WorkflowApprovalBoundaryState{}, newFailure(KindUnavailable, "workflow_approval_boundary", "store is not open", false, "open the authority database")
-	}
-	readTx, err := beginReadTx(ctx, s.db)
-	if err != nil {
-		return WorkflowApprovalBoundaryState{}, wrapFailure(KindUnavailable, "workflow_approval_boundary", "cannot open the approval boundary read transaction", true, "retry once the store is readable", err)
-	}
-	defer func() { _ = readTx.Rollback() }()
-	return workflowApprovalBoundaryCore(ctx, readTx, registry, request)
-}
-
-// ReadWorkflowApprovalBoundaryTx unwraps only through transactionSQL and runs
-// the same core in the caller's transaction.
-func ReadWorkflowApprovalBoundaryTx(ctx context.Context, transaction *Transaction, registry DefinitionRegistry, request WorkflowActionPreflightRequest) (WorkflowApprovalBoundaryState, error) {
-	q, err := transactionSQL(transaction, "workflow_approval_boundary")
-	if err != nil {
-		return WorkflowApprovalBoundaryState{}, err
-	}
-	return workflowApprovalBoundaryCore(ctx, q, registry, request)
-}
-
-func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry DefinitionRegistry, request WorkflowActionPreflightRequest) (WorkflowApprovalBoundaryState, error) {
-	if registry == nil {
-		registry = BuiltinWorkflowRegistry()
-	}
-	var state WorkflowApprovalBoundaryState
-	definition, err := VerifyWorkflowInstanceDefinitionTx(ctx, q, registry, request.WorkID)
-	if err != nil {
-		return state, err
-	}
-	state.Definition = definition
-	if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&state.WorkVersion); err != nil {
-		if err == sql.ErrNoRows {
-			return state, newFailure(KindProjectionNotFound, "workflow_approval_boundary", "work item does not exist", false, "reread the work item")
-		}
-		return state, wrapFailure(KindUnavailable, "workflow_approval_boundary", "cannot read the work version", true, "retry once the database is readable", err)
-	}
-	if state.ActiveContractVersions, err = activeWorkflowContractVersions(ctx, q, request.WorkID); err != nil {
-		return state, err
-	}
-	if request.ActionID == "supersede_contract" {
-		// The duplicate-active recovery reads the ordered list's highest
-		// member; the singular reader refuses the duplicate projection it retires.
-		if len(state.ActiveContractVersions) > 0 {
-			state.ContractVersion = maxInt64(state.ActiveContractVersions)
-		}
-	} else if state.ContractVersion, err = latestWorkflowContractVersion(ctx, q, request.WorkID); err != nil {
-		return state, err
-	}
-	if state.ContractVersion > 0 {
-		var stored sql.NullString
-		if err := q.QueryRowContext(ctx, `SELECT decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=?`, request.WorkID, state.ContractVersion).Scan(&stored); err != nil {
-			if err == sql.ErrNoRows {
-				return state, newFailure(KindInvariantViolation, "workflow_approval_boundary", "active workflow contract is missing", false, "reread_entities")
-			}
-			return state, wrapFailure(KindUnavailable, "workflow_approval_boundary", "cannot read the active workflow contract", true, "retry once the database is readable", err)
-		}
-		domains, present, decodeErr := workflowStoredDecisionDomains(stored)
-		if decodeErr != nil {
-			return state, newFailure(KindInvariantViolation, "workflow_approval_boundary", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-		}
-		state.DecisionDomainsPresent, state.DecisionDomains = present, domains
-	}
-	actorRef, err := WorkflowActorRef(request.Actor)
-	if err != nil {
-		return state, err
-	}
-	if state.EvaluatorAuthority, err = workflowEvaluationAuthority(ctx, q, request.WorkID, actorRef); err != nil {
-		return state, err
-	}
-	facts, err := workflowApprovalBoundaryFacts(request, state)
-	if err != nil {
-		return state, err
-	}
-	if state.Policy, err = ClassifyWorkflowApproval(state.Definition.Definition, request.ActionID, facts); err != nil {
-		return state, err
-	}
-	return state, nil
-}
-
-func workflowApprovalBoundaryFacts(request WorkflowActionPreflightRequest, state WorkflowApprovalBoundaryState) (WorkflowApprovalFacts, error) {
-	facts := WorkflowApprovalFacts{ActiveDecisionDomains: state.DecisionDomains}
-	if workflowOperatorVerdictActions[request.ActionID] {
-		// The existing legacy fact: an independent evaluator never becomes consent.
-		facts.OperatorRequired = state.EvaluatorAuthority == WorkflowOperatorRequired
-	}
-	if (request.ActionID == "approve_contract" || request.ActionID == "supersede_contract") && workflowApprovalPolicyRequiresDecisionFact(state.Definition.Definition) {
-		var fields map[string]json.RawMessage
-		if len(request.Payload) != 0 {
-			if err := decodeWorkflowActionPayloadStrict(request.Payload, &fields); err != nil {
-				return facts, newFailure(KindInvalidPayload, "workflow_approval_boundary", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
-			}
-		}
-		role := "successor"
-		if request.ActionID == "approve_contract" {
-			role = "approval"
-		}
-		domains, err := workflowSubmittedDecisionDomains(state.Definition.Definition, role, fields)
-		if err != nil {
-			return facts, err
-		}
-		facts.ProposedDecisionDomains = domains
-	}
-	return facts, nil
 }

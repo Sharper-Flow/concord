@@ -7,11 +7,7 @@ import (
 	"math"
 )
 
-// WorkflowStartTakeover names the attempt a fresh fenced start would take
-// from its holder. CD-0013 criterion 25 admits that takeover only with an
-// approval bound to the held epoch and the holder; CD-0008 D4 forbids
-// deciding that an attempt is stuck from liveness, so the holder's own
-// recorded relinquishment is the only release.
+// WorkflowStartTakeover pins the epoch and holder observed before a fenced start.
 type WorkflowStartTakeover struct {
 	HeldEpoch      int64
 	HolderActorRef string
@@ -60,8 +56,7 @@ func WorkflowStartTakeoverRead(ctx context.Context, s *Store, action WorkflowAct
 //
 // A worker-lane dispatch takes over only an unfinished lane attempt another
 // session dispatched: its worker is running or its result awaits a decision.
-// A failed attempt is finished, and the next dispatch is a retry
-// whose approval binds the failed attempt.
+// A failed attempt is finished, and the next dispatch is a retry.
 func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, callerActorRef string, assignment workerRestartAssignment, identity string) (*WorkflowStartTakeover, error) {
 	var step, executionActor string
 	if err := q.QueryRowContext(ctx, `SELECT current_step,COALESCE(execution_actor_ref,'') FROM workflow_instances WHERE work_id=?`, workID).Scan(&step, &executionActor); err != nil {
@@ -158,23 +153,20 @@ func workflowLaneAttemptHeldFrom(ctx context.Context, q queryer, workID, step st
 	return !ended, nil
 }
 
-// guardStartTakeover checks foreign takeover authority inside the action
-// transaction. A takeover needs the exact
-// approval minted for the current held attempt; a changed holder or epoch
-// invalidates that approval.
-func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, actorRef string, assignment workerRestartAssignment, identity string, approved *WorkflowStartTakeover) error {
+// guardStartTakeover checks the held epoch and holder against the boundary read.
+func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, actorRef string, assignment workerRestartAssignment, identity string, expected *WorkflowStartTakeover) error {
 	takeover, err := workflowStartTakeover(ctx, q, action, workID, actorRef, assignment, identity)
 	if err != nil {
 		return err
 	}
-	if approved == nil {
+	if expected == nil {
 		if takeover != nil {
-			return newFailure(KindApprovalRequired, "workflow_action", "this fenced start would take over an attempt its holder has not relinquished", false, "obtain operator approval bound to the held attempt epoch and holder, or have the holder relinquish it")
+			return newFailure(KindOperationConflict, "workflow_action", "the held attempt changed after the takeover read", false, "reread the work item and retry against its current held attempt")
 		}
 		return nil
 	}
-	if takeover == nil || *takeover != *approved {
-		return newFailure(KindApprovalInvalid, "workflow_action", "the held attempt changed after the takeover approval challenge", false, "reread the work item and request a fresh approval")
+	if takeover == nil || *takeover != *expected {
+		return newFailure(KindOperationConflict, "workflow_action", "the held attempt changed after the takeover read", false, "reread the work item and retry against its current held attempt")
 	}
 	return nil
 }

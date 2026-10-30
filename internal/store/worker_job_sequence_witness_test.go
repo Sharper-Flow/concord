@@ -80,19 +80,6 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptance(t *testing.T) {
 	ctx := context.Background()
 	acceptor := reviewGateAcceptor(workID)
 	lane := reviewGateLane(t, "implementation")
-	approvalCounts := func() (int, int) {
-		t.Helper()
-		var approvals, challenges int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_approvals`).Scan(&approvals); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_approval_challenges`).Scan(&challenges); err != nil {
-			t.Fatal(err)
-		}
-		return approvals, challenges
-	}
-	approvalsBefore, challengesBefore := approvalCounts()
-
 	jobA := &WorkerJobBinding{JobID: "job:sequence-witness-a", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, jobA)
 	jobB := &WorkerJobBinding{JobID: "job:sequence-witness-b", Revision: 1}
@@ -214,9 +201,6 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptance(t *testing.T) {
 	}
 	if correction, err := workflowCorrectionContext(ctx, s.db, workID, "repair"); err != nil || correction != nil {
 		t.Fatalf("correction context after two local accepts = (%+#v, %v), want no correction window at all", correction, err)
-	}
-	if approvalsAfter, challengesAfter := approvalCounts(); approvalsAfter != approvalsBefore || challengesAfter != challengesBefore {
-		t.Fatalf("the acceptance chain moved the approval tables from (%d,%d) to (%d,%d), want zero approval delta", approvalsBefore, challengesBefore, approvalsAfter, challengesAfter)
 	}
 
 }

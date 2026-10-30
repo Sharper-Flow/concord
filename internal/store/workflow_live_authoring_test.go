@@ -89,7 +89,6 @@ func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 				t.Fatal(err)
 			}
 			owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-			operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
 			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -135,7 +134,7 @@ func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 					if !hasFailureKind(preflightErr, KindInvariantViolation) {
 						t.Fatalf("archived-family preflight = %v, want %s", preflightErr, KindInvariantViolation)
 					}
-					mutationErr := runIssue933OperatorAction(t, s, workID, action, json.RawMessage(`{}`), owner, operator)
+					mutationErr := runIssue933OperatorAction(t, s, workID, action, json.RawMessage(`{}`), owner)
 					if !hasFailureKind(mutationErr, KindInvariantViolation) {
 						t.Fatalf("archived-family mutation = %v, want %s", mutationErr, KindInvariantViolation)
 					}
@@ -1190,8 +1189,8 @@ func TestCutoverDispositionOutsideRepairRefusalRollsBackEveryCancellation(t *tes
 	ctx := context.Background()
 	s := seedCutoverDispositionFixture(t)
 	// The held item sorts second, so the first cancellation must roll back.
-	execInFold(t, s, `INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
-		VALUES('b-contract-only','approval:hold','active','synthetic outside repair','{}','now')`)
+	execInFold(t, s, `INSERT INTO outside_repair_dispositions(work_id,state,reason,evidence_json,recorded_at)
+		VALUES('b-contract-only','active','synthetic outside repair','{}','now')`)
 	before := cutoverTableSnapshot(t, s, "work_items")
 	eventsBefore := countRows(t, s, "effect_receipts")
 	options := UpgradeOptions{CancelCutoverPinnedWork: true}

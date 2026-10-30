@@ -11,7 +11,7 @@
     "internal/store/workflow_premise_deliverables_test.go",
     "internal/store/workflow_review_disposition_test.go",
     "internal/store/confirm_premise_truth_test.go",
-    "internal/store/workflow_approval_step_kind_test.go",
+    "internal/store/workflow_step_reach_test.go",
     "internal/store/workflow_admission_liveness_test.go"
   ],
   "home_domain_id": "workflow-engine",
@@ -35,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2b9948ed8d176f9ae8fb3fb11d8a4b5f59834e3965c5a6af04973ab493f8778f",
+  "sha256": "sha256:6fe0250d66029f47edb69f89beb7724f5b342415c80b4a14ff82dc00a7788786",
   "status": "accepted",
   "summary": "Admission carries the acceptance-deliverables refusal while a premise question is open, so the preflight, the work pin, and execution refuse confirm_premise alike; the fresh-review refusal defers to the guards only for accept_worker_result, so every site refuses record_delivery behind a blocking Review disposition; and the late record_verdict route serves a premise-question step that does not declare record_verdict, so recorded ops runbooks at cleanup without a verdict record it there. The gate lives in admission code derived from the canonical source.",
   "tags": [

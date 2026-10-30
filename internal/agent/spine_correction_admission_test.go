@@ -84,7 +84,6 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	delivery := map[string]any{"delivery_artifact": "artifact:spine-corrected-value", "delivery_state": "asserted"}
 	t.Run("correction hold is not delivery readiness", func(t *testing.T) { refuse(t, "record_delivery", delivery) })
 	before := f.read(t)
-	challenges := countWorkflowApprovalChallenges(t, f.s)
 	attempts := countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`)
 	input := map[string]any{"work_id": f.work, "expected_version": before.Pinned.Pin.Version, "action_id": "request_correction", "fields": fields, "idempotency_key": "spine-current-correction"}
 	if err := store.WorkflowActionPreflightWithRegistry(t.Context(), f.s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{
@@ -98,7 +97,7 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	if corrected.Pinned.Step != "execution" || context == nil || context.SourceEventID == "" || !reflect.DeepEqual(context.PredicateIDs, []string{"predicate:primary"}) || !reflect.DeepEqual(context.EvidenceRefs, []string{reportRef}) {
 		t.Fatalf("correction lost its current Review scope or declared target: %+v", corrected.Pinned)
 	}
-	if !reflect.DeepEqual(before.Pinned.Contract, corrected.Pinned.Contract) || !reflect.DeepEqual(before.Pinned.Pin.Review, corrected.Pinned.Pin.Review) || !reflect.DeepEqual(before.Pinned.Pin.VerdictEvidence, corrected.Pinned.Pin.VerdictEvidence) || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`) != attempts || countWorkflowApprovalChallenges(t, f.s) != challenges || f.env.HostApproval != nil {
+	if !reflect.DeepEqual(before.Pinned.Contract, corrected.Pinned.Contract) || !reflect.DeepEqual(before.Pinned.Pin.Review, corrected.Pinned.Pin.Review) || !reflect.DeepEqual(before.Pinned.Pin.VerdictEvidence, corrected.Pinned.Pin.VerdictEvidence) || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`) != attempts {
 		t.Fatal("recording correction changed the contract, Review, proof, attempt population or approval state")
 	}
 	effects := premiseConsentSnapshot(t, f.s)

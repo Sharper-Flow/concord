@@ -13,7 +13,7 @@ import (
 
 func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -28,7 +28,7 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 	fields["required_evidence"] = []string{"verification"}
 	fields["route_conventions"] = []string{}
 	fields["rigor_class"] = "prototype_internal"
-	approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "design-correction-approve")
+	approved, _ := approvedWorkflowContract(t, s, service, env, version, fields, "design-correction-approve")
 	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve contract: %+v", approved.Error)
 	}
@@ -43,7 +43,7 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 	fields["contract_version"] = 2
 	fields["supersede_reason"] = "reassess the unchanged approved outcome and architecture"
 	fields["audit_evidence"] = []string{"evidence:design-correction"}
-	corrected, version := approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, "supersede_contract", fields, "design-correction-supersede", map[string]any{"work": version, "contract": before.Contract.Version})
+	corrected, version := dispatchWorkflowActionResult(t, s, service, env, version, "supersede_contract", fields, "design-correction-supersede")
 	if corrected.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("supersede contract: %+v", corrected.Error)
 	}
@@ -65,7 +65,7 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 		"decisions":    []map[string]any{{"id": "decision:replacement", "question": "Which approach?", "choice": "replacement", "rationale": "Matches the corrected objective", "rejected": []string{"original"}}},
 		"touched_refs": []string{"internal/store/workflow_design.go"},
 	}
-	replaced, version := approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, "supersede_contract", fields, "design-correction-replace", map[string]any{"work": version, "contract": 2})
+	replaced, version := dispatchWorkflowActionResult(t, s, service, env, version, "supersede_contract", fields, "design-correction-replace")
 	if replaced.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replace design with contract: %+v", replaced.Error)
 	}

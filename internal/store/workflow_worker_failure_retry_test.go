@@ -183,7 +183,7 @@ func TestTerminalFailureWithoutADerivedRecordSkipsStructurally(t *testing.T) {
 	if _, err := invokeWorkflowActionForCD0059(t.Context(), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "dispatch_worker",
 		Payload: mustJSONValue(map[string]any{"attempt_id": second, "worker_packet": packet}), Actor: taker, SessionWorktree: claim,
-		ApprovedTakeover: approved, AcceptedInputsDigest: testManifestDigest, IdempotencyIdentity: key, OperationID: key,
+		ExpectedTakeover: approved, AcceptedInputsDigest: testManifestDigest, IdempotencyIdentity: key, OperationID: key,
 		PrincipalRef: taker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: key,
 		ContractDigest: testManifestDigest, Now: time.Unix(20, 0).UTC(),
 	}); err != nil {

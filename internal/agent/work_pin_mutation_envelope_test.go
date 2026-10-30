@@ -20,7 +20,7 @@ import (
 func TestMutationEnvelopePublishesPinnedObligationsAndDefinitionIdentity(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	seedCurrentWorkflowDomainFixture(t, s)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -30,7 +30,7 @@ func TestMutationEnvelopePublishesPinnedObligationsAndDefinitionIdentity(t *test
 	workID := captureCompositionWork(t, ctx, s, service, env, "Mutation envelope obligations", "bug", "workflow.break_fix", "obligation-envelope")
 	version := agentCompositionWorkVersion(t, s, workID)
 
-	response, _ := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "record_diagnosis", map[string]any{
+	response, _ := ekbDispatch(t, s, service, env, workID, version, "record_diagnosis", map[string]any{
 		"reproduction": "The bounded defect reproduction statement.",
 		"searched":     "The bounded backlog search statement.",
 		"outcome":      "none_found",

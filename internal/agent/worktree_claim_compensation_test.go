@@ -38,7 +38,7 @@ func TestWorktreeClaimEffectReportsCreationAndCleanupCompensates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := newMutationPlan(env, op)
+	plan := newMutationPlan(env)
 	if _, _, handled := r.planWorktreeClaim(ctx, agentcontract.Envelope{}, raw, "sha256:"+strings.Repeat("c", 64), grant, op, plan); handled {
 		t.Fatal("planWorktreeClaim must defer to the effect, not answer directly")
 	}
@@ -96,7 +96,6 @@ func TestExecuteMutationCompensatesNativeCreationWhenTheResultIsRefused(t *testi
 	}
 	digest := "sha256:" + strings.Repeat("d", 64)
 	scope := map[string]any{"work_ids": []string{"work-1"}, "project_ids": []string{"project-1"}}
-	versions := map[string]any{"work": 2}
 	cleanupCalls := 0
 	cleanup := func(ctx context.Context, cause error) error {
 		cleanupCalls++
@@ -117,7 +116,7 @@ func TestExecuteMutationCompensatesNativeCreationWhenTheResultIsRefused(t *testi
 		// refused after the effect and before the commit.
 		return json.RawMessage(`{}`), nil, nil, nil
 	}
-	response, err := r.executeMutation(ctx, agentcontract.Envelope{}, raw, digest, scope, versions, "lifecycle", "", false, nil, nil, nil, effect, cleanup, nil)
+	response, err := r.executeMutation(ctx, agentcontract.Envelope{}, raw, digest, scope, nil, nil, effect, cleanup, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

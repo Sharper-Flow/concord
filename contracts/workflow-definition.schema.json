@@ -13,7 +13,6 @@
     "work_kind": {"type": "string", "enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]},
     "changes_product_truth": {"type": "boolean"},
     "capabilities": {"description": "Digest-covered sorted unique capability union of the compiled definition's parts.", "type": "array", "minItems": 0, "maxItems": 8, "uniqueItems": true, "items": {"type": "string", "enum": ["accept_delivery", "derived_step_start", "derived_worker_failure", "failure_attribution", "produces_delivery", "refine_proof", "root_cause_analysis", "worker_jobs"]}},
-    "approval_policy": {"type": "string", "enum": ["consequence_v1"]},
     "step_graph": {"$ref": "#/$defs/stepGraph"},
     "available_actions": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
     "action_definitions": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/actionDefinition"}},
@@ -69,11 +68,10 @@
     },
     "actionDefinition": {
       "type": "object", "additionalProperties": false,
-      "required": ["id", "consequence", "approval", "execution_mode", "payload"],
+      "required": ["id", "consequence", "execution_mode", "payload"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
         "consequence": {"type": "string", "enum": ["internal_sqlite", "cross_authority", "external_effect"]},
-        "approval": {"type": "string", "enum": ["none", "conditional", "required"]},
         "execution_mode": {"type": "string", "enum": ["advance", "hold", "fenced", "checkpoint"]},
         "required_capability": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]{1,63}$"},
         "payload": {"$ref": "#/$defs/payloadDefinition"},

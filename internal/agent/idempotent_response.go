@@ -16,15 +16,14 @@ type mutationResponseSnapshot struct {
 	NextValidIntents []agentcontract.NextIntent  `json:"next_valid_intents"`
 	EvidenceRefs     []agentcontract.EvidenceRef `json:"evidence_refs"`
 	PinlessWorkIDs   []string                    `json:"pinless_work_ids"`
-	ApprovalConsumed bool                        `json:"approval_consumed"`
 }
 
-func mutationResponseScope(scope map[string]any, response agentcontract.Envelope, pinless []string, approvalConsumed bool) map[string]any {
-	snapshot := boundedApprovalScope(scope)
+func mutationResponseScope(scope map[string]any, response agentcontract.Envelope, pinless []string) map[string]any {
+	snapshot := boundedMutationScope(scope)
 	snapshot["mutation_response"] = mutationResponseSnapshot{
 		ManifestDigest: agentcontract.ManifestDigest, ResolvedScope: response.ResolvedScope, Omissions: response.Omissions,
 		NextValidIntents: *response.NextValidIntents, EvidenceRefs: response.EvidenceRefs,
-		PinlessWorkIDs: pinless, ApprovalConsumed: approvalConsumed,
+		PinlessWorkIDs: pinless,
 	}
 	return snapshot
 }
@@ -46,12 +45,12 @@ func retainedMutationResponse(scopeJSON string) (mutationResponseSnapshot, error
 	if err := json.Unmarshal([]byte(scopeJSON), &fields); err != nil {
 		return mutationResponseSnapshot{}, incomplete
 	}
-	for _, key := range []string{"resolved_scope", "omissions", "next_valid_intents", "evidence_refs", "pinless_work_ids", "approval_consumed"} {
+	for _, key := range []string{"resolved_scope", "omissions", "next_valid_intents", "evidence_refs", "pinless_work_ids"} {
 		if _, present := fields.Response[key]; !present {
 			return mutationResponseSnapshot{}, incomplete
 		}
 	}
-	if snapshot.Response.NextValidIntents == nil || string(fields.Response["approval_consumed"]) == "null" {
+	if snapshot.Response.NextValidIntents == nil {
 		return mutationResponseSnapshot{}, incomplete
 	}
 	return *snapshot.Response, nil

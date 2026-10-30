@@ -15,6 +15,12 @@ environment, or test inputs change, a failure remains unexplained, or a required
 gate demands fresh execution. Evidence must still bind the subject and producer
 the gate requires; never relabel an earlier commit's result.
 
+Before pushing, run the repository's declared pre-push or pre-merge checks:
+use its hook runner's configuration or the commands its contributing or testing
+docs name, through existing host admission. Let an installed hook run them;
+never bypass it. A failed declared check stops the push. If the repository
+declares no such checks, say so in the completion report.
+
 Stop when required acceptance and checks pass and material change-related risks
 have adequate evidence. Do not add verification merely to repeat a passing
 result in another record. Reporting a gap does not satisfy required acceptance.

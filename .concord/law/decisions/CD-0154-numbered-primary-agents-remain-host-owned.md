@@ -169,6 +169,24 @@ sandbox; direct-store, wrapper and connected-service access grant no bypass.
 Model selection remains host-owned. Exploration and lookup remain single-question
 utilities with their existing no-delegation boundaries.
 
+`concord-design` uses the same generated native Task distribution boundary for
+one bounded visual UI or UX change within assigned files in the caller's worktree.
+It leaves changes uncommitted and reports exact changed paths, checks, exits and
+gaps, with inspectable preview material: a live preview URL or screenshots that
+identify the exact version shown. Missing scope or a required approval returns
+needs-decision to the caller. Permission to prepare an unapproved preview is not
+UI/UX approval; the caller presents the material and obtains any required approval
+from the operator before delivery.
+
+The designer may use the Product's browser verification tooling when exposed by
+the host. It keeps the implementer's edit-capable permissions, Concord reads,
+exploration/lookup-only delegation, inherited host safety denies, CLI hygiene and
+no-bypass boundaries. It must not write planning or Concord state, commit,
+publish, contact the operator or send session notices. The caller owns workflow
+state, evidence binding and delivery. Command-text restrictions are not a sandbox;
+connected tool exposure and model selection remain host-owned. Exploration,
+lookup and advisor no-delegation boundaries remain unchanged.
+
 The installer refuses a conflicting unmanaged named-profile file.
 It preserves the numbered host files under D1.
 The host selects the role names explicitly and owns its launch defaults.
@@ -212,6 +230,8 @@ Utility results never become managed review or verification evidence.
   regression order, uncommitted results and effective permission rules.
 - It also checks the researcher's investigation loop, read-only permissions,
   two-delegate boundary, CLI hygiene and inherited host safety denies.
+- It checks the designer's edit-capable permissions, versioned preview and
+  operator-owned approval instructions, two-delegate boundary and host safety.
 - `adapter/opencode/session-scope.test.ts` checks native helper Task pass-through
   without dispatch; `adapter/opencode/primary-role.test.ts` checks read access
   and write refusal before transport.

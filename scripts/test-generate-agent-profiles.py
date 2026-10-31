@@ -137,7 +137,7 @@ class ProfileTests(unittest.TestCase):
     def test_primary_role_map_has_exact_population(self):
         text = generator.primary_ts_projection(self.profiles, self.manifest)
         data = json.loads(text.split(" = ", 1)[1])
-        self.assertEqual(set(data), {"Concord", "Concord-RTE", "Concord-Planner", "concord-explore", "concord-lookup", "concord-advisor", "concord-review", "concord-verify", "concord-implement", "concord-research"})
+        self.assertEqual(set(data), {"Concord", "Concord-RTE", "Concord-Planner", "concord-explore", "concord-lookup", "concord-advisor", "concord-review", "concord-verify", "concord-implement", "concord-research", "concord-design"})
         for utility in self.manifest["utilities"]:
             self.assertEqual(data[f"concord-{utility['id']}"]["tools"], generator.concord_tool_ids())
 
@@ -214,6 +214,54 @@ class ProfileTests(unittest.TestCase):
             if other["id"] in (*generator.STEP_HELPER_IDS, "Concord-Planner"):
                 rules = [(rule["pattern"], rule["action"]) for rule in other["task"]]
                 self.assertEqual(checks.evaluate(rules, "concord-research"), "deny", other["id"])
+
+    def test_designer_method_and_effective_permissions(self):
+        profile = next(profile for profile in self.profiles["profiles"] if profile["id"] == "concord-design")
+        implementer = next(profile for profile in self.profiles["profiles"] if profile["id"] == "concord-implement")
+        for key in ("tools", "bash", "task", "denied_concord_tools"):
+            self.assertEqual(profile[key], implementer[key], key)
+        text = generator.primary_projection(profile, (ROOT / profile["role_source"]).read_text())
+        self.assertIn("mode: subagent\n", text)
+        self.assertNotIn("\nmodel:", text)
+        normalized = " ".join(text.split())
+        for clause in ("within the assigned files", "named check", "explicit scope to prepare an unapproved preview",
+                       "If scope or a required approval is missing, return needs-decision", "outside that assignment",
+                       "fails for the reported behavior before the fix and passes after", "Product's browser verification tooling when exposed",
+                       "do not assume a particular provider or install one", "a live preview URL or screenshots",
+                       "exact version shown", "uncommitted diff identity", "Missing or inaccessible preview material is a gap",
+                       "UI/UX approval belongs to the operator", "caller presents the material", "Leave changes uncommitted",
+                       "exact changed paths", "Command-text restrictions are hygiene, not a sandbox"):
+            self.assertIn(clause, normalized)
+        frontmatter = checks.split_frontmatter(text)
+        flat = [(line.strip().split(": ")[0], line.strip().split(": ")[1])
+                for line in frontmatter.splitlines() if line.startswith("  ") and not line.startswith("    ") and line.endswith((": allow", ": deny", ": ask"))]
+        for tool in ("question", *checks.PLANNER_WRITERS):
+            self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "deny", tool)
+        for tool in ("edit", "write", "patch", "apply_patch", "morph_edit", "execute", "read", "skill", "webfetch",
+                     "concord_knowledge", "concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view",
+                     "playwright_browser_snapshot", "playwright_browser_take_screenshot"):
+            self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "allow", tool)
+        self.assertEqual(set(profile["denied_concord_tools"]), set(checks.PLANNER_WRITERS))
+        bash = checks.permission_rules(frontmatter, "bash")
+        self.assertNotIn("*", [pattern for pattern, _ in bash])
+        host = [("*", "allow"), ("ps *", "deny"), ("kill *", "deny"), ("pkill *", "deny")]
+        for command in ("ps aux", "kill 123", "pkill opencode", "sudo true", "rm -rf / *", "git commit -m fix",
+                        "git -C repo commit -m fix", "git push origin HEAD", "git stash", "gh pr create",
+                        "gh release create v1", "gh workflow run ci", "gh api repos/org/repo", "herdr-notify --to peer",
+                        "concord invoke", "/synthetic/bin/concord invoke", "env concord invoke", "go run ./cmd/concord invoke"):
+            self.assertEqual(checks.evaluate(host + bash, command), "deny", command)
+        for command in ("git diff", "bin/oc-test targeted -- python3 scripts/test-generate-agent-profiles.py",
+                        "concord --help", "concord --version", "concord continuity-block", "concord client show"):
+            self.assertEqual(checks.evaluate(host + bash, command), "allow", command)
+        tasks = checks.permission_rules(frontmatter, "task")
+        for agent in ("concord-explore", "concord-lookup"):
+            self.assertEqual(checks.evaluate(tasks, agent), "allow", agent)
+        for agent in (*generator.PRIMARY_PROFILE_IDS, *generator.STEP_HELPER_IDS, "concord-advisor", "general", "build", "unknown"):
+            self.assertEqual(checks.evaluate(tasks, agent), "deny", agent)
+        for other in self.profiles["profiles"]:
+            rules = [(rule["pattern"], rule["action"]) for rule in other["task"]]
+            expected = "allow" if other["id"] in ("Concord", "Concord-RTE") else "deny"
+            self.assertEqual(checks.evaluate(rules, "concord-design"), expected, other["id"])
 
     def test_implementer_boundary_and_effective_permissions(self):
         profile = next(profile for profile in self.profiles["profiles"] if profile["id"] == "concord-implement")
@@ -412,6 +460,20 @@ class ProfileTests(unittest.TestCase):
                 self.assertEqual(action(researcher, "task", agent), "allow", agent)
             for agent in (*generator.STEP_HELPER_IDS, "concord-advisor", "general"):
                 self.assertEqual(action(researcher, "task", agent), "deny", agent)
+            designer = resolve("concord-design")
+            self.assertEqual(designer["mode"], "subagent")
+            self.assertEqual(action(driver, "task", "concord-design"), "allow")
+            for tool in (*checks.PLANNER_WRITERS, "question"):
+                self.assertEqual(action(designer, tool), "deny", tool)
+            for tool in ("concord_knowledge", "concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view", "edit", "write", "patch", "apply_patch", "morph_edit", "playwright_browser_snapshot"):
+                self.assertEqual(action(designer, tool), "allow", tool)
+            for command in ("ps aux", "kill 123", "pkill opencode", "concord invoke", "git commit -m fix", "git push origin HEAD", "gh pr create", "herdr-notify --to peer"):
+                self.assertEqual(action(designer, "bash", command), "deny", command)
+            self.assertEqual(action(designer, "bash", "git diff"), "allow")
+            for agent in ("concord-explore", "concord-lookup"):
+                self.assertEqual(action(designer, "task", agent), "allow", agent)
+            for agent in (*generator.STEP_HELPER_IDS, "concord-advisor", "general"):
+                self.assertEqual(action(designer, "task", agent), "deny", agent)
 
 
 if __name__ == "__main__":

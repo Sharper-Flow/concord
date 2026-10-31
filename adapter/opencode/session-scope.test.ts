@@ -41,7 +41,7 @@ test("native Task preserves arguments without reading or changing Concord partic
   const fixture = host([session("ordinary"), session("managed", true), { ...session("child"), parentID: "managed" }])
   const plugin = await fixture.plugin()
   for (const id of ["ordinary", "managed", "child", "missing"]) {
-    for (const subagent_type of ["general", "explore", "concord-explore", "concord-advisor", "concord-review", "concord-verify"]) {
+    for (const subagent_type of ["general", "explore", "concord-explore", "concord-advisor", "concord-review", "concord-verify", "concord-implement"]) {
       const output = { args: { ...args(), subagent_type } }
       const original = structuredClone(output)
       const reads = fixture.reads.length

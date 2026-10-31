@@ -16,17 +16,17 @@ import (
 // form, so the envelope validator refuses the pair wherever it appears.
 func TestUseDeclaredRouteRequiresRefs(t *testing.T) {
 	t.Parallel()
-	routeVacate := []string{"session_vacate", "worktree_reclaim"}
+	declaredRoute := []string{"lifecycle", "remove"}
 	err := validateError(TypedError{Kind: "unauthorized", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "use_declared_route"}, EffectState: EffectNone})
 	if err == nil {
 		t.Fatal("a declared route without required refs must refuse validation")
 	}
-	err = validateError(TypedError{Kind: "unauthorized", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "use_declared_route", RequiredRefs: routeVacate}, EffectState: EffectNone})
+	err = validateError(TypedError{Kind: "unauthorized", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "use_declared_route", RequiredRefs: declaredRoute}, EffectState: EffectNone})
 	if err != nil {
 		t.Fatalf("a declared route with required refs must validate: %v", err)
 	}
-	if routeVacate[0] != "session_vacate" || routeVacate[1] != "worktree_reclaim" {
-		t.Fatalf("route=%v, want session_vacate then worktree_reclaim", routeVacate)
+	if declaredRoute[0] != "lifecycle" || declaredRoute[1] != "remove" {
+		t.Fatalf("route=%v, want lifecycle then remove", declaredRoute)
 	}
 }
 

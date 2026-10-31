@@ -271,7 +271,7 @@ func TestAdapterEnvelopeRetainsSchemaRejections(t *testing.T) {
 	}
 }
 
-func TestAdapterVacateGeneratedSchemaRecoveryScope(t *testing.T) {
+func TestGeneratedSchemaConflictRecoveryRequiresReconciliation(t *testing.T) {
 	// Test the generated schema independently of Go's core-only recovery coupling.
 	type schemaWire Envelope
 	validate := func(e Envelope) error {
@@ -284,18 +284,9 @@ func TestAdapterVacateGeneratedSchemaRecoveryScope(t *testing.T) {
 	}
 	for _, recovery := range []string{"retry_same_request", "contact_operator"} {
 		t.Run(recovery, func(t *testing.T) {
-			e := NewCoreError(NewBase("vacate-schema", "concord_work_transition", "session_vacate"), TypedError{Kind: "operation_conflict", AdapterReason: "unknown_effect", EffectState: EffectPossible, RecoveryAction: RecoveryAction{Kind: recovery}})
-			e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
-			if err := validate(e); err != nil {
-				t.Fatalf("adapter vacate recovery refused: %v", err)
-			}
-			e.Operation = "lifecycle"
+			e := NewCoreError(NewBase("conflict-schema", "concord_work_transition", "lifecycle"), TypedError{Kind: "operation_conflict", EffectState: EffectPossible, RecoveryAction: RecoveryAction{Kind: recovery}})
 			if err := validate(e); err == nil {
-				t.Fatal("vacate recovery admitted under another operation")
-			}
-			e.Operation, e.Origin, e.Authority, e.Error.AdapterReason = "session_vacate", OriginCore, AuthorityAuthoritative, ""
-			if err := validate(e); err == nil {
-				t.Fatal("vacate recovery admitted under core origin")
+				t.Fatal("core conflict admitted without reconciliation")
 			}
 			e.Error.RecoveryAction.Kind = "reconcile_operation"
 			if err := validate(e); err != nil {

@@ -302,7 +302,6 @@
         "work_pins": {},
         "operation_id": {},
         "delivery": {},
-        "vacate_target": {},
         "projection_reference": {}
       },
       "oneOf": [
@@ -390,11 +389,6 @@
           "$ref": "#/$defs/work_list_projection_page"
         }
       ]
-    },
-    "absolute_path": {
-      "description": "Output readback absolute path. The store joins operator filesystem text with no length guard, so the readback carries no maximum.",
-      "type": "string",
-      "minLength": 1
     },
     "mutation_changed_ref": {
       "type": "object",
@@ -6644,10 +6638,6 @@
               "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
             }
           }
-        },
-        "vacate_target": {
-          "$ref": "#/$defs/vacate_target",
-          "description": "Present on a completed or cancelled lifecycle transition when the calling session's linked worktree is that work item's active worktree. Names the registered main checkout the adapter moves the session to after the transition."
         }
       }
     },
@@ -10118,30 +10108,6 @@
       "examples": [
         1
       ]
-    },
-    "vacate_target": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "project_id",
-        "source_directory",
-        "destination_directory"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id"
-        },
-        "source_directory": {
-          "$ref": "#/$defs/absolute_path"
-        },
-        "destination_directory": {
-          "$ref": "#/$defs/absolute_path"
-        }
-      }
     },
     "workflow_verdict_batch_entry": {
       "type": "object",

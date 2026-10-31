@@ -3,11 +3,6 @@ package payloadschema
 
 const GeneratedPayloadSchemaDocument = `{
   "$defs": {
-    "absolute_path": {
-      "description": "Output readback absolute path. The store joins operator filesystem text with no length guard, so the readback carries no maximum.",
-      "minLength": 1,
-      "type": "string"
-    },
     "active_worktree_verify_lease": {
       "additionalProperties": false,
       "properties": {
@@ -4139,10 +4134,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "operation_id": {
           "$ref": "#/$defs/id"
-        },
-        "vacate_target": {
-          "$ref": "#/$defs/vacate_target",
-          "description": "Present on a completed or cancelled lifecycle transition when the calling session's linked worktree is that work item's active worktree. Names the registered main checkout the adapter moves the session to after the transition."
         },
         "work_pins": {
           "items": {
@@ -8556,7 +8547,6 @@ const GeneratedPayloadSchemaDocument = `{
         "next_valid_intents": {},
         "operation_id": {},
         "projection_reference": {},
-        "vacate_target": {},
         "work_pins": {}
       },
       "type": "object"
@@ -11149,30 +11139,6 @@ const GeneratedPayloadSchemaDocument = `{
         "expedite"
       ],
       "type": "string"
-    },
-    "vacate_target": {
-      "additionalProperties": false,
-      "properties": {
-        "destination_directory": {
-          "$ref": "#/$defs/absolute_path"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id"
-        },
-        "source_directory": {
-          "$ref": "#/$defs/absolute_path"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id"
-        }
-      },
-      "required": [
-        "work_id",
-        "project_id",
-        "source_directory",
-        "destination_directory"
-      ],
-      "type": "object"
     },
     "version": {
       "description": "Accepted shape: integer; Bounds: >=1 value inclusive; example: 1",

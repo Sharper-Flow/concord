@@ -14,10 +14,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0090"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0229"
     }
   ],
   "path": ".concord/law/decisions/CD-0248-footprint-checks-bind-to-executable-owners-and-use-existing-verification.md",
@@ -28,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0944800734156fe6d09285ee320399f90c1f5ae1253c0ae2189edb545e3f2dd0",
+  "sha256": "sha256:ca3a66acdb667497c5a6dba4715e178c8351fa5a160d59f369893a4d1f2d3dfc",
   "status": "accepted",
   "summary": "Applicable footprint checks bind declared commands to executable owners. Native receipts, local verification, required CI and accepted Review establish candidate-specific execution and assertion adequacy without worker-job binding. Required continuity obligations remain unproved until checked bindings, passing execution and independent Review establish them. Existing proof, subject, refinement and Review gates keep their owners; no new receipt system or automatic footprint refusal is added.",
   "tags": [

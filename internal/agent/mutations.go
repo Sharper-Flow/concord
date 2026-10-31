@@ -46,9 +46,6 @@ type captureMutationInput struct {
 	// fails to cover the requirements the target scope declares, and the caller
 	// cannot assert satisfaction or mark a requirement inapplicable.
 	GoverningRequirements []string `json:"governing_requirements"`
-	// SizeInputs is what the change will touch, for the work-size model
-	// (CD-0229 D4). It carries no size: the model decides it.
-	SizeInputs *store.WorkSizeCaptureInput `json:"size_inputs"`
 }
 type reviseMutationInput struct {
 	WorkID          string                      `json:"work_id"`
@@ -64,8 +61,6 @@ type reviseMutationInput struct {
 	Reason          string                      `json:"reason"`
 	IdempotencyKey  string                      `json:"idempotency_key"`
 	Evidence        []agentcontract.EvidenceRef `json:"evidence"`
-	// SizeInputs reruns the size model on fresh declared inputs.
-	SizeInputs *store.WorkSizeCaptureInput `json:"size_inputs"`
 }
 type lifecycleMutationInput struct {
 	WorkID          string                      `json:"work_id"`
@@ -1208,18 +1203,6 @@ func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, r
 	if err := r.Store.ValidateCaptureGoverningRequirements(ctx, productIDs, applicable, in.GoverningRequirements); err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
-	// The size reads one Product's knowledge home, so a sized capture names
-	// Projects of exactly one Product.
-	var sizePlan *store.WorkSizePlan
-	if in.SizeInputs != nil {
-		if len(productIDs) != 1 {
-			return coreError(base, "ambiguous_scope", "size_inputs needs the capture's Projects to belong to exactly one Product", "resolve_ambiguity", false), nil, true
-		}
-		var sizeErr error
-		if sizePlan, sizeErr = r.Store.PlanWorkSize(ctx, productIDs[0], *in.SizeInputs); sizeErr != nil {
-			return failureEnvelope(base, sizeErr), nil, true
-		}
-	}
 	for _, product := range productIDs {
 		if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
 			plan.declareInitialDurability(true)
@@ -1237,7 +1220,7 @@ func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, r
 		if err := store.ValidateCaptureGoverningRequirementsTx(ctx, tx, in.ProjectIDs, governingScope); err != nil {
 			return nil, nil, nil, err
 		}
-		return r.applyCaptureTx(verifiedCtx, tx, grant, in, digest, workID, registeredDefinition, sizePlan)
+		return r.applyCaptureTx(verifiedCtx, tx, grant, in, digest, workID, registeredDefinition)
 	}
 	return agentcontract.Envelope{}, nil, false
 }
@@ -1257,7 +1240,7 @@ func captureProductIDs(productsByProject map[string][]string) []string {
 	return productIDs
 }
 
-func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, grant Authority, in captureMutationInput, digest, workID string, registeredDefinition store.RegisteredDefinition, sizePlan *store.WorkSizePlan) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
+func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, grant Authority, in captureMutationInput, digest, workID string, registeredDefinition store.RegisteredDefinition) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 	priority := in.Priority
 	urgency := in.Urgency
 	if urgency == "" {
@@ -1299,14 +1282,6 @@ func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, gran
 		return nil, nil, nil, err
 	}
 	eventIDs := result.EventIDs
-	if sizePlan != nil {
-		sized, err := store.RecordWorkSizeTx(ctx, tx, sizePlan, workID, digest+":sized", grant.PrincipalRef, now)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		eventIDs = append(eventIDs, sized...)
-	}
-	// work.sized does not change the work item's version.
 	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: "4"}}
 	return mutationPayload(changed, nil), eventIDs, changed, nil
 }
@@ -1331,19 +1306,6 @@ func (r runtime) planReviseIntent(ctx context.Context, base agentcontract.Envelo
 			return failureEnvelope(base, definitionErr), nil, true
 		}
 	}
-	var sizePlan *store.WorkSizePlan
-	if in.SizeInputs != nil {
-		productID, sizeErr := r.workProductForSize(ctx, in.WorkID)
-		if sizeErr != nil {
-			return failureEnvelope(base, sizeErr), nil, true
-		}
-		if productID == "" {
-			return coreError(base, "ambiguous_scope", "size_inputs needs the work item's Projects to belong to exactly one Product", "resolve_ambiguity", false), nil, true
-		}
-		if sizePlan, sizeErr = r.Store.PlanWorkSize(ctx, productID, *in.SizeInputs); sizeErr != nil {
-			return failureEnvelope(base, sizeErr), nil, true
-		}
-	}
 	verifiedCtx := ctx
 	if in.WorkflowTypeRef != "" {
 		_, initialized, readErr := r.Store.WorkflowInstanceDefinition(ctx, in.WorkID)
@@ -1359,12 +1321,12 @@ func (r runtime) planReviseIntent(ctx context.Context, base agentcontract.Envelo
 		}
 	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		return r.applyReviseIntentTx(verifiedCtx, tx, grant, in, digest, registeredDefinition, sizePlan, plan)
+		return r.applyReviseIntentTx(verifiedCtx, tx, grant, in, digest, registeredDefinition, plan)
 	}
 	return agentcontract.Envelope{}, nil, false
 }
 
-func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction, grant Authority, in reviseMutationInput, digest string, registeredDefinition store.RegisteredDefinition, sizePlan *store.WorkSizePlan, plan *mutationPlan) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
+func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction, grant Authority, in reviseMutationInput, digest string, registeredDefinition store.RegisteredDefinition, plan *mutationPlan) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 	definition, definitionFound, existingErr := store.WorkflowInstanceDefinitionTx(ctx, tx, in.WorkID)
 	if existingErr != nil {
 		return nil, nil, nil, existingErr
@@ -1401,46 +1363,8 @@ func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction,
 		changedVersion++
 	}
 	eventIDs := result.EventIDs
-	var revision store.WorkSizeRevisionResult
-	if in.SizeInputs != nil {
-		revision, err = store.RerunWorkSizeTx(ctx, tx, store.WorkSizeRerunRequest{Plan: sizePlan, WorkID: in.WorkID, EventID: digest + ":sized", Actor: actor, Now: r.Authority.now()})
-	}
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	eventIDs = append(eventIDs, revision.EventIDs...)
-	if revision.WorkVersion != 0 {
-		changedVersion = revision.WorkVersion
-	}
 	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
 	return mutationPayload(changed, plan.intents), eventIDs, changed, nil
-}
-
-// workProductForSize names the one Product whose knowledge home sizes the
-// work item, or nothing when its Projects span more or fewer Products.
-func (r runtime) workProductForSize(ctx context.Context, workID string) (string, error) {
-	memberships, err := r.Store.ProjectsForWork(ctx, workID)
-	if err != nil {
-		return "", err
-	}
-	projectIDs := make([]string, 0, len(memberships))
-	for _, membership := range memberships {
-		projectIDs = append(projectIDs, membership.ID)
-	}
-	productsByProject, err := r.Store.ProductsForProjectIDs(ctx, projectIDs)
-	if err != nil {
-		return "", err
-	}
-	product := ""
-	for _, ids := range productsByProject {
-		for _, id := range ids {
-			if product != "" && product != id {
-				return "", nil
-			}
-			product = id
-		}
-	}
-	return product, nil
 }
 
 // planLifecycle plans concord_work_transition.lifecycle.

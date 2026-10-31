@@ -950,7 +950,7 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 	})
 	t.Run("typeless_anyOf_selects_first_non_null_arm", func(t *testing.T) {
 		union := map[string]any{"anyOf": []any{
-			map[string]any{"$ref": "#/$defs/work_size_summary"},
+			map[string]any{"$ref": "#/$defs/work_pin"},
 			map[string]any{"type": "null"},
 		}}
 		arm := schemaFixtureValue(t, union, defs, 0)
@@ -958,8 +958,8 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := payloadschema.Validate("work_size_summary", data); err != nil {
-			t.Fatalf("typeless anyOf fixture does not satisfy the first arm work_size_summary: %v", err)
+		if err := payloadschema.Validate("work_pin", data); err != nil {
+			t.Fatalf("typeless anyOf fixture does not satisfy the first arm work_pin: %v", err)
 		}
 	})
 	t.Run("typeless_anyOf_sibling_constraints_bind_the_arm", func(t *testing.T) {

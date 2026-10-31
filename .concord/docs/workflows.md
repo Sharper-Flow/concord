@@ -10,7 +10,7 @@
 > [`product-data-model.md`](./product-data-model.md).
 > **Purpose:** New execution selects one of three retained workflow families
 > (CD-0218 D1); §4 lists them. A workflow definition is composed from shared
-> parts, and a decision model sets each work item's size (§7; CD-0229).
+> parts; work has no size class (§7; CD-0229).
 > **Primary surface:** Defined by [`../law/constitution/priorities.md`](../law/constitution/priorities.md); an admin
 > panel or web UI is optional and secondary.
 
@@ -23,8 +23,8 @@ existing requirements.
 ## TL;DR
 
 The live workflow catalog retains three execution families for new work
-(CD-0218 D1; §4). A workflow definition is a composition of shared parts, and a
-programmed decision model sets each work item's size (§7; CD-0229). Definitions
+(CD-0218 D1; §4). A workflow definition is a composition of shared parts, and
+work has no size class (§7; CD-0229). Definitions
 are generated from one canonical source, and no released workflow-definition
 version, pin, or catalog list is retained for history (CD-0242 D14). The cutover
 is one documented migration with a verified snapshot and the operator's approval
@@ -86,7 +86,7 @@ catalog retains exactly three families (CD-0218 D1). What a definition fixes:
 
 | Aspect | Meaning |
 |---|---|
-| **Steps** | The steps the composition includes; the item's size selects among the family's compositions (CD-0229 D5). |
+| **Steps** | The steps the family's composition includes (CD-0229 D2). |
 | **Artifacts** | What it produces (a spec delta? a report? findings? nothing durable?). |
 | **Completion criteria** | How it's "done" (a contract satisfied? a report submitted? a signal fired?). |
 | **Value statement** | One sentence stating the work value: what it delivers and why it matters. |
@@ -95,8 +95,8 @@ catalog retains exactly three families (CD-0218 D1). What a definition fixes:
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
 | **Active visibility** | Which gates/problems are surfaced by default vs. hidden behind history. |
 
-Families and their parts are Go values in the registry; a new size, family, or
-kind is a new composition of existing parts and adds no step code (CD-0229
+Families and their parts are Go values in the registry; a new family or kind
+is a new composition of existing parts and adds no step code (CD-0229
 D2).
 
 ### 2.1 Value statement invariant
@@ -195,8 +195,7 @@ are two closed vocabularies, kept separate (CD-0077 D1). The capture defaults
 map operator kinds to families: tasks → `workflow.implementation`, bugs →
 `workflow.break_fix`, research → `workflow.research`; decision and other
 operator kinds require an explicit retained family (CD-0218 D1). Definitions
-are compositions of shared parts sized by the decision model (§7; CD-0229 D2,
-D4) — not one complete purpose-built definition per kind.
+are compositions of shared parts (§7; CD-0229 D2). Work has no size class.
 
 A single workflow can spawn another: research may surface a defect, which
 matures into a break-fix workflow, which may become an implementation change.
@@ -207,7 +206,7 @@ matures into a break-fix workflow, which may become an implementation change.
 
 | Family | Captures | Shape |
 |---|---|---|
-| **`workflow.implementation`** | Tasks default here | Composes shared parts at the size the decision model sets: `small` walks define, implement, review, and ship; `larger` adds research, architect, and refine; `crucial` adds repeated implement steps and repeats review and refine (CD-0229 D5; CD-0242 D4). The outcome contract, review acceptance, and closure hold at every size. |
+| **`workflow.implementation`** | Tasks default here | Composes shared parts with the family's mandatory steps, including refine. The outcome contract, review acceptance and closure apply to every item (CD-0229 D4; CD-0242 D4). |
 | **`workflow.break_fix`** | Bugs default here | One typed diagnosis with required reproduction, backlog-search, and root-cause sections, then repair, the mandatory refine pass, and verification (CD-0242 D4; CD-0138 D1). |
 | **`workflow.research`** | Research defaults here | Records findings, conclusions, and recommendations; may conclude `no_change`; outcome predicates only (CD-0218 D1). [CD-0215](../law/decisions/CD-0215-retained-research-context.md) owns the research-pack capability. |
 
@@ -232,8 +231,8 @@ Analysis tooling is an external native authority. Concord does not implement
 or ship scanners. Tracked analysis work runs in a retained family and records
 the external run's scope, report, and evidence in the steps its composition
 declares; that output is advisory input, not a verdict (CD-0138 D3).
-Break-fix keeps the mandatory `refine` step (CD-0138 D1), and implementation
-includes it at the sizes CD-0229 D5 names. The refine proof rule is
+Break-fix and implementation keep the mandatory `refine` step (CD-0242 D4).
+The refine proof rule is
 [CD-0192](../law/decisions/CD-0192-the-refine-pass-proves-a-declared-analysis-ran.md),
 which amends
 [CD-0138 D3](../law/decisions/CD-0138-mandatory-refinement-pass.md).
@@ -252,7 +251,7 @@ and [CD-0055 D4](../law/decisions/CD-0055-repository-check-authority.md#d4-heuri
 
 ---
 
-## 7. Composition and size
+## 7. Composition
 
 [CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
 is accepted law. This section states its model, not the current implementation
@@ -268,15 +267,10 @@ status.
    D1, D2). A change to a part is a new part version, and each composition
    compiles to its canonical definition from the one source, with no released
    definition version retained for history (CD-0229 D2; CD-0242 D14).
-3. **Size:** one programmed, versioned decision model sets `small`, `larger`,
-   or `crucial` from the recorded inputs; the size selects the composition,
-   and rules derived from change type and risk set its mandatory stages
-   (CD-0229 D4, D5; CD-0242 D4). An agent
-   may only request a rerun or add steps (CD-0229 D4). A task that proves
-   bigger than its size reruns the model, adds the newly required steps, and
-   continues without redoing completed work (CD-0242 D4); no production-line
-   cap, size measurement, or mandatory split applies (CD-0242 D6). A sized workflow records its define
-   start and its merge-queue entry (CD-0229 D7).
+3. **Mandatory stages:** each live family's definition supplies its stages.
+   Work has no size classification or size-derived review gate (CD-0229 D4).
+   Main may add research, architecture or planning depth but cannot waive a
+   mandatory stage or operator approval (CD-0242 D4).
 
 ---
 
@@ -288,10 +282,10 @@ status.
 | `specs-as-laws.md` | Workflow evolution couples to spec evolution. |
 | `design-constraints.md` §3 | Workflow evolution constraints; a composition change is a new part version compiled from the one canonical source (§7; CD-0229 D2; CD-0242 D14). |
 | [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) | The three retained execution families (CD-0218 D1); the store keeps current state, and the cutover is one documented migration (CD-0242 D2, D13). |
-| [CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) | Shared-part composition and the size decision model. |
+| [CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) | Shared-part composition without size classification. |
 
 ---
 
 *New execution runs in one of the three retained families (§4), composed from
-shared parts at the size the decision model sets (§7); definitions are
+shared parts (§7); definitions are
 generated from one canonical source (CD-0242 D14).*

@@ -623,7 +623,6 @@ def _load_cli_module(name: str, filename: str):
 profiles_generator = _load_cli_module("cli_safety_profiles", "generate-agent-profiles.py")
 work_kinds_generator = _load_cli_module("cli_safety_work_kinds", "generate-work-kinds.py")
 native_run_statuses_generator = _load_cli_module("cli_safety_native_run_statuses", "generate-native-run-statuses.py")
-work_sizes_generator = _load_cli_module("cli_safety_work_sizes", "generate-work-sizes.py")
 relation_vocabulary_generator = _load_cli_module("cli_safety_relation_vocabulary", "generate-relation-vocabulary.py")
 durable_tier_budget_generator = _load_cli_module("cli_safety_durable_tier_budget", "generate-durable-tier-budget.py")
 branch_freshness_generator = _load_cli_module("cli_safety_branch_freshness", "generate-branch-freshness.py")
@@ -3631,7 +3630,6 @@ class GeneratorCLISafetyTests(unittest.TestCase):
         ("generate-agent-profiles.py", profiles_generator, "UTILITY_MANIFEST"),
         ("generate-work-kinds.py", work_kinds_generator, "VOCABULARY"),
         ("generate-native-run-statuses.py", native_run_statuses_generator, "VOCABULARY"),
-        ("generate-work-sizes.py", work_sizes_generator, "VOCABULARY"),
         ("generate-relation-vocabulary.py", relation_vocabulary_generator, "VOCABULARY"),
         ("generate-durable-tier-budget.py", durable_tier_budget_generator, "BUDGET"),
         ("generate-branch-freshness.py", branch_freshness_generator, "DECLARATION"),

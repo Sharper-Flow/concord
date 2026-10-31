@@ -359,6 +359,40 @@ func TestLawIndexRetirementRefusesMissingFolderLawAndAdmitsAfterMigration(t *tes
 	assertLawIndexRetired(t, db)
 }
 
+// Legacy rows of a locator no Product designates are not Product law: their
+// home is never read, so an unreachable undesignated home neither blocks the
+// upgrade nor survives the drop.
+func TestLawIndexRetirementIgnoresUndesignatedHomeRows(t *testing.T) {
+	useStampedBuild(t)
+	repo := initKnowledgeRepo(t)
+	commit := writeLawIndexHome(t, repo, map[string]string{
+		lawIndexCurrentPath: fixtureLawFolderLaw(lawIndexCurrentLawID),
+	})
+	db, path := lawIndexRetirementFixture(t, repo, repo, commit,
+		[]lawIndexSubjectSeed{
+			{lawID: lawIndexCurrentLawID, recordPath: lawIndexCurrentPath, content: fixtureLawFolderLaw(lawIndexCurrentLawID)},
+		},
+	)
+	unreachable := filepath.Join(t.TempDir(), "undesignated-home")
+	for _, stmt := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO write_guard(active) VALUES(1)`, nil},
+		{`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('undesignated-locator','project-upgrade','canonical_path',?,?,'2026-08-07T12:00:00Z','2026-08-07T12:00:00Z')`, []any{unreachable, unreachable}},
+		{`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project-upgrade','undesignated-locator',?,'decision','accepted',?,'Undesignated legacy law',?,?)`, []any{lawIndexMissingLawID, lawIndexMissingOldPath, lawIndexContentHash("undesignated"), commit}},
+		{`DELETE FROM write_guard`, nil},
+	} {
+		if _, err := db.Exec(stmt.query, stmt.args...); err != nil {
+			t.Fatalf("seed %s: %v", stmt.query, err)
+		}
+	}
+	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+		t.Fatalf("an undesignated home's legacy rows blocked the upgrade: %v", err)
+	}
+	assertLawIndexRetired(t, db)
+}
+
 // A legacy row whose recorded content no longer matches any committed law
 // file refuses the upgrade as a retry-safe upgrade_blocked; after the source
 // owner repairs the folder file, the upgrade admits and drops.

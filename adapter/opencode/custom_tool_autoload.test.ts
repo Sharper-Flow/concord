@@ -12,7 +12,7 @@ import { pathToFileURL } from "node:url"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { manifestDigest } from "./generated-contracts"
 import { configureHostLease } from "./host-lease"
-import { hostControlPlane } from "./move-session"
+import { sessionDirectoryReader } from "./session-directory"
 
 const ADAPTER_DIR = import.meta.dir
 const ENTRY_FILE = "concord-plugin.ts"
@@ -124,6 +124,6 @@ test("every tool-shaped export of a shipped module autoloads only under a plugin
 })
 
 afterAll(() => {
-  hostControlPlane().bind(undefined)
+  sessionDirectoryReader().bind(undefined)
   configureHostLease({ reset: true })
 })

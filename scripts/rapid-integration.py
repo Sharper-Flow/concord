@@ -111,7 +111,7 @@ def integrate(worktree, request, review, evidence):
         parts = PurePosixPath(path).parts
         if len(parts) < 3 or parts[0] != "internal" or ".." in parts or not path.endswith(".go"):
             raise Refused("only explicitly eligible internal Go paths are supported; use the standard route")
-        if parts[1] in {"store", "agent", "receipt", "hostlease", "sessionboot", "payloadschema"}:
+        if parts[1] in {"store", "agent", "hostlease", "sessionboot", "payloadschema"}:
             raise Refused("safety and admission owners are unsupported by this bounded route")
         entry = git("ls-tree", candidate, "--", path)
         if not entry:

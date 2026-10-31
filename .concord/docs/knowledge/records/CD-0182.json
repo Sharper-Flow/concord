@@ -32,7 +32,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bace8425f009c011fdfb5349379ab7a356caf88b3086f6a51c009be05f535176",
+  "sha256": "sha256:393dddb289be33610e4d466f86e9506f42ce07c1918bcad30d55af20c83dedbe",
   "status": "accepted",
   "summary": "Host tools place each repository's coordinator session after Project membership is recorded. A bounded addressed handoff binds to the work and receiving Project under the current contract; any coordinator whose directory resolves that member Project may act under the consumed bind. Placement grants no authority, and stale or wrong-target handoffs refuse. The installer preserves plugin tuple options.",
   "tags": [

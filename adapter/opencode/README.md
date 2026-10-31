@@ -132,6 +132,13 @@ must identify a real Git repository, and that repository must match a registered
 Project locator. Register a `canonical_path` locator (or a matching `git_remote`)
 before the adapter invokes a tool.
 
+Each ordinary tool call reads the session's current directory through
+`GET /session/{id}` on the client bound by the plugin factory, then passes that
+directory to `project-resolve` and the call envelope. It does not use the
+plugin's startup directory, cache a Project, or reconstruct a host URL.
+A missing client, refused read, or absent directory returns a typed no-effect
+failure before core invocation. Host refusal messages remain visible.
+
 ## Verbatim first installation
 
 The following synthetic example runs from a non-Git parent directory. The
@@ -199,53 +206,6 @@ transient failure, and the same request passes once the host answers.
 
 An operator who wraps the host binary does that in host configuration, outside
 this repository.
-
-`OPENCODE_BIN` stays a test seam. The move-session version diagnostic stays on
-the bare host.
-
-### The text-part channel
-
-When a mutation completes, cancels, or supersedes a work item, the reporter
-delegates the closure receipt to the core: it shells `concord receipt` with
-the terminal pin's work ID through the same runner as every core call, and
-queues whatever bytes the verb prints. The receipt's format is product-owned
-law (CD-0169), rendered by the core's internal/receipt package as an
-unfenced markdown table — a plane header line and one row per verified
-contract predicate — so the adapter keeps zero formatting logic and the
-alignment belongs to the host markdown renderer. The verb prints nothing for
-a work item outside the completed lifecycle, so a cancellation or a
-supersession queues no notice, and an ambiguous contract projection
-degrades to the header alone.
-
-A failed receipt call appends a warning line to the tool result output after
-the envelope, because the agent is the only reader that can respond to it.
-
-The receipt rides the assistant's own message. The work-state reporter queues
-one block per session and suppresses a second emission of the same session,
-work, and terminal lifecycle triple, and the plugin's
-`experimental.text.complete` hook drains the queue into the text part before
-the host persists it. The agent spends no tokens forming the receipt and
-cannot omit it. A host that never calls the hook produces no receipt and no
-error, and the hook swallows every throw so a display can never damage an
-assistant message.
-
-### Session goal title
-
-The work-state reporter writes the host session title to `Goal: <work title>`
-through `PATCH /session/{id}` with a `{ title }` body from the post-state pin,
-so a revised intent reaches it. OpenCode replaces a session
-title automatically only while it is still the generated default, so the
-Concord title persists.
-
-The plugin registers `experimental.session.compacting` and reads the session
-title through the control plane. When the title starts with `Goal: `, the hook
-pushes that one line onto the compaction context, and the host joins it into
-the compaction prompt so the anchored summary restates the goal. The hook is
-required because the title never reaches the model, and the continuity block
-injects only when the session's directory resolves an active claim.
-
-Every title write stays best effort: an absent route, an empty title, or a
-failed call warns and never changes a recorded outcome.
 
 ### Recommended host permission and fallback configuration
 

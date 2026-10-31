@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-05T00:00:00Z",
   "evidence": [
@@ -28,7 +26,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7f8410bd72cd567d6d2df7d0a1bbd09e1d61872a4c1a7b9751ecd68dea2a58f2",
+  "sha256": "sha256:0c8d3f2165ac1f151f072ec36fbfe2d8117823d2d6c3841b5c0fb2cbb31a78b8",
   "status": "accepted",
   "summary": "A running session keeps the adapter and core pair it started with: the adapter invokes the core at its own release path, the installer retains a release while a live session references it, and a breaking store migration applies only through an explicit operator upgrade that refuses under a live older session. An installer facing a pending breaking step or unknown readiness prepares the candidate durably and names the exact migration and activation commands; the incompatible migration and its cleanup run inside a maintenance boundary whose session-admission exclusion is held through the final lease check, the migration, and the activation. No refusal names a session restart as its recovery.",
   "tags": [

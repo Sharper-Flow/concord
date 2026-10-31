@@ -43,7 +43,7 @@ Concord's primary OpenCode integration is a **thin TypeScript adapter**. The
 CD-0003's short-lived Go CLI. The `concord-plugin.ts` entry module registers
 those definitions under their `concord_*` names through OpenCode's plugin API.
 
-The adapter's domain-tool interface has three host-specific responsibilities:
+The adapter's domain-tool interface has two host-specific responsibilities:
 
 1. register the accepted tool names, descriptions, and strict schemas once; and
 2. inject OpenCode's trusted session, agent, directory, and worktree context into
@@ -115,6 +115,11 @@ canonical contract shared with Go validators. TypeScript may perform structural
 parsing required by OpenCode; it cannot maintain divergent semantic validation or
 invent defaults absent from the core contract.
 
+Generated-contract parity, published-schema conformance tests, and the pinned-host
+declaration typecheck own schema verification, and each stays required. The
+contract checker runs no separate host schema probe or host permission-merge
+probe.
+
 Contract-request authoring descriptions expose the accepted shape and a minimal illustrative example for each constrained field. The generator derives both from the canonical schema, including referenced and composed constraints, and validates each example against that field's effective schema. Examples are not defaults, real entity identities, approvals, or evidence, and do not promise admission by a pinned workflow or a live registry. No separately maintained field-specific format or example table owns this guidance.
 
 Every model-visible Concord tool input exposes its enforced numeric, string-length, byte-length, collection-cardinality, and object-property-count minima and maxima in authoring descriptions before the first call. Guidance states each bound's value, count unit, and endpoint inclusion. It derives from the effective canonical contract, including references and composed constraints; branch-specific bounds remain labeled by branch. A host signature's omission of a schema keyword does not waive this obligation. The same schema-derived guidance mechanism serves contract requests and other tool inputs; no separately maintained field-specific bound table owns the descriptions. Publication and enforcing validators must agree on values and count units. Descriptions introduce no defaults, authority, evidence, or workflow admission.
@@ -160,6 +165,9 @@ approval prose or `approved: true`.
 
 ### Forbidden
 
+- steer host sessions or tool availability, render closure receipts, or inject
+  completion text or notices outside the envelope
+  ([CD-0084 D5](../decisions/CD-0084-tool-results-are-host-tool-results.md#d5-the-host-owns-sessions-and-tool-availability-the-agent-writes-completion));
 - open SQLite or git authority directly;
 - derive Product scope or trust from path;
 - authorize or choose idempotency outcome;

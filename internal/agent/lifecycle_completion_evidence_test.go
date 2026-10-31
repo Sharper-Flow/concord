@@ -10,10 +10,10 @@ import (
 // TestLifecycleCompletionEvidenceRefs proves the response envelope for a
 // terminal lifecycle transition carries the evidence the caller supplied.
 //
-// The adapter's closure receipt reads lifecycle and evidence_refs from one
-// envelope. Before this binding existed, evidence reached only the transition
-// event payload, so the receipt could never render: the single response that
-// reported lifecycle "completed" always carried an empty evidence_refs.
+// The agent writes its completion response from the recorded facts and
+// evidence (CD-0084 D5). The single response that reports lifecycle
+// "completed" must therefore carry that evidence in evidence_refs, not only
+// in the transition event payload.
 func TestLifecycleCompletionEvidenceRefs(t *testing.T) {
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
@@ -22,7 +22,7 @@ func TestLifecycleCompletionEvidenceRefs(t *testing.T) {
 	idempotencyKey := fmt.Sprintf("evidence-refs-cross-%d", preVersion)
 	input := []byte(fmt.Sprintf(`{"work_id":"work-cross","expected_version":%d,"target":"completed","reason":"complete with verification","idempotency_key":"%s","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"verification-pass"}]}`, preVersion, idempotencyKey))
 
-	// CD-0243 D3/D7 retire ordinary terminal consent, not receipt evidence.
+	// CD-0243 D3/D7 retire ordinary terminal consent, not completion evidence.
 	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
 	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved dispatch failed outcome=%s err=%+v", approved.Outcome, approved.Error)
@@ -30,7 +30,7 @@ func TestLifecycleCompletionEvidenceRefs(t *testing.T) {
 	if lifecycle, _ := readWorkFromStore(t, s, "work-cross"); lifecycle != "completed" {
 		t.Fatalf("post-lifecycle=%q, want completed", lifecycle)
 	}
-	// The receipt gate needs both facts in this one envelope.
+	// The terminal state and its evidence arrive in this one envelope.
 	if len(approved.EvidenceRefs) != 1 {
 		t.Fatalf("completion envelope evidence_refs=%d, want 1: %+v", len(approved.EvidenceRefs), approved.EvidenceRefs)
 	}
@@ -41,8 +41,8 @@ func TestLifecycleCompletionEvidenceRefs(t *testing.T) {
 		t.Fatalf("evidence_refs[0].kind=%q, want verification", got)
 	}
 
-	// A replayed completion must surface the same evidence, or the receipt
-	// renders once and silently stops on every retry of the same key.
+	// A replayed completion must surface the same evidence, or a retry of the
+	// same key reports the terminal state without the evidence behind it.
 	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
 	if !replay.Replayed {
 		t.Fatalf("replay did not set Replayed=true")

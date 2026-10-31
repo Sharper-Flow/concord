@@ -207,8 +207,6 @@ transient failure, and the same request passes once the host answers.
 An operator who wraps the host binary does that in host configuration, outside
 this repository.
 
-`OPENCODE_BIN` stays a test seam.
-
 ### Recommended host permission and fallback configuration
 
 The generated `Concord` primary agent works end to end without an RTE session.

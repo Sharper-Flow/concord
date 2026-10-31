@@ -656,8 +656,8 @@ esac''',
 
     def test_retention_output_lists_holder_sessions(self) -> None:
         """CD-0191: the retention output names the holder sessions per
-        retained release, so the operator knows exactly which sessions to
-        restart after the install makes them stale."""
+        retained release, so the operator can identify each release's
+        holders."""
         self.make_release("v1.0.0", "old")
         self.make_release("v1.1.0", "new")
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))

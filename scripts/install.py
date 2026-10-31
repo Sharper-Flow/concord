@@ -384,9 +384,9 @@ HOST_LEASE_TIMEOUT_SECONDS = 30
 def observe_held_releases(paths: Paths, version: str) -> dict[str, list[dict[str, object]]] | None:
     """Return the live host sessions holding each release root, keyed by the
     resolved release root, or None when the observation failed. The holder
-    sessions are the retention output's per-release restart list (CD-0191):
-    a session the install made stale keeps working, and the operator needs
-    to know which sessions to restart."""
+    sessions are the retention output's per-release holder list (CD-0191):
+    a holder keeps working on its pinned pair, and the operator can identify
+    each release's holders."""
     binary = paths.data_root / version / "bin" / "concord"
     environment = {key: value for key, value in os.environ.items() if key != "CONCORD_DB_PATH"}
     environment["XDG_DATA_HOME"] = str(paths.data_home)

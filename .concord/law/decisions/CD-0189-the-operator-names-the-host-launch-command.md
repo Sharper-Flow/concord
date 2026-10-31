@@ -42,13 +42,12 @@ managed action.
 
 ### D4. Retired: the launch surfaces
 
-session-prepare launches nothing. The move-session version diagnostic stays on
-the bare host. Native Task execution is not a Concord session launcher.
+session-prepare launches nothing. Native Task execution is not a Concord
+session launcher.
 
 ### D5. The law moves with the code
 
-`OPENCODE_BIN` stays a test seam and acquires no operator meaning. Concord
-ships no wrapper name and hard-codes none.
+Concord ships no wrapper name and hard-codes none.
 
 ## Costs
 

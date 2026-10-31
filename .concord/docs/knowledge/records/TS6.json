@@ -43,7 +43,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:27901536fa0f7885356ccefe41fc6de9ca2542db2454f68eab928c90eb9b4ab4",
+  "sha256": "sha256:10292067bed7d3ed388f5d485e9ed68ac5ce3688d7759c50fe39f01c81b98419",
   "status": "accepted",
   "summary": "Binds the OpenCode adapter to generated tool registration through a plugin entry and short-lived Go CLI transport; domain authority remains in the Go core. Generated parity, published-schema conformance and the pinned-host declaration typecheck own schema proof, without a separate host schema or permission-merge probe. Session steering and completion-text injection are outside the adapter boundary.",
   "tags": [

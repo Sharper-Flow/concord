@@ -131,9 +131,8 @@ test("publication is role-blind, so a denied role's budget is not an immutable c
   // Registration publishes the complete root for every tool regardless of
   // any role's denial: the definition hook receives only the tool ID. The
   // role projection is therefore host visibility, not schema removal. A
-  // later session or agent allow can re-expose a denied tool. The
-  // real-host demonstration of that growth is the opt-in
-  // --host-merge probe; this test pins the structural precondition.
+  // later session or agent allow can re-expose a denied tool. This test
+  // pins that structural precondition.
   for (const tool of CATALOG) {
     const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
     await adapter.publishRequestDefinition({ toolID: tool }, output)

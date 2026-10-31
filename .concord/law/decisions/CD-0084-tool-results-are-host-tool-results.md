@@ -4,7 +4,10 @@
 - **Date:** 2026-08-29
 - **Scope:** The `tool()` exports in `adapter/opencode/concord.ts`; the
   `execute` return boundary and `encodeHostResult`; the recorded runtime probe
-  and the spent TS2322 allowance in `.concord/docs/adapter-host-pin.v1.json`; issue #560
+  and the spent TS2322 allowance in `.concord/docs/adapter-host-pin.v1.json`; issue #560;
+  the host hooks the plugin entry `adapter/opencode/concord-plugin.ts`
+  registers, the per-call session-directory read in
+  `adapter/opencode/session-directory.ts`, and completion reporting
 - **Approval:** Operator approved a decision record for this boundary rather
   than a bare defect fix. The implementation is accepted in PR #579.
 - **Related:** CD-0005, TS6, TS7, issues #485 and #560

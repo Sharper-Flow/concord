@@ -1,5 +1,5 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test"
-import { chmod, mkdir, mkdtemp as createDirectory, rm } from "node:fs/promises"
+import { chmod, mkdtemp as createDirectory, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { contractOperations, manifestDigest, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
@@ -1005,11 +1005,13 @@ for (const capacity of ["room", "warnings-full", "bytes-full"] as const) {
   test(`mutation-result read failure keeps the receipt and uses only fitting warnings: ${capacity}`, async () => {
     const fixture = mutationProjectionFixture()
     fixture.pages[0].result.offset++
-    const core = coreEnvelope("concord_work_relate", "message_send", "ok", {
-      ...fixture.envelope,
-      warnings: [...fixture.envelope.warnings, ...(capacity === "warnings-full" ? Array.from({ length: 15 }, () => ({ kind: "core_note" })) : [])],
+    const core = {
+      ...coreEnvelope("concord_work_relate", "message_send", "ok", {
+        ...fixture.envelope,
+        warnings: [...fixture.envelope.warnings, ...(capacity === "warnings-full" ? Array.from({ length: 15 }, () => ({ kind: "core_note" })) : [])],
+      }),
       evidence_refs: [] as Array<{ kind: string; authority: string; locator_kind: string; locator: string }>,
-    })
+    }
     if (capacity === "bytes-full") {
       core.evidence_refs = Array.from({ length: 32 }, () => ({ kind: "artifact", authority: "core", locator_kind: "id", locator: "" }))
       const remaining = maxEnvelopeBytes - Buffer.byteLength(JSON.stringify(core)) - 1

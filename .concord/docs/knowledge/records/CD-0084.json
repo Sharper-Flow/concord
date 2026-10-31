@@ -6,6 +6,10 @@
   "evidence": [
     "adapter/opencode/concord.ts",
     "adapter/opencode/concord.test.ts",
+    "adapter/opencode/concord-plugin.ts",
+    "adapter/opencode/concord-plugin.test.ts",
+    "adapter/opencode/session-directory.ts",
+    "adapter/opencode/directory-resolution.test.ts",
     ".concord/docs/adapter-host-pin.v1.json",
     "scripts/probe-adapter-host-result.py"
   ],
@@ -20,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bdcb6e95f3670005759454c20fd061d94129d69553af3fc9c5bd6a9eca25c235",
+  "sha256": "sha256:324f7969f112d31a8e697e846897166645a4a0ef6f3bd08a5b2bd2a2808bdaaa",
   "status": "accepted",
   "summary": "Every Concord tool export returns the host ToolResult with the envelope as JSON text in output, its only carrier. Oversize results become bounded error envelopes. The host owns session lifecycle and tool availability; Concord retains only per-call directory reads for core Project resolution. Agents write completion from recorded facts, with no receipt CLI, renderer package, reporter or assistant-text injection. Optional diagnostics fit the envelope warnings or are omitted. Any installed pinned pair may begin and continue work without release-currency checks or staleness notices; lease and migration safety remain.",
   "tags": [

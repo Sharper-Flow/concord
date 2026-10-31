@@ -138,8 +138,6 @@ Host tools own within-repository placement too.
 
 ## Verification
 
-- `bun test adapter/opencode/workflow-status.test.ts -t "the work state report
-  forks no terminal command"` proves the work-state report starts no terminal.
 - `python3 scripts/test-installer.py` proves D4: the tuple entry survives an
   upgrade with its options and deregisters whole.
 - `go test ./cmd/concord/ -run

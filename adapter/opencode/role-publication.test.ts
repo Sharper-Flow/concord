@@ -7,8 +7,7 @@
 // semantics (catalog minus generated denials, selected by whole tool), not a
 // captured provider request, and not an immutable ceiling: a later allow
 // rule can re-expose a denied tool, so the no-overlay budget bounds the
-// generated configuration only. The real-host merge evidence for that
-// boundary is the opt-in `--host-merge` mode of host_schema_probe.ts.
+// generated configuration only.
 import { expect, test } from "bun:test"
 import fs from "node:fs"
 import path from "node:path"

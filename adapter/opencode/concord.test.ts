@@ -1,14 +1,13 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test"
-import { chmod, mkdir, mkdtemp as createDirectory, rm, symlink } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp as createDirectory, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { contractOperations, manifestDigest, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { configureCoreBinary } from "./core-runtime"
-import { claimHostLease, configureHostLease, hostLeaseFault, releaseDisplayName, releaseStaleness, resolveInstalledReleaseRoot } from "./host-lease"
+import { claimHostLease, configureHostLease, hostLeaseFault } from "./host-lease"
 import { validateGeneratedEnvelope, envelopeFailurePath, expandedPublishedRequestSchema, actionFieldsBranches } from "./generated-contract-tests"
-import { hostControlPlane, type RouteResult } from "./move-session"
+import { sessionDirectoryReader, type RouteResult } from "./session-directory"
 import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
-import { syntheticHostVersionFixture } from "./host-version.test-support"
 import { mutationProjectionFixture } from "./mutation-projection.fixture"
 import { fakeTool } from "./plugin-tool.fixture"
 const testDirectories: string[] = []
@@ -18,7 +17,6 @@ async function mkdtemp(prefix: string): Promise<string> {
   return directory
 }
 
-syntheticHostVersionFixture()
 
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
@@ -34,13 +32,9 @@ const adapter = await import("./concord")
 
 const outerSelectedProductID = process.env.CONCORD_SELECTED_PRODUCT_ID
 beforeEach(() => {
-  hostControlPlane().bind({
+  sessionDirectoryReader().bind({
     get: async () => ({ data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }),
-    post: async () => ({ response: new Response(null, { status: 204 }) }),
   })
-  // The text-part queue is adapter module state; drain it so one test's
-  // notices never leak into the next test's assertions.
-  adapter.takeWorkNotices("session-1")
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
 })
 afterEach(async () => {
@@ -287,20 +281,6 @@ test("request-wrapped tools refuse a missing request wrapper before any host eff
   expect(calls).toBe(0)
 })
 
-test("a missing wrapper refusal carries the stale-release notice without a host effect", async () => {
-  await withReleaseLayout("v11.40.6", async () => {
-    let calls = 0
-    adapter.configureConcordAdapter({ runner: { run: async () => { calls++; throw new Error("must not run") } } })
-    const result: any = await adapter.work_browse.execute({ operation: "list", input: {} } as any, contextFor())
-    const envelope = JSON.parse(result.output)
-    expect(envelope.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "correct_request" } })
-    expect(envelope.warnings).toHaveLength(1)
-    expect(envelope.warnings[0]).toMatchObject({ kind: "release_stale", source_id: "adapter", details: { pinned_release: "v11.40.3", installed_release: "v11.40.6", remedy: "restart this session to load the installed release" } })
-    expect(validateGeneratedEnvelope(envelope), result.output).toBe(true)
-    expect(calls).toBe(0)
-  })
-})
-
 test("request-wrapped tools accept the Code Mode double-wrapped argument shape", async () => {
   let invokeStdin = ""
   const core = coreEnvelope("concord_work_browse", "list", "error", {
@@ -407,9 +387,8 @@ test("project context is resolved before invoke", async () => {
 
 test("project resolution and envelopes use the live session directory", async () => {
   const requests: any[] = []
-  hostControlPlane().bind({
+  sessionDirectoryReader().bind({
     get: async () => ({ data: { id: "session-1", directory: "/moved" }, response: new Response(null, { status: 200 }) }),
-    post: async () => ({ response: new Response(null, { status: 204 }) }),
   })
   adapter.configureConcordAdapter({ runner: {
     async run(_argv: string[], input: string) {
@@ -427,9 +406,8 @@ test("project resolution and envelopes use the live session directory", async ()
 })
 
 test("an unreadable session directory refuses before core transport", async () => {
-  hostControlPlane().bind({
+  sessionDirectoryReader().bind({
     get: async () => ({ data: { id: "session-1", metadata: {} }, response: new Response(null, { status: 200 }) }),
-    post: async () => ({ response: new Response(null, { status: 204 }) }),
   })
   let calls = 0
   adapter.configureConcordAdapter({ runner: { async run() { calls++; throw new Error("core transport must not run") } } })
@@ -834,12 +812,11 @@ const recordingRunner = () => {
   }
 }
 test("a native subagent call preserves ordinary caller grants without an ancestry read", async () => {
-  hostControlPlane().bind({
+  sessionDirectoryReader().bind({
     get: async ({ path }) => {
       expect(path?.id).toBe("session-1")
       return { data: { id: "session-1", directory: "/worktree", parentID: "native-parent" }, response: new Response(null, { status: 200 }) }
     },
-    post: async () => { throw new Error("a read creates no session") },
   })
   let seen: any
   adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], input: string) => {
@@ -857,9 +834,8 @@ test("a native subagent call preserves ordinary caller grants without an ancestr
 })
 
 test("an unreadable live session directory refuses before core transport", async () => {
-  hostControlPlane().bind({
+  sessionDirectoryReader().bind({
     get: async () => ({ data: null, response: new Response(null, { status: 404 }) }),
-    post: async () => ({ response: new Response(null, { status: 204 }) }),
   })
   const runner = recordingRunner()
   adapter.configureConcordAdapter({ runner })
@@ -871,8 +847,8 @@ test("an unreadable live session directory refuses before core transport", async
   expect(runner.calls()).toEqual([])
 })
 
-test("an unbound control plane refuses a concord call closed", async () => {
-  hostControlPlane().bind(undefined)
+test("an unbound directory reader refuses a concord call closed", async () => {
+  sessionDirectoryReader().bind(undefined)
   const runner = recordingRunner()
   adapter.configureConcordAdapter({ runner })
   const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", { product_id: "product-1" }), contextFor()))
@@ -986,14 +962,11 @@ const coreEnvelope = <T extends Record<string, unknown>>(tool: string, operation
 })
 
 for (const tampered of [false, true]) {
-  test(`host mutation privately reconstructs projected pins before status; tampered=${tampered}`, async () => {
+  test(`host mutation privately reconstructs projected pins; tampered=${tampered}`, async () => {
     const fixture = mutationProjectionFixture()
     if (tampered) fixture.pages[1].result.offset++
-    const titles: unknown[] = []
-    hostControlPlane().bind({
+    sessionDirectoryReader().bind({
       get: async () => ({ data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }),
-      post: async () => ({ response: new Response(null, { status: 204 }) }),
-      patch: async options => { titles.push(options.body); return { response: new Response(null, { status: 200 }) } },
     })
     let reads = 0
     let writes = 0
@@ -1020,14 +993,56 @@ for (const tampered of [false, true]) {
     expect(result.result.work_pins).toBeUndefined()
     expect(writes).toBe(1)
     if (tampered) {
-      expect(titles).toEqual([])
       expect(reads).toBe(2)
       expect(result.warnings.some((notice: any) => notice.kind === "mutation_result_unavailable")).toBe(true)
     } else {
-      expect(titles).toHaveLength(16)
-      expect(titles[0]).toEqual({ title: "Goal: Lossless result 😀 0" })
       expect(reads).toBe(fixture.pages.length)
     }
+  })
+}
+
+for (const capacity of ["room", "warnings-full", "bytes-full"] as const) {
+  test(`mutation-result read failure keeps the receipt and uses only fitting warnings: ${capacity}`, async () => {
+    const fixture = mutationProjectionFixture()
+    fixture.pages[0].result.offset++
+    const core = coreEnvelope("concord_work_relate", "message_send", "ok", {
+      ...fixture.envelope,
+      warnings: [...fixture.envelope.warnings, ...(capacity === "warnings-full" ? Array.from({ length: 15 }, () => ({ kind: "core_note" })) : [])],
+      evidence_refs: [] as Array<{ kind: string; authority: string; locator_kind: string; locator: string }>,
+    })
+    if (capacity === "bytes-full") {
+      core.evidence_refs = Array.from({ length: 32 }, () => ({ kind: "artifact", authority: "core", locator_kind: "id", locator: "" }))
+      const remaining = maxEnvelopeBytes - Buffer.byteLength(JSON.stringify(core)) - 1
+      for (const ref of core.evidence_refs) ref.locator = "x".repeat(Math.floor(remaining / 32))
+      expect(maxEnvelopeBytes - Buffer.byteLength(JSON.stringify(core))).toBeLessThan(40)
+    }
+    expect(validateGeneratedEnvelope(core), envelopeFailurePath(core) ?? "valid receipt").toBe(true)
+    let writes = 0
+    let reads = 0
+    adapter.configureConcordAdapter({ runner: { async run(argv, input) {
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      const request = JSON.parse(input)
+      if (request.operation === "message_send") {
+        writes++
+        return { exitCode: 0, stdout: JSON.stringify(core), stderr: "" }
+      }
+      expect([request.tool, request.operation]).toEqual(["concord_work_trace", "mutation_result"])
+      reads++
+      return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", fixture.pages[0])), stderr: "" }
+    } } })
+    const raw = await adapter.work_relate.execute(hostCall("message_send", { idempotency_key: "projection-key" }), contextFor())
+    const output = typeof raw === "string" ? raw : raw.output
+    const result = JSON.parse(output)
+    expect(writes).toBe(1)
+    expect(reads).toBe(1)
+    expect(result.result).toEqual(core.result)
+    expect(result.changed_refs).toEqual(core.changed_refs)
+    expect(result.next_valid_intents).toEqual([])
+    expect(validateGeneratedEnvelope(result)).toBe(true)
+    expect(Buffer.byteLength(output)).toBeLessThanOrEqual(maxEnvelopeBytes)
+    if (capacity === "room") expect(result.warnings).toMatchObject([...fixture.envelope.warnings, { kind: "mutation_result_unavailable", source_id: "adapter" }])
+    else expect(result).toEqual(core)
+    expect(Reflect.get(adapter, "takeWorkNotices")).toBeUndefined()
   })
 }
 
@@ -1097,7 +1112,7 @@ for (const blockedVerb of ["project-resolve", "invoke"] as const) {
       const signals: AbortSignal[] = []
       const calls: string[] = []
       let abortedAt: number | null = null
-      hostControlPlane().bind({
+      sessionDirectoryReader().bind({
         get: async ({ signal }) => {
           signals.push(signal!)
           signal!.throwIfAborted()
@@ -1111,7 +1126,6 @@ for (const blockedVerb of ["project-resolve", "invoke"] as const) {
             controller.abort()
           })
         },
-        post: async () => { throw new Error("context resolution must not create or move a session") },
       })
       adapter.configureConcordAdapter({ runner: { async run(argv) {
         calls.push(argv[1])
@@ -1422,163 +1436,30 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(recordsSource).toContain("decide it when the change is delivered.")
 })
 
-// The installer repoints `current` beside the pinned releaseRoot. Every
-// result exposes staleness while calls keep using the session's pinned pair.
-
-// withReleaseLayout stamps a pinned release the way the installer does and
-// optionally lays a `current` symlink beside it (null lays none). The seam
-// and the directory restore in every path, so no other test file observes
-// the stamp or the staleness.
-async function withReleaseLayout(current: string | null, run: (pinned: string) => Promise<void>, options: { relative?: boolean; pinnedVersion?: string } = {}) {
-  const dataRoot = await mkdtemp(join(tmpdir(), "concord-stale-"))
-  const pinned = join(dataRoot, options.pinnedVersion ?? "v11.40.3")
-  await mkdir(pinned, { recursive: true })
-  if (current !== null) {
-    const target = options.relative ? current : join(dataRoot, current)
-    await symlink(target, join(dataRoot, "current"))
-  }
-  try {
-    configureHostLease({ release: { coreBinary: join(pinned, "bin", "concord"), releaseRoot: pinned } })
-    await run(pinned)
-  } finally {
-    configureHostLease({ reset: true })
-    await rm(dataRoot, { recursive: true, force: true })
-  }
-}
-
-test("the installed release resolves through the current symlink beside the pinned root", async () => {
-  configureHostLease({ reset: true })
-  // The unstamped repository placeholder carries no release to compare.
-  expect(resolveInstalledReleaseRoot()).toBeNull()
-  expect(releaseStaleness()).toBeNull()
-  await withReleaseLayout(null, async (pinned) => {
-    // No current symlink: staleness is never guessed from a missing
-    // observation.
-    expect(resolveInstalledReleaseRoot()).toBeNull()
-    expect(releaseStaleness()).toBeNull()
-    expect(pinned).toBeTruthy()
-  })
-  await withReleaseLayout("v11.40.3", async (pinned) => {
-    expect(resolveInstalledReleaseRoot()).toBe(pinned)
-    expect(releaseStaleness()).toBeNull()
-  })
-  await withReleaseLayout("v11.40.6", async () => {
-    expect(releaseStaleness()).toMatchObject({ pinnedRelease: "v11.40.3", installedRelease: "v11.40.6" })
-  })
-  // A rollback repoints current the same way: any difference is stale.
-  await withReleaseLayout("v11.40.3", async () => {
-    expect(releaseStaleness()).toMatchObject({ pinnedRelease: "v11.40.6", installedRelease: "v11.40.3" })
-  }, { pinnedVersion: "v11.40.6" })
-  // The installer writes absolute targets, and a relative target resolves
-  // against the data root either way.
-  await withReleaseLayout("v11.40.6", async () => {
-    expect(releaseStaleness()).toMatchObject({ pinnedRelease: "v11.40.3", installedRelease: "v11.40.6" })
-  }, { relative: true })
-})
-
-test("fresh and stale sessions forward the coordinator's typed Review without launch authorization", async () => {
+test("tools forward the coordinator's typed Review without launch authorization", async () => {
   const candidate = { project_id: "project-1", commit: "a".repeat(40), tree: "b".repeat(40) }
   const review = {
     disposition: "ready_for_final_proof", input_candidate: candidate, output_candidate: candidate,
     dependencies: { criteria: [{ predicate_id: "predicate:one", content_digest: "sha256:" + "c".repeat(64) }], architecture_not_applicable: true },
     assessments: [], findings: [], remaining_obligations: [],
   }
-  for (const current of ["v11.40.3", "v11.40.6"]) {
-    await withReleaseLayout(current, async () => {
-      let input: any
-      const runner = runnerWithContext((_argv: string[], body: string) => {
-        input = JSON.parse(body)
-        return coreEnvelope("concord_work_transition", "workflow_action", "ok", {
-          result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
-        })
-      })
-      adapter.configureConcordAdapter({ runner })
-      const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", {
-        work_id: "work-1", expected_version: 3, action_id: "record_review", idempotency_key: "record-native-review", fields: { review },
-      }), contextFor()))
-      expect(result.outcome, JSON.stringify(result)).toBe("ok")
-      expect(input.input.fields).toEqual({ review })
-      expect(input.input.action_id).toBe("record_review")
-      expect(runner.calls()).toBe(2)
-      expect(result.warnings).toHaveLength(current === "v11.40.3" ? 0 : 1)
-      expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
-    })
-  }
-})
-
-test("every result from a stale session carries one bounded staleness notice", async () => {
-  const okRead = coreEnvelope("concord_product_view", "resolve", "ok", { result: { product_id: "product-1", projects: [], stage: "prototype" } })
-  await withReleaseLayout("v11.40.6", async () => {
-    adapter.configureConcordAdapter({ runner: runnerWithContext(okRead) })
-    const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), contextFor()))
-    expect(result.outcome).toBe("ok")
-    expect(result.warnings).toHaveLength(1)
-    expect(result.warnings[0]).toMatchObject({
-      kind: "release_stale", source_id: "adapter",
-      details: { pinned_release: "v11.40.3", installed_release: "v11.40.6", remedy: "restart this session to load the installed release" },
-    })
-    expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
-    // A fresh session gains no notice.
-    await withReleaseLayout("v11.40.3", async () => {
-      adapter.configureConcordAdapter({ runner: runnerWithContext(okRead) })
-      const fresh: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), contextFor()))
-      expect(fresh.warnings).toEqual([])
+  let input: any
+  const runner = runnerWithContext((_argv: string[], body: string) => {
+    input = JSON.parse(body)
+    return coreEnvelope("concord_work_transition", "workflow_action", "ok", {
+      result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
     })
   })
-  // A core envelope whose warnings array is already full keeps its notices
-  // and carries the staleness notice on the output layer instead, so the
-  // envelope never exceeds the bound this adapter itself enforces.
-  await withReleaseLayout("v11.40.6", async () => {
-    const full = coreEnvelope("concord_product_view", "resolve", "ok", {
-      result: { product_id: "product-1", projects: [], stage: "prototype" },
-      warnings: Array.from({ length: 16 }, (_, index) => ({ kind: `core_note_${index}` })),
-    })
-    expect(validateGeneratedEnvelope(full)).toBe(true)
-    adapter.configureConcordAdapter({ runner: runnerWithContext(full) })
-    const result: any = await adapter.product_view.execute(hostCall("resolve", {}), contextFor())
-    const envelope = JSON.parse(result.output.slice(0, result.output.indexOf("\n")))
-    expect(envelope.warnings).toHaveLength(16)
-    expect(typeof result.output).toBe("string")
-    expect(result.output).toContain("restart this session to load the installed release")
-  })
-})
-
-test("a notice that would push a fitting envelope over the byte cap falls to the output layer", () => {
-  const staleness = { pinnedReleaseRoot: "/d/v11.40.3", installedReleaseRoot: "/d/v11.40.6", pinnedRelease: "v11.40.3", installedRelease: "v11.40.6" }
-  const bare = { schema_version: "1.0", outcome: "ok", warnings: [], filler: "" }
-  const envelope = { ...bare, filler: "x".repeat(51200 - Buffer.byteLength(JSON.stringify(bare)) - 20) }
-  expect(Buffer.byteLength(JSON.stringify(envelope))).toBeLessThan(51200)
-  const settled = adapter.withReleaseStaleness(envelope, staleness)
-  // The carried result stands unchanged and the notice rides the output
-  // layer, so the encoder never degrades a successful result to
-  // malformed_response because of the notice it added.
-  expect(settled.envelope).toBe(envelope)
-  expect((settled.envelope as Record<string, unknown>).warnings).toEqual([])
-  expect(settled.extraWarnings).toHaveLength(1)
-  expect(settled.extraWarnings[0]).toContain("restart this session to load the installed release")
-  // The same envelope with room for the notice carries it in-envelope.
-  const roomy = { ...bare, filler: "x".repeat(1000) }
-  const carried = adapter.withReleaseStaleness(roomy, staleness)
-  expect(carried.extraWarnings).toEqual([])
-  expect((carried.envelope as Record<string, unknown>).warnings).toHaveLength(1)
-  expect(((carried.envelope as Record<string, unknown>).warnings as any[])[0].kind).toBe("release_stale")
-})
-
-test("a stale session's mutation still runs and carries the notice", async () => {
-  await withReleaseLayout("v11.40.6", async () => {
-    adapter.configureConcordAdapter({ runner: runnerWithContext(coreEnvelope("concord_work_transition", "lifecycle", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })) })
-    const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
-      work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-stale-3",
-    }), contextFor()))
-    expect(result.outcome).toBe("ok")
-    expect(result.warnings).toHaveLength(1)
-    expect(result.warnings[0].kind).toBe("release_stale")
-    expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
-  })
-})
-
-test("release display names take the version directory", () => {
-  expect(releaseDisplayName("/data/v11.40.3")).toBe("v11.40.3")
+  adapter.configureConcordAdapter({ runner })
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", {
+    work_id: "work-1", expected_version: 3, action_id: "record_review", idempotency_key: "record-native-review", fields: { review },
+  }), contextFor()))
+  expect(result.outcome, JSON.stringify(result)).toBe("ok")
+  expect(input.input.fields).toEqual({ review })
+  expect(input.input.action_id).toBe("record_review")
+  expect(runner.calls()).toBe(2)
+  expect(result.warnings).toEqual([])
+  expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
 })
 
 // ===========================================================================

@@ -606,13 +606,12 @@ func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T)
 	// CD-0159 D7 corrected the derived set; CD-0230 D4 assigns derived to law
 	// revisions enacted without operator approval. Any tier change updates these sets.
 	derivedInRange := map[string]bool{
-		"CD-0192": true, "CD-0195": true, "CD-0197": true, "CD-0198": true,
+		"CD-0191": true, "CD-0192": true, "CD-0195": true, "CD-0197": true, "CD-0198": true,
 		"CD-0201": true,
 		"CD-0203": true, "CD-0204": true, "CD-0207": true, "CD-0209": true,
 	}
 	legislatedInRange := map[string]bool{
-		"CD-0191": true, "CD-0194": true, "CD-0200": true,
-		"CD-0202": true,
+		"CD-0194": true, "CD-0200": true,
 	}
 	byID := make(map[string]KnowledgeRecord, len(manifest.Records))
 	for _, record := range manifest.Records {

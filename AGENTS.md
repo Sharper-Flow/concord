@@ -92,5 +92,5 @@ inference. Conventional Commit titles are load-bearing for release semver.
 | PR title grammar and its semver effect | [`scripts/check-commit-title.py`](scripts/check-commit-title.py); [`scripts/release.py`](scripts/release.py) |
 | How a release is built and published | [`.github/workflows/release.yml`](.github/workflows/release.yml) |
 | What is proved versus merely present | Each decision's Verification section and [`.concord/law/decisions/CD-0249-decisions-carry-no-coverage-records.md`](.concord/law/decisions/CD-0249-decisions-carry-no-coverage-records.md); [`.concord/docs/reachability-exceptions.v1.json`](.concord/docs/reachability-exceptions.v1.json) |
-| Product law, priorities, documentation rules, and release currency before capture | [`.concord/docs/README.md`](.concord/docs/README.md); [`.concord/law/constitution/priorities.md`](.concord/law/constitution/priorities.md); [`CD-0165`](.concord/law/decisions/CD-0165-an-agent-begins-a-work-item-only-on-the-current-concord-release.md) |
+| Product law, priorities, and documentation rules | [`.concord/docs/README.md`](.concord/docs/README.md); [`.concord/law/constitution/priorities.md`](.concord/law/constitution/priorities.md) |
 | Package and seam ownership | [`.concord/docs/core-architecture.md`](.concord/docs/core-architecture.md) §4 (entry points by responsibility) |

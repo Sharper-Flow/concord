@@ -4,9 +4,7 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { guardPrimaryRole, PrimaryRoleRefusal } from "./primary-role"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { configureHostLease } from "./host-lease"
-import { syntheticHostVersionFixture } from "./host-version.test-support"
 
-syntheticHostVersionFixture()
 
 const MUTATING = ["concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_transition"]
 const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_domain"]

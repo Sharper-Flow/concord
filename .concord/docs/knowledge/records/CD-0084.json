@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-29T00:00:00Z",
   "evidence": [
@@ -22,9 +20,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5b4758957f093c1c743706a024770b4bac91f628eb125548028109cf31e6f559",
+  "sha256": "sha256:bdcb6e95f3670005759454c20fd061d94129d69553af3fc9c5bd6a9eca25c235",
   "status": "accepted",
-  "summary": "Every Concord tool export returns the ToolResult the host declares. The pinned host reads a string output and splits it without a guard, so returning the raw envelope threw a TypeError and no tool call could succeed. The envelope now travels as JSON text in output as its only carrier, an oversize result becomes a bounded error envelope, the execute boundary drops the concealing any, and the spent TS2322 allowance is removed.",
+  "summary": "Every Concord tool export returns the host ToolResult with the envelope as JSON text in output, its only carrier. Oversize results become bounded error envelopes. The host owns session lifecycle and tool availability; Concord retains only per-call directory reads for core Project resolution. Agents write completion from recorded facts, with no receipt CLI, renderer package, reporter or assistant-text injection. Optional diagnostics fit the envelope warnings or are omitted. Any installed pinned pair may begin and continue work without release-currency checks or staleness notices; lease and migration safety remain.",
   "tags": [
     "adapter",
     "agent-surface",

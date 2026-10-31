@@ -752,7 +752,7 @@ def test_manifest_composer_does_not_require_coverage_shards() -> None:
 
 
 CORRECTED_DERIVED_RECORD_IDS = frozenset({
-    "CD-0165", "CD-0166", "CD-0169", "CD-0170", "CD-0176",
+    "CD-0166", "CD-0176",
     "CD-0177", "CD-0178", "CD-0180", "CD-0189", "CD-0192", "CD-0195", "CD-0197", "CD-0198",
     "CD-0203", "CD-0204", "CD-0207", "CD-0209",
 })

@@ -99,6 +99,32 @@ func TestHelpOmitsHostOwnershipRoutes(t *testing.T) {
 	}
 }
 
+func TestReceiptCommandRetired(t *testing.T) {
+	if _, _, matched := matchCommandSpec([]string{"receipt"}); matched {
+		t.Fatal("receipt remains a declared command")
+	}
+	if strings.Contains(topLevelHelp(t), "concord receipt") {
+		t.Fatal("help advertises the retired receipt command")
+	}
+	for _, args := range [][]string{{"receipt"}, {"receipt", "--help"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "concord.db")
+			t.Setenv(dbOverrideEnv, path)
+			in := &countingStdin{}
+			var out, errOut bytes.Buffer
+			if code := runWithInput(args, in, &out, &errOut); code != 2 {
+				t.Fatalf("retired command exit=%d, want 2; stderr=%q", code, errOut.String())
+			}
+			if in.reads != 0 || out.Len() != 0 {
+				t.Fatalf("retired command read stdin %d times or wrote stdout %q", in.reads, out.String())
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("retired command touched the database: %v", err)
+			}
+		})
+	}
+}
+
 // freshMigratedCLIDatabase points the database override at a copy of the
 // shared migrated template and returns the path. The first in-process CLI
 // run then validates a current schema instead of replaying every migration,

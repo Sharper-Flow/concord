@@ -1,22 +1,11 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
-import nodeFs from "node:fs"
 import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { hostControlPlane, SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
-import { enqueueWorkNotice, publishedRequestSchema } from "./concord"
+import { sessionDirectoryReader, SESSION_ROUTE } from "./session-directory"
+import { publishedRequestSchema } from "./concord"
 import { contractOperations, hostToolSchemas } from "./generated-contracts"
 import { configureCoreBinary } from "./core-runtime"
-import { resetTurnMoveBoundaries } from "./turn-move-boundary"
-import { syntheticHostVersionFixture } from "./host-version.test-support"
-const testDirectories: string[] = []
-function mkdtempSync(prefix: string): string {
-  const directory = nodeFs.mkdtempSync(prefix)
-  testDirectories.push(directory)
-  return directory
-}
-const fs = { ...nodeFs, mkdtempSync }
 
-syntheticHostVersionFixture()
 
 test("the plugin registration set equals the complete host tool catalog", async () => {
   // Every registered tool must be a catalog member, so the generated
@@ -53,102 +42,11 @@ test("the system transform keeps agent-switch notices without reading host conti
   expect(reads).toBe(0)
 })
 
-// The text-part channel. The work-state reporter queues operator-facing
-// blocks per session, and this hook drains them into the assistant's own
-// message as the text part completes, so the transcript holds them without a
-// tool-result expansion and the agent spends no tokens forming them.
-describe("plugin entry registers the text-completion hook", () => {
-  const completeHook = async () => {
-    const plugin = await ConcordAdapterPlugin() as unknown as {
-      "experimental.text.complete"?: (input: { sessionID: string; messageID: string; partID: string }, output: { text: string }) => Promise<void>
-    }
-    expect(typeof plugin["experimental.text.complete"]).toBe("function")
-    return plugin["experimental.text.complete"] as (input: { sessionID: string; messageID: string; partID: string }, output: { text: string }) => Promise<void>
+test("the plugin leaves lifecycle, question, and assistant text handling to the host", async () => {
+  const plugin = await ConcordAdapterPlugin()
+  for (const key of ["event", "tool.execute.before", "tool.execute.after", "experimental.text.complete", "experimental.session.compacting"]) {
+    expect(Reflect.get(plugin, key), key).toBeUndefined()
   }
-
-  test("appends the queued notice blocks to the assistant text and clears the queue", async () => {
-    const hook = await completeHook()
-    enqueueWorkNotice("session-text", "The bounded work result is ready.")
-    enqueueWorkNotice("session-text", "| 🛫 CON-42 Complete (work-1) |\n| :-- |\n| ✅ Delegate passes the verb bytes |\n| ✓ check check:repo:verify · pass |")
-    const output = { text: "assistant text" }
-    await hook({ sessionID: "session-text", messageID: "message-1", partID: "part-1" }, output)
-    expect(output.text).toBe([
-      "assistant text",
-      "The bounded work result is ready.",
-      "| 🛫 CON-42 Complete (work-1) |\n| :-- |\n| ✅ Delegate passes the verb bytes |\n| ✓ check check:repo:verify · pass |",
-    ].join("\n\n"))
-    // The queue drained, so a later completion in the same session carries
-    // no notice and other sessions stay untouched.
-    const second = { text: "more assistant text" }
-    await hook({ sessionID: "session-text", messageID: "message-2", partID: "part-2" }, second)
-    expect(second.text).toBe("more assistant text")
-    const untouched = { text: "unrelated session text" }
-    await hook({ sessionID: "session-text-other", messageID: "message-3", partID: "part-3" }, untouched)
-    expect(untouched.text).toBe("unrelated session text")
-  })
-
-  test("leaves an empty session's text alone", async () => {
-    const hook = await completeHook()
-    const output = { text: "assistant text" }
-    await hook({ sessionID: "session-no-notices", messageID: "message-1", partID: "part-1" }, output)
-    expect(output.text).toBe("assistant text")
-  })
-
-  test("swallows a failed write so a display can never damage an assistant message", async () => {
-    const hook = await completeHook()
-    enqueueWorkNotice("session-throw", "| 🛫 CON-42 Complete (work-1) |\n| :-- |\n| ✅ Delegate passes the verb bytes |\n| ✓ check check:repo:verify · pass |")
-    const output = { text: "assistant text" }
-    Object.defineProperty(output, "text", {
-      get: () => "assistant text",
-      set: () => { throw new Error("the host refused the replacement") },
-    })
-    await expect(hook({ sessionID: "session-throw", messageID: "message-1", partID: "part-1" }, output)).resolves.toBeUndefined()
-  })
-})
-
-// The session title is the single source of the goal text, and the compaction
-// prompt is where that goal must survive: the host joins the strings this hook
-// pushes onto the context into the prompt it summarizes with. Only a title the
-// adapter wrote carries the goal prefix, so a generated title never reaches it.
-describe("plugin entry registers the session compacting hook", () => {
-  const compactingHook = async () => {
-    const plugin = await ConcordAdapterPlugin() as unknown as {
-      "experimental.session.compacting"?: (input: { sessionID: string }, output: { context: string[] }) => Promise<void>
-    }
-    expect(typeof plugin["experimental.session.compacting"]).toBe("function")
-    return plugin["experimental.session.compacting"] as (input: { sessionID: string }, output: { context: string[] }) => Promise<void>
-  }
-
-  test("pushes the goal title onto the compaction context", async () => {
-    // The factory re-binds the control plane, so the fake client binds after
-    // the hook is resolved.
-    const hook = await compactingHook()
-    hostControlPlane().bind({
-      get: async () => ({ data: { id: "session-compact", title: "Goal: Ship the closure notice" }, response: new Response(null, { status: 200 }) }),
-      post: async () => ({ response: new Response(null, { status: 204 }) }),
-    })
-    const output = { context: [] as string[] }
-    await hook({ sessionID: "session-compact" }, output)
-    expect(output.context).toEqual(["Goal: Ship the closure notice"])
-  })
-
-  test("leaves a title without the goal prefix out of the compaction context", async () => {
-    const hook = await compactingHook()
-    hostControlPlane().bind({
-      get: async () => ({ data: { id: "session-compact", title: "Fix login redirect" }, response: new Response(null, { status: 200 }) }),
-      post: async () => ({ response: new Response(null, { status: 204 }) }),
-    })
-    const output = { context: ["existing"] }
-    await hook({ sessionID: "session-compact" }, output)
-    expect(output.context).toEqual(["existing"])
-  })
-
-  test("leaves the compaction context alone when the title route is absent", async () => {
-    const hook = await compactingHook()
-    const output = { context: ["existing"] }
-    await hook({ sessionID: "session-compact" }, output)
-    expect(output.context).toEqual(["existing"])
-  })
 })
 
 test("the definition hook leaves tools no hook owns unchanged", async () => {
@@ -216,7 +114,7 @@ test("published request schemas cannot mutate the registered arguments or genera
   }
 })
 
-describe("plugin entry binds the control plane to the host client", () => {
+describe("plugin entry binds the directory reader to the host client", () => {
   test("reads the actual session directory through the client the host supplied", async () => {
     const seen: Array<{ url: string; path?: Record<string, unknown> }> = []
     const raw = {
@@ -228,16 +126,15 @@ describe("plugin entry binds the control plane to the host client", () => {
     }
     await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
 
-    expect(await hostControlPlane().sessionDirectory("session-1")).toBe("/w")
+    expect(await sessionDirectoryReader().sessionDirectory("session-1")).toBe("/w")
     expect(seen).toEqual([{ url: SESSION_ROUTE, path: { id: "session-1" } }])
   })
 
   test("refuses the route when the host supplied no client", async () => {
     await ConcordAdapterPlugin({ serverUrl: new URL("https://example.invalid") })
-    await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toBeInstanceOf(MoveSessionUnavailable)
     // A server URL is present and still yields no route: the URL is not what
     // the adapter needs, so its presence must not read as a usable transport.
-    await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toThrow(/handed the plugin no client \(host version synthetic-test-host\)/)
+    await expect(sessionDirectoryReader().sessionDirectory("session-1")).rejects.toThrow(/handed the plugin no client/)
   })
 })
 
@@ -263,7 +160,7 @@ describe("a refusal carries the host's own words", () => {
       post: async () => ({ response: new Response(null, { status: 204 }) }),
     }
     await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
-    await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toThrow(
+    await expect(sessionDirectoryReader().sessionDirectory("session-1")).rejects.toThrow(
       /session-1 is unknown to this host/,
     )
   })
@@ -274,18 +171,16 @@ describe("a refusal carries the host's own words", () => {
       post: async () => ({ response: new Response(null, { status: 204 }) }),
     }
     await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
-    await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toThrow(/no readable refusal/)
+    await expect(sessionDirectoryReader().sessionDirectory("session-1")).rejects.toThrow(/no readable refusal/)
   })
 })
 
-// The control plane is module-shared state. A test that binds a fake client
+// The directory reader is module-shared state. A test that binds a fake client
 // and leaves it bound changes what every later test file sees when the runner
 // shares one process, so every binding is undone as soon as its test ends.
 afterEach(() => {
-  hostControlPlane().bind(undefined)
+  sessionDirectoryReader().bind(undefined)
   configureCoreBinary(null)
-  resetTurnMoveBoundaries()
-  for (const directory of testDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true })
 })
 
 // The factory claims a host lease at load, which fails against the unstamped

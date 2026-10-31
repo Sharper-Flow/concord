@@ -7,7 +7,7 @@ import * as adapter from "./concord"
 import { contractOperations, manifestDigest } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resetManifestPinForTesting, resolveDiskManifestDigest, setManifestSourceForTesting } from "./manifest-pin"
 import { configureCoreBinary } from "./core-runtime"
-import { hostControlPlane } from "./move-session"
+import { sessionDirectoryReader } from "./session-directory"
 const testDirectories: string[] = []
 function mkdtempSync(prefix: string): string {
   const directory = createDirectory(prefix)
@@ -31,9 +31,8 @@ const foreignDigest = "sha256:" + "0".repeat(63) + "1"
 
 beforeEach(() => {
   resetManifestPinForTesting()
-  hostControlPlane().bind({
+  sessionDirectoryReader().bind({
     get: async () => ({ data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }),
-    post: async () => ({ response: new Response(null, { status: 204 }) }),
   })
 })
 afterEach(() => {

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-29
-- **Scope:** The ten `tool()` exports in `adapter/opencode/concord.ts`; the
+- **Scope:** The `tool()` exports in `adapter/opencode/concord.ts`; the
   `execute` return boundary and `encodeHostResult`; the recorded runtime probe
   and the spent TS2322 allowance in `.concord/docs/adapter-host-pin.v1.json`; issue #560
 - **Approval:** Operator approved a decision record for this boundary rather
@@ -72,6 +72,25 @@ envelope into invalid JSON, `encodeHostResult` measures the serialized envelope
 against `maxEnvelopeBytes` and replaces an oversize result with a
 `malformed_core_response` adapter error. A reader therefore parses either the
 whole envelope or a valid statement that it did not fit, and never a fragment.
+
+### D5. The host owns sessions and tool availability; the agent writes completion
+
+The host owns session lifecycle, placement, titles, prompts, continuation, and
+tool availability. Concord reads the host session directory per call for core
+Project resolution; it does not manage or move sessions, inject prompts, or
+gate host tools. Release leases, exact adapter/core pairing, and migration/data
+safety remain under [CD-0111](CD-0111-a-release-never-requires-a-session-restart.md).
+
+The agent writes its completion response from the recorded facts and evidence.
+Concord has no closure-receipt CLI, renderer package, work-state reporter, or
+assistant-text completion injection. Tool output carries the envelope under D2,
+not appended notices or a second assistant-text channel. Optional diagnostics
+may use the existing bounded envelope warnings only when they fit; omitting a
+diagnostic never changes the authoritative result or effect.
+
+An agent may begin and continue work on any installed release under its pinned
+pair. Concord requires no installed-current currency comparison at capture or
+resume and emits no per-call release-staleness notice.
 
 ## Consequences
 

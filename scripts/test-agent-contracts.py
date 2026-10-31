@@ -2513,7 +2513,7 @@ class ExternalSuiteRoutingOptionsTests(unittest.TestCase):
     the expected-suite presence check, the host typecheck, and both strict
     failures — still runs and still propagates failure. A default invocation
     runs the complete check with both suites. --skip-host-typecheck omits
-    host staging, installation, probes, and compilation, not other checks.
+    host staging, installation, and compilation, not other checks.
     """
 
     MINIMAL_PIN = {
@@ -2581,10 +2581,18 @@ class ExternalSuiteRoutingOptionsTests(unittest.TestCase):
         self.assertFalse(self._selftest_calls(calls))
         self.assertFalse(self._adapter_suite_calls(calls))
         self.assertEqual(len([call for call in calls if call[1] == "build"]), 2, "both Bun builds must still run")
-        self.assertTrue(any(call[1] == "run" for call in calls), "the fixture probe and host schema probe must still run")
+        self.assertTrue(any(len(call) > 2 and Path(call[2]).name == "fixture-probe.ts" for call in calls), "the contract fixture probe must still run")
         self.assertTrue(any(call[1] == "x" for call in calls), "the host typecheck must still run")
         self.assertTrue(any(any("generate-agent-contracts.py" in word for word in call) for call in calls))
         self.assertTrue(any(any("generate-agent-profiles.py" in word for word in call) for call in calls))
+
+    def test_schema_checks_need_no_separate_host_probe(self):
+        with unittest.mock.patch.dict(os.environ, {"CONCORD_HOST_MERGE_PROBE": "1"}):
+            code, calls, _, _ = self._main(["--adapter-tests-external", "--contract-tests-external"])
+        self.assertEqual(code, 0)
+        self.assertFalse(any("host_schema_probe" in word or "--host-merge" == word for call in calls for word in call))
+        self.assertTrue(any(len(call) > 2 and Path(call[2]).name == "fixture-probe.ts" for call in calls))
+        self.assertTrue(any(call[1] == "x" for call in calls), "the pinned host typecheck must still run")
 
     def test_the_expected_suite_presence_check_survives_adapter_tests_external(self):
         # The option skips the suite subprocess, never the obligation that
@@ -2662,14 +2670,6 @@ class ExternalSuiteRoutingOptionsTests(unittest.TestCase):
         self.assertEqual(
             [call for call in calls if len(call) > 1 and call[1] == "x"], [],
             "the host TypeScript compiler must not run",
-        )
-        self.assertFalse(
-            any("host_schema_probe" in word for call in calls for word in call),
-            "the host schema probe must not run",
-        )
-        self.assertFalse(
-            any("--host-merge" in word for call in calls for word in call),
-            "the host permission-merge probe must not run",
         )
         self.assertTrue(any(len(call) > 1 and call[1] == "build" for call in calls), "the Bun builds must still run")
         self.assertTrue(any(len(call) > 1 and call[1] == "run" for call in calls), "the fixture probe must still run")

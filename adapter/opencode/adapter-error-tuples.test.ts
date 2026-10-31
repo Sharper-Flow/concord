@@ -4,7 +4,7 @@
 // the emittable set, and these tests prove every member validates in every
 // context it admits.
 import { describe, expect, mock, test } from "bun:test"
-import { contractOperations, maxEnvelopeBytes, manifestDigest } from "./generated-contracts"
+import { contractOperations, manifestDigest } from "./generated-contracts"
 import { envelopeFailurePath, validateGeneratedEnvelope } from "./generated-contract-tests"
 import { configureCoreBinary } from "./core-runtime"
 import { fakeTool } from "./plugin-tool.fixture"
@@ -213,22 +213,4 @@ describe("CON-913 closed adapter error tuples", () => {
     expect(() => adapter.validateAdapterEnvelope(poisonedRead)).toThrow(adapter.AdapterContractDefect)
   })
 
-  test("CON-913 staleness notices ride final bytes without degrading an adapter error envelope", () => {
-    const staleness = { pinnedReleaseRoot: "/d/v11.40.3", installedReleaseRoot: "/d/v11.40.6", pinnedRelease: "v11.40.3", installedRelease: "v11.40.6" }
-    const tool = "concord_work_browse"
-    const roomy = adapter.adapterError(tool, "list", requestID, "spawn_failure", "bounded diagnostic")
-    const carried = adapter.withReleaseStaleness(roomy, staleness)
-    expect(carried.extraWarnings).toEqual([])
-    expect(validateGeneratedEnvelope(carried.envelope)).toBe(true)
-    expect(Buffer.byteLength(JSON.stringify(carried.envelope))).toBeLessThanOrEqual(maxEnvelopeBytes)
-    expect((carried.envelope as any).warnings.at(-1)?.kind).toBe("release_stale")
-    const heavy = adapter.adapterError(tool, "list", requestID, "spawn_failure", "bounded diagnostic", { filler: "x".repeat(60_000) })
-    expect(validateGeneratedEnvelope(heavy)).toBe(true)
-    expect(Buffer.byteLength(JSON.stringify(heavy))).toBeGreaterThan(maxEnvelopeBytes)
-    const fallen = adapter.withReleaseStaleness(heavy, staleness)
-    expect(fallen.envelope).toBe(heavy)
-    expect(fallen.extraWarnings).toHaveLength(1)
-    expect(fallen.extraWarnings[0]).toContain("restart this session")
-    expect(validateGeneratedEnvelope(fallen.envelope)).toBe(true)
-  })
 })

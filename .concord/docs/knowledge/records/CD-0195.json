@@ -20,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c3f0f9c92cd818e9ca490747fe9f0520c32c43ba32c424c0aeb32ee52bd30945",
+  "sha256": "sha256:6159977e43b588feace810a7172bff98905805ca4d999e4622923f88c1a57936",
   "status": "accepted",
   "summary": "The escaped SQLITE_BUSY occurrences on record through 2026-09-30 are application defects, not storage-engine limits. No write transaction spans a subprocess, network call or large filesystem operation. Ten-process conformance retains exact effects and zero escaped busy without retired ownership operations. CD-0011's reopen conditions remain for later escapes, with the single-writer comparison first.",
   "tags": [

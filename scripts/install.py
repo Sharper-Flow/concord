@@ -129,14 +129,10 @@ ADAPTER_FILES = (
     "generated-primary-profiles.ts",
     "generated-release.ts",
     "host-lease.ts",
-    "host-prompt.ts",
     "manifest-pin.ts",
-    "move-session.ts",
     "mutation-result.ts",
     "primary-role.ts",
-    "turn-move-boundary.ts",
-    "work-start-continuation.ts",
-    "workflow-status.ts",
+    "session-directory.ts",
 )
 # Adapter files an earlier release shipped and this installer no longer does.
 # A manifest an older installer wrote may still record them. A transaction
@@ -146,6 +142,7 @@ ADAPTER_FILES = (
 # traversing key still cannot reach a delete. Append on retirement; never
 # remove an entry while an installation that records it may still exist.
 RETIRED_ADAPTER_FILES = (
+    "host-prompt.ts", "move-session.ts", "turn-move-boundary.ts", "work-start-continuation.ts", "workflow-status.ts",
     "project-link.ts",
     "continuity-hook.ts",
     "native-subtask-refusal.ts", "ci-watch.ts", "claimed-worktree.ts", "dispatch-window.ts", "dispatch.ts", "generated-agent-lanes.ts", "move-notice.ts",

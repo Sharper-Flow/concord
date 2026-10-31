@@ -288,7 +288,7 @@ else:
             '        if [ -n "$CONCORD_TEST_CORE_DESCRIPTOR_FAIL" ]; then exit 2; fi\n'
             '        if [ -n "$CONCORD_TEST_CORE_DESCRIPTOR" ] && [ -f "$CONCORD_TEST_CORE_DESCRIPTOR" ]; then cat "$CONCORD_TEST_CORE_DESCRIPTOR"; else pair_root="$(cd "$(dirname "$0")/.." && pwd)"; pair_bin="$0"; printf \'{"version":"'
             + version
-            + f'","schema_version":111,"fence_protocol":1,"manifest_digest":"{synthetic_digest}","release_root":"%s","core_binary":"%s"}}\\n\' "$pair_root" "$pair_bin"; fi ;;\n'
+            + f'","schema_version":111,"fence_protocol":1,"prepared_cutover_protocol":1,"manifest_digest":"{synthetic_digest}","release_root":"%s","core_binary":"%s"}}\\n\' "$pair_root" "$pair_bin"; fi ;;\n'
             "      *)\n"
             '        if [ -n "$CONCORD_TEST_CORE_IDENTITY_FAIL" ]; then exit 2; fi\n'
             '        if [ -n "$CONCORD_TEST_CORE_IDENTITY" ] && [ -f "$CONCORD_TEST_CORE_IDENTITY" ]; then cat "$CONCORD_TEST_CORE_IDENTITY"; else printf \''
@@ -908,6 +908,57 @@ esac''',
                 self.assertEqual(self.managed_snapshot(), before)
                 self.assertEqual(self.cutover_mutations(environment), [])
                 self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_cutover_refuses_unsupported_candidate_before_observation_or_recovery(self) -> None:
+        for staged in (False, True):
+            with self.subTest(staged=staged):
+                self.tearDown()
+                self.setUp()
+                self.prepare_a_blocked_release()
+                environment = self.cutover_env()
+                if staged:
+                    stopped_env = {**environment, "CONCORD_INSTALLER_STOP_AFTER_PHASE": "staged"}
+                    stopped = self.run_installer("cutover", "--version", "v1.1.0", env=stopped_env)
+                    self.assertEqual(stopped.returncode, 97, stopped.stderr)
+                    transaction = next((self.data_root / installer.TRANSACTION_PARENT).iterdir())
+                    installer.replace_durable(self.data_root / "v1.1.0", transaction / "backup" / "live-version")
+                descriptor = self.root / "old-descriptor.json"
+                descriptor.write_text(json.dumps({"version": "v1.1.0", "fence_protocol": 1}))
+                environment.update(CONCORD_TEST_CORE_DESCRIPTOR=str(descriptor), CONCORD_TEST_HOST_LEASES_FAIL="1")
+                before = self.managed_snapshot()
+                refused = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("prepared-cutover protocol", refused.stderr)
+                self.assertIn("recovery instructions", refused.stderr)
+                self.assertNotIn("host lease observation failed", refused.stderr)
+                self.assertEqual(self.managed_snapshot(), before)
+                del environment["CONCORD_TEST_HOST_LEASES_FAIL"]
+                refused = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("prepared-cutover protocol", refused.stderr)
+                self.assertEqual(self.managed_snapshot(), before)
+
+    def test_prepared_cutover_capability_requires_exact_integer_and_version(self) -> None:
+        for descriptor in (None, {}, {"version": "v1.1.0", "prepared_cutover_protocol": True},
+                           {"version": "v1.1.0", "prepared_cutover_protocol": 2},
+                           {"version": "v1.1.0", "prepared_cutover_protocol": "1"},
+                           {"version": "v0.9.0", "prepared_cutover_protocol": 1}):
+            with self.subTest(descriptor=descriptor), \
+                    mock.patch.object(installer, "read_core_descriptor", return_value=descriptor), \
+                    self.assertRaisesRegex(installer.InstallerError, "prepared-cutover protocol"):
+                installer.require_prepared_cutover_capability(self.root, "v1.1.0")
+
+    def test_unsupported_candidate_preserves_journalless_transaction(self) -> None:
+        self.prepare_a_blocked_release()
+        transaction = self.data_root / installer.TRANSACTION_PARENT / "incomplete"
+        transaction.mkdir(parents=True, exist_ok=True)
+        descriptor = self.root / "old-descriptor.json"
+        descriptor.write_text(json.dumps({"version": "v1.1.0", "fence_protocol": 1}))
+        environment = {**self.cutover_env(), "CONCORD_TEST_CORE_DESCRIPTOR": str(descriptor)}
+        refused = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("prepared-cutover protocol", refused.stderr)
+        self.assertTrue(transaction.is_dir())
 
     def test_cutover_never_activates_on_failed_or_unverified_migration(self) -> None:
         for mode in ("fail", "blocked", "unknown"):

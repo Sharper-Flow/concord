@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,20 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
 )
+
+func TestCoreDescriptorReportsPreparedCutoverProtocol(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if code := writeCoreDescriptor(&out, &errOut); code != 0 {
+		t.Fatalf("descriptor failed: %s", errOut.String())
+	}
+	var descriptor map[string]any
+	if err := json.Unmarshal(out.Bytes(), &descriptor); err != nil {
+		t.Fatal(err)
+	}
+	if descriptor["prepared_cutover_protocol"] != float64(1) {
+		t.Fatalf("missing prepared-cutover protocol: %v", descriptor)
+	}
+}
 
 func TestHostLeasesReadOnlyPreservesStaleAndDefaultPrunes(t *testing.T) {
 	_, root := cliStoreRoot(t)

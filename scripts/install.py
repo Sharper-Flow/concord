@@ -336,28 +336,36 @@ def probe_core_capability(version_tree: Path, version: str | None = None) -> int
         raise InstallerError(
             f"the staged core at {binary} identifies as {reported!r}, not the release {version!r}"
         )
-    try:
-        described = subprocess.run(
-            [str(binary), "--version", "--json"],
-            capture_output=True,
-            env=environment,
-            timeout=HOST_LEASE_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        # The core already proved usable; a descriptor it cannot deliver
-        # grants no capability, the same as an absent one.
-        return None
-    if described.returncode != 0:
-        return None
-    try:
-        descriptor = json.loads(described.stdout.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return None
+    descriptor = read_core_descriptor(binary)
     protocol = descriptor.get("fence_protocol") if isinstance(descriptor, dict) else None
     if not isinstance(protocol, int) or isinstance(protocol, bool) or protocol not in SUPPORTED_FENCE_PROTOCOLS:
         return None
     return protocol
+
+
+def read_core_descriptor(binary: Path) -> dict[str, object] | None:
+    environment = {key: value for key, value in os.environ.items() if key != "CONCORD_DB_PATH"}
+    try:
+        described = subprocess.run([str(binary), "--version", "--json"], capture_output=True,
+                                   env=environment, timeout=HOST_LEASE_TIMEOUT_SECONDS, check=False)
+        if described.returncode != 0:
+            return None
+        descriptor = json.loads(described.stdout.decode("utf-8"))
+    except (OSError, subprocess.TimeoutExpired, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return descriptor if isinstance(descriptor, dict) else None
+
+
+def require_prepared_cutover_capability(tree: Path, version: str) -> None:
+    descriptor = read_core_descriptor(tree / "bin" / "concord")
+    protocol = descriptor.get("prepared_cutover_protocol") if descriptor else None
+    if (descriptor is None or descriptor.get("version") != version
+            or not isinstance(protocol, int) or isinstance(protocol, bool) or protocol != 1):
+        raise InstallerError(
+            f"prepared cutover refused: candidate {tree} does not declare supported prepared-cutover protocol 1; "
+            "retain the candidate and any recovery journal, and follow that release's separate migration, "
+            "activation and recovery instructions; after recovery, prepare a newer supporting release if needed"
+        )
 
 
 def stamp_fence_protocol(version_tree: Path, version: str | None = None) -> None:
@@ -933,7 +941,8 @@ def print_prepared_release(record: dict[str, object]) -> None:
     print("The launcher, the current root, the tools, and the agents keep the active release.")
     for blocker in record["blockers"]:  # type: ignore[union-attr]
         print(f"Blocker: {blocker}")
-    print(f"Run the prepared cutover from an ordinary shell when the maintenance window opens: {record['cutover_command']}")
+    print(f"If the candidate declares prepared-cutover protocol 1, run from an ordinary shell when the maintenance window opens: {record['cutover_command']}")
+    print("Otherwise follow the candidate release's separate migration, activation and recovery instructions.")
 
 
 def retained_release_records(manifest: dict[str, object] | None) -> dict[str, dict[str, str]]:
@@ -3298,6 +3307,7 @@ def recover_transaction(transaction_root: Path, paths: Paths, *, prepared_cutove
         if not tree.exists():
             tree = transaction_root / "stage" / "version"
         validate_owned_tree(tree, prepared_cutover["version_files"])
+        require_prepared_cutover_capability(tree, version)
         require_no_live_sessions(paths, version, staged_binary=tree / "bin" / "concord")
     phase = journal["phase"]
     new_manifest = journal["new_manifest"]
@@ -3404,6 +3414,7 @@ def recover_transactions(paths: Paths, *, prepared_cutover: dict[str, object] | 
             if prepared_cutover is not None:
                 version = str(prepared_cutover["version"])
                 validate_owned_tree(paths.data_root / version, prepared_cutover["version_files"])
+                require_prepared_cutover_capability(paths.data_root / version, version)
                 require_no_live_sessions(paths, version)
             shutil.rmtree(transaction)
             fsync_directory(parent)
@@ -3746,6 +3757,7 @@ def cutover(args: argparse.Namespace) -> int:
             require_owned_fence(paths, fence, {str((paths.data_root / version).resolve())})
         recover_transactions(paths, prepared_cutover=record)
         validate_owned_tree(paths.data_root / version, records)
+        require_prepared_cutover_capability(paths.data_root / version, version)
         require_no_live_sessions(paths, version)
         recover_pending_project_links(paths)
         plan = read_upgrade_plan(paths, version)

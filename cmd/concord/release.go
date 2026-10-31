@@ -62,12 +62,13 @@ func writeCoreDescriptor(out, errOut io.Writer) int {
 		return 1
 	}
 	return writeJSON(out, map[string]any{
-		"version":         version.Value,
-		"schema_version":  store.CurrentSchemaVersion(),
-		"fence_protocol":  hostlease.CurrentFenceProtocol,
-		"manifest_digest": agentcontract.ManifestDigest,
-		"release_root":    root,
-		"core_binary":     binary,
+		"version":                   version.Value,
+		"schema_version":            store.CurrentSchemaVersion(),
+		"fence_protocol":            hostlease.CurrentFenceProtocol,
+		"prepared_cutover_protocol": 1,
+		"manifest_digest":           agentcontract.ManifestDigest,
+		"release_root":              root,
+		"core_binary":               binary,
 	}, errOut)
 }
 

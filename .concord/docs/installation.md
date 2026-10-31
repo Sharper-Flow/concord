@@ -260,6 +260,13 @@ sends explicit JSON to the candidate's upgrade command, verifies that no migrati
 remains pending, activates the prepared tree, and checks `current`, the active
 manifest and schema. It uses the recorded candidate, without downloading a release.
 An inherited `CONCORD_DB_PATH` cannot redirect the upgrade to another store.
+This command requires the candidate's own `--version --json` descriptor to
+declare prepared-cutover protocol 1. An older or unknown candidate is retained
+and refuses before session observation or recovery. Retain the candidate and any
+recovery journal, and follow that release's separate migration, activation and
+recovery instructions. After recovery, prepare a newer release that declares the
+protocol if needed. The installer does not infer support from the release version
+or send the new inputs to an older core.
 
 The command never confirms or cancels on the operator's behalf. If an installed
 tree cannot honor the fence, inspect the named trees and use

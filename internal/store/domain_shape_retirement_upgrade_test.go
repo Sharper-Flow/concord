@@ -21,9 +21,9 @@ var domainShapePreservedTables = []string{
 	"law_subjects", "law_bodies", "law_domain_homes", "law_domain_applicability",
 }
 
-func seedV170DomainShapeDatabase(t *testing.T, path string) *sql.DB {
+func seedV171DomainShapeDatabase(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	db := openMigratedTo(t, path, 170)
+	db := openMigratedTo(t, path, 171)
 	tx, err := db.Begin()
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func seedV170DomainShapeDatabase(t *testing.T, path string) *sql.DB {
 		`DELETE FROM write_guard`,
 	} {
 		if _, err := tx.Exec(statement); err != nil {
-			t.Fatalf("seed v170 (%s): %v", statement, err)
+			t.Fatalf("seed v171 (%s): %v", statement, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -71,16 +71,16 @@ func domainShapeRetiredObjects() []string {
 	return objects
 }
 
-func TestMigrateV170ToV171RetiresDomainShapeAndPreservesCurrentState(t *testing.T) {
+func TestMigrateV171ToV172RetiresDomainShapeAndPreservesCurrentState(t *testing.T) {
 	t.Parallel()
-	db := seedV170DomainShapeDatabase(t, filepath.Join(t.TempDir(), "concord-v170.db"))
+	db := seedV171DomainShapeDatabase(t, filepath.Join(t.TempDir(), "concord-v171.db"))
 	before := catalogUpgradeRows(t, db, domainShapePreservedTables...)
 	if err := Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	assertRetirementUpgrade(t, db, domainShapeRetiredObjects(), domainShapePreservedTables, before)
 	var breaking bool
-	if err := db.QueryRow(`SELECT breaking FROM schema_migrations WHERE version=171 AND name='retire_domain_shape'`).Scan(&breaking); err != nil || !breaking {
+	if err := db.QueryRow(`SELECT breaking FROM schema_migrations WHERE version=172 AND name='retire_domain_shape'`).Scan(&breaking); err != nil || !breaking {
 		t.Fatalf("Domain Shape retirement breaking=%v, err=%v", breaking, err)
 	}
 	var violations int
@@ -89,9 +89,9 @@ func TestMigrateV170ToV171RetiresDomainShapeAndPreservesCurrentState(t *testing.
 	}
 }
 
-func TestMigrateV170ToV171FailedDropRollsBack(t *testing.T) {
+func TestMigrateV171ToV172FailedDropRollsBack(t *testing.T) {
 	t.Parallel()
-	db := seedV170DomainShapeDatabase(t, filepath.Join(t.TempDir(), "concord-rollback.db"))
+	db := seedV171DomainShapeDatabase(t, filepath.Join(t.TempDir(), "concord-rollback.db"))
 	// Block the last drop so rollback must restore the preceding four tables,
 	// their dependent guards and indexes, and the migration manifest together.
 	if _, err := db.Exec(`CREATE TABLE shape_drop_blocker(home_project_id TEXT,home_locator_id TEXT,law_id TEXT,path TEXT,FOREIGN KEY(home_project_id,home_locator_id,law_id,path) REFERENCES law_evidence_paths(home_project_id,home_locator_id,law_id,path) ON DELETE RESTRICT);
@@ -101,7 +101,7 @@ INSERT INTO shape_drop_blocker VALUES('shape-project','shape-locator','CD-0001',
 	tables := append([]string{"sqlite_schema", "schema_migrations", "write_guard", "shape_drop_blocker"}, domainShapeRetiredTables...)
 	tables = append(tables, domainShapePreservedTables...)
 	before := catalogUpgradeRows(t, db, domainShapePreservedTables...)
-	assertMigrationForeignKeyRollback(t, db, tables, "migration 171 (retire_domain_shape) failed")
+	assertMigrationForeignKeyRollback(t, db, tables, "migration 172 (retire_domain_shape) failed")
 	if _, err := db.Exec(`DROP TABLE shape_drop_blocker`); err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestMigrateDomainShapeReadingRefusesBeforeRetirement(t *testing.T) {
 	t.Parallel()
 	for _, lifecycle := range []string{"needed", "completed", "cancelled", "superseded"} {
 		t.Run(lifecycle, func(t *testing.T) {
-			db := seedV170DomainShapeDatabase(t, filepath.Join(t.TempDir(), "legacy-reading.db"))
+			db := seedV171DomainShapeDatabase(t, filepath.Join(t.TempDir(), "legacy-reading.db"))
 			payload := `{"required_reading":[{"domain_id":"shape-child","reason":"Required reading","source":{"kind":"domain_shape","source_id":"shape-project","selector":{"path":"internal/store"}}},{"domain_id":"shape-child","reason":"Retained reading","source":{"kind":"knowledge","source_id":"concord_knowledge","law_id":"CD-0001","content_hash":"sha256:` + repeatA64() + `"}}],"finding_refs":[],"context_findings":[]}`
 			if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 UPDATE work_items SET lifecycle='` + lifecycle + `' WHERE id='shape-work';
@@ -138,7 +138,7 @@ DELETE FROM write_guard`); err != nil {
 			if !errors.As(err, &failure) || failure.Kind != KindUpgradeBlocked || !failure.RetrySafe {
 				t.Fatalf("upgrade refusal = %v, want retry-safe upgrade_blocked", err)
 			}
-			fragments := []string{"domain_shape", "shape-work", "pre-retirement binary", "schema 170", "retry"}
+			fragments := []string{"domain_shape", "shape-work", "pre-retirement binary", "schema 171", "retry"}
 			if lifecycle == "needed" {
 				fragments = append(fragments, "record_work_context", "replace or remove only obsolete readings", "preserving the rest of the declaration")
 			} else {

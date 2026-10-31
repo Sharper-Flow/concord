@@ -104,7 +104,7 @@ func lawCoverageFixtureState(t *testing.T, db *sql.DB, includeCoverage bool) map
 	state := make(map[string][]string, len(lawCoverageFixtureTables)+1)
 	if includeCoverage {
 		state["law_coverage_anchors"] = lawCoverageFixtureRows(t, db, "law_coverage_anchors")
-		// These v165 projections retire with Domain Shape at v171. They must
+		// These v165 projections retire with Domain Shape at v172. They must
 		// remain recoverable in the pre-upgrade snapshot, not in the live store.
 		state["law_evidence_paths"] = lawCoverageFixtureRows(t, db, "law_evidence_paths")
 		state["knowledge_package_domains"] = lawCoverageFixtureRows(t, db, "knowledge_package_domains")

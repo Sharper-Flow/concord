@@ -12,7 +12,7 @@ import (
 // table. These tests prove the retirement and
 // the independent protections it must leave alone: the knowledge-kind
 // coverage rows and law projection survive untouched. The package map and
-// law evidence paths are seeded at v165 but retire at v171 with Domain Shape.
+// law evidence paths are seeded at v165 but retire at v172 with Domain Shape.
 
 var lawCoverageRetiredTables = []string{"law_coverage_anchors"}
 

@@ -25,13 +25,13 @@ var shapeRetainedCLITables = []string{
 	"law_subjects", "law_bodies", "law_domain_homes", "law_domain_applicability",
 }
 
-func seedV170ShapeCLIStore(t *testing.T) (string, string) {
+func seedV171ShapeCLIStore(t *testing.T) (string, string) {
 	t.Helper()
 	previous := version.Value
 	version.Value = "v-test"
 	t.Cleanup(func() { version.Value = previous })
 	path, root := cliStoreRoot(t)
-	seedCLIMigrationPrefix(t, path, 170)
+	seedCLIMigrationPrefix(t, path, 171)
 	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ func seedV170ShapeCLIStore(t *testing.T) (string, string) {
 		`DELETE FROM write_guard`,
 	} {
 		if _, err := tx.Exec(statement); err != nil {
-			t.Fatalf("seed v170 (%s): %v", statement, err)
+			t.Fatalf("seed v171 (%s): %v", statement, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -95,11 +95,11 @@ func shapeCLIState(t *testing.T, path string, includeRetired bool) map[string][]
 }
 
 func TestUpgradeRetiringDomainShapeSnapshotsRowsBeforeDrop(t *testing.T) {
-	path, root := seedV170ShapeCLIStore(t)
+	path, root := seedV171ShapeCLIStore(t)
 	before := shapeCLIState(t, path, true)
 	code, out, errOut := runUpgradeStdin(t, `{}`)
 	if code != 0 {
-		t.Fatalf("upgrade v170 to current: %d %s", code, errOut)
+		t.Fatalf("upgrade v171 to current: %d %s", code, errOut)
 	}
 	var report struct {
 		Applied       []int  `json:"applied"`
@@ -109,14 +109,14 @@ func TestUpgradeRetiringDomainShapeSnapshotsRowsBeforeDrop(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("upgrade report: %v: %s", err, out)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{171}) || report.SchemaVersion != 171 {
-		t.Fatalf("upgrade report = %+v, want migration 171 only", report)
+	if !reflect.DeepEqual(report.Applied, []int{172}) || report.SchemaVersion != 172 {
+		t.Fatalf("upgrade report = %+v, want migration 172 only", report)
 	}
 	if !strings.HasPrefix(report.Backup, filepath.Join(root, "backups")+string(filepath.Separator)) {
 		t.Fatalf("snapshot is outside the existing backup route: %+v", report)
 	}
 	manifest, err := store.VerifyBackup(context.Background(), report.Backup)
-	if err != nil || manifest.SchemaVersion != 170 {
+	if err != nil || manifest.SchemaVersion != 171 {
 		t.Fatalf("verified pre-upgrade snapshot schema=%d err=%v", manifest.SchemaVersion, err)
 	}
 	if snapshot := shapeCLIState(t, report.Backup, true); !reflect.DeepEqual(snapshot, before) {
@@ -140,7 +140,7 @@ func TestUpgradeRetiringDomainShapeSnapshotsRowsBeforeDrop(t *testing.T) {
 }
 
 func TestUpgradeSnapshotFailurePreventsDomainShapeDrop(t *testing.T) {
-	path, _ := seedV170ShapeCLIStore(t)
+	path, _ := seedV171ShapeCLIStore(t)
 	before := shapeCLIState(t, path, true)
 	db := openRawSQLite(t, path)
 	catalog := lawCoverageFixtureRows(t, db, "sqlite_schema")
@@ -169,7 +169,7 @@ func TestUpgradeSnapshotFailurePreventsDomainShapeDrop(t *testing.T) {
 }
 
 func TestUpgradeFailedDomainShapeDropKeepsVerifiedSnapshotAndRollsBack(t *testing.T) {
-	path, _ := seedV170ShapeCLIStore(t)
+	path, _ := seedV171ShapeCLIStore(t)
 	before := shapeCLIState(t, path, true)
 	backup := snapshotDatabase
 	t.Cleanup(func() { snapshotDatabase = backup })
@@ -199,11 +199,11 @@ INSERT INTO shape_drop_blocker VALUES('shape-project','shape-locator','CD-0001',
 		return manifest, nil
 	}
 	code, _, errOut := runUpgradeStdin(t, `{}`)
-	if code != 1 || liveBefore == nil || !strings.Contains(errOut, "migration 171 (retire_domain_shape) failed") || !strings.Contains(strings.ToLower(errOut), "foreign key") {
+	if code != 1 || liveBefore == nil || !strings.Contains(errOut, "migration 172 (retire_domain_shape) failed") || !strings.Contains(strings.ToLower(errOut), "foreign key") {
 		t.Fatalf("induced final-drop failure code=%d: %s", code, errOut)
 	}
 	verified, err := store.VerifyBackup(context.Background(), snapshotPath)
-	if err != nil || verified.SchemaVersion != 170 {
+	if err != nil || verified.SchemaVersion != 171 {
 		t.Fatalf("failed migration recovery snapshot schema=%d err=%v", verified.SchemaVersion, err)
 	}
 	if snapshot := shapeCLIState(t, snapshotPath, true); !reflect.DeepEqual(snapshot, before) {
@@ -220,7 +220,7 @@ INSERT INTO shape_drop_blocker VALUES('shape-project','shape-locator','CD-0001',
 }
 
 func TestUpgradeDomainShapeReadingReportsPreviousBinaryRecovery(t *testing.T) {
-	path, _ := seedV170ShapeCLIStore(t)
+	path, _ := seedV171ShapeCLIStore(t)
 	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +243,7 @@ DELETE FROM write_guard`); err != nil {
 	if code != 1 {
 		t.Fatalf("upgrade admitted an obsolete reading: code=%d diagnostic=%s", code, errOut)
 	}
-	for _, fragment := range []string{"domain_shape", "shape-work", "pre-retirement binary", "schema 170", "record_work_context", "replace", "remove", "preserving the rest of the declaration", "retry"} {
+	for _, fragment := range []string{"domain_shape", "shape-work", "pre-retirement binary", "schema 171", "record_work_context", "replace", "remove", "preserving the rest of the declaration", "retry"} {
 		if !strings.Contains(errOut, fragment) {
 			t.Errorf("upgrade diagnostic %q lacks actionable recovery fragment %q", errOut, fragment)
 		}
@@ -282,11 +282,11 @@ DELETE FROM write_guard`); err != nil {
 		Applied []int  `json:"applied"`
 		Backup  string `json:"backup"`
 	}
-	if err := json.Unmarshal([]byte(out), &report); err != nil || !reflect.DeepEqual(report.Applied, []int{171}) {
+	if err := json.Unmarshal([]byte(out), &report); err != nil || !reflect.DeepEqual(report.Applied, []int{172}) {
 		t.Fatalf("remediated upgrade report=%s err=%v", out, err)
 	}
 	manifest, err := store.VerifyBackup(context.Background(), report.Backup)
-	if err != nil || manifest.SchemaVersion != 170 {
+	if err != nil || manifest.SchemaVersion != 171 {
 		t.Fatalf("remediated upgrade snapshot schema=%d err=%v", manifest.SchemaVersion, err)
 	}
 	for _, source := range []string{report.Backup, path} {

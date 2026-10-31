@@ -105,6 +105,7 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   const writerBytes = WRITERS.reduce((sum, tool) => sum + (registeredBytes.get(tool) ?? Number.NaN), 0)
   expect(projectedBytes("Concord-Planner")).toEqual({ allowed: CATALOG.filter((tool) => !WRITERS.includes(tool)), bytes: PRIMARY_BUDGET.bytes - writerBytes })
   expect(projectedBytes("concord-review")).toEqual(projectedBytes("Concord-Planner"))
+  expect(projectedBytes("concord-verify")).toEqual(projectedBytes("Concord-Planner"))
   for (const role of UTILITY_AGENTS) {
     expect(projectedBytes(role), role).toEqual(EMPTY_BUDGET)
   }

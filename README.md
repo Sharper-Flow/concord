@@ -170,6 +170,9 @@ portable skills ready for OpenCode out of the box.
   independent second opinions on bounded problems.
 - **Native review helper**: `concord-review` loads the [review method](skills/concord-review/SKILL.md),
   repairs in-scope findings and leaves changes uncommitted for the caller.
+- **Native test-only helper**: `concord-verify` runs named local checks or diagnoses
+  completed CI, returning commands, exits and failure evidence without editing
+  files or waiting on CI.
 
 The host's native Task tool owns delegation. Concord neither launches subagents
 nor wraps their prompts or results.

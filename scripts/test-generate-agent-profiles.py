@@ -140,7 +140,7 @@ class ProfileTests(unittest.TestCase):
     def test_primary_role_map_has_exact_population(self):
         text = generator.primary_ts_projection(self.profiles, self.manifest)
         data = json.loads(text.split(" = ", 1)[1])
-        self.assertEqual(set(data), {"Concord", "Concord-RTE", "Concord-Planner", "concord-explore", "concord-lookup", "concord-advisor", "concord-review"})
+        self.assertEqual(set(data), {"Concord", "Concord-RTE", "Concord-Planner", "concord-explore", "concord-lookup", "concord-advisor", "concord-review", "concord-verify"})
         for utility in self.manifest["utilities"]:
             self.assertEqual(data[f"concord-{utility['id']}"]["tools"], generator.concord_tool_ids())
 
@@ -165,6 +165,47 @@ class ProfileTests(unittest.TestCase):
 
     def reviewer(self):
         return next(profile for profile in self.profiles["profiles"] if profile["id"] == "concord-review")
+
+    def verifier(self):
+        return next(profile for profile in self.profiles["profiles"] if profile["id"] == "concord-verify")
+
+    def test_verifier_is_model_free_test_only_and_returns_uncertainty(self):
+        profile = self.verifier()
+        text = generator.primary_projection(profile, (ROOT / profile["role_source"]).read_text())
+        self.assertIn("mode: subagent\n", text)
+        self.assertNotIn("\nmodel:", text)
+        for tool in ("edit", "write", "patch", "apply_patch", "morph_edit", "question", "ci_watch", "todowrite"):
+            self.assertEqual(profile["tools"][tool], "deny", tool)
+        for tool in ("read", "glob", "grep", "skill", "execute"):
+            self.assertEqual(profile["tools"][tool], "allow", tool)
+        self.assertEqual(set(profile["denied_concord_tools"]), set(checks.PLANNER_WRITERS))
+        for clause in ("explicit execution budget", "`TESTING.md` and `bin/oc-test`", "Do not edit files",
+                       "Read its status first", "if it is not completed", "Never\nwatch, poll or wait",
+                       "matches a linked record", "explicitly unknown", "exit codes", "unexpected changed paths",
+                       "not captured native verification\nproof"):
+            self.assertIn(clause, text)
+
+    def test_verifier_effective_permissions_preserve_host_denies_and_caller_owned_waits(self):
+        frontmatter = checks.split_frontmatter(generator.primary_projection(self.verifier(), "Role\n"))
+        bash = checks.permission_rules(frontmatter, "bash")
+        self.assertNotIn("*", [pattern for pattern, _ in bash])
+        host = [("*", "allow"), ("ps *", "deny"), ("kill *", "deny"), ("pkill *", "deny")]
+        for command in ("ps aux", "kill 123", "pkill opencode", "sudo true", "git commit -m fix", "git push origin HEAD",
+                        "git -C repo commit -m fix", "gh pr create", "gh run rerun 1", "gh run watch 1",
+                        "gh pr checks 1 --watch", "gh release create v1", "gh api repos/org/repo/actions/runs/1/rerun",
+                        "herdr-notify --to peer", "ci-watch 1", "ci_watch 1", "concord invoke", "/synthetic/bin/concord invoke",
+                        "env concord invoke", "go run ./cmd/concord invoke", "bash -c 'concord invoke' gh run view 1"):
+            self.assertEqual(checks.evaluate(host + bash, command), "deny", command)
+        for command in ("bin/oc-test targeted -- python3 scripts/test-generate-agent-profiles.py", "go test ./cmd/concord",
+                        "gh run view 1 --repo org/repo --json status,jobs", "gh run view 1 --job 2 --log-failed",
+                        "gh run list --repo org/repo", "git status", "git diff", "concord --help", "concord --version",
+                        "concord continuity-block", "concord client show"):
+            self.assertEqual(checks.evaluate(host + bash, command), "allow", command)
+        tasks = checks.permission_rules(frontmatter, "task")
+        for agent in ("concord-explore", "concord-lookup"):
+            self.assertEqual(checks.evaluate(tasks, agent), "allow", agent)
+        for agent in ("general", "concord-advisor", "concord-review", "concord-verify", "concord-implement"):
+            self.assertEqual(checks.evaluate(tasks, agent), "deny", agent)
 
     def test_reviewer_is_native_repair_capable_and_loads_the_method(self):
         profile = self.reviewer()
@@ -251,6 +292,21 @@ class ProfileTests(unittest.TestCase):
                 self.assertEqual(action(reviewer, "task", agent), "allow", agent)
             for agent in ("general", "concord-review", "concord-advisor"):
                 self.assertEqual(action(reviewer, "task", agent), "deny", agent)
+            verifier = resolve("concord-verify")
+            self.assertEqual(verifier["mode"], "subagent")
+            self.assertEqual(action(driver, "task", "concord-verify"), "allow")
+            for tool in (*checks.PLANNER_WRITERS, "edit", "write", "patch", "apply_patch", "morph_edit", "question", "ci_watch"):
+                self.assertEqual(action(verifier, tool), "deny", tool)
+            for tool in ("concord_knowledge", "concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view"):
+                self.assertEqual(action(verifier, tool), "allow", tool)
+            for command in ("ps aux", "kill 123", "pkill opencode", "concord invoke", "git commit -m fix", "git push origin HEAD", "gh run watch 1", "gh pr create", "herdr-notify --to peer"):
+                self.assertEqual(action(verifier, "bash", command), "deny", command)
+            for command in ("bin/oc-test targeted -- python3 scripts/test-generate-agent-profiles.py", "gh run view 1 --log-failed"):
+                self.assertEqual(action(verifier, "bash", command), "allow", command)
+            for agent in ("concord-explore", "concord-lookup"):
+                self.assertEqual(action(verifier, "task", agent), "allow", agent)
+            for agent in ("general", "concord-review", "concord-verify", "concord-advisor"):
+                self.assertEqual(action(verifier, "task", agent), "deny", agent)
 
 
 if __name__ == "__main__":

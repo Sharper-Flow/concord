@@ -89,15 +89,15 @@ describe("primary role guard", () => {
     }
   })
 
-  test("native reviewer keeps law reads and refuses every workflow write before transport", async () => {
+  for (const agent of ["concord-review", "concord-verify"]) test(`${agent} keeps law reads and refuses every workflow write before transport`, async () => {
     for (const toolID of MUTATING) {
       const { calls, definition } = recording()
-      await expect(guardPrimaryRole(toolID, definition).execute({}, context("concord-review"))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
+      await expect(guardPrimaryRole(toolID, definition).execute({}, context(agent))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
       expect(calls).toEqual([])
     }
     for (const toolID of READS) {
       const { calls, definition } = recording()
-      expect(await guardPrimaryRole(toolID, definition).execute({}, context("concord-review"))).toBe("ran")
+      expect(await guardPrimaryRole(toolID, definition).execute({}, context(agent))).toBe("ran")
       expect(calls).toEqual([{}])
     }
   })
@@ -129,7 +129,7 @@ describe("primary role guard", () => {
 
   test("the guard reads one generated registry covering exactly the registered roles", () => {
     const agents = Object.keys(roleDeniedConcordTools).sort()
-    expect(agents).toEqual(["Concord-RTE", "Concord", "Concord-Planner", "concord-review", ...UTILITY_AGENTS].sort())
+    expect(agents).toEqual(["Concord-RTE", "Concord", "Concord-Planner", "concord-review", "concord-verify", ...UTILITY_AGENTS].sort())
     // Neither full primary profile denies a tool; Planner denies exactly the
     // work-state writers. Every remaining refusal is a helper or utility
     // boundary.

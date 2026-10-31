@@ -845,6 +845,53 @@ esac''',
         self.assertFalse(self.fence_path.exists())
         self.assertEqual(len(self.cutover_mutations(environment)), 1)
 
+    def test_cutover_command_binds_resolved_homes_and_relative_root(self) -> None:
+        home = self.root / "home with spaces"
+        data = self.root / "data with spaces"
+        config = self.root / "config with spaces"
+        with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_DATA_HOME": str(data),
+                                         "XDG_CONFIG_HOME": str(config)}):
+            paths = installer.paths_for(None)
+            command = installer.cutover_command_for("v1.1.0", None)
+        words = shlex.split(command)
+        self.assertEqual(words[:4], ["env", f"HOME={paths.home.resolve()}",
+                                     f"XDG_DATA_HOME={paths.data_home.resolve()}",
+                                     f"XDG_CONFIG_HOME={paths.config_home.resolve()}"])
+        relative = Path(os.path.relpath(self.root))
+        words = shlex.split(installer.cutover_command_for("v1.1.0", relative))
+        self.assertEqual(words[words.index("--root") + 1], str(self.root.resolve()))
+
+    def test_printed_cutover_ignores_changed_home_and_xdg(self) -> None:
+        self.make_release("v1.0.0")
+        self.make_release("v1.1.0")
+        environments = []
+        for name in ("first home", "second home"):
+            home = self.root / name
+            (home / ".local" / "bin").mkdir(parents=True)
+            environment = self.plan_env(blocked=True)
+            environment.update(HOME=str(home), XDG_DATA_HOME=str(home / "data"),
+                               XDG_CONFIG_HOME=str(home / "config"),
+                               PATH=str(home / ".local/bin") + os.pathsep + self.env["PATH"])
+            for version in ("v1.0.0", "v1.1.0"):
+                run_env = {**environment, "CONCORD_TEST_UPGRADE_PLAN": str(self.readiness_plan(blocked=version == "v1.1.0"))}
+                result = subprocess.run([sys.executable, str(SCRIPT), "install", "--version", version,
+                                         "--artifact-dir", str(self.artifacts)], text=True, capture_output=True, env=run_env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            environments.append(environment)
+        first, second = environments
+        first_record = Path(first["XDG_DATA_HOME"]) / "concord/prepared-release.json"
+        second_record = Path(second["XDG_DATA_HOME"]) / "concord/prepared-release.json"
+        command = json.loads(first_record.read_text())["cutover_command"]
+        second_before = second_record.read_bytes()
+        changed_env = {**self.cutover_env(), "HOME": second["HOME"], "XDG_DATA_HOME": second["XDG_DATA_HOME"],
+                       "XDG_CONFIG_HOME": second["XDG_CONFIG_HOME"]}
+        result = subprocess.run(command, shell=True, text=True, capture_output=True, env=changed_env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(first_record.exists())
+        self.assertEqual(second_record.read_bytes(), second_before)
+        self.assertEqual(os.readlink(Path(first["XDG_DATA_HOME"]) / "concord/current"),
+                         str(Path(first["XDG_DATA_HOME"]) / "concord/v1.1.0"))
+
     def test_cutover_refuses_any_live_or_unknown_lease_without_changes(self) -> None:
         self.prepare_a_blocked_release()
         for kind in ("live", "unknown"):

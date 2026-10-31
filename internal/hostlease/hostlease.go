@@ -592,6 +592,15 @@ func syncDir(path string) error {
 // unreadable lease could remove a release a newer release's session still
 // holds, so the caller must observe the failure instead of guessing.
 func List(dataRoot string) ([]Lease, error) {
+	return list(dataRoot, true)
+}
+
+// Observe returns live leases without removing stale lease files.
+func Observe(dataRoot string) ([]Lease, error) {
+	return list(dataRoot, false)
+}
+
+func list(dataRoot string, prune bool) ([]Lease, error) {
 	dir := Directory(dataRoot)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -617,8 +626,10 @@ func List(dataRoot string) ([]Lease, error) {
 		}
 		start, err := ProcessStart(lease.PID)
 		if err != nil || start != lease.PidStart {
-			if err := os.Remove(path); err != nil {
-				return nil, fmt.Errorf("hostlease: cannot prune %s: %w", path, err)
+			if prune {
+				if err := os.Remove(path); err != nil {
+					return nil, fmt.Errorf("hostlease: cannot prune %s: %w", path, err)
+				}
 			}
 			continue
 		}

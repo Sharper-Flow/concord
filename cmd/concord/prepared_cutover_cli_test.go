@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -14,6 +15,27 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
 )
+
+func TestHostLeasesReadOnlyPreservesStaleAndDefaultPrunes(t *testing.T) {
+	_, root := cliStoreRoot(t)
+	if err := os.MkdirAll(hostlease.Directory(root), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(hostlease.Directory(root), "stale.json")
+	if err := os.WriteFile(stale, []byte(`{"pid":0,"pid_start":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range []string{`{"read_only":true}`, `{}`} {
+		var out, errOut bytes.Buffer
+		if code := runHostLeasesCommand(nil, strings.NewReader(input), &out, &errOut); code != 0 {
+			t.Fatalf("host-leases %s: %s", input, errOut.String())
+		}
+		_, err := os.Stat(stale)
+		if input != `{}` && err != nil || input == `{}` && !os.IsNotExist(err) {
+			t.Fatalf("host-leases %s stale file: %v", input, err)
+		}
+	}
+}
 
 func TestPreparedUpgradeRefusesEvenACurrentSchemaLeaseBeforeSnapshot(t *testing.T) {
 	previous := version.Value
@@ -34,9 +56,16 @@ func TestPreparedUpgradeRefusesEvenACurrentSchemaLeaseBeforeSnapshot(t *testing.
 		FenceProtocol: hostlease.CurrentFenceProtocol}); err != nil {
 		t.Fatal(err)
 	}
+	stale := filepath.Join(hostlease.Directory(root), "0-stale.json")
+	if err := os.WriteFile(stale, []byte(`{"pid":0,"pid_start":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	code, out, errOut := runUpgradeStdin(t, `{"require_no_sessions":true}`)
 	if code != 1 || !strings.Contains(errOut, "pid "+strconv.Itoa(os.Getpid())) || !strings.Contains(errOut, "requires no live sessions") {
 		t.Fatalf("current-schema holder must refuse cutover: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("strict refusal must preserve stale lease: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "backups")); !os.IsNotExist(err) {
 		t.Fatalf("a refused cutover must take no snapshot: %v", err)
@@ -125,9 +154,12 @@ try:
     environment["XDG_DATA_HOME"] = str(root / "data")
     leased = subprocess.run([str(candidate), "host-lease"], input=json.dumps({"pid":os.getpid(), "directory":"/synthetic/session"}), text=True, capture_output=True, env=environment)
     assert leased.returncode == 0, (leased.stdout, leased.stderr)
+    stale = case.data_root / "hosts/0-stale.json"
+    stale.write_text(json.dumps({"pid": 0, "pid_start": 1}))
     before = (case.data_root / "concord.db").read_bytes()
     refused = subprocess.run(command, text=True, capture_output=True, env=case.env, timeout=10)
     assert refused.returncode == 1 and ("pid " + str(os.getpid())) in refused.stderr, (refused.stdout, refused.stderr)
+    assert stale.exists(), "refused cutover pruned the stale lease"
     assert before == (case.data_root / "concord.db").read_bytes()
     assert case.prepared_path.read_bytes() == record_bytes
     assert not case.fence_path.exists() and not (case.data_root / "backups").exists()

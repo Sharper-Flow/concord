@@ -381,7 +381,7 @@ def stamp_fence_protocol(version_tree: Path, version: str | None = None) -> None
 HOST_LEASE_TIMEOUT_SECONDS = 30
 
 
-def observe_held_releases(paths: Paths, version: str, *, staged_binary: Path | None = None) -> dict[str, list[dict[str, object]]] | None:
+def observe_held_releases(paths: Paths, version: str, *, staged_binary: Path | None = None, read_only: bool = False) -> dict[str, list[dict[str, object]]] | None:
     """Return the live host sessions holding each release root, keyed by the
     resolved release root, or None when the observation failed. The holder
     sessions are the retention output's per-release holder list (CD-0191):
@@ -393,7 +393,7 @@ def observe_held_releases(paths: Paths, version: str, *, staged_binary: Path | N
     try:
         completed = subprocess.run(
             [str(binary), "host-leases"],
-            input=b"{}",
+            input=json.dumps({"read_only": True} if read_only else {}).encode(),
             capture_output=True,
             env=environment,
             timeout=HOST_LEASE_TIMEOUT_SECONDS,
@@ -536,9 +536,12 @@ def installer_invocation() -> str:
 
 
 def cutover_command_for(version: str, root: Path | None) -> str:
-    parts = [sys.executable or "python3", installer_invocation(), "cutover", "--version", version]
+    paths = paths_for(root)
+    parts = ["env", f"HOME={paths.home.resolve()}", f"XDG_DATA_HOME={paths.data_home.resolve()}",
+             f"XDG_CONFIG_HOME={paths.config_home.resolve()}",
+             sys.executable or "python3", installer_invocation(), "cutover", "--version", version]
     if root is not None:
-        parts.extend(["--root", str(root)])
+        parts.extend(["--root", str(root.resolve())])
     return shlex.join(parts)
 
 
@@ -3706,7 +3709,7 @@ def install(args: argparse.Namespace) -> int:
 
 
 def require_no_live_sessions(paths: Paths, version: str, *, staged_binary: Path | None = None) -> None:
-    held = observe_held_releases(paths, version, staged_binary=staged_binary)
+    held = observe_held_releases(paths, version, staged_binary=staged_binary, read_only=True)
     if held is None:
         raise InstallerError("prepared cutover refused: live session observation is unknown")
     if held:

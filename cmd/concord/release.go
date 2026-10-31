@@ -128,8 +128,10 @@ func runHostLeaseCommand(args []string, in io.Reader, out, errOut io.Writer) int
 }
 
 func runHostLeasesCommand(args []string, in io.Reader, out, errOut io.Writer) int {
-	var ignored struct{}
-	if code := decodeReleaseInput(args, in, errOut, "host-leases", &ignored); code != 0 {
+	var request struct {
+		ReadOnly bool `json:"read_only"`
+	}
+	if code := decodeReleaseInput(args, in, errOut, "host-leases", &request); code != 0 {
 		return code
 	}
 	dataRoot, err := leaseDataRoot()
@@ -137,7 +139,12 @@ func runHostLeasesCommand(args []string, in io.Reader, out, errOut io.Writer) in
 		writeOperatorDiagnostic(errOut, "host-leases", diagnosticText(err))
 		return 1
 	}
-	live, err := hostlease.List(dataRoot)
+	var live []hostlease.Lease
+	if request.ReadOnly {
+		live, err = hostlease.Observe(dataRoot)
+	} else {
+		live, err = hostlease.List(dataRoot)
+	}
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "host-leases", diagnosticText(err))
 		return 1
@@ -382,7 +389,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 			return code
 		}
 	}
-	held, code := boundary.observeSessions(maintenanceRequired || request.RequireNoSessions, request.ConfirmSessionsStopped, errOut)
+	held, code := boundary.observeSessions(maintenanceRequired || request.RequireNoSessions, request.ConfirmSessionsStopped, request.RequireNoSessions, errOut)
 	if code != 0 {
 		return code
 	}
@@ -484,12 +491,18 @@ func (boundary upgradeFence) close(errOut io.Writer) {
 	}
 }
 
-func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSessionsStopped bool, errOut io.Writer) ([]store.HeldSchema, int) {
+func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSessionsStopped, readOnly bool, errOut io.Writer) ([]store.HeldSchema, int) {
 	dataRoot := boundary.dataRoot
 	// The lease list is read after the fence is in place, so the check
 	// store.Upgrade performs is the final one: no session can be admitted
 	// between it and the migration while the boundary is open.
-	live, err := hostlease.List(dataRoot)
+	var live []hostlease.Lease
+	var err error
+	if readOnly {
+		live, err = hostlease.Observe(dataRoot)
+	} else {
+		live, err = hostlease.List(dataRoot)
+	}
 	if err != nil {
 		boundary.close(errOut)
 		writeOperatorDiagnostic(errOut, "upgrade", "cannot observe live host sessions: "+diagnosticText(err))

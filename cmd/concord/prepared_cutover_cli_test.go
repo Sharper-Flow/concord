@@ -185,10 +185,12 @@ try:
     for lease in (case.data_root / "hosts").iterdir():
         lease.unlink()
     crash_env = case.env.copy()
-    crash_env["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = "version_activated"
+    crash_env["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = "staged"
     crashed = subprocess.run(command, text=True, capture_output=True, env=crash_env, timeout=60)
     assert crashed.returncode != 0, (crashed.stdout, crashed.stderr)
     assert case.fence_path.exists() and case.prepared_path.exists(), (crashed.stdout, crashed.stderr)
+    transaction = next((case.data_root / fixture.installer.TRANSACTION_PARENT).iterdir())
+    fixture.installer.replace_durable(case.data_root / version, transaction / "backup/live-version")
     for _ in range(2):
         completed = subprocess.run(command, text=True, capture_output=True, env=case.env, timeout=60)
         assert completed.returncode == 0, (completed.stdout, completed.stderr)

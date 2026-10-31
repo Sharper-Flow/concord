@@ -381,13 +381,13 @@ def stamp_fence_protocol(version_tree: Path, version: str | None = None) -> None
 HOST_LEASE_TIMEOUT_SECONDS = 30
 
 
-def observe_held_releases(paths: Paths, version: str) -> dict[str, list[dict[str, object]]] | None:
+def observe_held_releases(paths: Paths, version: str, *, staged_binary: Path | None = None) -> dict[str, list[dict[str, object]]] | None:
     """Return the live host sessions holding each release root, keyed by the
     resolved release root, or None when the observation failed. The holder
     sessions are the retention output's per-release holder list (CD-0191):
     a holder keeps working on its pinned pair, and the operator can identify
     each release's holders."""
-    binary = paths.data_root / version / "bin" / "concord"
+    binary = staged_binary if staged_binary is not None else paths.data_root / version / "bin" / "concord"
     environment = {key: value for key, value in os.environ.items() if key != "CONCORD_DB_PATH"}
     environment["XDG_DATA_HOME"] = str(paths.data_home)
     try:
@@ -3271,7 +3271,7 @@ def resume_forward(transaction_root: Path, journal: dict[str, object], paths: Pa
     link_worktrees_root(paths)
 
 
-def recover_transaction(transaction_root: Path, paths: Paths) -> None:
+def recover_transaction(transaction_root: Path, paths: Paths, *, prepared_cutover: dict[str, object] | None = None) -> None:
     if transaction_root.is_symlink() or journal_path(transaction_root).is_symlink():
         raise InstallerError(f"refusing symlinked transaction target {transaction_root}")
     try:
@@ -3281,6 +3281,23 @@ def recover_transaction(transaction_root: Path, paths: Paths) -> None:
     if not isinstance(journal, dict):
         raise InstallerError(f"refusing malformed transaction journal {journal_path(transaction_root)}")
     validate_transaction(journal, transaction_root, paths)
+    if prepared_cutover is not None:
+        if (journal.get("prepared_activation") is not True
+                or journal.get("new_version") != prepared_cutover["version"]
+                or journal.get("new_version_records") != prepared_cutover["version_files"]
+                or not prepared_record_matches(journal, paths)):
+            raise InstallerError("the incomplete transaction does not own this prepared cutover; refusing recovery")
+        fence = read_maintenance_fence(paths)
+        fence_id = journal.get("maintenance_fence_id")
+        if (fence is None or not isinstance(fence_id, str) or not fence_id
+                or fence["fence_id"] != fence_id or prepared_cutover.get("boundary_fence_id") != fence_id):
+            raise InstallerError("the prepared cutover recovery has no matching admission fence; refusing recovery")
+        version = str(prepared_cutover["version"])
+        tree = paths.data_root / version
+        if not tree.exists():
+            tree = transaction_root / "stage" / "version"
+        validate_owned_tree(tree, prepared_cutover["version_files"])
+        require_no_live_sessions(paths, version, staged_binary=tree / "bin" / "concord")
     phase = journal["phase"]
     new_manifest = journal["new_manifest"]
     current_manifest_state(paths)
@@ -3368,7 +3385,7 @@ def recover_transaction(transaction_root: Path, paths: Paths) -> None:
     cleanup_transaction(transaction_root, journal, paths, remove_old_version=False)
 
 
-def recover_transactions(paths: Paths) -> None:
+def recover_transactions(paths: Paths, *, prepared_cutover: dict[str, object] | None = None) -> None:
     parent = paths.data_root / TRANSACTION_PARENT
     if parent.is_symlink():
         raise InstallerError(f"refusing symlinked transaction directory {parent}")
@@ -3383,10 +3400,14 @@ def recover_transactions(paths: Paths) -> None:
     if transactions:
         transaction = transactions[0]
         if not journal_path(transaction).exists():
+            if prepared_cutover is not None:
+                version = str(prepared_cutover["version"])
+                validate_owned_tree(paths.data_root / version, prepared_cutover["version_files"])
+                require_no_live_sessions(paths, version)
             shutil.rmtree(transaction)
             fsync_directory(parent)
         else:
-            recover_transaction(transaction, paths)
+            recover_transaction(transaction, paths, prepared_cutover=prepared_cutover)
 
 
 def install(args: argparse.Namespace) -> int:
@@ -3686,8 +3707,8 @@ def install(args: argparse.Namespace) -> int:
     return 0
 
 
-def require_no_live_sessions(paths: Paths, version: str) -> None:
-    held = observe_held_releases(paths, version)
+def require_no_live_sessions(paths: Paths, version: str, *, staged_binary: Path | None = None) -> None:
+    held = observe_held_releases(paths, version, staged_binary=staged_binary)
     if held is None:
         raise InstallerError("prepared cutover refused: live session observation is unknown")
     if held:
@@ -3724,12 +3745,12 @@ def cutover(args: argparse.Namespace) -> int:
             raise InstallerError(f"no prepared or active release {version} is recorded; run install first")
         records = record["version_files"]
         assert isinstance(records, dict)
-        validate_owned_tree(paths.data_root / version, records)
-        require_no_live_sessions(paths, version)
         fence = read_maintenance_fence(paths)
         if fence is not None:
             require_owned_fence(paths, fence, {str((paths.data_root / version).resolve())})
-        recover_transactions(paths)
+        recover_transactions(paths, prepared_cutover=record)
+        validate_owned_tree(paths.data_root / version, records)
+        require_no_live_sessions(paths, version)
         recover_pending_project_links(paths)
         plan = read_upgrade_plan(paths, version)
         needs_upgrade = bool(plan.get("pending")) or plan["activation_blocked"]

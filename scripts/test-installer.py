@@ -964,6 +964,34 @@ esac''',
                 self.assertFalse(self.fence_path.exists())
                 self.assertEqual(len(self.cutover_mutations(environment)), 1)
 
+    def test_cutover_recovers_when_activation_stopped_between_tree_renames(self) -> None:
+        self.prepare_a_blocked_release()
+        environment = self.cutover_env()
+        stopped_env = environment.copy()
+        stopped_env["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = "staged"
+        stopped = self.run_installer("cutover", "--version", "v1.1.0", env=stopped_env)
+        self.assertEqual(stopped.returncode, 97, stopped.stderr)
+        transaction = next((self.data_root / installer.TRANSACTION_PARENT).iterdir())
+        installer.replace_durable(self.data_root / "v1.1.0", transaction / "backup" / "live-version")
+        for unknown in (False, True):
+            with self.subTest(unknown=unknown):
+                held_env = environment.copy()
+                if unknown:
+                    held_env["CONCORD_TEST_HOST_LEASES_FAIL"] = "1"
+                else:
+                    held_env["CONCORD_TEST_HOST_LEASES"] = str(self.retention_report("/synthetic/held-release"))
+                before = self.managed_snapshot()
+                refused = self.run_installer("cutover", "--version", "v1.1.0", env=held_env)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("unknown" if unknown else "4242", refused.stderr)
+                self.assertEqual(self.managed_snapshot(), before)
+        recovered = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertFalse(self.prepared_path.exists())
+        self.assertFalse(self.fence_path.exists())
+        self.assertEqual(len(self.cutover_mutations(environment)), 1)
+
     def test_a_blocked_readiness_prepares_without_activating(self) -> None:
         """CON-807: a pending breaking step must leave the running sessions'
         release fully in place while the candidate waits durably."""

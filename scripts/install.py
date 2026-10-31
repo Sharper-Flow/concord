@@ -543,27 +543,23 @@ def installer_invocation() -> str:
     return str(Path(sys.argv[0]).resolve())
 
 
-def cutover_command_for(version: str, root: Path | None) -> str:
+def installer_command_for(action: str, version: str, root: Path | None) -> str:
+    """Bind a recorded command to the installation and quote it for the shell."""
     paths = paths_for(root)
     parts = ["env", f"HOME={paths.home.resolve()}", f"XDG_DATA_HOME={paths.data_home.resolve()}",
              f"XDG_CONFIG_HOME={paths.config_home.resolve()}",
-             sys.executable or "python3", installer_invocation(), "cutover", "--version", version]
+             sys.executable or "python3", installer_invocation(), action, "--version", version]
     if root is not None:
         parts.extend(["--root", str(root.resolve())])
     return shlex.join(parts)
 
 
-def activation_command_for(version: str, root: Path | None) -> str:
-    """The exact activation command, quoted for a POSIX shell.
+def cutover_command_for(version: str, root: Path | None) -> str:
+    return installer_command_for("cutover", version, root)
 
-    shlex.join keeps argument boundaries intact when a recorded path carries
-    a space, so splitting the recorded command reproduces exactly the
-    arguments this installer would run.
-    """
-    parts = [sys.executable or "python3", installer_invocation(), "activate", "--version", version]
-    if root is not None:
-        parts.extend(["--root", str(root)])
-    return shlex.join(parts)
+
+def activation_command_for(version: str, root: Path | None) -> str:
+    return installer_command_for("activate", version, root)
 
 
 @contextmanager

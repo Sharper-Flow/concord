@@ -862,6 +862,29 @@ esac''',
         words = shlex.split(installer.cutover_command_for("v1.1.0", relative))
         self.assertEqual(words[words.index("--root") + 1], str(self.root.resolve()))
 
+    def test_recorded_installer_commands_bind_homes_and_relative_roots_at_execution(self) -> None:
+        probe = self.root / "probe with spaces.py"
+        probe.write_text("import json, os, sys\nprint(json.dumps([sys.argv[1:], os.environ['HOME'], os.environ['XDG_DATA_HOME'], os.environ['XDG_CONFIG_HOME']]))\n")
+        home, data, config = (self.root / name for name in ("home with spaces", "data with spaces", "config with spaces"))
+        original = {"HOME": str(home), "XDG_DATA_HOME": str(data), "XDG_CONFIG_HOME": str(config)}
+        ambient = {**self.env, "HOME": str(self.root / "other home"), "XDG_DATA_HOME": str(self.root / "other data"),
+                   "XDG_CONFIG_HOME": str(self.root / "other config")}
+        relative = Path(os.path.relpath(self.root))
+        for action, producer in (("cutover", installer.cutover_command_for), ("activate", installer.activation_command_for)):
+            for root in (None, relative):
+                with self.subTest(action=action, root=root):
+                    with mock.patch.dict(os.environ, original), \
+                            mock.patch.object(installer, "installer_invocation", return_value=str(probe)):
+                        paths = installer.paths_for(root)
+                        command = producer("v1.1.0", root)
+                    result = subprocess.run(command, shell=True, text=True, capture_output=True, env=ambient, cwd=self.root)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    args = [action, "--version", "v1.1.0"]
+                    if root is not None:
+                        args += ["--root", str(self.root.resolve())]
+                    self.assertEqual(json.loads(result.stdout), [args, str(paths.home.resolve()),
+                                      str(paths.data_home.resolve()), str(paths.config_home.resolve())])
+
     def test_printed_cutover_ignores_changed_home_and_xdg(self) -> None:
         self.make_release("v1.0.0")
         self.make_release("v1.1.0")
@@ -4038,7 +4061,9 @@ esac''',
             command = installer.activation_command_for("v1.1.0", Path("/tmp/test root"))
         self.assertEqual(
             shlex.split(command),
-            [sys.executable, "/tmp/installer tools/install.py", "activate", "--version", "v1.1.0", "--root", "/tmp/test root"],
+            ["env", "HOME=/tmp/test root", "XDG_DATA_HOME=/tmp/test root/data",
+             "XDG_CONFIG_HOME=/tmp/test root/config", sys.executable, "/tmp/installer tools/install.py",
+             "activate", "--version", "v1.1.0", "--root", "/tmp/test root"],
         )
 
     def test_a_reinstall_after_the_migration_recovers_forward(self) -> None:

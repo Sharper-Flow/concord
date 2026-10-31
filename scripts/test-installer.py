@@ -992,6 +992,19 @@ esac''',
         self.assertFalse(self.fence_path.exists())
         self.assertEqual(len(self.cutover_mutations(environment)), 1)
 
+    def test_cutover_recovers_an_interrupted_matching_preparation(self) -> None:
+        self.assertEqual(self.install_release("v1.0.0").returncode, 0)
+        environment = self.plan_env(blocked=True)
+        environment["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = "prepared"
+        prepared = self.install_release("v1.1.0", env=environment)
+        self.assertEqual(prepared.returncode, 97, prepared.stderr)
+        self.assertTrue(self.prepared_path.exists())
+        result = self.run_installer("cutover", "--version", "v1.1.0", env=self.cutover_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertFalse(self.prepared_path.exists())
+        self.assertFalse(self.fence_path.exists())
+
     def test_a_blocked_readiness_prepares_without_activating(self) -> None:
         """CON-807: a pending breaking step must leave the running sessions'
         release fully in place while the candidate waits durably."""

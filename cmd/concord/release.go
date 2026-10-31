@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -250,16 +249,15 @@ func leaseHolder(lease hostlease.Lease) string {
 // such a tree refuses the boundary-owned mutation. cancel_cutover_pinned_work
 // selects ordinary lifecycle cancellation of every authoring-cutover blocker.
 type upgradeInput struct {
-	Plan                    bool   `json:"plan"`
-	ConfirmSessionsStopped  bool   `json:"confirm_sessions_stopped"`
-	CancelCutoverPinnedWork bool   `json:"cancel_cutover_pinned_work"`
-	RequireNoSessions       bool   `json:"require_no_sessions"`
-	PreparedReleaseDigest   string `json:"prepared_release_digest"`
+	Plan                    bool `json:"plan"`
+	ConfirmSessionsStopped  bool `json:"confirm_sessions_stopped"`
+	CancelCutoverPinnedWork bool `json:"cancel_cutover_pinned_work"`
+	RequireNoSessions       bool `json:"require_no_sessions"`
+	MaintenanceFD           *int `json:"maintenance_fd"`
 }
 
 // preparedReleaseRecord names the candidate and its installer-owned completion
-// command. Upgrade checks the record digest and candidate under the maintenance
-// lock; the installer owns validation of the full record and release tree.
+// command. The installer owns validation of the full record and release tree.
 type preparedReleaseRecord struct {
 	Version           string `json:"version"`
 	ActivationCommand string `json:"activation_command"`
@@ -316,21 +314,18 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// what this run committed, so no other run may migrate under the same
 	// boundary meanwhile. The read-only plan takes no lock.
 	if !request.Plan {
-		release, err := hostlease.AcquireMaintenance(dataRoot)
+		var release func()
+		var err error
+		if request.MaintenanceFD == nil {
+			release, err = hostlease.AcquireMaintenance(dataRoot)
+		} else {
+			release, err = hostlease.AcquireMaintenanceInherited(dataRoot, *request.MaintenanceFD)
+		}
 		if err != nil {
 			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 			return 1
 		}
 		defer release()
-		if request.PreparedReleaseDigest != "" {
-			raw, err := os.ReadFile(preparedReleasePath(dataRoot))
-			var prepared preparedReleaseRecord
-			if err != nil || fmt.Sprintf("sha256:%x", sha256.Sum256(raw)) != request.PreparedReleaseDigest ||
-				json.Unmarshal(raw, &prepared) != nil || prepared.Version != version.Value {
-				writeOperatorDiagnostic(errOut, "upgrade", "prepared release changed before upgrade; no migration was applied; re-run cutover for the recorded candidate")
-				return 1
-			}
-		}
 	}
 	// The fence state participates in every answer and fails closed: an
 	// unreadable exclusion record may be an open boundary.

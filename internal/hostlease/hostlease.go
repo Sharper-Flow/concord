@@ -397,6 +397,33 @@ func AcquireMaintenance(dataRoot string) (func(), error) {
 	}, nil
 }
 
+// AcquireMaintenanceInherited shares the installer's open directory lock with
+// its upgrade child. It validates the descriptor before flocking and reuses the
+// normal post-flock root checks. Closing the duplicate must not LOCK_UN: Linux
+// flock ownership belongs to the shared open file description, including the
+// parent's descriptor, which excludes commands until the whole cutover exits.
+func AcquireMaintenanceInherited(dataRoot string, descriptor int) (func(), error) {
+	file, err := acquireMaintenanceLock(dataRoot, func(path string) (*os.File, error) {
+		duplicate, err := syscall.Dup(descriptor)
+		if err != nil {
+			return nil, err
+		}
+		syscall.CloseOnExec(duplicate)
+		file := os.NewFile(uintptr(duplicate), "inherited maintenance lock")
+		current, pathErr := os.Lstat(path)
+		held, statErr := file.Stat()
+		if pathErr != nil || statErr != nil || !current.IsDir() || !sameFile(held, current) {
+			_ = file.Close()
+			return nil, fmt.Errorf("inherited descriptor does not name the data root directory")
+		}
+		return file, nil
+	}, syscall.Flock)
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = file.Close() }, nil
+}
+
 // openMaintenanceDirectory opens the data root for flocking: read-only, a
 // directory, and never through a symlink. The refusal on a symlink is the
 // open itself, so no window exists where a replaced path is followed.

@@ -674,7 +674,7 @@ def maintenance_lock(paths: Paths):
     """
     descriptor = _acquire_maintenance_lock(paths.data_root)
     try:
-        yield
+        yield descriptor
     finally:
         os.close(descriptor)
 
@@ -3282,16 +3282,18 @@ def recover_transaction(transaction_root: Path, paths: Paths, *, prepared_cutove
         raise InstallerError(f"refusing malformed transaction journal {journal_path(transaction_root)}")
     validate_transaction(journal, transaction_root, paths)
     if prepared_cutover is not None:
-        if (journal.get("prepared_activation") is not True
-                or journal.get("new_version") != prepared_cutover["version"]
+        if (journal.get("new_version") != prepared_cutover["version"]
                 or journal.get("new_version_records") != prepared_cutover["version_files"]
                 or not prepared_record_matches(journal, paths)):
             raise InstallerError("the incomplete transaction does not own this prepared cutover; refusing recovery")
-        fence = read_maintenance_fence(paths)
-        fence_id = journal.get("maintenance_fence_id")
-        if (fence is None or not isinstance(fence_id, str) or not fence_id
-                or fence["fence_id"] != fence_id or prepared_cutover.get("boundary_fence_id") != fence_id):
-            raise InstallerError("the prepared cutover recovery has no matching admission fence; refusing recovery")
+        if journal.get("prepared_activation") is True:
+            fence = read_maintenance_fence(paths)
+            fence_id = journal.get("maintenance_fence_id")
+            if (fence is None or not isinstance(fence_id, str) or not fence_id
+                    or fence["fence_id"] != fence_id or prepared_cutover.get("boundary_fence_id") != fence_id):
+                raise InstallerError("the prepared cutover recovery has no matching admission fence; refusing recovery")
+        elif journal.get("operation") != "install" or journal.get("phase") not in {"staged", "prepared"}:
+            raise InstallerError("the incomplete transaction is not a prepared installation; refusing recovery")
         version = str(prepared_cutover["version"])
         tree = paths.data_root / version
         if not tree.exists():
@@ -3728,15 +3730,10 @@ def require_migrated_store(paths: Paths, version: str) -> dict[str, object]:
 
 
 def cutover(args: argparse.Namespace) -> int:
-    """Compose locked prepare, native migration, and forward activation.
-
-    The core must acquire the same maintenance lock itself. No installer
-    recovery or mutation runs while the core owns that lock; its committed
-    breaking-migration fence survives until activation takes ownership.
-    """
+    """Migrate and activate under one directory flock shared with the core."""
     paths = paths_for(args.root)
     version = parse_version(args.version)
-    with maintenance_lock(paths):
+    with maintenance_lock(paths) as descriptor:
         prepared = load_prepared_release(paths)
         if prepared is not None and prepared["version"] != version:
             raise InstallerError(f"the prepared release is {prepared['version']}, not {version}")
@@ -3753,26 +3750,23 @@ def cutover(args: argparse.Namespace) -> int:
         require_no_live_sessions(paths, version)
         recover_pending_project_links(paths)
         plan = read_upgrade_plan(paths, version)
-        needs_upgrade = bool(plan.get("pending")) or plan["activation_blocked"]
-        if needs_upgrade and load_prepared_release(paths) is None:
-            raise InstallerError("a migration requires a prepared release record; run install first")
-        prepared_digest = "sha256:" + sha256(prepared_release_path(paths)) if needs_upgrade else None
-    if needs_upgrade:
-        environment = {key: value for key, value in os.environ.items() if key != "CONCORD_DB_PATH"}
-        environment["XDG_DATA_HOME"] = str(paths.data_home)
-        request = {"require_no_sessions": True,
-                   "prepared_release_digest": prepared_digest,
-                   "confirm_sessions_stopped": args.confirm_sessions_stopped,
-                   "cancel_cutover_pinned_work": args.cancel_cutover_pinned_work}
-        print(f"Running the snapshot-backed upgrade for {version}.", flush=True)
-        try:
-            completed = subprocess.run(upgrade_plan_command(paths, version), input=json.dumps(request).encode(),
-                                       env=environment, check=False)
-        except OSError as error:
-            raise InstallerError(f"cannot run the prepared upgrade: {error}; re-run cutover to recover") from error
-        if completed.returncode != 0:
-            raise InstallerError("prepared upgrade failed; activation was not attempted; re-run cutover after resolving the reported refusal")
-    with maintenance_lock(paths):
+        if bool(plan.get("pending")) or plan["activation_blocked"]:
+            if load_prepared_release(paths) is None:
+                raise InstallerError("a migration requires a prepared release record; run install first")
+            environment = {key: value for key, value in os.environ.items() if key != "CONCORD_DB_PATH"}
+            environment["XDG_DATA_HOME"] = str(paths.data_home)
+            request = {"require_no_sessions": True,
+                       "maintenance_fd": descriptor,
+                       "confirm_sessions_stopped": args.confirm_sessions_stopped,
+                       "cancel_cutover_pinned_work": args.cancel_cutover_pinned_work}
+            print(f"Running the snapshot-backed upgrade for {version}.", flush=True)
+            try:
+                completed = subprocess.run(upgrade_plan_command(paths, version), input=json.dumps(request).encode(),
+                                           env=environment, pass_fds=(descriptor,), check=False)
+            except OSError as error:
+                raise InstallerError(f"cannot run the prepared upgrade: {error}; re-run cutover to recover") from error
+            if completed.returncode != 0:
+                raise InstallerError("prepared upgrade failed; activation was not attempted; re-run cutover after resolving the reported refusal")
         validate_owned_tree(paths.data_root / version, records)
         require_no_live_sessions(paths, version)
         require_migrated_store(paths, version)

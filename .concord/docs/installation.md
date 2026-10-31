@@ -271,12 +271,11 @@ Without those flags, the original refusals remain in force.
 Only one maintenance command runs at a time: the migration command and every
 installer command share one lock. A second command refuses with `another
 maintenance command is in progress`; re-run it after the first ends.
-Cutover releases that lock between its validation, native upgrade and activation
-phases so each owner can acquire it. Every recovery and mutation stays under the
-shared lock; a committed breaking migration keeps its admission fence between
-phases. Native upgrade checks the exact prepared-record digest and candidate
-version under that lock before any effect, so another install cannot substitute
-a different prepared release between validation and migration.
+Cutover holds that lock for the whole command. Its upgrade child inherits the
+same open directory descriptor and validates it through the native lock owner.
+The child closes only its duplicate, without unlocking the parent's descriptor.
+Every recovery, migration, activation and verification stays inside this one
+exclusion; another install cannot substitute a different prepared release.
 While the boundary is open, an install whose own activation is blocked or unknown
 refuses and keeps the prepared record. Re-run the recorded cutover command to
 complete it.

@@ -274,7 +274,7 @@ func TestKnowledgeHomeReplacementDuringRebuildRefusesStaleContext(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, false, manifest, knowledgeArchitecture{}, productID, designated)
+	err = rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, false, manifest, productID, designated)
 	if err == nil {
 		err = tx.Commit()
 	}
@@ -340,7 +340,7 @@ func TestKnowledgeHomeValidationUsesPinnedRoleAcrossDesignationFlipAndBack(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, false, manifest, knowledgeArchitecture{}, productID, designated); err != nil {
+	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, false, manifest, productID, designated); err != nil {
 		_ = tx.Rollback()
 		t.Fatalf("rebuild with the restored prepared role: %v", err)
 	}

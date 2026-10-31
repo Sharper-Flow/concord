@@ -332,19 +332,3 @@ func domainExistsCurrent(ctx context.Context, q queryer, product, domain string)
 	summary.ParentID = parent.String
 	return summary, nil
 }
-
-func readDomainStringList(ctx context.Context, q queryer, query string, target *[]string, args ...any) error {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "domain_read", "cannot read Domain footprint", true, "retry once the workflow projection is readable", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var value string
-		if err := rows.Scan(&value); err != nil {
-			return wrapFailure(KindUnavailable, "domain_read", "cannot decode Domain footprint", true, "retry once the workflow projection is readable", err)
-		}
-		*target = append(*target, value)
-	}
-	return rows.Err()
-}

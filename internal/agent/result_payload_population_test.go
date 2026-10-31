@@ -1037,8 +1037,6 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_knowledge.observe_publication":    `{"product_id":"prod-alpha","source_project_id":"proj-knowledge","source_locator_id":"population-knowledge-locator"}`,
 		"concord_domain.list":                      `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.detail":                    `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
-		"concord_domain.footprint":                 `{"product_id":"prod-alpha","behavior":"domain","page":{"cursor":null,"limit":20}}`,
-		"concord_domain.shape":                     `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 	}
 }
 
@@ -1115,8 +1113,6 @@ var readPopulationRows = map[string][]string{
 	"concord_knowledge.search":                 {"items"},
 	"concord_domain.list":                      {"domains"},
 	"concord_domain.detail":                    {"current_law", "relations", "observations"},
-	"concord_domain.footprint":                 {"laws"},
-	"concord_domain.shape":                     {"domain_ids", "governing_law"},
 }
 
 // readPopulationRowExemptions names every read whose probed input carries no

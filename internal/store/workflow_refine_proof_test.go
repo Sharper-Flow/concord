@@ -215,25 +215,3 @@ func TestRefineProofStartRecorded(t *testing.T) {
 		t.Fatalf("%d workflow action starts follow the refine start", count)
 	}
 }
-
-func TestParseProjectToolingManifest(t *testing.T) {
-	parsed, err := ParseProjectToolingManifest([]byte(`{"schema_version":"1.0","project":"concord","tools":[{"id":"go-vet","invocation":"go vet ./...","tier":"fast"}]}`))
-	if err != nil {
-		t.Fatalf("parse the manifest: %v", err)
-	}
-	if parsed.Project != "concord" || len(parsed.Declared) != 1 || parsed.Declared[0].Invocation != "go vet ./..." {
-		t.Fatalf("parsed manifest = %+v", parsed)
-	}
-	for name, raw := range map[string]string{
-		"not json":       `{`,
-		"old schema":     `{"schema_version":"0.9","project":"concord","tools":[{"id":"x","invocation":"x"}]}`,
-		"no project":     `{"schema_version":"1.0","tools":[]}`,
-		"no tools":       `{"schema_version":"1.0","project":"concord","tools":[]}`,
-		"blank argv":     `{"schema_version":"1.0","project":"concord","tools":[{"id":"x","invocation":"  \t "}]}`,
-		"missing invoc.": `{"schema_version":"1.0","project":"concord","tools":[{"id":"x"}]}`,
-	} {
-		if _, err := ParseProjectToolingManifest([]byte(raw)); err == nil {
-			t.Fatalf("%s parsed without a refusal", name)
-		}
-	}
-}

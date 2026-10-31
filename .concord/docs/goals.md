@@ -44,19 +44,14 @@ the case ([`../law/constitution/priorities.md`](../law/constitution/priorities.m
 ### A. Formal product law and domain architecture
 - Formal, retrievable stores of product law and of domain architecture. All agents follow them, or change them
   so that all agents follow the change.
-- Every change keeps a footprint record, and a tool fills it. The design keeps modularity in mind:
-  - The agent names the files or behavior it will change. The tool returns the governing domains, the current
-    law versions, and the checks that apply.
-  - The agent adds only what a tool cannot know: the acceptance criteria, and whether it means to change a law.
-  - A declared, checked map from each code package to its domain feeds the tool.
-  - The record tool and the map are reusable parts (goal C).
-- Measure: one tool call returns the laws and the domain that govern a given file or behavior. Spot
-  checks find no merged change that breaks a current law without a recorded law change.
+- Product-changing work names its affected Domains, exact law revisions, acceptance criteria, and
+  intended law changes. The design keeps modularity in mind.
+- Measure: spot checks find no merged change that breaks a current law without a recorded law change.
 
 ### B. Fast, right-sized delivery
 - Deliver fast, with "right-sizing the amount of ceremony based on the subject/sensitivity/etc".
 - Ceremony covers all three: "less steps, less proof, less testing" for small work. No change ships with zero
-  proof: a small change runs the checks the footprint tool names, plus one review.
+  proof: a small change runs the applicable checks, plus one review.
 - "If its something thats just a few lines of code, we probably dont need a refine step. If its something that
   delivers a complete refactor, we may need multiple review and refine steps."
 - Each live workflow retains its mandatory steps. Main chooses assignment

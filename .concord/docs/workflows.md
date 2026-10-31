@@ -175,7 +175,7 @@ changes or external planning groups.
 - A Product owns canonical Domains and has Project memberships. Projects do not
   become architecture identity.
 - Each Domain lists current law, typed dependencies, active workflows, evidence,
-  decisions, typed facts, and recent changes.
+  decisions, and recent changes.
 - A workflow or change is **architecture-bound history** from the Domain view, not the
   top-level browse path.
 - Business grouping lives in Linear under CD-0213 and owns no architecture authority.

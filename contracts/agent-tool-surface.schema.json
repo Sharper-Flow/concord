@@ -157,7 +157,7 @@
               "string",
               "null"
             ],
-            "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Overlaps|Footprint|Shape))$"
+            "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Overlaps))$"
           },
           "input_schema": {
             "type": "string",

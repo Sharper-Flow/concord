@@ -8,7 +8,7 @@ test("work pin validators accept bounded kind debt and legacy absence", () => {
     project_id: "project-test", project_display_name: "Fixture", version: 3,
     lifecycle: "in_progress", cancelled_instance_closes: 0,
     workflow_type: "workflow.implementation", step: "acceptance",
-    pending_operator_decision: null, driving_sessions: [], watermark: "seq:3", next_valid_intents: [],
+    driving_sessions: [], watermark: "seq:3", next_valid_intents: [],
     workflow_definition_digest: "sha256:" + "a".repeat(64), obligations: [],
     outstanding_evidence_kinds: kinds,
   }

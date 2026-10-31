@@ -23,7 +23,7 @@ Commands read one strict JSON object from stdin:
   concord client-policy-expand < JSON stdin
   concord client policy-expand < JSON stdin
     required: client_ref
-    optional: capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (CD-0097 D6)
+    optional: capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (TS5)
     accepted values: capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research
   concord client-key-rotate < JSON stdin
   concord client key-rotate < JSON stdin
@@ -109,15 +109,6 @@ Commands read one strict JSON object from stdin:
   concord restore < JSON stdin
     required: source, destination
     accepted values: source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database
-  concord predecessor-inventory < JSON stdin
-  concord predecessor inventory < JSON stdin
-    required: snapshot_path
-    accepted values: snapshot_path: absolute path to a predecessor snapshot file (CD-0097)
-  concord predecessor-import < JSON stdin
-  concord predecessor import < JSON stdin
-    required: snapshot_path, product{product_id, display_name, stage_maturity, stage_audience_commitment}, projects, select_change_ids
-    optional: dry_run, surfaces
-    accepted values: stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; projects[].role: primary | secondary; select_change_ids: change ids the snapshot enumerates as active and that belong to a declared snapshot_project_id, or already-imported ids that turned terminal or left the active set since the previous harvest; surfaces: specifications | active_work | terminal_history | wisdom | reflections; only active_work imports, a surface outside this set refuses before import (CD-0097)
   concord host-lease < JSON stdin
     required: pid
     optional: directory, worktree: session location, named by a breaking-migration refusal; advisory, never interpreted

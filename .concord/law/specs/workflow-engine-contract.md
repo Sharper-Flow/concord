@@ -217,7 +217,7 @@ the rows below do not repeat this pair.
 | `workflow.candidate_set_revised` | `work_id`, `contract_version`, `candidate_kind` (exactly `work_item`, `product`, or `project`), `candidate_ref`, `added` (0–100 refs), `removed` (0–100 refs); `added` and `removed` are disjoint and not both empty |
 | `workflow.actor_recorded` | `work_id`, `actor_ref`, `principal_ref`, `client_ref`, `agent_ref`, `session_ref`, `actor_class` (`agent` or `operator`) |
 | `workflow.action_started` | `work_id`, `step_id`, `action_id`, `attempt_epoch`, `accepted_inputs_digest`, `idempotency_identity` (2–128), `actor_ref` |
-| `workflow.action_checkpointed` | `work_id`, `step_id`, `step_kind` (`internal_sqlite`, `cross_authority`, `external_effect`, or the existing definition-schema `human_checkpoint`), `attempt_epoch`, `checkpoint_payload` (typed action checkpoint, max 16 KiB), `resume_cursor` (0–2048), `actor_ref`, `request_id` |
+| `workflow.action_checkpointed` | `work_id`, `step_id`, `step_kind` (`internal_sqlite`, `cross_authority`, or `external_effect`), `attempt_epoch`, `checkpoint_payload` (typed action checkpoint, max 16 KiB), `resume_cursor` (0–2048), `actor_ref`, `request_id` |
 | `workflow.action_completed` | `work_id`, optional `action_id`, `step_id`, `attempt_epoch`, `result_evidence_refs` (0–32), `changed_refs` (0–32), `actor_ref`. It rejects undeclared current-step actions. |
 | `workflow.proposal_recorded` | `work_id`, `problem` (1–4096), `affected` (1–16 unique entries of 1–256), `stakes` (1–2048), `user_outcomes` (1–16 unique entries of 1–512), `constraints` (0–16 unique entries of 1–512, omitted when absent), `open_questions` (0–16 unique entries of 1–512, omitted when absent), `out_of_scope` (0–16 unique entries of 1–512, omitted when absent; CD-0202) |
 | `workflow.design_recorded` | `work_id`, `approach` (2–4096), `decisions` (1–16 typed decisions with `id`, `question` (1–512), `choice` (1–1024), `rationale` (1–1024), and `rejected` (0–8 strings)), `touched_refs` (1–64 references) |
@@ -531,9 +531,9 @@ verification step and only for an active-contract predicate whose latest eligibl
 verdict is missing, non-`ok`, or incomparable. An `ok` comparable verdict cannot
 be replaced. The action holds the current step and preserves attempts and evidence.
 
-At a nonterminal human checkpoint that declares `confirm_premise`, the operator
-question maps `Revise` to `supersede_contract`. The action requires a complete
-consecutive successor contract. It records the successor and keeps the current
+At a nonterminal step that declares `confirm_premise`, `supersede_contract`
+revises the contract. The action requires a complete consecutive successor
+contract. It records the successor and keeps the current
 checkpoint. Prior verdicts remain eligible only across every consecutive contract
 version where predicate identity, kind, and canonical payload are unchanged.
 Prior premise confirmations and verdicts for changed or removed predicates do not
@@ -574,28 +574,28 @@ from the workflow payload. The core authenticates the invoking client against
 the trusted-client key and policy, requires an agent-class non-worker
 coordinator, and records that identity as the confirmation's
 `confirming_actor_ref` with coordinator authority in the same transaction as
-the authorized intent. Replayed, mismatched, skipped-question, or
+the authorized intent. Replayed, mismatched, or
 payload-selected identities cannot substitute another actor. Idempotent replay
 returns the stored result without recording the confirmation again.
 
-### 8.1 Operator question projection
+### 8.1 Operator decisions stay in conversation
 
-An active contract uses authenticated coordinator confirmation and exposes
-neither an operator question nor a withholding. Its `confirm_premise` action
-accepts no human choice or decision-context digest. Operator decisions follow
-CD-0243 D2 in conversation.
+The step machine has no operator-specific step kind, question projection,
+withholding, semantic choice input, or decision-context digest. Planning and
+verdict steps use `internal_sqlite`; their actions keep their declared guards.
+Invoking `confirm_premise` records authenticated coordinator confirmation,
+subject to the recorded investigation and acceptance-deliverable requirements.
 
-Without an active contract, the bounded read projection may expose
-`operator_question` for a declared checkpoint action. It contains the stable `prompt` and
-`header`, a closed `choices` array (`id`, label, description, and action mapping),
-`allow_multiple=false`, `allow_custom=false`, bounded premise and contract
-summaries, and `decision_context_digest`. The digest is SHA-256 over the exact
-work ID and version, pinned definition ref/version/digest, contract version,
-action ID, premise bytes, outcome kind, and stored outcome-payload bytes.
+Agents ask operator questions through the host question tool when CD-0243 D2
+requires a decision and quote the answer in the ordinary workflow step record.
+The quotation supplies context, not authentication or mutation authority.
+The core does not interpret it as a grant. No adapter or store question route
+substitutes for the host tool.
 
-The question supplies semantic context only and grants no authority. The custom
-Concord tool never calls the question service. `revise` and `stop` name the
-declared revision or cancellation action; each action keeps its own admission.
+An upgrade that removes a step kind first takes the existing verified snapshot.
+It preserves ordinary checkpoint rows and their constraints, mapping the retired
+operator kind to `internal_sqlite` without discarding checkpoint payloads or
+attribution.
 
 ## 9. Workflow composition
 

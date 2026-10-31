@@ -56,7 +56,7 @@ func researchScopeFixture(t *testing.T, capabilities []agentcontract.Capability,
 		{researchScopeConsumer, `[{"project_id":"project-a","role":"primary"}]`},
 	}
 	for _, owner := range owners {
-		events = append(events, store.Event{EventID: "sc-work-" + owner.id, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: owner.id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Scope ` + owner.id + `","priority":1}`)})
+		events = append(events, store.Event{EventID: "sc-work-" + owner.id, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: owner.id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Scope ` + owner.id + `","priority":1}`)})
 		if owner.memberships != "" {
 			events = append(events, store.Event{EventID: "sc-members-" + owner.id, Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: owner.id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":` + owner.memberships + `,"expected_version":1,"resulting_version":2}`)})
 		}

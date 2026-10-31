@@ -123,17 +123,8 @@ test("the published workflow_action variants state each action's exact required 
       expect(input.properties[field], `${input.properties.action_id.const} names ${field}`).toBeObject()
     }
     for (const field of ["selected_choice", "decision_context_digest"]) {
-      if (input.properties.action_id.const === "confirm_premise") {
-        // Engineering confirmation on a consequence_v1 pin carries no human
-        // digest, so only the closed choice is required at the outer level.
-        expect(input.properties[field]).toBeObject()
-        if (field === "selected_choice") expect(input.required).toContain(field)
-        else expect(input.required).not.toContain(field)
-      } else {
-        expect(input.properties[field]).toBeObject()
-        expect(input.required).not.toContain(field)
-        expect(input.not.anyOf).toContainEqual({ required: [field] })
-      }
+      expect(input.properties[field]).toBeUndefined()
+      expect(input.required).not.toContain(field)
     }
   }
   // The registry declares approve_contract's fields required: the published

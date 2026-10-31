@@ -7,7 +7,6 @@
   "date": "2026-08-20T00:00:00Z",
   "evidence": [
     ".concord/docs/capability-placement.md",
-    ".concord/docs/predecessor-operational-coverage.md",
     "skills/README.md"
   ],
   "home_domain_id": "agent-adapter",

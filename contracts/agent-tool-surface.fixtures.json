@@ -482,17 +482,6 @@
               ],
               "work_version": 1
             },
-            "pending_operator_decision": {
-              "action_id": "id-1",
-              "allow_custom": false,
-              "allow_multiple": false,
-              "choices": [],
-              "contract_summary": "id-1",
-              "decision_context_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-              "header": "id-1",
-              "premise_summary": "id-1",
-              "prompt": "id-1"
-            },
             "product_identity": [],
             "spec_mandate": [],
             "step_actions": [],
@@ -575,17 +564,6 @@
               "work_version": 1
             },
             "nested_unknown": true,
-            "pending_operator_decision": {
-              "action_id": "id-1",
-              "allow_custom": false,
-              "allow_multiple": false,
-              "choices": [],
-              "contract_summary": "id-1",
-              "decision_context_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-              "header": "id-1",
-              "premise_summary": "id-1",
-              "prompt": "id-1"
-            },
             "product_identity": [],
             "spec_mandate": [],
             "step_actions": [],
@@ -665,17 +643,6 @@
                 "id-1"
               ],
               "work_version": 1
-            },
-            "pending_operator_decision": {
-              "action_id": "id-1",
-              "allow_custom": false,
-              "allow_multiple": false,
-              "choices": [],
-              "contract_summary": "id-1",
-              "decision_context_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-              "header": "id-1",
-              "premise_summary": "id-1",
-              "prompt": "id-1"
             },
             "product_identity": [],
             "spec_mandate": [],
@@ -758,17 +725,6 @@
               "id-1"
             ],
             "work_version": 1
-          },
-          "pending_operator_decision": {
-            "action_id": "id-1",
-            "allow_custom": false,
-            "allow_multiple": false,
-            "choices": [],
-            "contract_summary": "id-1",
-            "decision_context_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-            "header": "id-1",
-            "premise_summary": "id-1",
-            "prompt": "id-1"
           },
           "product_identity": [],
           "spec_mandate": [],
@@ -2783,5 +2739,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:d4d022812ff76447bd72c72106439ff9fdb9a338524c404290f7d8cec2a3c192"
+  "manifest_digest": "sha256:f51a8a3aa5a236f4322968d592a62f7a16f7e8df3335a00120a5d6c4637146e1"
 }

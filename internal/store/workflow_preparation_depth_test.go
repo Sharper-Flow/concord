@@ -23,7 +23,7 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 			livenessInitialize(t, s, workID, definition.Definition)
 			act := func(action string, fields map[string]any) {
 				t.Helper()
-				if err := runCoordinatorActionTx(t, s, BuiltinWorkflowRegistry(), workID, action, livenessActor(), "", string(mustJSONValue(fields))); err != nil {
+				if err := runCoordinatorActionTx(t, s, BuiltinWorkflowRegistry(), workID, action, livenessActor(), string(mustJSONValue(fields))); err != nil {
 					t.Fatalf("%s: %v", action, err)
 				}
 			}

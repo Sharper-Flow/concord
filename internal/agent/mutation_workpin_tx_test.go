@@ -254,7 +254,7 @@ func TestMutationPinOmissionKeepsOtherWorkPins(t *testing.T) {
 	s, workID, pin := enrichmentPinFixture(t)
 	membership, _ := json.Marshal(map[string]any{"memberships": []map[string]string{{"project_id": pin.ProjectID, "role": "primary"}}, "expected_version": 1, "resulting_version": 2})
 	events := []store.Event{
-		{EventID: "unmanaged-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "unmanaged-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Unmanaged work","priority":1}`)},
+		{EventID: "unmanaged-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "unmanaged-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Unmanaged work","priority":1}`)},
 		{EventID: "unmanaged-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "unmanaged-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: membership},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "unmanaged-work"): 0}}); err != nil {

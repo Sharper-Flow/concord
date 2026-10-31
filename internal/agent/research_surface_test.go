@@ -30,7 +30,7 @@ func researchSurfaceFixtureWithCapabilities(t *testing.T, capabilities []agentco
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	events := append(agentFixtureProductEvents("rs", "product-1", "project-1", "Research Surface", "Research Project", "research surface fixture"),
-		store.Event{EventID: "rs-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"bug","title":"Research Surface Work","priority":1,"defect_intake":{"failure_shape":"research-surface-fixture","reproduction":"Exercise research authoring and binding.","searched":"The fixture contains no earlier defect with this failure shape.","related_defect_ids":[]}}`)},
+		store.Event{EventID: "rs-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"bug","title":"Research Surface Work","priority":1,"defect_intake":{"failure_shape":"research-surface-fixture","reproduction":"Exercise research authoring and binding.","searched":"The fixture contains no earlier defect with this failure shape.","related_defect_ids":[]}}`)},
 		store.Event{EventID: "rs-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	)
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0}}); err != nil {
@@ -416,7 +416,7 @@ func researchRetireFixture(t *testing.T, capabilities []agentcontract.Capability
 		work := fmt.Sprintf("retire-owner-%d", i)
 		versions[store.VersionRef(store.SubjectWorkItem, work)] = 0
 		events = append(events,
-			store.Event{EventID: work + ":create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: work, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Retirement Owner","priority":1}`)},
+			store.Event{EventID: work + ":create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: work, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Retirement Owner","priority":1}`)},
 			store.Event{EventID: work + ":membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: work, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(fmt.Sprintf(`{"memberships":[{"project_id":%q,"role":"primary"}],"expected_version":1,"resulting_version":2}`, project))},
 		)
 	}
@@ -768,7 +768,7 @@ func TestResearchRetireMaximumBatchAndReplay(t *testing.T) {
 	s, service, grant, _ := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
 	ctx := context.Background()
 	events := []store.Event{
-		{EventID: "batch-owner-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "batch-owner", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Batch Owner","priority":1}`)},
+		{EventID: "batch-owner-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "batch-owner", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Batch Owner","priority":1}`)},
 		{EventID: "batch-owner-member", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "batch-owner", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "batch-owner"): 0}}); err != nil {

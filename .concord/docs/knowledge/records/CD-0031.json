@@ -7,9 +7,7 @@
     "workflow-engine"
   ],
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-16T00:00:00Z",
   "evidence": [
@@ -27,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6ad1a177014451c452380bddadfd65da4c1aa72e53c3bbf1cdb046ade24444ce",
+  "sha256": "sha256:c29b15e6deb5edf86f4062e4699acb9e65d30f850752402f2693c78ee6066569",
   "status": "accepted",
   "summary": "Host-started operator sessions with selected work receive a generated, digest-bound packet rendered from canonical continuity through session-prepare; host start stays identity-only, and the per-turn hook re-renders the same bytes (CD-0090).",
   "tags": [

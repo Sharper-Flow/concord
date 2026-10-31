@@ -47,7 +47,7 @@
             },
             {
               "id": "planning",
-              "kind": "human_checkpoint",
+              "kind": "internal_sqlite",
               "actions": [
                 "approve_contract",
                 "checkpoint_context",
@@ -68,7 +68,7 @@
             },
             {
               "id": "acceptance",
-              "kind": "human_checkpoint",
+              "kind": "internal_sqlite",
               "actions": [
                 "record_verdict",
                 "confirm_premise",
@@ -397,7 +397,7 @@
             "target": "execution"
           }
         ],
-        "digest": "sha256:882cae4a36a7beea0133fb3297bb870e64d9bf5e3baf6ff21e7a4af5ece91773"
+        "digest": "sha256:59d5176dc204fb9e3c7c8718f468719d1626747122e1dbf3b9fbea8f70981ec2"
       }
     },
     {"id": "outcome-exists-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"]}},

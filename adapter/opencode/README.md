@@ -110,7 +110,7 @@ revisions with the installation evidence. On a fresh installation, register
 the intended names in the client's `agent_scope` before starting managed work.
 
 The additive command preserves existing grants under
-[CD-0097 D6](../../.concord/law/decisions/CD-0097-bounded-parallel-predecessor-migration.md#d6-trusted-client-policy-grows-by-an-additive-operator-command).
+[TS5](../../.concord/law/specs/agent-call-context-contract.md#additive-trusted-client-policy-changes).
 Removing retired names is a separate operator decision through the
 full-statement `client-policy-update` command; it is not part of this expansion.
 The installer does not modify trusted-client policy. This is an operator

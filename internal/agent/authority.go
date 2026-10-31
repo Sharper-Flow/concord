@@ -184,7 +184,7 @@ func (s *Service) UpdateTrustedClientPolicy(ctx context.Context, clientRef strin
 }
 
 // ExpandTrustedClientPolicy widens a trusted client policy additively
-// (CD-0097 D6). The additions union with the stored capabilities, Product
+// (TS5). The additions union with the stored capabilities, Product
 // scope, Project scope, and agent scope; every grant the client already holds survives
 // unchanged, and the stored principal is never touched. Restating the full
 // policy with a new principal stays on UpdateTrustedClientPolicy.
@@ -393,7 +393,7 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	// The agent reference arrives from the caller and is written into
 	// attribution, so the trusted client must name the agents it may present.
 	// An empty scope authorizes none, which is the state every client
-	// registered before the scope existed holds. CD-0097 D6 additive expansion
+	// registered before the scope existed holds. TS5 additive expansion
 	// is the remedy, so the refusal names it: re-registration would discard
 	// grants the client already holds.
 	//

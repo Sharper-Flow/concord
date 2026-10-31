@@ -11,10 +11,10 @@ import (
 
 // derivedRequestWireMaxBytes pins the derived full-invoke wire maximum of
 // the current widest admitted action shape. The test owns the pin, not
-// production: any growth in the widest shape fails this exact figure first,
+// production: any change in the widest shape fails this exact figure first,
 // and the pin moves only by a deliberate re-derivation beside the ceilings'
 // own next-power-of-two assertions.
-const derivedRequestWireMaxBytes = 10413478
+const derivedRequestWireMaxBytes = 10412653
 
 // The shared action ceilings derive from the widest admitted shape, not a
 // shortlist: this test enumerates every admitted workflow-action variant the
@@ -25,7 +25,7 @@ const derivedRequestWireMaxBytes = 10413478
 // two is the one value both ceilings — the store's whole-action fields
 // budget and the agent request transport limit, one aliased production
 // constant — must equal. The store's split test proves the fields JSON
-// figure separately. A future shape growth fails the exact wire pin first
+// figure separately. A future shape change fails the exact wire pin first
 // and requires a new derivation; an unknown unbounded member fails its walk
 // with its exact path.
 func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
@@ -114,7 +114,7 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	request := invokeRequestWireBytes(t, widest)
 	derived := schemawire.NextPowerOfTwo(request)
 	if request != derivedRequestWireMaxBytes {
-		t.Fatalf("the derived full-invoke request = %d bytes, want the pinned %d; the widest shape grew and the pin must be re-derived beside the ceilings it rounds to", request, derivedRequestWireMaxBytes)
+		t.Fatalf("the derived full-invoke request = %d bytes, want the pinned %d; the widest shape changed and the pin must be re-derived beside the ceilings it rounds to", request, derivedRequestWireMaxBytes)
 	}
 	if store.MaxWorkflowActionPayloadBytes != derived {
 		t.Fatalf("store.MaxWorkflowActionPayloadBytes = %d, want the widest request composition's own rounding %d", store.MaxWorkflowActionPayloadBytes, derived)

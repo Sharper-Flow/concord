@@ -37,7 +37,7 @@
     },
     {
       "criterion": 7,
-      "exemption": "The predecessor-independence boundary is unchanged and has its own repository check."
+      "exemption": "Independent review checks the no-predecessor-runtime-dependency boundary; dedicated predecessor witnesses and their tests are retired."
     },
     {
       "criterion": 8,
@@ -88,7 +88,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6a83a6caf804ff7bbfdf31d983c2a31ba0572ad012e4cef852f93da6fbb2bb0f",
+  "sha256": "sha256:9800c9bbde923c5025b36153134cf8666bf62114767d78f59f1a491976c6ab63",
   "status": "accepted",
   "summary": "Assigns planning to Linear through the Linear MCP server, keeps managed workflow, review, merge, isolation, and law authority in their existing owners, and preserves the outside-work and defect-repair boundaries.",
   "tags": [

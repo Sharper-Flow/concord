@@ -24,12 +24,14 @@ host context responsibilities.
 Every recorded write is one current-row mutation; no event append exists
 ([CD-0242](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2).
 
-A workflow read may expose a closed `operator_question`; the model answers it through the public action, whose core validation owns the choice and digest checks. CD-0243's classes govern when the human ask happens in conversation. Missing required context transport still fails closed.
+Operator questions use the host question tool under CD-0243, not a Concord
+projection or selection envelope. Missing required context transport still
+fails closed.
 
 The binding contract is sections 1 through 5: the adapter boundary and its
 host responsibilities, the process and transport rules including client
 bootstrap, the registration and schema rules including the hidden
-TS5 envelope, the operator-question route, and the adapter
+TS5 envelope, the consequential-mutation flow, and the adapter
 boundary of allowed and forbidden behaviors. Sections 6 through 11 describe
 registration, alternatives, evidence, implementation acceptance, and
 falsifiers, and carry no obligation.
@@ -127,21 +129,20 @@ The registered client key stays in the OS credential store and never enters
 model-visible arguments, logs, artifacts, or tool output. Correctness never
 depends on restoring adapter state.
 
-## 4. Operator-question route
+## 4. Consequential mutations
 
 Consequential mutation flow:
 
-1. A workflow read may expose a closed `operator_question`. The model supplies
-   the selected semantic choice and its exact context digest to the public
-   action. The Concord custom tool does not call the question service.
-2. Adapter sends the canonical request with a stable idempotency key. Core
-   strictly validates the selection and digest before any effect.
+1. The adapter sends the canonical request with a stable idempotency key.
+2. Core validates the declared action, payload, authenticated identity, current
+   state, scope and expected version before any effect.
 3. Core returns the typed refusal with its pinned facts, or executes and
    returns the durable-operation state.
 
-The question is semantic input the core validates; the adapter adds no
-authorization of its own. A recorded operator actor is an attribution fact,
-not an identified human at the host.
+The adapter adds no authorization of its own. Operator answers are quoted in
+ordinary step records; the adapter does not turn prose into an actor or grant.
+Question projections, withholding fields, semantic choices and human context
+digests are not part of the transport contract.
 
 Release must pin OpenCode and verify its exact tool-context field names.
 Missing or drifted behavior fails consequential mutations closed — never

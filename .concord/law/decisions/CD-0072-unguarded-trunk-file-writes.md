@@ -2,14 +2,12 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-24
-- **Scope:** Trunk file-write enforcement; the predecessor-coverage record for
-  worktree isolation; issues #317, #130
+- **Scope:** Trunk file-write enforcement and worktree isolation; issues #317, #130
 - **Approval:** Operator decision of 2026-08-21 accepted losing this
   enforcement rather than shipping an editor plugin to retain it; recorded
   here on that authority (surfaced by issue #317)
 - **Related:** #130 (worktree isolation as external safety authority),
-  CD-0008, [`capability-placement.md`](../../docs/capability-placement.md) §1,
-  [`predecessor-operational-coverage.md`](../../docs/predecessor-operational-coverage.md)
+  CD-0008, [`capability-placement.md`](../../docs/capability-placement.md) §1
 - **Preserves:** the grant-level main-checkout refusal
   (`internal/agent/authority.go`)
 
@@ -49,12 +47,6 @@ These are weaker than the predecessor's combined guarantee and are not
 presented as equivalent. An operator wanting trunk protection at the file
 level must configure it host-side; Concord records the boundary honestly
 instead.
-
-### D3. The coverage record separates the halves
-
-The worktree-isolation outcome row splits its enforced evidence from this
-exclusion and cites this record, so the table stops overstating what is
-enforced.
 
 ## Invariants
 

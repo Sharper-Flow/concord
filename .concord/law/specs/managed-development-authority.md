@@ -143,8 +143,10 @@ The other boundaries retain their stated scope.
 - Criterion 6: `python3 scripts/check-agent-contracts.py` validates the
   generated contracts, and `internal/store.TestAppendEventRoundTripsEveryField`
   covers the event records.
-- Criterion 7: `python3 scripts/check-predecessor-independence.py` checks
-  repository-owned agent surfaces.
+- Criterion 7: independent review checks that repository-owned agent surfaces
+  introduce no predecessor runtime dependency. The dedicated predecessor
+  independence and operational-coverage witnesses, their tests, and their
+  history-only runbooks are retired; they are not current readiness gates.
 - Criterion 8: CD-0213 D6 owns the foreign-Product route, and Concord has no
   write path for it. `python3 scripts/check-knowledge-index.py` validates the
   record that owns the route.

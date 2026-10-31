@@ -23,7 +23,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_define", "work_transition", "research"})
-	// The operator question gate reads a current Domain registry; the home is
+	// The confirmation investigation gate reads a current Domain registry; the home is
 	// a real committed knowledge repository, the way production derives it.
 	worktree := recoveryDomainRepository(t, s)
 	grant.Worktree = worktree
@@ -121,7 +121,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		t.Fatalf("record_conclusion=%+v", response.Error)
 	}
 
-	// The operator question gate reads an investigation observation naming a
+	// The confirmation investigation gate reads an observation naming a
 	// current Domain of this Product and another work item; both are real.
 	_, rootDomain := recoveryRegistry(t, s)
 	observation := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: retryJSON(map[string]any{

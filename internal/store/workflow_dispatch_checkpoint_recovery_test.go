@@ -6,6 +6,18 @@ import (
 	"testing"
 )
 
+func TestConfirmationCorrectionDoesNotDependOnStepKind(t *testing.T) {
+	definition := WorkflowDefinition{StepGraph: WorkflowStepGraph{
+		Steps: []WorkflowStep{{ID: "confirmation", Kind: WorkflowStepInternalSQLite, Actions: []string{"confirm_premise"}}},
+	}}
+	if !workflowContractCorrectionCheckpoint(definition, "confirmation") {
+		t.Fatal("confirmation step must admit contract correction")
+	}
+	if !workPinContainsAction(workPinIntents(definition, "confirmation", 1), "supersede_contract") {
+		t.Fatal("confirmation step must advertise contract correction")
+	}
+}
+
 func TestReviewCheckpointCorrectionAcrossKinds(t *testing.T) {
 	count := 0
 	for _, definition := range BuiltinWorkflowDefinitions() {
@@ -35,15 +47,15 @@ func TestReviewCheckpointCorrectionAcrossKinds(t *testing.T) {
 	if count == 0 {
 		t.Fatal("no registered ordinary correction checkpoint was checked")
 	}
-	for _, kind := range []WorkflowStepKind{WorkflowStepCrossAuthority, WorkflowStepInternalSQLite, WorkflowStepExternalEffect, WorkflowStepHumanCheckpoint} {
+	for _, kind := range []WorkflowStepKind{WorkflowStepCrossAuthority, WorkflowStepInternalSQLite, WorkflowStepExternalEffect} {
 		t.Run(string(kind), func(t *testing.T) {
 			for _, action := range []string{"record_proposal", "record_design", "record_finding", "record_report", "start_execution", "checkpoint_repair", "checkpoint_refine"} {
 				t.Run(action, func(t *testing.T) {
 					definition := WorkflowDefinition{Ref: "workflow.correction_probe", StepGraph: WorkflowStepGraph{
 						StartStep: "producing", TerminalSteps: []string{"sealed", "complete"}, Steps: []WorkflowStep{
 							{ID: "producing", Kind: kind, Actions: []string{action}},
-							{ID: "quiet", Kind: WorkflowStepHumanCheckpoint, Actions: []string{action, "record_review"}},
-							{ID: "confirm", Kind: WorkflowStepHumanCheckpoint, Actions: []string{"confirm_premise"}},
+							{ID: "quiet", Kind: WorkflowStepInternalSQLite, Actions: []string{action, "record_review"}},
+							{ID: "confirm", Kind: WorkflowStepInternalSQLite, Actions: []string{"confirm_premise"}},
 							{ID: "review_only", Kind: kind, Actions: []string{"record_review"}},
 							{ID: "plain", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_note"}},
 							{ID: "sealed", Kind: kind, Actions: []string{action}},
@@ -51,7 +63,7 @@ func TestReviewCheckpointCorrectionAcrossKinds(t *testing.T) {
 						},
 					}}
 					for _, step := range []string{"producing", "quiet", "confirm", "review_only", "plain", "sealed", "complete", "no-such-step"} {
-						want := step == "producing" && kind != WorkflowStepHumanCheckpoint || step == "confirm" || step == "complete"
+						want := step == "producing" || step == "quiet" || step == "confirm" || step == "complete"
 						if got := workflowContractCorrectionCheckpoint(definition, step); got != want {
 							t.Fatalf("%s: correction checkpoint=%v, want %v", step, got, want)
 						}

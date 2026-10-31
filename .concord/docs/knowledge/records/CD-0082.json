@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-29T00:00:00Z",
   "home_domain_id": "product-root:concord",
@@ -17,7 +15,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:10fa0b850a4c2e91c99d118a5972987b8e3f6b386a90e5e57a50d1c197ec4f3d",
+  "sha256": "sha256:ade4aca056153fd7fa4522a050cc430784a4589f6120c1e1c30335ec9a4ecf06",
   "status": "accepted",
   "summary": "Keeps migration and correction demand-driven and preserves bounded Domain, work-item, and data-integrity controls. CD-0006 D1 owns Product direction; release, maturity, and development-authority requirements keep their owning records.",
   "tags": [

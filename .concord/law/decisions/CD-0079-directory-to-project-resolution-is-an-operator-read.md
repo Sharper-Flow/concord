@@ -65,8 +65,8 @@ host-owned (CD-0088 D1).
 
 ### D2. The verb does not authenticate its caller
 
-No operator verb authenticates the operator. `project-resolve` and
-`predecessor-inventory` are unauthenticated reads. Concord's trust
+No operator verb authenticates the operator. `project-resolve` is an
+unauthenticated read. Concord's trust
 boundary for the operator surface is filesystem access to the authority
 database.
 

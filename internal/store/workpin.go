@@ -10,23 +10,18 @@ import (
 // WorkPin is the one point-in-time projection that a caller needs to prepare
 // the next operation for a work item.
 type WorkPin struct {
-	Review                  *WorkflowReviewState      `json:"review,omitempty"`
-	WorkID                  string                    `json:"work_id"`
-	Title                   string                    `json:"title"`
-	LinearIssueKey          string                    `json:"linear_issue_key"`
-	ProjectID               string                    `json:"project_id"`
-	ProjectDisplayName      string                    `json:"project_display_name"`
-	Version                 int64                     `json:"version"`
-	Lifecycle               string                    `json:"lifecycle"`
-	CancelledInstanceCloses int64                     `json:"cancelled_instance_closes"`
-	WorkflowType            string                    `json:"workflow_type"`
-	Step                    string                    `json:"step"`
-	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
-	// WithheldOperatorDecision names the checkpoint action whose question the
-	// step declares but the gate holds closed, with the reason and the remedy.
-	// It stays nil when a question is open and when the step has none.
-	WithheldOperatorDecision *WorkflowOperatorQuestionWithheld `json:"withheld_operator_decision,omitempty"`
-	Watermark                string                            `json:"watermark"`
+	Review                  *WorkflowReviewState `json:"review,omitempty"`
+	WorkID                  string               `json:"work_id"`
+	Title                   string               `json:"title"`
+	LinearIssueKey          string               `json:"linear_issue_key"`
+	ProjectID               string               `json:"project_id"`
+	ProjectDisplayName      string               `json:"project_display_name"`
+	Version                 int64                `json:"version"`
+	Lifecycle               string               `json:"lifecycle"`
+	CancelledInstanceCloses int64                `json:"cancelled_instance_closes"`
+	WorkflowType            string               `json:"workflow_type"`
+	Step                    string               `json:"step"`
+	Watermark               string               `json:"watermark"`
 	// WorkflowType and WorkflowDefinitionDigest carry the identity of the
 	// pinned definition the registry verified for this pin.
 	// They come from the same instance-row read and the same
@@ -222,7 +217,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 		}
 		return pin, nil
 	}
-	registered, readDefinition, instanceState, err := workPinReadInstanceForRegistryTx(ctx, tx, workID, &pin, registry)
+	registered, instanceState, err := workPinReadInstanceForRegistryTx(ctx, tx, workID, &pin, registry)
 	if err != nil {
 		return pin, err
 	}
@@ -265,7 +260,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 	if err != nil {
 		return pin, err
 	}
-	if err := workPinReadContractTx(ctx, tx, workID, &pin, readDefinition, registered.Definition, instanceState, activeContractVersion, state); err != nil {
+	if err := workPinReadContractTx(ctx, tx, workID, &pin, registered.Definition, instanceState, activeContractVersion, state); err != nil {
 		return pin, err
 	}
 	if err := workPinRecoveryIntentsTx(ctx, tx, workID, &pin, registered.Definition, instanceState, state); err != nil {
@@ -340,18 +335,18 @@ func workPinReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 // a nil registry keeps the builtin convenience verification, and a caller
 // registry verifies the actual stored pin through itself with no builtin
 // fallback.
-func workPinReadInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, registry DefinitionRegistry) (RegisteredDefinition, WorkflowReadDefinition, string, error) {
+func workPinReadInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, registry DefinitionRegistry) (RegisteredDefinition, string, error) {
 	var definition WorkflowReadDefinition
 	var instanceState string
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Digest, &pin.Step, &instanceState); err != nil {
 		if err == sql.ErrNoRows {
-			return RegisteredDefinition{}, WorkflowReadDefinition{}, "", newFailure(KindProjectionNotFound, "work_pin", "workflow instance is not recorded", false, "reread_entities")
+			return RegisteredDefinition{}, "", newFailure(KindProjectionNotFound, "work_pin", "workflow instance is not recorded", false, "reread_entities")
 		}
-		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", wrapFailure(KindUnavailable, "work_pin", "cannot read workflow instance", true, "retry once the database is readable", err)
+		return RegisteredDefinition{}, "", wrapFailure(KindUnavailable, "work_pin", "cannot read workflow instance", true, "retry once the database is readable", err)
 	}
 	registered, err := verifyReadWorkflowDefinitionForRegistry(definition, registry)
 	if err != nil {
-		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", err
+		return RegisteredDefinition{}, "", err
 	}
 	definition = WorkflowReadDefinition{Ref: registered.Definition.Ref, Digest: registered.Digest}
 	pin.WorkflowType = definition.Ref
@@ -363,7 +358,7 @@ func workPinReadInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, workID st
 	// always carries the obligations key.
 	obligations := workflowDefinitionObligationIDs(registered.Definition)
 	pin.Obligations = &obligations
-	return registered, definition, instanceState, nil
+	return registered, instanceState, nil
 }
 
 // verifyReadWorkflowDefinitionForRegistry verifies one read definition
@@ -384,8 +379,7 @@ func verifyReadWorkflowDefinitionForRegistry(definition WorkflowReadDefinition, 
 // once, and workflowAdmit decides each advance — so the pin and the delivery
 // guard answer identically for the same state instead of re-deriving the
 // conditions per site. The pin never offers an advance the shared admission
-// refuses; an action standing only behind the open operator question
-// keeps its intent, because the question wall is the advertised escape.
+// refuses.
 func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, registry DefinitionRegistry) (WorkflowAdmissionState, error) {
 	state, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, pin.Step, "work_pin", registry)
 	if stateErr != nil {
@@ -420,11 +414,11 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 
 // workPinReadContractTx reads the one active contract and every enrichment
 // that hangs off it: predicates, verified criteria on a completed instance,
-// self-repair, the open operator question, the late-verdict recovery, and
+// self-repair, the late-verdict recovery, and
 // the verdict evidence. A work item with no contract row skips the block.
 // The late-verdict recovery's availability is the folded admission state's
 // answer, not a per-site re-derivation.
-func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, readDefinition WorkflowReadDefinition, definition WorkflowDefinition, instanceState string, activeContractVersion int64, state WorkflowAdmissionState) error {
+func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, instanceState string, activeContractVersion int64, state WorkflowAdmissionState) error {
 	var contract WorkflowReadContract
 	var required, routes, mandate, modifies string
 	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandate, &modifies, &contract.RigorClass); err == nil {
@@ -448,11 +442,6 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 			}
 			pin.VerifiedCriteria = criteria
 		}
-		pending, withheld, questionErr := workflowOperatorQuestionForDefinitionTx(ctx, tx, workID, pin.Step, pin.Version, definition, readDefinition, contract, workflowConfirmationFold{authority: state.ConfirmationAuthority})
-		if questionErr != nil {
-			return questionErr
-		}
-		pin.PendingOperatorDecision, pin.WithheldOperatorDecision = pending, withheld
 		if stepDeclaresAction(definition, pin.Step, "record_verdict") || state.LateCriterionAssociation {
 			verdictEvidence, evidenceErr := workPinVerdictEvidenceTx(ctx, tx, workID)
 			if evidenceErr != nil {
@@ -681,7 +670,7 @@ func workPinIntents(definition WorkflowDefinition, stepID string, version int64)
 		}
 		intents = append(intents, WorkPinIntent{Tool: "concord_work_transition", Operation: "workflow_action", ReasonCode: "declared_step_action", ActionID: action.ID, RequiredFields: fields, ExpectedVersion: version})
 	}
-	if step != nil && step.Kind == WorkflowStepHumanCheckpoint && workflowContractCorrectionCheckpoint(definition, stepID) {
+	if stepDeclaresAction(definition, stepID, "confirm_premise") && workflowContractCorrectionCheckpoint(definition, stepID) {
 		intents = append(intents, workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(definition), version, "operator_contract_correction"))
 	}
 	return intents

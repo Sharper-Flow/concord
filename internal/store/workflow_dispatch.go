@@ -13,13 +13,11 @@ import (
 // authenticated workflow_action. The caller-owned transaction is the same
 // transaction used by the action-boundary coordinator.
 type WorkflowActionExecutionRequest struct {
-	WorkID                string
-	ExpectedVersion       int64
-	ActionID              string
-	SelectedChoice        string
-	DecisionContextDigest string
-	Payload               json.RawMessage
-	EvidenceRefs          []string
+	WorkID          string
+	ExpectedVersion int64
+	ActionID        string
+	Payload         json.RawMessage
+	EvidenceRefs    []string
 	// EvidenceKinds carries the per-entry evidence kind for each locator the
 	// caller submitted, in submission order. The bind-family event
 	// constructors read it so one locator submitted under two kinds binds two
@@ -309,8 +307,8 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 }
 
 // One admission derivation for the fold: the tx-scoped loader folds the
-// instance history once. Only the payload-bound review, operator approval,
-// and interactive closed-question walls defer to their owning guards.
+// instance history once. Only the payload-bound review and operator approval
+// defer to their owning guards.
 func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 	request := g.request
 	admission, proofRuns, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
@@ -318,7 +316,7 @@ func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 		return err
 	}
 	decision := workflowAdmit(g.entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed {
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld {
 		return workflowExecutionAdmissionFailure(decision, request.ProjectTooling)
 	}
 	if err := validateWorkflowReviewRequest(g.ctx, g.tx, request.WorkID, request.ActionID, request.Payload); err != nil {
@@ -364,7 +362,7 @@ func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, reques
 		if err := validateWorkflowContractRecoveryPayload(guards.entry.Definition, request.Payload); err != nil {
 			return err
 		}
-	} else if err := validateWorkflowActionPayload(guards.entry.Definition, request.ActionID, workflowEnvelopeProjectedPayload(guards.entry.Definition, request.ActionID, request.Payload, request.SelectedChoice, request.DecisionContextDigest)); err != nil {
+	} else if err := validateWorkflowActionPayload(guards.entry.Definition, request.ActionID, request.Payload); err != nil {
 		return err
 	}
 	if err := runWorkflowActionGuard(guards, guardPhasePostValidation); err != nil {

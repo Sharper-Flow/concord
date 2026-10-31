@@ -1,13 +1,10 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-24T00:00:00Z",
   "evidence": [
-    "internal/agent/authority.go",
-    ".concord/docs/predecessor-operational-coverage.md"
+    "internal/agent/authority.go"
   ],
   "home_domain_id": "repository-verification",
   "id": "CD-0072",
@@ -20,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b306cc6971cf8b828c280f77a4bfeca0e413b739df93c5b54f147a10dc6e3361",
+  "sha256": "sha256:bfed2c227ea046eab7f05e064a152aa97e924b40051d9c255eba755d32d7cfc0",
   "status": "accepted",
   "summary": "Ordinary trunk file writes remain deliberately unguarded by Concord. Host tooling owns file-write permissions; Concord provides no subagent capability interceptor or filesystem sandbox. Main-checkout mutation refusal, worktree ownership and Git-fact reclamation retain their existing authority.",
   "tags": [

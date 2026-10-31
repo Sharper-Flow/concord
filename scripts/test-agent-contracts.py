@@ -1362,30 +1362,20 @@ class BuiltinWorkflowDefinitionSchemaTests(unittest.TestCase):
             with self.subTest(workflow=ref):
                 fields = next(action["payload"]["fields"] for action in definition["action_definitions"]
                               if action["id"] == "confirm_premise")
-                by_name = {field["name"]: field for field in fields}
-                for name in ("selected_choice", "decision_context_digest"):
-                    self.assertIs(by_name[name]["envelope"], True)
+                self.assertFalse({"selected_choice", "decision_context_digest"} & {field["name"] for field in fields})
                 generator.schema_validate(definition, self.schema, self.schema)
 
-    def test_payload_field_envelope_is_optional_boolean_and_stays_closed(self):
+    def test_payload_field_is_closed_without_envelope(self):
         for ref, definition in self.definitions.items():
-            for envelope in (Ellipsis, False, True, None, "true", 1, [], {}):
+            for envelope in (False, True, None, "true", 1, [], {}):
                 with self.subTest(workflow=ref, envelope=envelope):
                     changed = copy.deepcopy(definition)
-                    field = next(action["payload"]["fields"][0] for action in changed["action_definitions"]
-                                 if action["id"] == "confirm_premise")
-                    if envelope is Ellipsis:
-                        del field["envelope"]
-                    else:
-                        field["envelope"] = envelope
-                    if envelope is Ellipsis or isinstance(envelope, bool):
+                    field = next(field for action in changed["action_definitions"] for field in action["payload"]["fields"])
+                    field["envelope"] = envelope
+                    with self.assertRaisesRegex(ValueError, "unknown properties.*envelope"):
                         generator.schema_validate(changed, self.schema, self.schema)
-                    else:
-                        with self.assertRaisesRegex(ValueError, "type mismatch.*envelope"):
-                            generator.schema_validate(changed, self.schema, self.schema)
             changed = copy.deepcopy(definition)
-            field = next(action["payload"]["fields"][0] for action in changed["action_definitions"]
-                         if action["id"] == "confirm_premise")
+            field = next(field for action in changed["action_definitions"] for field in action["payload"]["fields"])
             field["unrelated"] = True
             with self.subTest(workflow=ref), self.assertRaisesRegex(ValueError, "unknown properties.*unrelated"):
                 generator.schema_validate(changed, self.schema, self.schema)
@@ -1984,13 +1974,11 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
         cls.workflows = workflows
         cls.teaching = teaching
 
-    def test_common_decision_fields_are_published_but_refused_outside_decision(self):
+    def test_retired_decision_fields_are_absent_and_refused(self):
         for action in self.actions:
             schema = self.projected["$defs"]["work_transition_action_variant_" + action["id"]]
             for field in ("selected_choice", "decision_context_digest"):
-                self.assertIn(field, schema["properties"], action["id"])
-            if action["id"] == "confirm_premise":
-                continue
+                self.assertNotIn(field, schema["properties"], action["id"])
             sample = _schema_sample(schema, self.projected)
             generator.schema_validate(sample, schema, self.projected)
             for field, value in (("selected_choice", "confirm"), ("decision_context_digest", "sha256:" + "a" * 64)):

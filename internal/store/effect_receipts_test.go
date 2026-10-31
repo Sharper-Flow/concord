@@ -66,28 +66,6 @@ func TestEffectReceiptConflictLogBlind(t *testing.T) {
 	assertFailureKind(t, classifyEventIDConflict(t.Context(), tx, e, fmt.Errorf("unique collision")), KindIdempotencyConflict)
 }
 
-func TestEffectReceiptPredecessorProbesLogBlind(t *testing.T) {
-	s := effectReceiptReadFixture(t)
-	e := testEvent()
-	e.SubjectType, e.SubjectID, e.Actor = SubjectWorkItem, "work", "importer"
-	seedEffectReceiptRead(t, s, 7, e)
-	e.EventID, e.Actor = "foreign", "other"
-	seedEffectReceiptRead(t, s, 8, e)
-	hideEffectLog(t, s)
-	found, err := s.EventIDExists(t.Context(), "foreign")
-	if err != nil || !found {
-		t.Fatalf("exists = %v, %v", found, err)
-	}
-	found, err = s.EventIDExists(t.Context(), "missing")
-	if err != nil || found {
-		t.Fatalf("missing = %v, %v", found, err)
-	}
-	kind, actor, found, err := s.FirstWorkEventByOtherActor(t.Context(), "work", "importer")
-	if err != nil || !found || kind != e.Kind || actor != "other" {
-		t.Fatalf("foreign = %q, %q, %v, %v", kind, actor, found, err)
-	}
-}
-
 func TestCorrectionRecordSourceLogBlind(t *testing.T) {
 	s := effectReceiptReadFixture(t)
 	e := testEvent()

@@ -3,10 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -66,7 +64,6 @@ func cliNeighborOperations() []cliNeighborOperation {
 	rows := []cliNeighborOperation{
 		{"session-prepare", prepareSessionPrepareNeighborRow(ctx)},
 	}
-	rows = append(rows, cliNeighborOperation{"predecessor-import", preparePredecessorImportNeighborRow(ctx)})
 	return rows
 }
 
@@ -121,90 +118,5 @@ func prepareSessionPrepareNeighborRow(ctx context.Context) func(t *testing.T) cl
 			run:    run,
 			verify: verify,
 		}
-	}
-}
-
-// preparePredecessorImportNeighborRow mirrors
-// TestPredecessorImportAcknowledgesUnderPinnedReader and extends it with the
-// committed-result check: the acknowledged report counts and the imported
-// rows must exist once the command returns.
-func preparePredecessorImportNeighborRow(ctx context.Context) func(t *testing.T) cliNeighborFixture {
-	return func(t *testing.T) cliNeighborFixture {
-		dbPath := freshMigratedCLIDatabase(t)
-		snapshotPath := writeSyntheticSnapshot(t)
-		payload := predecessorImportRequest(t, snapshotPath)
-		run := func() error {
-			code, raw, diag := runPredecessorImportRequest(t, dbPath, payload)
-			if code != 0 {
-				return fmt.Errorf("exit=%d stderr=%q", code, diag)
-			}
-			var report struct {
-				DryRun          bool `json:"dry_run"`
-				ProductsCreated int  `json:"products_created"`
-				ProjectsCreated int  `json:"projects_created"`
-				WorkImported    int  `json:"work_imported"`
-				AlreadyImported int  `json:"already_imported"`
-			}
-			if err := json.Unmarshal(raw, &report); err != nil {
-				return fmt.Errorf("report is not parseable JSON: %v; raw=%s", err, raw)
-			}
-			if report.DryRun || report.ProductsCreated != 1 || report.ProjectsCreated != 2 || report.WorkImported != 2 || report.AlreadyImported != 0 {
-				return fmt.Errorf("report counts = products:%d projects:%d work:%d already:%d, want 1/2/2/0", report.ProductsCreated, report.ProjectsCreated, report.WorkImported, report.AlreadyImported)
-			}
-			return nil
-		}
-		verify := func() {
-			s := openFreshImportStore(t, dbPath)
-			defer s.Close()
-			var productCount, projectCount, workCount int
-			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM products WHERE id='synth-product'`).Scan(&productCount); err != nil {
-				t.Fatal(err)
-			}
-			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM projects WHERE id IN ('synth-project-alpha','synth-project-beta')`).Scan(&projectCount); err != nil {
-				t.Fatal(err)
-			}
-			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM work_items WHERE id LIKE 'import-advance-work-%'`).Scan(&workCount); err != nil {
-				t.Fatal(err)
-			}
-			if productCount != 1 || projectCount != 2 || workCount != 2 {
-				t.Fatalf("committed rows = products:%d projects:%d work:%d, want 1/2/2", productCount, projectCount, workCount)
-			}
-			assertCommittedEventOnce(t, s, "import-advance-work-synth-change-alpha-1")
-		}
-		return cliNeighborFixture{dbPath: dbPath, run: run, verify: verify}
-	}
-}
-
-// assertCommittedEventOnce proves the identity the command acknowledged is
-// exactly one committed receipt with a unique effect position and its owning
-// current identity.
-func assertCommittedEventOnce(t *testing.T, s *store.Store, eventID string) {
-	t.Helper()
-	var committed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id=?`, eventID).Scan(&committed); err != nil {
-		t.Fatal(err)
-	}
-	if committed != 1 {
-		t.Fatalf("event %q committed %d times, want 1", eventID, committed)
-	}
-	var kind, subjectType, subjectID, actor, digest string
-	var seq int64
-	var version int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT kind,subject_type,subject_id,actor,payload_version,payload_digest,effect_seq FROM effect_receipts WHERE event_id=?`, eventID).Scan(&kind, &subjectType, &subjectID, &actor, &version, &digest, &seq); err != nil {
-		t.Fatal(err)
-	}
-	if kind == "" || subjectID == "" || actor == "" || version <= 0 || seq <= 0 || len(digest) != 71 || !strings.HasPrefix(digest, "sha256:") {
-		t.Fatalf("incomplete committed receipt %q: %s/%s/%s actor=%q version=%d digest=%q seq=%d", eventID, kind, subjectType, subjectID, actor, version, digest, seq)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE effect_seq=?`, seq).Scan(&committed); err != nil || committed != 1 {
-		t.Fatalf("effect position %d is not unique: count=%d err=%v", seq, committed, err)
-	}
-	switch kind {
-	case "work.created":
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE id=?`, subjectID).Scan(&committed); err != nil || committed != 1 || subjectType != "work_item" {
-			t.Fatalf("creation receipt has no current work: count=%d err=%v", committed, err)
-		}
-	default:
-		t.Fatalf("unhandled committed identity kind %q", kind)
 	}
 }

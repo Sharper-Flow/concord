@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-25T00:00:00Z",
   "evidence": [
@@ -25,9 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:dcd6d10cfebf2933219eccf435ad320492385ad0e75f298d34bc69b3f19c0ed8",
+  "sha256": "sha256:a55b942bc403ca2a913d67542d8f5b32a7b9e8c9f88bef1682586a3cb0ed9304",
   "status": "accepted",
-  "summary": "Work-item operator kinds and workflow families remain separate vocabularies. Composition resolves the successor's derived definition identity. Work kinds and native-run phase/status pairs each have one contract, generated Go projections, literal immutable SQLite registry rows, database triggers, and closure validators that bind all copies.",
+  "summary": "Work-item operator kinds and workflow families remain separate vocabularies. Composition resolves the successor's derived definition identity. Work kinds and native-run phase/status pairs each have one contract, generated Go projections, literal immutable SQLite registry rows, and database triggers. Native-run closure validation binds its copies; work kinds require no cross-surface closure audit.",
   "tags": [
     "workflow",
     "storage",

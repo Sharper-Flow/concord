@@ -22,7 +22,7 @@ func assertWorkPinIntentsAdmitted(t *testing.T, s *Store, workID string) int {
 		}
 		// nil registry keeps the builtin convenience verification, matching
 		// the builtin-definition intent sweep below.
-		registered, _, _, err := workPinReadInstanceForRegistryTx(ctx, tx, workID, &WorkPin{}, nil)
+		registered, _, err := workPinReadInstanceForRegistryTx(ctx, tx, workID, &WorkPin{}, nil)
 		if err != nil {
 			return err
 		}

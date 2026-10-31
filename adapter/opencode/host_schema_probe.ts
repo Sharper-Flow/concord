@@ -47,8 +47,7 @@ function inspect(value: unknown, path = "$", seen = new Set<unknown>(), insideNo
     if (key === "$ref" && (typeof item !== "string" || !item.startsWith("#/$defs/"))) {
       fail(`published schema carries a non-local reference at ${path}`)
     }
-    // anyOf survives only as an authored cross-field exclusion nested inside
-    // not (the action variants' selected_choice/decision_context_digest rule).
+    // anyOf survives only as an authored cross-field exclusion nested inside not.
     // A bare anyOf anywhere else is still a merge fault.
     if (key === "anyOf" && !insideNot) fail(`published schema contains host-unsafe ${key} at ${path}`)
     if (key === "oneOf") {
@@ -224,7 +223,7 @@ for (const branch of transitionBranches) {
   const actionConst = (actionInput.properties as Record<string, any>).action_id?.const
   if (actionConst === undefined) continue
   const actionProperties = Object.keys((actionInput.properties as Record<string, unknown>))
-  for (const field of ["action_id", "selected_choice", "decision_context_digest", "requested_budget_seconds"]) {
+  for (const field of ["action_id", "requested_budget_seconds"]) {
     if (!actionProperties.includes(field)) fail(`the published ${actionConst} variant does not name ${field}`)
   }
 }

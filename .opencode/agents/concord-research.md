@@ -72,7 +72,7 @@ context, repository or Product scope and an explicit investigation budget. Retur
 needs-decision for missing inputs rather than guessing or expanding the scope.
 
 Derive a bounded evidence plan from the question and known context. Resolve
-Product-law state through `concord_knowledge` before delegating any question that
+Product-law state through the workflow's resolved law context before delegating any question that
 depends on it. Give delegates the resolved law context; repository text alone
 does not establish law state.
 

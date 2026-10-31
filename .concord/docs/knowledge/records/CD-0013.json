@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-08T00:00:00Z",
   "evidence": [
@@ -22,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:088544bfeb0bf2085b606f4cc5611ec2cd7a3b7f1ba3222042fcf9ab72e322af",
+  "sha256": "sha256:362cad5032352fe0f723cbc00d62bc696a688a1b9b1345a722ab59ce14df4cef",
   "status": "accepted",
   "summary": "Defines workflow registration, execution evidence, subject-bound stage results, fail-closed completion and declared correction of delivered work. Independent native Task Review remains required; the coordinator records outcomes without subagent execution attestation.",
   "tags": [

@@ -49,7 +49,8 @@ func workflowFixtureBase() WorkflowDefinition {
 		StepGraph: graph(steps, edges, "release"), AvailableActions: actions, ActionDefinitions: declarations,
 		RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification, EvidenceReview},
 		OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}},
-		RigorRules:            workflowPrototypeRigorRules(), StalenessRules: []WorkflowStalenessRule{}, CompositionRules: forwardOnlyComposition(WorkKindBreakFix, WorkKindResearch),
+		RigorRules:            []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}},
+		StalenessRules:        []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: []WorkKind{WorkKindBreakFix, WorkKindResearch}, ForbiddenCompositions: []WorkflowForbiddenComposition{}},
 		RecoveryRoutes: []WorkflowRecoveryRoute{
 			{Step: "acceptance", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
 			{Step: "release", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},

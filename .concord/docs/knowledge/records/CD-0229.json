@@ -36,14 +36,14 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8e1155aa5c7712c8cb1648e58b6e14ace0da5b34115293380daf0dc4cb4186ba",
+  "sha256": "sha256:a0bf4b6cba03f0ece09701e33a045f2927ef2576abe963a6aeb5fea90c92038d",
   "status": "accepted",
-  "summary": "Workflow definitions compose versioned shared parts from one canonical source. Work has no size classification, model, inputs, assessments, proofs, overrides, size-specific timing or review severity gate. Live steps, independent review, blocking-finding admission and current-subject proof remain. Store upgrades remove size facts through verified snapshots; retired size events refuse append.",
+  "summary": "The three live families use plain Go definitions with canonical manifests and generated public projections, without a parts catalog or composition compiler. Common runtime action and payload implementations remain shared. Parts-only tests retire with assembly. Work has no size classification, model, inputs, proofs or size-specific review gate. Live steps, independent review, blocking-finding admission, current-subject proof, snapshot-backed upgrades and retired-size event refusal remain.",
   "tags": [
     "workflow",
     "workflow-engine",
     "definition",
     "composition"
   ],
-  "title": "Workflows compose shared parts without work-item size classification"
+  "title": "Plain workflow definitions without work-item size classification"
 }

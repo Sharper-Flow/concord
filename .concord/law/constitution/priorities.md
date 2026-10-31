@@ -210,15 +210,15 @@ they become blockers or contradictory Product truth.
 
 ### Composable workflows (goal C)
 
-A workflow is a combination of shared parts (goal C in
-[`../../docs/goals.md`](../../docs/goals.md) §2).
-Families compose shared stages, and each live family's definition sets its mandatory stages ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)). Parts define their steps once, and a definition composes parts (CD-0229 D1, D2).
+A workflow is a plain Go definition (goal C in
+[`../../docs/goals.md`](../../docs/goals.md) §2; CD-0229 D1).
+Each live family's definition sets its mandatory stages ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)). Common runtime action and payload implementations remain shared; no parts catalog or composition compiler assembles definitions.
 
 - Concord owns a full workflow coordination engine: progression, branching,
-  retries, evidence, recovery, and the accepted composition model. Native
+  retries, evidence, recovery, and forward-linked successor composition. Native
   systems retain external effects.
-- Parts are code-defined and versioned.
-- New parts and combinations can be added without breaking in-flight work.
+- The registry validates definitions and derives their canonical digests.
+- Definition changes preserve in-flight work through the existing pin and recovery rules.
 - Each workflow declares its artifacts, completion evidence, and whether it
   changes Product truth.
 
@@ -254,7 +254,7 @@ was thinking a cross-tabulation chart so we have an answer for each combo". The 
 ### A1. Goal-by-goal chart
 Axes: Law = product law. Arch = domain architecture. Speed = fast, right-sized delivery. Quality = quality and
 bloat removal. Safety = data safety. You = the six operator approval classes in CD-0243 D2. Parts =
-reusable workflow parts and programmed tools. Each pair appears once.
+reusable code and programmed tools. Each pair appears once.
 
 |  | Arch | Speed | Quality | Safety | You | Parts |
 |---|---|---|---|---|---|---|

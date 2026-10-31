@@ -48,6 +48,16 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_work_transition"
     ]
   },
+  "concord-design": {
+    "boundary": "this native design helper holds no Concord tool that writes work state; return uncommitted changes, versioned preview material and check results to the caller; UI/UX approval stays with the operator",
+    "tools": [
+      "concord_work_compact",
+      "concord_work_define",
+      "concord_work_relate",
+      "concord_work_start",
+      "concord_work_transition"
+    ]
+  },
   "concord-research": {
     "boundary": "this native research helper holds no Concord tool that writes work state; return cited findings, uncertainty and gaps to the caller",
     "tools": [

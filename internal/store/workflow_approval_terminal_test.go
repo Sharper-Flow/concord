@@ -32,8 +32,7 @@ func approvalRouteDefinition(t *testing.T) WorkflowDefinition {
 	t.Helper()
 	definition := resolutionPolicyDefinition(t)
 	for index := range definition.ActionDefinitions {
-		switch definition.ActionDefinitions[index].ID {
-		case "approve_contract":
+		if definition.ActionDefinitions[index].ID == "approve_contract" {
 			action := currentActionDefinition("approve_contract", true)
 			action.Payload.Fields = append(slices.Clone(action.Payload.Fields), workflowDecisionFactField())
 			definition.ActionDefinitions[index] = action

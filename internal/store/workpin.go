@@ -217,7 +217,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 		}
 		return pin, nil
 	}
-	registered, _, instanceState, err := workPinReadInstanceForRegistryTx(ctx, tx, workID, &pin, registry)
+	registered, instanceState, err := workPinReadInstanceForRegistryTx(ctx, tx, workID, &pin, registry)
 	if err != nil {
 		return pin, err
 	}
@@ -335,18 +335,18 @@ func workPinReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 // a nil registry keeps the builtin convenience verification, and a caller
 // registry verifies the actual stored pin through itself with no builtin
 // fallback.
-func workPinReadInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, registry DefinitionRegistry) (RegisteredDefinition, WorkflowReadDefinition, string, error) {
+func workPinReadInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, registry DefinitionRegistry) (RegisteredDefinition, string, error) {
 	var definition WorkflowReadDefinition
 	var instanceState string
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Digest, &pin.Step, &instanceState); err != nil {
 		if err == sql.ErrNoRows {
-			return RegisteredDefinition{}, WorkflowReadDefinition{}, "", newFailure(KindProjectionNotFound, "work_pin", "workflow instance is not recorded", false, "reread_entities")
+			return RegisteredDefinition{}, "", newFailure(KindProjectionNotFound, "work_pin", "workflow instance is not recorded", false, "reread_entities")
 		}
-		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", wrapFailure(KindUnavailable, "work_pin", "cannot read workflow instance", true, "retry once the database is readable", err)
+		return RegisteredDefinition{}, "", wrapFailure(KindUnavailable, "work_pin", "cannot read workflow instance", true, "retry once the database is readable", err)
 	}
 	registered, err := verifyReadWorkflowDefinitionForRegistry(definition, registry)
 	if err != nil {
-		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", err
+		return RegisteredDefinition{}, "", err
 	}
 	definition = WorkflowReadDefinition{Ref: registered.Definition.Ref, Digest: registered.Digest}
 	pin.WorkflowType = definition.Ref
@@ -358,7 +358,7 @@ func workPinReadInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, workID st
 	// always carries the obligations key.
 	obligations := workflowDefinitionObligationIDs(registered.Definition)
 	pin.Obligations = &obligations
-	return registered, definition, instanceState, nil
+	return registered, instanceState, nil
 }
 
 // verifyReadWorkflowDefinitionForRegistry verifies one read definition

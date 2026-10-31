@@ -90,7 +90,7 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 // seedContractlessVerifyWorkflow puts a break-fix instance at its verify step
 // with no active contract. The instance row is the least state the
 // confirmation and pin reads need; callers add a contract when they need one.
-func seedContractlessVerifyWorkflow(t *testing.T, s *Store, workID string) WorkflowReadDefinition {
+func seedContractlessVerifyWorkflow(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
@@ -119,5 +119,4 @@ func seedContractlessVerifyWorkflow(t *testing.T, s *Store, workID string) Workf
 		workID, registered.Definition.Ref, digest, "verify", actorRef); err != nil {
 		t.Fatal(err)
 	}
-	return WorkflowReadDefinition{Ref: registered.Definition.Ref, Digest: digest}
 }

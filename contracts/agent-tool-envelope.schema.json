@@ -105,32 +105,6 @@
           ],
           "properties": {
             "tool": {
-              "const": "concord_domain"
-            },
-            "operation": {
-              "const": "footprint"
-            },
-            "query_id": {
-              "const": "C22.DomainFootprint"
-            }
-          }
-        },
-        {
-          "required": ["tool", "operation", "query_id"],
-          "properties": {
-            "tool": {"const": "concord_domain"},
-            "operation": {"const": "shape"},
-            "query_id": {"const": "C22.DomainShape"}
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
               "const": "concord_product_view"
             },
             "operation": {
@@ -592,8 +566,6 @@
             "mutation_result",
             "observation_record",
             "observations",
-            "footprint",
-            "shape",
             "publish",
             "ready",
             "reconcile",
@@ -627,7 +599,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Footprint|Shape))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$"
         },
         "outcome": {
           "enum": [
@@ -1061,8 +1033,6 @@
             "mutation_result",
             "observation_record",
             "observations",
-            "footprint",
-            "shape",
             "publish",
             "ready",
             "reconcile",
@@ -1096,7 +1066,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Footprint|Shape))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$"
         },
         "reason_code": {
           "type": "string",

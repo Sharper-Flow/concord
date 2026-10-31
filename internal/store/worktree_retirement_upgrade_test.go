@@ -17,7 +17,7 @@ var retiredWorktreeTables = []string{
 func worktreeRetirementFixture(t *testing.T) (*sql.DB, string) {
 	t.Helper()
 	db, path := retirementUpgradeFixture(t)
-	advanceHistoricalPrefix(t, db, 171)
+	advanceHistoricalPrefix(t, db, 172)
 	digest := "sha256:" + strings.Repeat("d", 64)
 	commit := strings.Repeat("a", 40)
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
@@ -65,15 +65,15 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if verified, err := VerifyBackup(t.Context(), snapshot); err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 171 {
+	if verified, err := VerifyBackup(t.Context(), snapshot); err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 172 {
 		t.Fatalf("verified predecessor = %+v, %v", verified, err)
 	}
 	report, err := Upgrade(t.Context(), path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{172}) {
-		t.Fatalf("applied migrations = %v, want [172]", report.Applied)
+	if !reflect.DeepEqual(report.Applied, []int{173}) {
+		t.Fatalf("applied migrations = %v, want [173]", report.Applied)
 	}
 	assertWorktreeTablesAbsent(t, db)
 	for table, want := range before {
@@ -118,7 +118,7 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 func TestWorktreeRetirementAtomicRollback(t *testing.T) {
 	useStampedBuild(t)
 	db, path := worktreeRetirementFixture(t)
-	retirementUpgradeExec(t, db, `CREATE TRIGGER worktree_retirement_failure BEFORE INSERT ON schema_migrations WHEN NEW.version=172 AND NOT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='worktree_claims') BEGIN SELECT RAISE(ABORT,'ownership retirement rollback witness'); END`)
+	retirementUpgradeExec(t, db, `CREATE TRIGGER worktree_retirement_failure BEFORE INSERT ON schema_migrations WHEN NEW.version=173 AND NOT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='worktree_claims') BEGIN SELECT RAISE(ABORT,'ownership retirement rollback witness'); END`)
 	before := retirementUpgradeSnapshot(t, db)
 	_, err := Upgrade(t.Context(), path, nil)
 	assertFailureKind(t, err, KindUnavailable)
@@ -145,7 +145,7 @@ func TestWorktreeRetirementHeldReleaseRefusesWithoutChanges(t *testing.T) {
 	useStampedBuild(t)
 	db, path := worktreeRetirementFixture(t)
 	before := retirementUpgradeSnapshot(t, db)
-	_, err := Upgrade(t.Context(), path, []HeldSchema{{PID: 123, ReleaseRoot: "/synthetic/release", SchemaVersion: 171}})
+	_, err := Upgrade(t.Context(), path, []HeldSchema{{PID: 123, ReleaseRoot: "/synthetic/release", SchemaVersion: 172}})
 	assertFailureKind(t, err, KindUpgradeBlocked)
 	if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
 		t.Fatal("held release refusal changed predecessor state")

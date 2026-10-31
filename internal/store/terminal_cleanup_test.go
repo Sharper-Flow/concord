@@ -348,6 +348,39 @@ func TestTerminalCleanupDeletesOnlySettledExecution(t *testing.T) {
 	assertFailureKind(t, publishedWorkAbsenceQ(t.Context(), s.db, "work-done", "test"), KindProjectionNotFound)
 }
 
+func TestTerminalCleanupRetiresLegacyDomainShapeReading(t *testing.T) {
+	t.Parallel()
+	// The completed research fixture binds its reviewed receipt, verifies the
+	// committed canonical note, and settles its real compaction operation.
+	s, _ := terminalCleanupFixtureForKind(t, "research")
+	var lifecycle string
+	if err := s.db.QueryRow(`SELECT lifecycle FROM work_items WHERE id='work-done'`).Scan(&lifecycle); err != nil || lifecycle != "completed" {
+		t.Fatalf("completed publication fixture lifecycle=%q err=%v", lifecycle, err)
+	}
+	// Restore legacy persisted bytes only as a fixture. No authoring action
+	// may replace this terminal declaration.
+	const payload = `{"required_reading":[{"domain_id":"legacy-domain","reason":"Required reading","source":{"kind":"domain_shape","source_id":"proj-web","selector":{"path":"internal/store"}}}],"finding_refs":[],"context_findings":[]}`
+	terminalCleanupSQL(t, s, `INSERT INTO work_context_state(work_id,source_frontier,declaration_seq,declaration_id,declaration_payload) VALUES('work-done',1,1,'legacy-declaration','`+payload+`') ON CONFLICT(work_id) DO UPDATE SET declaration_payload=excluded.declaration_payload`)
+	before := catalogUpgradeRows(t, s.db, "work_context_state", "work_items", "archived_work", "durable_operations")
+	assertFailureKind(t, preflightDomainShapeReadingUpgrade(t.Context(), s.db), KindUpgradeBlocked)
+	if after := catalogUpgradeRows(t, s.db, "work_context_state", "work_items", "archived_work", "durable_operations"); !reflect.DeepEqual(after, before) {
+		t.Fatal("upgrade preflight changed the immutable terminal declaration or publication")
+	}
+	if err := s.CleanupPublishedTerminalWork(t.Context(), "work-done"); err != nil {
+		t.Fatalf("existing verified published cleanup: %v", err)
+	}
+	var retained int
+	if err := s.db.QueryRow(`SELECT (SELECT count(*) FROM work_context_state WHERE work_id='work-done')+(SELECT count(*) FROM work_items WHERE id='work-done')`).Scan(&retained); err != nil || retained != 0 {
+		t.Fatalf("published cleanup retained legacy execution: count=%d err=%v", retained, err)
+	}
+	if after := catalogUpgradeRows(t, s.db, "archived_work"); !reflect.DeepEqual(after["archived_work"], before["archived_work"]) {
+		t.Fatal("cleanup changed the verified canonical outcome")
+	}
+	if err := preflightDomainShapeReadingUpgrade(t.Context(), s.db); err != nil {
+		t.Fatalf("published cleanup did not clear the upgrade blocker: %v", err)
+	}
+}
+
 func lawCleanupContent(id, lifecycle string) string {
 	return strings.NewReplacer("prod-alpha", "product", "proj-web", "project", "[auth]", "[agent-surface]", "terminal_state: completed", "terminal_state: "+lifecycle).Replace(canonicalWorkNote(id, "2026-08-07T00:00:00Z"))
 }

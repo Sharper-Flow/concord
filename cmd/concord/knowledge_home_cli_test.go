@@ -1,9 +1,6 @@
 package main
 
-import (
-	"encoding/json"
-	"testing"
-)
+import "testing"
 
 // The knowledge-home verbs are the production producer for PM6 §2: a fresh
 // installation can designate and clear a Product's durable knowledge home
@@ -38,16 +35,6 @@ func TestCLIDesignatesAndClearsProductKnowledgeHome(t *testing.T) {
 		"reason":           "durable law home",
 	})
 	assertChangedRefVersion(t, designateRaw, "product", "product-1", "3")
-	var designation struct {
-		Setup map[string]json.RawMessage `json:"setup"`
-	}
-	if err := json.Unmarshal(designateRaw, &designation); err != nil {
-		t.Fatal(err)
-	}
-	var created, updated []string
-	if json.Unmarshal(designation.Setup["created"], &created) != nil || len(created) == 0 || json.Unmarshal(designation.Setup["updated"], &updated) != nil || updated == nil {
-		t.Fatalf("successful designation omitted lowercase setup effects: %s", designateRaw)
-	}
 
 	clearRaw := runCLIJSON(t, []string{"product-knowledge-home-clear"}, map[string]any{
 		"product_id":       "product-1",

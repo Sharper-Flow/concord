@@ -165,47 +165,6 @@ class MutationMetadataTests(unittest.TestCase):
                 self.assertEqual(operation["metadata"]["context"], context)
 
 
-class DomainFactProjectionTests(unittest.TestCase):
-    def test_context_shape_reading_keeps_the_same_closed_source(self):
-        payload = copy.deepcopy(payload_schema)
-        source = {"kind": "domain_shape", "source_id": "project", "commit_oid": "a" * 40,
-                  "content_hash": "sha256:" + "b" * 64, "selector": {"path": "source/main.go"}}
-        reading = {"domain_id": "root", "reason": "inspect selected shape", "source": source}
-        schema = payload["$defs"]["work_context_reading"]
-        generator.schema_validate(reading, schema, payload)
-        self.assertEqual(len(schema["properties"]["source"]["oneOf"]), 3)
-        for extra in ["command", "law_id", "project_id"]:
-            with self.subTest(extra=extra):
-                bad = copy.deepcopy(reading)
-                bad["source"][extra] = "not-admitted"
-                with self.assertRaises(ValueError):
-                    generator.schema_validate(bad, schema, payload)
-        source["selector"]["domain_id"] = "root"
-        with self.assertRaises(ValueError):
-            generator.schema_validate(reading, schema, payload)
-
-    def test_fact_projection_resolves_local_refs_and_preserves_path_rules(self):
-        source = json.loads((ROOT / "contracts/domain-fact.v1.schema.json").read_text())
-        projected = {"$defs": {}}
-        generator.project_domain_fact_schema(projected)
-        generator.check_schema_keywords(projected)
-        generator.check_payload_closed(projected)
-        # Exercise both the source's lookahead and the equivalent RE2-friendly
-        # not constraints. Go round-trip tests exercise the projected validator.
-        for path in ["source", "source/main.go", "one/two/three", "/source", "a//b", "a/", ".", "..", "a/../b", "a/./b", "a\\b", "a*b", "a?b", "a[b]", "a{b}"]:
-            with self.subTest(path=path):
-                def accepts(schema, root):
-                    try:
-                        generator.schema_validate(path, schema, root)
-                        return True
-                    except ValueError:
-                        return False
-                self.assertEqual(accepts(source["$defs"]["path"], source),
-                                 accepts(projected["$defs"]["domain_fact_path"], projected))
-        for name in source["$defs"]:
-            self.assertIn("domain_fact_" + name, projected["$defs"])
-
-
 def without_guidance(properties):
     """Generated bound guidance annotates request inputs only; constraints must match."""
     return {key: {k: v for k, v in value.items() if k != "description"} for key, value in properties.items()}
@@ -774,15 +733,14 @@ class ToolDescriptionTests(unittest.TestCase):
         tool = next(tool for tool in manifest["tools"] if tool["id"] == "concord_domain")
         self.assertEqual(tool["operations"], [
             "concord_domain.list", "concord_domain.detail",
-            "concord_domain.footprint",
-            "concord_domain.shape",
         ])
         self.assertEqual(tool["description"],
-                          "Navigate Product architecture: current Domains, current law, "
-                          "the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.")
+                          "Navigate Product architecture: current Domains and current law.")
 
     def test_tool_descriptions_do_not_name_retired_operations(self):
         retired = [
+            "concord_domain.footprint",
+            "concord_domain.shape",
             "concord_domain.active_work",
             "concord_domain.observation_record",
             "concord_domain.observation_dismiss",
@@ -943,10 +901,10 @@ class Ts2BudgetTests(unittest.TestCase):
 
 
 class ShippedSkillTests(unittest.TestCase):
-    NAME = "concord-domain-shape-stewardship"
-    COMMANDS = {"product-knowledge-home-designate", "domain-shape-check"}
+    NAME = "concord-law-writing"
+    COMMANDS = {"product-knowledge-home-designate"}
     OPERATIONS = {
-        "concord_domain.shape", "concord_domain.footprint", "concord_domain.list",
+        "concord_domain.list",
         "concord_product_view.resolve",
         "concord_knowledge.search", "concord_knowledge.resolve_note",
     }
@@ -982,7 +940,7 @@ class ShippedSkillTests(unittest.TestCase):
                 self.assertTrue(any("host tool" in f for f in self.findings(self.content() + "\n`" + invocation + "`")))
 
     def test_unknown_concord_commands_and_operations_are_rejected(self):
-        for invocation in ("concord domain-shape-setup", "concord_domain.invented", "concord domain-shape-check --product alpha"):
+        for invocation in ("concord invented", "concord_domain.invented", "concord product-knowledge-home-designate --product alpha"):
             with self.subTest(invocation=invocation):
                 self.assertTrue(any("operation" in f or "command" in f for f in self.findings(self.content() + "\n`" + invocation + "`")))
 
@@ -996,7 +954,7 @@ class ShippedSkillTests(unittest.TestCase):
         self.assertTrue(any("executable" in f for f in findings))
 
     def test_shipped_help_json_examples_and_field_values_are_not_host_tools(self):
-        content = self.content() + '\n`concord --help`\n`concord domain-shape-check --help`\n`kind: domain_shape`\n```json\n{"product_id":"alpha"}\n```\n'
+        content = self.content() + '\n`concord --help`\n`concord product-knowledge-home-designate --help`\n`kind: knowledge`\n```json\n{"product_id":"alpha"}\n```\n'
         self.assertEqual(self.findings(content), [])
 
     def test_canonical_references_cannot_mix_revisions(self):
@@ -1018,21 +976,22 @@ class ShippedSkillTests(unittest.TestCase):
         with unittest.mock.patch.object(lane_checker.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
             self.assertEqual(lane_checker.shipped_skill_reference_findings(ROOT, self.content()), [])
             self.assertEqual(run.call_args_list[0].args[0][:3], ["git", "merge-base", "--is-ancestor"])
-            self.assertGreaterEqual(run.call_count, 9)
+            references = set(lane_checker.SKILL_REFERENCE.findall(self.content()))
+            self.assertEqual(run.call_count, 1 + len(references))
         with unittest.mock.patch.object(lane_checker.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
             self.assertTrue(any("ancestor" in f for f in lane_checker.shipped_skill_reference_findings(ROOT, self.content())))
 
         def git_result(argv, **kwargs):
-            missing = argv[1] == "cat-file" and argv[-1].endswith(":contracts/domain-fact.v1.schema.json")
+            missing = argv[1] == "cat-file" and argv[-1].endswith(":.concord/docs/concord-knowledge-index.md")
             return subprocess.CompletedProcess(argv, 1 if missing else 0)
 
         with unittest.mock.patch.object(lane_checker.subprocess, "run", side_effect=git_result):
-            self.assertTrue(any("domain-fact.v1.schema.json" in f for f in lane_checker.shipped_skill_reference_findings(ROOT, self.content())))
+            self.assertTrue(any("concord-knowledge-index.md" in f for f in lane_checker.shipped_skill_reference_findings(ROOT, self.content())))
 
     def test_checkout_relative_mutable_and_unrelated_links_are_rejected(self):
         for target in (
             "../../.concord/docs/decisions/rule.md", "../references/schema.json",
-            "https://github.com/Sharper-Flow/concord/tree/main/contracts/domain-fact.v1.schema.json",
+            "https://github.com/Sharper-Flow/concord/tree/main/README.md",
             "https://github.com/example/" + "pr" + "ivate/tree/" + "a" * 40 + "/law.md",
         ):
             with self.subTest(target=target):
@@ -1046,28 +1005,9 @@ class ShippedSkillTests(unittest.TestCase):
             with self.subTest(addition=addition):
                 self.assertTrue(any("reference" in f for f in self.findings(self.content() + addition)))
 
-    def test_canonical_shape_authority_and_publication_references_are_required(self):
+    def test_canonical_publication_reference_is_required(self):
         text = re.sub(r"\[Knowledge identity and publication\]\([^)]*\)", "Publication", self.content())
         self.assertTrue(any("publication" in f for f in self.findings(text)))
-
-    def test_all_four_workflows_and_nine_audit_questions_are_present(self):
-        for heading in ("Initialize", "Migrate and reorganise", "Refine", "Audit"):
-            self.assertIn("## " + heading + "\n", self.content())
-        audit = self.content().split("## Audit\n", 1)[1].split("## Report", 1)[0]
-        self.assertEqual(re.findall(r"(?m)^(\d+)\. ", audit), [str(n) for n in range(1, 10)])
-
-    def test_each_workflow_names_its_verifying_check_and_read(self):
-        sections = dict(re.findall(r"(?ms)^## ([^\n]+)\n(.*?)(?=^## |\Z)", self.content()))
-        for heading in ("Initialize", "Migrate and reorganise", "Refine", "Audit"):
-            with self.subTest(heading=heading):
-                self.assertIn("`concord domain-shape-check`", sections[heading])
-                self.assertIn("`concord_domain.", sections[heading])
-
-    def test_shared_investigation_names_its_product_and_knowledge_reads(self):
-        shared = self.content().split("## Shared investigation\n", 1)[1].split("### Shape and verification\n", 1)[0]
-        for read in ("`concord_product_view.resolve`", "`concord_domain.list`", "`concord_knowledge.resolve_note`"):
-            with self.subTest(read=read):
-                self.assertIn(read, shared)
 
     def test_admitted_inventory_is_exact_and_rejects_missing_extra_or_symlinked_files(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1111,7 +1051,7 @@ class ShippedSkillTests(unittest.TestCase):
 class LawWritingSkillTests(unittest.TestCase):
     NAME = "concord-law-writing"
     OPERATIONS = {
-        "concord_product_view.resolve", "concord_domain.list", "concord_domain.footprint",
+        "concord_product_view.resolve", "concord_domain.list",
         "concord_knowledge.search", "concord_knowledge.resolve_note",
     }
 
@@ -1127,7 +1067,7 @@ class LawWritingSkillTests(unittest.TestCase):
         self.assertIn(self.NAME, lane_checker.ADMITTED_SKILLS)
         self.assertEqual(self.findings(self.content()), [])
 
-    def test_law_approval_reference_is_required_independently_of_shape_references(self):
+    def test_law_approval_reference_is_required(self):
         content = re.sub(r"\[Operator approval boundary\]\([^)]*\)", "Approval", self.content())
         self.assertTrue(any("missing canonical approval reference" in finding for finding in self.findings(content)))
 
@@ -1152,7 +1092,7 @@ class MethodSkillTests(unittest.TestCase):
     """CD-0246 D1 and D3: portable method skills ship like any admitted skill."""
 
     NAMES = ("concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review")
-    OPERATIONS = {"concord_domain.footprint", "concord_knowledge.search"}
+    OPERATIONS = {"concord_knowledge.search"}
 
     def content(self, name):
         return (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")

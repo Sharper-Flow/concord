@@ -46,11 +46,13 @@ bin/oc-test conformance
 The repository ships a [Lefthook](https://github.com/evilmartians/lefthook)
 `pre-push` preflight (`lefthook.yml`): the cheap CI-owned gates — Go
 formatting, vet, build, compile-only tests, lint, the JSON contract check,
-reachability, complexity, and the script suites your pushed files select —
-run before a push leaves the machine. A gate whose globs match none of the
-pushed files is skipped, so a Python-only push skips the Go gates. Preflight
-is not full-suite proof: the Go test suite, the adapter suite, the race
-detector, and acceptance run only in CI.
+reachability, and complexity — run before a push leaves the machine. A gate
+whose globs match none of the pushed files is skipped, so a Python-only push
+skips the Go gates. Preflight
+is not full-suite proof: the Go test suite, the adapter suite, the script
+battery, the race detector, and acceptance run only in CI. Use the existing
+[advisory script selector](TESTING.md#selection-recipes-and-widening) for focused
+local feedback; it is not a hook gate.
 
 Before the first push from a clone, install the hook from its clean, merged
 checkout of `main`:

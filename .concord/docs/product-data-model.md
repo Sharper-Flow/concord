@@ -64,8 +64,8 @@ through which law and work are organized.
 - A **Domain** is a stable Product-internal unit that owns behavior, invariants,
   architectural contracts, and the code that implements them. It is not a
   cross-cutting concern. A rule that binds several Domains belongs to the
-  enforcing Domain as an invariant fact
-  ([CD-0244 D1 and D6](../law/decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d1-a-domain-exclusively-owns-its-code)).
+  enforcing Domain
+  ([CD-0222 D2](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md#d2-domain-is-the-canonical-product-internal-architectural-identity)).
 - Every Domain belongs to exactly one Product.
 - Domain identity, hierarchy, and architecture relations are declared in the
   Product's Git knowledge manifest. SQLite projects that law. Neither side
@@ -74,7 +74,7 @@ through which law and work are organized.
   acyclic; additional architecture relations follow CD-0222's endpoint-specific
   grammar.
 - Domains are where current law, active workflows, evidence, decisions,
-  typed facts, and recent changes are surfaced together.
+  and recent changes are surfaced together.
 
 `component` is a retired authority term. It may appear in historical records or
 ordinary UI prose during migration, but no second component identity or generic
@@ -152,7 +152,7 @@ a flat list of changes or workflows.
 - Open a Product and reach its Domain law and unresolved work overlap.
 - Exact Domain-detail reads retain canonical relation tuples for governed work.
 - Drill into a Domain to see its current law, dependencies, active workflows,
-  evidence, decisions, typed facts, recent changes, and operational
+  evidence, decisions, recent changes, and operational
   signals.
 - A change or workflow is **architecture-bound history** from the Domain; it is not the
   top-level browse path.

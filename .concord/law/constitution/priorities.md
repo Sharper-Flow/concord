@@ -107,18 +107,16 @@ Product must keep true. Accepted specifications and decisions are law. Code,
 workflows, and evidence serve that law. Agents enact and change law under R3.
 
 - Durable Product knowledge is navigated through **Product → Domain**, with
-  current law, active work, evidence, decisions, and typed facts together.
+  current law, active work, evidence, and decisions together.
 - Every current law record has one canonical Domain home; superseded law remains
   historical but leaves the default current view.
 - A clean Git merge, passing tests, or heuristic similarity score cannot prove
   Product concordance.
 - Semantic analysis may suggest duplicate or conflicting law; it never owns
   persistence, supersession, or blocking.
-- Every change keeps a footprint record, and a tool fills it
-  ([`../../docs/goals.md`](../../docs/goals.md) §2, goal A). The checked package map and the
-  footprint read that joins it to the law index are owned by
-  [`CD-0222`](../decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
-  D2.
+- Product-changing work declares its affected Domains and exact law revisions
+  under [`CD-0222`](../decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
+  D5.
 
 See [`../decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](../decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md),
 [`../../docs/specs-as-laws.md`](../../docs/specs-as-laws.md), and

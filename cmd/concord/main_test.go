@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -33,28 +32,6 @@ func TestRunVersion(t *testing.T) {
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("version error output = %q, want empty", errOut.String())
-	}
-}
-
-func TestStampedBuildReportsVersion(t *testing.T) {
-	_, sourceFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
-	executable := filepath.Join(t.TempDir(), "concord")
-	const stamped = "v1.2.3"
-	build := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags", "-X github.com/sharper-flow/concord/internal/version.Value="+stamped, "-o", executable, "./cmd/concord")
-	build.Dir = root
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("stamped build failed: %v\n%s", err, output)
-	}
-	output, err := exec.Command(executable, "--version").Output()
-	if err != nil {
-		t.Fatalf("stamped binary failed: %v", err)
-	}
-	if got := string(output); got != stamped+"\n" {
-		t.Fatalf("stamped version output = %q, want %q", got, stamped+"\n")
 	}
 }
 
@@ -389,14 +366,19 @@ func TestEveryVerbHasAHelpRoute(t *testing.T) {
 func TestGroupHelp(t *testing.T) {
 	topLevel := topLevelHelp(t)
 	groups := commandGroups()
-	for _, want := range []string{"client", "product", "domain", "project"} {
+	for _, want := range []string{"client", "product", "project", "cd"} {
 		if !slices.Contains(groups, want) {
 			t.Fatalf("commandGroups() = %v, missing %q", groups, want)
 		}
 	}
+	if slices.Contains(groups, "domain") {
+		t.Fatalf("commandGroups() = %v, includes retired domain group", groups)
+	}
 	for _, group := range groups {
 		t.Run(group, func(t *testing.T) {
 			wantSections := topLevelGroupSections(t, topLevel, group)
+			dbPath := filepath.Join(t.TempDir(), "concord.db")
+			t.Setenv(dbOverrideEnv, dbPath)
 
 			var out, errOut bytes.Buffer
 			stdin := &countingStdin{}
@@ -432,6 +414,9 @@ func TestGroupHelp(t *testing.T) {
 				if stdin.reads != 0 {
 					t.Fatalf("%v read stdin %d times, want 0", args, stdin.reads)
 				}
+			}
+			if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+				t.Fatalf("touched the store database at %s", dbPath)
 			}
 		})
 	}

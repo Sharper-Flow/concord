@@ -113,12 +113,10 @@
     },
     {
       "id": "concord_domain",
-      "description": "Navigate Product architecture: current Domains, current law, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.",
+      "description": "Navigate Product architecture: current Domains and current law.",
       "operations": [
         "concord_domain.list",
-        "concord_domain.detail",
-        "concord_domain.footprint",
-        "concord_domain.shape"
+        "concord_domain.detail"
       ]
     }
   ],
@@ -945,46 +943,6 @@
       "supported_budget_seconds": 300
     },
     {
-      "id": "concord_domain.footprint",
-      "tool": "concord_domain",
-      "kind": "read",
-      "query_id": "C22.DomainFootprint",
-      "input_schema": "#/schemas/domain_footprint_input",
-      "result_schema": "#/schemas/domain_footprint_result",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "request_id",
-        "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_domain.shape",
-      "tool": "concord_domain",
-      "kind": "read",
-      "query_id": "C22.DomainShape",
-      "input_schema": "#/schemas/domain_shape_input",
-      "result_schema": "#/schemas/domain_shape_result",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "request_id",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
       "id": "concord_work_transition.correct_delivery",
       "tool": "concord_work_transition",
       "kind": "mutation",
@@ -1337,22 +1295,6 @@
     "work_transition_outside_repair_reconcile_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_outside_repair_reconcile_input",
       "closed": true
-    },
-    "domain_footprint_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_footprint_input",
-      "closed": true
-    },
-    "domain_shape_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_shape_input",
-      "closed": true
-    },
-    "domain_shape_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_shape_result",
-      "closed": true
-    },
-    "domain_footprint_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_footprint_result",
-      "closed": true
     }
   },
   "capabilities": [
@@ -1404,6 +1346,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:34bc3fba8c40ad6a87339a56c403f4926a3ba7e65978718f7da82d7bc79a3322",
-  "digest": "sha256:11b52163c1519dad299b4d29f61af57d36c0ec81de2f3314306449ce45b21601"
+  "payload_digest": "sha256:29ac8e7cee8861ee6f93d4a8968255fb2c66e13461909a716a67a0fd99986231",
+  "digest": "sha256:7bba7a2e17b65efaf1262b9b9023d299ac0afe805df0f06e292e03d2702b70e0"
 }

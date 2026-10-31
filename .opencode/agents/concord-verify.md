@@ -45,7 +45,6 @@ permission:
     "go run *cmd/concord*": deny
     "concord --help": allow
     "concord --version": allow
-    "concord continuity-block": allow
     "concord client show": allow
     "gh run view *": allow
     "gh run list *": allow

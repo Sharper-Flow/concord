@@ -25,11 +25,6 @@ const (
 	knowledgeRegistryPath  = ".concord/docs/knowledge/domain-registry.json"
 	knowledgeRecordTree    = ".concord/docs/knowledge/records"
 	knowledgeRecordTreeDir = knowledgeRecordTree + "/"
-	// The package map is read beside the manifest at the same commit
-	// (CD-0222 D2). Only the knowledge index rebuild parses it; a manifest
-	// read carries its bytes and ignores them.
-	knowledgePackageMapPath = ".concord/docs/knowledge/package-domains.json"
-	knowledgeFactTreeDir    = ".concord/docs/knowledge/facts/"
 )
 
 // knowledgeShardLayout is one shard-home tier a revision may carry
@@ -42,9 +37,6 @@ type knowledgeShardLayout struct {
 	recordTree       string
 	recordTreeDir    string
 	recordPathPrefix string
-	// packageMapPath is empty for a tier that predates it, so such a
-	// revision carries none.
-	packageMapPath string
 }
 
 var knowledgeShardLayouts = []knowledgeShardLayout{
@@ -55,7 +47,6 @@ var knowledgeShardLayouts = []knowledgeShardLayout{
 		recordTree:       knowledgeRecordTree,
 		recordTreeDir:    knowledgeRecordTreeDir,
 		recordPathPrefix: manifestRecordPathPrefix,
-		packageMapPath:   knowledgePackageMapPath,
 	},
 	{
 		root:             "docs/knowledge",
@@ -70,16 +61,12 @@ var knowledgeShardLayouts = []knowledgeShardLayout{
 // knowledgeShards is the raw material of one manifest: the head, the domain
 // registry, and every record shard keyed by its file name. recordPathPrefix
 // carries the layout tier the shards were read from, so composition
-// validates record paths under the prefix that revision has. The package
-// map rides beside them for the knowledge index rebuild.
+// validates record paths under the prefix that revision has.
 type knowledgeShards struct {
-	head              []byte
-	registry          []byte
-	records           map[string][]byte
-	recordPathPrefix  string
-	packageMap        []byte
-	packageMapPresent bool
-	facts             map[string][]byte
+	head             []byte
+	registry         []byte
+	records          map[string][]byte
+	recordPathPrefix string
 }
 
 // composeKnowledgeManifest assembles the manifest document the shards
@@ -171,15 +158,6 @@ func readKnowledgeShardsAtCommitLayout(ctx context.Context, runner GitRunner, re
 		return knowledgeShards{}, false, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "manifest tree entry is malformed", false, "repair the canonical git tree", err)
 	}
 	if len(entries) == 0 {
-		if layout.root == knowledgeShardRoot {
-			facts, err := runner.Run(ctx, repo, "ls-tree", "-z", commit, "--", strings.TrimSuffix(knowledgeFactTreeDir, "/"))
-			if err != nil {
-				return knowledgeShards{}, false, err
-			}
-			if len(facts) != 0 {
-				return knowledgeShards{}, false, domainShapeProjectionFailure("fact shards require a committed knowledge manifest head")
-			}
-		}
 		return knowledgeShards{}, false, nil
 	}
 	if entries[0].kind != "blob" || entries[0].mode != "100644" {
@@ -194,7 +172,7 @@ func readKnowledgeShardsAtCommitLayout(ctx context.Context, runner GitRunner, re
 }
 
 func readKnowledgeShardArchive(archive []byte, layout knowledgeShardLayout) (knowledgeShards, error) {
-	shards := knowledgeShards{records: map[string][]byte{}, facts: map[string][]byte{}, recordPathPrefix: layout.recordPathPrefix}
+	shards := knowledgeShards{records: map[string][]byte{}, recordPathPrefix: layout.recordPathPrefix}
 	reader := tar.NewReader(bytes.NewReader(archive))
 	for {
 		header, err := reader.Next()
@@ -205,12 +183,8 @@ func readKnowledgeShardArchive(archive []byte, layout knowledgeShardLayout) (kno
 			return knowledgeShards{}, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "knowledge shard archive is malformed", false, "repair the canonical git tree", err)
 		}
 		name := path.Clean(header.Name)
-		if name == strings.TrimSuffix(knowledgeFactTreeDir, "/") && header.Typeflag != tar.TypeDir {
-			return knowledgeShards{}, domainShapeProjectionFailure("facts must be a committed directory")
-		}
-		isFact := layout.root == knowledgeShardRoot && strings.HasPrefix(name, knowledgeFactTreeDir)
-		if isFact && header.Typeflag != tar.TypeDir && (header.Typeflag != tar.TypeReg || !directShardChild(name, knowledgeFactTreeDir) || header.Size > DomainFactMaxBytes) {
-			return knowledgeShards{}, domainShapeProjectionFailure("fact shards must be bounded regular JSON files directly under " + knowledgeFactTreeDir)
+		if name != layout.headPath && name != layout.registryPath && !directShardChild(name, layout.recordTreeDir) {
+			continue
 		}
 		if header.Typeflag != tar.TypeReg {
 			continue
@@ -224,9 +198,6 @@ func readKnowledgeShardArchive(archive []byte, layout knowledgeShardLayout) (kno
 		}
 		if !shards.accept(name, content) {
 			continue
-		}
-		if len(shards.facts) > DomainShapeMaxItems {
-			return knowledgeShards{}, domainShapeProjectionFailure("fact shard count exceeds 512")
 		}
 	}
 	return shards, nil
@@ -245,13 +216,6 @@ func (s *knowledgeShards) accept(name string, content []byte) bool {
 			s.registry = content
 		case directShardChild(name, layout.recordTreeDir):
 			s.records[strings.TrimPrefix(name, layout.recordTreeDir)] = content
-		case layout.packageMapPath != "" && name == layout.packageMapPath:
-			s.packageMap, s.packageMapPresent = content, true
-		case layout.root == knowledgeShardRoot && directShardChild(name, knowledgeFactTreeDir):
-			if s.facts == nil {
-				s.facts = map[string][]byte{}
-			}
-			s.facts[strings.TrimPrefix(name, knowledgeFactTreeDir)] = content
 		default:
 			continue
 		}

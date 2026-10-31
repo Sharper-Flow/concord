@@ -258,8 +258,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "mutation_result",
             "observation_record",
             "observations",
-            "footprint",
-            "shape",
             "publish",
             "ready",
             "reconcile",
@@ -317,7 +315,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Footprint|Shape))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$",
           "type": "string"
         },
         "replayed": {
@@ -955,8 +953,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "mutation_result",
             "observation_record",
             "observations",
-            "footprint",
-            "shape",
             "publish",
             "ready",
             "reconcile",
@@ -989,7 +985,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Footprint|Shape))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$",
           "type": "string"
         },
         "reason_code": {
@@ -1601,42 +1597,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             },
             "query_id": {
               "const": "C22.DomainDetail"
-            },
-            "tool": {
-              "const": "concord_domain"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "footprint"
-            },
-            "query_id": {
-              "const": "C22.DomainFootprint"
-            },
-            "tool": {
-              "const": "concord_domain"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "shape"
-            },
-            "query_id": {
-              "const": "C22.DomainShape"
             },
             "tool": {
               "const": "concord_domain"

@@ -657,67 +657,6 @@
    }
   },
   {
-   "id": "AJ5-footprint-of-a-change",
-   "job_id": "AJ5",
-   "instruction": "Before changing the state-authority decision and internal/store/store.go, list the current law and checks that govern the change.",
-   "initial_state": {
-    "fixture": "PM1",
-    "ambient_project": "proj-web"
-   },
-   "expected": {
-    "assertions": [
-     {
-      "target": "result",
-      "path": "law_bases",
-      "op": "set_eq",
-      "value": [
-       "knowledge-decision:is_law_document"
-      ]
-     },
-     {
-      "target": "result",
-      "path": "law_revisions_current",
-      "op": "eq",
-      "value": true
-     },
-     {
-      "target": "result",
-      "path": "unmapped_paths",
-      "op": "set_eq",
-      "value": [
-       "internal/store/store.go"
-      ]
-     },
-     {
-      "target": "result",
-      "path": "package_map_content_hash",
-      "op": "absent"
-     },
-     {
-      "target": "effects",
-      "path": "law_body_inlined",
-      "op": "absent"
-     },
-     {
-      "target": "effects",
-      "path": "footprint_mutation",
-      "op": "absent"
-     },
-     {
-      "target": "authority",
-      "path": "status",
-      "op": "eq",
-      "value": "authoritative"
-     }
-    ],
-    "invariants": [
-     "correct_scope",
-     "canonical_authority",
-     "bounded_context"
-    ]
-   }
-  },
-  {
    "id": "AJ6-compact-terminal-work",
    "job_id": "AJ6",
    "instruction": "Publish the durable note for terminal work-cancelled and reconcile its canonical locator.",

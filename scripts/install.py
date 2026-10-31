@@ -134,7 +134,6 @@ ADAPTER_FILES = (
     "move-session.ts",
     "mutation-result.ts",
     "primary-role.ts",
-    "project-link.ts",
     "turn-move-boundary.ts",
     "work-start-continuation.ts",
     "workflow-status.ts",
@@ -147,6 +146,7 @@ ADAPTER_FILES = (
 # traversing key still cannot reach a delete. Append on retirement; never
 # remove an entry while an installation that records it may still exist.
 RETIRED_ADAPTER_FILES = (
+    "project-link.ts",
     "continuity-hook.ts",
     "native-subtask-refusal.ts", "ci-watch.ts", "claimed-worktree.ts", "dispatch-window.ts", "dispatch.ts", "generated-agent-lanes.ts", "move-notice.ts",
     "generated-lane-step-dispatch.ts", "lane_capabilities.ts", "lane_completion.ts", "lane_dispatch.ts",
@@ -169,6 +169,8 @@ AGENT_FILES = (
     "concord-review.md",
     "concord-verify.md",
     "concord-implement.md",
+    "concord-research.md",
+    "concord-design.md",
     # Named primary profiles (CD-0154). Numbered host files stay unmanaged.
     "Concord-RTE.md",
     "Concord.md",

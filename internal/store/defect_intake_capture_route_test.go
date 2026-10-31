@@ -16,9 +16,8 @@ func bootstrapWorkItems(t *testing.T, s *Store, workID string) int {
 
 func TestBugCaptureRequiresDefectIntakePreEffect(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
-	seedBootstrapStoreAuthority(t, s, initBootstrapStoreRepo(t))
-	if err := captureDefectWork(t, s, "defect-first", "bug", nil, "project-bootstrap"); err == nil {
+	s := defectFixture(t)
+	if err := captureDefectWork(t, s, "defect-first", "bug", nil); err == nil {
 		t.Fatal("unclassified bug capture admitted")
 	} else if text := failureText(err); !strings.Contains(text, "defect_intake") {
 		t.Fatalf("capture refusal %q does not name defect_intake", text)
@@ -31,15 +30,14 @@ func TestBugCaptureRequiresDefectIntakePreEffect(t *testing.T) {
 
 func TestBugCaptureRecurrenceRoute(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
-	seedBootstrapStoreAuthority(t, s, initBootstrapStoreRepo(t))
-	if err := captureDefectWork(t, s, "defect-first", "bug", defectIntakeJSON("upload-checksum-mismatch", nil, ""), "project-bootstrap"); err != nil {
+	s := defectFixture(t)
+	if err := captureDefectWork(t, s, "defect-first", "bug", defectIntakeJSON("upload-checksum-mismatch", nil, "")); err != nil {
 		t.Fatal(err)
 	}
 	if block := defectBlock(t, s, "defect-first"); block == nil || block["failure_shape"] != "upload-checksum-mismatch" {
 		t.Fatalf("first classification=%+v", block)
 	}
-	if err := captureDefectWork(t, s, "defect-repeat", "bug", defectIntakeJSON("upload-checksum-mismatch", nil, ""), "project-bootstrap"); err == nil {
+	if err := captureDefectWork(t, s, "defect-repeat", "bug", defectIntakeJSON("upload-checksum-mismatch", nil, "")); err == nil {
 		t.Fatal("recurrent bug admitted")
 	} else {
 		for _, needle := range []string{"upload-checksum-mismatch", "defect-first", "research", "root_cause_work_id"} {
@@ -51,11 +49,8 @@ func TestBugCaptureRecurrenceRoute(t *testing.T) {
 	if count := bootstrapWorkItems(t, s, "defect-repeat"); count != 0 {
 		t.Fatalf("refused recurrent capture left %d work rows", count)
 	}
-	if err := captureDefectWork(t, s, "defect-research", "research", defectIntakeJSON("upload-checksum-mismatch", []string{"defect-first"}, ""), "project-bootstrap"); err != nil {
-		t.Fatal(err)
-	}
-	forceWorkLifecycleTransition(t, s, "defect-research", "completed", "cluster root cause recorded")
-	if err := captureDefectWork(t, s, "defect-retry", "bug", defectIntakeJSON("upload-checksum-mismatch", nil, "defect-research"), "project-bootstrap"); err != nil {
+	seedCompletedResearchRCA(t, s, "defect-research", "upload-checksum-mismatch", []string{"defect-first"})
+	if err := captureDefectWork(t, s, "defect-retry", "bug", defectIntakeJSON("upload-checksum-mismatch", nil, "defect-research")); err != nil {
 		t.Fatal(err)
 	}
 	if siblings := defectBlockSiblings(t, s, "defect-retry"); len(siblings) != 1 || siblings[0] != "defect-first" {

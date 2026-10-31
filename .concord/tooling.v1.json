@@ -1,9 +1,6 @@
 {
   "schema_version": "1.0",
   "project": "concord",
-  "domain_shape": {
-    "required_checks": ["go-test-race"]
-  },
   "tools": [
     {
       "id": "local-test-plan",

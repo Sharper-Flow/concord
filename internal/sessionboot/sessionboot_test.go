@@ -343,7 +343,7 @@ func schemaSizeContract(predicates []store.WorkflowReadPredicate) *store.Workflo
 	}
 }
 
-// TestBuildReferencesOversizedFixedProjection holds boot to the CD-0090 D6
+// TestBuildReferencesOversizedFixedProjection holds boot to the CD-0031
 // reference branch: a snapshot whose fixed projection cannot fit the packet's
 // own cap travels as the closed projection reference of the original captured
 // snapshot — exact work, digest, and byte length, the canonical initial

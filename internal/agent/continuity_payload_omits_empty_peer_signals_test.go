@@ -8,7 +8,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// Issue #765, CD-0090 D3: empty peer signals stay out of the pinned
+// CD-0016: empty peer signals stay out of the pinned
 // projection, and an unchanged snapshot renders identical bytes.
 func TestContinuityPayloadOmitsEmptyPeerSignals(t *testing.T) {
 	t.Parallel()

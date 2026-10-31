@@ -229,10 +229,6 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err = domainShapeKnowledgeDigest(ctx, home, out.lawCommit, digest, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	// The git-derived projection rows pin the exact committed identity the
 	// reading resolution discovers in the snapshot. The knowledge tables are
 	// write-seam-only, so the writes run under the write guard and release it.

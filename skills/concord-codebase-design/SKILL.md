@@ -13,9 +13,8 @@ ownership boundaries the Product's law already sets.
 ## Canonical references
 
 - [Shipped skill delivery and portability](https://github.com/Sharper-Flow/concord/tree/02c0bae9c28eafe6414cab2f390f940dc1f79625/.concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
-- [Domain ownership at package boundaries](https://github.com/Sharper-Flow/concord/tree/02c0bae9c28eafe6414cab2f390f940dc1f79625/.concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md):
-  in a Concord-managed Product, a seam between packages is also a Domain
-  ownership question. Read it with `concord_domain.footprint` before moving one.
+- [Domain law ownership](https://github.com/Sharper-Flow/concord/tree/02c0bae9c28eafe6414cab2f390f940dc1f79625/.concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md):
+  preserve the Product's Domain and law bindings when moving a seam.
 
 ## Vocabulary
 

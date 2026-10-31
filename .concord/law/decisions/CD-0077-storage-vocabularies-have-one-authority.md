@@ -62,9 +62,10 @@ capture policy for every work-item term. `contracts/native-run-statuses.v1.json`
 owns each native-run phase/status pair and its failure classification.
 
 Deterministic generators derive the Go runtime projections and content digests.
-The native-run closure validator compares its declaration with agent schemas,
-scenario schemas, generated Go, and the literal migration rows. A changed
-native-run contract without a matching migration decision fails validation.
+The native-run closure validator compares its declaration with generated Go,
+the literal migration rows, the registry triggers, and the runtime guard call.
+A changed native-run contract without a matching migration decision fails
+validation.
 Work-kind enforcement uses the generated projections and SQLite registry;
 it requires no cross-surface closure audit.
 

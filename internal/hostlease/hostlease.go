@@ -397,6 +397,66 @@ func AcquireMaintenance(dataRoot string) (func(), error) {
 	}, nil
 }
 
+// AcquireMaintenanceInherited shares the installer's open directory lock with
+// its upgrade child. It validates the descriptor before flocking and reuses the
+// normal post-flock root checks. Closing the duplicate must not LOCK_UN: Linux
+// flock ownership belongs to the shared open file description, including the
+// parent's descriptor, which excludes commands until the whole cutover exits.
+func AcquireMaintenanceInherited(dataRoot string, descriptor int) (func(), error) {
+	file, err := acquireMaintenanceLock(dataRoot, func(path string) (*os.File, error) {
+		duplicate, err := syscall.Dup(descriptor)
+		if err != nil {
+			return nil, err
+		}
+		syscall.CloseOnExec(duplicate)
+		file := os.NewFile(uintptr(duplicate), "inherited maintenance lock")
+		current, pathErr := os.Lstat(path) //nolint:gosec // path is the operator's data root; lstat checks identity without following symlinks.
+		held, statErr := file.Stat()
+		if pathErr != nil || statErr != nil || !current.IsDir() || !sameFile(held, current) {
+			_ = file.Close()
+			return nil, fmt.Errorf("inherited descriptor does not name the data root directory")
+		}
+		return file, nil
+	}, syscall.Flock)
+	if err != nil {
+		return nil, err
+	}
+	child, err := acquireUpgradeChildLock(dataRoot)
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return func() {
+		_ = child.Close()
+		_ = file.Close()
+	}, nil
+}
+
+// A duplicated root descriptor proves ownership but cannot exclude another
+// child sharing that description. Each child opens this stable guard separately;
+// it is never unlinked, so all inherited upgrades contend on one inode.
+func acquireUpgradeChildLock(dataRoot string) (*os.File, error) {
+	path := filepath.Join(dataRoot, "native-upgrade.lock")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600) //nolint:gosec // A fixed name inside the validated data root; O_NOFOLLOW rejects symlinked guards.
+	if err != nil {
+		return nil, fmt.Errorf("hostlease: cannot open native upgrade lock: %w", err)
+	}
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = file.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, fmt.Errorf("%w: native upgrade lock: %v", ErrMaintenanceBusy, err)
+		}
+		return nil, fmt.Errorf("hostlease: cannot lock native upgrade: %w", err)
+	}
+	current, pathErr := os.Lstat(path) //nolint:gosec // The owned guard's identity is checked without following symlinks.
+	held, statErr := file.Stat()
+	if pathErr != nil || statErr != nil || !current.Mode().IsRegular() || !sameFile(held, current) {
+		_ = file.Close()
+		return nil, fmt.Errorf("hostlease: native upgrade lock identity changed")
+	}
+	return file, nil
+}
+
 // openMaintenanceDirectory opens the data root for flocking: read-only, a
 // directory, and never through a symlink. The refusal on a symlink is the
 // open itself, so no window exists where a replaced path is followed.
@@ -532,6 +592,15 @@ func syncDir(path string) error {
 // unreadable lease could remove a release a newer release's session still
 // holds, so the caller must observe the failure instead of guessing.
 func List(dataRoot string) ([]Lease, error) {
+	return list(dataRoot, true)
+}
+
+// Observe returns live leases without removing stale lease files.
+func Observe(dataRoot string) ([]Lease, error) {
+	return list(dataRoot, false)
+}
+
+func list(dataRoot string, prune bool) ([]Lease, error) {
 	dir := Directory(dataRoot)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -557,8 +626,10 @@ func List(dataRoot string) ([]Lease, error) {
 		}
 		start, err := ProcessStart(lease.PID)
 		if err != nil || start != lease.PidStart {
-			if err := os.Remove(path); err != nil {
-				return nil, fmt.Errorf("hostlease: cannot prune %s: %w", path, err)
+			if prune {
+				if err := os.Remove(path); err != nil {
+					return nil, fmt.Errorf("hostlease: cannot prune %s: %w", path, err)
+				}
 			}
 			continue
 		}

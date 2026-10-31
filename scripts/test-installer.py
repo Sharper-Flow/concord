@@ -10,6 +10,7 @@ import hashlib
 import io
 import json
 import os
+import pty
 import select
 import shlex
 import shutil
@@ -257,6 +258,27 @@ class InstallerTests(unittest.TestCase):
         # silent default: the core names the tree it actually sits in and the
         # digest the staged adapter actually pins (CON-807).
         synthetic_digest = self.synthetic_pair_digest(version)
+        cutover_upgrade = '''import json, os, pathlib, sys
+request = json.load(sys.stdin)
+log = pathlib.Path(os.environ["CONCORD_TEST_CUTOVER_LOG"])
+with log.open("a", encoding="utf-8") as output:
+    output.write(json.dumps(request) + "\\n")
+plan = pathlib.Path(os.environ["CONCORD_TEST_UPGRADE_PLAN"])
+marker = pathlib.Path(os.environ["CONCORD_TEST_CUTOVER_MARKER"])
+mode = os.environ.get("CONCORD_TEST_CUTOVER_MODE", "success")
+if request.get("plan") is True:
+    if marker.exists() and mode == "unknown":
+        print("synthetic post-migration readiness failure", file=sys.stderr)
+        sys.exit(1)
+    print(plan.read_text(encoding="utf-8"))
+else:
+    if mode == "fail":
+        print("synthetic migration failure", file=sys.stderr)
+        sys.exit(1)
+    marker.write_text("migrated", encoding="utf-8")
+    if mode == "success":
+        plan.write_text(pathlib.Path(os.environ["CONCORD_TEST_CUTOVER_READY"]).read_text(encoding="utf-8"), encoding="utf-8")
+'''
         binary.write_text(
             "#!/bin/sh\n"
             f"# marker:{marker or version}\n"
@@ -267,7 +289,7 @@ class InstallerTests(unittest.TestCase):
             '        if [ -n "$CONCORD_TEST_CORE_DESCRIPTOR_FAIL" ]; then exit 2; fi\n'
             '        if [ -n "$CONCORD_TEST_CORE_DESCRIPTOR" ] && [ -f "$CONCORD_TEST_CORE_DESCRIPTOR" ]; then cat "$CONCORD_TEST_CORE_DESCRIPTOR"; else pair_root="$(cd "$(dirname "$0")/.." && pwd)"; pair_bin="$0"; printf \'{"version":"'
             + version
-            + f'","schema_version":111,"fence_protocol":1,"manifest_digest":"{synthetic_digest}","release_root":"%s","core_binary":"%s"}}\\n\' "$pair_root" "$pair_bin"; fi ;;\n'
+            + f'","schema_version":111,"fence_protocol":1,"prepared_cutover_protocol":1,"manifest_digest":"{synthetic_digest}","release_root":"%s","core_binary":"%s"}}\\n\' "$pair_root" "$pair_bin"; fi ;;\n'
             "      *)\n"
             '        if [ -n "$CONCORD_TEST_CORE_IDENTITY_FAIL" ]; then exit 2; fi\n'
             '        if [ -n "$CONCORD_TEST_CORE_IDENTITY" ] && [ -f "$CONCORD_TEST_CORE_IDENTITY" ]; then cat "$CONCORD_TEST_CORE_IDENTITY"; else printf \''
@@ -278,6 +300,7 @@ class InstallerTests(unittest.TestCase):
             '    if [ -n "$CONCORD_TEST_HOST_LEASES_FAIL" ]; then echo "leases unavailable" >&2; exit 1; fi\n'
             '    if [ -n "$CONCORD_TEST_HOST_LEASES" ] && [ -f "$CONCORD_TEST_HOST_LEASES" ]; then cat "$CONCORD_TEST_HOST_LEASES"; else printf \'{"leases":[]}\\n\'; fi ;;\n'
             "  upgrade)\n"
+            f'    if [ -n "$CONCORD_TEST_CUTOVER_LOG" ]; then exec python3 -c {shlex.quote(cutover_upgrade)}; fi\n'
             '    if [ -n "$CONCORD_TEST_UPGRADE_PLAN_FAIL" ]; then echo "concord upgrade: readiness_unknown: the store cannot be read" >&2; exit 1; fi\n'
             '    if [ -n "$CONCORD_TEST_UPGRADE_PLAN" ] && [ -f "$CONCORD_TEST_UPGRADE_PLAN" ]; then cat "$CONCORD_TEST_UPGRADE_PLAN"; else printf \'{"store_present":false,"fresh_store":true,"applied_versions":[],"schema_version":0,"pending":[],"pending_breaking":[],"activation_blocked":false,"compatibility_floor":0,"migration_command":"concord upgrade","activation_command":"","maintenance_fence":null}\\n\'; fi ;;\n'
             "  *) exit 2 ;;\n"
@@ -774,6 +797,335 @@ esac''',
         self.install_release("v1.0.0")
         result = self.install_release("v1.1.0", env=self.plan_env(blocked=True))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def cutover_env(self, mode: str = "success", *, already_migrated: bool = False) -> dict[str, str]:
+        environment = self.plan_env(blocked=False)
+        ready = self.root / "cutover-ready.json"
+        ready.write_bytes(Path(environment["CONCORD_TEST_UPGRADE_PLAN"]).read_bytes())
+        plan = self.readiness_plan(blocked=not already_migrated)
+        environment.update({
+            "CONCORD_TEST_UPGRADE_PLAN": str(plan),
+            "CONCORD_TEST_CUTOVER_READY": str(ready),
+            "CONCORD_TEST_CUTOVER_LOG": str(self.root / "cutover-requests.jsonl"),
+            "CONCORD_TEST_CUTOVER_MARKER": str(self.root / "cutover-migrated"),
+            "CONCORD_TEST_CUTOVER_MODE": mode,
+        })
+        return environment
+
+    def cutover_requests(self, environment: dict[str, str]) -> list[dict[str, object]]:
+        log = Path(environment["CONCORD_TEST_CUTOVER_LOG"])
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    def cutover_mutations(self, environment: dict[str, str]) -> list[dict[str, object]]:
+        return [request for request in self.cutover_requests(environment) if request.get("plan") is not True]
+
+    def managed_snapshot(self) -> dict[str, dict[str, bytes]]:
+        return {name: _repository_snapshot(self.root / name) for name in ("data", "config", "bin")}
+
+    def test_cutover_executes_printed_command_with_spaced_root(self) -> None:
+        spaced = self.root / "root with spaces"
+        spaced.mkdir()
+        for name in ("bin", "published", "config"):
+            (self.root / name).rename(spaced / name)
+        self.root = spaced
+        self.commands = spaced / "bin"
+        self.artifacts = spaced / "published"
+        self.env["PATH"] = str(self.commands) + os.pathsep + os.defpath
+        self.assertEqual(self.install_release("v1.0.0").returncode, 0)
+        prepared = self.install_release("v1.1.0", env=self.plan_env(blocked=True))
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        record = json.loads(self.prepared_path.read_text())
+        command = record["cutover_command"]
+        self.assertIn(command, prepared.stdout)
+        self.assertIn(str(self.root), shlex.split(command))
+        environment = self.cutover_env()
+        result = subprocess.run(command, shell=True, text=True, capture_output=True, env=environment)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertFalse(self.prepared_path.exists())
+        self.assertFalse(self.fence_path.exists())
+        self.assertEqual(len(self.cutover_mutations(environment)), 1)
+
+    def test_cutover_command_binds_resolved_homes_and_relative_root(self) -> None:
+        home = self.root / "home with spaces"
+        data = self.root / "data with spaces"
+        config = self.root / "config with spaces"
+        with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_DATA_HOME": str(data),
+                                         "XDG_CONFIG_HOME": str(config)}):
+            paths = installer.paths_for(None)
+            command = installer.cutover_command_for("v1.1.0", None)
+        words = shlex.split(command)
+        self.assertEqual(words[:4], ["env", f"HOME={paths.home.resolve()}",
+                                     f"XDG_DATA_HOME={paths.data_home.resolve()}",
+                                     f"XDG_CONFIG_HOME={paths.config_home.resolve()}"])
+        relative = Path(os.path.relpath(self.root))
+        words = shlex.split(installer.cutover_command_for("v1.1.0", relative))
+        self.assertEqual(words[words.index("--root") + 1], str(self.root.resolve()))
+
+    def test_recorded_installer_commands_bind_homes_and_relative_roots_at_execution(self) -> None:
+        probe = self.root / "probe with spaces.py"
+        probe.write_text("import json, os, sys\nprint(json.dumps([sys.argv[1:], os.environ['HOME'], os.environ['XDG_DATA_HOME'], os.environ['XDG_CONFIG_HOME']]))\n")
+        home, data, config = (self.root / name for name in ("home with spaces", "data with spaces", "config with spaces"))
+        original = {"HOME": str(home), "XDG_DATA_HOME": str(data), "XDG_CONFIG_HOME": str(config)}
+        ambient = {**self.env, "HOME": str(self.root / "other home"), "XDG_DATA_HOME": str(self.root / "other data"),
+                   "XDG_CONFIG_HOME": str(self.root / "other config")}
+        relative = Path(os.path.relpath(self.root))
+        for action, producer in (("cutover", installer.cutover_command_for), ("activate", installer.activation_command_for)):
+            for root in (None, relative):
+                with self.subTest(action=action, root=root):
+                    with mock.patch.dict(os.environ, original), \
+                            mock.patch.object(installer, "installer_invocation", return_value=str(probe)):
+                        paths = installer.paths_for(root)
+                        command = producer("v1.1.0", root)
+                    result = subprocess.run(command, shell=True, text=True, capture_output=True, env=ambient, cwd=self.root)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    args = [action, "--version", "v1.1.0"]
+                    if root is not None:
+                        args += ["--root", str(self.root.resolve())]
+                    self.assertEqual(json.loads(result.stdout), [args, str(paths.home.resolve()),
+                                      str(paths.data_home.resolve()), str(paths.config_home.resolve())])
+
+    def test_printed_cutover_ignores_changed_home_and_xdg(self) -> None:
+        self.make_release("v1.0.0")
+        self.make_release("v1.1.0")
+        environments = []
+        for name in ("first home", "second home"):
+            home = self.root / name
+            (home / ".local" / "bin").mkdir(parents=True)
+            environment = self.plan_env(blocked=True)
+            environment.update(HOME=str(home), XDG_DATA_HOME=str(home / "data"),
+                               XDG_CONFIG_HOME=str(home / "config"),
+                               PATH=str(home / ".local/bin") + os.pathsep + self.env["PATH"])
+            for version in ("v1.0.0", "v1.1.0"):
+                run_env = {**environment, "CONCORD_TEST_UPGRADE_PLAN": str(self.readiness_plan(blocked=version == "v1.1.0"))}
+                result = subprocess.run([sys.executable, str(SCRIPT), "install", "--version", version,
+                                         "--artifact-dir", str(self.artifacts)], text=True, capture_output=True, env=run_env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            environments.append(environment)
+        first, second = environments
+        first_record = Path(first["XDG_DATA_HOME"]) / "concord/prepared-release.json"
+        second_record = Path(second["XDG_DATA_HOME"]) / "concord/prepared-release.json"
+        command = json.loads(first_record.read_text())["cutover_command"]
+        second_before = second_record.read_bytes()
+        changed_env = {**self.cutover_env(), "HOME": second["HOME"], "XDG_DATA_HOME": second["XDG_DATA_HOME"],
+                       "XDG_CONFIG_HOME": second["XDG_CONFIG_HOME"]}
+        result = subprocess.run(command, shell=True, text=True, capture_output=True, env=changed_env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(first_record.exists())
+        self.assertEqual(second_record.read_bytes(), second_before)
+        self.assertEqual(os.readlink(Path(first["XDG_DATA_HOME"]) / "concord/current"),
+                         str(Path(first["XDG_DATA_HOME"]) / "concord/v1.1.0"))
+
+    def test_cutover_refuses_any_live_or_unknown_lease_without_changes(self) -> None:
+        self.prepare_a_blocked_release()
+        for kind in ("live", "unknown"):
+            with self.subTest(kind=kind):
+                environment = self.cutover_env()
+                if kind == "live":
+                    environment["CONCORD_TEST_HOST_LEASES"] = str(self.retention_report("/synthetic/unrelated-release"))
+                else:
+                    environment["CONCORD_TEST_HOST_LEASES_FAIL"] = "1"
+                before = self.managed_snapshot()
+                result = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("4242" if kind == "live" else "unknown", result.stderr)
+                self.assertEqual(self.managed_snapshot(), before)
+                self.assertEqual(self.cutover_mutations(environment), [])
+                self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_cutover_refuses_unsupported_candidate_before_observation_or_recovery(self) -> None:
+        for staged in (False, True):
+            with self.subTest(staged=staged):
+                self.tearDown()
+                self.setUp()
+                self.prepare_a_blocked_release()
+                environment = self.cutover_env()
+                if staged:
+                    stopped_env = {**environment, "CONCORD_INSTALLER_STOP_AFTER_PHASE": "staged"}
+                    stopped = self.run_installer("cutover", "--version", "v1.1.0", env=stopped_env)
+                    self.assertEqual(stopped.returncode, 97, stopped.stderr)
+                    transaction = next((self.data_root / installer.TRANSACTION_PARENT).iterdir())
+                    installer.replace_durable(self.data_root / "v1.1.0", transaction / "backup" / "live-version")
+                descriptor = self.root / "old-descriptor.json"
+                descriptor.write_text(json.dumps({"version": "v1.1.0", "fence_protocol": 1}))
+                environment.update(CONCORD_TEST_CORE_DESCRIPTOR=str(descriptor), CONCORD_TEST_HOST_LEASES_FAIL="1")
+                before = self.managed_snapshot()
+                refused = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("prepared-cutover protocol", refused.stderr)
+                self.assertIn("recovery instructions", refused.stderr)
+                self.assertNotIn("host lease observation failed", refused.stderr)
+                self.assertEqual(self.managed_snapshot(), before)
+                del environment["CONCORD_TEST_HOST_LEASES_FAIL"]
+                refused = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("prepared-cutover protocol", refused.stderr)
+                self.assertEqual(self.managed_snapshot(), before)
+
+    def test_prepared_cutover_capability_requires_exact_integer_and_version(self) -> None:
+        for descriptor in (None, {}, {"version": "v1.1.0", "prepared_cutover_protocol": True},
+                           {"version": "v1.1.0", "prepared_cutover_protocol": 2},
+                           {"version": "v1.1.0", "prepared_cutover_protocol": "1"},
+                           {"version": "v0.9.0", "prepared_cutover_protocol": 1}):
+            with self.subTest(descriptor=descriptor), \
+                    mock.patch.object(installer, "read_core_descriptor", return_value=descriptor), \
+                    self.assertRaisesRegex(installer.InstallerError, "prepared-cutover protocol"):
+                installer.require_prepared_cutover_capability(self.root, "v1.1.0")
+
+    def test_unsupported_candidate_preserves_journalless_transaction(self) -> None:
+        self.prepare_a_blocked_release()
+        transaction = self.data_root / installer.TRANSACTION_PARENT / "incomplete"
+        transaction.mkdir(parents=True, exist_ok=True)
+        descriptor = self.root / "old-descriptor.json"
+        descriptor.write_text(json.dumps({"version": "v1.1.0", "fence_protocol": 1}))
+        environment = {**self.cutover_env(), "CONCORD_TEST_CORE_DESCRIPTOR": str(descriptor)}
+        refused = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("prepared-cutover protocol", refused.stderr)
+        self.assertTrue(transaction.is_dir())
+
+    def test_cutover_never_activates_on_failed_or_unverified_migration(self) -> None:
+        for mode in ("fail", "blocked", "unknown"):
+            with self.subTest(mode=mode):
+                self.tearDown()
+                self.setUp()
+                self.prepare_a_blocked_release()
+                environment = self.cutover_env(mode)
+                before = self.managed_snapshot()
+                result = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(len(self.cutover_mutations(environment)), 1)
+                self.assertEqual(self.managed_snapshot(), before)
+                self.assert_active_release("v1.0.0", "v1.0.0")
+                self.assertTrue(self.prepared_path.exists())
+                self.assertEqual(Path(environment["CONCORD_TEST_CUTOVER_MARKER"]).exists(), mode != "fail")
+
+    def test_cutover_forwards_only_explicit_operator_confirmations(self) -> None:
+        for flags in ((), ("--confirm-sessions-stopped",), ("--cancel-cutover-pinned-work",),
+                      ("--confirm-sessions-stopped", "--cancel-cutover-pinned-work")):
+            with self.subTest(flags=flags):
+                self.tearDown()
+                self.setUp()
+                self.prepare_a_blocked_release()
+                environment = self.cutover_env()
+                result = self.run_installer("cutover", "--version", "v1.1.0", *flags, env=environment)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                mutations = self.cutover_mutations(environment)
+                self.assertEqual(len(mutations), 1)
+                request = mutations[0]
+                self.assertIs(request.get("require_no_sessions"), True)
+                self.assertEqual(request.get("confirm_sessions_stopped", False), "--confirm-sessions-stopped" in flags)
+                self.assertEqual(request.get("cancel_cutover_pinned_work", False), "--cancel-cutover-pinned-work" in flags)
+
+    def test_cutover_resumes_migrated_store_and_reruns_idempotently(self) -> None:
+        self.prepare_a_blocked_release()
+        environment = self.cutover_env(already_migrated=True)
+        first = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        before = self.managed_snapshot()
+        second = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(self.managed_snapshot(), before)
+        self.assertEqual(self.cutover_mutations(environment), [])
+        self.assertFalse(self.prepared_path.exists())
+        self.assertFalse(self.fence_path.exists())
+
+    def test_cutover_refuses_wrong_version_modified_candidate_and_foreign_fence(self) -> None:
+        for kind in ("version", "modified", "fence"):
+            with self.subTest(kind=kind):
+                self.tearDown()
+                self.setUp()
+                self.prepare_a_blocked_release()
+                environment = self.cutover_env(already_migrated=True)
+                version = "v1.2.0" if kind == "version" else "v1.1.0"
+                if kind == "modified":
+                    (self.data_root / "v1.1.0" / "skills" / "concord-demo.md").write_text("tampered")
+                if kind == "fence":
+                    self.fence_path.write_text(json.dumps({"fence_id": "foreign", "operation": installer.CORE_UPGRADE_OPERATION,
+                                                           "release_root": str(self.data_root / "v9.0.0")}))
+                before = self.managed_snapshot()
+                result = self.run_installer("cutover", "--version", version, env=environment)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(self.managed_snapshot(), before)
+                self.assertEqual(self.cutover_mutations(environment), [])
+                self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_cutover_refuses_a_session_admitted_before_activation_fence(self) -> None:
+        self.prepare_a_blocked_release()
+        environment = self.cutover_env(already_migrated=True)
+        args = SimpleNamespace(root=self.root, version="v1.1.0",
+                               confirm_sessions_stopped=False, cancel_cutover_pinned_work=False)
+        holders = {"/synthetic/release": [{"pid": 4242}]}
+        prepared = self.prepared_path.read_bytes()
+        with mock.patch.dict(os.environ, environment, clear=True), \
+                mock.patch.object(installer, "observe_held_releases", side_effect=[{}, {}, holders]), \
+                self.assertRaisesRegex(installer.InstallerError, "pid 4242"):
+            installer.cutover(args)
+        self.assertFalse(self.fence_path.exists(), "a refused activation left its newly opened fence")
+        self.assertEqual(self.prepared_path.read_bytes(), prepared)
+        self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_cutover_crash_recovers_forward_at_each_activation_phase(self) -> None:
+        for phase in ("staged", "version_activated", "agents_swapped", "adapter_swapped",
+                      "launcher_swapped", "config_swapped", "manifest_committed"):
+            with self.subTest(phase=phase):
+                self.tearDown()
+                self.setUp()
+                self.prepare_a_blocked_release()
+                environment = self.cutover_env()
+                stopped_env = environment.copy()
+                stopped_env["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = phase
+                stopped = self.run_installer("cutover", "--version", "v1.1.0", env=stopped_env)
+                self.assertEqual(stopped.returncode, 97, stopped.stderr)
+                self.assertTrue(self.fence_path.exists())
+                recovered = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+                self.assertEqual(recovered.returncode, 0, recovered.stderr)
+                self.assert_active_release("v1.1.0", "v1.1.0")
+                self.assertFalse(self.prepared_path.exists())
+                self.assertFalse(self.fence_path.exists())
+                self.assertEqual(len(self.cutover_mutations(environment)), 1)
+
+    def test_cutover_recovers_when_activation_stopped_between_tree_renames(self) -> None:
+        self.prepare_a_blocked_release()
+        environment = self.cutover_env()
+        stopped_env = environment.copy()
+        stopped_env["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = "staged"
+        stopped = self.run_installer("cutover", "--version", "v1.1.0", env=stopped_env)
+        self.assertEqual(stopped.returncode, 97, stopped.stderr)
+        transaction = next((self.data_root / installer.TRANSACTION_PARENT).iterdir())
+        installer.replace_durable(self.data_root / "v1.1.0", transaction / "backup" / "live-version")
+        for unknown in (False, True):
+            with self.subTest(unknown=unknown):
+                held_env = environment.copy()
+                if unknown:
+                    held_env["CONCORD_TEST_HOST_LEASES_FAIL"] = "1"
+                else:
+                    held_env["CONCORD_TEST_HOST_LEASES"] = str(self.retention_report("/synthetic/held-release"))
+                before = self.managed_snapshot()
+                refused = self.run_installer("cutover", "--version", "v1.1.0", env=held_env)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("unknown" if unknown else "4242", refused.stderr)
+                self.assertEqual(self.managed_snapshot(), before)
+        recovered = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertFalse(self.prepared_path.exists())
+        self.assertFalse(self.fence_path.exists())
+        self.assertEqual(len(self.cutover_mutations(environment)), 1)
+
+    def test_cutover_recovers_an_interrupted_matching_preparation(self) -> None:
+        self.assertEqual(self.install_release("v1.0.0").returncode, 0)
+        environment = self.plan_env(blocked=True)
+        environment["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = "prepared"
+        prepared = self.install_release("v1.1.0", env=environment)
+        self.assertEqual(prepared.returncode, 97, prepared.stderr)
+        self.assertTrue(self.prepared_path.exists())
+        result = self.run_installer("cutover", "--version", "v1.1.0", env=self.cutover_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertFalse(self.prepared_path.exists())
+        self.assertFalse(self.fence_path.exists())
 
     def test_a_blocked_readiness_prepares_without_activating(self) -> None:
         """CON-807: a pending breaking step must leave the running sessions'
@@ -3709,7 +4061,9 @@ esac''',
             command = installer.activation_command_for("v1.1.0", Path("/tmp/test root"))
         self.assertEqual(
             shlex.split(command),
-            [sys.executable, "/tmp/installer tools/install.py", "activate", "--version", "v1.1.0", "--root", "/tmp/test root"],
+            ["env", "HOME=/tmp/test root", "XDG_DATA_HOME=/tmp/test root/data",
+             "XDG_CONFIG_HOME=/tmp/test root/config", sys.executable, "/tmp/installer tools/install.py",
+             "activate", "--version", "v1.1.0", "--root", "/tmp/test root"],
         )
 
     def test_a_reinstall_after_the_migration_recovers_forward(self) -> None:
@@ -3782,6 +4136,10 @@ esac''',
         self.assertEqual(
             shlex.split(command),
             [
+                "printf",
+                "%s",
+                "{}",
+                "|",
                 "env",
                 "-u",
                 "CONCORD_DB_PATH",
@@ -3790,6 +4148,50 @@ esac''',
                 "upgrade",
             ],
         )
+        with mock.patch.dict(os.environ, {"XDG_DATA_HOME": "relative data home"}):
+            relative = installer.paths_for(None)
+            words = shlex.split(installer.plan_migration_command(relative, "v1.1.0"))
+        absolute = relative.data_home.resolve()
+        self.assertIn(f"XDG_DATA_HOME={absolute}", words)
+        self.assertEqual(words[-2], str(absolute / "concord/v1.1.0/bin/concord"))
+
+    def test_printed_migration_recovery_runs_on_older_json_reader_with_terminal(self) -> None:
+        spaced = self.root / "root with spaces"
+        spaced.mkdir()
+        for name in ("bin", "published", "config"):
+            (self.root / name).rename(spaced / name)
+        self.root = spaced
+        self.commands = spaced / "bin"
+        self.artifacts = spaced / "published"
+        self.env["PATH"] = str(self.commands) + os.pathsep + os.defpath
+        self.assertEqual(self.install_release("v1.0.0").returncode, 0)
+        prepared = self.install_release("v1.1.0", env=self.plan_env(blocked=True))
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        record = json.loads(self.prepared_path.read_text())
+        lines = [line for line in prepared.stdout.splitlines() if record["migration_command"] in line]
+        command = lines[0].split(": ", 1)[1] if len(lines) == 1 else record["migration_command"]
+        binary = self.data_root / "v1.1.0/bin/concord"
+        binary.write_text(f"#!{sys.executable}\nimport json, os, sys\nrequest = json.load(sys.stdin)\nprint(json.dumps([request, os.getenv('CONCORD_DB_PATH'), os.getenv('XDG_DATA_HOME')]))\n")
+        binary.chmod(0o755)
+        ambient = dict(self.env, CONCORD_DB_PATH=str(self.root / "other.db"), XDG_DATA_HOME=str(self.root / "other"))
+        master, slave = pty.openpty()
+        try:
+            with subprocess.Popen(["sh", "-c", command], stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, env=ambient, start_new_session=True) as child:
+                try:
+                    out, err = child.communicate(timeout=3)
+                except subprocess.TimeoutExpired:
+                    os.killpg(child.pid, signal.SIGKILL)
+                    child.communicate()
+                    self.fail("printed migration command waits for terminal input")
+            self.assertEqual(child.returncode, 0, err)
+            self.assertEqual(json.loads(out), [{}, None, str(installer.paths_for(self.root).data_home)])
+            self.assertEqual(len(lines), 1, prepared.stdout)
+            self.assertEqual(command, record["migration_command"])
+            self.assertIn(record["activation_command"], prepared.stdout)
+        finally:
+            os.close(slave)
+            os.close(master)
 
     def test_the_recorded_migration_command_ignores_the_operator_shell_store(self) -> None:
         """An operator shell that names another store must not redirect the
@@ -3801,9 +4203,9 @@ esac''',
         probe.chmod(0o755)
         argv = shlex.split(record["migration_command"])
         self.assertEqual(argv[-2:], [str(self.data_root / "v1.1.0" / "bin" / "concord"), "upgrade"])
-        argv[-2:] = [str(probe)]
+        command = record["migration_command"].replace(shlex.quote(argv[-2]) + " upgrade", shlex.quote(str(probe)))
         ambient = dict(os.environ, CONCORD_DB_PATH=str(self.root / "other" / "concord.db"), XDG_DATA_HOME=str(self.root / "other"))
-        result = subprocess.run(argv, capture_output=True, text=True, env=ambient, check=True)
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, env=ambient, check=True)
         self.assertEqual(result.stdout, f"unset|{installer.paths_for(self.root).data_home}")
 
     def test_the_fence_serializes_with_session_admission(self) -> None:

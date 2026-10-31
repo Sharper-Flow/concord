@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -60,12 +62,13 @@ func writeCoreDescriptor(out, errOut io.Writer) int {
 		return 1
 	}
 	return writeJSON(out, map[string]any{
-		"version":         version.Value,
-		"schema_version":  store.CurrentSchemaVersion(),
-		"fence_protocol":  hostlease.CurrentFenceProtocol,
-		"manifest_digest": agentcontract.ManifestDigest,
-		"release_root":    root,
-		"core_binary":     binary,
+		"version":                   version.Value,
+		"schema_version":            store.CurrentSchemaVersion(),
+		"fence_protocol":            hostlease.CurrentFenceProtocol,
+		"prepared_cutover_protocol": 1,
+		"manifest_digest":           agentcontract.ManifestDigest,
+		"release_root":              root,
+		"core_binary":               binary,
 	}, errOut)
 }
 
@@ -126,8 +129,10 @@ func runHostLeaseCommand(args []string, in io.Reader, out, errOut io.Writer) int
 }
 
 func runHostLeasesCommand(args []string, in io.Reader, out, errOut io.Writer) int {
-	var ignored struct{}
-	if code := decodeReleaseInput(args, in, errOut, "host-leases", &ignored); code != 0 {
+	var request struct {
+		ReadOnly bool `json:"read_only"`
+	}
+	if code := decodeReleaseInput(args, in, errOut, "host-leases", &request); code != 0 {
 		return code
 	}
 	dataRoot, err := leaseDataRoot()
@@ -135,7 +140,12 @@ func runHostLeasesCommand(args []string, in io.Reader, out, errOut io.Writer) in
 		writeOperatorDiagnostic(errOut, "host-leases", diagnosticText(err))
 		return 1
 	}
-	live, err := hostlease.List(dataRoot)
+	var live []hostlease.Lease
+	if request.ReadOnly {
+		live, err = hostlease.Observe(dataRoot)
+	} else {
+		live, err = hostlease.List(dataRoot)
+	}
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "host-leases", diagnosticText(err))
 		return 1
@@ -250,12 +260,12 @@ type upgradeInput struct {
 	Plan                    bool `json:"plan"`
 	ConfirmSessionsStopped  bool `json:"confirm_sessions_stopped"`
 	CancelCutoverPinnedWork bool `json:"cancel_cutover_pinned_work"`
+	RequireNoSessions       bool `json:"require_no_sessions"`
+	MaintenanceFD           *int `json:"maintenance_fd"`
 }
 
-// preparedReleaseRecord carries the one field the CLI echoes from the
-// installer-owned prepared-release record: the exact activation command the
-// installer recorded when it prepared the candidate. The installer owns the
-// record and its validation; the core only repeats what it says.
+// preparedReleaseRecord names the candidate and its installer-owned completion
+// command. The installer owns validation of the full record and release tree.
 type preparedReleaseRecord struct {
 	Version           string `json:"version"`
 	ActivationCommand string `json:"activation_command"`
@@ -312,7 +322,13 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// what this run committed, so no other run may migrate under the same
 	// boundary meanwhile. The read-only plan takes no lock.
 	if !request.Plan {
-		release, err := hostlease.AcquireMaintenance(dataRoot)
+		var release func()
+		var err error
+		if request.MaintenanceFD == nil {
+			release, err = hostlease.AcquireMaintenance(dataRoot)
+		} else {
+			release, err = hostlease.AcquireMaintenanceInherited(dataRoot, *request.MaintenanceFD)
+		}
 		if err != nil {
 			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 			return 1
@@ -367,35 +383,27 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// never this run's to remove; removal is identity-checked so a no-op or
 	// failed run cannot delete another operation's exclusion.
 	boundary := upgradeFence{dataRoot: dataRoot}
-	if maintenanceRequired {
+	if maintenanceRequired || request.RequireNoSessions {
 		var code int
 		boundary, code = openUpgradeFence(dataRoot, errOut)
 		if code != 0 {
 			return code
 		}
 	}
-	held, code := boundary.observeSessions(maintenanceRequired, request.ConfirmSessionsStopped, errOut)
+	held, code := boundary.observeSessions(maintenanceRequired || request.RequireNoSessions, request.ConfirmSessionsStopped, request.RequireNoSessions, errOut)
 	if code != 0 {
+		return code
+	}
+	if code := boundary.refuseLiveSessions(request.RequireNoSessions, held, errOut); code != 0 {
 		return code
 	}
 	// Every boundary-owned mutation requires a verified snapshot. A failed
 	// session check or snapshot applies no migration or cancellation.
 	snapshotPath := ""
 	if maintenanceRequired {
-		if err := store.CheckUpgradeSessions(plan.PendingBreaking, held); err != nil {
-			boundary.close(errOut)
-			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
-			return 1
-		}
-		var present bool
-		snapshotPath, present, err = snapshotBeforeMutation(path, dataRoot, "upgrade", version.Value)
-		if err == nil && !present {
-			err = fmt.Errorf("source database %s disappeared before the snapshot", path)
-		}
-		if err != nil {
-			boundary.close(errOut)
-			writeOperatorDiagnostic(errOut, "upgrade", fmt.Sprintf("snapshot %s failed; no migration was applied: %s", snapshotPath, diagnosticText(err)))
-			return 1
+		snapshotPath, code = boundary.snapshotForUpgrade(path, plan.PendingBreaking, held, errOut)
+		if code != 0 {
+			return code
 		}
 	}
 	report, err := store.Upgrade(context.Background(), path, held, options)
@@ -467,12 +475,51 @@ func (boundary upgradeFence) close(errOut io.Writer) {
 	}
 }
 
-func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSessionsStopped bool, errOut io.Writer) ([]store.HeldSchema, int) {
+func (boundary upgradeFence) refuseLiveSessions(required bool, held []store.HeldSchema, errOut io.Writer) int {
+	if !required || len(held) == 0 {
+		return 0
+	}
+	var holders []string
+	for _, lease := range held {
+		holders = append(holders, fmt.Sprintf("pid %d holds %s at schema version %d", lease.PID, lease.ReleaseRoot, lease.SchemaVersion))
+	}
+	boundary.close(errOut)
+	writeOperatorDiagnostic(errOut, "upgrade", "prepared cutover requires no live sessions: "+strings.Join(holders, "; "))
+	return 1
+}
+
+// snapshotForUpgrade checks the fenced session set before taking the required
+// snapshot. A refusal closes only the boundary this invocation owns.
+func (boundary upgradeFence) snapshotForUpgrade(path string, pending []store.PendingMigration, held []store.HeldSchema, errOut io.Writer) (string, int) {
+	if err := store.CheckUpgradeSessions(pending, held); err != nil {
+		boundary.close(errOut)
+		writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
+		return "", 1
+	}
+	snapshotPath, present, err := snapshotBeforeMutation(path, boundary.dataRoot, "upgrade", version.Value)
+	if err == nil && !present {
+		err = fmt.Errorf("source database %s disappeared before the snapshot", path)
+	}
+	if err != nil {
+		boundary.close(errOut)
+		writeOperatorDiagnostic(errOut, "upgrade", fmt.Sprintf("snapshot %s failed; no migration was applied: %s", snapshotPath, diagnosticText(err)))
+		return "", 1
+	}
+	return snapshotPath, 0
+}
+
+func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSessionsStopped, readOnly bool, errOut io.Writer) ([]store.HeldSchema, int) {
 	dataRoot := boundary.dataRoot
 	// The lease list is read after the fence is in place, so the check
 	// store.Upgrade performs is the final one: no session can be admitted
 	// between it and the migration while the boundary is open.
-	live, err := hostlease.List(dataRoot)
+	var live []hostlease.Lease
+	var err error
+	if readOnly {
+		live, err = hostlease.Observe(dataRoot)
+	} else {
+		live, err = hostlease.List(dataRoot)
+	}
 	if err != nil {
 		boundary.close(errOut)
 		writeOperatorDiagnostic(errOut, "upgrade", "cannot observe live host sessions: "+diagnosticText(err))
@@ -688,6 +735,16 @@ func decodeReleaseInput(args []string, in io.Reader, errOut io.Writer, command s
 		writeDiagnostic(errOut, fmt.Sprintf("concord %s: unsupported arguments: %s", command, args[0]))
 		writeCommandUsageSection(errOut, command)
 		return 2
+	}
+	if command == "upgrade" {
+		if file, ok := in.(*os.File); ok {
+			var terminal syscall.Termios
+			_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), syscall.TCGETS, uintptr(unsafe.Pointer(&terminal))) //nolint:gosec // TCGETS writes to a correctly sized Termios buffer; no request data enters the ioctl.
+			if errno == 0 {
+				writeOperatorDiagnostic(errOut, command, `upgrade requires JSON on stdin; pipe '{}' for defaults or '{"plan":true}' for a read-only plan`)
+				return 1
+			}
+		}
 	}
 	raw, err := io.ReadAll(io.LimitReader(in, agent.MaxEnvelopeBytes+1))
 	if err != nil || int64(len(raw)) > agent.MaxEnvelopeBytes {

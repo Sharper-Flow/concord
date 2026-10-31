@@ -106,8 +106,9 @@ Commands read one strict JSON object from stdin:
     accepted values: pid: the host process that holds this release; the core writes the lease under the data root
   concord host-leases < JSON stdin
     required: 
-    accepted values: prints the live host leases and prunes stale ones (CD-0111 D2)
+    optional: read_only: observe live leases without pruning stale files
+    accepted values: prints the live host leases and prunes stale ones by default (CD-0111 D2)
   concord upgrade < JSON stdin
     required: 
-    optional: plan: read-only readiness report; confirm_sessions_stopped: no session runs on an unfenceable release tree; cancel_cutover_pinned_work: cancel every nonterminal work item selected by the authoring-cutover gate after a verified snapshot inside the maintenance boundary (CD-0218 D5)
+    optional: plan: read-only readiness report; confirm_sessions_stopped: no session runs on an unfenceable release tree; cancel_cutover_pinned_work: cancel every nonterminal work item selected by the authoring-cutover gate after a verified snapshot inside the maintenance boundary (CD-0218 D5); require_no_sessions: refuse every live session behind the maintenance fence for a prepared cutover; maintenance_fd: inherited data-root directory descriptor, validated and flocked by the native lock owner
     accepted values: applies pending migrations; a breaking step runs only inside the maintenance boundary, which excludes session admission until activation and refuses under a live older session (CD-0111 D3)

@@ -394,33 +394,16 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	if code != 0 {
 		return code
 	}
-	if request.RequireNoSessions && len(held) != 0 {
-		var holders []string
-		for _, lease := range held {
-			holders = append(holders, fmt.Sprintf("pid %d holds %s at schema version %d", lease.PID, lease.ReleaseRoot, lease.SchemaVersion))
-		}
-		boundary.close(errOut)
-		writeOperatorDiagnostic(errOut, "upgrade", "prepared cutover requires no live sessions: "+strings.Join(holders, "; "))
-		return 1
+	if code := boundary.refuseLiveSessions(request.RequireNoSessions, held, errOut); code != 0 {
+		return code
 	}
 	// Every boundary-owned mutation requires a verified snapshot. A failed
 	// session check or snapshot applies no migration or cancellation.
 	snapshotPath := ""
 	if maintenanceRequired {
-		if err := store.CheckUpgradeSessions(plan.PendingBreaking, held); err != nil {
-			boundary.close(errOut)
-			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
-			return 1
-		}
-		var present bool
-		snapshotPath, present, err = snapshotBeforeMutation(path, dataRoot, "upgrade", version.Value)
-		if err == nil && !present {
-			err = fmt.Errorf("source database %s disappeared before the snapshot", path)
-		}
-		if err != nil {
-			boundary.close(errOut)
-			writeOperatorDiagnostic(errOut, "upgrade", fmt.Sprintf("snapshot %s failed; no migration was applied: %s", snapshotPath, diagnosticText(err)))
-			return 1
+		snapshotPath, code = boundary.snapshotForUpgrade(path, plan.PendingBreaking, held, errOut)
+		if code != 0 {
+			return code
 		}
 	}
 	report, err := store.Upgrade(context.Background(), path, held, options)
@@ -490,6 +473,39 @@ func (boundary upgradeFence) close(errOut io.Writer) {
 	if removeErr := hostlease.RemoveFenceOwned(boundary.dataRoot, boundary.id); removeErr != nil {
 		writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(removeErr))
 	}
+}
+
+func (boundary upgradeFence) refuseLiveSessions(required bool, held []store.HeldSchema, errOut io.Writer) int {
+	if !required || len(held) == 0 {
+		return 0
+	}
+	var holders []string
+	for _, lease := range held {
+		holders = append(holders, fmt.Sprintf("pid %d holds %s at schema version %d", lease.PID, lease.ReleaseRoot, lease.SchemaVersion))
+	}
+	boundary.close(errOut)
+	writeOperatorDiagnostic(errOut, "upgrade", "prepared cutover requires no live sessions: "+strings.Join(holders, "; "))
+	return 1
+}
+
+// snapshotForUpgrade checks the fenced session set before taking the required
+// snapshot. A refusal closes only the boundary this invocation owns.
+func (boundary upgradeFence) snapshotForUpgrade(path string, pending []store.PendingMigration, held []store.HeldSchema, errOut io.Writer) (string, int) {
+	if err := store.CheckUpgradeSessions(pending, held); err != nil {
+		boundary.close(errOut)
+		writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
+		return "", 1
+	}
+	snapshotPath, present, err := snapshotBeforeMutation(path, boundary.dataRoot, "upgrade", version.Value)
+	if err == nil && !present {
+		err = fmt.Errorf("source database %s disappeared before the snapshot", path)
+	}
+	if err != nil {
+		boundary.close(errOut)
+		writeOperatorDiagnostic(errOut, "upgrade", fmt.Sprintf("snapshot %s failed; no migration was applied: %s", snapshotPath, diagnosticText(err)))
+		return "", 1
+	}
+	return snapshotPath, 0
 }
 
 func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSessionsStopped, readOnly bool, errOut io.Writer) ([]store.HeldSchema, int) {

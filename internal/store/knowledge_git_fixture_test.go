@@ -67,7 +67,7 @@ const fixtureLawFolderRegistry = `{"schema_version":"1.0","product_key":"product
 // registry's Product root.
 func fixtureLawFolderLaw(id string) string {
 	return "---\n" +
-		`{"id":"` + id + `","title":"Fixture folder law ` + id + `","authority":{"tier":"derived"},"home_domain_id":"product-root:fixture","applies_to_domain_ids":[],"product_wide_rationale":"This fixture law governs the whole fixture Product."}` + "\n" +
+		`{"id":"` + id + `","title":"Fixture folder law ` + id + `","authority":{"tier":"derived"},"home_domain_id":"product-root:product","applies_to_domain_ids":[],"product_wide_rationale":"This fixture law governs the whole fixture Product."}` + "\n" +
 		"---\n\nSynthetic fixture law body.\n"
 }
 

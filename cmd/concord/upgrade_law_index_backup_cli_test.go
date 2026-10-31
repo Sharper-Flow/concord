@@ -181,6 +181,15 @@ func cliLawIndexRows(t *testing.T, db *sql.DB, table string) []string {
 	return rendered
 }
 
+func cliLawIndexRetiredTable(table string) bool {
+	for _, prefix := range cliLawIndexRetiredPrefixes {
+		if strings.HasPrefix(table, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func cliLawIndexState(t *testing.T, db *sql.DB) map[string][]string {
 	t.Helper()
 	state := make(map[string][]string, len(cliLawIndexFixtureTables))
@@ -268,8 +277,13 @@ func TestUpgradeRetiringLawIndexSnapshotsTheLawInventoryBeforeTheDrop(t *testing
 	if head != store.CurrentSchemaVersion() {
 		t.Fatalf("live schema head = %d, want %d", head, store.CurrentSchemaVersion())
 	}
-	if after := cliLawIndexState(t, liveDB); !reflect.DeepEqual(after, before) {
-		t.Fatalf("the upgrade changed preserved rows:\nbefore: %v\nafter: %v", before, after)
+	for _, table := range cliLawIndexFixtureTables {
+		if cliLawIndexRetiredTable(table) {
+			continue
+		}
+		if after := cliLawIndexRows(t, liveDB, table); !reflect.DeepEqual(after, before[table]) {
+			t.Fatalf("the upgrade changed preserved %s rows:\nbefore: %v\nafter: %v", table, before[table], after)
+		}
 	}
 	if err := liveDB.Close(); err != nil {
 		t.Fatal(err)

@@ -8381,6 +8381,39 @@ DROP TABLE session_claim_landings;
 DROP TABLE session_relocation_counts;
 `,
 	},
+	{
+		Version:  174,
+		Name:     "law_index_retirement",
+		Breaking: true,
+		SQL: `
+DROP TRIGGER project_locators_referenced_by_knowledge_no_delete;
+DROP TABLE domain_relation_governing_laws;
+DROP TABLE law_domain_applicability;
+DROP TABLE law_domain_homes;
+DROP TABLE law_relations;
+DROP TABLE law_bodies;
+DROP TABLE law_subjects;
+DROP TABLE knowledge_kind_coverage;
+DROP TABLE knowledge_index_watermark;
+DROP TABLE knowledge_publication_observations;
+CREATE TRIGGER project_locators_referenced_by_knowledge_no_delete
+BEFORE DELETE ON project_locators FOR EACH ROW
+WHEN     EXISTS (SELECT 1 FROM archived_work k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domains k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domain_registries k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domain_architecture_relations k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'Project locator is referenced by Git-derived knowledge');
+END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -8510,6 +8543,8 @@ func migrateAtOpen(ctx context.Context, db *sql.DB, clock ...func() time.Time) e
 func migrate(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) error {
 	deadline := time.Now().Add(migrationLockBudget)
 	delay := migrationRetryInitialDelay
+	var lawIndexProof *lawIndexRetirementProof
+	lawIndexAccounted := false
 	for {
 		current, err := migrationManifestCurrent(ctx, db, scope)
 		if err != nil {
@@ -8518,7 +8553,15 @@ func migrate(ctx context.Context, db *sql.DB, scope migrationScope, clock ...fun
 		if current {
 			return nil
 		}
-		err = migrateOnce(ctx, db, scope, clock...)
+		if scope != migrateForOpen && !lawIndexAccounted {
+			// The law-folder accounting runs Git, so it precedes the
+			// migrating transaction and never runs inside it (CD-0195 D2).
+			if lawIndexProof, err = establishLawIndexRetirementProof(ctx, db); err != nil {
+				return err
+			}
+			lawIndexAccounted = true
+		}
+		err = migrateOnce(ctx, db, scope, lawIndexProof, clock...)
 		if err == nil {
 			return nil
 		}
@@ -8734,7 +8777,7 @@ func upgradeRequired(m migration) *Failure {
 		true, fmt.Sprintf("run concord upgrade; it refuses while a live session holds a release that predates migration %d", m.Version))
 }
 
-func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) error {
+func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, lawIndexProof *lawIndexRetirementProof, clock ...func() time.Time) error {
 	write, err := beginWriteTx(ctx, db, nil, schemaWriteAdmission)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true,
@@ -8777,7 +8820,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		return rollback(err)
 	}
 
-	stopped, remoteUpgrade, err := applyPendingMigrations(ctx, tx, scope, applied, clock...)
+	stopped, remoteUpgrade, err := applyPendingMigrations(ctx, tx, scope, applied, lawIndexProof, clock...)
 	if err != nil {
 		return rollback(err)
 	}
@@ -8857,7 +8900,7 @@ func inspectUnstampedManifest(ctx context.Context, tx *sql.Tx) (bool, error) {
 	return false, nil
 }
 
-func applyPendingMigrations(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration, clock ...func() time.Time) (*migration, bool, error) {
+func applyPendingMigrations(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration, lawIndexProof *lawIndexRetirementProof, clock ...func() time.Time) (*migration, bool, error) {
 	var stopped *migration
 	remoteUpgrade := false
 	for i := range migrations {
@@ -8871,6 +8914,11 @@ func applyPendingMigrations(ctx context.Context, tx *sql.Tx, scope migrationScop
 		}
 		if m.Version == 4 {
 			if err := preflightMembershipMigration(ctx, tx); err != nil {
+				return nil, remoteUpgrade, err
+			}
+		}
+		if m.Name == lawIndexRetirementName {
+			if err := verifyLawIndexRetirementProof(ctx, tx, lawIndexProof); err != nil {
 				return nil, remoteUpgrade, err
 			}
 		}

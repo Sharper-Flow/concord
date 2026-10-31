@@ -141,10 +141,9 @@ func TestWorkflowLawRevisionMissingPinnedProjectionIsStale(t *testing.T) {
 	s := openTemp(t)
 	repo := initKnowledgeRepo(t)
 	seedWork(t, s, "law-missing")
-	home := anchorCommittedLawHome(t, s, repo)
-	// The committed folder carries no spec:missing: the pin names a law the
+	// The anchored home commits only its registry: the pin names a law the
 	// folder never accepted.
-	writeFixtureLawSource(t, home)
+	anchorCommittedLawHome(t, s, repo)
 	insertLawRevisionFixture(t, s, "law-missing", "spec:missing", "sha256:"+strings.Repeat("a", 64))
 	ctx, err := s.EstablishKnowledgeSourceSetProofForProject(context.Background(), "p")
 	if err != nil {
@@ -288,17 +287,21 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 				t.Fatalf("recontracted workflow step=%q, want unchanged execution step", got)
 			}
 			version = result.ResultingVersion
-			tx, err = s.DatabaseForTesting().BeginTx(context.Background(), nil)
+			startCtx, err := s.PrepareWorkflowActionProof(context.Background(), "start_execution", workID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			scope2, err := beginWrite(context.Background(), tx)
+			tx, err = s.DatabaseForTesting().BeginTx(startCtx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scope2, err := beginWrite(startCtx, tx)
 			if err != nil {
 				tx.Rollback()
 				t.Fatal(err)
 			}
-			startResult, err := applyWorkflowActionRawTx(context.Background(), tx, scope2, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "start_execution", Payload: mustJSONValue(map[string]any{}), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "recontract-start", OperationID: "recontract-start", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-start", RequestID: "request:recontract-start", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
-			_ = scope2.close(context.Background())
+			startResult, err := applyWorkflowActionRawTx(startCtx, tx, scope2, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "start_execution", Payload: mustJSONValue(map[string]any{}), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "recontract-start", OperationID: "recontract-start", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-start", RequestID: "request:recontract-start", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+			_ = scope2.close(startCtx)
 			if err != nil {
 				tx.Rollback()
 				t.Fatalf("ordinary post-recovery action: %v", err)
@@ -823,6 +826,8 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 func anchorCommittedLawHome(t *testing.T, s *Store, repo string) KnowledgeHome {
 	t.Helper()
 	home := KnowledgeHome{HomeProjectID: "p", HomeLocatorID: "l", RepoPath: repo, HeadRef: "HEAD"}
+	// A designated home's law reads need its committed Domain registry.
+	writeFixtureLawSource(t, home)
 	seedEventDerivedLocator(t, s, "p", "l", repo)
 	authorizeKnowledgeProductHome(t, s, "anchor-product-p", home, "p")
 	return home

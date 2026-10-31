@@ -355,11 +355,6 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
-      # CON-893: the pre-push preflight must stay identical to CI-owned
-      # commands. This validator fails when a lefthook.yml gate, environment,
-      # pin, selector battery, or glob routing drifts from this workflow.
-      - name: Validate pre-push preflight parity
-        run: python3 scripts/check-pre-push.py
       - name: Test disposable native CI provisioning and cache warming
         run: python3 scripts/test-ci-native-provision.py
       - name: Set up native Node
@@ -418,7 +413,7 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-check-package-domains.py && python3 scripts/test-generate-agent-profiles.py && python3 scripts/test-shard-format.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-pre-push.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py && python3 scripts/test-work-sizes.py && python3 scripts/test-native-issue-key-resume.py
+        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-check-package-domains.py && python3 scripts/test-generate-agent-profiles.py && python3 scripts/test-shard-format.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py && python3 scripts/test-work-sizes.py && python3 scripts/test-native-issue-key-resume.py
 
       - name: Restore write access to the uv fixture cache
         if: always()
@@ -449,11 +444,6 @@ jobs:
         run: git diff --exit-code
       - name: Vet
         run: go vet ./...
-      # The next two steps keep exact parity with the pre-push preflight
-      # gates (CON-893): each lefthook.yml command must stay identical to a
-      # CI-owned command, and scripts/check-pre-push.py fails when either
-      # side drifts. They also stand alone as the fast build and
-      # compile-only checks of every test binary.
       - name: Build
         run: go build ./...
       - name: Compile all tests

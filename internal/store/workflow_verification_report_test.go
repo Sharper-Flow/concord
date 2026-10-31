@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -182,5 +183,85 @@ func TestWorkflowVerificationReportsUseRecordedBinding(t *testing.T) {
 	reports = read()
 	if len(reports) != 1 || reportCovers(reports[0], candidate) {
 		t.Fatalf("latest failed report must not resolve to an older pass: %+v", reports)
+	}
+}
+
+func TestWorkflowVerificationReportsLatestAcrossReferences(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`CREATE TABLE workflow_evidence_bindings(work_id TEXT, binding_seq INTEGER, payload TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	commit := strings.Repeat("a", 40)
+	insert := func(seq int, ref string, report any) {
+		t.Helper()
+		payload, err := json.Marshal(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": ref, "verification_report": report})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO workflow_evidence_bindings VALUES('work:one',?,?)`, seq, string(payload)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pass := VerificationReport{Source: "local", Commit: commit, Result: "pass", RunRef: "run:pass"}
+	insert(1, "report:green", pass)
+	failed := pass
+	failed.Result = "fail"
+	insert(2, "report:red", failed)
+	read := func() ([]VerificationReport, error) {
+		return readVerificationReports(context.Background(), db, "work:one", "report:green")
+	}
+	if reports, err := read(); err == nil && len(reports) != 0 {
+		t.Fatalf("distinct failure resurrected pass: %+v", reports)
+	}
+	insert(3, "report:recovery", pass)
+	if reports, err := read(); err != nil || len(reports) != 1 {
+		t.Fatalf("passing rerun did not restore applicable report: %+v, %v", reports, err)
+	}
+	other := pass
+	other.Commit = strings.Repeat("b", 40)
+	insert(4, "report:other", other)
+	if reports, err := read(); err == nil && len(reports) != 0 {
+		t.Fatalf("old candidate report remained applicable: %+v", reports)
+	}
+	insert(5, "report:malformed", map[string]any{"source": "local", "commit": commit, "result": "pass"})
+	if reports, err := read(); err == nil && len(reports) != 0 {
+		t.Fatalf("malformed latest resurrected pass: %+v", reports)
+	}
+	insert(6, "report:red", pass)
+	if reports, err := read(); err != nil || len(reports) != 1 {
+		t.Fatalf("same-reference rerun did not recover: %+v, %v", reports, err)
+	}
+	for i := 0; i < 256; i++ {
+		insert(7+i, fmt.Sprintf("report:valid-%03d", i), pass)
+	}
+	for i := 0; i < 256; i++ {
+		ref := fmt.Sprintf("report:valid-%03d", i)
+		reports, err := readVerificationReports(context.Background(), db, "work:one", ref)
+		if err != nil || len(reports) != 1 || !reportCovers(reports[0], &ReviewCandidate{Commit: commit}) {
+			t.Fatalf("valid report %s not applicable: %+v, %v", ref, reports, err)
+		}
+	}
+	malformed := []struct {
+		ref    string
+		report any
+	}{
+		{"report:bad-source", VerificationReport{Source: "unknown", Commit: commit, Result: "pass", RunRef: "run:one"}},
+		{"report:bad-result", VerificationReport{Source: "local", Commit: commit, Result: "unknown", RunRef: "run:one"}},
+		{"report:bad-commit", VerificationReport{Source: "local", Commit: "bad", Result: "pass", RunRef: "run:one"}},
+		{"report:bad-run", VerificationReport{Source: "local", Commit: commit, Result: "pass", RunRef: " "}},
+		{"bad ref", pass},
+		{"report:null", nil},
+		{"report:scalar", "unresolved"},
+	}
+	for i, tc := range malformed {
+		insert(263+i, tc.ref, tc.report)
+		if reports, err := read(); err == nil || len(reports) != 0 {
+			t.Fatalf("invalid latest %q admitted older report: %+v, %v", tc.ref, reports, err)
+		}
 	}
 }

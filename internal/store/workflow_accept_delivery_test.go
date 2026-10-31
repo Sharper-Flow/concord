@@ -263,3 +263,34 @@ func TestDeliveryRefusesReviewAfterReportMovesCandidate(t *testing.T) {
 	}
 	reviewGateRequireStep(t, c.f.store, workID, "refine")
 }
+
+func TestDeliveryRefusesDistinctFailedReportAfterReview(t *testing.T) {
+	const workID = "delivery-distinct-failed"
+	c := acceptDeliveryCandidateAt(t, workID, "workflow.implementation", "refine", false)
+	failed := c.j.observeRun(t, "distinct-failed")
+	failed.Report.Result = "fail"
+	failed.SubjectRef = "report:distinct-failed"
+	c.j.bindVerification(t, failed)
+	state, err := loadWorkflowReviewState(t.Context(), c.f.store.db, workID)
+	if err != nil || state.DependenciesCurrent {
+		t.Fatalf("failed current report left cited Review current: %+v, %v", state, err)
+	}
+	review := currentReviewBlockForTest(t, c.f.store, workID, "ready_for_final_proof")
+	for _, criterion := range review.Dependencies.Criteria {
+		review.Assessments = append(review.Assessments, ReviewAssessment{PredicateID: criterion.PredicateID, Assessment: "supported", ReceiptRefs: []string{c.early.OperationRef}})
+	}
+	if err := recordReviewForTest(t, c.f.store, workID, c.f.owner, review); err == nil {
+		t.Fatal("new Review accepted a historical pass after a distinct failed report")
+	}
+	err = runDeliveryAdmissionAction(t, c.f.store, workID, mustJSONValue(map[string]any{"delivery_artifact": "artifact:refine-exit", "delivery_state": "asserted"}), reviewGateAcceptor(workID))
+	if err == nil {
+		t.Fatal("delivery accepted a historical pass after a distinct failed report")
+	}
+	reviewGateRequireStep(t, c.f.store, workID, "refine")
+	recovered := c.j.observeRun(t, "recovered")
+	recovered.SubjectRef = "report:recovered"
+	c.j.bindVerification(t, recovered)
+	if err := runDeliveryAdmissionAction(t, c.f.store, workID, mustJSONValue(map[string]any{"delivery_artifact": "artifact:refine-exit", "delivery_state": "asserted"}), reviewGateAcceptor(workID)); err != nil {
+		t.Fatalf("passing rerun did not recover delivery: %v", err)
+	}
+}

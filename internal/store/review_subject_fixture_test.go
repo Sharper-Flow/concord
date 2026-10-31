@@ -8,11 +8,6 @@ import (
 // reviewSubjectClaim creates a candidate repository for Review fixtures.
 func reviewSubjectClaim(t *testing.T, s *Store, workID string) (string, string) {
 	t.Helper()
-	return reviewSubjectClaimObserved(t, s, workID, true)
-}
-
-func reviewSubjectClaimObserved(t *testing.T, s *Store, workID string, _ bool) (string, string) {
-	t.Helper()
 	ctx := t.Context()
 	root := t.TempDir()
 	var projectVersion int64

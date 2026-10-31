@@ -98,7 +98,7 @@ func acceptDeliveryUnobservedCandidateAt(t *testing.T, workID, ref string) accep
 	definition := mustBuiltinDefinition(t, ref)
 	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "refine", []string{"verification"}, []string{"review", "artifact"})
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
-	repo, _ := reviewSubjectClaimObserved(t, f.store, workID, false)
+	repo, _ := reviewSubjectClaim(t, f.store, workID)
 	c := acceptDeliveryCandidate{f: f, j: &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo, acceptor: f.owner}, definition: definition}
 	reviewGateStartStep(t, f.store, workID, "refine", "checkpoint_refine", f.owner)
 	actor := mustActorRef(t, f.owner)

@@ -12,7 +12,6 @@ import (
 type candidateReport struct {
 	OperationRef string
 	SubjectRef   string
-	LeaseID      string
 	Report       VerificationReport
 }
 
@@ -43,7 +42,7 @@ func (j *candidateJourney) observeRun(t *testing.T, id string) candidateReport {
 	t.Helper()
 	commit := j.head(t)
 	ref := "commit:" + commit
-	return candidateReport{OperationRef: ref, SubjectRef: ref, LeaseID: id, Report: VerificationReport{Source: "local", Commit: commit, Result: "pass", RunRef: "run:" + id}}
+	return candidateReport{OperationRef: ref, SubjectRef: ref, Report: VerificationReport{Source: "local", Commit: commit, Result: "pass", RunRef: "run:" + id}}
 }
 
 func (j *candidateJourney) observe(t *testing.T, id string) string {

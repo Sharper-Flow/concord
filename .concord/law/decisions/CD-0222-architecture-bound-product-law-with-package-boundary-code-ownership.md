@@ -293,7 +293,7 @@ owns each authoritative workflow mutation. They apply at:
 - contract approval and revision;
 - execution claim or dispatch;
 - checkpoint and evidence binding;
-- subject-bound stage results and native receipts;
+- recorded candidate results and attributed verification reports;
 - verdict and premise confirmation;
 - any Concord-authorized merge/ship decision or acceptance of its result; and
 - completion and compaction.

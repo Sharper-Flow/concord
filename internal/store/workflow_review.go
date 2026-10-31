@@ -314,6 +314,13 @@ func validateRecordedReview(ctx context.Context, q queryer, work string, report 
 	if err := validateReviewCandidates(report, state.Candidate); err != nil {
 		return err
 	}
+	var member bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?)`, work, report.OutputCandidate.ProjectID).Scan(&member); err != nil {
+		return wrapFailure(KindUnavailable, "workflow_review", "cannot read work Project membership", true, "retry once the database is readable", err)
+	}
+	if !member {
+		return reviewFailure(KindUnknownScope, "work item does not hold Project "+report.OutputCandidate.ProjectID, "use a Project the work item belongs to")
+	}
 	if err := validateReviewAssessmentReceiptSubjects(ctx, q, work, report); err != nil {
 		return err
 	}

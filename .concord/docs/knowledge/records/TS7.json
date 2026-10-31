@@ -48,7 +48,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:cf151e6f27bc96e873f8c679971a668d3287b26cf98ae25d25cc7e8abd1fcdc7",
+  "sha256": "sha256:d540b39528a7c41b37e92ac8215bef06f13496526528a1d79f737fdb5c4ca90c",
   "status": "accepted",
   "summary": "Defines typed results, recovery, pagination, bounded omissions, and lossless oversized-result transport within the unchanged 51,200-byte envelope cap. Closed projection references require authenticated reconstruction and identity, length, digest and schema validation before authority; mutation documents are retained atomically and full-list paging preserves complete items and continuation. Size refusals name executable operation-specific recovery.",
   "tags": [

@@ -228,7 +228,7 @@ func bindAJ4StartValidWork(t *testing.T, sc jobScenario) jobObservation {
 }
 
 // CD-0243 D3/D7 retire terminal-only consent, not verification or replay.
-// AJ4 completes work-cross with verification and no approval challenge.
+// AJ4 completes work-cross with verification and no consent gate.
 func bindAJ4CompleteValidWork(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
@@ -317,10 +317,6 @@ func bindAJ4CompleteValidWork(t *testing.T, sc jobScenario) jobObservation {
 		"retry_safe_replayed":         true,
 		"atomic_core_effect":          "complete",
 	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`) != 0 {
-		t.Fatal("ordinary completion minted a challenge or consumed approval")
-	}
-	obs.Authority["approval_consumed"] = false
 	return obs
 }
 
@@ -514,12 +510,8 @@ func bindAJ4StaleVersion(t *testing.T, sc jobScenario) jobObservation {
 // AJ5 — relate_and_scope_work
 // ---------------------------------------------------------------------------
 
-// AJ5-resolve-domain-overlap proves the overlap operation's kind boundary: an
-// ordinary relation cannot write a resolution-owned relation, the routine
-// depends_on answer records unsigned with no challenge and no consumed
-// approval, and a destructive kind settles only through a challenge the
-// Service minted, a host assertion over the exact request, and one consumed
-// one-use operator approval.
+// AJ5-resolve-domain-overlap proves ordinary relation authority cannot settle
+// coordination and a destructive scope cut requires the cross-scope capability.
 func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, _, _, env, input := seedAgentOverlapFixture(t)
@@ -559,13 +551,13 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	if routine.Outcome != agentcontract.OutcomeOK || routine.Error != nil {
 		t.Fatalf("unsigned routine overlap resolution failed: %+v", routine.Error)
 	}
-	var kind, approvalRef string
+	var kind string
 	var fromContract, toContract int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT resolution_kind,from_contract_version,to_contract_version,approval_ref FROM workflow_overlap_resolutions WHERE invalidated_seq IS NULL`).Scan(&kind, &fromContract, &toContract, &approvalRef); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT resolution_kind,from_contract_version,to_contract_version FROM workflow_overlap_resolutions WHERE invalidated_seq IS NULL`).Scan(&kind, &fromContract, &toContract); err != nil {
 		t.Fatal(err)
 	}
-	if kind != "depends_on" || fromContract != 1 || toContract != 1 || approvalRef != "" {
-		t.Fatalf("routine resolution %s contracts %d/%d approval=%q, want the unsigned depends_on answer at 1/1", kind, fromContract, toContract, approvalRef)
+	if kind != "depends_on" || fromContract != 1 || toContract != 1 {
+		t.Fatalf("routine resolution %s contracts %d/%d, want the unsigned sequencing answer at 1/1", kind, fromContract, toContract)
 	}
 	var relationCount int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from='work-1' AND work_id_to='work-2' AND kind='depends_on' AND resolution_id IS NOT NULL`).Scan(&relationCount); err != nil {
@@ -577,59 +569,44 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	if workVersion(t, s, "work-1") != 3 || workVersion(t, s, "work-2") != 3 {
 		t.Fatal("routine resolution left the endpoints off the single-step versions")
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
-		t.Fatalf("routine resolution minted %d challenges, want 0", got)
-	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`); got != 0 {
-		t.Fatalf("routine resolution consumed %d approvals, want 0", got)
-	}
 
 	obs := envelopeToObservation(routine)
 	obs.State = map[string]any{
 		"overlap":   map[string]any{"current_resolution": map[string]any{"kind": kind, "from_contract_version": fromContract, "to_contract_version": toContract}},
 		"relations": map[string]any{"depends_on": []any{map[string]any{"source": "work-1", "target": "work-2"}}},
 	}
-	obs.Authority = map[string]any{"operator_approval_consumed": false}
-
-	// The destructive control is the only source of consumed-approval
-	// authority in this observation: a separate genuine host fixture settles
-	// merged_into through the challenge the Service minted, the host
-	// assertion over the exact request, and one consumed one-use approval.
-	destructiveStore, destructiveService, destructiveKey, destructiveEnv := routineCoordinationFixture(t)
-	binding := routineOverlapExactBinding(t, destructiveStore, store.ResolutionMergedInto)
-	destructiveInput := routineOverlapResolveInput(t, binding, "aj5-destructive-merged-into")
-	challengeRef := routineOverlapChallenge(t, destructiveStore, destructiveService, destructiveEnv, binding, destructiveInput)
-	withApproval, err := injectApproval(destructiveInput, challengeRef)
-	if err != nil {
-		t.Fatal(err)
+	destructiveStore, destructiveService, _, _, destructiveEnv, destructiveBase := seedAgentOverlapFixture(t)
+	setAgentDeclaredRequirements(t, destructiveStore, "work-1", []string{"audit_required"})
+	setAgentDeclaredRequirements(t, destructiveStore, "work-2", []string{})
+	destructiveInput := []byte(strings.Replace(string(destructiveBase), `"resolution_kind":"depends_on"`, `"resolution_kind":"merged_into"`, 1))
+	destructiveBefore := agentCurrentEffects(t, destructiveStore)
+	refused := dispatchMutation(t, destructiveStore, destructiveService, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: destructiveInput}, destructiveEnv)
+	if refused.Error == nil || refused.Error.Kind != "unauthorized" {
+		t.Fatalf("destructive merged_into without cross scope outcome=%s error=%+v, want unauthorized", refused.Outcome, refused.Error)
 	}
-	scope, versions := routineOverlapApprovalBindings(t, destructiveStore, destructiveEnv, binding)
-	digest := mutationDigest("concord_work_relate", "resolve_overlap", destructiveEnv, withApproval)
-	approved := routineOverlapApprovedDispatch(t, destructiveStore, destructiveService, destructiveKey, destructiveEnv, challengeRef, digest, scope, versions, withApproval)
-	if approved.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("approved destructive merged_into resolution failed: %+v", approved.Error)
+	if got := countRows(t, destructiveStore.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 0 {
+		t.Fatalf("the refused destructive control wrote %d resolutions", got)
 	}
-	var destructiveKind, destructiveRef string
-	var usedCount int
-	if err := destructiveStore.DatabaseForTesting().QueryRow(`SELECT resolution_kind,approval_ref FROM workflow_overlap_resolutions WHERE invalidated_seq IS NULL`).Scan(&destructiveKind, &destructiveRef); err != nil {
-		t.Fatal(err)
-	}
-	if err := destructiveStore.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_approvals WHERE approval_ref=?`, destructiveRef).Scan(&usedCount); err != nil {
-		t.Fatal(err)
-	}
-	destructiveConsumed := destructiveKind == store.ResolutionMergedInto && destructiveRef != "" && usedCount == 1
-	if !destructiveConsumed {
-		t.Fatalf("destructive control kind=%q approval=%q used=%d, want merged_into through one consumed approval", destructiveKind, destructiveRef, usedCount)
+	if agentCurrentEffects(t, destructiveStore) != destructiveBefore || workVersion(t, destructiveStore, "work-1") != 2 || workVersion(t, destructiveStore, "work-2") != 2 {
+		t.Fatal("refused destructive control changed effects or endpoint versions")
 	}
 	obs.State["destructive_control"] = map[string]any{
-		"resolution_kind":            destructiveKind,
-		"operator_approval_consumed": destructiveConsumed,
-		"approval_ref":               destructiveRef,
+		"resolution_kind": "merged_into",
+		"refused":         "unauthorized",
 	}
+	obs.Communication = envelopeToObservation(refused).Communication
+	violations := make([]any, len(refused.Error.Violations))
+	for i, violation := range refused.Error.Violations {
+		violations[i] = violation
+	}
+	obs.Communication["error"].(map[string]any)["violations"] = violations
 	obs.Effects = map[string]any{
 		"atomic_core_effect":          "complete",
-		"approval_authority_consumed": destructiveConsumed,
+		"atomic_core_effect_zero":     true,
 		"ordinary_relation_authority": probedAbsent{Evidence: "the generic compatible_with fold returned relation_contract_violation, and wrote no relation or resolution"},
+		// The destructive control withheld its effect pending the operator's
+		// cross-scope choice: unauthorized, contact_operator, named omissions.
+		"operator_choice_withheld": true,
 	}
 	return obs
 }
@@ -682,8 +659,8 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
 		t.Fatalf("expected typed refusal outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
-	if resp.Error.Kind != "invariant_violation" {
-		t.Fatalf("error.kind=%q, want invariant_violation", resp.Error.Kind)
+	if resp.Error.Kind != "unauthorized" {
+		t.Fatalf("error.kind=%q, want unauthorized", resp.Error.Kind)
 	}
 	if resp.Error.RecoveryAction.Kind != "contact_operator" {
 		t.Fatalf("recovery_action=%q, want contact_operator", resp.Error.RecoveryAction.Kind)
@@ -692,13 +669,6 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 	if len(resp.Error.Violations) != 1 || resp.Error.Violations[0] != requirement {
 		t.Fatalf("error.violations=%v, want [%s]", resp.Error.Violations, requirement)
 	}
-	// accept_scope_cut must be actionable: offering the option without a minted
-	// challenge to approve against is the D3 defect repaired in #159.
-	challengeRef, ok := resp.Error.Details["approval_ref"].(string)
-	if !ok || len(challengeRef) != 64 {
-		t.Fatalf("governing conflict offered accept_scope_cut with no actionable approval_ref: %v", resp.Error.Details)
-	}
-
 	// Probe the prohibited effect: a silent requirement omission would be a
 	// captured work item or any appended event. Both are checked against the
 	// pre-call counts so the absence is proven rather than assumed.
@@ -734,8 +704,9 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 	obs.Effects["silent_requirement_omission"] = probedAbsent{
 		Evidence: "current work rows, effect receipts and effect sequence unchanged across the refused capture, and no work item exists under the requested title",
 	}
-	// The consequence required operator authority the pending checkpoint withheld.
-	obs.Effects["approval_authority_withheld"] = true
+	// The consequence required the operator's choice and the governing-law
+	// refusal withheld the effect.
+	obs.Effects["operator_choice_withheld"] = true
 	violations := make([]any, len(resp.Error.Violations))
 	for i, v := range resp.Error.Violations {
 		violations[i] = v
@@ -746,13 +717,9 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 	return obs
 }
 
-// TestOperatorApprovedScopeCutProceeds covers CD-0035 D4's other branch. The
-// governing-law refusal is not a dead end: when the operator approves the cut,
-// the same capture proceeds against the minted challenge. Without this the
-// accept_scope_cut option would be decorative.
-func TestOperatorApprovedScopeCutProceeds(t *testing.T) {
+func TestCrossScopeCapabilityAllowsScopeCut(t *testing.T) {
 	t.Parallel()
-	s, service, grant, privateKey, _ := agentJobsMutationPM1Fixture(t)
+	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
 	if err := pm1fixture.SeedGoverningRequirement(context.Background(), s, "proj-web", "audit_required", "accepted audit obligation"); err != nil {
 		t.Fatalf("seed governing requirement: %v", err)
 	}
@@ -760,29 +727,13 @@ func TestOperatorApprovedScopeCutProceeds(t *testing.T) {
 
 	input := []byte(`{"title":"Add passkey login","value_statement":"reducing account takeover risk","kind":"task","project_ids":["proj-web"],"idempotency_key":"approved-cut-1"}`)
 	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-	if refused.Error == nil || refused.Error.Kind != "invariant_violation" {
+	if refused.Error == nil || refused.Error.Kind != "unauthorized" {
 		t.Fatalf("expected governing conflict, got outcome=%s err=%+v", refused.Outcome, refused.Error)
 	}
-	challengeRef, ok := refused.Error.Details["approval_ref"].(string)
-	if !ok || len(challengeRef) != 64 {
-		t.Fatalf("no actionable challenge on the governing conflict: %v", refused.Error.Details)
+	if err := service.ExpandTrustedClientPolicy(context.Background(), grant.ClientRef, TrustedClientPolicy{Capabilities: []agentcontract.Capability{"cross_scope"}}); err != nil {
+		t.Fatal(err)
 	}
-
-	withApproval, err := injectApproval(input, challengeRef)
-	if err != nil {
-		t.Fatalf("inject approval: %v", err)
-	}
-	scope := map[string]any{
-		"product_id":             "prod-alpha",
-		"product_ids":            []string{"prod-alpha"},
-		"project_ids":            []string{"proj-web"},
-		"scope_version":          env.ScopeVersion,
-		"governing_requirements": store.NewGoverningRequirementScope([]string{"audit_required"}, nil).Digest(),
-	}
-	digest := mutationDigest("concord_work_define", "capture", env, withApproval)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-
-	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: withApproval}, env)
+	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
 	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("operator-approved scope cut was refused outcome=%s err=%+v", approved.Outcome, approved.Error)
 	}
@@ -975,81 +926,3 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 }
 
 // ---------------------------------------------------------------------------
-// AJ8 — approval consequence summary (CD-0037)
-// ---------------------------------------------------------------------------
-
-// bindAJ8ApprovalRequired proves the consent prompt is typed and core-derived:
-// a security decision the operator has not approved mints a challenge
-// and returns the summary derived from that challenge's own facts. The
-// credential rotation never starts, and its absence is probed, not assumed —
-// no effect ran, no transition event exists, and the work version did not
-// move.
-func bindAJ8ApprovalRequired(t *testing.T, sc jobScenario) jobObservation {
-	t.Helper()
-	// CD-0243 D3/D7 retire lifecycle-only consent. Declare the actual
-	// security decision instead of inferring authority from its reason text.
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-	seedAgentWorkflow(t, s, grant)
-	env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
-	workID := "work-1"
-	version := advanceCapturedWorkToContract(t, s, service, env, workID, "aj8-security")
-	key := "aj8-approval-1"
-	if seed, ok := sc.InitialState["idempotency_seed"].(string); ok && seed != "" {
-		key = seed
-	}
-
-	fields := workflowContractFieldsForSeededRegistry(t, s)
-	fields["premise"] = "Rotate the production database credential."
-	fields["decision_domains"] = []string{"security"}
-	input, err := json.Marshal(map[string]any{"work_id": workID, "expected_version": version, "action_id": "approve_contract", "fields": fields, "idempotency_key": key})
-	if err != nil {
-		t.Fatal(err)
-	}
-	before := agentCurrentEffects(t, s)
-	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil || resp.Error.Kind != "approval_required" {
-		t.Fatalf("unapproved consequential transition was not an approval refusal outcome=%s err=%+v", resp.Outcome, resp.Error)
-	}
-	summary := resp.Error.ConsequenceSummary
-	if summary == nil {
-		t.Fatal("minted challenge refusal carries no typed consequence summary")
-	}
-	if summary.Tool != "concord_work_transition" || summary.Operation != "workflow_action" || summary.Consequence == "" {
-		t.Fatalf("summary is not derived from the validated invocation: %#v", summary)
-	}
-	if summary.OperationDigest == "" || len(summary.Scope) == 0 || len(summary.Versions) == 0 || summary.ExpiresAt == "" {
-		t.Fatalf("summary lacks the challenge-bound facts: %#v", summary)
-	}
-	approvalRef, ok := resp.Error.Details["approval_ref"].(string)
-	if !ok || len(approvalRef) != 64 {
-		t.Fatalf("refusal did not mint a challenge: %v", resp.Error.Details["approval_ref"])
-	}
-
-	// The operation never started: version unchanged and no terminal event.
-	_, versionAfter := readWorkFromStore(t, s, workID)
-	if versionAfter != version {
-		t.Fatalf("refused transition moved the work version %d -> %d", version, versionAfter)
-	}
-	if agentCurrentEffects(t, s) != before {
-		t.Fatal("security contract refusal changed current effects")
-	}
-	if lifecycle, _ := readWorkFromStore(t, s, workID); lifecycle != "needed" && lifecycle != "in_progress" {
-		t.Fatalf("refused transition changed lifecycle to %q", lifecycle)
-	}
-
-	obs := envelopeToObservation(resp)
-	obs.State = map[string]any{
-		"operation": map[string]any{"started": false},
-	}
-	obs.Effects = map[string]any{
-		"approval_challenge_minted": true,
-		"atomic_core_effect_zero":   true,
-		// Actively probed absence: no effect ran (version unchanged, no
-		// terminal transition event), so nothing was rotated and nothing was
-		// clamped into a fabricated completion.
-		"credential_rotated": probedAbsent{Evidence: "refusal before effect; work version unchanged and lifecycle non-terminal"},
-	}
-	obs.Authority["approval_ref"] = approvalRef
-	obs.Authority["challenge_digest"] = summary.OperationDigest
-	return obs
-}

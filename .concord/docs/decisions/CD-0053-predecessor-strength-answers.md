@@ -11,7 +11,7 @@
   approving all three answers on the merge grant for PR #299; the public record is
   [issue #295 comment](https://github.com/Sharper-Flow/concord/issues/295#issuecomment-5375357551)
 - **Related:** CD-0019 D1–D3, CD-0006, CD-0012, CD-0215, CD-0026, CD-0035,
-  CD-0037, [`priorities.md`](../priorities.md#quality-goal-e) Priority 3 (quality)
+  [`priorities.md`](../priorities.md#quality-goal-e) Priority 3 (quality)
   and [Composable workflows (goal C)](../priorities.md#composable-workflows-goal-c),
   [`workflows.md`](../workflows.md), issue #295
 - **Preserves:** The CD-0019 mandate method (D2 research-informed shapes);
@@ -39,27 +39,12 @@ What was missing is the record that closes the question.
 
 ## Decision
 
-For definitions declaring `approval_policy=consequence_v1`, the human-checkpoint floor is conditional on recorded decision domains under CD-0013 D11, not on `changes_product_truth`. Engineering still requires a recorded contract, independent outcome evaluation, premise confirmation, and the same completion proof.
-
-
 ### D1. Gated human-checkpoint lifecycle: **absorbed**
 
 The predecessor's strength was never the number seven — it was that a human
-holds authority at consequence boundaries and cannot be routed around by an
-agent mid-flight. Concord preserves that property as typed machinery rather
-than as a fixed gate sequence:
+holds authority at consequence boundaries. Agents ask the operator under
+CD-0243's six classes rather than following a fixed gate sequence.
 
-- **Approval-consequence summaries (CD-0037):** a consequential operation
-  that lacks approval is refused with `approval_required`, and the refusal
-  carries a core-derived consequence summary — never caller prose — so the
-  operator approves against what the system will do, not what the agent says
-  it will do. Scenario `AJ8-approval-required` binds this end to end.
-- **Approval routes on product-changing work:** the workflow registry
-  structurally classifies every definition with `changes_product_truth`, and
-  product-changing definitions must carry an approval route
-  (`TestProductChangingDefinitionsHaveApprovalRoute`).
-  A definition that changes Product truth cannot exist without the human
-  checkpoint; it is unrepresentable, not remembered.
 - **One type among many:** the seven-gate implementation change remains a
   workflow type, not the system shape
   ([Composable workflows (goal C)](../priorities.md#composable-workflows-goal-c)).
@@ -124,16 +109,17 @@ composes under real work.
 
 ## Consequences
 
-- Human approval applies at consequence boundaries declared by workflow
-  definitions, not as a universal seven-gate ceremony.
-- The migration import design may rely on: approval/consequence machinery
-  carrying checkpoint discipline, the outcome contract carrying agreements,
-  and lesson publication carrying durable wisdom — so imported work carries
-  its contract, and imported learnings land as lessons.
-- Shadow exit criteria for Corded should include, explicitly: one approval
-  refused with a correct consequence summary, one completion failed against
-  a weaker delivered end-state, and one lesson published through the archive
-  surface.
+- Operator decisions apply at the consequence boundaries workflow decision
+  domains declare, in conversation under CD-0243's classes, not as a universal
+  seven-gate ceremony.
+- The migration import design may rely on: the workflow contract carrying
+  checkpoint discipline, the outcome contract carrying agreements, and lesson
+  publication carrying durable wisdom — so imported work carries its
+  contract, and imported learnings land as lessons.
+- Shadow exit criteria for Corded should include, explicitly: one
+  consequence-boundary completion refused for missing evidence, one
+  completion failed against a weaker delivered end-state, and one lesson
+  published through the archive surface.
 
 ## Rejected alternatives
 
@@ -163,10 +149,8 @@ Answering after shadow would mean shadow evaluated an unspecified system.
 ## Verification
 
 - Each D-section cites a mechanism that exists and evidence that executes in
-  the required workflow: `AJ8-approval-required` (scenario anchor),
-  workflow-registry approval-route tests (go_test anchors),
-  `WF02`/`WF04`/`WF11` (scenario anchors), and lesson publication and
-  manifest rebuild tests (go_test anchors).
+  the required workflow: workflow-registry tests, `WF02`/`WF04` scenarios,
+  lesson publication and manifest rebuild tests.
 - The record shard `.concord/docs/knowledge/records/CD-0053.json` records CD-0053 once.
 - `python3 scripts/check-json.py`, `check-doc-links.py`, and
   `check-knowledge-index.py` pass.

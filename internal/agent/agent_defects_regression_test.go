@@ -146,30 +146,8 @@ func TestRegressionDefect2_LifecycleFilterAcceptsSuperseded(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Defect 3 — terminal lifecycle transitions must refuse missing evidence
-// with the typed missing_evidence error and recovery_action=provide_evidence,
-// and (separately) must mint a real approval_ref when evidence IS present.
-// ---------------------------------------------------------------------------
-//
-// Pre-fix failure mode (D3): a single guard at mutations.go:1107 conflated
-// missing evidence with missing approval and returned approval_required
-// without ever calling requiresApproval, so the agent received an
-// unactionable response ("request_approval") with no approval_ref to act
-// on. Completing or cancelling any work item through the agent surface
-// was therefore impossible: the agent could not progress past the gate
-// because no challenge was ever minted.
-//
-// Post-fix behaviour: missing evidence is refused with kind=missing_evidence,
-// recovery_action=provide_evidence, and details.required_kind=verification.
-// The presence of evidence then lets the normal challenge-minting path
-// execute and emit a real approval_ref the agent can sign against.
-
 // TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence pins
-// the missing-evidence side of the D3 repair: a complete transition with
-// NO evidence must fail closed with kind=missing_evidence and recovery
-// provide_evidence, and no approval_ref should be surfaced (because the
-// agent has nothing to approve until it supplies evidence).
+// the terminal transition's verification-evidence requirement.
 func TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
@@ -198,11 +176,6 @@ func TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence(t *test
 	if requiredKind, _ := resp.Error.Details["required_kind"].(string); requiredKind != "verification" {
 		t.Fatalf("error.details.required_kind=%q, want verification", requiredKind)
 	}
-	// Crucially, the missing-evidence refusal must NOT carry an
-	// approval_ref — the agent has nothing to approve yet.
-	if _, hasApproval := resp.Error.Details["approval_ref"]; hasApproval {
-		t.Fatalf("missing_evidence refusal leaked approval_ref; the agent cannot act on a challenge for unsupplied evidence")
-	}
 }
 
 // CD-0243 D3/D7 retire terminal-status consent while retaining evidence.
@@ -227,9 +200,6 @@ func TestRegressionDefect3_TerminalWithEvidenceCompletesWithoutConsent(t *testin
 	}
 	if got := workLifecycle(t, s, "work-1"); got != "completed" {
 		t.Fatalf("lifecycle=%s, want completed", got)
-	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
-		t.Fatalf("ordinary completion minted %d challenges", got)
 	}
 }
 

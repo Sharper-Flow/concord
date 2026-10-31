@@ -18,7 +18,6 @@ type WorkflowComposition struct {
 	StalenessRules        []WorkflowStalenessRule
 	CompositionRules      WorkflowCompositionRules
 	EvaluatorIndependence WorkflowEvaluatorIndependence
-	ApprovalPolicy        string
 	Parts                 []WorkflowPartUse
 }
 
@@ -90,8 +89,8 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 			actions = append(actions, action)
 		}
 	}
-	if composition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
-		actions = withConsequenceConfirmPremise(actions)
+	if index := slices.Index(available, "approve_contract"); index >= 0 {
+		actions[index].Payload.Fields = append(slices.Clone(actions[index].Payload.Fields), workflowDecisionFactField())
 	}
 	changesProductTruth := workKindMayChangeProductTruth(composition.WorkKind)
 	definition := cloneWorkflowDefinition(WorkflowDefinition{
@@ -101,7 +100,7 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 		AvailableActions: available, ActionDefinitions: actions,
 		RequiredEvidenceKinds: composition.RequiredEvidenceKinds, OutcomeSchema: composition.OutcomeSchema, RigorRules: composition.RigorRules,
 		StalenessRules: composition.StalenessRules, CompositionRules: composition.CompositionRules, EvaluatorIndependence: composition.EvaluatorIndependence,
-		RecoveryRoutes: routes, ApprovalPolicy: composition.ApprovalPolicy,
+		RecoveryRoutes: routes,
 	})
 	if err := ValidateWorkflowDefinition(definition); err != nil {
 		return WorkflowDefinition{}, err
@@ -137,7 +136,6 @@ func forwardOnlyComposition(successors ...WorkKind) WorkflowCompositionRules {
 func currentImplementationComposition() WorkflowComposition {
 	return WorkflowComposition{
 		Ref: "workflow.implementation", WorkKind: WorkKindImplementation,
-		ApprovalPolicy:        WorkflowApprovalPolicyConsequenceV1,
 		RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification, EvidenceReview, EvidenceArtifact},
 		OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}},
 		RigorRules:            workflowPrototypeRigorRules(), StalenessRules: []WorkflowStalenessRule{},
@@ -159,7 +157,6 @@ func currentImplementationComposition() WorkflowComposition {
 func currentBreakFixComposition() WorkflowComposition {
 	return WorkflowComposition{
 		Ref: "workflow.break_fix", WorkKind: WorkKindBreakFix,
-		ApprovalPolicy:        WorkflowApprovalPolicyConsequenceV1,
 		RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification, EvidenceArtifact},
 		OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}},
 		RigorRules:            workflowPrototypeRigorRules(), StalenessRules: []WorkflowStalenessRule{},
@@ -179,7 +176,6 @@ func currentBreakFixComposition() WorkflowComposition {
 func currentResearchComposition() WorkflowComposition {
 	return WorkflowComposition{
 		Ref: "workflow.research", WorkKind: WorkKindResearch,
-		ApprovalPolicy:        WorkflowApprovalPolicyConsequenceV1,
 		RequiredEvidenceKinds: []EvidenceKind{EvidenceArtifact},
 		OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}},
 		RigorRules:            workflowPrototypeRigorRules(), StalenessRules: []WorkflowStalenessRule{},
@@ -192,35 +188,4 @@ func currentResearchComposition() WorkflowComposition {
 			{Ref: "part.close", StepID: "complete", RecoveryTo: "investigate"},
 		},
 	}
-}
-
-// withConsequenceConfirmPremise declares the human decision-context digest
-// optional on a consequence_v1 confirm_premise: engineering confirmation is
-// the coordinator's own confirm choice and carries no human digest, while a
-// decision-bearing confirmation still answers the operator question, whose
-// digest the confirmation validates (CD-0013 D11, CD-0129). The copy leaves
-// the shared catalog declaration unmutated.
-func withConsequenceConfirmPremise(actions []WorkflowActionDefinition) []WorkflowActionDefinition {
-	selected := slices.Clone(actions)
-	optionalDigest := func(payload WorkflowPayloadDefinition) WorkflowPayloadDefinition {
-		fields := slices.Clone(payload.Fields)
-		for index := range fields {
-			if fields[index].Name == "decision_context_digest" {
-				fields[index].Required = false
-			}
-		}
-		payload.Fields = fields
-		return payload
-	}
-	for index := range selected {
-		if selected[index].ID != "confirm_premise" {
-			continue
-		}
-		selected[index].Payload = optionalDigest(selected[index].Payload)
-		if selected[index].PublicPayload != nil {
-			public := optionalDigest(*selected[index].PublicPayload)
-			selected[index].PublicPayload = &public
-		}
-	}
-	return selected
 }

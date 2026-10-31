@@ -18,7 +18,7 @@ import (
 // unknown_scope, and that the reads leave the store revision unchanged.
 func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObservation {
 	t.Helper()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
 	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -29,12 +29,12 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "aj4-history-"+actionID)
 		version = workOneVersion(t, s)
 	}
-	approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsForSeededRegistry(t, s), "aj4-history-approve")
+	approved, _ := approvedWorkflowContract(t, s, service, env, version, workflowContractFieldsForSeededRegistry(t, s), "aj4-history-approve")
 	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract = %+v", approved.Error)
 	}
 	version = recordApprovedWorkDesign(t, s, service, env, "work-1", "aj4-history-design")
-	superseded, _ := approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, "supersede_contract", map[string]any{
+	superseded, _ := dispatchWorkflowActionResult(t, s, service, env, version, "supersede_contract", map[string]any{
 		"contract_version":     2,
 		"premise":              "corrected premise",
 		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
@@ -55,7 +55,7 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 			"decisions":    []map[string]any{{"id": "decision:corrected", "question": "Which approach?", "choice": "corrected", "rationale": "Matches the approved objective", "rejected": []string{"original"}}},
 			"touched_refs": []string{"src/work.go"},
 		},
-	}, "aj4-history-supersede", map[string]any{"work": version, "contract": 1})
+	}, "aj4-history-supersede")
 	if superseded.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("supersede_contract = %+v", superseded.Error)
 	}

@@ -45,7 +45,4 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 	if done.Pinned.Pin.Lifecycle != "completed" || len(done.Pinned.Pin.VerifiedCriteria) != 1 || done.Pinned.Contract.Version != 1 {
 		t.Fatalf("factual correction did not complete on its original contract: %+v", done.Pinned)
 	}
-	if countWorkflowApprovalChallenges(t, f.s) != 0 || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`) != 0 || f.env.HostApproval != nil {
-		t.Fatal("factual documentation correction required an operator prompt")
-	}
 }

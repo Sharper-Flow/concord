@@ -38,7 +38,7 @@ func TestWorkPinEvidenceAdmitsTheDeclaredLocatorBound(t *testing.T) {
 func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	seedCurrentWorkflowDomainFixture(t, s)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -54,7 +54,7 @@ func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 
 	// CD-0198 D2: one typed record_diagnosis carries the three sections the
 	// separate reproduction, alignment, and root-cause actions recorded.
-	response, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "record_diagnosis", map[string]any{
+	response, after := ekbDispatch(t, s, service, env, workID, version, "record_diagnosis", map[string]any{
 		"reproduction": "The bounded defect reproduction statement.",
 		"searched":     "The bounded backlog search statement.",
 		"outcome":      "none_found",
@@ -63,16 +63,16 @@ func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record_diagnosis: %+v", response.Error)
 	}
-	response, after = ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "approve_contract", workflowContractFieldsForSeededRegistry(t, s), nil, "wpeb-approve")
+	response, after = ekbDispatch(t, s, service, env, workID, after, "approve_contract", workflowContractFieldsForSeededRegistry(t, s), nil, "wpeb-approve")
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract: %+v", response.Error)
 	}
 	// CD-0198 D3: the qualifying checkpoint claims the derived start.
-	response, after = ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "checkpoint_repair", map[string]any{}, nil, "wpeb-start")
+	response, after = ekbDispatch(t, s, service, env, workID, after, "checkpoint_repair", map[string]any{}, nil, "wpeb-start")
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("checkpoint_repair: %+v", response.Error)
 	}
-	bound, _ := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": long}, nil, "wpeb-bind")
+	bound, _ := ekbDispatch(t, s, service, env, workID, after, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": long}, nil, "wpeb-bind")
 	if bound.Outcome == agentcontract.OutcomeOK || bound.Error == nil || bound.Error.Kind != "invalid_input" {
 		t.Fatalf("bind_evidence accepted the %d-byte locator: %+v", len(long), bound.Error)
 	}

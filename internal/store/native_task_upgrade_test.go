@@ -160,7 +160,11 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 		t.Fatalf("predecessor genuine correction=%+v err=%v", direction, err)
 	}
 	report, err := Upgrade(t.Context(), path, nil)
-	if err != nil || report.SchemaVersion != CurrentSchemaVersion() || len(report.Applied) != 1 || report.Applied[0] != m.Version {
+	var wantApplied []int
+	for version := m.Version; version <= CurrentSchemaVersion(); version++ {
+		wantApplied = append(wantApplied, version)
+	}
+	if err != nil || report.SchemaVersion != CurrentSchemaVersion() || !reflect.DeepEqual(report.Applied, wantApplied) {
 		t.Fatalf("authorized native upgrade=%+v err=%v", report, err)
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT name,checksum,breaking FROM schema_migrations WHERE version=?`, m.Version); !reflect.DeepEqual(got, [][]any{{m.Name, m.checksum(), int64(1)}}) {

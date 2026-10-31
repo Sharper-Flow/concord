@@ -246,7 +246,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 	t.Run("engineering to decision revision over a confirmed predecessor preserves attribution and refuses stale authority", func(t *testing.T) {
 		t.Parallel()
 		const workID = "decision-fact-revise-e2d"
-		s, registry, definition, owner, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
+		s, registry, definition, owner := seedApprovalItemAtAcceptance(t, workID, []string{})
 		ownerRef := ownerRefForTest(t, owner)
 		if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)}); err != nil {
 			t.Fatalf("the executing coordinator's engineering confirmation refused: %v", err)
@@ -303,22 +303,16 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if staleVersionErr == nil || !failureAs(staleVersionErr, &staleVersionFailure) || staleVersionFailure.Kind != KindInvalidPayload || !strings.Contains(staleVersionFailure.Detail, "supersession invalidated") {
 			t.Fatalf("the stale-version confirmation returned %v, want the supersession-invalidated refusal", staleVersionErr)
 		}
-		// The predecessor's human digest cannot answer the successor's open
-		// question; the successor's own derived digest can. The stateless
-		// selection chain owns the digest comparison, so a stale digest
-		// refuses as stale-or-forged instead of behind the admission layer's
-		// artifact staleness.
+		// The selection chain answers from the same coordinator fold: any
+		// human digest refuses as undeclared on the contract-bearing work,
+		// and the digest-less coordinator selection records nothing.
 		staleDigestErr := factWriteOperatorSelection(t, s, registry, workID, predecessorDigest)
 		var staleDigestFailure *Failure
-		if staleDigestErr == nil || !failureAs(staleDigestErr, &staleDigestFailure) || staleDigestFailure.Kind != KindStaleRequiresReview || !strings.Contains(staleDigestFailure.Detail, "stale or forged") {
-			t.Fatalf("the predecessor digest selection returned %v, want the stale-or-forged refusal", staleDigestErr)
+		if staleDigestErr == nil || !failureAs(staleDigestErr, &staleDigestFailure) || staleDigestFailure.Kind != KindInvalidPayload || !strings.Contains(staleDigestFailure.Detail, "carries no human decision-context digest") {
+			t.Fatalf("the predecessor digest selection returned %v, want the no-human-digest refusal", staleDigestErr)
 		}
-		successorDigest := approvalDecisionDigest(t, s, workID)
-		if successorDigest == predecessorDigest {
-			t.Fatal("the decision successor's digest equals the predecessor's; the old digest could answer the new contract")
-		}
-		if err := factWriteOperatorSelection(t, s, registry, workID, successorDigest); err != nil {
-			t.Fatalf("the successor's own derived digest refused the operator selection: %v", err)
+		if err := factWriteOperatorSelection(t, s, registry, workID, ""); err != nil {
+			t.Fatalf("the digest-less coordinator selection refused: %v", err)
 		}
 		if _, inherited := approvalPremiseConfirmationRow(t, s, workID, 2); inherited {
 			t.Fatal("the read-only stale-authority checks recorded a successor confirmation")
@@ -332,14 +326,14 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 	t.Run("decision to engineering revision over a confirmed predecessor preserves attribution and refuses stale authority", func(t *testing.T) {
 		t.Parallel()
 		const workID = "decision-fact-revise-d2e"
-		s, registry, definition, owner, actors := seedApprovalItemAtAcceptance(t, workID, []string{"product"})
+		s, registry, definition, owner := seedApprovalItemAtAcceptance(t, workID, []string{"product"})
 		base := factWriteActiveContract(t, s, workID)
 		digest := approvalDecisionDigest(t, s, workID)
-		if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, &actors.operator, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`), "decision_context_digest": json.RawMessage(`"` + digest + `"`)}); err != nil {
-			t.Fatalf("the verified operator's decision confirmation refused: %v", err)
+		if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)}); err != nil {
+			t.Fatalf("the executing coordinator's decision confirmation refused: %v", err)
 		}
-		if confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, base); !ok || confirmed != actors.operatorRef {
-			t.Fatalf("the decision confirmation row = %q (present %v), want the verified operator %s", confirmed, ok, actors.operatorRef)
+		if confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, base); !ok || confirmed != ownerRefForTest(t, owner) {
+			t.Fatalf("the decision confirmation row = %q (present %v), want the executing coordinator %s", confirmed, ok, ownerRefForTest(t, owner))
 		}
 		confirmID := factWriteLatestEventID(t, s, workID, WorkflowPremiseConfirmed)
 		confirmEvent := factWriteEventDigestByID(t, s, confirmID)
@@ -373,11 +367,11 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if actor := latestApprovalEventActor(t, s, workID, WorkflowPremiseConfirmed); actor != confirmActor {
 			t.Fatalf("the revision moved the confirmation attribution to %q, want %s preserved", actor, confirmActor)
 		}
-		if confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, base); !ok || confirmed != actors.operatorRef {
-			t.Fatalf("the revision moved the confirmation row to %q (present %v), want the verified operator preserved", confirmed, ok)
+		if confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, base); !ok || confirmed != ownerRefForTest(t, owner) {
+			t.Fatalf("the revision moved the confirmation row to %q (present %v), want the executing coordinator preserved", confirmed, ok)
 		}
 		if _, inherited := approvalPremiseConfirmationRow(t, s, workID, base+1); inherited {
-			t.Fatal("the engineering successor inherited the operator's confirmation row")
+			t.Fatal("the engineering successor inherited the predecessor's confirmation row")
 		}
 		if version := readWorkVersion(t, s, workID); version != baselineVersion+1 {
 			t.Fatalf("the revision left the work at version %d, want the one derived advance from %d", version, baselineVersion)
@@ -434,8 +428,10 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 	t.Run("the copied decision-fact declaration selects on the new policy and keeps every legacy declaration byte-identical", func(t *testing.T) {
 		t.Parallel()
 
-		newPolicy := WorkflowDefinition{ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1,
-			ActionDefinitions: []WorkflowActionDefinition{currentActionDefinition("approve_contract", true)}}
+		declaredApprove := currentActionDefinition("approve_contract", true)
+		declaredApprove.Payload.Fields = append(append(append([]WorkflowPayloadField{}, declaredApprove.Payload.Fields...), workflowLawChangeFields()...), workflowDecisionFactField())
+		newPolicy := WorkflowDefinition{
+			ActionDefinitions: []WorkflowActionDefinition{declaredApprove}}
 		fact := workflowDecisionFactField()
 		if fact.Name != "decision_domains" || fact.ValueType != PayloadStringList || !fact.Required {
 			t.Fatalf("the copied decision-fact field = %+v, want the required decision_domains string list", fact)
@@ -771,22 +767,23 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 	t.Run("the declaration consumers agree with the decision-fact owner", func(t *testing.T) {
 		t.Parallel()
 		const workID = "decision-fact-consumer-new-policy"
-		s, registry, definition, _, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
+		s, registry, definition, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
 		ctx := context.Background()
 
 		// The dispatch answer must come from the pin itself, never from the
 		// selector under test or the builtin policy.
 		pinnedInitial := workflowActionDefinitionByID(definition, "approve_contract")
 		expectedInitial := pinnedInitial
-		expectedInitial.Payload.Fields = factWriteExpectedSelection(pinnedInitial.Payload.Fields)
+		// The composed head declares the fact; the selection keeps it in
+		// place and appends the law-change inputs it does not declare.
+		expectedInitial.Payload.Fields = append(slices.Clone(pinnedInitial.Payload.Fields), workflowLawChangeFields()...)
 		_, initialAction, err := WorkflowActionDefinitionFor(ctx, s, registry, workID, "approve_contract")
 		if err != nil {
-			t.Fatalf("dispatch refused the new-policy initial action: %v", err)
+			t.Fatalf("dispatch refused the declared initial action: %v", err)
 		}
 		if !reflect.DeepEqual(initialAction, expectedInitial) {
-			t.Fatalf("dispatch resolved the new-policy initial action %+v, want the pinned initial declaration with the one canonical fact", initialAction)
+			t.Fatalf("dispatch resolved the declared initial action %+v, want the pinned declaration with the law-change inputs appended", initialAction)
 		}
-		assertFactWriteFieldsCarryFact(t, "the dispatched initial action", initialAction.Payload.Fields, pinnedInitial.Payload.Fields)
 		_, recoveryAction, err := WorkflowActionDefinitionFor(ctx, s, registry, workID, "supersede_contract")
 		if err != nil {
 			t.Fatalf("the supersede recovery discovery refused beside the active contract: %v", err)
@@ -886,7 +883,22 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		t.Parallel()
 		definition := approvalRouteDefinition(t)
 		legacy := definition
-		legacy.ApprovalPolicy = ""
+		legacy.ActionDefinitions = slices.Clone(definition.ActionDefinitions)
+		for index := range legacy.ActionDefinitions {
+			if legacy.ActionDefinitions[index].ID != "approve_contract" {
+				continue
+			}
+			action := legacy.ActionDefinitions[index]
+			fields := make([]WorkflowPayloadField, 0, len(action.Payload.Fields))
+			for _, field := range action.Payload.Fields {
+				if field.Name == "decision_domains" {
+					continue
+				}
+				fields = append(fields, field)
+			}
+			action.Payload.Fields = fields
+			legacy.ActionDefinitions[index] = action
+		}
 		for _, pinCase := range []struct {
 			name       string
 			definition WorkflowDefinition
@@ -959,23 +971,23 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("discovery refused the pinned closed initial declaration: %v", err)
 		}
-		if discovered.Consequence != pinned.Consequence || discovered.Approval != pinned.Approval || discovered.ExecutionMode != pinned.ExecutionMode || discovered.RequiredCapability != pinned.RequiredCapability {
-			t.Errorf("discovery resolved metadata %+v, want the pinned action's %+v", WorkflowActionDefinition{ID: discovered.ID, Consequence: discovered.Consequence, Approval: discovered.Approval, ExecutionMode: discovered.ExecutionMode, RequiredCapability: discovered.RequiredCapability}, WorkflowActionDefinition{ID: pinned.ID, Consequence: pinned.Consequence, Approval: pinned.Approval, ExecutionMode: pinned.ExecutionMode, RequiredCapability: pinned.RequiredCapability})
+		if discovered.Consequence != pinned.Consequence || discovered.ExecutionMode != pinned.ExecutionMode || discovered.RequiredCapability != pinned.RequiredCapability {
+			t.Errorf("discovery resolved metadata %+v, want the pinned action's %+v", WorkflowActionDefinition{ID: discovered.ID, Consequence: discovered.Consequence, ExecutionMode: discovered.ExecutionMode, RequiredCapability: discovered.RequiredCapability}, WorkflowActionDefinition{ID: pinned.ID, Consequence: pinned.Consequence, ExecutionMode: pinned.ExecutionMode, RequiredCapability: pinned.RequiredCapability})
 		}
 		if !discovered.Payload.Closed {
 			t.Errorf("discovery resolved an open initial payload for the pinned closed declaration")
 		}
-		expectedFields := factWriteExpectedSelection(pinned.Payload.Fields)
 		if count := countDecisionDomainFields(discovered.Payload.Fields); count != 1 {
 			t.Errorf("discovery resolved %d decision_domains fields, want exactly the one canonical fact", count)
 		}
-		if !reflect.DeepEqual(discovered.Payload.Fields, expectedFields) {
-			t.Errorf("discovery resolved fields %+v, want the %d pinned fields with the one canonical fact appended", discovered.Payload.Fields, len(pinned.Payload.Fields))
+		wantPinned := append(slices.Clone(pinned.Payload.Fields), workflowLawChangeFields()...)
+		if !reflect.DeepEqual(discovered.Payload.Fields, wantPinned) {
+			t.Errorf("discovery resolved fields %+v, want the pinned declaration with its fact kept and the law-change inputs appended", discovered.Payload.Fields)
 		}
 		if discovered.PublicPayload == nil || !discovered.PublicPayload.Closed {
 			t.Errorf("discovery dropped the pinned closed PublicPayload: %+v", discovered.PublicPayload)
 		}
-		expectedPublicFields := factWriteExpectedSelection(pinned.PublicPayload.Fields)
+		expectedPublicFields := append(slices.Clone(pinned.PublicPayload.Fields), workflowLawChangeFields()...)
 		var wantRequired []string
 		for _, field := range expectedPublicFields {
 			if field.Required {
@@ -1329,26 +1341,28 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			t.Errorf("the selection mutated the global builtin approve_contract policy")
 		}
 
-		// A declared but optional wrong-bounds fact is still a declaration:
-		// the selector replaces it once, at its position, in both payload
-		// shapes, selection over its own answer is a fixpoint, and the local
+		// A declared wrong-bounds fact is still a declaration: the selector
+		// replaces it once, at its position, in both payload shapes,
+		// selection over its own answer is a fixpoint, and the local
 		// declaration bytes stay untouched.
 		wrongAction := factWritePinnedApproveAction(false)
-		wrongFact := WorkflowPayloadField{Name: "decision_domains", ValueType: PayloadStringList, Required: false, MinItems: workflowInt(2), MaxItems: workflowInt(3), Enum: []string{"economics"}}
+		wrongFact := WorkflowPayloadField{Name: "decision_domains", ValueType: PayloadStringList, Required: true, MinItems: workflowInt(2), MaxItems: workflowInt(3), Enum: []string{"economics"}}
 		insertAt := func(fields []WorkflowPayloadField, fact WorkflowPayloadField, index int) []WorkflowPayloadField {
 			grown := make([]WorkflowPayloadField, 0, len(fields)+1)
 			grown = append(grown, fields[:index]...)
 			grown = append(grown, fact)
 			return append(grown, fields[index:]...)
 		}
-		payloadWithout := wrongAction.Payload.Fields
-		publicWithout := wrongAction.PublicPayload.Fields
+		payloadWithout := slices.Clone(wrongAction.Payload.Fields)
+		payloadWithout = payloadWithout[:len(payloadWithout)-1]
+		publicWithout := slices.Clone(wrongAction.PublicPayload.Fields)
+		publicWithout = publicWithout[:len(publicWithout)-1]
 		mid := len(payloadWithout) / 2
 		wrongAction.Payload.Fields = insertAt(payloadWithout, wrongFact, mid)
 		wrongAction.PublicPayload.Fields = insertAt(publicWithout, wrongFact, 1)
 		wantPayload := append(insertAt(payloadWithout, workflowDecisionFactField(), mid), workflowLawChangeFields()...)
 		wantPublic := append(insertAt(publicWithout, workflowDecisionFactField(), 1), workflowLawChangeFields()...)
-		wrongDefinition := WorkflowDefinition{ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1, ActionDefinitions: []WorkflowActionDefinition{wrongAction}}
+		wrongDefinition := WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{wrongAction}}
 		wrongBefore, wrongErr := json.Marshal(wrongDefinition)
 		if wrongErr != nil {
 			t.Fatal(wrongErr)
@@ -1366,7 +1380,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if wrongSelected.PublicPayload == nil || !reflect.DeepEqual(wrongSelected.PublicPayload.Fields, wantPublic) {
 			t.Errorf("the selection resolved public fields %+v, want the wrong-bounds public declaration replaced in place", wrongSelected.PublicPayload)
 		}
-		again, againErr := workflowDecisionFactInitialActionDefinition(WorkflowDefinition{ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1, ActionDefinitions: []WorkflowActionDefinition{wrongSelected}})
+		again, againErr := workflowDecisionFactInitialActionDefinition(WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{wrongSelected}})
 		if againErr != nil {
 			t.Fatalf("the selector refused its own selected declaration: %v", againErr)
 		}
@@ -1518,7 +1532,7 @@ func factWriteEventDigestByID(t *testing.T, s *Store, eventID string) string {
 // coordinator's confirmation through the constructor+fold seam. It returns the baseline work version.
 func seedFactWriteConfirmedEngineering(t *testing.T, workID string) (*Store, DefinitionRegistry, WorkflowDefinition, WorkflowActor, int64) {
 	t.Helper()
-	s, registry, definition, owner, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
+	s, registry, definition, owner := seedApprovalItemAtAcceptance(t, workID, []string{})
 	if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)}); err != nil {
 		t.Fatalf("the executing coordinator's confirmation refused on the confirmed seed: %v", err)
 	}
@@ -1600,12 +1614,6 @@ func assertFactWritePredecessorPreserved(t *testing.T, s *Store, workID string, 
 	}
 	if confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, 1); !ok || confirmed != confirmedBy {
 		t.Fatalf("the refused successor write moved the confirmation row to %q (present %v), want %q preserved", confirmed, ok, confirmedBy)
-	}
-	if challenges := approvalChallengeCount(t, s); challenges != 0 {
-		t.Fatalf("the refused successor write left %d persisted consent challenges, want the zero-challenge state", challenges)
-	}
-	if kind := approvalKindEvidenceCount(t, s, workID); kind != 0 {
-		t.Fatalf("the refused successor write left %d approval-kind evidence bindings, want none fabricated or consumed", kind)
 	}
 	assertNoFoldGuardRows(t, s)
 }
@@ -1834,9 +1842,12 @@ func factWritePinnedApproveAction(alreadyDeclaresFact bool) WorkflowActionDefini
 		grown = append(grown, payloadFields[index:]...)
 		payloadFields = grown
 		publicFields = []WorkflowPayloadField{distinctPremise(), workflowDecisionFactField(), distinctEvidence()}
+	} else {
+		payloadFields = append(payloadFields, workflowDecisionFactField())
+		publicFields = append(publicFields, workflowDecisionFactField())
 	}
 	return WorkflowActionDefinition{
-		ID: "approve_contract", Consequence: ActionInternalSQLite, Approval: ActionApprovalRequired,
+		ID: "approve_contract", Consequence: ActionInternalSQLite,
 		ExecutionMode: ActionHold, RequiredCapability: "work_transition",
 		Payload:       WorkflowPayloadDefinition{Closed: true, Fields: payloadFields},
 		PublicPayload: &WorkflowPayloadDefinition{Closed: true, Fields: publicFields},

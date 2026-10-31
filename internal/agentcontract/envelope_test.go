@@ -146,7 +146,6 @@ func TestCorrectRequestRequiresPreEffectInputRefusal(t *testing.T) {
 			{"invalid_input", EffectPartial, false},
 			{"invalid_input", EffectNone, true},
 			{"unauthorized", EffectNone, false},
-			{"approval_required", EffectNone, false},
 		} {
 			e := NewCoreError(NewBase("input-coupling", "concord_work_transition", "lifecycle"), TypedError{Kind: test.kind, EffectState: test.effect, RetrySafe: test.retry, RecoveryAction: RecoveryAction{Kind: "correct_request"}})
 			e.Origin = origin
@@ -507,19 +506,17 @@ func TestEnvelopeAllowsBoundedListErrorDetails(t *testing.T) {
 	e := NewBase("req", "concord_work_define", "capture")
 	e.Authority = AuthorityAuthoritative
 	envelope := NewCoreError(e, TypedError{
-		Kind:           "approval_required",
-		RecoveryAction: RecoveryAction{Kind: "request_approval"},
+		Kind:           "missing_evidence",
+		RecoveryAction: RecoveryAction{Kind: "provide_evidence"},
 		EffectState:    EffectNone,
 		Details: map[string]any{
-			"approval_ref":     "apr-0000000000000000000000000000000000000001",
 			"scope":            []string{"product:PM1", "project:PM1.Q1"},
 			"versions":         []string{"work:3"},
 			"operation_digest": "sha256:abc",
 		},
-		ConsequenceSummary: &ConsequenceSummary{Tool: "concord_work_define", Operation: "capture", Consequence: "product_write", OperationDigest: "sha256:" + strings.Repeat("a", 64), Scope: []string{"product_id:PM1"}, Versions: []string{"work:3"}, ExpiresAt: "2026-08-20T00:00:00Z"},
 	})
 	if _, err := envelope.Encode(); err != nil {
-		t.Fatalf("bounded approval details rejected: %v", err)
+		t.Fatalf("bounded list details rejected: %v", err)
 	}
 }
 
@@ -528,8 +525,8 @@ func TestEnvelopeRejectsNestedErrorDetails(t *testing.T) {
 	e := NewBase("req", "concord_work_define", "capture")
 	e.Authority = AuthorityAuthoritative
 	envelope := NewCoreError(e, TypedError{
-		Kind:           "approval_required",
-		RecoveryAction: RecoveryAction{Kind: "request_approval"},
+		Kind:           "invariant_violation",
+		RecoveryAction: RecoveryAction{Kind: "provide_evidence"},
 		EffectState:    EffectNone,
 		Details:        map[string]any{"scope": map[string]any{"product_ids": []string{"PM1"}}},
 	})

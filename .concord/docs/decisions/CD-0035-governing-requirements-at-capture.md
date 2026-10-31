@@ -63,9 +63,9 @@ requirement set that does not cover the scope's requirements.
 **D4 — Enumeration confers no authority.** The declared set is not a
 self-assertion of compliance. A caller can only match the applicable set or fail;
 it cannot assert satisfaction, weaken a requirement, or mark one inapplicable.
-The single path to a reduced set is an operator-approved scope cut carried by the
-existing core-issued approval machinery — the legislative moment CD-0006 D5
-requires, recorded auditably rather than taken silently. This preserves the
+The single path to a reduced set is an explicit, recorded scope cut authorized
+by the `cross_scope` capability. Operator decisions follow CD-0243 D2 in
+conversation; a capability does not supply the operator's decision. This preserves the
 call-authority rule that caller prose and self-asserted booleans confer no
 authority.
 

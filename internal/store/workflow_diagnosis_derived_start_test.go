@@ -618,7 +618,7 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 	s := fixture.store
 	current := workContextFixture{store: s, workID: workID, owner: fixture.owner, operator: fixture.operator}
 	journey := &candidateJourney{fixture: current, s: s, workID: workID, repo: reviewFixtureDirectory(t, s, workID), acceptor: fixture.owner}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner); err != nil {
 		t.Fatalf("supersede the contract at the complete step: %v", err)
 	}
 	if step := currentStep(t, s, workID); step != "repair" {

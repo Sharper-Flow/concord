@@ -123,7 +123,7 @@ func workflowOperatorQuestion(workID string, workVersion int64, definition Workf
 
 // workflowOperatorQuestionTx returns the open question for the current step,
 // or the reason its question is withheld. Exactly one of the two is non-nil,
-// and both are nil when the step declares no approval-required action. It is
+// and both are nil when the step declares no question-bearing action. It is
 // the builtin convenience: the caller's read definition is verified against
 // the builtin registry, and the shared owner below answers.
 func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentStep string, workVersion int64, definition WorkflowReadDefinition, contract WorkflowReadContract) (*WorkflowOperatorQuestion, *WorkflowOperatorQuestionWithheld, error) {
@@ -131,7 +131,7 @@ func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentS
 	if err != nil {
 		return nil, nil, err
 	}
-	confirmation, err := foldWorkflowConfirmationTx(ctx, q, workID, entry.Definition)
+	confirmation, err := foldWorkflowConfirmationTx(ctx, q, workID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -142,25 +142,19 @@ func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentS
 // owner. The caller's verified definition resolves the pinned shape and the
 // caller supplies the one folded confirmation answer — the state's fields or
 // a light foldWorkflowConfirmationTx read — so no consumer classifies a
-// second time: engineering work projects neither a question nor a
-// withholding, decision work projects the exact question its digest binds,
-// and a missing or malformed new-policy fact withholds the question with
-// its typed reason.
+// second time: an active contract projects neither a question nor a
+// withholding, because its coordinator confirmation records directly, and a
+// legacy pin projects the exact question its digest binds.
 func workflowOperatorQuestionForDefinitionTx(ctx context.Context, q queryer, workID, currentStep string, workVersion int64, definition WorkflowDefinition, readDefinition WorkflowReadDefinition, contract WorkflowReadContract, confirmation workflowConfirmationFold) (*WorkflowOperatorQuestion, *WorkflowOperatorQuestionWithheld, error) {
 	// The step's shape decides first: a step that declares no
-	// approval-required action projects no question and no withholding,
+	// question-bearing action projects no question and no withholding,
 	// whatever the folded confirmation answer says.
 	actionID, ok := workflowOperatorQuestionAction(definition, currentStep)
 	if !ok {
 		return nil, nil, nil
 	}
-	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
-		if confirmation.factFailure != nil {
-			return nil, &WorkflowOperatorQuestionWithheld{ActionID: actionID, Reason: confirmation.factFailure.Detail, Remedy: confirmation.factFailure.RecoveryAction}, nil
-		}
-		if confirmation.authority == WorkflowConfirmationCoordinator {
-			return nil, nil, nil
-		}
+	if confirmation.authority == WorkflowConfirmationCoordinator {
+		return nil, nil, nil
 	}
 	if err := requireRecordedInvestigationArtifact(ctx, q, workID); err != nil {
 		var failure *Failure
@@ -307,7 +301,7 @@ func boundedQuestionText(value string, upper int) string {
 }
 
 // ValidateWorkflowOperatorSelectionForRegistry verifies the semantic answer
-// before any grant, approval challenge, or mutation authority is consumed. A
+// before any grant or mutation authority is consumed. A
 // caller registry verifies the stored pin through itself with no builtin
 // fallback; a nil registry verifies against the builtin registry. The read
 // opens and closes one read transaction.
@@ -338,7 +332,7 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	if err != nil {
 		return err
 	}
-	confirmation, err := foldWorkflowConfirmationTx(ctx, tx, request.WorkID, entry.Definition)
+	confirmation, err := foldWorkflowConfirmationTx(ctx, tx, request.WorkID)
 	if err != nil {
 		return err
 	}
@@ -406,13 +400,7 @@ func validateWorkflowOperatorSelectionCoreTx(ctx context.Context, tx *sql.Tx, en
 		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow contract predicates are unavailable", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	contract.OutcomePredicates = predicates
-	engineering := false
-	if entry.Definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
-		if confirmation.factFailure != nil {
-			return confirmation.factFailure
-		}
-		engineering = confirmation.authority == WorkflowConfirmationCoordinator
-	}
+	engineering := confirmation.authority == WorkflowConfirmationCoordinator
 	if engineering {
 		// Engineering: the coordinator records its own confirm choice — no
 		// human digest, no operator question, and the recorded investigation

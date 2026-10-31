@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-13
 - **Scope:** Correction of delivered work after an unhealthy verification verdict
-- **Related:** CD-0013, CD-0116, CD-0124, CD-0138, CD-0209, CD-0242
+- **Related:** CD-0013, CD-0124, CD-0138, CD-0209, CD-0242
 - **Preserves:** Contract authority, native evidence, applicable approvals,
   subject bindings and fail-closed completion
 
@@ -18,10 +18,9 @@ verdict healthy.
 ### D1. Admit one typed verdict-correction action
 
 `request_correction` requires delivered work and a current unhealthy verdict,
-diagnosis, strategy, affected predicates/findings and bound evidence. Under
-`approval_policy=consequence_v1`, an authenticated coordinator records it
-without operator approval. Other applicable recorded approval requirements
-remain. No subagent failure disposition is a prerequisite or alternate ground.
+diagnosis, strategy, affected predicates/findings and bound evidence. An
+authenticated coordinator records it. No subagent failure disposition is a
+prerequisite or alternate ground.
 
 ### D2. Return to the declared external effect
 

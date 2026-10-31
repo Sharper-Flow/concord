@@ -81,9 +81,6 @@ func testLargeMembershipApprovalRoundTrip(t *testing.T, projectCount int) {
 	if _, err := approved.Encode(); err != nil {
 		t.Fatalf("large membership response must serialize: %v", err)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
-		t.Fatalf("ordinary membership minted %d challenges", got)
-	}
 	got, err := s.ProjectsForWork(ctx, "work-1")
 	if err != nil || len(got) != len(projects) || workVersion(t, s, "work-1") != 3 {
 		t.Fatalf("approved membership = %+v, err = %v", got, err)
@@ -102,7 +99,7 @@ func testLargeMembershipApprovalRoundTrip(t *testing.T, projectCount int) {
 	}
 }
 
-func TestMembershipScopeDoesNotUseApprovalSummaryCapacity(t *testing.T) {
+func TestMembershipScopeSupportsTwentyOneProjects(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, projects := largeMembershipApprovalFixture(t, 21)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -128,7 +125,7 @@ func TestMembershipScopeDoesNotUseApprovalSummaryCapacity(t *testing.T) {
 	if _, err := json.Marshal(response); err != nil {
 		t.Fatalf("ordinary large membership must serialize: %v", err)
 	}
-	if workVersion(t, s, "work-1") != 3 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`) != 0 {
-		t.Fatal("ordinary membership did not change work exactly once without a challenge")
+	if workVersion(t, s, "work-1") != 3 {
+		t.Fatal("ordinary membership did not change work exactly once")
 	}
 }

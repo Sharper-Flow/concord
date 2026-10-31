@@ -9,17 +9,13 @@ import (
 	"time"
 )
 
-func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, owner WorkflowActor, operator WorkflowActor) error {
+func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, owner WorkflowActor) error {
 	t.Helper()
 	ctx, err := prepareTerminalTestContext(context.Background(), s, workID, action)
 	if err != nil {
 		return err
 	}
 	version := readWorkVersion(t, s, workID)
-	operatorActor := &operator
-	if action == "supersede_contract" && workflowApprovalPolicyRequiresDecisionFact(pinnedWorkflowDefinitionForTest(t, s, workID)) {
-		operatorActor = nil
-	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -27,7 +23,7 @@ func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, pa
 	defer tx.Rollback()
 	operationID := fmt.Sprintf("issue933-%s-%s-%d", action, workID, version)
 	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner, OperatorActor: operatorActor,
+		WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
 		ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC(),
@@ -43,7 +39,7 @@ func TestIssue933OperatorActionSupersedesAsCurrentCoordinator(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	defer fixture.store.Close()
 	successor := returnRouteSuccessorPayload(2, workID, 1)
-	if err := runIssue933OperatorAction(t, fixture.store, workID, "supersede_contract", successor, fixture.owner, fixture.operator); err != nil {
+	if err := runIssue933OperatorAction(t, fixture.store, workID, "supersede_contract", successor, fixture.owner); err != nil {
 		t.Fatalf("current-policy coordinator supersession: %v", err)
 	}
 	if version, active := activeContractState(t, fixture.store, workID); version != 2 || active != 1 {

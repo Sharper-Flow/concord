@@ -133,9 +133,9 @@ required-review checks.
 |---|---|
 | `priorities.md` Constraints; Appendix A: A1 axis key, R3, S, U, P1, P5, P10, P12, A2 rows 3, 4, 7, 9; Appendix B row 3 | Roles, six approval classes, law-change and data-safety decisions |
 | CD-0230 D4, D5 | Law-change authority, approval classes, listed gaps, recovery |
-| CD-0013 D11 | Workflow consent classification and routine actions |
+| CD-0013 D11 | Conversational operator decisions and routine actions |
 | CD-0006 D5, D10; CD-0159 D4; CD-0218 D1; CD-0222 D1, D4, D5 | Law mandates and enactment require approval only under D2 |
-| CD-0033; CD-0037; CD-0096; CD-0118; CD-0122; CD-0166; CD-0198; CD-0215; CD-0217; CD-0222 D6; CD-0229 | Operator consent for their operations applies only under D2; D5 governs recovery |
+| CD-0033; CD-0096; CD-0118; CD-0122; CD-0166; CD-0198; CD-0215; CD-0217; CD-0222 D6; CD-0229 | Operator consent for their operations applies only under D2; D5 governs recovery |
 | CD-0154 D2 | Four roles, optional RTE and Planner, direct operator routing |
 | TS1, TS4, TS9 contracts; TS5 §5; clarifications TS1–TS9 binding; PM9 contract; CD-0029 | Retained approval gaps for overlap, cancellation, removal, repair, reconciliation, and research deletion apply only under D2 |
 
@@ -143,10 +143,9 @@ An operation that grants access
 still requires security approval; routine work management does not acquire
 that class merely because it changes a record.
 
-The conflict table, consent classifier, and generated instructions must
+The conflict table and generated instructions must
 implement this law. Until they do, their mismatches are implementation gaps,
-not permission for an agent to bypass their current gates. Removing a consent
-gate does not remove any other required check.
+not permission for an agent to bypass their current gates.
 
 ### D7. The remaining owners use the same approval boundary
 
@@ -167,9 +166,9 @@ requires operator consent only when a D2 class applies.
 | CD-0216 retirement contract | Physical research-pack deletion requires operator consent only under D2 |
 | CD-0218 D2 | Recovery consent follows D2; current admission and safety requirements remain |
 | `priorities.md` quality and visibility clauses | Law-change and contract-supersession approval follows D2, not seriousness |
-| TS4 operation rows and overlap criteria; TS8 overlap proofs; TS1 and clarifications overlap summaries | Version-pinned overlap resolutions consume operator approval only under D2 |
+| TS4 operation rows and overlap criteria; TS8 overlap proofs; TS1 and clarifications overlap summaries | Version-pinned overlap resolutions retain their scope checks; conversational operator approval follows D2 |
 | PM6 publication sequence and content lock; TS4 publication row; PM9 payload summary | The durable publication intent freezes exact content and home; it is not operator approval |
-| Workflow-engine contract and workflows outcome-contract and transition tables | Current contract and supersession consent follows D2; released historical definitions retain their pinned rules |
+| Workflow-engine contract and workflows outcome-contract and transition tables | Conversational operator decisions about contracts and supersession follow D2 |
 | PM10 emergency-salvage recovery record | The recovery record remains required; operator consent follows D2, not the absence of a verified snapshot alone |
 | CD-0015 relation authoring and `law_modifies`; CD-0040 D7 | Law-relation, law-delta, and freshness-policy revisions follow D4; they require operator approval only under D2 |
 
@@ -180,10 +179,6 @@ information needed to decide the task is missing. An agent may evolve law
 within its scope and record why. It never silently cuts governed scope.
 Legislative standing remains unchanged. The documentation index summarizes
 these requirements.
-
-The predecessor operational-coverage assessment distinguishes existing
-approval-mechanism evidence from proof of the six-class classification.
-It does not establish that the boundary is enforced at runtime.
 
 These amendments change consent, not other admission. Authentication,
 capability, source and actor identity, exact versions, scope, execution

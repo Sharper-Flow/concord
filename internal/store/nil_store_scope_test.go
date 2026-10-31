@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"testing"
-	"time"
 )
 
 func TestUnopenedStoreScopeMethods(t *testing.T) {
@@ -12,10 +11,6 @@ func TestUnopenedStoreScopeMethods(t *testing.T) {
 	assertUnopenedStoreTypedFailure(t, []nilStoreCase{
 		{"WorktreeAudit", func(s *Store) error {
 			_, err := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "prod-1", Limit: 10})
-			return err
-		}},
-		{"BlockedSessions", func(s *Store) error {
-			_, err := s.BlockedSessions(ctx, time.Time{}, nil, 10)
 			return err
 		}},
 	})

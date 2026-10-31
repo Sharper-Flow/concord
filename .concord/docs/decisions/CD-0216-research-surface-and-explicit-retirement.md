@@ -19,7 +19,7 @@ Destruction needs its own explicit authorized operation rather than an archive o
 
 ## Decision
 
-Explicit retirement follows CD-0013 D11: non-dry-run physical deletion always requires exact operator approval; dry-run does not. Candidate identity, version, Product authorization, terminal-owner and active-consumer protections remain mandatory. Neither eligibility nor ordinary research-edit authority grants deletion consent.
+Explicit retirement requires candidate identity, version, Product authorization, terminal-owner and active-consumer protections. Operator decisions follow CD-0243 in conversation. Eligibility and ordinary research-edit authority do not waive these checks.
 
 
 ### D1. One research capability and mutation surface

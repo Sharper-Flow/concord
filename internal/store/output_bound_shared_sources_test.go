@@ -85,12 +85,9 @@ func init() {
 	// points, hex pattern — the admission is a full-string bound), a
 	// Go-minted sha256 form (64 bare hex, 71 with the sha256: prefix;
 	// internal/store/bootstrap.go work/boot identity,
-	// internal/store/workflow.go:workflowDigest echo guard, the approval
-	// operation digest minted over the canonical operation), or a persisted
+	// internal/store/workflow.go:workflowDigest echo guard), or a persisted
 	// echo of one of those values. The echo columns' TEXT length() CHECKs
-	// (agent_grants manifest_digest, agent_approvals operation_digest and
-	// protected_evidence_digest, agent_approval_challenges
-	// operation_digest and host_assertion_digest, workflow_instances
+	// (agent_grants manifest_digest, workflow_instances
 	// definition_digest) measure only the NUL-terminated prefix under the
 	// NUL model, so they prove no full-string capacity and are not cited.
 	// Raw writer named for the parent, not claimed: the host assertion

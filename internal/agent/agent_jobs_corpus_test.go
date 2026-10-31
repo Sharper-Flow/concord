@@ -350,43 +350,20 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 	t.Helper()
 	supplied, suppliedOK := obs.Effects["evidence_authority_supplied"].(bool)
 	required, requiredOK := obs.Effects["missing_evidence_refused"].(bool)
-	consumed, consumedOK := obs.Effects["approval_authority_consumed"].(bool)
-	// A third shape: the consequence needed operator authority that was withheld,
-	// so it was refused before any effect. That is neither evidence supplied nor
-	// a missing-evidence refusal, and CD-0035's governing-law conflict is the
-	// first scenario to exercise it.
-	withheld, withheldOK := obs.Effects["approval_authority_withheld"].(bool)
-	// A fifth shape: the core minted an approval challenge and returned the
-	// consent prompt (CD-0037). The authority evidence is the challenge itself.
-	minted, mintedOK := obs.Effects["approval_challenge_minted"].(bool)
-	if mintedOK {
-		_ = minted // recorded; the cross-checks below are the substance
-	}
+	// A third shape: the consequence needed the operator's choice and the
+	// governing-law refusal withheld the effect. That is neither evidence
+	// supplied nor a missing-evidence refusal, and CD-0035's governing-law
+	// conflict is the first scenario to exercise it.
+	withheld, withheldOK := obs.Effects["operator_choice_withheld"].(bool)
 	// A fourth refusal shape: the request itself was inadmissible against the
 	// declared contract — a budget above the operation ceiling — and was
 	// refused before any effect rather than clamped (CD-0038 D3). The probe is
 	// the binding's: no durable state changed and the idempotency key stayed
 	// reusable, which together rule out the silent clamp.
 	refused, refusedOK := obs.Effects["refused_before_effect"].(bool)
-	if !suppliedOK && !requiredOK && !withheldOK && !consumedOK && !refusedOK && !mintedOK {
-		t.Error("evidence_authority: binding did not record supplied, refused, withheld, consumed, budget-refused, or challenge-minted authority evidence")
+	if !suppliedOK && !requiredOK && !withheldOK && !refusedOK {
+		t.Error("evidence_authority: binding did not record supplied, refused, withheld, or budget-refused authority evidence")
 		return
-	}
-	if consumedOK && !consumed {
-		t.Error("evidence_authority: approval_authority_consumed is false")
-	}
-	if minted {
-		commErrMinted, ok := obs.Communication["error"].(map[string]any)
-		if !ok {
-			t.Error("evidence_authority: approval_challenge_minted but no error map in communication")
-			return
-		}
-		if kind, _ := commErrMinted["kind"].(string); kind != "approval_required" {
-			t.Errorf("evidence_authority: approval_challenge_minted but error.kind=%q, want approval_required", kind)
-		}
-		if summary, _ := obs.Communication["consequence_summary"].(map[string]any); len(summary) == 0 {
-			t.Error("evidence_authority: minted challenge without the typed consequence_summary the operator prompt renders from")
-		}
 	}
 	if refused {
 		// Cross-check the wire: an inadmissible request must surface as the
@@ -396,22 +373,22 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 		}
 	}
 	if withheld {
-		// Cross-check the wire: withholding authority must return the choice to
-		// the operator, not merely fail. Kind, recovery, and the option list are
-		// all required to be coherent.
+		// Cross-check the wire: withholding the effect must return a typed
+		// refusal naming the omitted requirements and the operator route.
+		// Kind, recovery, and the violations list are required to be coherent.
 		commErr, ok := obs.Communication["error"].(map[string]any)
 		if !ok {
-			t.Error("evidence_authority: approval_authority_withheld but no error map in communication")
+			t.Error("evidence_authority: operator_choice_withheld but no error map in communication")
 			return
 		}
-		if kind, _ := commErr["kind"].(string); kind != "invariant_violation" {
-			t.Errorf("evidence_authority: approval_authority_withheld but error.kind=%q, want invariant_violation", kind)
+		if kind, _ := commErr["kind"].(string); kind != "unauthorized" {
+			t.Errorf("evidence_authority: operator_choice_withheld but error.kind=%q, want unauthorized", kind)
 		}
 		if recovery, _ := commErr["recovery_action"].(string); recovery != "contact_operator" {
-			t.Errorf("evidence_authority: approval_authority_withheld but recovery_action=%q, want contact_operator", recovery)
+			t.Errorf("evidence_authority: operator_choice_withheld but recovery_action=%q, want contact_operator", recovery)
 		}
-		if options, _ := obs.Communication["options"].([]any); len(options) == 0 {
-			t.Error("evidence_authority: approval_authority_withheld but no operator options were offered")
+		if violations, _ := commErr["violations"].([]any); len(violations) == 0 {
+			t.Error("evidence_authority: operator_choice_withheld but no omitted requirements were named")
 		}
 	}
 	if supplied && !suppliedOK {
@@ -484,8 +461,7 @@ func invariantGroundTruthCleanup(t *testing.T, obs jobObservation) {
 // invariantHonestRecovery enforces the recovery contract: the typed
 // error must name a recovery_action.kind the agent can actually act
 // on, and structural fields the runner relies on (current_version
-// for version_conflict, violations for invalid_relation, approval_ref
-// for approval_required) must be present. Bindings write the typed
+// for version_conflict, violations for invalid_relation) must be present. Bindings write the typed
 // fields directly into the error map; this check verifies the wire
 // shape end-to-end.
 func invariantHonestRecovery(t *testing.T, obs jobObservation) {
@@ -518,23 +494,6 @@ func invariantHonestRecovery(t *testing.T, obs jobObservation) {
 		violations, _ := commErr["violations"].([]any)
 		if len(violations) == 0 {
 			t.Error("honest_recovery: invalid_relation without structural violations")
-		}
-	case "approval_required":
-		if approvalRef, _ := commErr["approval_ref"].(string); approvalRef == "" {
-			// approval_ref is not part of communication.error by
-			// convention; bindings surface it under authority when
-			// it exists. If neither is present the agent cannot act.
-			if ar, _ := obs.Authority["approval_ref"].(string); ar == "" {
-				t.Error("honest_recovery: approval_required without an approval_ref the agent can sign against")
-			}
-		}
-		// CD-0037 D2: whenever the core minted a challenge, the prompt is the
-		// typed summary derived from the challenge's own facts. A minted
-		// challenge without one is the unsafe approval prompt this law closed.
-		if ar, _ := obs.Authority["approval_ref"].(string); ar != "" {
-			if summary, _ := obs.Communication["consequence_summary"].(map[string]any); len(summary) == 0 {
-				t.Error("honest_recovery: minted approval challenge without a typed consequence_summary")
-			}
 		}
 	case "budget_refused":
 		// CD-0038 D3: the recovery value a caller needs is a typed field.
@@ -1031,8 +990,8 @@ func TestAgentJobsCorpus(t *testing.T) {
 
 	// The corpus count is pinned so scenario removal cannot masquerade as a
 	// complete binding run.
-	if len(corpus.Scenarios) != 21 {
-		t.Fatalf("corpus declares %d scenarios, want 21", len(corpus.Scenarios))
+	if len(corpus.Scenarios) != 20 {
+		t.Fatalf("corpus declares %d scenarios, want 20", len(corpus.Scenarios))
 	}
 
 	for _, sc := range corpus.Scenarios {
@@ -1067,7 +1026,7 @@ func TestAgentJobsCorpus(t *testing.T) {
 func TestAgentJobsApprovalBindings(t *testing.T) {
 	wanted := map[string]bool{
 		"AJ4-complete-valid-work": false, "AJ4-completion-missing-evidence": false,
-		"AJ4-stale-version": false, "AJ8-approval-required": false,
+		"AJ4-stale-version":  false,
 		"AJ8-budget-refused": false, "AJ8-health-failure-rollback": false,
 	}
 	for _, sc := range loadAgentJobsCorpus(t).Scenarios {
@@ -1191,20 +1150,6 @@ func envelopeToObservation(resp agentcontract.Envelope) jobObservation {
 			errMap["supported_budget_seconds"] = float64(resp.Error.SupportedBudgetSeconds)
 		}
 		obs.Communication["error"] = errMap
-		// CD-0037 D1: the typed approval prompt is an envelope affordance, so
-		// the corpus reads it from the envelope rather than from a binding's
-		// prose. It rides communication directly, the way options do.
-		if resp.Error.ConsequenceSummary != nil {
-			obs.Communication["consequence_summary"] = map[string]any{
-				"tool":             resp.Error.ConsequenceSummary.Tool,
-				"operation":        resp.Error.ConsequenceSummary.Operation,
-				"consequence":      resp.Error.ConsequenceSummary.Consequence,
-				"operation_digest": resp.Error.ConsequenceSummary.OperationDigest,
-				"scope":            resp.Error.ConsequenceSummary.Scope,
-				"versions":         resp.Error.ConsequenceSummary.Versions,
-				"expires_at":       resp.Error.ConsequenceSummary.ExpiresAt,
-			}
-		}
 		// CD-0035 D1: the operator-choice list is a typed envelope affordance, so
 		// the corpus reads it from the envelope rather than from a binding's prose.
 		if len(resp.Error.Options) > 0 {
@@ -1213,23 +1158,6 @@ func envelopeToObservation(resp agentcontract.Envelope) jobObservation {
 				options[i] = option
 			}
 			obs.Communication["options"] = options
-		}
-		// CD-0037 D1: the consequence summary is a typed envelope affordance
-		// derived from the minted challenge facts, not binding prose.
-		if resp.Error.ConsequenceSummary != nil {
-			summary := resp.Error.ConsequenceSummary
-			scope := make([]any, len(summary.Scope))
-			for i, binding := range summary.Scope {
-				scope[i] = binding
-			}
-			versions := make([]any, len(summary.Versions))
-			for i, binding := range summary.Versions {
-				versions[i] = binding
-			}
-			obs.Communication["consequence_summary"] = map[string]any{
-				"tool": summary.Tool, "operation": summary.Operation, "consequence": summary.Consequence,
-				"operation_digest": summary.OperationDigest, "scope": scope, "versions": versions, "expires_at": summary.ExpiresAt,
-			}
 		}
 	}
 	if len(resp.Result) > 0 {
@@ -1416,7 +1344,6 @@ func init() {
 	jobBindings["AJ4-history-of-a-superseded-contract"] = bindAJ4HistoryOfASupersededContract
 	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap
 	jobBindings["AJ5-footprint-of-a-change"] = bindAJ5FootprintOfAChange
-	jobBindings["AJ8-approval-required"] = bindAJ8ApprovalRequired
 	jobBindings["AJ8-budget-refused"] = bindAJ8BudgetRefused
 	jobBindings["AJ8-health-failure-rollback"] = bindAJ8HealthFailureRollback
 }

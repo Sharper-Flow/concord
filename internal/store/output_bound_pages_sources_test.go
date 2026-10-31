@@ -1084,7 +1084,6 @@ func pkStructFieldType(goS *goSource, structName, field string) string {
 // ---------------------------------------------------------------------------
 
 func init() {
-	registerOutputBound("/$defs/blocked_sessions_page/properties/sessions/maxItems", goInlineBound("internal/store/blocked_sessions.go", "blockedSessionsCore", "limit", boundItems))
 
 	registerOutputBound("/$defs/blocked_work_page/properties/edges/maxItems", goConstantBound("internal/store/query.go", "q4MaxEdgeLimit", boundItems))
 	registerOutputBound("/$defs/blocked_work_page/properties/items/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
@@ -1176,14 +1175,6 @@ func init() {
 	))
 	registerOutputBound("/$defs/product_context/properties/projects/maxItems", unboundedOutput("internal/store/query.go:readProjectMemberships reads every product_projects row with no LIMIT and the membership folds enforce only unique edges and a single primary, never a per-Product count", "internal/agent/runtime.go:readSizeRefusal"))
 
-	// The challenge folds carry no length guard for the probed host directory
-	// or worktree: CreateApprovalChallengeTx stores authority.Directory and
-	// authority.Worktree verbatim and agent_approval_challenges declares no
-	// length CHECK on either column in the final DDL.
-	registerOutputBound("/$defs/product_row_blocked_session/properties/blocked_since/maxLength", pkTimeLayoutWidthBound("internal/agent/authority.go", "CreateApprovalChallengeTx", "time.RFC3339Nano"))
-	registerOutputBound("/$defs/product_row_blocked_session/properties/directory/maxLength", unboundedOutput("the challenge record stores authority.Directory verbatim (internal/agent/authority.go:CreateApprovalChallengeTx) and agent_approval_challenges carries no length CHECK on directory in the final DDL, so the probed host path of any length projects into the read", "internal/agent/runtime.go:readSizeRefusal"))
-	registerOutputBound("/$defs/product_row_blocked_session/properties/worktree/maxLength", unboundedOutput("the challenge record stores authority.Worktree verbatim (internal/agent/authority.go:CreateApprovalChallengeTx) and agent_approval_challenges carries no length CHECK on worktree in the final DDL, so the probed worktree path of any length projects into the read", "internal/agent/runtime.go:readSizeRefusal"))
-
 	registerOutputBound("/$defs/product_snapshot/properties/previews/maxItems", goInlineBound("internal/agent/runtime_read_handlers.go", "readProductSnapshot", "preview", boundItems))
 
 	registerOutputBound("/$defs/project_handoff_consume_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume", "mutationResultChangedRefs"))
@@ -1240,24 +1231,6 @@ func init() {
 
 	registerOutputBound("/$defs/work_page/properties/items/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 	registerOutputBound("/$defs/work_page/properties/readiness_evidence/maxItems", pkFieldNeverWrittenBound("readiness_evidence", boundItems, "internal/agent/runtime.go", "internal/agent/runtime_read_handlers.go"))
-
-	registerOutputBound("/$defs/work_relate_client_policy_grant_request_result/properties/added_agent_scope/maxItems", goCallBound("internal/agent/authority.go", "unionPolicyExpansion", "unionPolicyJSON", "agent scope", 4, boundItems))
-	registerOutputBound("/$defs/work_relate_client_policy_grant_request_result/properties/added_capabilities/maxItems", goCallBound("internal/agent/authority.go", "unionPolicyExpansion", "unionPolicyJSON", "capabilities", 4, boundItems))
-	registerOutputBound("/$defs/work_relate_client_policy_grant_request_result/properties/added_product_scope/maxItems", goCallBound("internal/agent/authority.go", "unionPolicyExpansion", "unionPolicyJSON", "product scope", 4, boundItems))
-	registerOutputBound("/$defs/work_relate_client_policy_grant_request_result/properties/added_project_scope/maxItems", goCallBound("internal/agent/authority.go", "unionPolicyExpansion", "unionPolicyJSON", "project scope", 4, boundItems))
-
-	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/affected_work_ids/maxItems", pkCollectStopBound("internal/store/membership.go", "membershipImpact", "len(impact.AffectedWorkIDs)"))
-	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/changed_refs/maxItems", pkLiteralSliceItemsBound("internal/agent/mutations.go", "recordLinkTx"))
-	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/event_ids/maxItems", pkSubsetChainItemsBound(
-		pkCompositeFieldItemsBound("internal/agent/mutations.go", "recordLinkTx"),
-		pkSubsetLink{file: "internal/store/membership.go", function: "membershipImpact", source: "operation.Events", target: "impact.EventIDs"},
-	))
-	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/next_valid_intents/items/properties/required_fields/maxItems", schemaBound("contracts/workflow-definition.schema.json", "/$defs/payloadDefinition/properties/fields/maxItems"))
-	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/next_valid_intents/maxItems", sumBound(
-		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
-	))
 
 	registerOutputBound("/$defs/work_relation_graph/properties/edges/maxItems", unboundedOutput("internal/store/query.go:readRelationDepth and readQ8DirectEdges apply no LIMIT and the relations table caps nothing per work, so a depth-1 read returns one edge per related work without bound", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_relation_graph/properties/nodes/maxItems", pkEmptyLiteralItemsBound("internal/agent/runtime.go", "q8", "nodes"))
@@ -2724,7 +2697,6 @@ func TestPkDerivations(t *testing.T) {
 		"body guard":     goInlineBound("internal/store/work_messages.go", "foldMessageSent", "len(p.Body)", boundBytes),
 		"domain name":    goInlineBound("internal/store/knowledge_manifest.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Name)", boundCharacters),
 		"manifest id":    goInlineBound("internal/store/knowledge_manifest.go", "validManifestID", "utf8.RuneCountInString(value)", boundCharacters),
-		"event subset":   pkSubsetChainItemsBound(pkCompositeFieldItemsBound("internal/agent/mutations.go", "recordLinkTx"), pkSubsetLink{file: "internal/store/membership.go", function: "membershipImpact", source: "operation.Events", target: "impact.EventIDs"}),
 		"blockers":       pkAppendSitesItemsBound("internal/store/project_handoffs.go", "EvaluateProjectSessionRetirement", "out.Blockers"),
 		"refusal kinds":  pkTypedConstVocabularyLongestBound("FailureKind", "internal/store/errors.go", "internal/store/readiness.go"),
 		"reasons":        pkFieldTextBound("internal/store/worktrees.go", "planStoredRefDeletion", "WorktreeRetainedRef"),

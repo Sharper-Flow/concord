@@ -52,7 +52,7 @@ const staleLawRecoveryActions = "supersede_contract,terminal_work"
 
 func workflowContractRecoveryActionDefinition() WorkflowActionDefinition {
 	return WorkflowActionDefinition{
-		ID: "supersede_contract", Consequence: ActionInternalSQLite, Approval: ActionApprovalRequired, ExecutionMode: ActionAdvance,
+		ID: "supersede_contract", Consequence: ActionInternalSQLite, ExecutionMode: ActionAdvance,
 		// The successor outcome shape — the successor supplies exactly one
 		// outcome group — is engine-owned typed data resolved through
 		// workflowActionCrossField("supersede_contract"), not digest-covered

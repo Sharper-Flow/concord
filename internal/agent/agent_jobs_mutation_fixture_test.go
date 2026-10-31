@@ -123,34 +123,11 @@ func deriveWorkBlocked(t *testing.T, s *store.Store, workID string) bool {
 	return blocked
 }
 
-// injectApproval merges {"approval":{"approval_ref":"..."}} into a
-// strict-decoded mutation input. The input is otherwise opaque so we
-// decode into map[string]any and re-emit; the schema validator runs
-// after this and refuses unknown fields, so the approval block must
-// already be declared in the operation's input schema.
-func injectApproval(raw []byte, ref string) ([]byte, error) {
+func injectUnknownMutationField(raw []byte, value string) ([]byte, error) {
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, err
 	}
-	m["approval"] = map[string]any{"approval_ref": ref}
+	m["unknown_field"] = value
 	return json.Marshal(m)
-}
-
-// nonceForChallenge derives a deterministic but unique approval nonce
-// from the challenge ref. The signed approval assertion is
-// single-nonce per signature window so the agent can replay the
-// captured nonce deterministically. The returned string is at least
-// 16 characters long so the validator at
-// internal/agent/authority.go:784 accepts it.
-func nonceForChallenge(ref string) string {
-	out := []byte("agent-jobs-approve-")
-	if len(ref) > 64 {
-		ref = ref[:64]
-	}
-	out = append(out, []byte(ref)...)
-	for len(out) < 32 {
-		out = append(out, byte('0'))
-	}
-	return string(out)
 }

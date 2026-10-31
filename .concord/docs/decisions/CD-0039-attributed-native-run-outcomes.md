@@ -131,9 +131,8 @@ and agent payload schemas, generated clients, docs, and registry definitions
 move in one change.
 
 Tightening the current arbitrary workflow-action field bag into required typed
-phase payloads is a TS8 major change. It may share CD-0037's major release if the
-implementations land together; otherwise it opens its own major line. There is
-no compatibility alias. Old clients regenerate, old/new pairs fail closed at
+phase payloads is a TS8 major change. There is no compatibility alias.
+Old clients regenerate, old/new pairs fail closed at
 bootstrap, and pre-amendment records never acquire a native status
 retroactively. Existing completed workflow-action operations replay as their
 recorded generic result; there are no native reports to infer from them. This

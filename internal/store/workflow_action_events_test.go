@@ -272,7 +272,7 @@ func TestWorkflowContractApprovalPinsLawBoundaryForLegacySurface(t *testing.T) {
 	}
 }
 
-func issue31ActorSetup(t *testing.T, workID string) (*Store, WorkflowActor, WorkflowActor, int64) {
+func issue31ActorSetup(t *testing.T, workID string) (*Store, WorkflowActor, int64) {
 	t.Helper()
 	s := openTemp(t)
 	seedWork(t, s, workID)
@@ -298,7 +298,7 @@ func issue31ActorSetup(t *testing.T, workID string) (*Store, WorkflowActor, Work
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor(workID+":evaluator", WorkflowActorRecorded, workID, evaluatorRef, actorPayload)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
 		t.Fatal(err)
 	}
-	return s, executor, evaluator, 5
+	return s, executor, 5
 }
 
 func TestWorkflowAuthenticatedActorBindingRejectsSpoofedVerdictAndPremise(t *testing.T) {
@@ -313,7 +313,7 @@ func TestWorkflowAuthenticatedActorBindingRejectsSpoofedVerdictAndPremise(t *tes
 	}
 	for _, testCase := range spoofed {
 		t.Run("verdict "+testCase.name, func(t *testing.T) {
-			s, executor, evaluator, version := issue31ActorSetup(t, "spoof-verdict-"+strings.ReplaceAll(testCase.name, " ", "-"))
+			s, executor, version := issue31ActorSetup(t, "spoof-verdict-"+strings.ReplaceAll(testCase.name, " ", "-"))
 			spoofRef, err := WorkflowActorRef(testCase.actor)
 			if err != nil {
 				t.Fatal(err)
@@ -323,7 +323,6 @@ func TestWorkflowAuthenticatedActorBindingRejectsSpoofedVerdictAndPremise(t *tes
 				t.Fatal("spoofed verdict was accepted")
 			}
 			assertIssue31VersionAndNoVerdict(t, s, event.SubjectID, version)
-			_ = evaluator
 		})
 	}
 
@@ -340,15 +339,15 @@ func TestWorkflowAuthenticatedActorBindingRejectsSpoofedVerdictAndPremise(t *tes
 		t.Fatalf("valid verdict left version %d, want it advanced past %d", after, validVersion)
 	}
 
-	s, executor, evaluator, version := issue31ActorSetup(t, "valid-operator-premise")
-	evaluatorRef, _ := WorkflowActorRef(evaluator)
+	s, executor, version := issue31ActorSetup(t, "valid-operator-premise")
+	evaluatorRef, _ := WorkflowActorRef(executor)
 	contract := workflowEventWithActor("valid-contract", WorkflowContractApproved, "valid-operator-premise", evaluatorRef, map[string]any{"work_id": "valid-operator-premise", "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "operator premise", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{contract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "valid-operator-premise"): version}}); err != nil {
 		t.Fatal(err)
 	}
-	premise := workflowEventWithActor("valid-premise", WorkflowPremiseConfirmed, "valid-operator-premise", evaluatorRef, map[string]any{"work_id": "valid-operator-premise", "expected_version": version + 1, "resulting_version": version + 2, "contract_version": 1, "confirming_actor_ref": evaluatorRef, "confirmation_authority": "operator"})
+	premise := workflowEventWithActor("valid-premise", WorkflowPremiseConfirmed, "valid-operator-premise", evaluatorRef, map[string]any{"work_id": "valid-operator-premise", "expected_version": version + 1, "resulting_version": version + 2, "contract_version": 1, "confirming_actor_ref": evaluatorRef, "confirmation_authority": "coordinator"})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{premise}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "valid-operator-premise"): version + 1}}); err != nil {
-		t.Fatalf("valid authenticated operator rejected: %v", err)
+		t.Fatalf("valid authenticated coordinator rejected: %v", err)
 	}
 	_ = executor
 }

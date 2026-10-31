@@ -821,8 +821,8 @@ def preserve_retained_outcome_outputs(defs: dict) -> None:
         fail("the canonical workflow_outcome_decision_record schema is unavailable for retained-output preservation")
 
     # The retained decision record's enforcing guards are the inline
-    # validateDecisionRecord comparisons and the anchored actor/approval
-    # patterns (internal/store/workflow_outcome.go). The canonical per-element
+    # validateDecisionRecord comparisons and the anchored actor pattern
+    # (internal/store/workflow_outcome.go). The canonical per-element
     # text maxima and the supersedes bounds are no store guard, so the output
     # shape replaces them with the whole-predicate decode ceiling instead of
     # pretending the canonical limits are enforced, and it admits exactly the
@@ -858,16 +858,9 @@ def preserve_retained_outcome_outputs(defs: dict) -> None:
     actor_ref = decision_properties.get("reviewer_actor_ref")
     if not isinstance(actor_ref, dict) or actor_ref.get("pattern") != "^actor:[0-9a-f]{64}$" or actor_ref.get("maxLength") != 70:
         fail("the canonical decision record reviewer_actor_ref is not the exact actor-pattern shape; the retained output projection is stale")
-    approval_ref = decision_properties.get("operator_approval_ref")
-    if not isinstance(approval_ref, dict) or approval_ref.get("pattern") != "^approval:[a-z0-9][a-z0-9_.:/-]{1,127}$":
-        fail("the canonical decision record operator_approval_ref does not carry the enforcing approval pattern; the retained output projection is stale")
-    # The enforcing pattern admits 137 characters ("approval:" plus 1 plus
-    # 127); the canonical maxLength 136 would refuse a guard-admitted record,
-    # so the output shape keeps the pattern alone.
-    approval_ref.pop("maxLength", None)
     retained_decision["required"] = [
         "question", "options_considered", "decision", "rationale", "consequences",
-        "inputs", "poc_findings", "reviewer_actor_ref", "operator_approval_ref",
+        "inputs", "poc_findings", "reviewer_actor_ref",
     ]
 
     retained_outcome = copy.deepcopy(live_outcome)
@@ -1102,7 +1095,7 @@ def project_native_oracle_requests(defs: dict) -> None:
     # Projection is idempotent: the legacy branch retains the exact authored
     # command fields and bounds, not oracle properties from a prior run.
     legacy = obj({name: copy.deepcopy(verify["properties"][name]) for name in
-                  ("work_id", "command", "idempotency_key", "approval", "requested_budget_seconds")},
+                  ("work_id", "command", "idempotency_key", "requested_budget_seconds")},
                  ["work_id", "command", "idempotency_key"])
     native_properties = {name: copy.deepcopy(value) for name, value in legacy["properties"].items() if name != "command"}
     native_properties["oracle"] = {"$ref": "#/$defs/native_oracle_request"}
@@ -1408,7 +1401,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         "action_id": {"$ref": "#/$defs/id"},
         "idempotency_key": {"$ref": "#/$defs/id"},
         "evidence": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/evidence"}},
-        "approval": {"$ref": "#/$defs/approval"},
         "research_bindings": {
             "type": "array", "minItems": 1, "maxItems": 16,
             "items": {"type": "object", "additionalProperties": False, "required": ["pack_id", "revision", "use_role", "required"], "properties": {
@@ -1483,17 +1475,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         "properties": {
             "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
             "receipt_refs": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}, "description": "Captured passing producer receipts covering this criterion on the current candidate. Main associates proof; it supplies no verdict or replacement subject."},
-        },
-    }
-    # CD-0230 D4: a serious law change pins the exact text the operator
-    # approves. Each pin names one changed law and the sha256 content hash of
-    # its drafted after-state document; completion refuses other bytes.
-    defs["workflow_law_text_pin"] = {
-        "type": "object", "additionalProperties": False,
-        "required": ["law_id", "content_hash"],
-        "properties": {
-            "law_id": {"$ref": "#/$defs/law_id"},
-            "content_hash": {"type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$"},
         },
     }
     defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"type": "string", "enum": ["hard", "soft", "none"]}, "severity": {"type": "string", "enum": ["breaking", "non-breaking", "informational"]}}}
@@ -1745,19 +1726,6 @@ def check_evidence_bound_parity(payload: dict, envelope: dict) -> None:
                 f"{json.dumps(envelope_bound, ensure_ascii=False, sort_keys=True)}"
             )
 
-def require_mutation_approval_property(operation: dict, input_schema: dict) -> None:
-    """Every mutation can reach the cross-Product approval escalation: the
-    runtime forces requiresApproval whenever the derived Product scope crosses
-    the selected Product, and the approved resubmission carries the core-issued
-    reference in input.approval. So every mutation input must declare the
-    optional typed approval property — a $defs/approval ref, never required —
-    or generation fails before the declared surface and the runtime rule can
-    disagree."""
-    approval_schema = input_schema.get("properties", {}).get("approval")
-    if approval_schema != {"$ref": "#/$defs/approval"} or "approval" in input_schema.get("required", []):
-        fail(f"mutation must expose an optional typed approval property: {operation['id']}")
-
-
 def union_result_branch_requires(branch: object, defs: dict) -> bool:
     """Check requiredness on a closed object branch, resolving one local ref."""
     target = branch
@@ -1788,7 +1756,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 57
+    expected_operations = 54
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -1799,7 +1767,7 @@ def validate(manifest: dict) -> str:
     if any("alias" in o or "alias" in t for o in operations for t in tools):
         fail("aliases are not permitted")
     for op in operations:
-        if set(op) - {"id", "tool", "kind", "availability", "query_id", "input_schema", "result_schema", "capability", "consequence", "approval", "metadata", "supported_budget_seconds"}:
+        if set(op) - {"id", "tool", "kind", "availability", "query_id", "input_schema", "result_schema", "capability", "consequence", "metadata", "supported_budget_seconds"}:
             fail(f"operation section is not closed: {op.get('id')}")
         if set(op["metadata"]) != {"context", "idempotency", "pagination", "output_bytes", "versions"}:
             fail(f"operation metadata is not closed: {op.get('id')}")
@@ -1857,8 +1825,6 @@ def validate(manifest: dict) -> str:
         branch_required=[set(branch.get("required",[])) for branch in input_schema.get("oneOf",[])]
         has_idempotency="idempotency_key" in input_schema.get("required",[]) or bool(branch_required and all("idempotency_key" in branch for branch in branch_required))
         if op["kind"] == "mutation" and not has_idempotency: fail(f"mutation lacks idempotency identity: {op['id']}")
-        if op["kind"] == "mutation":
-            require_mutation_approval_property(op, input_schema)
         if not result_schema.get("required"):
             # Disjoint result shapes can have no common required root field.
             # Each closed union branch must still require its own identity.
@@ -1873,7 +1839,7 @@ def go_projection(manifest: dict, digest: str) -> str:
         f'\t{{ID: "{o["id"]}", Tool: "{o["tool"]}", Operation: "{o["id"].split(".", 1)[1]}", '
         f'Kind: OperationKind("{o["kind"]}"), QueryID: "{o.get("query_id") or ""}", '
         f'Capability: Capability("{o["capability"]}"), Consequence: OperationConsequence("{o["consequence"]}"), '
-        f'Approval: ApprovalClass("{o["approval"]}"), Availability: Availability("{o.get("availability", "always")}"), '
+        f'Availability: Availability("{o.get("availability", "always")}"), '
         f'SupportedBudgetSeconds: {o["supported_budget_seconds"]}, '
         f'InputSchema: "{o["input_schema"].split("/")[-1]}", ResultSchema: "{o["result_schema"].split("/")[-1]}"}}'
         for o in manifest["operations"]
@@ -1899,7 +1865,7 @@ def go_projection(manifest: dict, digest: str) -> str:
             for field, owners in sorted(field_owners[owner_key].items())
         )
         owner_rules.append("\t" + json.dumps(owner_key) + ": map[string][]string{" + fields + "},")
-    return f'''// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.\npackage agentcontract\n\nimport ("encoding/json"; "fmt"; "sort"; "strings")\nconst ManifestDigest = "{digest}"\n\ntype OperationKind string\nconst ( OperationRead OperationKind = "read"; OperationMutation OperationKind = "mutation" )\ntype Capability string\ntype OperationConsequence string\ntype ApprovalClass string\ntype Availability string\nconst ( AvailabilityAlways Availability = "always"; AvailabilityWorkflowDefinition Availability = "workflow_definition" )\ntype ContractOperation struct {{ ID, Tool, Operation string; Kind OperationKind; QueryID string; Capability Capability; Consequence OperationConsequence; Approval ApprovalClass; Availability Availability; SupportedBudgetSeconds int; InputSchema, ResultSchema string }}\nvar ContractOperations = []ContractOperation{{\n{ops},\n}}\nfunc ValidateContractOperation(tool, operation string) (ContractOperation, bool) {{\n    for _, candidate := range ContractOperations {{ if candidate.Tool == tool && candidate.Operation == operation {{ return candidate, true }} }}\n    return ContractOperation{{}}, false\n}}\nfunc WorkflowActionAvailable() bool {{ return false }}\ntype GeneratedPayloadRule struct {{ Required []string; Properties []string }}\nvar GeneratedPayloadRules = map[string]GeneratedPayloadRule{{\n{chr(10).join(rules)}\n}}\nvar GeneratedPayloadFieldOwners = map[string]map[string][]string{{\n{chr(10).join(owner_rules)}\n}}\n// ValidateGeneratedPayload admits an operation's payload against the closed\n// per-operation rule. The published host tool schema is one permissive shape\n// merged across a tool's operations, so a caller can send a field a sibling\n// operation owns; naming that owner here is the only place the caller can\n// learn it, because the published schema cannot discriminate and no validator\n// runs in front of the core.\n// One refusal names every missing required field in declared order, then\n// every undeclared field sorted by name, so a caller repairs the payload in\n// one retry; each segment keeps its per-field message.\nfunc ValidateGeneratedPayload(tool, operation, schemaName string, data []byte, result bool) error {{\n    rule, ok := GeneratedPayloadRules[schemaName]; if !ok {{ return fmt.Errorf("unknown payload schema %s", schemaName) }}\n    var object map[string]json.RawMessage; if err := json.Unmarshal(data, &object); err != nil {{ return fmt.Errorf("payload is not an object: %w", err) }}\n    allowed := map[string]bool{{}}; for _, name := range rule.Properties {{ allowed[name] = true }}\n    segments := []string{{}}\n    for _, name := range rule.Required {{ if _, ok := object[name]; !ok {{ segments = append(segments, fmt.Sprintf("missing payload field %s", name)) }} }}\n    unknown := []string{{}}\n    for name := range object {{ if !allowed[name] {{ unknown = append(unknown, name) }} }}\n    sort.Strings(unknown)\n    direction := "input"; if result {{ direction = "result" }}\n    for _, name := range unknown {{\n        owners := GeneratedPayloadFieldOwners[tool+"/"+direction][name]\n        if len(owners) != 0 {{ segments = append(segments, fmt.Sprintf("unknown payload field %s for operation %s; field is declared by operation(s) %s", name, operation, strings.Join(owners, ", "))) }} else {{ segments = append(segments, fmt.Sprintf("unknown payload field %s", name)) }}\n    }}\n    if len(segments) != 0 {{ return fmt.Errorf("%s", strings.Join(segments, "; ")) }}\n    return nil\n}}\n'''
+    return f'''// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.\npackage agentcontract\n\nimport ("encoding/json"; "fmt"; "sort"; "strings")\nconst ManifestDigest = "{digest}"\n\ntype OperationKind string\nconst ( OperationRead OperationKind = "read"; OperationMutation OperationKind = "mutation" )\ntype Capability string\ntype OperationConsequence string\ntype Availability string\nconst ( AvailabilityAlways Availability = "always"; AvailabilityWorkflowDefinition Availability = "workflow_definition" )\ntype ContractOperation struct {{ ID, Tool, Operation string; Kind OperationKind; QueryID string; Capability Capability; Consequence OperationConsequence; Availability Availability; SupportedBudgetSeconds int; InputSchema, ResultSchema string }}\nvar ContractOperations = []ContractOperation{{\n{ops},\n}}\nfunc ValidateContractOperation(tool, operation string) (ContractOperation, bool) {{\n    for _, candidate := range ContractOperations {{ if candidate.Tool == tool && candidate.Operation == operation {{ return candidate, true }} }}\n    return ContractOperation{{}}, false\n}}\nfunc WorkflowActionAvailable() bool {{ return false }}\ntype GeneratedPayloadRule struct {{ Required []string; Properties []string }}\nvar GeneratedPayloadRules = map[string]GeneratedPayloadRule{{\n{chr(10).join(rules)}\n}}\nvar GeneratedPayloadFieldOwners = map[string]map[string][]string{{\n{chr(10).join(owner_rules)}\n}}\n// ValidateGeneratedPayload admits an operation's payload against the closed\n// per-operation rule. The published host tool schema is one permissive shape\n// merged across a tool's operations, so a caller can send a field a sibling\n// operation owns; naming that owner here is the only place the caller can\n// learn it, because the published schema cannot discriminate and no validator\n// runs in front of the core.\n// One refusal names every missing required field in declared order, then\n// every undeclared field sorted by name, so a caller repairs the payload in\n// one retry; each segment keeps its per-field message.\nfunc ValidateGeneratedPayload(tool, operation, schemaName string, data []byte, result bool) error {{\n    rule, ok := GeneratedPayloadRules[schemaName]; if !ok {{ return fmt.Errorf("unknown payload schema %s", schemaName) }}\n    var object map[string]json.RawMessage; if err := json.Unmarshal(data, &object); err != nil {{ return fmt.Errorf("payload is not an object: %w", err) }}\n    allowed := map[string]bool{{}}; for _, name := range rule.Properties {{ allowed[name] = true }}\n    segments := []string{{}}\n    for _, name := range rule.Required {{ if _, ok := object[name]; !ok {{ segments = append(segments, fmt.Sprintf("missing payload field %s", name)) }} }}\n    unknown := []string{{}}\n    for name := range object {{ if !allowed[name] {{ unknown = append(unknown, name) }} }}\n    sort.Strings(unknown)\n    direction := "input"; if result {{ direction = "result" }}\n    for _, name := range unknown {{\n        owners := GeneratedPayloadFieldOwners[tool+"/"+direction][name]\n        if len(owners) != 0 {{ segments = append(segments, fmt.Sprintf("unknown payload field %s for operation %s; field is declared by operation(s) %s", name, operation, strings.Join(owners, ", "))) }} else {{ segments = append(segments, fmt.Sprintf("unknown payload field %s", name)) }}\n    }}\n    if len(segments) != 0 {{ return fmt.Errorf("%s", strings.Join(segments, "; ")) }}\n    return nil\n}}\n'''
 
 
 def validate_work_start_host_tool(tool: dict) -> None:
@@ -2134,11 +2100,11 @@ export function envelopeFailurePath(value: unknown): string | null {{
 // checks only what the advertised surface teaches. The published request is
 // one compact branch per operation, with the workflow actions grouped under
 // their operation, and approve_contract's and supersede_contract's fields is
-// one closed union: the legacy shape and the consequence_v1 extension. The
+// one closed object: every contract declares its decision domains. The
 // traversal expands the passed document's own local references and factored
 // unions, so every check below reads the legacy-effective view of the actual
-// published document, and every fields check runs on each branch of the
-// fields union, so a branch-only drop cannot hide behind the factored parent.
+// published document, and every fields check runs on each fields branch, so
+// a drop cannot hide behind the factored parent.
 export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   const gaps: string[] = [];
   const expanded: any = expandedPublishedRequestSchema(published);

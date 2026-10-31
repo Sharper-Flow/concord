@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -88,9 +87,6 @@ func TestCompactionTakeoverOfStuckClaimNeedsNoConsent(t *testing.T) {
 	if _, epochs = claims(); !slices.Equal(epochs, []string{"1:pending", "2:completed"}) {
 		t.Fatalf("replay changed claims: %v", epochs)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`); got != 0 {
-		t.Fatalf("ordinary publication minted %d challenges", got)
-	}
 	locator, commit, found := archivedWorkLocator(t, s)
 	if !found || archivedCancelledWorkCount(t, s) != 1 {
 		t.Fatal("takeover did not retain exactly one canonical note")
@@ -147,7 +143,7 @@ func TestWorkflowActionAvailabilityBeforePayloadOrAuth(t *testing.T) {
 	}
 }
 
-func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope) (CallEnvelope, int64) {
+func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *Service, env CallEnvelope) (CallEnvelope, int64) {
 	t.Helper()
 	for _, action := range []string{"record_proposal", "record_alignment"} {
 		fields := map[string]any{}
@@ -174,19 +170,7 @@ func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *S
 	challengeInput := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "approve_contract", "fields": map[string]any{}, "idempotency_key": "boundary-approve"}
 	addWorkflowContractApprovalFields(challengeInput)
 	challengeInput["fields"].(map[string]any)["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
-	challenge := invokeWorkflowBoundary(t, s, service, env, challengeInput, store.BuiltinWorkflowRegistry())
-	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("approval challenge outcome=%s error=%+v", challenge.Outcome, challenge.Error)
-	}
-	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
-	digest := mutationDigest("concord_work_transition", "workflow_action", env, mustJSON(t, challengeInput))
-	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": env.ScopeVersion}
-	versions := map[string]any{"work": version}
-	approvalEnv := env
-	approvalEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "boundary-approval")
-	approved := challengeInput
-	approved["approval"] = map[string]any{"approval_ref": challengeRef}
-	response := invokeWorkflowBoundary(t, s, service, approvalEnv, approved, store.BuiltinWorkflowRegistry())
+	response := invokeWorkflowBoundary(t, s, service, env, challengeInput, store.BuiltinWorkflowRegistry())
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved action=%+v", response)
 	}
@@ -194,19 +178,19 @@ func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *S
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	return approvalEnv, version
+	return env, version
 }
 
 func TestWorkflowActionStrictInvokeBoundaryForStepActorAndPayload(t *testing.T) {
 	t.Parallel()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	env, version := advanceWorkflowBoundaryToExecution(t, s, service, grant, privateKey, env)
+	env, version := advanceWorkflowBoundaryToExecution(t, s, service, env)
 	beforeEffects := workflowReplayEffectCounts(t, s)
 	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "start_execution", "fields": map[string]any{"payload": map[string]any{"current_step": "plan"}}, "idempotency_key": "boundary-malformed-payload"}
 	var before int

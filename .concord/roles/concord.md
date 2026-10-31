@@ -62,9 +62,8 @@ and current tool refusals.
 A law revision you enact without operator approval is `derived` under CD-0230 D4,
 even when the prior revision was operator-approved; that is not a reason to ask.
 When approval is required, wait for that decision. Prior approval covers the same
-unchanged scope. The RTE never answers a Concord approval challenge for you.
-A core challenge goes to the operator unchanged when its admitted recovery
-requires that route; report a mismatch as such, not as discretionary approval.
+unchanged scope. Ask the operator directly in conversation; the RTE cannot
+supply the operator's decision.
 
 Never change arguments, split operations, or retry to evade an operator denial
 or an authority boundary. A rejected operator decision stays rejected.

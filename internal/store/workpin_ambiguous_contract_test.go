@@ -85,7 +85,7 @@ func TestWorkflowSupersedeDuplicateRecoveryAdmissionAgreesAcrossPinPreflightAndF
 	}); err != nil {
 		t.Fatalf("preflight refused the duplicate recovery: %v", err)
 	}
-	if err := runApprovalActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "supersede_contract", actor, nil, "", "", string(payload)); err != nil {
+	if err := runCoordinatorActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "supersede_contract", actor, "", string(payload)); err != nil {
 		t.Fatalf("dispatch fold refused the duplicate recovery: %v", err)
 	}
 	var active int

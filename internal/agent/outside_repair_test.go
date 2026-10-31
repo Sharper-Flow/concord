@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
@@ -653,8 +652,7 @@ func TestOutsideRepairCollectorCanonicalRepositoryReceipt(t *testing.T) {
 	}
 	fake.releaseJSON = fmt.Sprintf(`{"tagName":"%s","isDraft":false,"isPrerelease":false,"url":"https://github.com/%s/releases/tag/%s","publishedAt":"2026-08-07T11:00:00Z"}`, outsideFakeTag, canonical, outsideFakeTag)
 	input := outsideReconcileInput(4, nil)
-	ref := dispatchOutsideMints(t, s, service, env, "outside_repair_reconcile", input)
-	assertOutsideOK(t, dispatchOutsideApproved(t, s, service, env, "outside_repair_reconcile", ref, input), "canonical repository receipt")
+	assertOutsideOK(t, dispatchOutsideInput(t, s, service, env, "outside_repair_reconcile", input), "canonical repository receipt")
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil {
 		t.Fatal(err)
@@ -688,9 +686,8 @@ func TestOutsideRepairCanonicalRepositoryMismatchRefusesFailBefore(t *testing.T)
 			outsideHoldCompletes(t, s, service, env, fake)
 			test.change(fake)
 			input := outsideReconcileInput(4, func(value map[string]any) { value["idempotency_key"] = "outside-reconcile-canonical-mismatch" })
-			ref := dispatchOutsideMints(t, s, service, env, "outside_repair_reconcile", input)
 			fetches := fake.fetches
-			refused := dispatchOutsideApproved(t, s, service, env, "outside_repair_reconcile", ref, input)
+			refused := dispatchOutsideInput(t, s, service, env, "outside_repair_reconcile", input)
 			assertOutsideRefusedWith(t, refused, "canonical repository mismatch", test.kind)
 			if got := outsideWorkVersion(t, s); got != 4 {
 				t.Fatalf("fail-before advanced work version to %d, want 4", got)
@@ -745,8 +742,7 @@ func TestOutsideRepairRequiredWorkflowRuleRefusesMissingEvidence(t *testing.T) {
 				fake.apiOutputs[rulesEndpoint] = `[[{"type":"required_deployments","parameters":{"required_deployment_environments":["production"]}}]]`
 			}
 			input := outsideReconcileInput(4, func(value map[string]any) { value["idempotency_key"] = "outside-reconcile-rule-" + ruleType })
-			ref := dispatchOutsideMints(t, s, service, env, "outside_repair_reconcile", input)
-			refused := dispatchOutsideApproved(t, s, service, env, "outside_repair_reconcile", ref, input)
+			refused := dispatchOutsideInput(t, s, service, env, "outside_repair_reconcile", input)
 			assertOutsideRefusedWith(t, refused, ruleType+"/required rule", "missing_evidence")
 			if got := outsideWorkVersion(t, s); got != 4 {
 				t.Fatalf("%s rule advanced work version to %d, want 4", ruleType, got)
@@ -999,14 +995,11 @@ func TestOutsideRepairTagRejectsNonCommitObject(t *testing.T) {
 	}
 }
 
-func outsideHoldInput(expectedVersion int64, mutate func(map[string]any)) map[string]any {
+func outsideHoldInput(expectedVersion int64) map[string]any {
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": expectedVersion,
 		"reason":          "bounded defect repair outside the blocked workflow route",
 		"idempotency_key": "outside-hold-1",
-	}
-	if mutate != nil {
-		mutate(input)
 	}
 	return input
 }
@@ -1043,87 +1036,13 @@ func outsideResumeInput(expectedVersion int64, mutate func(map[string]any)) map[
 // the plan defaults (selected Product, ambient Project, scope version) plus
 // the derived Product scope for the bound work ids, optionally with the
 // completed reconcile's bounded release selectors.
-func outsideApprovalScope(env CallEnvelope, selectors func(map[string]any)) map[string]any {
-	scope := map[string]any{
-		"product_id":    env.SelectedProductID,
-		"product_ids":   []string{env.SelectedProductID},
-		"project_ids":   []string{env.AmbientProjectID},
-		"scope_version": env.ScopeVersion,
-		"work_ids":      []string{"work-1"},
-	}
-	if selectors != nil {
-		selectors(scope)
-	}
-	return scope
-}
-
-func dispatchOutsideMints(t *testing.T, s *store.Store, service *Service, env CallEnvelope, operation string, input map[string]any) string {
+func dispatchOutsideInput(t *testing.T, s *store.Store, service *Service, env CallEnvelope, operation string, input map[string]any) agentcontract.Envelope {
 	t.Helper()
 	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// CD-0243 D3/D7 retire ordinary outside-repair consent. These explicit
-	// approval-binding cases seed their own challenge; ordinary no-consent
-	// behavior is exercised by TestOrdinaryOutsideRepairNeedsNoConsent.
-	ctx := context.Background()
-	r := runtime{Store: s, Authority: service, Envelope: env}
-	host, err := r.probeInvocationHost(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest := mutationDigest("concord_work_transition", operation, env, raw)
-	inv := Invocation{ClientRef: env.ClientRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: digest, RequiredCapability: "work_transition", RequiredOperation: operation, ProductID: env.SelectedProductID}
-	var ref string
-	err = s.TransactDurable(ctx, func(tx *store.Transaction) error {
-		var err error
-		ref, err = service.CreateApprovalChallengeTx(ctx, tx, host, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: outsideApprovalScope(env, outsideReleaseSelectorsFor(operation, input)), Versions: map[string]any{"work": input["expected_version"]}, Consequence: "recovery", HostAssertionDigest: digest, ExpiresAt: fixedTime().Add(time.Hour)})
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return ref
-}
-
-// dispatchOutsideApproved sends the approved submission; the signed host
-// assertion binds the challenge to this exact approved input, whose digest
-// excludes the approval reference and the idempotency key.
-func dispatchOutsideApproved(t *testing.T, s *store.Store, service *Service, env CallEnvelope, operation string, ref string, input map[string]any) agentcontract.Envelope {
-	t.Helper()
-	withApproval := map[string]any{}
-	for key, value := range input {
-		withApproval[key] = value
-	}
-	withApproval["approval"] = map[string]any{"approval_ref": ref}
-	approvedRaw, err := json.Marshal(withApproval)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := outsideApprovalScope(env, outsideReleaseSelectorsFor(operation, input))
-	hostEnv := env
-	hostEnv.HostApproval = signedHostApproval(mustKey(t), ref, mutationDigest("concord_work_transition", operation, env, approvedRaw), scope, map[string]any{"work": input["expected_version"]}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(ref))
-	return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: operation, Input: approvedRaw}, hostEnv)
-}
-
-// outsideReleaseSelectorsFor adds the reconcile challenge's bound release
-// selectors to the host assertion scope for a completed mode; the hold binds
-// none.
-func outsideReleaseSelectorsFor(operation string, input map[string]any) func(map[string]any) {
-	return func(scope map[string]any) {
-		if operation == "outside_repair_reconcile" && input["mode"] == "completed" {
-			if tag, ok := input["release_tag"].(string); ok && tag != "" {
-				scope["release_tag"] = tag
-			}
-			if prs, ok := input["pull_requests"].([]int64); ok && len(prs) > 0 {
-				strs := make([]string, 0, len(prs))
-				for _, number := range prs {
-					strs = append(strs, fmt.Sprintf("%d", number))
-				}
-				scope["pull_requests"] = strs
-			}
-		}
-	}
+	return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: operation, Input: raw}, env)
 }
 
 func assertOutsideOK(t *testing.T, response agentcontract.Envelope, what string) agentcontract.Envelope {
@@ -1162,9 +1081,8 @@ func outsideDispositionState(t *testing.T, s *store.Store) string {
 // zero-fetch invariant: a hold never contacts the forge.
 func outsideHoldCompletes(t *testing.T, s *store.Store, service *Service, env CallEnvelope, fake *fakeOutsideBoundary) {
 	t.Helper()
-	input := outsideHoldInput(2, nil)
-	ref := dispatchOutsideMints(t, s, service, env, "outside_repair", input)
-	assertOutsideOK(t, dispatchOutsideApproved(t, s, service, env, "outside_repair", ref, input), "hold")
+	input := outsideHoldInput(2)
+	assertOutsideOK(t, dispatchOutsideInput(t, s, service, env, "outside_repair", input), "hold")
 	if got := outsideWorkVersion(t, s); got != 4 {
 		t.Fatalf("held work version=%d, want 4", got)
 	}
@@ -1177,9 +1095,8 @@ func outsideHoldCompletes(t *testing.T, s *store.Store, service *Service, env Ca
 // with the named typed kind, leaving the hold and version exactly as before.
 func outsideCompletionRefused(t *testing.T, s *store.Store, service *Service, env CallEnvelope, fake *fakeOutsideBoundary, input map[string]any, kind, what string) {
 	t.Helper()
-	ref := dispatchOutsideMints(t, s, service, env, "outside_repair_reconcile", input)
 	fetches := fake.fetches
-	refused := dispatchOutsideApproved(t, s, service, env, "outside_repair_reconcile", ref, input)
+	refused := dispatchOutsideInput(t, s, service, env, "outside_repair_reconcile", input)
 	assertOutsideRefusedWith(t, refused, what, kind)
 	if got := outsideWorkVersion(t, s); got != 4 {
 		t.Fatalf("%s advanced work version to %d, want 4", what, got)
@@ -1206,13 +1123,12 @@ func resultPin(t *testing.T, response agentcontract.Envelope) map[string]any {
 	return result.WorkPins[0]
 }
 
-func TestOutsideRepairSuppliedApprovalRecordsHold(t *testing.T) {
+func TestOutsideRepairRecordsHoldForAuthenticatedCaller(t *testing.T) {
 	s, service, env, fake := outsideFixture(t)
-	input := outsideHoldInput(2, nil)
-	ref := dispatchOutsideMints(t, s, service, env, "outside_repair", input)
-	response := assertOutsideOK(t, dispatchOutsideApproved(t, s, service, env, "outside_repair", ref, input), "hold")
+	input := outsideHoldInput(2)
+	response := assertOutsideOK(t, dispatchOutsideInput(t, s, service, env, "outside_repair", input), "hold")
 	if got := outsideWorkVersion(t, s); got != 4 {
-		t.Fatalf("held work version=%d, want 4 (an approval-consuming event advances by 2)", got)
+		t.Fatalf("held work version=%d, want 4 (actor and disposition events)", got)
 	}
 	if fake.fetches != 0 {
 		t.Fatalf("a hold must not fetch external evidence; the boundary fetched %d times", fake.fetches)
@@ -1238,9 +1154,8 @@ func TestOutsideRepairSuppliedApprovalRecordsHold(t *testing.T) {
 
 func TestOutsideRepairHoldStaleVersionRefuses(t *testing.T) {
 	s, service, env, _ := outsideFixture(t)
-	input := outsideHoldInput(5, nil)
-	ref := dispatchOutsideMints(t, s, service, env, "outside_repair", input)
-	refused := dispatchOutsideApproved(t, s, service, env, "outside_repair", ref, input)
+	input := outsideHoldInput(5)
+	refused := dispatchOutsideInput(t, s, service, env, "outside_repair", input)
 	assertOutsideRefusedWith(t, refused, "stale-version hold", "version_conflict")
 	if got := outsideWorkVersion(t, s); got != 2 {
 		t.Fatalf("a refused stale hold advanced work version to %d, want 2", got)
@@ -1251,9 +1166,8 @@ func TestOutsideRepairReconcileCompletedClosesFromBoundaryEvidence(t *testing.T)
 	s, service, env, fake := outsideFixture(t)
 	outsideHoldCompletes(t, s, service, env, fake)
 	input := outsideReconcileInput(4, nil)
-	ref := dispatchOutsideMints(t, s, service, env, "outside_repair_reconcile", input)
 	fake.fetches = 0
-	response := assertOutsideOK(t, dispatchOutsideApproved(t, s, service, env, "outside_repair_reconcile", ref, input), "completed reconcile")
+	response := assertOutsideOK(t, dispatchOutsideInput(t, s, service, env, "outside_repair_reconcile", input), "completed reconcile")
 	if fake.fetches == 0 {
 		t.Fatalf("the boundary never fetched the completion proof")
 	}
@@ -1295,8 +1209,7 @@ func TestOutsideRepairReconcileAnnotatedTagResolvesToCommit(t *testing.T) {
 	fake.annotatedTag = true
 	fake.releaseCommitSHA = outsideFakeAltSHA
 	input := outsideReconcileInput(4, func(value map[string]any) { value["idempotency_key"] = "outside-reconcile-annotated" })
-	ref := dispatchOutsideMints(t, s, service, env, "outside_repair_reconcile", input)
-	assertOutsideOK(t, dispatchOutsideApproved(t, s, service, env, "outside_repair_reconcile", ref, input), "annotated-tag reconcile")
+	assertOutsideOK(t, dispatchOutsideInput(t, s, service, env, "outside_repair_reconcile", input), "annotated-tag reconcile")
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil {
 		t.Fatal(err)
@@ -1310,8 +1223,7 @@ func TestOutsideRepairReconcileResumeClearsHoldWithoutFetch(t *testing.T) {
 	s, service, env, fake := outsideFixture(t)
 	outsideHoldCompletes(t, s, service, env, fake)
 	input := outsideResumeInput(4, nil)
-	ref := dispatchOutsideMints(t, s, service, env, "outside_repair_reconcile", input)
-	assertOutsideOK(t, dispatchOutsideApproved(t, s, service, env, "outside_repair_reconcile", ref, input), "resume")
+	assertOutsideOK(t, dispatchOutsideInput(t, s, service, env, "outside_repair_reconcile", input), "resume")
 	if fake.fetches != 0 {
 		t.Fatalf("resume fetched external evidence %d times; resume must not fetch", fake.fetches)
 	}
@@ -1451,9 +1363,8 @@ func TestOutsideRepairIdempotentReplayReplaysRecordedResult(t *testing.T) {
 	s, service, env, fake := outsideFixture(t)
 	outsideHoldCompletes(t, s, service, env, fake)
 	input := outsideReconcileInput(4, nil)
-	ref := dispatchOutsideMints(t, s, service, env, "outside_repair_reconcile", input)
-	assertOutsideOK(t, dispatchOutsideApproved(t, s, service, env, "outside_repair_reconcile", ref, input), "first reconcile")
-	replayed := dispatchOutsideApproved(t, s, service, env, "outside_repair_reconcile", ref, input)
+	assertOutsideOK(t, dispatchOutsideInput(t, s, service, env, "outside_repair_reconcile", input), "first reconcile")
+	replayed := dispatchOutsideInput(t, s, service, env, "outside_repair_reconcile", input)
 	if replayed.Error != nil {
 		t.Fatalf("replayed reconcile refused: %+v", replayed.Error)
 	}
@@ -1463,37 +1374,4 @@ func TestOutsideRepairIdempotentReplayReplaysRecordedResult(t *testing.T) {
 	if got := outsideWorkVersion(t, s); got != 6 {
 		t.Fatalf("replayed result advanced work version to %d, want 6", got)
 	}
-}
-
-func TestOutsideRepairApprovalBindsExactOperation(t *testing.T) {
-	s, service, env, fake := outsideFixture(t)
-	outsideHoldCompletes(t, s, service, env, fake)
-	var consumedRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT approval_ref FROM outside_repair_dispositions WHERE work_id='work-1'`).Scan(&consumedRef); err != nil {
-		t.Fatal(err)
-	}
-	// The hold's one-use approval is consumed; a second hold under the same
-	// ref carries a different operation digest, and its approval binding
-	// refuses before any effect.
-	input := outsideHoldInput(4, func(value map[string]any) { value["idempotency_key"] = "outside-hold-second" })
-	refused := dispatchOutsideConsumedApproval(t, s, service, env, "outside_repair", consumedRef, input)
-	assertOutsideRefusedWith(t, refused, "approval reused for another operation", "approval_invalid")
-	if got := outsideWorkVersion(t, s); got != 4 {
-		t.Fatalf("reused approval advanced work version to %d, want 4", got)
-	}
-	if state := outsideDispositionState(t, s); state != store.OutsideRepairStateActive {
-		t.Fatalf("reused approval moved disposition to %q, want active", state)
-	}
-	if pin, err := store.ReadWorkPin(context.Background(), s, "work-1"); err != nil {
-		t.Fatal(err)
-	} else if pin.OutsideRepairDisposition == nil || pin.OutsideRepairDisposition.State != store.OutsideRepairStateActive {
-		t.Fatalf("disposition=%+v after refused reuse", pin.OutsideRepairDisposition)
-	}
-}
-
-// dispatchOutsideConsumedApproval dispatches the approved submission with a
-// consumed approval ref so its one-use binding refuses the second consequence.
-func dispatchOutsideConsumedApproval(t *testing.T, s *store.Store, service *Service, env CallEnvelope, operation string, consumedRef string, input map[string]any) agentcontract.Envelope {
-	t.Helper()
-	return dispatchOutsideApproved(t, s, service, env, operation, consumedRef, input)
 }

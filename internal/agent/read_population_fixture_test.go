@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
@@ -40,11 +39,6 @@ const (
 	readPopulationProducts       = 100
 	readPopulationWorkPerProduct = 7
 )
-
-// readPopulationBlockedSessionRef is the session_ref of the active approval
-// challenge the fixture seeds. The blocked_sessions witness ties its routing
-// detail to this row rather than any session the producer happened to carry.
-const readPopulationBlockedSessionRef = "session-population"
 
 type readPopulationFixture struct {
 	store    *store.Store
@@ -413,11 +407,10 @@ func (fx readPopulationFixture) envelope(t *testing.T) CallEnvelope {
 // seedPopulationRows gives every declared primary row collection at least one
 // row: a peer work item bound to the child Domain, Domain observations,
 // a relation edge, a peer message, an external
-// observation, an active approval challenge, a summary context boundary, and
+// observation, a summary context boundary, and
 // knowledge records in the knowledge home. Mutations and folds run
-// through the store's own APIs; the two fold-guarded SQL statements seed
-// authorization-shaped rows no public store API authors, mirroring the store
-// fixtures the bulk Product rows and workflow contracts already follow.
+// through the store's own APIs; the summary context boundary uses the store's
+// SQL fixture because no public store API authors that row.
 func (fx readPopulationFixture) seedPopulationRows(t *testing.T) {
 	t.Helper()
 	fx.seedPopulationPeerWork(t)
@@ -482,10 +475,8 @@ func (fx readPopulationFixture) seedPopulationDomainRows(t *testing.T) {
 }
 
 // seedPopulationFocusRows captures one external observation for the focus work
-// through the store's fold API, then seeds the two rows no public store API
-// authors: an active approval challenge for the blocked-session read and a
-// summary context boundary for the continuity read. Both mirror the store's
-// own fixtures for those tables.
+// through the store's fold API, then seeds a summary context boundary for the
+// continuity read, mirroring the store's own fixture for that table.
 func (fx readPopulationFixture) seedPopulationFocusRows(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
@@ -515,13 +506,6 @@ func (fx readPopulationFixture) seedPopulationFocusRows(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("capture population external observation: %v", err)
 	}
-
-	issued := time.Now().UTC().Add(-time.Hour)
-	expires := time.Now().UTC().Add(24 * time.Hour)
-	execPopulationStatement(t, fx.store, `INSERT INTO agent_approval_challenges(challenge_ref,client_ref,principal_ref,session_ref,agent_ref,directory,worktree,product_scope_json,operation_digest,scope_json,version_json,consequence,host_assertion_digest,issued_at,expires_at,status,consumed_at,max_uses,used_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		strings.Repeat("ab", 32), "client-1", "human-1", readPopulationBlockedSessionRef, "agent-1", "/repo", "/repo/wt-population",
-		`["prod-alpha"]`, "sha256:"+strings.Repeat("2", 64), "{}", "{}", "lifecycle", "sha256:"+strings.Repeat("1", 64),
-		issued.Format(time.RFC3339Nano), expires.Format(time.RFC3339Nano), "active", nil, 1, 0)
 
 	registered, err := store.BuiltinWorkflowRegistry().Register(store.BuiltinWorkflowDefinitions()[0])
 	if err != nil {

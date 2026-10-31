@@ -30,7 +30,7 @@ pushed, not merged.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, the evidence-backed corrective return requires no operator consent. Delivery admission, the accepted Review disposition ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)), and the declared return target remain required. Approval follows each action's declared policy.
+The evidence-backed corrective return requires delivery admission, the accepted Review disposition ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)), and the declared return target. Operator decisions follow CD-0243.
 
 ### D1. The delivery action carries an asserted artifact
 

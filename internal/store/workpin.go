@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"slices"
 	"strconv"
 )
 
@@ -385,8 +384,8 @@ func verifyReadWorkflowDefinitionForRegistry(definition WorkflowReadDefinition, 
 // once, and workflowAdmit decides each advance — so the pin and the delivery
 // guard answer identically for the same state instead of re-deriving the
 // conditions per site. The pin never offers an advance the shared admission
-// refuses; an action standing only behind the operator's approval keeps its
-// intent, because the approval wall is the advertised escape.
+// refuses; an action standing only behind the open operator question
+// keeps its intent, because the question wall is the advertised escape.
 func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, registry DefinitionRegistry) (WorkflowAdmissionState, error) {
 	state, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, pin.Step, "work_pin", registry)
 	if stateErr != nil {
@@ -399,12 +398,6 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 		decision := workflowAdmit(definition, state, intent.ActionID)
 		if !decision.Admitted {
 			continue
-		}
-		// A consequence_v1 confirm_premise declares the human digest
-		// optional; decision-bearing work folds the operator authority, whose
-		// confirmation answers the open question with its exact digest.
-		if intent.ActionID == "confirm_premise" && state.ConfirmationAuthority == WorkflowConfirmationOperator && !slices.Contains(intent.RequiredFields, "decision_context_digest") {
-			intent.RequiredFields = append(slices.Clone(intent.RequiredFields), "decision_context_digest")
 		}
 		kept = append(kept, intent)
 	}
@@ -455,7 +448,7 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 			}
 			pin.VerifiedCriteria = criteria
 		}
-		pending, withheld, questionErr := workflowOperatorQuestionForDefinitionTx(ctx, tx, workID, pin.Step, pin.Version, definition, readDefinition, contract, workflowConfirmationFold{authority: state.ConfirmationAuthority, factFailure: state.ConfirmationFactFailure})
+		pending, withheld, questionErr := workflowOperatorQuestionForDefinitionTx(ctx, tx, workID, pin.Step, pin.Version, definition, readDefinition, contract, workflowConfirmationFold{authority: state.ConfirmationAuthority})
 		if questionErr != nil {
 			return questionErr
 		}
@@ -672,7 +665,7 @@ func workPinIntents(definition WorkflowDefinition, stepID string, version int64)
 		}
 		// The approve intent advertises the pinned declaration's selected
 		// shape; an unusable pinned initial declaration is never advertised.
-		if actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(definition) {
+		if actionID == "approve_contract" && workflowDeclaresDecisionDomains(definition) {
 			selected, err := workflowDecisionFactInitialActionDefinition(definition)
 			if err != nil {
 				continue

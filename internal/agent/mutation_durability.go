@@ -48,8 +48,6 @@ var mutationDurabilityDeclarations = map[string]mutationDurability{
 	"concord_work_compact.publish":                     {initial: true, replay: true},
 	"concord_work_compact.reconcile":                   {replay: true},
 	"concord_work_transition.correct_delivery":         {initial: true, replay: true},
-	"concord_work_relate.product_project_add":          {initial: true, replay: true},
-	"concord_work_relate.client_policy_grant_request":  {initial: true, replay: true},
 	"concord_work_transition.outside_repair":           {initial: true, replay: true},
 	"concord_work_transition.outside_repair_reconcile": {initial: true, replay: true},
 }

@@ -60,10 +60,10 @@ func TestWorkflowEventsFoldAtomically(t *testing.T) {
 			"work_id": "workflow-work", "expected_version": 6, "resulting_version": 7, "step_id": "execution", "step_kind": "external_effect", "attempt_epoch": 1, "checkpoint_payload": map[string]any{"action_id": "checkpoint_execution", "cursor": "one"}, "resume_cursor": "cursor:one", "actor_ref": actor, "request_id": "request:one", "checkpoint_id": "checkpoint:one", "accepted_inputs_digest": "sha256:" + strings.Repeat("c", 64), "idempotency_identity": "operation-checkpoint", "result_evidence_refs": []string{"evidence:one"},
 		}),
 		workflowEvent("operator", WorkflowActorRecorded, "workflow-work", map[string]any{
-			"work_id": "workflow-work", "expected_version": 7, "resulting_version": 8, "actor_ref": DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/operator", "session_ref": "session/operator", "actor_class": "operator",
+			"work_id": "workflow-work", "expected_version": 7, "resulting_version": 8, "actor_ref": DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/operator", "session_ref": "session/operator", "actor_class": "agent",
 		}),
 		workflowEventWithActor("premise", WorkflowPremiseConfirmed, "workflow-work", DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), map[string]any{
-			"work_id": "workflow-work", "expected_version": 8, "resulting_version": 9, "contract_version": 1, "confirming_actor_ref": DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), "confirmation_authority": "operator",
+			"work_id": "workflow-work", "expected_version": 8, "resulting_version": 9, "contract_version": 1, "confirming_actor_ref": DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), "confirmation_authority": "coordinator",
 		}),
 		workflowEventWithActor("candidate", WorkflowCandidateSetRevised, "workflow-work", actor, map[string]any{
 			"work_id": "workflow-work", "expected_version": 9, "resulting_version": 10, "contract_version": 1, "candidate_kind": "work_item", "candidate_ref": "candidate:one", "added": []string{"candidate:one"}, "removed": []string{},
@@ -96,7 +96,7 @@ func TestWorkflowPremiseConfirmationReentryUpdatesProjectionRow(t *testing.T) {
 	confirmation := func(id string, expected int64, occurredAt time.Time) Event {
 		event := workflowEventWithActor(id, WorkflowPremiseConfirmed, workID, operator, map[string]any{
 			"work_id": workID, "expected_version": expected, "resulting_version": expected + 1,
-			"contract_version": 1, "confirming_actor_ref": operator, "confirmation_authority": "operator",
+			"contract_version": 1, "confirming_actor_ref": operator, "confirmation_authority": "coordinator",
 		})
 		event.OccurredAt = occurredAt
 		return event
@@ -108,7 +108,7 @@ func TestWorkflowPremiseConfirmationReentryUpdatesProjectionRow(t *testing.T) {
 		}),
 		workflowEvent("reentry-operator", WorkflowActorRecorded, workID, map[string]any{
 			"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": operator,
-			"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/operator", "session_ref": "session/operator", "actor_class": "operator",
+			"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/operator", "session_ref": "session/operator", "actor_class": "agent",
 		}),
 		workflowEventWithActor("reentry-definition", WorkflowDefinitionSelected, workID, owner, map[string]any{
 			"work_id": workID, "expected_version": 4, "resulting_version": 5,
@@ -303,11 +303,11 @@ func TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict(t *testing.T) {
 }
 
 func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
-	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), request.WorkID)
+	_, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), request.WorkID)
 	if err != nil {
 		return Event{}, err
 	}
-	return workflowCompletionEventForDefinition(ctx, tx, BuiltinWorkflowRegistry(), registered.Definition, request, actor, raw)
+	return workflowCompletionEventForDefinition(ctx, tx, BuiltinWorkflowRegistry(), request, actor, raw)
 }
 
 type completionGateCase struct {
@@ -1011,8 +1011,7 @@ func workflowEventWithActor(id, kind, workID, actor string, payload map[string]a
 	return event
 }
 
-// Consent fixtures resolve the current family, just like live work.
-func legacyApprovalPolicyDefinitionForRef(t testing.TB, ref string) RegisteredDefinition {
+func currentFixtureDefinition(t testing.TB, ref string) RegisteredDefinition {
 	t.Helper()
 	entry, ok := BuiltinWorkflowRegistry().Current(ref)
 	if !ok {
@@ -1028,7 +1027,7 @@ func legacyApprovalPolicyDefinitionForRef(t testing.TB, ref string) RegisteredDe
 // bytes.
 func withPinnedDecisionFact(t *testing.T, definition WorkflowDefinition, event Event) Event {
 	t.Helper()
-	if !workflowApprovalPolicyRequiresDecisionFact(definition) {
+	if !workflowDeclaresDecisionDomains(definition) {
 		return event
 	}
 	var payload map[string]any

@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
@@ -40,342 +39,6 @@ func TestDispatchRejectsObsoleteEpicSurfaceAndGenericInitiativeCapture(t *testin
 		if responseErr == nil && (response.Error == nil || response.Error.Kind != "invalid_input") {
 			t.Fatalf("generic %s capture response=%+v err=%v", kind, response, responseErr)
 		}
-	}
-}
-
-// CD-0243 D3/D7 retire membership consent, not security access grants.
-func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, grant, privateKey := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
-	env := mutationEnvelope(grant, scopeVersion)
-	missing, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || missing.Outcome != agentcontract.OutcomeError || missing.Error == nil || missing.Error.Kind != "approval_required" {
-		t.Fatalf("missing approval response=%+v err=%v", missing, err)
-	}
-	details := missing.Error.Details
-	challengeRef, ok := details["approval_ref"].(string)
-	if !ok || len(challengeRef) != 64 {
-		t.Fatalf("approval challenge ref=%v", details["approval_ref"])
-	}
-	var status string
-	var used, maxUses int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT status,used_count,max_uses FROM agent_approval_challenges WHERE challenge_ref=?`, challengeRef).Scan(&status, &used, &maxUses); err != nil {
-		t.Fatal(err)
-	}
-	if status != "active" || used != 0 || maxUses != 1 {
-		t.Fatalf("challenge state status=%s used=%d max=%d", status, used, maxUses)
-	}
-
-	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_id": "project-2", "role": "secondary", "scope_version": scopeVersion}
-	versions := map[string]any{"product": 2}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "approval-nonce-0001")
-	request.Input = productProjectLinkRequest(challengeRef, "project-2")
-	approved, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("approved response=%+v err=%v", approved, err)
-	}
-	if usedCount(t, s.DatabaseForTesting(), "SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?", challengeRef) != 1 {
-		t.Fatal("challenge was not consumed exactly once")
-	}
-	if usedCount(t, s.DatabaseForTesting(), "SELECT used_count FROM agent_approvals WHERE approval_ref=(SELECT approval_ref FROM agent_approvals WHERE protected_evidence_ref=?)", "approval-challenge:"+challengeRef) != 1 {
-		t.Fatal("issued approval was not consumed exactly once")
-	}
-	if version := usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1"); version != 3 {
-		t.Fatalf("Product version=%d, want 3", version)
-	}
-	// Restore the fixture's scope so the spent challenge, rather than an
-	// already-present membership, decides the second attempt.
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{EventID: "remove-approved-link", Kind: "product_project.removed", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-2","role":"secondary","reason":"fixture","expected_version":3,"resulting_version":4}`)}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 3}}); err != nil {
-		t.Fatal(err)
-	}
-
-	second := request
-	second.Input = json.RawMessage(strings.Replace(string(request.Input), `"link-project"`, `"link-project-2"`, 1))
-	secondEnv := env
-	secondEnv.ScopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondEnv.RequestID = "approval-second"
-	secondEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "approval-nonce-0002")
-	reused, err := Dispatch(ctx, s, service, second, secondEnv)
-	if err != nil || reused.Outcome != agentcontract.OutcomeError || reused.Error == nil || reused.Error.Kind != "approval_invalid" {
-		t.Fatalf("reused challenge response=%+v error=%+v err=%v", reused, reused.Error, err)
-	}
-	if version := usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1"); version != 4 {
-		t.Fatalf("reused challenge changed Product version=%d", version)
-	}
-	// A late retry of the spent challenge refuses closed too: the consumed
-	// state, not elapsed time, is what blocks it.
-	service.Now = func() time.Time { return fixedTime().Add(11 * time.Minute) }
-	secondEnv.RequestID = "approval-second-late"
-	secondEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime().Add(11*time.Minute), "approval-nonce-0003")
-	lateReused, err := Dispatch(ctx, s, service, second, secondEnv)
-	if err != nil || lateReused.Outcome != agentcontract.OutcomeError || lateReused.Error == nil || lateReused.Error.Kind != "approval_invalid" {
-		t.Fatalf("late reused challenge response=%+v err=%v", lateReused, err)
-	}
-	if version := usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1"); version != 4 {
-		t.Fatalf("late reused challenge changed Product version=%d", version)
-	}
-}
-
-// TestLateHostApprovalNeedsOneChallenge reproduces the late-answer exchange: the
-// bounded host driver is the adapter bridge, so each approval_required
-// challenge asks the operator once and resubmits the identical marshaled
-// request, and an approval_invalid refusal sends the agent back to dispatch
-// the same intent without the stale approval. The clock advances while the
-// first answer is pending, so the operator answers a challenge that has
-// already expired. One affirmative host answer must complete the intent by
-// minting exactly one challenge and asking exactly once.
-func TestLateHostApprovalNeedsOneChallenge(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
-	env := mutationEnvelope(grant, scopeVersion)
-	dispatchWire := func(request InvokeRequest, env CallEnvelope) agentcontract.Envelope {
-		t.Helper()
-		request.CallEnvelope, err = json.Marshal(env)
-		if err != nil {
-			t.Fatal(err)
-		}
-		wire, err := json.Marshal(request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		decoded, decodedEnv, err := DecodeInvokeRequest(wire)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response, err := Dispatch(ctx, s, service, decoded, decodedEnv)
-		if err != nil {
-			t.Fatal(err)
-		}
-		wire, err = json.Marshal(response)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := json.Unmarshal(wire, &response); err != nil {
-			t.Fatal(err)
-		}
-		return response
-	}
-	answerAt := fixedTime().Add(11 * time.Minute)
-	asks := 0
-	var summary *agentcontract.ConsequenceSummary
-	var approvalRef string
-	var expiredRefusal *agentcontract.TypedError
-	var approved agentcontract.Envelope
-	for round := 0; round < 4; round++ {
-		response := dispatchWire(request, env)
-		switch {
-		case response.Error != nil && response.Error.Kind == "approval_required":
-			summary = response.Error.ConsequenceSummary
-			approvalRef, _ = response.Error.Details["approval_ref"].(string)
-			if summary == nil || len(approvalRef) != 64 {
-				t.Fatalf("challenge lost its exact bindings: %+v", response.Error)
-			}
-			asks++
-			// The prompt stays open past the ten-minute mint deadline while
-			// the answer is pending; the operator's answer is fresh.
-			service.Now = func() time.Time { return answerAt }
-			var input map[string]any
-			if err := json.Unmarshal(request.Input, &input); err != nil {
-				t.Fatal(err)
-			}
-			input["approval"] = map[string]string{"approval_ref": approvalRef}
-			request.Input, err = json.Marshal(input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			env.HostApproval = &HostApprovalAssertion{ChallengeRef: approvalRef, RequestDigest: summary.OperationDigest, Scope: summary.Scope, Versions: summary.Versions, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Worktree: env.Worktree, IssuedAt: answerAt.Format(time.RFC3339Nano)}
-		case response.Error != nil && response.Error.Kind == "approval_invalid":
-			expiredRefusal = response.Error
-			// The agent retries the same intent and drops the stale approval
-			// and its host assertion.
-			env.HostApproval = nil
-			var input map[string]any
-			if err := json.Unmarshal(request.Input, &input); err != nil {
-				t.Fatal(err)
-			}
-			delete(input, "approval")
-			request.Input, err = json.Marshal(input)
-			if err != nil {
-				t.Fatal(err)
-			}
-		default:
-			approved = response
-			round = 4
-		}
-	}
-	challenges := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`)
-	if challenges != 1 || asks != 1 {
-		t.Fatalf("one affirmative host answer must suffice: approval_required challenges=%d host asks=%d expired_refusal=%+v", challenges, asks, expiredRefusal)
-	}
-	if expiredRefusal != nil {
-		t.Fatalf("the late affirmative answer was refused and demanded a second answer: %+v", expiredRefusal)
-	}
-	if approved.Outcome != agentcontract.OutcomeOK || approved.Error != nil {
-		t.Fatalf("late answer did not complete the intent: %+v, error=%+v", approved, approved.Error)
-	}
-	if version := usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1"); version != 3 {
-		t.Fatalf("late answer Product version=%d, want exactly one mutation", version)
-	}
-	if usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?`, approvalRef) != 1 {
-		t.Fatal("the late exchange did not consume the challenge exactly once")
-	}
-	if usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approvals WHERE approval_ref=(SELECT approval_ref FROM agent_approvals WHERE protected_evidence_ref=?)`, "approval-challenge:"+approvalRef) != 1 {
-		t.Fatal("the late exchange did not consume the derived approval exactly once")
-	}
-	var issuedAt string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT issued_at FROM agent_approval_challenges WHERE challenge_ref=?`, approvalRef).Scan(&issuedAt); err != nil {
-		t.Fatal(err)
-	}
-	if issuedAt != fixedTime().Format(time.RFC3339Nano) {
-		t.Fatalf("re-arm moved the challenge issue time to %s", issuedAt)
-	}
-	replayed := dispatchWire(request, env)
-	if replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed || usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1") != 3 {
-		t.Fatalf("late-answer replay = %+v", replayed)
-	}
-}
-
-func TestDispatchRejectsInvalidHostApprovalAssertions(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, authority, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
-	env := mutationEnvelope(authority, scopeVersion)
-	missing, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || missing.Error == nil || missing.Error.Kind != "approval_required" {
-		t.Fatalf("missing approval response=%+v err=%v", missing, err)
-	}
-	challengeRef, ok := missing.Error.Details["approval_ref"].(string)
-	if !ok || len(challengeRef) != 64 {
-		t.Fatalf("approval challenge ref=%v", missing.Error.Details["approval_ref"])
-	}
-	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_id": "project-2", "role": "secondary", "scope_version": scopeVersion}
-	versions := map[string]any{"product": 2}
-	variants := []struct {
-		name      string
-		assertion *HostApprovalAssertion
-	}{
-		{"scope", signedHostApproval(nil, challengeRef, digest, map[string]any{"product_id": "product-2", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "")},
-		{"digest", signedHostApproval(nil, challengeRef, "sha256:"+strings.Repeat("f", 64), scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "")},
-	}
-	for _, variant := range variants {
-		t.Run(variant.name, func(t *testing.T) {
-			trial := request
-			trial.Input = json.RawMessage(strings.Replace(string(productProjectLinkRequest(challengeRef, "project-2")), `"link-project"`, `"link-`+variant.name+`"`, 1))
-			trialEnv := env
-			trialEnv.RequestID = "invalid-" + variant.name
-			trialEnv.HostApproval = variant.assertion
-			response, dispatchErr := Dispatch(ctx, s, service, trial, trialEnv)
-			if dispatchErr != nil || response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "approval_invalid" {
-				t.Fatalf("response=%+v err=%v", response, dispatchErr)
-			}
-		})
-	}
-}
-
-func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, grant, privateKey := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
-	env := mutationEnvelope(grant, scopeVersion)
-	missing, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || missing.Error == nil || missing.Error.Kind != "approval_required" {
-		t.Fatalf("approval challenge=%+v err=%v", missing, err)
-	}
-	challengeRef := missing.Error.Details["approval_ref"].(string)
-	if _, err := s.DatabaseForTesting().Exec(`CREATE TRIGGER reject_access_grant BEFORE INSERT ON product_projects BEGIN SELECT RAISE(ABORT, 'fixture rejected access grant'); END`); err != nil {
-		t.Fatal(err)
-	}
-	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_id": "project-2", "role": "secondary", "scope_version": scopeVersion}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, map[string]any{"product": 2}, "session-1", "agent-1", "/repo-wt", fixedTime(), "rollback-approval-0001")
-	request.Input = productProjectLinkRequest(challengeRef, "project-2")
-	failed, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || failed.Outcome != agentcontract.OutcomeError || failed.Error == nil || failed.Error.Kind != "unreachable" || !strings.Contains(failed.Error.Message, "fixture rejected access grant") {
-		t.Fatalf("failed mutation=%+v error=%+v err=%v", failed, failed.Error, err)
-	}
-	var challengeStatus string
-	var challengeUsed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT status,used_count FROM agent_approval_challenges WHERE challenge_ref=?`, challengeRef).Scan(&challengeStatus, &challengeUsed); err != nil {
-		t.Fatal(err)
-	}
-	if challengeStatus != "active" || challengeUsed != 0 {
-		t.Fatalf("approval challenge consumed on failed effect: status=%s used=%d", challengeStatus, challengeUsed)
-	}
-}
-
-// TestDispatchFailedDomainEffectRollsBackRearmedDeadline pins the atomicity of
-// the pending-challenge exchange: when the domain effect fails after a late
-// answer re-armed an expired invitation, the re-armed deadline, the derived
-// approval, and the challenge's single-use state roll back together with the
-// refused intent.
-func TestDispatchFailedDomainEffectRollsBackRearmedDeadline(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, grant, _ := productProjectLinkFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}
-	env := mutationEnvelope(grant, scopeVersion)
-	missing, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || missing.Error == nil || missing.Error.Kind != "approval_required" {
-		t.Fatalf("approval challenge=%+v err=%v", missing, err)
-	}
-	challengeRef := missing.Error.Details["approval_ref"].(string)
-	summary := missing.Error.ConsequenceSummary
-	// Reject the fold after the late exchange re-arms and consumes approval.
-	if _, err := s.DatabaseForTesting().Exec(`CREATE TRIGGER reject_access_grant BEFORE INSERT ON product_projects BEGIN SELECT RAISE(ABORT, 'fixture rejected access grant'); END`); err != nil {
-		t.Fatal(err)
-	}
-	answerAt := fixedTime().Add(11 * time.Minute)
-	service.Now = func() time.Time { return answerAt }
-	env.HostApproval = &HostApprovalAssertion{ChallengeRef: challengeRef, RequestDigest: summary.OperationDigest, Scope: summary.Scope, Versions: summary.Versions, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Worktree: env.Worktree, IssuedAt: answerAt.Format(time.RFC3339Nano)}
-	request.Input = productProjectLinkRequest(challengeRef, "project-2")
-	failed, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || failed.Outcome != agentcontract.OutcomeError || failed.Error == nil || failed.Error.Kind != "unreachable" || !strings.Contains(failed.Error.Message, "fixture rejected access grant") {
-		t.Fatalf("failed late mutation=%+v error=%+v err=%v", failed, failed.Error, err)
-	}
-	var challengeStatus, issuedAt, expiresAt string
-	var challengeUsed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT status, used_count, issued_at, expires_at FROM agent_approval_challenges WHERE challenge_ref=?`, challengeRef).Scan(&challengeStatus, &challengeUsed, &issuedAt, &expiresAt); err != nil {
-		t.Fatal(err)
-	}
-	if challengeStatus != "active" || challengeUsed != 0 || issuedAt != fixedTime().Format(time.RFC3339Nano) || expiresAt != fixedTime().Add(10*time.Minute).Format(time.RFC3339Nano) {
-		t.Fatalf("failed late effect kept the re-armed deadline: status=%s used=%d issued=%s expires=%s", challengeStatus, challengeUsed, issuedAt, expiresAt)
-	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`) != 0 {
-		t.Fatal("failed late effect kept a derived approval row")
-	}
-	if version := usedCount(t, s.DatabaseForTesting(), `SELECT version FROM products WHERE id=?`, "product-1"); version != 2 {
-		t.Fatalf("failed late effect changed Product version=%d", version)
 	}
 }
 
@@ -491,7 +154,7 @@ func TestDispatchCrossProductCaptureKeepsCapabilityWithoutConsent(t *testing.T) 
 	// CD-0243 D3/D7 retire cross-Product coordination consent, not capability.
 	t.Parallel()
 	ctx := context.Background()
-	deniedStore, deniedService, deniedGrant, _ := crossProductDispatchFixture(t, []agentcontract.Capability{"work_define"})
+	deniedStore, deniedService, deniedGrant := crossProductDispatchFixture(t, []agentcontract.Capability{"work_define"})
 	deniedScope, _, err := deniedStore.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -505,7 +168,7 @@ func TestDispatchCrossProductCaptureKeepsCapabilityWithoutConsent(t *testing.T) 
 		t.Fatalf("denied capture created %d work items", count)
 	}
 
-	s, service, grant, _ := crossProductDispatchFixture(t, []agentcontract.Capability{"work_define", "cross_scope"})
+	s, service, grant := crossProductDispatchFixture(t, []agentcontract.Capability{"work_define", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -531,7 +194,7 @@ func TestDispatchCrossProductCaptureKeepsCapabilityWithoutConsent(t *testing.T) 
 	}
 }
 
-func crossProductDispatchFixture(t *testing.T, capabilities []agentcontract.Capability) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
+func crossProductDispatchFixture(t *testing.T, capabilities []agentcontract.Capability) (*store.Store, *Service, Authority) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -554,8 +217,7 @@ func crossProductDispatchFixture(t *testing.T, capabilities []agentcontract.Capa
 		t.Fatal(err)
 	}
 	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", capabilities, []string{"product-1", "product-2"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
-	privateKey := mustKey(t)
-	return s, service, grant, privateKey
+	return s, service, grant
 }
 
 func countRows(t *testing.T, db *sql.DB, query string) int {
@@ -592,13 +254,6 @@ func mutationDispatchFixture(t *testing.T, capabilities []agentcontract.Capabili
 
 func mutationEnvelope(grant Authority, scopeVersion string) CallEnvelope {
 	return CallEnvelope{SchemaVersion: "1.0", RequestID: "dispatcher-request", ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
-}
-
-func signedHostApproval(privateKey ed25519.PrivateKey, challenge, digest string, scope, versions map[string]any, session, agent, worktree string, issued time.Time, nonce string) *HostApprovalAssertion {
-	_ = privateKey
-	_ = nonce
-	assertion := &HostApprovalAssertion{ChallengeRef: challenge, RequestDigest: digest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: session, AgentRef: agent, Worktree: worktree, IssuedAt: issued.Format(time.RFC3339Nano)}
-	return assertion
 }
 
 func mustKey(t *testing.T) ed25519.PrivateKey {

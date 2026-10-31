@@ -154,12 +154,12 @@ def final_matches(final, expected, receipts, case):
     return structural_equal(final, {**expected, "context_receipts": receipts})
 
 
-# Refusals that mark an operator denial, a required approval, or an authority
+# Refusals that mark an operator denial or an authority
 # boundary. Correcting the request cannot cross them, so they earn no
 # correction credit even with effect_state none (TS7 section 9).
-AUTHORITY_REFUSAL_KINDS = frozenset({"unauthorized", "approval_required", "unknown_scope"})
+AUTHORITY_REFUSAL_KINDS = frozenset({"unauthorized", "unknown_scope"})
 AUTHORITY_REFUSAL_REASONS = frozenset({"authorization_denied", "lane_tool_refusal"})
-AUTHORITY_RECOVERY_KINDS = frozenset({"request_approval", "contact_operator"})
+AUTHORITY_RECOVERY_KINDS = frozenset({"contact_operator"})
 
 
 def served_input_correction(result):

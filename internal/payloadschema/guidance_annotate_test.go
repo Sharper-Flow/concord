@@ -90,7 +90,7 @@ func guidanceNodeAtPath(t *testing.T, root map[string]any, path ...any) map[stri
 	return node
 }
 
-var approveVariantPath = []any{"$defs", "work_transition_action_variant_approve_contract", "properties", "fields", "oneOf", 1, "properties", "decision_domains"}
+var approveVariantPath = []any{"$defs", "work_transition_action_variant_approve_contract", "properties", "fields", "properties", "decision_domains"}
 
 // AnnotateGuidance carries one schema-derived example and an appended bounded
 // description on the reachable property and ref schemas of the named
@@ -376,8 +376,11 @@ func TestUnannotatedRefusalCarriesNoGuidance(t *testing.T) {
 // The strict digest pattern's 64-hex repeat expands in full: the annotation
 // exists and its example satisfies the exact 71-character bound.
 func TestAnnotateGuidanceExpandsFullDigestRepeat(t *testing.T) {
-	root := annotateGuidanceNames(t, guidanceNames)
-	hash := root["$defs"].(map[string]any)["workflow_law_text_pin"].(map[string]any)["properties"].(map[string]any)["content_hash"].(map[string]any)
+	root := decodeSchema(t, `{"$defs":{"digest":{"type":"string","minLength":71,"maxLength":71,"pattern":"^sha256:[0-9a-f]{64}$"}}}`)
+	if err := AnnotateGuidance(root, []string{"digest"}); err != nil {
+		t.Fatal(err)
+	}
+	hash := root["$defs"].(map[string]any)["digest"].(map[string]any)
 	examples, ok := hash["examples"].([]any)
 	if !ok || len(examples) != 1 {
 		t.Fatalf("content_hash carries %v, want one example", hash["examples"])

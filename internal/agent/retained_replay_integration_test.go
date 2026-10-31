@@ -85,7 +85,7 @@ func TestRetainedMutationInvokeAcrossManifestChange(t *testing.T) {
 	payload := retryJSON(map[string]any{"changed_refs": []any{}, "next_valid_intents": []any{}})
 	first := agentcontract.NewOKMutation(base, payload, nil, nil)
 	first.ResolvedScope = &agentcontract.Scope{ProductID: "product-1", ProjectIDs: []string{"project-1"}}
-	scope := mutationResponseScope(map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}, first, nil, false)
+	scope := mutationResponseScope(map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}, first, nil)
 	snapshot := scope["mutation_response"].(mutationResponseSnapshot)
 	snapshot.ManifestDigest = "sha256:" + strings.Repeat("0", 64)
 	scope["mutation_response"] = snapshot
@@ -171,7 +171,7 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}
 	effects := 0
 	execute := func(request string) agentcontract.Envelope {
-		response, err := r.executeMutation(ctx, agentcontract.NewBase(request, r.Tool, r.Operation), raw, digest, scope, nil, "", "", false, nil, nil, nil, func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
+		response, err := r.executeMutation(ctx, agentcontract.NewBase(request, r.Tool, r.Operation), raw, digest, scope, nil, nil, func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 			effects++
 			return json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), nil, nil, nil
 		}, nil, nil)
@@ -221,7 +221,7 @@ func TestRetainedReplayRefusesUncapturedChangedRefs(t *testing.T) {
 	r := runtime{Tool: "concord_work_transition", Operation: "worktree_reclaim"}
 	base := agentcontract.NewBase("uncaptured", r.Tool, r.Operation)
 	complete := agentcontract.NewOKMutation(base, mutationPayload(nil, nil), nil, nil)
-	scopeJSON, _ := json.Marshal(mutationResponseScope(nil, complete, nil, false))
+	scopeJSON, _ := json.Marshal(mutationResponseScope(nil, complete, nil))
 	captured := r.recordedMutationResult(base, store.MutationIdempotencyRecord{ResultPayload: string(mutationPayload(nil, nil)), ChangedRefs: `[]`, AuthorizedScopeSnapshot: string(scopeJSON)})
 	if captured.Outcome != agentcontract.OutcomeOK || !captured.Replayed || captured.ChangedRefs == nil || len(*captured.ChangedRefs) != 0 {
 		t.Fatalf("captured empty list did not replay: %+v", captured)

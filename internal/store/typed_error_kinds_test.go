@@ -73,7 +73,6 @@ func TestEveryTypedErrorKindHasANamedConstant(t *testing.T) {
 	constants := map[string]FailureKind{
 		"unknown_scope": KindUnknownScope, "ambiguous_scope": KindAmbiguousScope,
 		"stale_context": KindStaleContext, "unauthorized": KindUnauthorized,
-		"approval_required": KindApprovalRequired, "approval_invalid": KindApprovalInvalid,
 		"version_conflict": KindVersionConflict, "idempotency_conflict": KindIdempotencyConflict,
 		"operation_conflict": KindOperationConflict, "resource_busy": KindResourceBusy,
 		"cross_repository_claim": KindCrossRepositoryClaim,

@@ -624,9 +624,8 @@ class ServedInputCorrectionTests(unittest.TestCase):
         case = SCENARIOS["same-repository-second-project"]
         for denied in ({"reason_code": "authorization_denied"},
                        {"adapter_reason": "lane_tool_refusal"},
-                       {"kind": "unauthorized"}, {"kind": "approval_required"},
+                       {"kind": "unauthorized"},
                        {"kind": "unknown_scope"},
-                       {"kind": "invalid_input", "recovery_action": {"kind": "request_approval"}},
                        {"kind": "invalid_input", "recovery_action": {"kind": "contact_operator"}}):
             with self.subTest(denied=denied):
                 refusal = {"outcome": "error", "error": {

@@ -35,7 +35,7 @@ func TestRequestBudgetHoldsCorrectionVariant(t *testing.T) {
 			correction = composed
 		}
 	}
-	request := invokeRequestWireBytes(t, defs, opt, correction)
+	request := invokeRequestWireBytes(t, correction)
 	if request > MaxRequestBytes {
 		t.Fatalf("the correction and host envelope need %d bytes, above the %d-byte request budget", request, MaxRequestBytes)
 	}

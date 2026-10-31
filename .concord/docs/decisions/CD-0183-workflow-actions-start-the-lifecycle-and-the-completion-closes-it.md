@@ -54,7 +54,7 @@ delivery gate the remedy names `record_delivery` first, then the same
 completion action. It admits
 the target when the instance is already terminal: a completed instance is the
 stranded-item repair, and a cancelled or superseded instance closed before the
-item ended keeps the lifecycle route with its evidence and approval gates. It
+item ended keeps the lifecycle route with its evidence gates. It
 also admits the target when the item carries no instance, which keeps imported
 items completable (CD-0094 D2). A `cancelled` target is unchanged. Recorded rows read back as they stand, and none is rewritten ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
@@ -69,7 +69,7 @@ items completable (CD-0094 D2). A `cancelled` target is unchanged. Recorded rows
   only items no workflow has started.
 - A workflow item reaches `completed` through the completion action, through a
   terminal-instance repair, or as an imported item with no instance; each path
-  keeps its own evidence and approval gates.
+  keeps its own evidence gates. Operator decisions follow CD-0243 D2 in conversation.
 - Recorded rows are not rewritten; recovery restores them from verified
   snapshots (CD-0242 D2).
 

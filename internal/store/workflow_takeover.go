@@ -6,8 +6,7 @@ import (
 	"encoding/json"
 )
 
-// WorkflowStartTakeover binds approval to the exact held epoch and holder.
-// Only the holder's recorded session vacate releases an unfinished attempt.
+// WorkflowStartTakeover pins the epoch and holder observed before a fenced start.
 type WorkflowStartTakeover struct {
 	HeldEpoch      int64
 	HolderActorRef string
@@ -71,19 +70,19 @@ func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowAction
 	return &WorkflowStartTakeover{HeldEpoch: start.AttemptEpoch, HolderActorRef: start.ActorRef}, nil
 }
 
-func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, actorRef string, approved *WorkflowStartTakeover) error {
+func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, actorRef string, expected *WorkflowStartTakeover) error {
 	takeover, err := workflowStartTakeover(ctx, q, action, workID, actorRef)
 	if err != nil {
 		return err
 	}
-	if approved == nil {
+	if expected == nil {
 		if takeover != nil {
-			return newFailure(KindApprovalRequired, "workflow_action", "this fenced start would take over an attempt its holder has not relinquished", false, "obtain operator approval bound to the held attempt epoch and holder, or have the holder relinquish it")
+			return newFailure(KindOperationConflict, "workflow_action", "the held attempt changed after the takeover read", false, "reread the work item and retry against its current held attempt")
 		}
 		return nil
 	}
-	if takeover == nil || *takeover != *approved {
-		return newFailure(KindApprovalInvalid, "workflow_action", "the held attempt changed after the takeover approval challenge", false, "reread the work item and request a fresh approval")
+	if takeover == nil || *takeover != *expected {
+		return newFailure(KindOperationConflict, "workflow_action", "the held attempt changed after the takeover read", false, "reread the work item and retry against its current held attempt")
 	}
 	return nil
 }

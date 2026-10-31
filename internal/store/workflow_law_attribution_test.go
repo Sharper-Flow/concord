@@ -314,7 +314,9 @@ func TestLawAttributionRegistryRootAndRelation(t *testing.T) {
 	building := lawChangeRegistryWithRelations(t, func(registry *KnowledgeDomainRegistry) {
 		for index := range registry.Domains {
 			if registry.Domains[index].DomainID == "agent-surface" {
-				registry.Domains[index].ArchitectureRelations[0].State = "building"
+				registry.Domains[index].ArchitectureRelations = []KnowledgeArchitectureRelation{{
+					Kind: "replaces", TargetDomainID: "root", State: "building", statePresent: true,
+				}}
 			}
 		}
 	})
@@ -334,9 +336,9 @@ func TestLawAttributionRegistryRootAndRelation(t *testing.T) {
 	other := lawChangeRegistryWithRelations(t, func(registry *KnowledgeDomainRegistry) {
 		for index := range registry.Domains {
 			if registry.Domains[index].DomainID == "agent-surface" {
-				registry.Domains[index].ArchitectureRelations[0] = KnowledgeArchitectureRelation{
+				registry.Domains[index].ArchitectureRelations = []KnowledgeArchitectureRelation{{
 					Kind: "depends_on", TargetDomainID: "root", GoverningLawIDs: []string{"law-peer"}, governingLawsPresent: true,
-				}
+				}}
 			}
 		}
 	})

@@ -1686,7 +1686,7 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if stepActions == nil {
 		stepActions = []string{}
 	}
-	pinned := map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "step_actions": stepActions, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "withheld_operator_decision": snapshot.WithheldOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "design_record": snapshot.DesignRecord}
+	pinned := map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "step_actions": stepActions, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "latest_checkpoint": snapshot.LatestCheckpoint, "design_record": snapshot.DesignRecord}
 	if snapshot.WorkPin != nil {
 		pinned["work_pin"] = snapshot.WorkPin
 	}

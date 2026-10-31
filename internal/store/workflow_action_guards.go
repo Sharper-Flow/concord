@@ -183,8 +183,7 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 	if stepDeclaresAction(definition, currentStep, "complete") {
 		return workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject, 0)
 	}
-	step := workflowStep(definition, currentStep)
-	if step.Kind == WorkflowStepHumanCheckpoint {
+	if stepDeclaresAction(definition, currentStep, "confirm_premise") {
 		return true, nil
 	}
 	var contracts int
@@ -388,8 +387,8 @@ func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, current
 	if workflowUnhealthyVerdictRouteTarget(definition, currentStep) != "" {
 		return true
 	}
-	if step.Kind == WorkflowStepHumanCheckpoint {
-		return slices.Contains(step.Actions, "confirm_premise")
+	if slices.Contains(step.Actions, "confirm_premise") {
+		return true
 	}
 	// Contract revision follows the step's authored outcome or producing
 	// start, independently of Review intake or execution delegation.
@@ -660,7 +659,7 @@ func (g *workflowActionGuardContext) foldedAdmissionDecision() (*WorkflowAdmissi
 		return nil, err
 	}
 	decision := workflowAdmit(g.entry.Definition, *state, g.request.ActionID)
-	if decision.Admitted || decision.OffStep || decision.AdvanceHeld || decision.OperatorQuestionClosed {
+	if decision.Admitted || decision.OffStep || decision.AdvanceHeld {
 		if err := validateWorkflowReviewRequest(g.ctx, g.tx, g.request.WorkID, g.request.ActionID, g.request.Payload); err != nil {
 			return nil, err
 		}
@@ -734,12 +733,6 @@ func claimDurableWorkflowOperationTx(ctx context.Context, tx *sql.Tx, entry Regi
 		return nil, nil, newFailure(KindInvariantViolation, "workflow_action", "current workflow step is not registered", false, "reread_entities")
 	}
 	durableStepKind := string(step.Kind)
-	if step.Kind == WorkflowStepHumanCheckpoint {
-		// durable_operations predates human checkpoints and has a closed
-		// three-value step_kind. The workflow event retains the checkpoint kind;
-		// the durable claim uses its owning SQLite transaction as authority.
-		durableStepKind = string(WorkflowStepInternalSQLite)
-	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, request.OperationID, 1, request.WorkID, entry.Definition.Ref, entry.Digest, currentStep, durableStepKind, request.AcceptedInputsDigest, nullableWorkflowText(request.AcceptedScope), request.PrincipalRef, request.RequestID, request.Now.UTC().Format(time.RFC3339Nano), request.ContractDigest); err != nil {
 		return nil, nil, wrapFailure(KindIdempotencyConflict, "workflow_action", "durable workflow operation identity is already claimed: "+err.Error(), false, "retry the same request or reconcile the operation", err)
 	}

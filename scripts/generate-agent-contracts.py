@@ -1487,17 +1487,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     defs["workflow_design_content"] = workflow_payload_object_schema(single_variant(design_action)["payload"], defs)
 
     outer_properties = copy.deepcopy(common)
-    # The registry declares the envelope-carried fields once: the generator
-    # projects the action's declared envelope fields to the envelope outer
-    # level, so the work pin (required_fields), this envelope schema, and the
-    # store validator read one declaration and cannot drift.
-    confirm_action = next((action for action in actions if action["id"] == "confirm_premise"), None)
-    if confirm_action is None:
-        fail("the live projection names no confirm_premise action; the envelope fields have no live owner")
-    for field in single_variant(confirm_action)["payload"]["fields"]:
-        if not field.get("envelope"):
-            continue
-        outer_properties[field["name"]] = workflow_payload_field_schema(field, defs)
     outer_properties["fields"] = {}
 
     # Remove variants with no compiled owner (CD-0218 D1/D2, CD-0242 D14).
@@ -1520,7 +1509,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         properties["action_id"] = {"type": "string", "const": action_id}
         required = list(common_required)
         if action_id == "confirm_premise":
-            required.extend(field["name"] for field in single_variant(action)[payload_key]["fields"] if field.get("envelope") and field.get("required"))
             # The envelope alternative is closed: fields is not a property of
             # this variant at all, so supplying it is a structural refusal.
             properties.pop("fields", None)
@@ -1543,13 +1531,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
             if all(requires_fields(branch) for branch in branches):
                 required.append("fields")
         defs[name] = {"type": "object", "additionalProperties": False, "required": required, "properties": properties}
-        if action_id != "confirm_premise":
-            # Publish the common envelope declarations without admitting
-            # decision-only values on other actions. The host preserves this
-            # exclusion and the core retains the same closed input set.
-            defs[name]["not"] = {"anyOf": [{"required": [field]} for field in
-                                           ("selected_choice", "decision_context_digest")]}
-
     public_variants: list[dict] = []
     current_variant_refs: list[dict] = []
     for action in actions:

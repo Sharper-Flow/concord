@@ -66,17 +66,6 @@ func seedCurrentWorkflowDomainOnce(t *testing.T, s *store.Store) {
 	}
 }
 
-// readOperatorQuestionFromWorkPinForTest reads the open operator question
-// through its production owner, store.ReadWorkPin, so a journey sees the
-// exact question the engine serves.
-func readOperatorQuestionFromWorkPinForTest(ctx context.Context, s *store.Store, workID string) (*store.WorkflowOperatorQuestion, error) {
-	pin, err := store.ReadWorkPin(ctx, s, workID)
-	if err != nil {
-		return nil, err
-	}
-	return pin.PendingOperatorDecision, nil
-}
-
 func workflowArchitectureBindingFixture() map[string]any {
 	return map[string]any{
 		"home_domain_id":           pm1fixture.FixtureRootDomainID,

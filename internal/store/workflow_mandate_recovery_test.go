@@ -69,7 +69,7 @@ func seedMandateContract(t *testing.T, s *Store, workID string) {
 
 func mandateRecoveryDefinition() WorkflowDefinition {
 	return WorkflowDefinition{StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{
-		{ID: "repair", Kind: WorkflowStepHumanCheckpoint, Actions: []string{"bind_evidence", "confirm_premise"}},
+		{ID: "repair", Kind: WorkflowStepInternalSQLite, Actions: []string{"bind_evidence", "confirm_premise"}},
 	}}}
 }
 
@@ -84,7 +84,7 @@ func wantMandateRefusal(t *testing.T, err error) *Failure {
 
 // A mandated law the contract itself adds cannot decide branch authorship in
 // the store: another merge may hold the same id, and the store cannot read
-// branch contents. At a human checkpoint the refusal stays conditional —
+// branch contents. At a confirmation step the refusal stays conditional —
 // bind_evidence only when the branch adds the id, otherwise supersede_contract.
 func TestMandateRecoveryKeepsConditionalGuidanceForAnUnseenCollision(t *testing.T) {
 	t.Parallel()

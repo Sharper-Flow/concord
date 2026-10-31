@@ -30,10 +30,9 @@ const (
 type WorkflowStepKind string
 
 const (
-	WorkflowStepInternalSQLite  WorkflowStepKind = "internal_sqlite"
-	WorkflowStepCrossAuthority  WorkflowStepKind = "cross_authority"
-	WorkflowStepExternalEffect  WorkflowStepKind = "external_effect"
-	WorkflowStepHumanCheckpoint WorkflowStepKind = "human_checkpoint"
+	WorkflowStepInternalSQLite WorkflowStepKind = "internal_sqlite"
+	WorkflowStepCrossAuthority WorkflowStepKind = "cross_authority"
+	WorkflowStepExternalEffect WorkflowStepKind = "external_effect"
 )
 
 type WorkflowEdgeKind string
@@ -94,23 +93,17 @@ type WorkflowPayloadField struct {
 	Name      string           `json:"name"`
 	ValueType PayloadValueType `json:"value_type"`
 	Required  bool             `json:"required"`
-	// Envelope marks a field the action envelope carries at the outer level
-	// rather than inside the fields object. The generated envelope schema
-	// projects envelope fields to the outer level, the work pin still lists
-	// them as required_fields from Required, and the action preflight
-	// validates the envelope-carried value against the declared type.
-	Envelope  bool     `json:"envelope,omitempty"`
-	NonBlank  bool     `json:"non_blank,omitempty"`
-	Forbidden []string `json:"forbidden_values,omitempty"`
-	MinLength *int64   `json:"min_length,omitempty"`
-	MaxLength *int64   `json:"max_length,omitempty"`
-	MinItems  *int64   `json:"min_items,omitempty"`
-	MaxItems  *int64   `json:"max_items,omitempty"`
-	Minimum   *int64   `json:"minimum,omitempty"`
-	Maximum   *int64   `json:"maximum,omitempty"`
-	Enum      []string `json:"enum,omitempty"`
-	SchemaRef string   `json:"schema_ref,omitempty"`
-	ItemRef   string   `json:"item_ref,omitempty"`
+	NonBlank  bool             `json:"non_blank,omitempty"`
+	Forbidden []string         `json:"forbidden_values,omitempty"`
+	MinLength *int64           `json:"min_length,omitempty"`
+	MaxLength *int64           `json:"max_length,omitempty"`
+	MinItems  *int64           `json:"min_items,omitempty"`
+	MaxItems  *int64           `json:"max_items,omitempty"`
+	Minimum   *int64           `json:"minimum,omitempty"`
+	Maximum   *int64           `json:"maximum,omitempty"`
+	Enum      []string         `json:"enum,omitempty"`
+	SchemaRef string           `json:"schema_ref,omitempty"`
+	ItemRef   string           `json:"item_ref,omitempty"`
 }
 
 type WorkflowPayloadDefinition struct {
@@ -695,7 +688,7 @@ func workKindMayChangeProductTruth(kind WorkKind) bool {
 }
 
 func validWorkflowStepKind(kind WorkflowStepKind) bool {
-	return kind == WorkflowStepInternalSQLite || kind == WorkflowStepCrossAuthority || kind == WorkflowStepExternalEffect || kind == WorkflowStepHumanCheckpoint
+	return kind == WorkflowStepInternalSQLite || kind == WorkflowStepCrossAuthority || kind == WorkflowStepExternalEffect
 }
 func validEdgeKind(kind WorkflowEdgeKind) bool {
 	return kind == WorkflowEdgeForward || kind == WorkflowEdgeRetry || kind == WorkflowEdgeOptional || kind == WorkflowEdgeFailure

@@ -248,7 +248,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		const workID = "decision-fact-revise-e2d"
 		s, registry, definition, owner := seedApprovalItemAtAcceptance(t, workID, []string{})
 		ownerRef := ownerRefForTest(t, owner)
-		if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)}); err != nil {
+		if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, nil); err != nil {
 			t.Fatalf("the executing coordinator's engineering confirmation refused: %v", err)
 		}
 		if confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, 1); !ok || confirmed != ownerRef {
@@ -259,7 +259,6 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		confirmActor := latestApprovalEventActor(t, s, workID, WorkflowPremiseConfirmed)
 		contractID := factWriteLatestEventID(t, s, workID, WorkflowContractApproved, WorkflowContractSuperseded)
 		contractEvent := factWriteEventDigestByID(t, s, contractID)
-		predecessorDigest := approvalDecisionDigest(t, s, workID)
 		baselineVersion := readWorkVersion(t, s, workID)
 		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 			Events:           []Event{factWriteSuccessorEvent(t, s, workID, ownerRef, []string{"product"}, true)},
@@ -298,21 +297,10 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		}
 		// A confirmation naming the superseded predecessor version refuses
 		// through the real constructor seam before any fold.
-		_, staleVersionErr := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, map[string]json.RawMessage{"contract_version": json.RawMessage(`1`), "selected_choice": json.RawMessage(`"confirm"`)})
+		_, staleVersionErr := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, map[string]json.RawMessage{"contract_version": json.RawMessage(`1`)})
 		var staleVersionFailure *Failure
 		if staleVersionErr == nil || !failureAs(staleVersionErr, &staleVersionFailure) || staleVersionFailure.Kind != KindInvalidPayload || !strings.Contains(staleVersionFailure.Detail, "supersession invalidated") {
 			t.Fatalf("the stale-version confirmation returned %v, want the supersession-invalidated refusal", staleVersionErr)
-		}
-		// The selection chain answers from the same coordinator fold: any
-		// human digest refuses as undeclared on the contract-bearing work,
-		// and the digest-less coordinator selection records nothing.
-		staleDigestErr := factWriteOperatorSelection(t, s, registry, workID, predecessorDigest)
-		var staleDigestFailure *Failure
-		if staleDigestErr == nil || !failureAs(staleDigestErr, &staleDigestFailure) || staleDigestFailure.Kind != KindInvalidPayload || !strings.Contains(staleDigestFailure.Detail, "carries no human decision-context digest") {
-			t.Fatalf("the predecessor digest selection returned %v, want the no-human-digest refusal", staleDigestErr)
-		}
-		if err := factWriteOperatorSelection(t, s, registry, workID, ""); err != nil {
-			t.Fatalf("the digest-less coordinator selection refused: %v", err)
 		}
 		if _, inherited := approvalPremiseConfirmationRow(t, s, workID, 2); inherited {
 			t.Fatal("the read-only stale-authority checks recorded a successor confirmation")
@@ -328,8 +316,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		const workID = "decision-fact-revise-d2e"
 		s, registry, definition, owner := seedApprovalItemAtAcceptance(t, workID, []string{"product"})
 		base := factWriteActiveContract(t, s, workID)
-		digest := approvalDecisionDigest(t, s, workID)
-		if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)}); err != nil {
+		if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, nil); err != nil {
 			t.Fatalf("the executing coordinator's decision confirmation refused: %v", err)
 		}
 		if confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, base); !ok || confirmed != ownerRefForTest(t, owner) {
@@ -378,22 +365,10 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		}
 		// A confirmation naming the superseded predecessor version refuses
 		// through the real constructor seam before any fold.
-		_, staleVersionErr := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, map[string]json.RawMessage{"contract_version": json.RawMessage(strconv.FormatInt(base, 10)), "selected_choice": json.RawMessage(`"confirm"`)})
+		_, staleVersionErr := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, map[string]json.RawMessage{"contract_version": json.RawMessage(strconv.FormatInt(base, 10))})
 		var staleVersionFailure *Failure
 		if staleVersionErr == nil || !failureAs(staleVersionErr, &staleVersionFailure) || staleVersionFailure.Kind != KindInvalidPayload || !strings.Contains(staleVersionFailure.Detail, "supersession invalidated") {
 			t.Fatalf("the stale-version confirmation returned %v, want the supersession-invalidated refusal", staleVersionErr)
-		}
-		// The predecessor's human digest cannot confirm the engineering
-		// successor: an engineering confirmation carries no human digest at
-		// all, while the digest-less coordinator selection stands. The
-		// stateless selection chain owns both answers.
-		staleDigestErr := factWriteOperatorSelection(t, s, registry, workID, digest)
-		var staleDigestFailure *Failure
-		if staleDigestErr == nil || !failureAs(staleDigestErr, &staleDigestFailure) || staleDigestFailure.Kind != KindInvalidPayload || !strings.Contains(staleDigestFailure.Detail, "carries no human decision-context digest") {
-			t.Fatalf("the engineering successor's selection with the predecessor digest returned %v, want the no-human-digest refusal", staleDigestErr)
-		}
-		if err := factWriteOperatorSelection(t, s, registry, workID, ""); err != nil {
-			t.Fatalf("the engineering successor's digest-less coordinator selection refused: %v", err)
 		}
 		if _, inherited := approvalPremiseConfirmationRow(t, s, workID, base+1); inherited {
 			t.Fatal("the read-only stale-authority checks recorded a successor confirmation")
@@ -1533,33 +1508,13 @@ func factWriteEventDigestByID(t *testing.T, s *Store, eventID string) string {
 func seedFactWriteConfirmedEngineering(t *testing.T, workID string) (*Store, DefinitionRegistry, WorkflowDefinition, WorkflowActor, int64) {
 	t.Helper()
 	s, registry, definition, owner := seedApprovalItemAtAcceptance(t, workID, []string{})
-	if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)}); err != nil {
+	if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, nil); err != nil {
 		t.Fatalf("the executing coordinator's confirmation refused on the confirmed seed: %v", err)
 	}
 	if confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, 1); !ok || confirmed != ownerRefForTest(t, owner) {
 		t.Fatalf("the confirmed seed's confirmation row = %q (present %v), want the executing coordinator", confirmed, ok)
 	}
 	return s, registry, definition, owner, readWorkVersion(t, s, workID)
-}
-
-// factWriteOperatorSelection runs the stateless operator-selection chain in
-// one short read transaction, so a decision-context digest refusal is
-// observable on its own instead of behind the admission layer's artifact
-// staleness. The version reads before the transaction opens, because the
-// store pools one connection.
-func factWriteOperatorSelection(t *testing.T, s *Store, registry DefinitionRegistry, workID, digest string) error {
-	t.Helper()
-	ctx := context.Background()
-	version := readWorkVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	return validateWorkflowOperatorSelectionTx(ctx, tx, registry, WorkflowActionPreflightRequest{
-		WorkID: workID, ActionID: "confirm_premise", SelectedChoice: "confirm", DecisionContextDigest: digest,
-		ExpectedVersion: version,
-	})
 }
 
 // assertFactWriteInitialNoEffect holds the refusal invariant for an initial

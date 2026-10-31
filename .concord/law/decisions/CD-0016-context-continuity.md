@@ -16,7 +16,7 @@ Concord names this capability **context continuity**, not compaction. Product
 and workflow authority is never carried by a model summary. On every call,
 Concord derives a pinned projection from durable state containing Product/work
 identity, the current workflow step, the approved contract, the complete
-explicit `spec_mandate` law set, any pending operator decision, the latest
+explicit `spec_mandate` law set, the latest
 durable checkpoint, and any unresolved typed failure.
 
 The preferred boundary is a clean restart, but restart dispatch remains

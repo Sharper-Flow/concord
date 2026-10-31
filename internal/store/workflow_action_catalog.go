@@ -87,7 +87,7 @@ func builtinWorkflowActionCatalog() workflowActionCatalog {
 		"checkpoint_refine":      nil,
 		"checkpoint_repair":      nil,
 		"complete":               nil,
-		"confirm_premise":        {confirmPremiseOperatorPayload},
+		"confirm_premise":        {confirmPremisePayload},
 		"cross_context_boundary": nil,
 		"frame_research":         nil,
 		"link_successor":         nil,

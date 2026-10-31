@@ -628,75 +628,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "continuity_operator_decision": {
-      "additionalProperties": false,
-      "properties": {
-        "action_id": {
-          "$ref": "#/$defs/id"
-        },
-        "allow_custom": {
-          "type": "boolean"
-        },
-        "allow_multiple": {
-          "type": "boolean"
-        },
-        "choices": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "action_id": {
-                "$ref": "#/$defs/id"
-              },
-              "description": {
-                "$ref": "#/$defs/short"
-              },
-              "id": {
-                "$ref": "#/$defs/id"
-              },
-              "label": {
-                "$ref": "#/$defs/short"
-              }
-            },
-            "required": [
-              "id",
-              "label",
-              "description",
-              "action_id"
-            ],
-            "type": "object"
-          },
-          "maxItems": 8,
-          "type": "array"
-        },
-        "contract_summary": {
-          "$ref": "#/$defs/short"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest"
-        },
-        "header": {
-          "$ref": "#/$defs/short"
-        },
-        "premise_summary": {
-          "$ref": "#/$defs/short"
-        },
-        "prompt": {
-          "$ref": "#/$defs/short"
-        }
-      },
-      "required": [
-        "action_id",
-        "prompt",
-        "header",
-        "choices",
-        "allow_multiple",
-        "allow_custom",
-        "premise_summary",
-        "contract_summary",
-        "decision_context_digest"
-      ],
-      "type": "object"
-    },
     "continuity_pending_project_handoff": {
       "additionalProperties": false,
       "properties": {
@@ -1126,16 +1057,6 @@ const GeneratedPayloadSchemaDocument = `{
             "law_context": {
               "$ref": "#/$defs/retained_workflow_law_context"
             },
-            "pending_operator_decision": {
-              "oneOf": [
-                {
-                  "$ref": "#/$defs/continuity_operator_decision"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "pending_project_handoff": {
               "$ref": "#/$defs/continuity_pending_project_handoff",
               "description": "The work's newest unconsumed Project-session handoff (CD-0182 amendment): the bounded repository job a receiving session must consume through project_handoff_consume before managed execution. Absent when no handoff stands unconsumed on the work."
@@ -1173,16 +1094,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "array",
               "uniqueItems": true
             },
-            "withheld_operator_decision": {
-              "oneOf": [
-                {
-                  "$ref": "#/$defs/operator_decision_withheld"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "work_context": {
               "$ref": "#/$defs/retained_work_context_view",
               "description": "The available work-context view. An evaluated over-bound view emits work_context_unavailable instead. An evaluated absent context emits neither member."
@@ -1213,7 +1124,6 @@ const GeneratedPayloadSchemaDocument = `{
             "step_actions",
             "contract",
             "spec_mandate",
-            "pending_operator_decision",
             "latest_checkpoint",
             "design_record"
           ],
@@ -8052,100 +7962,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "operator_choice": {
-      "additionalProperties": false,
-      "properties": {
-        "action_id": {
-          "$ref": "#/$defs/id"
-        },
-        "description": {
-          "$ref": "#/$defs/short"
-        },
-        "id": {
-          "$ref": "#/$defs/id"
-        },
-        "label": {
-          "$ref": "#/$defs/short"
-        }
-      },
-      "required": [
-        "id",
-        "label",
-        "description",
-        "action_id"
-      ],
-      "type": "object"
-    },
-    "operator_decision_withheld": {
-      "additionalProperties": false,
-      "properties": {
-        "action_id": {
-          "$ref": "#/$defs/id"
-        },
-        "reason": {
-          "$ref": "#/$defs/short"
-        },
-        "remedy": {
-          "$ref": "#/$defs/short"
-        }
-      },
-      "required": [
-        "action_id",
-        "reason",
-        "remedy"
-      ],
-      "type": "object"
-    },
-    "operator_question": {
-      "additionalProperties": false,
-      "properties": {
-        "action_id": {
-          "$ref": "#/$defs/id"
-        },
-        "allow_custom": {
-          "const": false
-        },
-        "allow_multiple": {
-          "const": false
-        },
-        "choices": {
-          "items": {
-            "$ref": "#/$defs/operator_choice"
-          },
-          "maxItems": 8,
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "contract_summary": {
-          "$ref": "#/$defs/short"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest"
-        },
-        "header": {
-          "$ref": "#/$defs/short"
-        },
-        "premise_summary": {
-          "$ref": "#/$defs/short"
-        },
-        "prompt": {
-          "$ref": "#/$defs/short"
-        }
-      },
-      "required": [
-        "action_id",
-        "prompt",
-        "header",
-        "choices",
-        "allow_multiple",
-        "allow_custom",
-        "premise_summary",
-        "contract_summary",
-        "decision_context_digest"
-      ],
-      "type": "object"
-    },
     "outside_repair_disposition": {
       "additionalProperties": false,
       "properties": {
@@ -14250,16 +14066,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
-        "pending_operator_decision": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/continuity_operator_decision"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "project_display_name": {
           "$ref": "#/$defs/short"
         },
@@ -14296,9 +14102,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "watermark": {
           "$ref": "#/$defs/id"
-        },
-        "withheld_operator_decision": {
-          "$ref": "#/$defs/operator_decision_withheld"
         },
         "work_context": {
           "description": "The available work-context view. An evaluated over-bound view emits work_context_unavailable instead. An evaluated absent context emits neither member.",
@@ -14337,7 +14140,6 @@ const GeneratedPayloadSchemaDocument = `{
         "cancelled_instance_closes",
         "workflow_type",
         "step",
-        "pending_operator_decision",
         "driving_sessions",
         "watermark",
         "next_valid_intents"
@@ -15305,9 +15107,6 @@ const GeneratedPayloadSchemaDocument = `{
         "action_id": {
           "$ref": "#/$defs/id"
         },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest"
-        },
         "evidence": {
           "items": {
             "$ref": "#/$defs/evidence"
@@ -15360,14 +15159,6 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 16,
           "minItems": 1,
           "type": "array"
-        },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
         },
         "work_id": {
           "$ref": "#/$defs/id"
@@ -15467,9 +15258,6 @@ const GeneratedPayloadSchemaDocument = `{
         "action_id": {
           "$ref": "#/$defs/id"
         },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest"
-        },
         "evidence": {
           "items": {
             "$ref": "#/$defs/evidence"
@@ -15523,14 +15311,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id"
         }
@@ -15572,20 +15352,6 @@ const GeneratedPayloadSchemaDocument = `{
           "work_id": "a"
         }
       ],
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "approve_contract",
@@ -15594,13 +15360,6 @@ const GeneratedPayloadSchemaDocument = `{
             "approve_contract"
           ],
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Accepted shape: string matching ^(sha256:)?[0-9a-fA-F]{8,}$; Bounds: 8..128 code points inclusive; example: \"aaaaaaaa\"",
-          "examples": [
-            "aaaaaaaa"
-          ]
         },
         "evidence": {
           "description": "Accepted shape: array of object; Bounds: <=32 items inclusive; example: []",
@@ -16491,18 +16250,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "description": "Accepted shape: one of \"confirm\", \"revise\", \"stop\"; example: \"confirm\"",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "examples": [
-            "confirm"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
@@ -16522,28 +16269,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_bind_evidence": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "bind_evidence",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -16669,14 +16398,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -16692,28 +16413,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_checkpoint_context": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "checkpoint_context",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -16883,14 +16586,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -16907,28 +16602,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_checkpoint_execution": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "checkpoint_execution",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -16995,14 +16672,6 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 16,
           "minItems": 1,
           "type": "array"
-        },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
         },
         "work_id": {
           "$ref": "#/$defs/id",
@@ -17019,28 +16688,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_checkpoint_refine": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "checkpoint_refine",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -17107,14 +16758,6 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 16,
           "minItems": 1,
           "type": "array"
-        },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
         },
         "work_id": {
           "$ref": "#/$defs/id",
@@ -17131,28 +16774,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_checkpoint_repair": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "checkpoint_repair",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -17220,14 +16845,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -17243,28 +16860,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_complete": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "complete",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -17381,14 +16980,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -17409,10 +17000,6 @@ const GeneratedPayloadSchemaDocument = `{
         "action_id": {
           "const": "confirm_premise",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -17473,14 +17060,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -17490,35 +17069,16 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "expected_version",
         "action_id",
-        "idempotency_key",
-        "selected_choice"
+        "idempotency_key"
       ],
       "type": "object"
     },
     "work_transition_action_variant_cross_context_boundary": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "cross_context_boundary",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -17639,14 +17199,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -17663,28 +17215,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_frame_research": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "frame_research",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -17752,14 +17286,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -17775,28 +17301,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_link_successor": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "link_successor",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -17886,14 +17394,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -17910,28 +17410,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_alignment": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "record_alignment",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -18058,14 +17540,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -18082,28 +17556,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_conclusion": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "record_conclusion",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -18171,14 +17627,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -18194,28 +17642,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_delivery": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "record_delivery",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -18303,14 +17733,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -18327,28 +17749,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_design": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "record_design",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -18451,14 +17855,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -18475,28 +17871,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_diagnosis": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "record_diagnosis",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -18663,14 +18041,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -18687,28 +18057,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_finding": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "record_finding",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -18776,14 +18128,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -18799,28 +18143,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_proposal": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "record_proposal",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -18966,14 +18292,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -18990,28 +18308,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_report": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "record_report",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -19137,14 +18437,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -19160,28 +18452,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_review": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "record_review",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -19256,14 +18530,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -19280,28 +18546,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_verdict": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "record_verdict",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -19388,14 +18636,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -19412,28 +18652,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_work_context": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "record_work_context",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -19540,14 +18762,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -19563,28 +18777,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_request_correction": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "request_correction",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -19708,14 +18904,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -19732,28 +18920,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_revise_candidates": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "revise_candidates",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -19878,14 +19048,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -19901,28 +19063,10 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_start_execution": {
       "additionalProperties": false,
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "start_execution",
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
@@ -19990,14 +19134,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array"
         },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "type": "string"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -20049,20 +19185,6 @@ const GeneratedPayloadSchemaDocument = `{
           "work_id": "a"
         }
       ],
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "properties": {
         "action_id": {
           "const": "supersede_contract",
@@ -20071,13 +19193,6 @@ const GeneratedPayloadSchemaDocument = `{
             "supersede_contract"
           ],
           "type": "string"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Accepted shape: string matching ^(sha256:)?[0-9a-fA-F]{8,}$; Bounds: 8..128 code points inclusive; example: \"aaaaaaaa\"",
-          "examples": [
-            "aaaaaaaa"
-          ]
         },
         "evidence": {
           "description": "Accepted shape: array of object; Bounds: <=32 items inclusive; example: []",
@@ -21805,18 +20920,6 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 16,
           "minItems": 1,
           "type": "array"
-        },
-        "selected_choice": {
-          "description": "Accepted shape: one of \"confirm\", \"revise\", \"stop\"; example: \"confirm\"",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "examples": [
-            "confirm"
-          ],
-          "type": "string"
         },
         "work_id": {
           "$ref": "#/$defs/id",
@@ -24255,13 +23358,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "delivery_assertion": {
           "$ref": "#/$defs/workflow_delivery_assertion"
-        },
-        "operator_question": {
-          "$ref": "#/$defs/operator_question",
-          "type": [
-            "object",
-            "null"
-          ]
         },
         "parked_delivery": {
           "additionalProperties": false,

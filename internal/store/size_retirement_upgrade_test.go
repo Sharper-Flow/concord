@@ -36,7 +36,7 @@ DELETE FROM write_guard;`, testManifestDigest, testManifestDigest)
 		t.Fatal(err)
 	}
 	verified, err := VerifyBackup(t.Context(), snapshot)
-	if err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 168 {
+	if err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 169 {
 		t.Fatalf("predecessor snapshot: %+v %v", verified, err)
 	}
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
@@ -79,7 +79,7 @@ func TestSizeRetirementRollsBackWhenWriteGuardIsOccupied(t *testing.T) {
 		t.Fatal("migration accepted an occupied write guard")
 	}
 	var tables, applied, guard int
-	if err := db.QueryRow(`SELECT (SELECT count(*) FROM sqlite_schema WHERE type='table' AND name IN ('work_size_assessments','work_size_proof_facts')),(SELECT count(*) FROM schema_migrations WHERE version=169),(SELECT count(*) FROM write_guard)`).Scan(&tables, &applied, &guard); err != nil || tables != 2 || applied != 0 || guard != 1 {
+	if err := db.QueryRow(`SELECT (SELECT count(*) FROM sqlite_schema WHERE type='table' AND name IN ('work_size_assessments','work_size_proof_facts')),(SELECT count(*) FROM schema_migrations WHERE version=170),(SELECT count(*) FROM write_guard)`).Scan(&tables, &applied, &guard); err != nil || tables != 2 || applied != 0 || guard != 1 {
 		t.Fatalf("rollback tables/migration/guard = %d/%d/%d: %v", tables, applied, guard, err)
 	}
 }

@@ -1,10 +1,10 @@
 Four items (work-ffd855dd, work-13e6717f, work-e103255e, work-aad52b54) shipped code but left the record open. Each predecessor session concluded it was blocked. None was.
 
-1. A supersede_contract refusal does not establish that every correction route is unavailable. Read the current step, the pinned contract, and the declared recovery intents. Ordinary stale-contract recovery and the complete-step correction route have separate admission rules (CD-0186; internal/store/workflow_dispatch.go; internal/store/workflow_action_guards.go). At a human checkpoint, the core can offer Revise as an operator decision.
+1. A supersede_contract refusal does not establish that every correction route is unavailable. Read the current step, the pinned contract, and the declared recovery intents. Ordinary stale-contract recovery and the complete-step correction route have separate admission rules (CD-0186; internal/store/workflow_dispatch.go; internal/store/workflow_action_guards.go).
 
-2. The operator question exists only after an investigation artifact. requireRecordedInvestigationArtifact (internal/store/workflow_operator.go) admits a confirm_premise question only when a work observation's refs resolve to a current Product Domain AND a different work item. File paths and pull request URLs do not satisfy it. Without the artifact, pending_operator_decision is null and the adapter misdirects the caller to read it anyway. Record the observation with a Domain id and a peer work id first.
+2. Coordinator premise confirmation requires an investigation artifact. requireRecordedInvestigationArtifact (internal/store/workflow_confirmation_investigation.go) requires a work observation whose refs resolve to a current Product Domain and, when the Product holds another work item, a different work item. File paths and pull request URLs do not satisfy it.
 
-3. confirm_premise requires the contract's evidence kinds and verification obligations to be bound (internal/store/workflow_completion.go, requireAcceptanceDeliverables). Read the open question immediately before the call and pass its exact decision_context_digest. The core refuses a digest that does not match the current decision context (internal/store/workflow_operator.go).
+3. confirm_premise requires the contract's evidence kinds and verification obligations to be bound (internal/store/workflow_completion.go, requireAcceptanceDeliverables). The action records the authenticated coordinator; it carries no operator selection or question digest.
 
 4. A review lane refusing dispatch at an external-effect step is not a missing review route. docs/managed-development-authority.md gives pull requests plus required checks the review and merge authority. Bind the merged PR as review evidence.
 

@@ -109,9 +109,6 @@ func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label stri
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), ContractDigest: testManifestDigest,
 		Now: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
 	}
-	if actionID == "confirm_premise" {
-		request.SelectedChoice = "confirm"
-	}
 	tx, err := f.store.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return err

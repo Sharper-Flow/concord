@@ -2,8 +2,7 @@ package store
 
 // Workflow-family rows for the structural output bound ledger: the
 // workflow_, continuity_, and work_context_ definitions plus work_pin,
-// work_pin_evidence, operator_question, and work_liveness. Every finite row
-// cites a real full-string producer
+// work_pin_evidence and work_liveness. Every finite row cites a real full-string producer
 // bound traced to its writer: a store guard constant, a workflowString or
 // workflowList call argument resolved through its fold, an inline
 // comparison guard, an anchored pattern constant, a declared slice literal,
@@ -212,12 +211,6 @@ func init() {
 	registerOutputBound("/$defs/continuity_checkpoint/properties/pending_questions/maxItems", checkpointPendingQuestions)
 	registerOutputBound("/$defs/continuity_checkpoint/properties/strategy/maxLength", checkpointStrategy)
 	registerOutputBound("/$defs/continuity_checkpoint/properties/touched_refs/maxItems", checkpointTouchedRefs)
-
-	// Operator question: both projections render the one fixed three-choice
-	// composite literal at the single construction site.
-	threeChoiceQuestion := workflowCompositeFieldItemsBound("internal/store/workflow_operator.go", "workflowOperatorQuestion", "Choices")
-	registerOutputBound("/$defs/continuity_operator_decision/properties/choices/maxItems", threeChoiceQuestion)
-	registerOutputBound("/$defs/operator_question/properties/choices/maxItems", threeChoiceQuestion)
 
 	// Pending project handoff: the snapshot rides the fold-admitted record
 	// whose validator holds the named constants.

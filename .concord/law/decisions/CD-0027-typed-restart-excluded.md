@@ -22,7 +22,7 @@ re-dispatching the agent with its context rather than handing the next
 generation a summary. Concord answers that problem structurally instead:
 CD-0016's pinned continuity is durable, re-derived on every call, and never
 summarized. A session that begins after a boundary receives the exact pinned
-contract, workflow step, checkpoint, and pending operator decision — not a
+contract, workflow step, and checkpoint — not a
 paraphrase of them. Summaries are advisory by
 accepted law.
 

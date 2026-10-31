@@ -230,15 +230,13 @@ type researchBindingInput struct {
 	Required bool   `json:"required"`
 }
 type actionMutationInput struct {
-	WorkID                string                      `json:"work_id"`
-	ExpectedVersion       int64                       `json:"expected_version"`
-	ActionID              string                      `json:"action_id"`
-	SelectedChoice        string                      `json:"selected_choice"`
-	DecisionContextDigest string                      `json:"decision_context_digest"`
-	Fields                json.RawMessage             `json:"fields"`
-	IdempotencyKey        string                      `json:"idempotency_key"`
-	Evidence              []agentcontract.EvidenceRef `json:"evidence"`
-	ResearchBindings      []researchBindingInput      `json:"research_bindings"`
+	WorkID           string                      `json:"work_id"`
+	ExpectedVersion  int64                       `json:"expected_version"`
+	ActionID         string                      `json:"action_id"`
+	Fields           json.RawMessage             `json:"fields"`
+	IdempotencyKey   string                      `json:"idempotency_key"`
+	Evidence         []agentcontract.EvidenceRef `json:"evidence"`
+	ResearchBindings []researchBindingInput      `json:"research_bindings"`
 }
 type membershipsMutationInput struct {
 	WorkID          string               `json:"work_id"`
@@ -590,12 +588,6 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 	if err := validateEvidenceKindBinding(in.ActionID, payload, in.Evidence); err != nil {
 		return newRuntimeFailure("invalid_input", err.Error(), "", false)
 	}
-	if err := store.ValidateWorkflowOperatorSelectionForRegistry(ctx, s, registry, store.WorkflowActionPreflightRequest{
-		WorkID: in.WorkID, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest,
-		ExpectedVersion: in.ExpectedVersion,
-	}); err != nil {
-		return err
-	}
 	// An approval carries an architecture binding that the mutation verifies
 	// against the derived Domain registry inside its transaction. The demand
 	// for a fresh registry is therefore here, before that transaction opens
@@ -607,14 +599,12 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 		}
 	}
 	preflightErr := store.WorkflowActionPreflightWithRegistry(ctx, s, registry, store.WorkflowActionPreflightRequest{
-		WorkID:                in.WorkID,
-		ExpectedVersion:       in.ExpectedVersion,
-		ActionID:              in.ActionID,
-		SelectedChoice:        in.SelectedChoice,
-		DecisionContextDigest: in.DecisionContextDigest,
-		Payload:               payload,
-		Actor:                 store.WorkflowActor{PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, ActorClass: store.ActorAgent},
-		SessionWorktree:       env.Worktree,
+		WorkID:          in.WorkID,
+		ExpectedVersion: in.ExpectedVersion,
+		ActionID:        in.ActionID,
+		Payload:         payload,
+		Actor:           store.WorkflowActor{PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, ActorClass: store.ActorAgent},
+		SessionWorktree: env.Worktree,
 	})
 	if preflightErr == nil {
 		return nil
@@ -920,7 +910,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base agentcontract.En
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	operationID := "workflow-" + digest[7:31]
 	scope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "work_ids": []string{in.WorkID}, "scope_version": r.Envelope.ScopeVersion}
-	preflight := store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree}
+	preflight := store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, Payload: payload, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree}
 	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
 		if replayErr != nil {
 			return failureEnvelope(base, replayErr), nil
@@ -951,13 +941,6 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 	if r.Budget.CeilingRefused {
 		return r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds)), nil
 	}
-	if err := store.ValidateWorkflowOperatorSelectionForRegistry(ctx, r.Store, r.Registry, store.WorkflowActionPreflightRequest{
-		WorkID: in.WorkID, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest,
-		ExpectedVersion: in.ExpectedVersion,
-	}); err != nil {
-		return failureEnvelope(base, err), nil
-	}
-
 	// CD-0059 D3: per-action capability resolution is structural. The
 	// registry entry declares the capability the dispatcher must hold;
 	// legacy actions that did not declare one default to work_transition
@@ -977,7 +960,7 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 		return failureEnvelope(base, hostErr), nil
 	}
 	scopeJSON, _ := json.Marshal(scope)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, ExpectedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: agentcontract.ManifestDigest, Now: r.Authority.now()}
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, ExpectedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: agentcontract.ManifestDigest, Now: r.Authority.now()}
 	// CD-0192: the refine-exit proof guard reads the Project's declared
 	// tooling from its default ref, so the manifest resolves here, outside
 	// the action's transaction, and rides the request into the guard. Git

@@ -1067,7 +1067,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}
 	ctx := WithWorkflowSubjectPreparation(t.Context(), freshness)
 	confirmation := WorkflowActionExecutionRequest{
-		WorkID: fixture.workID, ExpectedVersion: readWorkVersion(t, fixture.store, fixture.workID), ActionID: "confirm_premise", SelectedChoice: "confirm",
+		WorkID: fixture.workID, ExpectedVersion: readWorkVersion(t, fixture.store, fixture.workID), ActionID: "confirm_premise",
 		Payload: json.RawMessage(`{}`), Actor: fixture.owner, SessionWorktree: repo,
 		AcceptedInputsDigest: nativeDigest([]byte("ctx-no-promotion-confirm")), IdempotencyIdentity: "ctx-no-promotion-confirm", OperationID: "ctx-no-promotion-confirm",
 		PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "ctx-no-promotion-confirm", RequestID: "request:ctx-no-promotion-confirm", ContractDigest: testManifestDigest, Now: time.Now().UTC(),

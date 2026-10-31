@@ -166,7 +166,7 @@ func TestQAssociateCurrentProofCanLeaveInvestigationMissing(t *testing.T) {
 	f := qAssociateCurrentProof(t, workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}, "", true, false)
 	err = WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: readWorkVersion(t, f.store, workID), ActionID: "confirm_premise", Actor: f.owner,
-		Payload: json.RawMessage(`{}`), SelectedChoice: "confirm",
+		Payload: json.RawMessage(`{}`),
 	})
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "investigation") {

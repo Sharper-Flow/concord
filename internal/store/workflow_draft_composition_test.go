@@ -38,7 +38,7 @@ func TestOutsideRepairDraftContextOracleReadFence(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if continuity.WorkContext != nil || len(continuity.StepActions) != 0 || continuity.PendingOperatorDecision != nil || continuity.RestartAvailable {
+				if continuity.WorkContext != nil || len(continuity.StepActions) != 0 || continuity.RestartAvailable {
 					t.Fatalf("outside-repair continuity exposes managed enrichment: %+v", continuity)
 				}
 			}

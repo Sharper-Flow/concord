@@ -52,7 +52,7 @@
       "required": ["id", "kind", "actions"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
-        "kind": {"type": "string", "enum": ["internal_sqlite", "cross_authority", "external_effect", "human_checkpoint"]},
+        "kind": {"type": "string", "enum": ["internal_sqlite", "cross_authority", "external_effect"]},
         "actions": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
         "required_evidence_kinds": {"type": "array", "minItems": 0, "maxItems": 7, "uniqueItems": true, "items": {"type": "string", "enum": ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"]}}
       }
@@ -93,7 +93,6 @@
         "name": {"$ref": "#/$defs/id"},
         "value_type": {"type": "string", "enum": ["string", "integer", "boolean", "ref", "digest", "string_list", "object", "array"]},
         "required": {"type": "boolean"},
-        "envelope": {"type": "boolean"},
         "non_blank": {"type": "boolean"},
         "forbidden_values": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 16384}},
         "min_length": {"type": "integer", "minimum": 0, "maximum": 4096},

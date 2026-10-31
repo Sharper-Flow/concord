@@ -1159,7 +1159,6 @@
         "cancelled_instance_closes",
         "workflow_type",
         "step",
-        "pending_operator_decision",
         "driving_sessions",
         "watermark",
         "next_valid_intents"
@@ -1243,16 +1242,6 @@
           "type": "string",
           "maxLength": 256
         },
-        "pending_operator_decision": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/continuity_operator_decision"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "driving_sessions": {
           "type": "array",
           "maxItems": 16,
@@ -1260,9 +1249,6 @@
           "items": {
             "$ref": "#/$defs/work_pin_driving_session"
           }
-        },
-        "withheld_operator_decision": {
-          "$ref": "#/$defs/operator_decision_withheld"
         },
         "watermark": {
           "$ref": "#/$defs/id"
@@ -1781,80 +1767,6 @@
         }
       }
     },
-    "operator_choice": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "label",
-        "description",
-        "action_id"
-      ],
-      "properties": {
-        "id": {
-          "$ref": "#/$defs/id"
-        },
-        "label": {
-          "$ref": "#/$defs/short"
-        },
-        "description": {
-          "$ref": "#/$defs/short"
-        },
-        "action_id": {
-          "$ref": "#/$defs/id"
-        }
-      }
-    },
-    "operator_question": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "action_id",
-        "prompt",
-        "header",
-        "choices",
-        "allow_multiple",
-        "allow_custom",
-        "premise_summary",
-        "contract_summary",
-        "decision_context_digest"
-      ],
-      "properties": {
-        "action_id": {
-          "$ref": "#/$defs/id"
-        },
-        "prompt": {
-          "$ref": "#/$defs/short"
-        },
-        "header": {
-          "$ref": "#/$defs/short"
-        },
-        "choices": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/operator_choice"
-          }
-        },
-        "allow_multiple": {
-          "const": false
-        },
-        "allow_custom": {
-          "const": false
-        },
-        "premise_summary": {
-          "$ref": "#/$defs/short"
-        },
-        "contract_summary": {
-          "$ref": "#/$defs/short"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest"
-        }
-      }
-    },
     "rigor_class": {
       "type": "string",
       "enum": [
@@ -2201,13 +2113,6 @@
         },
         "contract": {
           "$ref": "#/$defs/workflow_contract"
-        },
-        "operator_question": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "$ref": "#/$defs/operator_question"
         },
         "candidate_ids": {
           "type": "array",
@@ -2869,95 +2774,6 @@
         "recorded_at": {
           "type": "string",
           "maxLength": 64
-        }
-      }
-    },
-    "operator_decision_withheld": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "action_id",
-        "reason",
-        "remedy"
-      ],
-      "properties": {
-        "action_id": {
-          "$ref": "#/$defs/id"
-        },
-        "reason": {
-          "$ref": "#/$defs/short"
-        },
-        "remedy": {
-          "$ref": "#/$defs/short"
-        }
-      }
-    },
-    "continuity_operator_decision": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "action_id",
-        "prompt",
-        "header",
-        "choices",
-        "allow_multiple",
-        "allow_custom",
-        "premise_summary",
-        "contract_summary",
-        "decision_context_digest"
-      ],
-      "properties": {
-        "action_id": {
-          "$ref": "#/$defs/id"
-        },
-        "prompt": {
-          "$ref": "#/$defs/short"
-        },
-        "header": {
-          "$ref": "#/$defs/short"
-        },
-        "choices": {
-          "type": "array",
-          "maxItems": 8,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "id",
-              "label",
-              "description",
-              "action_id"
-            ],
-            "properties": {
-              "id": {
-                "$ref": "#/$defs/id"
-              },
-              "label": {
-                "$ref": "#/$defs/short"
-              },
-              "description": {
-                "$ref": "#/$defs/short"
-              },
-              "action_id": {
-                "$ref": "#/$defs/id"
-              }
-            }
-          }
-        },
-        "allow_multiple": {
-          "type": "boolean"
-        },
-        "allow_custom": {
-          "type": "boolean"
-        },
-        "premise_summary": {
-          "$ref": "#/$defs/short"
-        },
-        "contract_summary": {
-          "$ref": "#/$defs/short"
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest"
         }
       }
     },
@@ -4013,7 +3829,6 @@
             "step_actions",
             "contract",
             "spec_mandate",
-            "pending_operator_decision",
             "latest_checkpoint",
             "design_record"
           ],
@@ -4060,26 +3875,6 @@
               "items": {
                 "$ref": "#/$defs/law_id"
               }
-            },
-            "pending_operator_decision": {
-              "oneOf": [
-                {
-                  "$ref": "#/$defs/continuity_operator_decision"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "withheld_operator_decision": {
-              "oneOf": [
-                {
-                  "$ref": "#/$defs/operator_decision_withheld"
-                },
-                {
-                  "type": "null"
-                }
-              ]
             },
             "latest_checkpoint": {
               "oneOf": [
@@ -6361,17 +6156,6 @@
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
-        },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest"
         },
         "fields": {}
       },
@@ -10720,17 +10504,6 @@
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest"
-        },
         "fields": {}
       },
       "anyOf": [
@@ -12083,25 +11856,6 @@
             1
           ]
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "description": "Accepted shape: one of \"confirm\", \"revise\", \"stop\"; example: \"confirm\"",
-          "examples": [
-            "confirm"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Accepted shape: string matching ^(sha256:)?[0-9a-fA-F]{8,}$; Bounds: 8..128 code points inclusive; example: \"aaaaaaaa\"",
-          "examples": [
-            "aaaaaaaa"
-          ]
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -12879,20 +12633,6 @@
           ]
         }
       },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
-      },
       "description": "Accepted shape: object; example: {\"action_id\":\"approve_contract\",\"expected_version\":1,\"fields\":{\"decision_domains\":[],\"outcome_predicates\":[{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}],\"premise\":\"av\"},\"idempotency_key\":\"a\",\"work_id\":\"a\"}",
       "examples": [
         {
@@ -12998,18 +12738,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -13075,20 +12803,6 @@
           },
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_checkpoint_context": {
@@ -13168,18 +12882,6 @@
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
-        },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "fields": {
           "type": "object",
@@ -13290,20 +12992,6 @@
           ],
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_checkpoint_execution": {
@@ -13383,18 +13071,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -13402,20 +13078,6 @@
           "properties": {},
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_checkpoint_refine": {
@@ -13495,18 +13157,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -13514,20 +13164,6 @@
           "properties": {},
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_checkpoint_repair": {
@@ -13607,18 +13243,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -13626,20 +13250,6 @@
           "properties": {},
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_complete": {
@@ -13720,18 +13330,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -13788,20 +13386,6 @@
           ],
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_confirm_premise": {
@@ -13811,8 +13395,7 @@
         "work_id",
         "expected_version",
         "action_id",
-        "idempotency_key",
-        "selected_choice"
+        "idempotency_key"
       ],
       "properties": {
         "work_id": {
@@ -13881,18 +13464,6 @@
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
-        },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         }
       }
     },
@@ -13974,18 +13545,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -14046,20 +13605,6 @@
           ],
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_frame_research": {
@@ -14139,18 +13684,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -14158,20 +13691,6 @@
           "properties": {},
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_link_successor": {
@@ -14252,18 +13771,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -14293,20 +13800,6 @@
           ],
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_record_alignment": {
@@ -14387,18 +13880,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "oneOf": [
             {
@@ -14465,20 +13946,6 @@
             }
           ]
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_record_conclusion": {
@@ -14558,18 +14025,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -14577,20 +14032,6 @@
           "properties": {},
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_record_delivery": {
@@ -14671,18 +14112,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -14710,20 +14139,6 @@
           ],
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_record_design": {
@@ -14804,18 +14219,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -14858,20 +14261,6 @@
           ],
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_record_finding": {
@@ -14951,18 +14340,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -14970,20 +14347,6 @@
           "properties": {},
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_record_proposal": {
@@ -15063,18 +14426,6 @@
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
-        },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
         },
         "fields": {
           "type": "object",
@@ -15161,20 +14512,6 @@
           ],
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_record_report": {
@@ -15254,18 +14591,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -15331,20 +14656,6 @@
           },
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_record_verdict": {
@@ -15425,18 +14736,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -15463,20 +14762,6 @@
           ],
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_record_work_context": {
@@ -15556,18 +14841,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -15614,20 +14887,6 @@
           },
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_request_correction": {
@@ -15708,18 +14967,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -15783,20 +15030,6 @@
           ],
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_revise_candidates": {
@@ -15876,18 +15109,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -15952,20 +15173,6 @@
           },
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_start_execution": {
@@ -16045,18 +15252,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -16064,20 +15259,6 @@
           "properties": {},
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_transition_action_variant_supersede_contract": {
@@ -16217,25 +15398,6 @@
           "description": "Accepted shape: integer; Bounds: >=1 value inclusive; example: 1",
           "examples": [
             1
-          ]
-        },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ],
-          "description": "Accepted shape: one of \"confirm\", \"revise\", \"stop\"; example: \"confirm\"",
-          "examples": [
-            "confirm"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Accepted shape: string matching ^(sha256:)?[0-9a-fA-F]{8,}$; Bounds: 8..128 code points inclusive; example: \"aaaaaaaa\"",
-          "examples": [
-            "aaaaaaaa"
           ]
         },
         "fields": {
@@ -17852,20 +17014,6 @@
             }
           ]
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       },
       "description": "Accepted shape: object; example: {\"action_id\":\"supersede_contract\",\"expected_version\":1,\"fields\":{\"audit_evidence\":[\"aa\"],\"contract_version\":1,\"law_modifies\":[],\"outcome_predicates\":[{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}],\"premise\":\"a\",\"required_evidence\":[],\"rigor_class\":\"prototype_internal\",\"route_conventions\":[],\"spec_mandate\":[],\"supersede_reason\":\"a\"},\"idempotency_key\":\"a\",\"work_id\":\"a\"}",
       "examples": [
@@ -21440,18 +20588,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "oneOf": [
             {
@@ -21558,20 +20694,6 @@
             }
           ]
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "work_context_research_selection": {
@@ -23872,18 +22994,6 @@
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
         },
-        "selected_choice": {
-          "type": "string",
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest",
-          "description": "Bounds: 8..128 code points inclusive"
-        },
         "fields": {
           "type": "object",
           "additionalProperties": false,
@@ -23898,20 +23008,6 @@
           ],
           "description": "Bounds: <=32 properties inclusive"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "selected_choice"
-            ]
-          },
-          {
-            "required": [
-              "decision_context_digest"
-            ]
-          }
-        ]
       }
     },
     "retained_workflow_correction_context": {

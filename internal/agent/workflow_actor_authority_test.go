@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
-	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -263,36 +262,6 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 	}
 	if pinnedRef != "workflow.research" {
 		t.Fatalf("repinned family = %s, want workflow.research", pinnedRef)
-	}
-}
-
-func TestOperatorQuestionPremiseSummaryUsesSchemaRuneBound(t *testing.T) {
-	t.Parallel()
-	choice := map[string]any{"id": "confirm", "label": "Confirm", "description": "Continue", "action_id": "confirm_premise"}
-	for _, testCase := range []struct {
-		name  string
-		value string
-		valid bool
-	}{
-		{name: "ascii-256", value: strings.Repeat("a", 256), valid: true},
-		{name: "ascii-257", value: strings.Repeat("a", 257), valid: false},
-		{name: "multibyte-256", value: strings.Repeat("界", 256), valid: true},
-		{name: "multibyte-257", value: strings.Repeat("界", 257), valid: false},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			payload, err := json.Marshal(map[string]any{
-				"action_id": "confirm_premise", "prompt": "Choose", "header": "Checkpoint", "choices": []any{choice},
-				"allow_multiple": false, "allow_custom": false, "premise_summary": testCase.value,
-				"contract_summary": "contract v1", "decision_context_digest": "sha256:" + strings.Repeat("a", 64),
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = payloadschema.Validate("operator_question", payload)
-			if (err == nil) != testCase.valid {
-				t.Fatalf("schema result err=%v valid=%v", err, testCase.valid)
-			}
-		})
 	}
 }
 

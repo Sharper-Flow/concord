@@ -159,7 +159,7 @@ func TestIssue933PremiseRevisionUsesTypedContractSupersession(t *testing.T) {
 		t.Fatal("unchanged-criterion revision withheld premise confirmation")
 	}
 	before := contractCorrectionEffectSnapshot(t, f.store, id)
-	err = WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: id, ExpectedVersion: readWorkVersion(t, f.store, id), ActionID: "confirm_premise", Payload: json.RawMessage(`{}`), Actor: f.owner, SelectedChoice: "confirm"})
+	err = WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: id, ExpectedVersion: readWorkVersion(t, f.store, id), ActionID: "confirm_premise", Payload: json.RawMessage(`{}`), Actor: f.owner})
 	if err != nil {
 		t.Fatalf("premise confirmation on preserved proof: %v", err)
 	}

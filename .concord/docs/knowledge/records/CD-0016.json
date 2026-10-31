@@ -6,9 +6,7 @@
     "agent-surface"
   ],
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-11T00:00:00Z",
   "evidence": [
@@ -28,7 +26,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b4923c784798e268a02957bc95789b93ffd0eb43fb512e11e5e8eb7eccaf3830",
+  "sha256": "sha256:dadc5e51edb24d6b3d6a522a903e9a40558b4b5e64bf950791da9f32d0f9df21",
   "status": "accepted",
   "summary": "Defines durable checkpoints, bounded boundaries, derived pinned context, typed restart availability, and the recorded work-context view.",
   "tags": [

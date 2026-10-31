@@ -122,18 +122,6 @@ func TestWorkflowRegistryBoundary(t *testing.T) {
 		seedResolutionInvestigation(t, s, route)
 		routeVersion := readWorkVersion(t, s, route)
 		routeEvents := approvalEventCount(t, s, route)
-		selection := WorkflowActionPreflightRequest{WorkID: route, ActionID: "confirm_premise", SelectedChoice: "confirm", ExpectedVersion: routeVersion}
-		if err := ValidateWorkflowOperatorSelectionForRegistry(ctx, s, registry, selection); err != nil {
-			t.Fatalf("engineering confirm selection refused under the caller registry: %v", err)
-		}
-		var selectionFailure *Failure
-		if err := ValidateWorkflowOperatorSelectionForRegistry(ctx, s, NewWorkflowDefinitionRegistry(), selection); err == nil || !failureAs(err, &selectionFailure) || selectionFailure.Kind != KindInvariantViolation {
-			t.Fatalf("wrong-registry selection = %v, want the typed pin refusal", err)
-		}
-		var wrapperRefusal *Failure
-		if err := ValidateWorkflowOperatorSelectionForRegistry(ctx, s, nil, selection); err == nil || !failureAs(err, &wrapperRefusal) || wrapperRefusal.Kind != KindInvariantViolation {
-			t.Fatalf("the nil-registry builtin selection = %v, want the typed pin refusal", err)
-		}
 		if readWorkVersion(t, s, route) != routeVersion || approvalEventCount(t, s, route) != routeEvents || foldGuardRows(t, s) != 0 {
 			t.Fatal("the selection reads moved the route item")
 		}

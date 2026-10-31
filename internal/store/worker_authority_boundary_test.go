@@ -145,7 +145,7 @@ func TestWorkflowActionCheckpointedV2BindsActorStepKindAndEpoch(t *testing.T) {
 	}
 	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-forged-actor", executor, ownerRef, "execution", "external_effect", 2), baseVersion, KindUnauthorized, baseCheckpoints)
 	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-step", executor, executor, "acceptance", "external_effect", 2), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
-	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-kind", executor, executor, "execution", "human_checkpoint", 2), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
+	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-kind", executor, executor, "execution", "cross_authority", 2), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
 	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-epoch", executor, executor, "execution", "external_effect", 3), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
 	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-non-executor", ownerRef, ownerRef, "execution", "external_effect", 2), baseVersion, KindUnauthorized, baseCheckpoints)
 	valid := checkpoint("checkpoint-valid", executor, executor, "execution", "external_effect", 2)

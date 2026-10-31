@@ -30,8 +30,7 @@ The read surface scatters the same facts. The version is readable through
 ### D1. One projection
 
 `internal/store` defines a `WorkPin`: `work_id`, `version`, `lifecycle`,
-`workflow_type`, `step`,
-`pending_operator_decision`, and `watermark`. One tx-scoped reader derives it.
+`workflow_type`, `step`, and `watermark`. One tx-scoped reader derives it.
 The store connection invariant applies: no `s.db`-backed call runs inside the
 transaction.
 

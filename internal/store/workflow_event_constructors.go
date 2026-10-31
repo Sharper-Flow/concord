@@ -665,16 +665,6 @@ func workflowConfirmPremiseEventsForDefinition(ctx context.Context, tx *sql.Tx, 
 }
 
 func validateWorkflowCoordinatorConfirmationTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string) error {
-	// Engineering: the authenticated non-worker coordinator records
-	// its own confirm choice — no operator substitution, no pending
-	// human question, no human decision-context digest. Both
-	// selections ride the request envelope, never the action fields.
-	if request.DecisionContextDigest != "" {
-		return newFailure(KindInvalidInput, "workflow_action", "an engineering premise confirmation carries no human decision-context digest", false, "drop the human digest for engineering work")
-	}
-	if request.SelectedChoice != "confirm" {
-		return newFailure(KindInvalidInput, "workflow_action", "an engineering premise confirmation records selected_choice confirm; revise follows the successor route", false, "confirm, or supersede through the successor route")
-	}
 	var invokerClass string
 	if tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, actor).Scan(&invokerClass) != nil || invokerClass != "agent" {
 		return newFailure(KindInvalidOperation, "workflow_action", "an engineering premise confirmation records the authenticated coordinator actor", false, "confirm under an agent-class coordinator identity")

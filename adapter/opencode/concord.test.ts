@@ -164,7 +164,7 @@ test("published tool arguments expose a host-safe request shape", async () => {
   }
   // The branch names the conditional action fields, so a calling agent can
   // read them before calling.
-  for (const field of ["action_id", "selected_choice", "decision_context_digest"]) {
+  for (const field of ["action_id"]) {
     expect(actionBranch.properties[field], field).toBeObject()
   }
   // The approval premise an author writes is the published action field, so
@@ -1010,14 +1010,9 @@ test("host publication round-trips check predicate payloads unchanged", async ()
 })
 
 test("confirm_premise refusals come from the core, not the adapter", async () => {
-  // The core owns question admission. It validates selected_choice and
-  // decision_context_digest itself, one field per refusal, and when the
-  // investigation-artifact gate withholds the question it names the missing
-  // artifact — a state the adapter cannot see. Any adapter-authored
-  // confirm_premise refusal can only mask the authoritative one, so every
-  // call reaches the core and the caller sees the core's own message.
+  // The core owns the investigation-artifact gate and its refusal.
   const artifactRefusal = coreEnvelope("concord_work_transition", "workflow_action", "error", {
-    error: { kind: "missing_evidence", retry_safe: false, recovery_action: { kind: "provide_evidence" }, effect_state: "none", message: "operator question requires a recorded investigation artifact naming a current Domain of the Product and another work item" },
+    error: { kind: "missing_evidence", retry_safe: false, recovery_action: { kind: "provide_evidence" }, effect_state: "none", message: "premise confirmation requires a recorded investigation artifact naming a current Domain of the Product and another work item; its refs must hold the bare domain_id of the current Domain and the id of another work item" },
   })
   const first = runnerWithContext(artifactRefusal)
   const result: any = await runWorkflowAction(first,
@@ -1027,21 +1022,6 @@ test("confirm_premise refusals come from the core, not the adapter", async () =>
   expect(result.origin).toBe("core")
   expect(result.error.message).toContain("investigation artifact")
 
-  const digest = "sha256:" + "b".repeat(64)
-  for (const input of [
-    { decision_context_digest: digest },
-    { selected_choice: "revise", decision_context_digest: digest },
-    { selected_choice: "confirm" },
-    { selected_choice: "confirm", decision_context_digest: 7 },
-    { selected_choice: "confirm", decision_context_digest: "sha256:NOTHEX" },
-  ]) {
-    const runner = runnerWithContext(artifactRefusal)
-    const perCase: any = await runWorkflowAction(runner,
-      { work_id: "work-1", expected_version: 2, action_id: "confirm_premise", idempotency_key: "idem-gate", ...input })
-    expect(runner.calls(), JSON.stringify(input)).toBe(2)
-    expect(perCase.origin, JSON.stringify(input)).toBe("core")
-    expect(perCase.error.message, JSON.stringify(input)).toContain("investigation artifact")
-  }
 })
 
 const coreEnvelope = <T extends Record<string, unknown>>(tool: string, operation: string, outcome: string, fields: T) => ({

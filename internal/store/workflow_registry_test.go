@@ -142,7 +142,7 @@ func TestProductChangingDefinitionsHaveApprovalRoute(t *testing.T) {
 		}
 		found := false
 		for _, step := range registered.Definition.StepGraph.Steps {
-			if step.Kind == WorkflowStepHumanCheckpoint && slices.Contains(step.Actions, "approve_contract") {
+			if step.Kind == WorkflowStepInternalSQLite && slices.Contains(step.Actions, "approve_contract") {
 				found = true
 			}
 		}

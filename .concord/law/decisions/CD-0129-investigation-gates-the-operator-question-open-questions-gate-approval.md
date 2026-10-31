@@ -1,13 +1,10 @@
-# CD-0129: Investigation gates the operator question, open questions gate contract approval
+# CD-0129: Investigation gates premise confirmation, open questions gate contract approval
 
 - **Status:** Accepted
 - **Date:** 2026-09-09
 - **Scope:** The two workflow surfaces that carry an investigation
-  obligation: the pending operator decision, and contract approval while a
+  obligation: coordinator premise confirmation, and contract approval while a
   plan holds recorded open questions
-- **Approval:** The operator approved the contract in Concord
-  work-ef019d2c52d7241977e90ef1 on 2026-09-09, and chose the operator
-  question as the obligated surface.
 - **Related:** CD-0030, CD-0113, and issues #903, #1010
 - **Preserves:** Contract authority, architecture binding at approval,
   evidence provenance, and the recorded facts the store keeps
@@ -21,23 +18,20 @@ on an investigation the agent can settle.
 
 ## Decision
 
-The pending operator question exists only where CD-0243's classes require the conversational ask. Engineering confirmation records the authenticated coordinator without a human choice digest, but still requires the recorded investigation and acceptance deliverables. Removing the question does not silently remove those checks or weaken declared open-question research obligations.
+### D1. Premise confirmation requires investigation
 
-
-### D1. The operator question is the obligated surface
-
-`workflowOperatorQuestionTx` is the single path that produces a pending
-operator decision. It withholds the question while the work item carries no
-recorded investigation artifact. The question returns when one exists. The
-gate binds to no single action: every operator question the path
-produces takes it.
+`confirm_premise` requires a recorded investigation artifact and the acceptance
+deliverables. It records the authenticated coordinator, with no semantic choice
+or human decision-context digest. Operator decisions follow CD-0243 in
+conversation; the step machine projects no operator question or withholding.
+The question-projection and selection requirements and tests are retired.
 
 ### D2. An artifact names what it compared against
 
 An investigation artifact is a work observation whose refs resolve in the
 projections they name: one ref is a current Domain of the item's Product in
-the Domain registry, and one ref is a work item other than the artifact's
-own. A ref that names nothing cannot satisfy the obligation, and the
+the Domain registry. When the Product holds another work item, one ref names
+a work item other than the artifact's own. A ref that names nothing cannot satisfy the obligation, and the
 artifact's own work id never counts, because the observation query is
 already keyed by it.
 
@@ -59,10 +53,7 @@ This record adds no approval gate for architecture.
 ## Verification
 
 ```text
-go test ./internal/store/ -run 'TestOperatorQuestionWithheldForAnyApprovalRequiredAction|TestRecordedInvestigationArtifactRequiresResolvableDomainAndWorkRefs|TestPendingQuestionsRequireBoundResearchRevision'
+go test ./internal/store/ -run 'TestRecordedInvestigationArtifactRequiresResolvableDomainAndWorkRefs|TestPendingQuestionsRequireBoundResearchRevision|TestEngineeringConfirmation'
 go test ./internal/store/ ./internal/agent/...
 cd adapter/opencode && bun test dispatch_route_end_to_end
 ```
-
-All green on the delivery branch. The three adapter version-skew failures
-reproduce on `main` unchanged and are out of scope.

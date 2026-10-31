@@ -28,7 +28,7 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 			spineOK(t, f.action(t, "record_verdict", proof))
 			spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
 				"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise",
-				"selected_choice": "confirm", "idempotency_key": "spine-complete-confirm",
+				"idempotency_key": "spine-complete-confirm",
 			}))
 			before := f.read(t)
 			if before.Pinned.Step != family.close || before.Pinned.Pin.Lifecycle != "in_progress" {
@@ -124,7 +124,7 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 			spineOK(t, f.action(t, "record_verdict", proof))
 			spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
 				"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise",
-				"selected_choice": "confirm", "idempotency_key": "spine-successor-confirm",
+				"idempotency_key": "spine-successor-confirm",
 			}))
 			spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}))
 			spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))

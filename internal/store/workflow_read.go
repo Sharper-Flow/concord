@@ -14,8 +14,8 @@ type WorkflowReadRequest struct {
 	// ContractVersion, when nonzero, selects one recorded contract version
 	// instead of the active one. The contract, architecture binding, and
 	// Product-truth flag then describe that version from its own pin; the
-	// stale-law check and operator question belong to the active contract
-	// and are omitted; the instance fields stay current. A version the work
+	// stale-law check belongs to the active contract and is omitted; the
+	// instance fields stay current. A version the work
 	// never had refuses unknown_scope.
 	ContractVersion int64
 }
@@ -182,20 +182,18 @@ type WorkflowReadBacklogAlignment struct {
 // read surfaces. All values are derived from event-folded projections and the
 // pinned definition; it is intentionally not an authority for mutation.
 type WorkflowReadProjection struct {
-	WorkID                   string                            `json:"work_id"`
-	State                    string                            `json:"state"`
-	CurrentStep              string                            `json:"current_step"`
-	Definition               WorkflowReadDefinition            `json:"definition"`
-	Contract                 *WorkflowReadContract             `json:"contract,omitempty"`
-	OperatorQuestion         *WorkflowOperatorQuestion         `json:"operator_question,omitempty"`
-	WithheldOperatorQuestion *WorkflowOperatorQuestionWithheld `json:"withheld_operator_question,omitempty"`
-	CandidateIDs             []string                          `json:"candidate_ids"`
-	CompletionWarnings       []string                          `json:"completion_warnings"`
-	StaleLawRevision         *StaleLawRevision                 `json:"stale_law_revision,omitempty"`
-	ChangesProductTruth      bool                              `json:"changes_product_truth"`
-	ArchitectureBinding      *WorkflowArchitectureBinding      `json:"architecture_binding,omitempty"`
-	ProposalRecord           *WorkflowProposalRecord           `json:"proposal_record,omitempty"`
-	ParkedDelivery           *WorkflowReadParkedDelivery       `json:"parked_delivery,omitempty"`
+	WorkID              string                       `json:"work_id"`
+	State               string                       `json:"state"`
+	CurrentStep         string                       `json:"current_step"`
+	Definition          WorkflowReadDefinition       `json:"definition"`
+	Contract            *WorkflowReadContract        `json:"contract,omitempty"`
+	CandidateIDs        []string                     `json:"candidate_ids"`
+	CompletionWarnings  []string                     `json:"completion_warnings"`
+	StaleLawRevision    *StaleLawRevision            `json:"stale_law_revision,omitempty"`
+	ChangesProductTruth bool                         `json:"changes_product_truth"`
+	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+	ProposalRecord      *WorkflowProposalRecord      `json:"proposal_record,omitempty"`
+	ParkedDelivery      *WorkflowReadParkedDelivery  `json:"parked_delivery,omitempty"`
 	// DeliveryAssertion carries the current completed delivery assertion with
 	// its typed correction. The asserted artifact is the unchanged original
 	// event; the correction, when present, holds the effective merge evidence
@@ -314,14 +312,6 @@ func readWorkflowProjectionContractTx(ctx context.Context, q queryer, request Wo
 			if err != nil {
 				return err
 			}
-		}
-		var workVersion int64
-		if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&workVersion); err != nil {
-			return wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow history version", true, "retry once the database is readable", err)
-		}
-		out.OperatorQuestion, out.WithheldOperatorQuestion, err = workflowOperatorQuestionTx(ctx, q, request.WorkID, out.CurrentStep, workVersion, out.Definition, contract)
-		if err != nil {
-			return err
 		}
 	}
 	return nil

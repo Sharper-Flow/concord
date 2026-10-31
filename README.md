@@ -173,6 +173,9 @@ portable skills ready for OpenCode out of the box.
 - **Native test-only helper**: `concord-verify` runs named local checks or diagnoses
   completed CI, returning commands, exits and failure evidence without editing
   files or waiting on CI.
+- **Native implementation helper**: `concord-implement` makes one bounded change,
+  proves a Fix regression fails before the fix and passes after, and returns
+  uncommitted changes and check results to the caller.
 
 The host's native Task tool owns delegation. Concord neither launches subagents
 nor wraps their prompts or results.

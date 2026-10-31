@@ -304,6 +304,14 @@ only when they match. It denies editing, workflow writes and CI watch; the calle
 owns waits, evidence binding and delivery. It shares the reviewer's host safety
 and no-bypass boundaries. Test output alone is not captured verification proof.
 
+The native `concord-implement` helper accepts assigned paths or a subsystem,
+an outcome and a named check. It returns needs-decision for missing inputs or
+changes outside that assignment. For a Fix it proves the regression fails before
+the fix and passes after. It leaves changes uncommitted and reports exact paths,
+commands, exits and gaps. It shares the reviewer's read access, explore/lookup-only
+delegation, host safety and no-bypass boundaries; the caller owns workflow state
+and delivery.
+
 Hosts that enable helper-to-utility delegation must set OpenCode's
 [`subagent_depth`](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/web/src/content/docs/config.mdx)
 to `2`. Its default `1` admits the helper but stops nested Tasks; the profile's

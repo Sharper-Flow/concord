@@ -121,7 +121,7 @@ def stage_agents(root):
     agents = root / "config/opencode/agents"
     agents.mkdir()
     for name in ("Concord", "Concord-RTE", "Concord-Planner",
-                 "concord-explore", "concord-lookup", "concord-advisor", "concord-review", "concord-verify"):
+                 "concord-explore", "concord-lookup", "concord-advisor", "concord-review", "concord-verify", "concord-implement"):
         shutil.copy2(REPO / f".opencode/agents/{name}.md", agents)
     shutil.copy2(SOURCES / "fixture.md", agents)
     # session-prepare and the real host must resolve the same candidate bytes.

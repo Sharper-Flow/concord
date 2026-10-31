@@ -245,6 +245,70 @@
         "concord_work_start",
         "concord_work_transition"
       ]
+    },
+    {
+      "id": "concord-implement",
+      "mode": "subagent",
+      "description": "Implement one bounded Change, Fix or Removal in the caller's worktree. Return uncommitted changes and check results, or needs-decision when the assignment or scope is insufficient.",
+      "role_source": ".concord/roles/implement.md",
+      "tools": {
+        "edit": "allow",
+        "write": "allow",
+        "patch": "allow",
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "skill": "allow",
+        "execute": "allow",
+        "webfetch": "allow",
+        "question": "deny"
+      },
+      "bash": [
+        {"pattern": "sudo *", "action": "deny"},
+        {"pattern": "rm -rf / *", "action": "deny"},
+        {"pattern": "*git *commit *", "action": "deny"},
+        {"pattern": "*git *commit-tree *", "action": "deny"},
+        {"pattern": "*git *cherry-pick *", "action": "deny"},
+        {"pattern": "*git *revert *", "action": "deny"},
+        {"pattern": "*git *am *", "action": "deny"},
+        {"pattern": "*git *push *", "action": "deny"},
+        {"pattern": "*git *merge *", "action": "deny"},
+        {"pattern": "*git *rebase *", "action": "deny"},
+        {"pattern": "*git *tag *", "action": "deny"},
+        {"pattern": "*gh *pr *", "action": "deny"},
+        {"pattern": "*gh *release *", "action": "deny"},
+        {"pattern": "*gh *workflow run *", "action": "deny"},
+        {"pattern": "*gh *api *", "action": "deny"},
+        {"pattern": "*herdr*", "action": "deny"},
+        {"pattern": "concord *", "action": "deny"},
+        {"pattern": "* concord *", "action": "deny"},
+        {"pattern": "*'concord *", "action": "deny"},
+        {"pattern": "*\"concord *", "action": "deny"},
+        {"pattern": "* -c *concord*", "action": "deny"},
+        {"pattern": "./concord *", "action": "deny"},
+        {"pattern": "/*/concord *", "action": "deny"},
+        {"pattern": "*bin/concord *", "action": "deny"},
+        {"pattern": "go run *cmd/concord*", "action": "deny"},
+        {"pattern": "concord --help", "action": "allow"},
+        {"pattern": "concord --version", "action": "allow"},
+        {"pattern": "concord continuity-block", "action": "allow"},
+        {"pattern": "concord client show", "action": "allow"},
+        {"pattern": "gh pr view *", "action": "allow"},
+        {"pattern": "gh pr diff *", "action": "allow"},
+        {"pattern": "gh pr checks *", "action": "allow"}
+      ],
+      "task": [
+        {"pattern": "*", "action": "deny"},
+        {"pattern": "concord-explore", "action": "allow"},
+        {"pattern": "concord-lookup", "action": "allow"}
+      ],
+      "denied_concord_tools": [
+        "concord_work_compact",
+        "concord_work_define",
+        "concord_work_relate",
+        "concord_work_start",
+        "concord_work_transition"
+      ]
     }
   ]
 }

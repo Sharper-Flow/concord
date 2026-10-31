@@ -54,7 +54,6 @@ func TestLawSpecAdmitsPredicateCriterionBindings(t *testing.T) {
 		"oversized work id":            {{Criterion: 1, WorkID: "work-" + strings.Repeat("a", 200), PredicateID: "predicate:criterion-bindings-predicate-form"}},
 	} {
 		record := criterionBindingLawRecord(t, bindings)
-		err := validateKnowledgeCriterionBindings(record)
-		assertFailureKind(t, err, KindInvalidNoteProof)
+		requireFailureKind(t, validateKnowledgeCriterionBindings(record), KindInvalidNoteProof, name)
 	}
 }

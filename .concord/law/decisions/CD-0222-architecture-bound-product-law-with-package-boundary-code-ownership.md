@@ -528,7 +528,9 @@ graph. Product law approval does not authorize live-state cutover.
 - `python3 scripts/test-check-domain-registry.py` proves the referential checks without a participation rule.
 - `internal/store.TestConsequentialBoundariesAdmitASharedDomainPeer` and `internal/store.TestExecutionClaimAdmitsASharedDomainPeer` prove D6: a shared-Domain peer blocks no boundary.
 - `internal/store.TestResolveOverlapRecordsRoutineRelations` and `internal/store.TestResolveOverlapMergeAndSupersessionAreAtomic` prove the `resolve_overlap` relation writer.
-- `internal/store.TestKnowledgeManifestV12RequiresLawHomeForApplicability` proves the carried one-home invariant.
+- `internal/store.TestLawFolderSnapshotRefusesInvalidLawFiles` proves the
+  carried one-home invariant: applicability without exactly one declared home
+  refuses at the committed read.
 - `internal/store.TestValidateWorkContextDomainTxRefusals` proves declared context, scope, and rationale bounds without an inventory.
 - `internal/store.TestReadWorkContextOverflowRefusesReadNotRetention` proves context bounds refuse instead of truncate.
 - `go test ./internal/store -run 'TestDispatchAdmitsPacketConsumingLatestCheckpoint'` and its companion witness selectors prove coordination without global navigation artifacts.

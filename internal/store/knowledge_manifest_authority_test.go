@@ -6,7 +6,6 @@ package store
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 )
 

@@ -264,12 +264,9 @@ const GeneratedEnvelopeSchemaDocument = `{
             "research_revision_append",
             "research_source_record",
             "resolve",
-            "resolve_note",
-            "observe_publication",
             "resolve_overlap",
             "revise_intent",
             "scope",
-            "search",
             "set_memberships",
             "snapshot",
             "remove",
@@ -378,7 +375,6 @@ const GeneratedEnvelopeSchemaDocument = `{
               "source_kind": {
                 "enum": [
                   "product_memory",
-                  "git_knowledge",
                   "native_authority",
                   "adapter"
                 ],
@@ -405,7 +401,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "concord_product_view",
             "concord_work_browse",
             "concord_work_trace",
-            "concord_knowledge",
             "concord_work_define",
             "concord_domain",
             "concord_work_transition",
@@ -959,12 +954,9 @@ const GeneratedEnvelopeSchemaDocument = `{
             "research_revision_append",
             "research_source_record",
             "resolve",
-            "resolve_note",
-            "observe_publication",
             "resolve_overlap",
             "revise_intent",
             "scope",
-            "search",
             "set_memberships",
             "snapshot",
             "remove",
@@ -1002,7 +994,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "concord_product_view",
             "concord_work_browse",
             "concord_work_trace",
-            "concord_knowledge",
             "concord_work_define",
             "concord_domain",
             "concord_work_transition",
@@ -1810,60 +1801,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             },
             "tool": {
               "const": "concord_work_browse"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "search"
-            },
-            "query_id": {
-              "const": "PM1.Q9"
-            },
-            "tool": {
-              "const": "concord_knowledge"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "resolve_note"
-            },
-            "query_id": {
-              "const": "PM1.Q10"
-            },
-            "tool": {
-              "const": "concord_knowledge"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "observe_publication"
-            },
-            "query_id": {
-              "const": "CD-0020.R1"
-            },
-            "tool": {
-              "const": "concord_knowledge"
             }
           },
           "required": [

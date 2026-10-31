@@ -97,8 +97,8 @@ of a flake. Do not rerun jobs, change CI or claim a successful delivery.
 
 ## Boundary and result
 
-You may read Concord law and work context. Resolve law state with
-`concord_knowledge`, not repository prose. Delegate bounded repository questions
+You may read Concord law and work context. Resolve law state with the
+workflow's resolved law context, not repository prose. Delegate bounded repository questions
 only to `concord-explore`, and external questions only to `concord-lookup`;
 neither may delegate further. Keep execution and classification yourself.
 

@@ -114,8 +114,9 @@ the rung bars in D3 and D4 already state what each claim must prove.
 
 ## Verification
 
-- This record exists with status `accepted` and is indexed once in
-  `concord-knowledge-index.v1.json`.
+- This record exists with status `accepted` as a law file under
+  `.concord/law/decisions/`
+  ([law-folder-authority](../constitution/law-folder-authority.md)).
 - This decision is prose-only governance: it governs how a Product is
   matured, not how it behaves at runtime.
 - `rollout-plan.md` §4 points at this decision as the accepted bounded need,

@@ -24,6 +24,16 @@ func domainObservationFixture(t *testing.T) *Store {
 func foldTestEvent(t *testing.T, s *Store, event Event) error {
 	t.Helper()
 	ctx := context.Background()
+	// A Domain observation reads the committed registry through the proof its
+	// recording route establishes before the transaction opens; other
+	// observation anchors read no registry.
+	if event.Kind == "domain.observation_recorded" {
+		verified, err := s.EstablishDomainRegistryProof(ctx, event.SubjectID)
+		if err != nil {
+			return err
+		}
+		ctx = verified
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -206,5 +216,67 @@ func TestDomainDetailCarriesOpenObservations(t *testing.T) {
 	payload := NewDomainDetailPayload(detail)
 	if len(payload.Observations) != 1 {
 		t.Fatalf("payload observations = %+v", payload.Observations)
+	}
+}
+
+// foldDomainObservationWithContext folds one event in a transaction opened
+// on the caller's context, so a test controls which proof the fold sees.
+func foldDomainObservationWithContext(t *testing.T, ctx context.Context, s *Store, event Event) error {
+	t.Helper()
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}}, newWriteScope(tx)); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// The fold consumes only the knowledge-source proof established before its
+// transaction and revalidates it inside: no proof refuses, a head that moved
+// without touching the registry stays admitted, and moved registry content
+// refuses instead of recording against the stale snapshot.
+func TestDomainObservationRevalidatesTheRegistryProof(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	setupProductWithProject(t, s, "obs-product", "obs-project")
+	home := seedCurrentDomain(t, s, "obs-product", "obs-domain")
+	at := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	countRows := func() int {
+		t.Helper()
+		var rows int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_observations WHERE product_id='obs-product'`).Scan(&rows); err != nil {
+			t.Fatal(err)
+		}
+		return rows
+	}
+
+	err := foldDomainObservationWithContext(t, context.Background(), s, domainObservationEvent(observationID(21), "obs-domain", "no proof", at))
+	requireFailureKind(t, err, KindInvalidOperation, "a Domain observation without a registry proof")
+	if !strings.Contains(err.Error(), "not verified") || countRows() != 0 {
+		t.Fatalf("an unproven fold did not refuse with its own reason or left a row: %v", err)
+	}
+
+	verified, err := s.EstablishDomainRegistryProof(context.Background(), "obs-product")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err := s.EstablishDomainRegistryProof(verified, "obs-product"); err != nil || knowledgeSourceSetProofFrom(again) != knowledgeSourceSetProofFrom(verified) {
+		t.Fatalf("re-establishing a bound Product proof did not reuse it: %v", err)
+	}
+	writeKnowledgeFile(t, home.RepoPath, "unrelated.txt", "not law\n")
+	commitKnowledgeRepo(t, home.RepoPath, "move the head without touching the registry")
+	if err := foldDomainObservationWithContext(t, verified, s, domainObservationEvent(observationID(22), "obs-domain", "unrelated head move", at.Add(time.Second))); err != nil {
+		t.Fatalf("a head move over unchanged registry content refused the fold: %v", err)
+	}
+
+	writeKnowledgeFile(t, home.RepoPath, knowledgeRegistryPath, `{"schema_version":"1.0","product_key":"obs","root_domain_id":"product-root:obs","domains":[{"domain_id":"product-root:obs","name":"Observation Product","purpose":"Governs the observation fixture Product.","status":"current","architecture_relations":[]}]}`+"\n")
+	commitKnowledgeRepo(t, home.RepoPath, "remove the observed Domain")
+	err = foldDomainObservationWithContext(t, verified, s, domainObservationEvent(observationID(23), "obs-domain", "stale registry", at.Add(2*time.Second)))
+	requireFailureKind(t, err, KindInvalidOperation, "a Domain observation against moved registry content")
+	if !strings.Contains(err.Error(), "moved its committed law content") || countRows() != 1 {
+		t.Fatalf("a stale registry proof did not refuse or recorded a row: %v", err)
 	}
 }

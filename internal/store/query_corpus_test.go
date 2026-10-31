@@ -32,8 +32,7 @@ func TestAcceptedQ1ToQ8AndDomainCorpus(t *testing.T) {
 	if err := pm1fixture.Seed(context.Background(), s, corpus); err != nil {
 		t.Fatalf("seed corpus: %v", err)
 	}
-	gitKnowledge, err := pm1fixture.SeedKnowledge(context.Background(), s, corpus, t.TempDir())
-	if err != nil {
+	if _, err := pm1fixture.SeedKnowledge(context.Background(), s, corpus, t.TempDir()); err != nil {
 		t.Fatalf("seed knowledge corpus: %v", err)
 	}
 	results := map[string]any{}
@@ -71,8 +70,7 @@ func TestAcceptedQ1ToQ8AndDomainCorpus(t *testing.T) {
 			t.Fatalf("%s: authority %q, want %q", scenario.ID, authority, scenario.Expected.Authority)
 		}
 		for _, assertion := range scenario.Expected.Assertions {
-			value := resolveCorpusKnowledgeAlias(assertion.Path, assertion.Value, gitKnowledge)
-			assertCorpus(t, scenario.ID, encoded, assertion.Path, assertion.Op, value)
+			assertCorpus(t, scenario.ID, encoded, assertion.Path, assertion.Op, assertion.Value)
 		}
 		results[scenario.ID] = encoded
 	}
@@ -102,24 +100,6 @@ func asFailure(err error, target **store.Failure) bool {
 		return true
 	}
 	return false
-}
-
-func resolveCorpusKnowledgeAlias(path string, value any, knowledge pm1fixture.GitKnowledge) any {
-	valueString, ok := value.(string)
-	if !ok {
-		return value
-	}
-	switch path {
-	case "$.note.commit", "$.items[*].commit":
-		if resolved := knowledge.CommitAlias[valueString]; resolved != "" {
-			return resolved
-		}
-	case "$.note.content_hash", "$.items[*].content_hash":
-		if resolved := knowledge.HashAlias[valueString]; resolved != "" {
-			return resolved
-		}
-	}
-	return value
 }
 
 func executeCorpusQuery(ctx context.Context, s *store.Store, id string, input map[string]any, override map[string]any) (any, error) {

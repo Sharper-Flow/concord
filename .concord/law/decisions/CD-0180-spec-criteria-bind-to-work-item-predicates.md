@@ -74,8 +74,8 @@ law.
 
 ## Verification
 
-- `TestKnowledgeManifestAdmitsPredicateCriterionBindings` proves the parse
-  rule: the three forms compose one valid manifest, while a half predicate
+- `TestLawSpecAdmitsPredicateCriterionBindings` proves the parse
+  rule: the three forms compose one valid record, while a half predicate
   reference, a mixed form, and each malformed shape refuse.
 - `TestContinuityLawContextCarriesThisWorkPredicateCriteria` proves the
   resolution: the law context lists this work's predicate bindings in

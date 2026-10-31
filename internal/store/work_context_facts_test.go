@@ -49,6 +49,13 @@ func seedContextFactTerminal(t *testing.T, f workContextFixture, kind string, fi
 func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 	f := seedWorkContextFixture(t, "context-facts-selection")
 	ctx := t.Context()
+	// The registry-reading constructor resolves the proof-bound committed
+	// registry; the proof is established before the constructor tx opens.
+	verified, proofErr := f.store.EstablishKnowledgeSourceSetProof(ctx, f.workID)
+	if proofErr != nil {
+		t.Fatal(proofErr)
+	}
+	ctx = verified
 	var corpus []Event
 	// Construct source envelopes before their current action runs. No target
 	// declaration/finding row is used to reconstruct historical input.

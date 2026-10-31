@@ -1,8 +1,11 @@
 package pm1fixture
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -25,4 +28,47 @@ func WriteKnowledgeShards(repo string, registry store.KnowledgeDomainRegistry) e
 		return fmt.Errorf("pm1fixture: write domain registry shard: %w", err)
 	}
 	return nil
+}
+
+// CommittedRegistryContentHash is the fingerprint the architecture binding
+// records for one committed registry: the normalized registry's canonical
+// JSON SHA-256, the same derivation the store applies to the snapshot's
+// registry. Fixture bindings record it from committed registry metadata; the
+// retired SQL Domain projection is never read or populated.
+func CommittedRegistryContentHash(registry store.KnowledgeDomainRegistry) string {
+	normalized := store.KnowledgeDomainRegistry{
+		SchemaVersion: registry.SchemaVersion,
+		ProductKey:    registry.ProductKey,
+		RootDomainID:  registry.RootDomainID,
+		Domains:       make([]store.KnowledgeDomain, len(registry.Domains)),
+	}
+	for index, domain := range registry.Domains {
+		normalized.Domains[index] = domain
+		normalized.Domains[index].ArchitectureRelations = make([]store.KnowledgeArchitectureRelation, len(domain.ArchitectureRelations))
+		for relationIndex, relation := range domain.ArchitectureRelations {
+			normalizedRelation := relation
+			normalizedRelation.GoverningLawIDs = append([]string(nil), relation.GoverningLawIDs...)
+			sort.Strings(normalizedRelation.GoverningLawIDs)
+			normalized.Domains[index].ArchitectureRelations[relationIndex] = normalizedRelation
+		}
+		sort.Slice(normalized.Domains[index].ArchitectureRelations, func(left, right int) bool {
+			a, b := normalized.Domains[index].ArchitectureRelations[left], normalized.Domains[index].ArchitectureRelations[right]
+			if a.Kind != b.Kind {
+				return a.Kind < b.Kind
+			}
+			if a.TargetDomainID != b.TargetDomainID {
+				return a.TargetDomainID < b.TargetDomainID
+			}
+			return a.State < b.State
+		})
+	}
+	sort.Slice(normalized.Domains, func(left, right int) bool {
+		return normalized.Domains[left].DomainID < normalized.Domains[right].DomainID
+	})
+	canonical, err := json.Marshal(normalized)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }

@@ -20,7 +20,6 @@ tools:
   opencode_mcp_connect: false
   opencode_mcp_disconnect: false
   concord_domain: false
-  concord_knowledge: false
   concord_product_view: false
   concord_work_browse: false
   concord_work_compact: false

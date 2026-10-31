@@ -81,6 +81,13 @@ func TestConfirmationRefusalNamesObservationRefFormat(t *testing.T) {
 	seedIssue31DomainRegistry(t, s)
 	seedContractlessVerifyWorkflow(t, s, workID)
 	seedActiveBreakFixContract(t, s, workID)
+	// The committed registry decides the Domain ref: the proof is established
+	// per operation before the gate's transaction opens.
+	verified, proofErr := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	if proofErr != nil {
+		t.Fatal(proofErr)
+	}
+	ctx = verified
 	validate := func() error {
 		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 		if err != nil {

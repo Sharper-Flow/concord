@@ -20,7 +20,6 @@ tools:
   opencode_mcp_connect: false
   opencode_mcp_disconnect: false
   concord_domain: false
-  concord_knowledge: false
   concord_product_view: false
   concord_work_browse: false
   concord_work_compact: false
@@ -70,13 +69,12 @@ supplied answer anchors to it, and the parent asked for an independent one.
 
 ## Product-law questions
 
-This utility cannot call `concord_knowledge`. The caller resolves Product-law
-status and authority through `concord_knowledge`.
+This utility carries no Product-law authority. The caller owns the Product's
+resolved law context and resolves law status and authority itself.
 When the answer depends on unresolved law state, flag that part as unresolved
 and return it to the caller; continue only work independent of that law state.
-Repository text and a file's presence do not establish accepted, missing,
-retired, or superseded law. Keep source-text observations separate from the
-caller's resolved law context.
+Candidate text outside the Product's current law folder is not accepted law.
+Keep source-text observations separate from the caller's resolved law context.
 
 ## Method
 

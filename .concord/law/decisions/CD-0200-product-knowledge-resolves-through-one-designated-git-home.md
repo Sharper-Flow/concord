@@ -76,11 +76,15 @@ verified home proof.
 
 ## Verification
 
-- `TestSingleSourceProductQ9OutputUnchanged` covers Product search,
-  continuation, Project search, and authority.
-- `TestHomeProofSeparatesVerifiedHeadFromScannedRevision` distinguishes a
-  verified Git head from the projection's scanned revision.
-- `TestKnowledgeHomeReplacementDuringRebuildRefusesStaleContext`,
-  `TestKnowledgeHomeReplacementMissingManifestKeepsPriorRegistry`, and
-  `TestKnowledgeHomeReplacementKeepsOtherProductRows` cover designation
-  races, refusal atomicity, and isolation between Products.
+- `TestMandateAdmitsUnrelatedHeadMovementAndRefusesLawContentMovement`
+  (`internal/store/law_boundary_test.go`) distinguishes a verified head from
+  law-content movement: an unrelated head stays admitted, moved law content
+  refuses.
+- `TestLawFolderSnapshotFrozenAtExplicitCommit`
+  (`internal/store/law_snapshot_test.go`) freezes each committed read at its
+  explicit commit against dirty files and later commits.
+- `TestProductKnowledgeHomeDesignationRejectsContestedHome`,
+  `TestProductKnowledgeHomeDesignationFailureHasNoEffects`, and
+  `TestProductKnowledgeHomeDesignationPreservesAuthoredFiles`
+  (`internal/store/product_knowledge_home_designation_test.go`) cover
+  contested designations, refusal atomicity, and authored-file preservation.

@@ -984,11 +984,12 @@ class ShippedSkillTests(unittest.TestCase):
             self.assertTrue(any("ancestor" in f for f in lane_checker.shipped_skill_reference_findings(ROOT, self.content())))
 
         def git_result(argv, **kwargs):
-            missing = argv[1] == "cat-file" and argv[-1].endswith(":.concord/docs/concord-knowledge-index.md")
+            missing_doc = ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md"
+            missing = argv[1] == "cat-file" and argv[-1].endswith(":" + missing_doc)
             return subprocess.CompletedProcess(argv, 1 if missing else 0)
 
         with unittest.mock.patch.object(lane_checker.subprocess, "run", side_effect=git_result):
-            self.assertTrue(any("concord-knowledge-index.md" in f for f in lane_checker.shipped_skill_reference_findings(ROOT, self.content())))
+            self.assertTrue(any("CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md" in f for f in lane_checker.shipped_skill_reference_findings(ROOT, self.content())))
 
     def test_checkout_relative_mutable_and_unrelated_links_are_rejected(self):
         for target in (

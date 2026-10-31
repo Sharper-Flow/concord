@@ -292,8 +292,10 @@ func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID stri
 // the fold.
 func foldWorkflowConfirmationPrerequisites(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *WorkflowAdmissionState) error {
 	if artifactErr := requireRecordedInvestigationArtifact(ctx, q, workID); artifactErr != nil {
+		// A missing artifact and an artifact whose Domain refs this read
+		// cannot verify are both the confirmation's answer, not a failed fold.
 		var failure *Failure
-		if failureAs(artifactErr, &failure) && failure.Kind == KindMissingEvidence {
+		if failureAs(artifactErr, &failure) && (failure.Kind == KindMissingEvidence || failure.Kind == KindStaleRequiresReview) {
 			if state.AcceptanceDeliverablesMissing == nil {
 				state.AcceptanceDeliverablesMissing = artifactErr
 			}

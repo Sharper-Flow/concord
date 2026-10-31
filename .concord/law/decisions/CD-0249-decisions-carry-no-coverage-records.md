@@ -160,9 +160,6 @@ excuse new dead material.
 - `internal/store.TestMigrateV165ToV166FailedStepRollsBack` proves a failed
   drop leaves the pre-upgrade catalog and rows unchanged and the upgrade
   completes once the blocker is gone (D1).
-- `internal/store.TestKnowledgeIndexRebuildIgnoresLeftoverCoverageShards`
-  proves an index rebuild at a head that still carries a coverage shard
-  ignores it and stores no anchors (D1).
 - `cmd/concord.TestUpgradeRetiringLawCoverageSnapshotsTheCoverageTableBeforeTheDrop`
   proves the upgrade route verifies a snapshot containing the original table
   and rows before dropping it (D1).

@@ -356,7 +356,8 @@ jobs/oracles, CD-0002 invariants, and the falsifiers above remain controlling.
 
 Criteria 2 and 5 are proved by scenarios of
 `.concord/scenarios/product-memory-query.v1.json`, executed by
-`TestAgentJobsCorpus` (`internal/agent/agent_jobs_corpus_test.go`). The
+`TestAcceptedQ1ToQ8AndDomainCorpus`
+(`internal/store/query_corpus_test.go`). The
 remainder carry typed exemptions in the record naming the lifecycle tests
 that prove the guarantees.
 

@@ -355,7 +355,7 @@ func TestLawGraphRelationsRejectInvalidShapes(t *testing.T) {
 	t.Run("non-subject endpoint", func(t *testing.T) {
 		lesson := record("lesson", "lesson", KnowledgeRelation{Kind: "refines", TargetID: "a"})
 		lesson.Kind = "lesson"
-		a, byID := base()
+		_, byID := base()
 		byID["lesson"] = lesson
 		seen := map[string]bool{}
 		graph := map[string][]string{}

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"testing"
 )
 
@@ -50,41 +51,29 @@ func anchorHomePair(t *testing.T, s *Store, projectID, locatorID string) {
 	}
 }
 
-func seedCurrentDomain(t *testing.T, s *Store, productID, domainID string) {
+// seedCurrentDomain designates a committed Git home for the Product whose
+// Domain registry declares the one current Domain the fold reads. No SQL
+// Domain row is seeded: the fold reads the committed registry through the
+// pre-transaction knowledge-source proof. It returns the designated home.
+func seedCurrentDomain(t *testing.T, s *Store, productID, domainID string) KnowledgeHome {
 	t.Helper()
-	db := s.DatabaseForTesting()
-	homeProject, homeLocator := "domain-home-"+productID, "domain-locator-"+productID
-	seedEventDerivedLocator(t, s, homeProject, homeLocator, t.TempDir())
-	tx, err := db.Begin()
+	home := KnowledgeHome{HomeProjectID: "domain-home-" + productID, HomeLocatorID: "domain-locator-" + productID, RepoPath: initKnowledgeRepo(t), HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, productID, home, home.HomeProjectID)
+	repo := home.RepoPath
+	registry := KnowledgeDomainRegistry{
+		SchemaVersion: "1.0", ProductKey: "obs", RootDomainID: "product-root:obs",
+		Domains: []KnowledgeDomain{
+			{DomainID: "product-root:obs", Name: "Observation Product", Purpose: "Governs the observation fixture Product.", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+			{DomainID: domainID, Name: "Domain " + domainID, Purpose: "Test domain", ParentDomainID: "product-root:obs", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+		},
+	}
+	registryJSON, err := json.Marshal(registry)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	hash := "sha256:" + repeatA64()
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?,?,1,'t','t')`, homeProject, homeProject); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?, 'canonical_path', ?, ?, 't', 't')`, homeLocator, homeProject, "/test/"+homeLocator, "/test/"+homeLocator); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO product_projects(product_id,project_id,role) VALUES(?,?,'secondary')`, productID, homeProject); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,'1.0',?,'commit')`, productID, homeProject, homeLocator, "test-"+productID, domainID, hash); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?,?)`, homeProject, homeLocator, productID, domainID, "Domain "+domainID, "test domain", nil, "current", hash, "commit"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	writeKnowledgeFile(t, repo, knowledgeRegistryPath, string(registryJSON)+"\n")
+	commitKnowledgeRepo(t, repo, "observation registry fixture")
+	return home
 }
 
 func repeatA64() string { return "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }

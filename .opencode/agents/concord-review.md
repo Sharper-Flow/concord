@@ -69,7 +69,7 @@ scope and verify the repairs; there is no read-only review mode. Leave changes
 uncommitted: the caller commits and owns delivery. Return missing inputs,
 out-of-scope findings and reserved decisions to the caller, never the operator.
 
-Resolve Product-law state through `concord_knowledge`. You may delegate bounded
+Resolve Product-law state through the workflow's resolved law context. You may delegate bounded
 repository investigation to `concord-explore` and external investigation to
 `concord-lookup`; neither may delegate further. Keep the review judgment yourself.
 

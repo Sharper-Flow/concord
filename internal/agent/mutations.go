@@ -2162,7 +2162,41 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 	}
 	plan.scope["product_ids"] = preflightProducts
 	base.EvidenceRefs = append([]agentcontract.EvidenceRef{}, plan.evidenceRefs...)
-	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.plannedInitialDurability, plan.intents, plan.effect)
+	proofCtx := ctx
+	if op.ID == "concord_work_define.observation_record" {
+		// The observation fold's Domain validation resolves the committed
+		// registry from the pre-transaction proof (CD-0195 D2: the git read
+		// runs with no transaction open). The Product follows the
+		// authenticated selection, falling back to the scope-derived Product
+		// of the observed work for an ambient call. An unreachable or
+		// invalid committed registry refuses here and no effect runs.
+		product := r.Envelope.SelectedProductID
+		if product == "" && len(preflightProducts) == 1 {
+			product = preflightProducts[0]
+		}
+		if product != "" {
+			verified, refusal := r.domainRegistryProofForObservation(proofCtx, base, product)
+			if refusal != nil {
+				return *refusal, nil
+			}
+			proofCtx = verified
+		}
+	}
+	return r.executeMutation(proofCtx, base, raw, digest, plan.scope, plan.plannedInitialDurability, plan.intents, plan.effect)
+}
+
+// domainRegistryProofForObservation establishes the committed Domain registry
+// proof the observation folds resolve their Domain validation from. It runs
+// after replay and scope admission, with no transaction open (CD-0195 D2), so
+// an exact replay keeps answering from its stored receipt without re-reading
+// the registry, and a refused observation writes nothing.
+func (r runtime) domainRegistryProofForObservation(ctx context.Context, base agentcontract.Envelope, productID string) (context.Context, *agentcontract.Envelope) {
+	verifiedCtx, proofErr := r.Store.EstablishDomainRegistryProof(ctx, productID)
+	if proofErr != nil {
+		refusal := failureEnvelope(base, proofErr)
+		return ctx, &refusal
+	}
+	return verifiedCtx, nil
 }
 
 func (r runtime) deriveMutationProducts(ctx context.Context, scope map[string]any) ([]string, error) {

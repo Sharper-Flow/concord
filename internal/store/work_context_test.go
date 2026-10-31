@@ -17,116 +17,51 @@ import (
 // law or criterion evidence. Readers preserve their attribution and selection
 // without promoting their content into Git or knowledge.
 
-// Domain identities of the seeded registry fixture. The contract approves
-// root and child-alpha; child-unaffected is current but outside the approved
-// affected scope; deprecated-domain is not current. A registry-hash mismatch
-// is structurally impossible beside the one current registry (the domains
-// foreign key pins every row to a registry hash), so the hash check stays
-// defense-in-depth in the validator and the fixture covers the reachable
-// staleness: a deprecated Domain.
+// Domain identities of the committed fixture registry. The contract approves
+// the Product root and child-alpha; child-unaffected is current but outside
+// the approved affected scope; deprecated-domain is not current. Registry and
+// Domain staleness are structurally impossible beside the one same-commit
+// snapshot, so the fixture covers the reachable refusal: a deprecated Domain.
 const (
-	workContextTestRoot          = "root"
-	workContextTestChild         = "child-alpha"
-	workContextTestUnaffected    = "child-unaffected"
-	workContextTestDeprecated    = "deprecated-domain"
-	workContextTestForeignDomain = "foreign-child"
+	workContextTestRoot       = "product-root:product"
+	workContextTestChild      = "child-alpha"
+	workContextTestUnaffected = "child-unaffected"
+	workContextTestDeprecated = "deprecated-domain"
 )
 
 func workContextTestCommit() string { return strings.Repeat("a1", 20) }
 
-// seedWorkContextDomainRegistry installs the actual registry fixture: one
-// current registry for the product, the domains above in their named
-// states, and a second product with one current foreign domain reached
-// through its own registered Project locator.
+// seedWorkContextDomainRegistry commits the work-context registry fixture
+// into the workflow law home's repo: the Product root, the affected child,
+// a current child outside the approved affected scope, a deprecated child,
+// and the committed spec fixture's home Domain. The retired SQL Domain
+// projection stays empty — the validator reads the committed registry.
 func seedWorkContextDomainRegistry(t *testing.T, s *Store) {
 	t.Helper()
-	ctx := context.Background()
-	current := "sha256:" + strings.Repeat("b", 64)
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	// The committed registry superset: the shared fixture registry's Domains
+	// (the Product root, root, and child) plus the work-context cases — a
+	// current child outside the approved affected scope and a deprecated
+	// child. It rides the same committed law folder the snapshot reads.
+	registry := KnowledgeDomainRegistry{
+		SchemaVersion: "1.0", ProductKey: "product", RootDomainID: "product-root:product",
+		Domains: []KnowledgeDomain{
+			{DomainID: "product-root:product", Name: "Root", Purpose: "Governs the synthetic Product.", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+			{DomainID: workContextTestChild, Name: "Affected child", Purpose: "The approved affected child.", Status: "current", ParentDomainID: "product-root:product", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+			{DomainID: workContextTestUnaffected, Name: "Unaffected", Purpose: "Current outside the approved affected scope.", Status: "current", ParentDomainID: "product-root:product", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+			{DomainID: workContextTestDeprecated, Name: "Deprecated", Purpose: "Retired scope.", Status: "deprecated", ParentDomainID: "product-root:product", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+			{DomainID: "product-root:fixture", Name: "Law fixture home", Purpose: "The committed spec fixture's home Domain.", Status: "current", ParentDomainID: "product-root:product", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+		},
+	}
+	encoded, err := json.Marshal(registry)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterWrite(ctx, tx); err != nil {
-		tx.Rollback()
+	var lawRepo string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT locator_value FROM project_locators WHERE project_id='project' AND locator_id='workflow-law-locator'`).Scan(&lawRepo); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project','workflow-law-locator','product',?,'1.0',?,'test')`, workContextTestRoot, current); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	domains := []struct{ id, parent, status string }{
-		{workContextTestRoot, "", "current"},
-		{workContextTestChild, workContextTestRoot, "current"},
-		{workContextTestUnaffected, workContextTestRoot, "current"},
-		{workContextTestDeprecated, workContextTestRoot, "deprecated"},
-	}
-	for _, domain := range domains {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product',?,?,?,NULLIF(?,''),?,?,'test')`, domain.id, domain.id, "seeded domain "+domain.id, domain.parent, domain.status, current); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-	}
-	if err := leaveWrite(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	// The second Product, its Project, its own registered Project locator,
-	// and one current foreign domain, for the cross-Product refusal.
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		productCreatedEvent("product-2", "create-product-2"),
-		projectCreatedEvent("project-2", "create-project-2"),
-		operationEvent("product-2-project", "product_project.added", SubjectProduct, "product-2", map[string]any{
-			"product_id": "product-2", "project_id": "project-2", "role": "primary", "reason": "test",
-			"expected_version": 1, "resulting_version": 2,
-		}),
-	}, ExpectedVersions: map[SubjectRef]int64{
-		VersionRef(SubjectProduct, "product-2"): 0,
-		VersionRef(SubjectProject, "project-2"): 0,
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	var projectVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id='project'`).Scan(&projectVersion); err != nil {
-		t.Fatal(err)
-	}
-	foreignHome := t.TempDir()
-	foreignNormalized, err := NormalizeProjectLocator(LocatorCanonicalPath, foreignHome)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{operationEvent("work-context-foreign-locator", "project.locator_added", SubjectProject, "project", map[string]any{
-		"project_id": "project", "locator_id": "work-context-foreign-locator", "kind": string(LocatorCanonicalPath), "value": foreignHome, "normalized_value": foreignNormalized,
-		"expected_version": projectVersion, "resulting_version": projectVersion + 1,
-	})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project"): projectVersion}}); err != nil {
-		t.Fatal(err)
-	}
-	tx, err = s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := enterWrite(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	foreign := "sha256:" + strings.Repeat("d", 64)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product-2','project','work-context-foreign-locator','product-2',?,'1.0',?,'test')`, workContextTestForeignDomain, foreign); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project','work-context-foreign-locator','product-2',?,?,?,NULL,'current',?,'test')`, workContextTestForeignDomain, workContextTestForeignDomain, "foreign domain", foreign); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := leaveWrite(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	writeKnowledgeFile(t, lawRepo, knowledgeRegistryPath, string(encoded)+"\n")
+	commitKnowledgeRepo(t, lawRepo, "work context registry fixture")
 }
 
 type workContextFixture struct {
@@ -182,33 +117,13 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 	runKnowledgeGit(t, lawRepo, "init", "--initial-branch=main")
 	runKnowledgeGit(t, lawRepo, "config", "user.email", "test@example.invalid")
 	runKnowledgeGit(t, lawRepo, "config", "user.name", "Concord Test")
-	manifestRoot := "product-root:product"
-	registry := KnowledgeDomainRegistry{
-		SchemaVersion: "1.0", ProductKey: "product", RootDomainID: manifestRoot,
-		Domains: []KnowledgeDomain{
-			{DomainID: manifestRoot, Name: "Root", Purpose: "Product law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
-			{DomainID: workContextTestChild, Name: "Child", Purpose: "Child law", ParentDomainID: manifestRoot, Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
-		},
-	}
-	registryJSON, err := json.Marshal(registry)
-	if err != nil {
-		t.Fatal(err)
-	}
 	body := "# Synthetic dispatch law\n\nThe fixture's committed law record for declared reading resolution.\n"
 	sum := sha256.Sum256([]byte(body))
 	out.lawHash = "sha256:" + hex.EncodeToString(sum[:])
 	writeKnowledgeFile(t, lawRepo, ".concord/docs/spec.md", body)
-	head := map[string]any{
-		"schema_version":  "1.2",
-		"supported_kinds": []string{"decision", "spec"},
-		"indexed_kinds":   []string{"decision", "spec"},
-	}
-	headJSON, err := json.Marshal(head)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeKnowledgeFile(t, lawRepo, knowledgeHeadPath, string(headJSON)+"\n")
-	writeKnowledgeFile(t, lawRepo, knowledgeRegistryPath, string(registryJSON)+"\n")
+	// The committed registry is seedWorkContextDomainRegistry's: the reading
+	// resolution pins the archived row's exact committed blob, never the
+	// registry.
 	record := KnowledgeRecord{
 		ID: out.lawID, Kind: "spec", Path: ".concord/docs/spec.md", Status: "accepted",
 		Date: "2026-10-01T00:00:00Z", Title: "Synthetic dispatch law",
@@ -450,6 +365,19 @@ func TestValidateWorkContextDomainTxRefusals(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-domain-validation")
 	defer fixture.store.Close()
+	// A second Product whose committed registry declares a current Domain
+	// the work's Product does not: the validator reads only the work's own
+	// Product registry, so that Domain is unknown to it.
+	foreign := KnowledgeHome{HomeProjectID: "work-context-foreign-project", HomeLocatorID: "work-context-foreign-locator", RepoPath: initKnowledgeRepo(t), HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, fixture.store, "product-2", foreign, foreign.HomeProjectID)
+	writeKnowledgeFile(t, foreign.RepoPath, knowledgeRegistryPath, `{"schema_version":"1.0","product_key":"product-2","root_domain_id":"product-root:product-2","domains":[{"domain_id":"product-root:product-2","name":"Foreign","purpose":"Governs the foreign Product.","status":"current","architecture_relations":[]},{"domain_id":"foreign-child","name":"Foreign child","purpose":"Current only in the foreign Product.","status":"current","parent_domain_id":"product-root:product-2","architecture_relations":[]}]}`+"\n")
+	commitKnowledgeRepo(t, foreign.RepoPath, "foreign Product registry")
+	// The validator reads the proof-bound committed registry: the proof is
+	// established per operation before the validator's transaction opens.
+	verified, err := fixture.store.EstablishDomainRegistryProof(context.Background(), "product")
+	if err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
 		name      string
 		domain    string
@@ -458,7 +386,7 @@ func TestValidateWorkContextDomainTxRefusals(t *testing.T) {
 		detail    string
 	}{
 		{"unknown domain", "never-seeded", "", KindUnknownScope, "unknown Domain"},
-		{"cross-Product domain", workContextTestForeignDomain, "", KindUnknownScope, "another Product"},
+		{"cross-Product domain", "foreign-child", "", KindUnknownScope, "unknown Domain"},
 		{"deprecated domain", workContextTestDeprecated, "", KindStaleRequiresReview, "non-current or stale Domain"},
 		{"outside approved affected scope", workContextTestUnaffected, "", KindUnknownScope, "affected Domain scope"},
 		{"root without product-wide rationale", workContextTestRoot, "", KindInvalidPayload, "product-wide rationale"},
@@ -466,33 +394,43 @@ func TestValidateWorkContextDomainTxRefusals(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
+			tx, err := fixture.store.DatabaseForTesting().BeginTx(verified, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer tx.Rollback()
-			err = ValidateWorkContextDomainTx(context.Background(), tx, fixture.workID, testCase.domain, testCase.rationale)
+			err = ValidateWorkContextDomainTx(verified, tx, fixture.workID, testCase.domain, testCase.rationale)
 			if !hasFailureKind(err, testCase.kind) || !strings.Contains(fmt.Sprint(err), testCase.detail) {
 				t.Fatalf("%s error = %v, want %s containing %q", testCase.name, err, testCase.kind, testCase.detail)
 			}
 		})
 	}
+	// The committed registry the proof read is the only registry: the
+	// retired SQL Domain projection stays empty.
+	var retiredRows int
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_registries)+(SELECT count(*) FROM domains)`).Scan(&retiredRows); err != nil {
+		t.Fatal(err)
+	}
+	if retiredRows != 0 {
+		t.Fatalf("retired SQL Domain projection rows remain: %d", retiredRows)
+	}
 	// The two admissible arms: an affected child without rationale and the
 	// approved root with one.
-	tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
+	tx, err := fixture.store.DatabaseForTesting().BeginTx(verified, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := ValidateWorkContextDomainTx(context.Background(), tx, fixture.workID, workContextTestChild, ""); err != nil {
+	if err := ValidateWorkContextDomainTx(verified, tx, fixture.workID, workContextTestChild, ""); err != nil {
 		t.Fatalf("affected child refused: %v", err)
 	}
-	if err := ValidateWorkContextDomainTx(context.Background(), tx, fixture.workID, workContextTestRoot, workContextRootRationale); err != nil {
+	if err := ValidateWorkContextDomainTx(verified, tx, fixture.workID, workContextTestRoot, workContextRootRationale); err != nil {
 		t.Fatalf("approved root with rationale refused: %v", err)
 	}
 }
 
-// A Product with no projected registry refuses before any domain question.
+// A work whose Product has no designated knowledge home refuses before any
+// domain question: a Domain registry exists only at that home.
 func TestValidateWorkContextDomainTxRefusesWithoutRegistry(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -504,8 +442,8 @@ func TestValidateWorkContextDomainTxRefusesWithoutRegistry(t *testing.T) {
 	}
 	defer tx.Rollback()
 	err = ValidateWorkContextDomainTx(context.Background(), tx, "ctx-no-registry", workContextTestRoot, workContextRootRationale)
-	if !hasFailureKind(err, KindUnknownScope) || !strings.Contains(fmt.Sprint(err), "no current Domain registry") {
-		t.Fatalf("registry-absent error = %v, want %s naming the missing registry", err, KindUnknownScope)
+	if !hasFailureKind(err, KindUnknownScope) || !strings.Contains(fmt.Sprint(err), "knowledge home") {
+		t.Fatalf("homeless-work error = %v, want %s naming the missing Product knowledge home", err, KindUnknownScope)
 	}
 }
 
@@ -521,7 +459,6 @@ func TestRecordWorkContextActionDomainRefusals(t *testing.T) {
 		detail    string
 	}{
 		{"unknown domain on a reading", "never-seeded", "", "reading", "unknown Domain"},
-		{"cross-Product domain on a reading", workContextTestForeignDomain, "", "reading", "another Product"},
 		{"deprecated domain on a finding", workContextTestDeprecated, "", "finding", "stale Domain"},
 		{"outside affected scope on a reading", workContextTestUnaffected, "", "reading", "affected Domain scope"},
 		{"root reading without rationale", workContextTestRoot, "", "reading", "product-wide rationale"},

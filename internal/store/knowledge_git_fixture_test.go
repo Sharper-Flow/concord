@@ -58,9 +58,10 @@ func runKnowledgeGit(t *testing.T, repo string, args ...string) string {
 }
 
 // fixtureLawFolderRegistry is the minimal valid Domain registry a synthetic
-// home commits: the Product root every fixture law names as its home, plus
-// the root and child Domain identities the workflow binding fixtures name.
-const fixtureLawFolderRegistry = `{"schema_version":"1.0","product_key":"fixture","root_domain_id":"product-root:fixture","domains":[{"domain_id":"product-root:fixture","name":"Fixture","purpose":"Governs the synthetic fixture Product.","status":"current","architecture_relations":[]},{"domain_id":"root","name":"Root","purpose":"Fixture root child Domain.","status":"current","parent_domain_id":"product-root:fixture","architecture_relations":[]},{"domain_id":"child","name":"Child","purpose":"Fixture child Domain.","status":"current","parent_domain_id":"product-root:fixture","architecture_relations":[]}]}` + "\n"
+// home commits: the Product root, the law fixture's home Domain, and the
+// root/child/child-alpha Domain identities the workflow binding fixtures
+// name.
+const fixtureLawFolderRegistry = `{"schema_version":"1.0","product_key":"product","root_domain_id":"product-root:product","domains":[{"domain_id":"product-root:product","name":"Product","purpose":"Governs the synthetic fixture Product.","status":"current","architecture_relations":[]},{"domain_id":"product-root:fixture","name":"Law fixture home","purpose":"The committed spec fixture's home Domain.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]},{"domain_id":"root","name":"Root","purpose":"Fixture root child Domain.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]},{"domain_id":"child","name":"Child","purpose":"Fixture child Domain.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]},{"domain_id":"child-alpha","name":"Affected child","purpose":"The approved affected child.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]}]}` + "\n"
 
 // fixtureLawFolderLaw is one minimal committed law homed at the fixture
 // registry's Product root.

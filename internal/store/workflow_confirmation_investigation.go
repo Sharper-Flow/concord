@@ -39,13 +39,19 @@ func requireRecordedInvestigationArtifact(ctx context.Context, q queryer, workID
 	if err := rows.Close(); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_confirmation", "cannot inspect recorded investigation artifacts", true, "retry once the workflow evidence is readable", err)
 	}
-	for _, refs := range candidates {
-		qualified, err := investigationRefsQualified(ctx, q, workID, refs, comparisonRequired)
+	if len(candidates) > 0 {
+		domains, err := currentInvestigationDomains(ctx, q, workID)
 		if err != nil {
 			return err
 		}
-		if qualified {
-			return nil
+		for _, refs := range candidates {
+			qualified, err := investigationRefsQualified(ctx, q, workID, refs, comparisonRequired, domains)
+			if err != nil {
+				return err
+			}
+			if qualified {
+				return nil
+			}
 		}
 	}
 	if comparisonRequired {
@@ -54,15 +60,11 @@ func requireRecordedInvestigationArtifact(ctx context.Context, q queryer, workID
 	return newFailure(KindMissingEvidence, "workflow_confirmation", "premise confirmation requires a recorded investigation artifact naming a current Domain of the Product; its ref must hold the bare domain_id of the current Domain", false, "call concord_work_define.observation_record with this work_id and refs containing the bare domain_id of a current Product Domain")
 }
 
-func investigationRefsQualified(ctx context.Context, q queryer, workID string, refs []string, comparisonRequired bool) (bool, error) {
+func investigationRefsQualified(ctx context.Context, q queryer, workID string, refs []string, comparisonRequired bool, currentDomains map[string]bool) (bool, error) {
 	namesDomain, namesWork := false, false
 	for _, ref := range refs {
 		if !namesDomain {
-			current, err := investigationRefIsCurrentDomain(ctx, q, workID, ref)
-			if err != nil {
-				return false, err
-			}
-			namesDomain = current
+			namesDomain = currentDomains[ref]
 		}
 		if !namesWork && ref != workID {
 			known, err := investigationRefIsKnownWork(ctx, q, ref)
@@ -94,16 +96,46 @@ func productHoldsAnotherWorkItem(ctx context.Context, q queryer, workID string) 
 	return held == 1, nil
 }
 
-func investigationRefIsCurrentDomain(ctx context.Context, q queryer, workID, ref string) (bool, error) {
-	var status string
-	err := q.QueryRowContext(ctx, `SELECT d.status FROM domains d JOIN product_projects pp ON pp.product_id=d.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? AND d.domain_id=? LIMIT 1`, workID, ref).Scan(&status)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
+// currentInvestigationDomains returns the current Domain IDs of the Product
+// that owns the work's contract, read from the committed registry the
+// transaction's knowledge-source proof binds. A work with no single owning
+// Product, or a Product with no designated knowledge home, has no Domain
+// registry, so no ref can name a current Domain and the confirmation answers
+// with its missing-evidence guidance. When a registry exists but the
+// transaction carries no proof that still binds it, the refs cannot be
+// decided: the answer is a typed stale-review refusal that names the
+// verification, never a report that the artifact names no Domain.
+func currentInvestigationDomains(ctx context.Context, q queryer, workID string) (map[string]bool, error) {
+	current := map[string]bool{}
+	productID, err := architectureBindingProductID(ctx, q, workID)
 	if err != nil {
-		return false, wrapFailure(KindUnavailable, "workflow_confirmation", "cannot resolve investigation artifact Domain ref", true, "retry once the Domain projection is readable", err)
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Kind == KindUnknownScope {
+			return current, nil
+		}
+		return nil, err
 	}
-	return status == "current", nil
+	homes, err := productKnowledgeHomeCandidates(ctx, q, productID)
+	if err != nil {
+		return nil, err
+	}
+	if len(homes) == 0 {
+		return current, nil
+	}
+	snapshot, err := lawSnapshotForProduct(ctx, q, productID, "workflow_confirmation")
+	if err != nil {
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Kind == KindUnavailable {
+			return nil, err
+		}
+		return nil, wrapFailure(KindStaleRequiresReview, "workflow_confirmation", "the investigation artifact's Domain refs cannot be checked: this read carries no current verification of the Product's committed Domain registry", false, "verify the Product's knowledge home, then confirm the premise or reread the work pin", err)
+	}
+	for _, domain := range snapshot.Registry().Domains {
+		if domainRegistryStatus(domain.Status) == "current" {
+			current[domain.DomainID] = true
+		}
+	}
+	return current, nil
 }
 
 func investigationRefIsKnownWork(ctx context.Context, q queryer, ref string) (bool, error) {

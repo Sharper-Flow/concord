@@ -90,10 +90,6 @@ func authorityLawRecord(t *testing.T, legislatedBy, recordID string, version int
 	return record
 }
 
-func itoa(value int) string {
-	return strconv.FormatInt(int64(value), 10)
-}
-
 // authorityLawFixture declares one committed law for the admission scenarios.
 type authorityLawFixture struct {
 	ID           string

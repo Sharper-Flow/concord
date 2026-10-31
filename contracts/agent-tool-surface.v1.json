@@ -3,7 +3,7 @@
   "schema_version": "1.0",
   "surface": {
     "name": "concord-agent-tool-surface",
-    "tool_count": 9
+    "tool_count": 8
   },
   "envelope": {
     "schema_version": "1.0",
@@ -1257,6 +1257,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:afa9b8b3bbc0eba73ce0175234708c2641100f4d394d4b0046761c3faf7d9a9d",
-  "digest": "sha256:af5b377d1b5af5be7640198f171750311cceac27c05ea3b3844b254dc5de95c7"
+  "payload_digest": "sha256:4e83d8a61da38a4c9ff3cb73f41c6977ac5f2ecd10de2b49541bd096e6b75120",
+  "digest": "sha256:e0cb5528164806b6331439619df763a5ace293ac62e5be7002c16c6fc4334dcc"
 }

@@ -131,6 +131,10 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if _, _, err := WorkflowActionDefinitionFor(ctx, s, registry, request.WorkID, request.ActionID); err != nil {
 		return err
 	}
+	ctx, err := s.prepareWorkflowActionRegistryProof(ctx, request.ActionID, request.WorkID)
+	if err != nil {
+		return err
+	}
 	readTx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot begin workflow admission read snapshot", true, "retry once the database is readable", err)
@@ -138,6 +142,23 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	defer func() { _ = readTx.Rollback() }()
 	_, err = workflowActionPreflightTx(ctx, readTx, registry, request)
 	return err
+}
+
+// prepareWorkflowActionRegistryProof establishes, before the preflight's read
+// snapshot or the owning transaction opens, the knowledge-source proof that
+// the Domain-registry-consuming actions read inside it: record_work_context
+// validates declared Domains and confirm_premise checks the investigation
+// artifact's Domain refs. Git runs only here, outside the pool (CD-0195 D2).
+// The preflight and the owning boundary share this one preparation, so the
+// preflight never refuses for a missing proof the owning action would hold.
+// An unreachable or invalid law home refuses: a registry boundary has no
+// degraded form.
+func (s *Store) prepareWorkflowActionRegistryProof(ctx context.Context, actionID, workID string) (context.Context, error) {
+	switch actionID {
+	case "record_work_context", "confirm_premise":
+		return s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	}
+	return ctx, nil
 }
 
 // AuthorizeWorkflowActionAtBoundaryTx is the owning-action transaction
@@ -167,6 +188,10 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 	}
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
+	}
+	ctx, err := s.prepareWorkflowActionRegistryProof(ctx, request.ActionID, request.WorkID)
+	if err != nil {
+		return err
 	}
 	tx, err := s.beginDurableTx(ctx)
 	if err != nil {

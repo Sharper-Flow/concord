@@ -31,8 +31,9 @@ func workContextCompanionRepo(t *testing.T) (string, string) {
 	return repo, commitKnowledgeRepo(t, repo, "companion fixture")
 }
 
-// workContextPointLawHome repoints the Product's registry home at repo and
-// pins its scanned commit, the way the retired proof resolved sources.
+// workContextPointLawHome repoints the Product's registry home at repo: the
+// per-operation establishment re-reads the committed registry from the
+// repointed locator at the next action.
 func workContextPointLawHome(t *testing.T, f workContextFixture, repo, oid string) {
 	t.Helper()
 	tx, err := f.store.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -44,9 +45,6 @@ func workContextPointLawHome(t *testing.T, f workContextFixture, repo, oid strin
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`UPDATE project_locators SET locator_value=?,normalized_value=? WHERE locator_id='workflow-law-locator'`, repo, repo); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`UPDATE domain_registries SET scanned_commit_oid=? WHERE product_id='product'`, oid); err != nil {
 		t.Fatal(err)
 	}
 	if err := leaveWrite(context.Background(), tx); err != nil {

@@ -40,11 +40,12 @@ const (
 )
 
 type readPopulationFixture struct {
-	store    *store.Store
-	service  *Service
-	grant    Authority
-	workID   string
-	domainID string
+	store        *store.Store
+	service      *Service
+	grant        Authority
+	workID       string
+	domainID     string
+	registryHash string
 }
 
 // seedReadPopulationFixture builds the population-scale store. Every step uses
@@ -69,7 +70,7 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 
 	fx := readPopulationFixture{store: s, workID: readPopulationWork, domainID: readPopulationChildDomain}
 	seedReadPopulationFocusWork(t, s)
-	fx.seedKnowledgeHome(t)
+	fx.registryHash = fx.seedKnowledgeHome(t)
 	fx.seedFocusWorkflow(t)
 	fx.seedResearchPack(t)
 
@@ -169,8 +170,10 @@ func seedReadPopulationFocusWork(t *testing.T, s *store.Store) {
 // seedKnowledgeHome commits a Domain registry carrying a root and a child
 // Domain, plus committed law documents the child hosts, and authorizes the
 // home. The home lives on its own Project so the focus Project's
-// canonical-path locator stays unambiguous for the worktree claim.
-func (fx readPopulationFixture) seedKnowledgeHome(t *testing.T) {
+// canonical-path locator stays unambiguous for the worktree claim. It returns
+// the committed registry's content fingerprint, the value the architecture
+// bindings record instead of a projection row.
+func (fx readPopulationFixture) seedKnowledgeHome(t *testing.T) string {
 	t.Helper()
 	repo, err := os.MkdirTemp(t.TempDir(), "population-knowledge-")
 	if err != nil {
@@ -180,16 +183,16 @@ func (fx readPopulationFixture) seedKnowledgeHome(t *testing.T) {
 	gitRun(t, repo, "config", "user.email", "concord@example.invalid")
 	gitRun(t, repo, "config", "user.name", "Concord Population Test")
 
-	for _, path := range []string{
-		".concord/docs/constitution.md",
-		".concord/docs/decisions/" + readPopulationDecision + ".md",
-		".concord/docs/specs/" + readPopulationSpec + ".md",
+	for _, law := range []struct{ path, front string }{
+		{".concord/law/constitution/CONST-0001.md", `{"id":"CONST-0001","title":"Population constitution","authority":{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1},"home_domain_id":"sync","applies_to_domain_ids":[]}`},
+		{".concord/law/decisions/" + readPopulationDecision + ".md", `{"id":"CD-0201","title":"Synchronization authority","authority":{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1},"home_domain_id":"sync","applies_to_domain_ids":[]}`},
+		{".concord/law/specs/" + readPopulationSpec + ".md", `{"id":"SPEC-0201","title":"Synchronization specification","authority":{"tier":"derived"},"home_domain_id":"sync","applies_to_domain_ids":[]}`},
 	} {
-		full := filepath.Join(repo, filepath.FromSlash(path))
+		full := filepath.Join(repo, filepath.FromSlash(law.path))
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(full, []byte("The child Domain owns the committed law it declares.\n"), 0o644); err != nil {
+		if err := os.WriteFile(full, []byte("---\n"+law.front+"\n---\n\nThe child Domain owns the committed law it declares.\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -215,6 +218,7 @@ func (fx readPopulationFixture) seedKnowledgeHome(t *testing.T) {
 	execPopulationStatement(t, fx.store, `INSERT INTO product_projects(product_id,project_id,role) VALUES('prod-alpha','proj-knowledge','secondary')`)
 	execPopulationStatement(t, fx.store, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('population-knowledge-locator','proj-knowledge','canonical_path',?,?,'now','now')`, repo, repo)
 	execPopulationStatement(t, fx.store, `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('prod-alpha','proj-knowledge','population-knowledge-locator')`)
+	return pm1fixture.CommittedRegistryContentHash(registry)
 }
 
 // execPopulationStatement runs one fold-guarded SQL statement. Statements run
@@ -259,7 +263,7 @@ func (fx readPopulationFixture) seedFocusWorkflow(t *testing.T) {
 	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-population")
 	execPopulationStatement(t, fx.store, `INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-population','agent','now')`, actorRef)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'population focus','internal_sqlite','[]','[]','now',?,'[]',?,1,'prototype_internal')`, fx.workID, actorRef, `["`+readPopulationDecision+`"]`)
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) SELECT ?,1,'prod-alpha',content_hash,?,content_hash FROM domain_registries WHERE product_id='prod-alpha'`, fx.workID, readPopulationChildDomain)
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,1,'prod-alpha',?,?,?)`, fx.workID, fx.registryHash, readPopulationChildDomain, fx.registryHash)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, fx.workID, readPopulationChildDomain)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, fx.workID, readPopulationDecision)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:population',0,'exists','{"kind":"exists","surface":"go_test:internal/agent","subjects":["work-population"]}')`, fx.workID)
@@ -359,7 +363,7 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 	}
 	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-population")
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'population peer','internal_sqlite','[]','[]','now',?,'[]',?,1,'prototype_internal')`, readPopulationPeer, actorRef, `["`+readPopulationDecision+`"]`)
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) SELECT ?,1,'prod-alpha',content_hash,?,content_hash FROM domain_registries WHERE product_id='prod-alpha'`, readPopulationPeer, readPopulationChildDomain)
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,1,'prod-alpha',?,?,?)`, readPopulationPeer, fx.registryHash, readPopulationChildDomain, fx.registryHash)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, readPopulationPeer, readPopulationChildDomain)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, readPopulationPeer, readPopulationDecision)
 

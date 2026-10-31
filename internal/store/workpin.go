@@ -109,12 +109,40 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 	if s == nil || s.db == nil {
 		return pin, newFailure(KindUnavailable, "work_pin", "store is not open", false, "open the authority database")
 	}
+	ctx = s.prepareConfirmationReadProof(ctx, workID)
 	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot open a consistent work pin snapshot", true, "retry once the database is readable", err)
 	}
 	defer tx.Rollback()
 	return ReadWorkPinTx(ctx, tx, workID)
+}
+
+// prepareConfirmationReadProof verifies the work's knowledge sources before a
+// pin read whose current step declares confirm_premise, because that pin
+// folds the investigation artifact's Domain refs against the committed
+// registry and no Git may run inside the read (CD-0195 D2). Other steps fold
+// no registry and pay no Git read. The pin is advisory: when the definition,
+// step, or verification is unavailable the read proceeds without a proof, and
+// the fold reports the confirmation unverified instead of failing the pin or
+// claiming the artifact names no Domain.
+func (s *Store) prepareConfirmationReadProof(ctx context.Context, workID string) context.Context {
+	if knowledgeSourceSetProofFrom(ctx) != nil {
+		return ctx
+	}
+	entry, err := VerifyWorkflowInstanceDefinition(ctx, s, nil, workID)
+	if err != nil {
+		return ctx
+	}
+	var step string
+	if err := s.db.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil || !stepDeclaresAction(entry.Definition, step, "confirm_premise") {
+		return ctx
+	}
+	verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	if err != nil {
+		return ctx
+	}
+	return verified
 }
 
 // ReadMutationWorkPinTxForRegistry is the registry-threaded opaque-Tx pin: a

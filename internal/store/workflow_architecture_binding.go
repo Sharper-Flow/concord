@@ -361,7 +361,11 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	}
 	// The binding validates against the verified committed registry and law
 	// folder: the pre-transaction proof carries the snapshot, and the
-	// transaction-scoped revalidation refuses a home whose head moved.
+	// transaction-scoped revalidation refuses a rebound home or moved law or
+	// registry content before the snapshot is read.
+	if err := requireKnowledgeSourceSetProof(ctx, tx, homeProjectID, homeLocatorID); err != nil {
+		return err
+	}
 	snapshot, err := lawSnapshotForSource(ctx, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID}, "workflow_architecture_binding")
 	if err != nil {
 		return err

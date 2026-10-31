@@ -31,10 +31,14 @@ const (
 	DomainEvidenceLawID = "CD-0041"
 	// DomainEvidenceLawPath is the accepted decision's committed path.
 	DomainEvidenceLawPath = ".concord/law/decisions/CD-0041.md"
-	// DomainEvidenceLawTitle is its manifest title.
+	// DomainEvidenceLawTitle is its frontmatter title.
 	DomainEvidenceLawTitle = "Domain authority"
-	// DomainEvidenceLawBody is the committed blob behind DomainEvidenceLawPath.
-	DomainEvidenceLawBody = "Domains are the only architecture authority.\n"
+	// DomainEvidenceLawBody is the committed blob behind DomainEvidenceLawPath:
+	// the closed JSON frontmatter the strict law-folder loader parses, then the
+	// durable body. The SHA-256 covers the whole file including frontmatter.
+	DomainEvidenceLawBody = "---\n" +
+		`{"id":"CD-0041","title":"Domain authority","authority":{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1},"home_domain_id":"product-root:concord","applies_to_domain_ids":[],"product_wide_rationale":"The fixture registry declares no child Domain, so this law has no child home available."}` +
+		"\n---\n\nDomains are the only architecture authority.\n"
 
 	domainEvidenceProductKey = "concord"
 )
@@ -121,21 +125,21 @@ func SeedWorkItem(ctx context.Context, s *store.Store, projectID, workID, title 
 	return nil
 }
 
-// SeedDomainEvidence projects the single-Domain registry for opts.ProductID
-// from a freshly committed manifest, then binds a nonterminal contract per work
-// item to the root Domain.
+// SeedDomainEvidence commits the single-Domain registry for opts.ProductID at
+// its designated home, then binds a nonterminal contract per work item to the
+// root Domain with the committed registry's content fingerprint.
 func SeedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidenceOptions) error {
 	if err := opts.validate(); err != nil {
 		return err
 	}
-	repo, err := DomainEvidenceRepo(opts.Dir)
+	repo, registry, err := DomainEvidenceRepo(opts.Dir)
 	if err != nil {
 		return err
 	}
-	return seedDomainEvidence(ctx, s, opts, repo, SingleDomainRootID, DomainEvidenceLawID, "domain evidence")
+	return seedDomainEvidence(ctx, s, opts, repo, CommittedRegistryContentHash(registry), SingleDomainRootID, DomainEvidenceLawID, "domain evidence")
 }
 
-func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidenceOptions, repo, domainID, lawID, premise string) error {
+func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidenceOptions, repo, registryHash, domainID, lawID, premise string) error {
 	if err := execDomainFold(ctx, s,
 		domainStatement{"knowledge locator", `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,'canonical_path',?,?,'now','now')`, []any{opts.LocatorID, opts.ProjectID, repo, repo}},
 		domainStatement{"knowledge home", `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, []any{opts.ProductID, opts.ProjectID, opts.LocatorID}},
@@ -148,11 +152,11 @@ func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 		{"workflow actor", `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-1','operator','now')`, []any{actorRef}},
 	}
 	const contract = `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,?,'internal_sqlite','[]','[]','now',?,'[]',?,1,'prototype_internal')`
-	const binding = `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) SELECT ?,1,?,content_hash,?,content_hash FROM domain_registries WHERE product_id=?`
+	const binding = `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,1,?,?,?,?,?)`
 	for _, workID := range opts.WorkIDs {
 		statements = append(statements,
 			domainStatement{"contract " + workID, contract, []any{workID, premise, actorRef, `["` + lawID + `"]`}},
-			domainStatement{"architecture binding " + workID, binding, []any{workID, opts.ProductID, domainID, opts.ProductID}},
+			domainStatement{"architecture binding " + workID, binding, []any{workID, opts.ProductID, registryHash, domainID, registryHash}},
 			domainStatement{"affected Domain " + workID, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, []any{workID, domainID}},
 			domainStatement{"law modification " + workID, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, []any{workID, lawID}},
 		)
@@ -166,13 +170,15 @@ func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 
 // DomainEvidenceRepo commits the single-Domain registry with an empty
 // architecture relation set, plus the accepted decision homed to that Domain.
-func DomainEvidenceRepo(dir string) (string, error) {
+// The registry is returned because the architecture binding records its
+// content fingerprint, not a projection row.
+func DomainEvidenceRepo(dir string) (string, store.KnowledgeDomainRegistry, error) {
 	repo, err := initKnowledgeRepo(dir)
 	if err != nil {
-		return "", fmt.Errorf("pm1fixture: init Domain evidence repo: %w", err)
+		return "", store.KnowledgeDomainRegistry{}, fmt.Errorf("pm1fixture: init Domain evidence repo: %w", err)
 	}
 	if err := writeKnowledgeFile(repo, DomainEvidenceLawPath, DomainEvidenceLawBody); err != nil {
-		return "", fmt.Errorf("pm1fixture: write accepted decision: %w", err)
+		return "", store.KnowledgeDomainRegistry{}, fmt.Errorf("pm1fixture: write accepted decision: %w", err)
 	}
 	registry := store.KnowledgeDomainRegistry{
 		SchemaVersion: "1.0",
@@ -183,12 +189,12 @@ func DomainEvidenceRepo(dir string) (string, error) {
 		},
 	}
 	if err := WriteKnowledgeShards(repo, registry); err != nil {
-		return "", err
+		return "", store.KnowledgeDomainRegistry{}, err
 	}
 	if _, err := commitKnowledgeRepo(repo, "domain evidence knowledge"); err != nil {
-		return "", fmt.Errorf("pm1fixture: commit Domain evidence repo: %w", err)
+		return "", store.KnowledgeDomainRegistry{}, fmt.Errorf("pm1fixture: commit Domain evidence repo: %w", err)
 	}
-	return repo, nil
+	return repo, registry, nil
 }
 
 type domainStatement struct {

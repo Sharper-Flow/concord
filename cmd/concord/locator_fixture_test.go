@@ -88,7 +88,7 @@ func seedCLIHostWorktree(t *testing.T, repo, workID, _ string) cliHostCheckout {
 	return cliHostCheckout{Path: path}
 }
 
-func seedCLISessionWorktree(t *testing.T, s *store.Store, repo string) cliWorktreeFixture {
+func initializeCLILocatorWorkflow(t *testing.T, s *store.Store) {
 	t.Helper()
 	ref, err := store.DefaultWorkflowRefForKind("task")
 	if err != nil {
@@ -110,6 +110,11 @@ func seedCLISessionWorktree(t *testing.T, s *store.Store, repo string) cliWorktr
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func seedCLISessionWorktree(t *testing.T, s *store.Store, repo string) cliWorktreeFixture {
+	t.Helper()
+	initializeCLILocatorWorkflow(t, s)
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-wl'`).Scan(&version); err != nil {
 		t.Fatal(err)

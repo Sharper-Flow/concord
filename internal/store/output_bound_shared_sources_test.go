@@ -11,7 +11,7 @@ import (
 
 // Shared primitive output-bound source rows for the structural output-bound
 // ledger. This file owns the $defs primitives every operation family
-// consumes: absolute_path, cursor, digest, evidence.locator,
+// consumes: cursor, digest, evidence.locator,
 // evidence.version, id, law_id, next_valid_intent.required_fields,
 // obligation_id, reference (maxLength and x-maxBytes), and short.
 //
@@ -23,9 +23,9 @@ import (
 // here and repaired at the consumer sites.
 //
 // Row states after the source trace:
-//   - absolute_path and cursor are unbounded, byte-ceiling only: every
-//     writer was traced and neither family has an expressible finite
-//     producer guard. Their consumer caps are parent repairs.
+//   - cursor is unbounded, byte-ceiling only: every writer was traced and
+//     the family has no expressible finite producer guard. Its consumer
+//     caps are parent repairs.
 //   - SQLite length() over TEXT measures only the NUL-terminated prefix,
 //     so no row cites a TEXT CHECK as a full-string source. The digest and
 //     id rows cite the boundary admission instead; their echo columns'
@@ -58,16 +58,6 @@ import (
 func init() {
 	registerOutputBound("/$defs/knowledge_id/maxLength",
 		schemaBound("contracts/concord-knowledge-index.v1.schema.json", "/$defs/id/maxLength"))
-	// absolute_path: every writer was traced and none carries a Go-side
-	// length bound. The registered route is unbounded, byte-ceiling only:
-	// the typed read-envelope refusal is the bound. Parent repair: remove
-	// the /$defs/absolute_path/maxLength cap (the traced truth is
-	// unbounded, not 4096).
-	registerOutputBound("/$defs/absolute_path/maxLength", unboundedOutput(
-		"internal/store/worktree_reads.go:worktreeEntriesCore reads retained worktree_entries.path verbatim; "+
-			"the column has no length CHECK, so these retained paths have no complete-string length bound",
-		"internal/agent/runtime.go:readSizeRefusal", "internal/agent/mutations.go:mutationResult"))
-
 	// digest: every output value is a boundary-admitted digest (<=128 code
 	// points, hex pattern — the admission is a full-string bound), a
 	// Go-minted sha256 form (64 bare hex, 71 with the sha256: prefix;

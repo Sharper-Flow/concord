@@ -50,6 +50,7 @@ func TestReceiptPrintsNothingForAWorkItemOutsideTheCompletedLifecycle(t *testing
 	t.Setenv(dbOverrideEnv, dbPath)
 	s := mustOpenStore(t, dbPath)
 	seedLocatorAuthority(t, s, repo)
+	initializeCLILocatorWorkflow(t, s)
 	body, err := json.Marshal(map[string]string{"work_id": "work-wl"})
 	if err != nil {
 		t.Fatal(err)

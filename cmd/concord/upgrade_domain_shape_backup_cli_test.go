@@ -109,8 +109,8 @@ func TestUpgradeRetiringDomainShapeSnapshotsRowsBeforeDrop(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("upgrade report: %v: %s", err, out)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{172}) || report.SchemaVersion != 172 {
-		t.Fatalf("upgrade report = %+v, want migration 172 only", report)
+	if !reflect.DeepEqual(report.Applied, []int{172, 173}) || report.SchemaVersion != 173 {
+		t.Fatalf("upgrade report = %+v, want migrations [172 173] and schema 173", report)
 	}
 	if !strings.HasPrefix(report.Backup, filepath.Join(root, "backups")+string(filepath.Separator)) {
 		t.Fatalf("snapshot is outside the existing backup route: %+v", report)
@@ -282,7 +282,7 @@ DELETE FROM write_guard`); err != nil {
 		Applied []int  `json:"applied"`
 		Backup  string `json:"backup"`
 	}
-	if err := json.Unmarshal([]byte(out), &report); err != nil || !reflect.DeepEqual(report.Applied, []int{172}) {
+	if err := json.Unmarshal([]byte(out), &report); err != nil || !reflect.DeepEqual(report.Applied, []int{172, 173}) {
 		t.Fatalf("remediated upgrade report=%s err=%v", out, err)
 	}
 	manifest, err := store.VerifyBackup(context.Background(), report.Backup)

@@ -88,7 +88,6 @@ type ContinuitySnapshot struct {
 	DesignRecord           *WorkflowDesignRecord   `json:"design_record"`
 	ProposalRecord         *WorkflowProposalRecord `json:"proposal_record"`
 	ReviewInput            *ReviewInput            `json:"review_input,omitempty"`
-	ReviewInputWarning     error                   `json:"-"`
 	Boundaries             []ContextBoundary       `json:"boundaries"`
 	BoundaryCount          int64                   `json:"boundary_count"`
 	NextCursor             *string                 `json:"next_cursor"`
@@ -197,8 +196,11 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err := continuityReadManagedHistoryTx(ctx, tx, req, registry, offset, &out); err != nil {
 		return out, err
 	}
-	if err := populateContinuityReviewInput(ctx, tx, req.Work, &out); err != nil {
-		return out, err
+	if out.WorkPin != nil && out.WorkPin.Review != nil {
+		review := out.WorkPin.Review
+		if review.Candidate != nil && review.Dependencies != nil {
+			out.ReviewInput = &ReviewInput{InputCandidate: *review.Candidate, Dependencies: *review.Dependencies}
+		}
 	}
 	if err := tx.Rollback(); err != nil {
 		return out, err

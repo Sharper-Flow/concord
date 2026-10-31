@@ -1850,18 +1850,7 @@ func continuityResultMeta(snapshot store.ContinuitySnapshot, next *string) store
 // strand the emit at one byte over the cap.
 func continuityResultMetaObservedAt(snapshot store.ContinuitySnapshot, next *string, observedAt string) store.ResultMeta {
 	watermark := snapshot.SourceVersionWatermark
-	warnings := []string{}
-	if snapshot.ReviewInputWarning != nil {
-		kind := store.KindUnavailable
-		var failure *store.Failure
-		if errors.As(snapshot.ReviewInputWarning, &failure) {
-			kind = failure.Kind
-		}
-		// Stable notice: review_input_candidate_tree:<typed failure kind>.
-		// Raw paths and Git output stay on the non-JSON snapshot error only.
-		warnings = append(warnings, "review_input_candidate_tree:"+string(kind))
-	}
-	return store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: observedAt}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: next, Omissions: []string{}, Warnings: warnings}
+	return store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: observedAt}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: next, Omissions: []string{}, Warnings: []string{}}
 }
 
 // continuityProjectionHeader is the small closed identity header every page

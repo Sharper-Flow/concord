@@ -330,24 +330,50 @@ class ServedInputCorrectionTests(unittest.TestCase):
         self.assertFalse(evaluate(self.case, calls, events, 0, {"source": "nonce"})["passed"])
 
     def test_refused_review_identity_drift_grants_no_correction(self):
-        for field, value in (("work_id", "work-foreign"), ("expected_version", 2),
-                             ("action_id", "complete"), ("fields", {"review": {}})):
+        for field, value in (("work_id", "work-foreign"), ("action_id", "complete")):
             with self.subTest(field=field):
                 args = malformed_review_args()
                 args["request"]["input"][field] = value
                 calls, events = self.corrected_observation(args=args)
                 self.assertFalse(evaluate(self.case, calls, events, 0, {"source": "nonce"})["passed"])
 
-    def test_refused_review_identity_type_drift_grants_no_correction(self):
-        for value in (True, 1.0, "1"):
+    def test_refused_review_version_can_be_corrected(self):
+        for value in (2, True, 1.0, "1", None):
             with self.subTest(value=repr(value)):
+                args = review_args()
+                if value is None:
+                    del args["request"]["input"]["expected_version"]
+                else:
+                    args["request"]["input"]["expected_version"] = value
+                calls, events = self.corrected_observation(args=args)
+                result = evaluate(self.case, calls, events, 0, {"source": "nonce"})
+                self.assertTrue(result["passed"])
+                self.assertEqual(result["unauthorized_mutation_calls"], 0)
+
+    def test_refused_review_fields_can_be_corrected(self):
+        for value in ({"review": {}}, None):
+            with self.subTest(value=value):
+                args = review_args()
+                if value is None:
+                    del args["request"]["input"]["fields"]
+                else:
+                    args["request"]["input"]["fields"] = value
+                calls, events = self.corrected_observation(args=args)
+                self.assertTrue(evaluate(self.case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_refused_review_operation_drift_grants_no_correction(self):
+        for operation in ("unknown", None):
+            with self.subTest(operation=operation):
                 args = malformed_review_args()
-                args["request"]["input"]["expected_version"] = value
+                if operation is None:
+                    del args["request"]["operation"]
+                else:
+                    args["request"]["operation"] = operation
                 calls, events = self.corrected_observation(args=args)
                 self.assertFalse(evaluate(self.case, calls, events, 0, {"source": "nonce"})["passed"])
 
     def test_refused_review_omitted_identity_grants_no_correction(self):
-        for absent in ("work_id", "expected_version", "action_id", "fields"):
+        for absent in ("work_id", "action_id"):
             with self.subTest(absent=absent):
                 args = malformed_review_args()
                 del args["request"]["input"][absent]
@@ -455,11 +481,12 @@ class TypeSensitiveGateTests(unittest.TestCase):
         self.assertFalse(result["checks"]["trace_matches_event"])
         self.assertFalse(result["passed"])
 
-    def test_corrected_review_identity_type_drift_breaks_the_correction(self):
+    def test_corrected_review_version_type_drift_breaks_the_correction(self):
         case = SCENARIOS["native-route-discovery"]
-        refused = malformed_review_args()
-        refused["request"]["input"]["expected_version"] = True
-        calls, events = refusal_prefixed_observation(case, TRANSITION, refused, served_correction_refusal())
+        calls, events = refusal_prefixed_observation(
+            case, TRANSITION, malformed_review_args(), served_correction_refusal())
+        calls[2]["args"]["request"]["input"]["expected_version"] = True
+        events[2]["part"]["state"]["input"] = copy.deepcopy(calls[2]["args"])
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
     def test_final_response_nested_type_drift_breaks_the_match(self):

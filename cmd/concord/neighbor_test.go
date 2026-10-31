@@ -91,7 +91,7 @@ func prepareSessionPrepareNeighborRow(ctx context.Context) func(t *testing.T) cl
 					identityCalls++
 					return "concord-1", nil
 				},
-				func(context.Context, string, string, string) ([]byte, error) {
+				func(context.Context, string, string, string, string) ([]byte, error) {
 					return []byte(`{"watermark":"test"}`), nil
 				})
 			if code != 0 || identityCalls != 1 {

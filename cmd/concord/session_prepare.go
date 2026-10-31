@@ -120,7 +120,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, hostCo
 		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return 1
 	}
-	packet, err := bootstrap(context.Background(), database, input.ProductID, input.WorkID)
+	packet, err := bootstrap(context.Background(), database, input.ProductID, input.WorkID, resolution.ProjectID)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareFailureExit(err, 1)

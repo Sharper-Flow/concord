@@ -510,8 +510,8 @@ export function adapterError(toolName: string, operation: string, requestID: str
   return validateAdapterEnvelope(envelope as AdapterErrorEnvelope)
 }
 
-// validateAdapterEnvelope fails closed only for adapter origin: a core, lane,
-// or work-start envelope passes through untouched, and an adapter-origin
+// validateAdapterEnvelope fails closed only for adapter origin: any other
+// envelope passes through untouched, and an adapter-origin
 // envelope that fails the generated contract throws the typed defect with
 // the failing member path.
 export function validateAdapterEnvelope<T>(envelope: T): T {

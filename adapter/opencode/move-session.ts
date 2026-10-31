@@ -7,7 +7,6 @@
 // placeholder when the host runs no listener, which is why nothing here reads
 // it.
 //
-// `GET /session` reports live session directories for worktree occupancy.
 // `GET/PATCH /session/{id}` owns persistent Task participation metadata and
 // the session title.
 
@@ -15,14 +14,8 @@ import { execFileSync } from "node:child_process"
 import { promptAndConfirm } from "./host-prompt"
 
 export const SESSION_ROUTE = "/session/{id}"
-export const SESSION_LIST_ROUTE = "/session"
 export const SESSION_MESSAGES_ROUTE = "/session/{id}/message"
 export const MANAGED_TASK_SCOPE_KEY = "concord.task_scope"
-
-// ObservedSessionDirectory is one live host session and the directory it runs
-// in. It is the wire shape the core's occupancy gate consumes, so the field
-// names match the typed operation input rather than the host's own record.
-export type ObservedSessionDirectory = { session_ref: string; directory: string }
 
 // hostVersion reports the running OpenCode version so an unavailable-route
 // refusal names the host it was refused by. The probe runs only on that path,

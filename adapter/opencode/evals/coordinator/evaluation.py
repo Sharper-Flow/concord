@@ -109,12 +109,9 @@ def mutation_in_scope(tool, args, case, required):
     return False
 
 
-# The identity a correction retry must preserve: the refused call and the
-# corrected call name the same work, Project, base, action, fields and version.
-# Python compares True with 1 and 1 with 1.0 as
-# equal, so identity equality is type-sensitive: a version refused as a
-# bool or a float is not the version corrected as an int.
-CORRECTION_IDENTITY_FIELDS = ("work_id", "expected_version", "action_id", "fields")
+# A correction preserves the review's work and action. Version and fields
+# are repairable request input; review_in_scope still pins their corrected values.
+CORRECTION_IDENTITY_FIELDS = ("work_id", "action_id")
 
 
 def correction_identity(tool, args):
@@ -125,7 +122,8 @@ def correction_identity(tool, args):
     data = args
     if tool == TRANSITION:
         request = args.get("request")
-        if not isinstance(request, dict) or not isinstance(request.get("input"), dict):
+        if (not isinstance(request, dict) or request.get("operation") != "workflow_action"
+                or not isinstance(request.get("input"), dict)):
             return None
         data = request["input"]
     return tuple(data.get(field) for field in CORRECTION_IDENTITY_FIELDS)
@@ -147,7 +145,7 @@ def served_correction_step(calls, case, required):
     of scope, because a refusal recorded on input the fixture admits is
     forged; the next call is the same tool with changed, never identical,
     arguments; the corrected call is in scope; the refused call named the
-    same work, version, action and fields with the same types, so the correction
+    same workflow operation, work and action with the same types, so the correction
     repairs the request, never its identity; and the corrected call carries
     the case's served result for that tool. The refused call counts as no
     effect and no unauthorized mutation. Every other out-of-scope call keeps

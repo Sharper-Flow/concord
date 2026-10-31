@@ -9,8 +9,8 @@ import (
 )
 
 // sessionBootstrapFunc derives the deterministic session boot packet for one
-// Product and work. Tests inject an isolated derivation for session-prepare.
-type sessionBootstrapFunc func(context.Context, string, string, string) ([]byte, error)
+// Product, work, and resolved Project. Tests inject an isolated derivation for session-prepare.
+type sessionBootstrapFunc func(ctx context.Context, database, productID, workID, projectID string) ([]byte, error)
 
 // sessionOrchestratorFunc verifies the selected agent against its definition
 // and the calling host's registry in dir. It performs no store write.
@@ -30,7 +30,7 @@ func hostOrchestratorIdentity(_ context.Context, dir string, host hostCommandRes
 
 // DeriveSessionBoot reads the canonical continuity projection and renders the
 // deterministic session boot packet shared by session transports.
-func DeriveSessionBoot(ctx context.Context, database, productID, workID string) (packet []byte, errResult error) {
+func DeriveSessionBoot(ctx context.Context, database, productID, workID, projectID string) (packet []byte, errResult error) {
 	s, err := openStoreForCommand(ctx, database)
 	if err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func DeriveSessionBoot(ctx context.Context, database, productID, workID string) 
 			errResult = closeErr
 		}
 	}()
-	snapshot, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: workID, Limit: 1})
+	snapshot, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: workID, Limit: 1, ProjectID: projectID})
 	if err != nil {
 		return nil, err
 	}

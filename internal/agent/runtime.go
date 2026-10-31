@@ -1043,16 +1043,11 @@ func mapFailureKind(kind store.FailureKind) string {
 	case store.KindUnreachable, store.KindGitUnreachable:
 		return "unreachable"
 	case store.KindUnauthorizedDispatch:
-		// A worker dispatch refused at the admission boundary: no active
-		// worktree claim, a session outside the claimed worktree, or no
-		// authorized window. unauthorized_dispatch is the adapter's name for
-		// the same refusal; the core envelope carries it as the authority
-		// refusal it is, never as an internal fault.
+		// A dispatch admission refusal is an authority failure, not an internal
+		// fault, regardless of the store's more specific kind name.
 		return "unauthorized"
 	case store.KindProjectionConflict:
-		// A projection identity another row already holds (a second active
-		// worktree claim, a locator-drifted worktree) is a coordination
-		// refusal, not an internal fault.
+		// Conflicting projection identities require coordination, not fault recovery.
 		return "operation_conflict"
 	case store.KindIndexDegraded:
 		return "degraded_not_allowed"

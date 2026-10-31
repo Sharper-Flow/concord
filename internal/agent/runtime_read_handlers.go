@@ -313,7 +313,7 @@ func (r runtime) readTraceContinuity(ctx context.Context, base agentcontract.Env
 		}
 		return response, nil
 	}
-	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: limit, Cursor: inner}
+	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: limit, Cursor: inner, ProjectID: r.Envelope.AmbientProjectID}
 	snapshot, err := store.ReadWorkflowContinuity(ctx, r.Store, continuityReq)
 	if err != nil {
 		return failureEnvelope(base, err), nil
@@ -468,7 +468,7 @@ func (r runtime) continuityProjectionSnapshot(ctx context.Context, limit int, cu
 	if captured != nil {
 		return *captured, nil
 	}
-	return store.ReadWorkflowContinuity(ctx, r.Store, store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor})
+	return store.ReadWorkflowContinuity(ctx, r.Store, store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor, ProjectID: r.Envelope.AmbientProjectID})
 }
 
 // researchPackReadV2 is the version 2 pack read result: the full pack when no

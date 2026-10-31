@@ -50,7 +50,7 @@ func TestSessionPrepareCallbackFailureClassification(t *testing.T) {
 							}
 							return "concord-1", nil
 						},
-						func(context.Context, string, string, string) ([]byte, error) {
+						func(context.Context, string, string, string, string) ([]byte, error) {
 							bootCalls++
 							return nil, tc.err
 						})

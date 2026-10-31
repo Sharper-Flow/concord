@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -286,6 +288,88 @@ func TestSourceReaderProbeDetectsPinnedReader(t *testing.T) {
 	}
 }
 
+type backupVerificationMark struct {
+	ordinal    int
+	path       string
+	elapsed    time.Duration
+	remaining  time.Duration
+	contextErr error
+}
+
+type backupVerificationTrace struct {
+	started  time.Time
+	deadline time.Time
+	marks    []backupVerificationMark
+}
+
+func (trace *backupVerificationTrace) record(ctx context.Context, path string, now time.Time) {
+	trace.marks = append(trace.marks, backupVerificationMark{
+		ordinal: len(trace.marks) + 1, path: path,
+		elapsed: now.Sub(trace.started), remaining: trace.deadline.Sub(now), contextErr: ctx.Err(),
+	})
+}
+
+func (trace *backupVerificationTrace) report() string {
+	if len(trace.marks) == 0 {
+		return "no backup verifier entries\n"
+	}
+	var report strings.Builder
+	for _, mark := range trace.marks {
+		fmt.Fprintf(&report, "backup verifier entry %d: path=%q elapsed=%s remaining=%s context_error=%v\n",
+			mark.ordinal, mark.path, mark.elapsed, mark.remaining, mark.contextErr)
+	}
+	return report.String()
+}
+
+func TestBackupDatabaseVerificationEntryObserver(t *testing.T) {
+	source := copyTestDatabase(t)
+	destination := filepath.Join(t.TempDir(), "snapshot.db")
+	var entries []string
+	ctx := context.WithValue(context.Background(), backupVerificationEntryContextKey{}, func(path string) {
+		entries = append(entries, path)
+	})
+	if _, err := BackupDatabase(ctx, source, destination); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("verifier entries = %q, want destination, disposable clone, destination", entries)
+	}
+	if entries[0] != destination || entries[2] != destination {
+		t.Fatalf("verifier entries = %q, want destination at entries 1 and 3", entries)
+	}
+	clone := entries[1]
+	if clone == destination || filepath.Dir(clone) != filepath.Dir(destination) || !strings.HasPrefix(filepath.Base(clone), ".concord-backup-verify-") {
+		t.Fatalf("clone entry = %q, want a disposable backup-verification clone beside %q", clone, destination)
+	}
+	if _, err := os.Stat(clone); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("disposable clone after backup: %v", err)
+	}
+	if _, err := VerifyBackup(context.Background(), destination); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("plain-context verification added an entry: %q", entries)
+	}
+}
+
+func TestBackupVerificationTraceReport(t *testing.T) {
+	started := time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
+	deadline := started.Add(2 * time.Second)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	trace := backupVerificationTrace{started: started, deadline: deadline}
+	if got := trace.report(); got != "no backup verifier entries\n" {
+		t.Fatalf("empty report = %q", got)
+	}
+	trace.record(ctx, "snapshot.db", started.Add(2250*time.Millisecond))
+	trace.record(ctx, "clone.db", started.Add(2500*time.Millisecond))
+	want := "backup verifier entry 1: path=\"snapshot.db\" elapsed=2.25s remaining=-250ms context_error=context deadline exceeded\n" +
+		"backup verifier entry 2: path=\"clone.db\" elapsed=2.5s remaining=-500ms context_error=context deadline exceeded\n"
+	if got := trace.report(); got != want {
+		t.Fatalf("report = %q, want %q", got, want)
+	}
+}
+
 // TestBackupDatabaseReadOnlyWALBounded holds the backup path to the same
 // source-snapshot contract as the restore path: BackupDatabase from a
 // WAL-mode 0444 source larger than one batch must complete within a
@@ -361,6 +445,16 @@ func TestBackupDatabaseReadOnlyWALBounded(t *testing.T) {
 	destination := filepath.Join(dir, "snapshot.db")
 	backupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
+	deadline, _ := backupCtx.Deadline()
+	trace := backupVerificationTrace{started: deadline.Add(-2 * time.Second), deadline: deadline}
+	backupCtx = context.WithValue(backupCtx, backupVerificationEntryContextKey{}, func(path string) {
+		trace.record(backupCtx, path, time.Now())
+	})
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("backup verifier entries (copy/verification boundaries):\n%s", trace.report())
+		}
+	})
 	got, err := BackupDatabase(backupCtx, source, destination)
 	// Source identity holds in either outcome.
 	if after, statErr := fileSHA256(source); statErr != nil || after != manifest.DBChecksum {

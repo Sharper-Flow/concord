@@ -1,3 +1,34 @@
+---
+{
+  "id": "TS6",
+  "title": "agent adapter transport contract",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [
+    "agent-contract"
+  ],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Client registration is a transport-layer property below scenario grain. The guarantee is proved by TestCommandBoundaryRejectsInvalidTrailingJSONAcrossCommands (cmd/concord/main_test.go) and TestCLIEndToEndRegistersClientAndInvokesRead (cmd/concord/main_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Secret non-exposure is a transport invariant. CD-0080 removes the grant token, so the remaining secret is the registered client key. The guarantee is proved by TestInvokeRejectsUnknownFieldWithoutEcho (cmd/concord/main_test.go) and TestAuthorityRefusalsCarryTheUnauthorizedKind (internal/agent/authority_refusal_kind_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Single-envelope stdout is a transport property. The guarantee is proved by TestDecodeInvokeRequestRejectsInvalidTrailingJSON (internal/agent/runtime_test.go) and the adapter contract tests (adapter/opencode/generated-contract-tests.ts)."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Same-key retry is a dispatch property. The guarantee is proved by TestDispatchIdempotentReplaySurvivesAmbientScopeDrift (internal/agent/mutation_dispatch_test.go)."
+    }
+  ]
+}
+---
 # Concord Agent Adapter and Transport Contract (TS6)
 
 > **Status:** **Accepted — binding until superseded.**

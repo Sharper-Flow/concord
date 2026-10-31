@@ -10,44 +10,6 @@ import (
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 )
 
-// Every ok envelope is validated in MarshalJSON, and only there. The
-// in-process dispatch helpers return the struct and never marshal it, so a
-// read can pass struct-level tests while its wire answer fails validation.
-// Each read dispatches against a real fixture and marshals its wire answer.
-func TestKnowledgeReadEnvelopeMarshalsWithRealisticIdentifiers(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, grant, corpus := agentJobsPM1Fixture(t)
-	if _, err := pm1fixture.SeedKnowledge(ctx, s, corpus, t.TempDir()); err != nil {
-		t.Fatalf("pm1fixture.SeedKnowledge: %v", err)
-	}
-	env := agentJobsEnvelope(grant, "proj-web", "prod-alpha")
-	for _, tc := range []struct {
-		tool, op, input string
-	}{
-		{"concord_knowledge", "search", `{"product_id":"prod-alpha","kinds":["decision","lesson"],"page":{"cursor":null,"limit":10}}`},
-		{"concord_knowledge", "resolve_note", `{"knowledge_id":"knowledge-decision"}`},
-	} {
-		resp := dispatchRead(t, s, service, InvokeRequest{Tool: tc.tool, Operation: tc.op, Input: json.RawMessage(tc.input)}, env)
-		if resp.Outcome != agentcontract.OutcomeOK {
-			t.Fatalf("%s.%s: %+v", tc.tool, tc.op, resp.Error)
-		}
-		if _, err := json.Marshal(resp); err != nil {
-			t.Fatalf("%s.%s does not marshal: %v", tc.tool, tc.op, err)
-		}
-		if tc.op == "resolve_note" {
-			assertKnowledgeNotice(t, resp.Warnings, "legislated_authority_unverified", map[string]any{
-				"law_id": "knowledge-decision", "work_id": demandHomeWork, "contract_version": int64(1),
-			})
-		}
-		for _, notice := range append(resp.Omissions, resp.Warnings...) {
-			if len(notice.Kind) > 64 {
-				t.Fatalf("%s.%s emits a notice kind of %d bytes: %q", tc.tool, tc.op, len(notice.Kind), notice.Kind)
-			}
-		}
-	}
-}
-
 // The Domain reads carry no observation time from the store. The envelope
 // admits a null freshness for that; a zero instant is refused at marshal.
 func TestDomainReadEnvelopeMarshalsWithoutFreshness(t *testing.T) {

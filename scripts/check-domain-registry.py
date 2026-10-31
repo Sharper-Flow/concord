@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """Validate that the Domain registry describes a partition law actually uses.
 
-scripts/check-knowledge-index.py proves the registry is schema-valid: the
-domain records carry the required fields and the relation kinds obey their
-conditional requirements. That is a statement about shape. It is satisfied by a
-registry whose Domains own nothing, point at Domains that do not exist, and
-name governing law that was superseded years ago.
+The store's committed law-folder read proves the registry is schema-valid at
+read time: the domain records carry the required fields and the relation kinds
+obey their conditional requirements. That is a statement about shape. It is
+satisfied by a registry whose Domains own nothing, point at Domains that do
+not exist, and name governing law that was superseded years ago.
 
 This validator owns the referential propositions the schema cannot express,
-because JSON Schema cannot reach across from the registry to the record set.
+because JSON Schema cannot reach across from the registry to the law folder.
 
 CD-0060 D4 is the reason it exists. "No Domain enters the registry empty. A
 boundary that owns nothing is a label, and it cannot be checked against
 anything." That invariant is the one the rejected six-Domain draft violated,
-and nothing in the schema or the index checker would have caught it.
+and nothing in the schema or the committed read would have caught it.
 
 The checks:
 
@@ -25,20 +25,26 @@ The checks:
       governing_law_ids entry names a current law record
   D2  the root Domain has no parent and every child has a declared, acyclic parent
 
-The subject set comes from the aggregate manifest rather than the registry
-shard, so a Domain cannot escape the emptiness check by being declared only in
-the shard; scripts/generate-knowledge-index.py --check owns shard-to-aggregate
-agreement separately.
+The subject set comes from the current law folder under `.concord/law/` —
+its closed JSON frontmatter is the authored record metadata — so a Domain
+cannot escape the emptiness check by being declared only in the registry
+file. Folder membership supplies law status
+(law-folder-authority): every law file in the folder is a current record.
 """
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
-import knowledge_index  # noqa: E402
+REGISTRY_PATH = Path(".concord/docs/knowledge/domain-registry.json")
+LAW_ROOT = Path(".concord/law")
+
+FRONT_MATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
+
 
 def report(findings: list[str], subject: str) -> int:
     if findings:
@@ -50,22 +56,60 @@ def report(findings: list[str], subject: str) -> int:
     return 0
 
 
+def load_registry(root: Path) -> dict | None:
+    try:
+        data = json.loads((root / REGISTRY_PATH).read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    except json.JSONDecodeError as exc:
+        print(f"{REGISTRY_PATH.as_posix()}: invalid JSON: {exc}", file=sys.stderr)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def load_law_records(root: Path, findings: list[str]) -> list[dict]:
+    """Every law file's frontmatter as one record object.
+
+    Folder membership supplies law status, so every file under the law root
+    is a subject. A file without a closed frontmatter block cannot state its
+    home and is a named finding, never a silent omission.
+    """
+    law_root = root / LAW_ROOT
+    records: list[dict] = []
+    if not law_root.is_dir():
+        findings.append(f"{LAW_ROOT.as_posix()}: law folder is missing")
+        return records
+    for path in sorted(law_root.rglob("*.md")):
+        match = FRONT_MATTER_RE.match(path.read_text(encoding="utf-8"))
+        if not match:
+            findings.append(
+                f"{path.relative_to(root).as_posix()}: no closed --- JSON frontmatter block"
+            )
+            continue
+        try:
+            record = json.loads(match.group(1))
+        except json.JSONDecodeError as exc:
+            findings.append(
+                f"{path.relative_to(root).as_posix()}: frontmatter is not valid JSON: {exc}"
+            )
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
 def validate(root: Path) -> list[str]:
     findings: list[str] = []
-    try:
-        manifest = knowledge_index.compose_manifest(root)
-    except knowledge_index.ComposeError as exc:
-        return list(exc.findings)
-    registry = manifest.get("domain_registry")
-    if not isinstance(registry, dict):
-        return [".concord/docs/knowledge: no domain_registry"]
+    registry = load_registry(root)
+    if registry is None:
+        return [f"{REGISTRY_PATH.as_posix()}: no readable Domain registry"]
 
     root_id = registry.get("root_domain_id")
     domains = registry.get("domains", [])
     declared = {domain.get("domain_id") for domain in domains}
     parents = {domain.get("domain_id"): domain.get("parent_domain_id") for domain in domains}
-    records = [record for record in manifest.get("records", []) if isinstance(record, dict)]
-    current = {record.get("id") for record in records if record.get("status") == "accepted"}
+    records = load_law_records(root, findings)
+    current = {record.get("id") for record in records}
 
     homes: dict[str, int] = dict.fromkeys(declared, 0)
     rationales: dict[str, str] = {}

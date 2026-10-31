@@ -1,3 +1,28 @@
+---
+{
+  "id": "TS3",
+  "title": "Agent read tool contract",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-contract",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The closed operation union is a surface identity property, not a scenario outcome. It is proved by the generated manifest drift validator scripts/check-agent-contracts.py together with ValidateContractOperation in internal/agentcontract/generated_contracts.go, exercised by TestDispatchProductResolveReturnsGeneratedPayload (internal/agent/runtime_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Cursor binding is a dispatch property below scenario grain. The guarantee is proved by TestAuthenticatedCursorBindsOperationAndRejectsTampering (internal/agent/runtime_test.go)."
+    },
+    {
+      "criterion": 3,
+      "scenario": "AJ1-ambient-ready-work"
+    }
+  ]
+}
+---
 # Concord Agent Read-Tool Contract (TS3)
 
 > **Status:** **Accepted — binding until superseded.**

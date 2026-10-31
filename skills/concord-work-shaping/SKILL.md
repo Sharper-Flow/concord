@@ -17,8 +17,8 @@ workflow step or gate and grants no scope, approval, or execution authority.
 ## Intake
 
 Read the request, comments, and decisions. Search code by concept and planning
-for existing or declined work. Resolve law through `concord_knowledge.search`.
-Cite findings and where you looked. Check in order:
+for existing or declined work. Resolve law through the workflow's resolved law
+context. Cite findings and where you looked. Check in order:
 
 1. **Freshness:** correct stale paths, lines, links, and status before judging relevance.
 2. **Overtaken:** has another ticket, removal, or decision changed what this touches?

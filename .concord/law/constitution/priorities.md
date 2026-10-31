@@ -1,3 +1,15 @@
+---
+{
+  "id": "priorities",
+  "title": "Concord priorities",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "product_wide_rationale": "The sole canonical source of the operating envelope, the constraints, and the conflict rules, and the standing law that serves Concord's goals. Every Domain defers to it."
+}
+---
 # Concord Priorities
 
 > **Status:** Public constitutional planning authority.\

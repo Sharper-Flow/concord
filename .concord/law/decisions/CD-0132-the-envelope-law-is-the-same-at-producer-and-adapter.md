@@ -1,3 +1,19 @@
+---
+{
+  "id": "CD-0132",
+  "title": "The envelope law is the same at producer and adapter",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-call-boundary",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-contract"
+  ]
+}
+---
 # CD-0132: The envelope law is the same at producer and adapter
 
 - **Status:** Accepted

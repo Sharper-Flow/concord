@@ -1,3 +1,33 @@
+---
+{
+  "id": "CD-0241",
+  "title": "Rapid-development phases run the machine on a rapid branch; main and releases keep the full contract",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0010"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0088"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0089"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0166"
+    }
+  ],
+  "product_wide_rationale": "Rapid-development phases change the source coordination target and delivery evidence across all Domains while preserving full main-branch verification and automated releases."
+}
+---
 # CD-0241: Rapid-development phases run the machine on a rapid branch; main and releases keep the full contract
 
 - **Status:** Accepted
@@ -52,4 +82,5 @@ selection.
 - The operator approved the title wording and D1–D5 as written. The RTE review
   compares those bytes with the approved text and checks that the surrounding
   sections add no normative text.
-- `python3 scripts/check-knowledge-index.py` checks the indexed record and hash.
+- Committed law-folder snapshot validation checks the record and its content
+  digest.

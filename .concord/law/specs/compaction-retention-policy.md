@@ -1,3 +1,46 @@
+---
+{
+  "id": "compaction-retention-policy",
+  "title": "Compaction retention and historical index",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [
+    "durable-authority"
+  ],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "Q10-not-compacted"
+    },
+    {
+      "criterion": 2,
+      "exemption": "Cross-tier deduplication and watermark composition are query properties, not a single corpus case. TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead in internal/store/knowledge_index_test.go is a watermark witness; integrated cleanup and historical-tier coverage remain unmeasured."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Retirement eligibility is an operation property, not a PM1 query-corpus case. TestResearchRetirementTerminalOwnersEligible in internal/store/research_retirement_test.go is a candidate anchor; integrated coverage remains unmeasured under CON-816."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Publication separation and optional-pin protection require operation witnesses. TestResearchRetirementActivePinsProtectAndTerminalReleaseFences in internal/store/research_retirement_test.go is a candidate anchor; publication coverage remains unmeasured under CON-816."
+    },
+    {
+      "criterion": 5,
+      "exemption": "Historical derivation is a rebuild property. TestCompactionPayloadRequiresExplicitUniqueScopeArrays and TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag in internal/store/knowledge_index_test.go are candidate witnesses; derivation of every historical field remains unmeasured."
+    },
+    {
+      "criterion": 6,
+      "exemption": "Dry-run write absence is an operation property. TestResearchRetirementDryRunMixedBatchHasNoWrites in internal/store/research_retirement_test.go is a candidate anchor; integrated coverage remains unmeasured under CON-816."
+    },
+    {
+      "criterion": 7,
+      "exemption": "Restart and committed replay are operation properties. TestResearchRetireDryRunAndReplay in internal/agent/research_surface_test.go is a candidate replay anchor; restart coverage remains unmeasured under CON-816."
+    }
+  ]
+}
+---
 # Concord Compaction Retention and Historical Index
 
 - **Law ID:** compaction-retention-policy

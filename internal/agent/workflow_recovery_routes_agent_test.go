@@ -35,9 +35,6 @@ func recoveryDomainRepository(t *testing.T, s *store.Store) string {
 			t.Fatalf("fixture tooling: %v: %s", err, output)
 		}
 	}
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		t.Fatal(err)
-	}
 	for _, args := range [][]string{{"remote", "add", "origin", "https://example.invalid/fixture.git"}, {"update-ref", "refs/remotes/origin/main", "HEAD"}, {"symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"}} {
 		if output, err := exec.Command("git", append([]string{"-C", home.RepoPath}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("fixture repository: %v: %s", err, output)

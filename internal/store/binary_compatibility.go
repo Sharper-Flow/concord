@@ -24,22 +24,10 @@ func (s *Store) checkBinaryCompatibility(ctx context.Context) error {
 }
 
 func checkBinaryCompatibility(ctx context.Context, q queryer) error {
-	present, err := columnPresent(ctx, q, "knowledge_index_watermark", "projection_version")
-	if err != nil {
-		return err
-	}
-	if present {
-		var required int64
-		err := q.QueryRowContext(ctx, `SELECT projection_version FROM knowledge_index_watermark
-			WHERE projection_version > ? ORDER BY projection_version DESC LIMIT 1`, knowledgeProjectionVersion).Scan(&required)
-		if err != nil && err != sql.ErrNoRows {
-			return compatibilityReadFailure(err)
-		}
-		if err == nil {
-			return binaryCompatibilityFailure(ctx, q, knowledgeStateWriter(required),
-				fmt.Sprintf("knowledge projection version %d exceeds this binary's version %d", required, knowledgeProjectionVersion))
-		}
-	}
+	// The retired knowledge projection carried its own downgrade guard, the
+	// knowledge_index_watermark version row. No runtime writes that watermark
+	// anymore, so a stamped row binds nothing this binary reads; the owning
+	// migration retires the table.
 	return checkWorkflowBinaryCompatibility(ctx, q)
 }
 

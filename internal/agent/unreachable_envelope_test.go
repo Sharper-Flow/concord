@@ -19,7 +19,7 @@ func TestUnavailableStoreRefusalMarshalsAsUnreachable(t *testing.T) {
 	t.Parallel()
 	failure := &store.Failure{
 		Kind:           store.KindUnavailable,
-		Op:             "rebuild_knowledge_index",
+		Op:             "resolve_committed_law",
 		Detail:         "cannot clear git-derived law_subjects",
 		RetrySafe:      true,
 		RecoveryAction: "retry once the database is writable",

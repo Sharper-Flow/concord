@@ -96,7 +96,7 @@ func init() {
 	// the true capacity is maxManifestRecords items; the consumer maximum
 	// below must rise to admit it or the read needs its own bound.
 	registerOutputBound("/$defs/domain_detail_result/properties/current_law/maxItems",
-		goConstantBound("internal/store/knowledge_manifest.go", "maxManifestRecords", boundItems))
+		goConstantBound("internal/store/knowledge_record.go", "maxManifestRecords", boundItems))
 
 	// Observations: the declared open window is enforced on the write fold
 	// (the 65th open row refuses), on replay, and as the read clamp passed
@@ -112,8 +112,8 @@ func init() {
 	// admit it.
 	registerOutputBound("/$defs/domain_detail_result/properties/relations/maxItems",
 		pkProductBound(
-			goConstantBound("internal/store/knowledge_manifest.go", "maxManifestDomains", boundItems),
-			goConstantBound("internal/store/knowledge_manifest.go", "maxManifestRelations", boundItems),
+			goConstantBound("internal/store/knowledge_record.go", "maxManifestDomains", boundItems),
+			goConstantBound("internal/store/knowledge_record.go", "maxManifestRelations", boundItems),
 		))
 
 	// ------------------------------------------------------------------
@@ -130,7 +130,7 @@ func init() {
 	// sources are composed; the rest agree at the same value.
 	registerOutputBound("/$defs/domain_id/maxLength",
 		maxBound(
-			goInlineBound("internal/store/knowledge_manifest.go", "validManifestID", "utf8.RuneCountInString(value)", boundCharacters),
+			goInlineBound("internal/store/knowledge_record.go", "validManifestID", "utf8.RuneCountInString(value)", boundCharacters),
 			goInlineBound("internal/store/research_operations.go", "validateResearchScopes", "utf8.RuneCountInString(id)", boundCharacters),
 		))
 
@@ -142,17 +142,17 @@ func init() {
 	// applies_to_domain_ids, which validateManifestStringArray bounds at
 	// maxManifestArray unique declared Domains.
 	registerOutputBound("/$defs/domain_law_record/properties/applies_to/maxItems",
-		goConstantBound("internal/store/knowledge_manifest.go", "maxManifestArray", boundItems))
+		goConstantBound("internal/store/knowledge_record.go", "maxManifestArray", boundItems))
 
 	// Law record paths project 1:1 from manifest records bounded at
 	// maxManifestPath code points.
 	registerOutputBound("/$defs/domain_law_record/properties/path/maxLength",
-		goConstantBound("internal/store/knowledge_manifest.go", "maxManifestPath", boundCharacters))
+		goConstantBound("internal/store/knowledge_record.go", "maxManifestPath", boundCharacters))
 
 	// Law record titles project 1:1 from manifest records bounded at
 	// maxManifestTitle code points.
 	registerOutputBound("/$defs/domain_law_record/properties/title/maxLength",
-		goConstantBound("internal/store/knowledge_manifest.go", "maxManifestTitle", boundCharacters))
+		goConstantBound("internal/store/knowledge_record.go", "maxManifestTitle", boundCharacters))
 
 	// ------------------------------------------------------------------
 	// domain list result (C22.DomainList)
@@ -195,7 +195,7 @@ func init() {
 
 	// The registry content hash is stored under CHECK length 71 with the
 	// sha256 prefix in the final DDL.
-	registerOutputBound("/$defs/domain_registry/properties/content_hash/maxLength", pkHexDigestConstructionBound("internal/store/knowledge_manifest.go", "domainRegistryContentHash"))
+	registerOutputBound("/$defs/domain_registry/properties/content_hash/maxLength", pkHexDigestConstructionBound("internal/store/knowledge_record.go", "domainRegistryContentHash"))
 
 	// The registry Product ID is the operation subject ID: products.id
 	// carries no length CHECK and the product.created fold validates only
@@ -206,12 +206,12 @@ func init() {
 
 	// The registry product key is stored under CHECK length 1..256; the
 	// manifest parse guard validProductKey bounds it tighter at 64.
-	registerOutputBound("/$defs/domain_registry/properties/product_key/maxLength", goInlineBound("internal/store/knowledge_manifest.go", "validProductKey", "len(value)", boundBytes))
+	registerOutputBound("/$defs/domain_registry/properties/product_key/maxLength", goInlineBound("internal/store/knowledge_record.go", "validProductKey", "len(value)", boundBytes))
 
 	// The root Domain ID joins domains through the composite foreign key,
 	// whose CHECK bounds it at 256 characters; the manifest derives it as
 	// "product-root:" + productKey.
-	registerOutputBound("/$defs/domain_registry/properties/root_domain_id/maxLength", sumBound(pkLiteralTextBound("internal/store/knowledge_manifest.go", "validateKnowledgeDomainRegistry", "product-root:"), goInlineBound("internal/store/knowledge_manifest.go", "validProductKey", "len(value)", boundBytes)))
+	registerOutputBound("/$defs/domain_registry/properties/root_domain_id/maxLength", sumBound(pkLiteralTextBound("internal/store/knowledge_record.go", "validateKnowledgeDomainRegistry", "product-root:"), goInlineBound("internal/store/knowledge_record.go", "validProductKey", "len(value)", boundBytes)))
 
 	// The scanned commit is the resolved git head OID: validateCommitOID
 	// admits exactly the 40- and 64-hex lengths, and the column carries no
@@ -228,7 +228,7 @@ func init() {
 	// relation's array at maxManifestArray entries; the consumer maximum
 	// below must rise to admit it.
 	registerOutputBound("/$defs/domain_relation/properties/governing_law_ids/maxItems",
-		goConstantBound("internal/store/knowledge_manifest.go", "maxManifestArray", boundItems))
+		goConstantBound("internal/store/knowledge_record.go", "maxManifestArray", boundItems))
 
 	// ------------------------------------------------------------------
 	// domain summary (embedded in C22 results)
@@ -237,12 +237,12 @@ func init() {
 	// Domain names are stored under CHECK length 1..256 characters; the
 	// manifest parse guard (maxManifestTitle code points) applies the same
 	// value before projection.
-	registerOutputBound("/$defs/domain_summary/properties/name/maxLength", goInlineBound("internal/store/knowledge_manifest.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Name)", boundCharacters))
+	registerOutputBound("/$defs/domain_summary/properties/name/maxLength", goInlineBound("internal/store/knowledge_record.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Name)", boundCharacters))
 
 	// Domain purposes are stored under CHECK length 1..4096 characters;
 	// the manifest parse guard (maxManifestSummary code points) applies
 	// the same value before projection.
-	registerOutputBound("/$defs/domain_summary/properties/purpose/maxLength", goInlineBound("internal/store/knowledge_manifest.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Purpose)", boundCharacters))
+	registerOutputBound("/$defs/domain_summary/properties/purpose/maxLength", goInlineBound("internal/store/knowledge_record.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Purpose)", boundCharacters))
 
 	// ------------------------------------------------------------------
 	// knowledge page (PM1.Q9)

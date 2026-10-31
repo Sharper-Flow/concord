@@ -1,3 +1,35 @@
+---
+{
+  "id": "CD-0089",
+  "title": "Concord development coordination",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0010"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0007"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0082"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0088"
+    }
+  ],
+  "product_wide_rationale": "Owns Concord development coordination and its separation from planning, repository review, merge, and predecessor evidence. CD-0213 amends planning and issue linkage. CD-0241 distinguishes eligible phase-local integration from main-branch review and merge evidence."
+}
+---
 # CD-0089: Concord development coordination
 
 - **Status:** Accepted

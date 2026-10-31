@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0008",
+  "title": "Concord mechanism hardening",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-call-boundary",
+    "agent-surface",
+    "work-coordination",
+    "workflow-engine"
+  ]
+}
+---
 # CD-0008: Concord Authority and Execution Mechanism Hardening
 
 **Status:** Accepted

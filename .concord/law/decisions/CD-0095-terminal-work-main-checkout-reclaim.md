@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0095",
+  "title": "Terminal-work main-checkout reclamation",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-call-boundary",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0095: Allow main-checkout worktree reclamation for terminal work
 
 - **Status:** Accepted

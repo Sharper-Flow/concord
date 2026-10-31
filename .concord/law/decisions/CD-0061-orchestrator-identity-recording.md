@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0061",
+  "title": "Session identity verification writes no assertion or restart boundary",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0061: Session identity verification writes no assertion or restart boundary
 
 - **Status:** Accepted

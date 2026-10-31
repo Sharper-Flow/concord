@@ -157,7 +157,7 @@ func TestWorkProductIDsFollowThePrimaryMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	products, err := workProductIDs(ctx, tx, "cross-product-work")
+	products, err := seedCrossProductWorkProductIDs(ctx, tx, "cross-product-work")
 	if err != nil {
 		t.Fatalf("cross-Product work refused its Product scope: %v", err)
 	}
@@ -191,4 +191,24 @@ func TestWorkVisibilityListingKeepsEveryMemberProduct(t *testing.T) {
 	if secondary.LifecycleCounts["needed"] != 1 {
 		t.Fatalf("secondary Product needed count = %d, want the cross-Product work visible", secondary.LifecycleCounts["needed"])
 	}
+}
+
+// seedCrossProductWorkProductIDs derives the Product membership of one work
+// item over its primary Project, the same derivation the retired warm-up
+// helper performed.
+func seedCrossProductWorkProductIDs(ctx context.Context, q queryer, id string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY pp.product_id`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }

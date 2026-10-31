@@ -1,3 +1,19 @@
+---
+{
+  "id": "CD-0015",
+  "title": "Typed law relations and Git-derived workflow checks",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [
+    "durable-authority",
+    "workflow-engine"
+  ]
+}
+---
 # CD-0015: Typed law relations and Git-derived workflow checks
 
 **Status:** Accepted.
@@ -62,7 +78,6 @@ dependency, law-authoring store write, or agent tool.
 
 ## Implementation evidence
 
-- [`concord-knowledge-index.md`](../../docs/concord-knowledge-index.md)
 - [`specs-as-laws.md`](../../docs/specs-as-laws.md)
 - [`workflow-engine-contract.md`](../specs/workflow-engine-contract.md)
 - GitHub issue [#44](https://github.com/Sharper-Flow/concord/issues/44)

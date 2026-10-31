@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0033",
+  "title": "Out-of-band operator direction binds through contract supersession",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0033: Out-of-band operator direction binds through contract supersession
 
 - **Status:** Accepted

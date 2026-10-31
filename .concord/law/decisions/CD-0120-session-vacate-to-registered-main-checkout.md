@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0120",
+  "title": "A session can vacate its worktree to the registered main checkout",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0098"
+    }
+  ]
+}
+---
 # CD-0120: A session can vacate its worktree to the registered main checkout
 
 - **Status:** Accepted

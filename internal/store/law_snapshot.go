@@ -80,7 +80,7 @@ func loadLawFolderSnapshot(ctx context.Context, repo, commitOID string) (*lawFol
 	if err := validateCommitOID(commitOID); err != nil {
 		return nil, err
 	}
-	runner := CommittedReadGitRunner{}
+	runner := lawFolderGitRunner{}
 	if err := verifyLawFolderCommitObject(ctx, runner, repo, commitOID); err != nil {
 		return nil, err
 	}
@@ -126,6 +126,14 @@ func loadLawFolderSnapshot(ctx context.Context, repo, commitOID string) (*lawFol
 		return nil, err
 	}
 	return &lawFolderSnapshot{commitOID: commitOID, registry: registry, laws: laws, order: order}, nil
+}
+
+// A pinned law read must neither substitute replacement objects nor fetch
+// missing promisor objects implicitly.
+type lawFolderGitRunner struct{}
+
+func (lawFolderGitRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	return runGitEnv(ctx, dir, []string{"GIT_NO_LAZY_FETCH=1", "GIT_NO_REPLACE_OBJECTS=1"}, args...)
 }
 
 // Tree reads accept tree and tag OIDs too; neither is a committed revision.

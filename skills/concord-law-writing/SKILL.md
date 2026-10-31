@@ -27,10 +27,10 @@ Concord development, not automatically to another Product.
 ## Find the owner
 
 Use `concord_product_view.resolve` and `concord_domain.list` to establish the
-Product and Domain. Resolve current law through `concord_knowledge.search` and
-`concord_knowledge.resolve_note`; a heading, filename, or confident sentence is
-not acceptance. A missing record is not permission to invent one. If a required
-source is unavailable, stop the dependent claim and name the missing evidence.
+Product and Domain. Resolve current law through the workflow's resolved law
+context; a heading, filename, or confident sentence is not acceptance. A
+missing record is not permission to invent one. If a required source is
+unavailable, stop the dependent claim and name the missing evidence.
 
 Read the owning clause and its references before drafting. State what fails,
 who is affected, and the end state the change must make decidable. Domain and law
@@ -82,5 +82,5 @@ or shape, not that prose preserves meaning; review owns that comparison.
 Report the exact wording, meaning changes, applicable approval and observed
 checks in the existing work record. Distinguish candidate validation from
 acceptance and publication. After publication, verify the record and revision
-with `concord_knowledge.resolve_note`; a local edit or passing check alone does
-not establish current accepted law.
+in the Product's current law folder at its designated Git home; a local edit or
+passing check alone does not establish current accepted law.

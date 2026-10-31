@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0213",
+  "title": "Linear MCP is the only planning authority",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "work-coordination",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0222"
+    }
+  ]
+}
+---
 # CD-0213: Linear MCP is the only planning authority
 
 - **Status:** Accepted
@@ -101,11 +118,11 @@ The store keeps current state and finite verified snapshots; retired planning ki
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` validates the record graph.
+- Committed law-folder snapshot validation validates the record graph.
 - `python3 scripts/check-pr-linear-link.py` enforces D5 on each pull request.
 - `internal/agent.TestDispatchIssueLinkRecordStoresReportedIdentity` exercises
   D3's record-only issue identity through the public dispatch boundary.
 - The implementing change binds the current-state anchor: retired planning
   records carry no Initiative behavior (CD-0242 D2). Until that change lands,
-  `python3 scripts/check-knowledge-index.py` is the executable anchor for this
+  the committed law-folder read is the executable anchor for this
   record's law registration.

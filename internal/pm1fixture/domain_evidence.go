@@ -12,9 +12,9 @@ import (
 )
 
 // This file carries the single-Domain evidence fixture: Concord's accepted
-// registry shape, projected from a committed knowledge manifest by the live
-// knowledge index rather than written in as rows. Both the agent read plane and
-// the launcher store port seed from it, so neither rebuilds the same state.
+// registry shape, committed in the Product's designated home rather than
+// written in as rows. Both the agent read plane and the launcher store port
+// seed from it, so neither rebuilds the same state.
 
 const (
 	// SingleDomainRootID is the one registry entry. It has no children and no
@@ -142,10 +142,6 @@ func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 	); err != nil {
 		return err
 	}
-	home := store.KnowledgeHome{HomeProjectID: opts.ProjectID, HomeLocatorID: opts.LocatorID, RepoPath: repo, HeadRef: "HEAD"}
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		return fmt.Errorf("pm1fixture: rebuild knowledge index: %w", err)
-	}
 
 	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-1")
 	statements := []domainStatement{
@@ -168,9 +164,8 @@ func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 	return nil
 }
 
-// DomainEvidenceRepo commits a knowledge manifest declaring exactly one root
-// Domain with an empty architecture relation set, plus an accepted decision
-// homed to that Domain.
+// DomainEvidenceRepo commits the single-Domain registry with an empty
+// architecture relation set, plus the accepted decision homed to that Domain.
 func DomainEvidenceRepo(dir string) (string, error) {
 	repo, err := initKnowledgeRepo(dir)
 	if err != nil {
@@ -179,29 +174,15 @@ func DomainEvidenceRepo(dir string) (string, error) {
 	if err := writeKnowledgeFile(repo, DomainEvidenceLawPath, DomainEvidenceLawBody); err != nil {
 		return "", fmt.Errorf("pm1fixture: write accepted decision: %w", err)
 	}
-	manifest := store.KnowledgeManifest{
-		SchemaVersion:  "1.2",
-		SupportedKinds: []string{"decision"},
-		IndexedKinds:   []string{"decision"},
-		DomainRegistry: store.KnowledgeDomainRegistry{
-			SchemaVersion: "1.0",
-			ProductKey:    domainEvidenceProductKey,
-			RootDomainID:  SingleDomainRootID,
-			Domains: []store.KnowledgeDomain{
-				{DomainID: SingleDomainRootID, Name: SingleDomainName, Purpose: SingleDomainPurpose, Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},
-			},
-		},
-		Records: []store.KnowledgeRecord{
-			{
-				ID: DomainEvidenceLawID, Kind: "decision", Path: DomainEvidenceLawPath, Status: "accepted", Date: "2026-08-18T00:00:00Z",
-				Title: DomainEvidenceLawTitle, Summary: "Domains carry architecture authority", Tags: []string{},
-				Authority:    store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
-				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{SingleDomainRootID}, TagIDs: []string{}},
-				HomeDomainID: SingleDomainRootID, ProductWideRationale: SingleDomainRootRationale, SHA256: ContentDigest(DomainEvidenceLawBody),
-			},
+	registry := store.KnowledgeDomainRegistry{
+		SchemaVersion: "1.0",
+		ProductKey:    domainEvidenceProductKey,
+		RootDomainID:  SingleDomainRootID,
+		Domains: []store.KnowledgeDomain{
+			{DomainID: SingleDomainRootID, Name: SingleDomainName, Purpose: SingleDomainPurpose, Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},
 		},
 	}
-	if err := writeKnowledgeShards(repo, manifest); err != nil {
+	if err := WriteKnowledgeShards(repo, registry); err != nil {
 		return "", err
 	}
 	if _, err := commitKnowledgeRepo(repo, "domain evidence knowledge"); err != nil {

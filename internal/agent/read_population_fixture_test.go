@@ -19,8 +19,8 @@ import (
 // dispatched against a store that looks like a working operator store rather
 // than a single-row stub. At 100 Products and 700 work items, each read family
 // gets the rows its result schema declares: Domains carrying decision, spec,
-// and constitution law, an Initiative with entries, knowledge notes and law in
-// a committed Git home, work and Domain observations, a research pack, and a
+// and constitution law, an Initiative with entries, law in a committed Git
+// home, work and Domain observations, a research pack, and a
 // real claimed worktree backed by a real Git repository.
 
 const (
@@ -34,7 +34,6 @@ const (
 	readPopulationConstitution  = "CONST-0001"
 	readPopulationDecision      = "CD-0201"
 	readPopulationSpec          = "SPEC-0201"
-	readPopulationLesson        = "knowledge-lesson-population"
 
 	readPopulationProducts       = 100
 	readPopulationWorkPerProduct = 7
@@ -167,15 +166,12 @@ func seedReadPopulationFocusWork(t *testing.T, s *store.Store) {
 	}
 }
 
-// seedKnowledgeHome commits a manifest whose Domain registry carries a root
-// and a child Domain, whose child hosts accepted constitution, decision, and
-// spec law with applicability out to the root, and whose lesson is an indexed
-// knowledge note scoped to the focus Product. The home lives on its own
-// Project so the focus Project's canonical-path locator stays unambiguous for
-// the worktree claim.
+// seedKnowledgeHome commits a Domain registry carrying a root and a child
+// Domain, plus committed law documents the child hosts, and authorizes the
+// home. The home lives on its own Project so the focus Project's
+// canonical-path locator stays unambiguous for the worktree claim.
 func (fx readPopulationFixture) seedKnowledgeHome(t *testing.T) {
 	t.Helper()
-	ctx := context.Background()
 	repo, err := os.MkdirTemp(t.TempDir(), "population-knowledge-")
 	if err != nil {
 		t.Fatal(err)
@@ -184,88 +180,32 @@ func (fx readPopulationFixture) seedKnowledgeHome(t *testing.T) {
 	gitRun(t, repo, "config", "user.email", "concord@example.invalid")
 	gitRun(t, repo, "config", "user.name", "Concord Population Test")
 
-	const constitutionPath = ".concord/docs/constitution.md"
-	const decisionPath = ".concord/docs/decisions/" + readPopulationDecision + ".md"
-	const specPath = ".concord/docs/specs/" + readPopulationSpec + ".md"
-	const lessonPath = ".concord/docs/lessons/population-lesson.md"
-	bodies := map[string]string{
-		constitutionPath: "The child Domain owns population constitution law.\n",
-		decisionPath:     "The child Domain owns synchronization decisions.\n",
-		specPath:         "The child Domain owns the synchronization specification.\n",
-		lessonPath: "---\n" +
-			"id: " + readPopulationLesson + "\n" +
-			"type: lesson\n" +
-			"title: Durable lesson\n" +
-			"completed_at: 2026-09-01T00:00:00Z\n" +
-			"outcome_tag: published\n" +
-			"lesson_tags: [population]\n" +
-			"terminal_state: completed\n" +
-			"priority: 0\n" +
-			"summary: Durable summary\n" +
-			"product_ids: [" + readPopulationProduct + "]\n" +
-			"project_ids: []\n" +
-			"domain_ids: [" + readPopulationChildDomain + "]\n" +
-			"tag_ids: [population]\n" +
-			"---\n\nDurable knowledge.\n",
-	}
-	for path, body := range bodies {
+	for _, path := range []string{
+		".concord/docs/constitution.md",
+		".concord/docs/decisions/" + readPopulationDecision + ".md",
+		".concord/docs/specs/" + readPopulationSpec + ".md",
+	} {
 		full := filepath.Join(repo, filepath.FromSlash(path))
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+		if err := os.WriteFile(full, []byte("The child Domain owns the committed law it declares.\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	scopes := func(domainIDs ...string) store.KnowledgeRecordScopes {
-		return store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: domainIDs, TagIDs: []string{}}
-	}
-	legislated := store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1}
-	manifest := store.KnowledgeManifest{
-		SchemaVersion:  "1.2",
-		SupportedKinds: []string{"constitution", "decision", "spec", "lesson"},
-		IndexedKinds:   []string{"constitution", "decision", "spec", "lesson"},
-		DomainRegistry: store.KnowledgeDomainRegistry{
-			SchemaVersion: "1.0",
-			ProductKey:    "population",
-			RootDomainID:  readPopulationRootDomain,
-			Domains: []store.KnowledgeDomain{
-				{DomainID: readPopulationRootDomain, Name: "Population", Purpose: "Product law", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},
-				{
-					DomainID: readPopulationChildDomain, Name: "Sync", Purpose: "Synchronization", Status: "current", ParentDomainID: readPopulationRootDomain,
-					ArchitectureRelations: []store.KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: readPopulationRootDomain, GoverningLawIDs: []string{readPopulationDecision}}},
-				},
-			},
-		},
-		Records: []store.KnowledgeRecord{
+	registry := store.KnowledgeDomainRegistry{
+		SchemaVersion: "1.0",
+		ProductKey:    "population",
+		RootDomainID:  readPopulationRootDomain,
+		Domains: []store.KnowledgeDomain{
+			{DomainID: readPopulationRootDomain, Name: "Population", Purpose: "Product law", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},
 			{
-				ID: readPopulationConstitution, Kind: "constitution", Path: constitutionPath, Status: "accepted",
-				Date: "2026-09-01T00:00:00Z", Title: "Population constitution", Summary: "The child Domain owns population constitution law", Tags: []string{},
-				Authority: legislated, Scopes: scopes(readPopulationChildDomain),
-				HomeDomainID: readPopulationChildDomain, AppliesToDomainIDs: []string{readPopulationRootDomain}, SHA256: pm1fixture.ContentDigest(bodies[constitutionPath]),
-			},
-			{
-				ID: readPopulationDecision, Kind: "decision", Path: decisionPath, Status: "accepted",
-				Date: "2026-09-01T00:00:00Z", Title: "Synchronization authority", Summary: "The child Domain owns synchronization decisions", Tags: []string{},
-				Authority: legislated, Scopes: scopes(readPopulationChildDomain),
-				HomeDomainID: readPopulationChildDomain, AppliesToDomainIDs: []string{readPopulationRootDomain}, SHA256: pm1fixture.ContentDigest(bodies[decisionPath]),
-			},
-			{
-				ID: readPopulationSpec, Kind: "spec", Path: specPath, Status: "accepted",
-				Date: "2026-09-01T00:00:00Z", Title: "Synchronization specification", Summary: "The child Domain owns the synchronization specification", Tags: []string{},
-				Authority: store.KnowledgeAuthority{Tier: "derived"}, Scopes: scopes(readPopulationChildDomain),
-				HomeDomainID: readPopulationChildDomain, AppliesToDomainIDs: []string{readPopulationRootDomain}, SHA256: pm1fixture.ContentDigest(bodies[specPath]),
-			},
-			{
-				ID: readPopulationLesson, Kind: "lesson", Path: lessonPath, Status: "published",
-				Date: "2026-09-01T00:00:00Z", Title: "Durable lesson", Summary: "Durable summary", Tags: []string{"population"},
-				Authority: store.KnowledgeAuthority{Tier: "derived"},
-				Scopes:    store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{readPopulationProduct}, ProjectIDs: []string{}, DomainIDs: []string{readPopulationChildDomain}, TagIDs: []string{"population"}},
-				SHA256:    pm1fixture.ContentDigest(bodies[lessonPath]),
+				DomainID: readPopulationChildDomain, Name: "Sync", Purpose: "Synchronization", Status: "current", ParentDomainID: readPopulationRootDomain,
+				ArchitectureRelations: []store.KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: readPopulationRootDomain, GoverningLawIDs: []string{readPopulationDecision}}},
 			},
 		},
 	}
-	if err := pm1fixture.WriteKnowledgeShards(repo, manifest); err != nil {
+	if err := pm1fixture.WriteKnowledgeShards(repo, registry); err != nil {
 		t.Fatalf("pm1fixture.WriteKnowledgeShards: %v", err)
 	}
 	gitRun(t, repo, "add", "--", ".")
@@ -275,10 +215,6 @@ func (fx readPopulationFixture) seedKnowledgeHome(t *testing.T) {
 	execPopulationStatement(t, fx.store, `INSERT INTO product_projects(product_id,project_id,role) VALUES('prod-alpha','proj-knowledge','secondary')`)
 	execPopulationStatement(t, fx.store, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('population-knowledge-locator','proj-knowledge','canonical_path',?,?,'now','now')`, repo, repo)
 	execPopulationStatement(t, fx.store, `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('prod-alpha','proj-knowledge','population-knowledge-locator')`)
-	home := store.KnowledgeHome{HomeProjectID: readPopulationKnowledgeHome, HomeLocatorID: "population-knowledge-locator", RepoPath: repo, HeadRef: "HEAD"}
-	if err := fx.store.RebuildKnowledgeIndex(ctx, home); err != nil {
-		t.Fatalf("rebuild population knowledge index: %v", err)
-	}
 }
 
 // execPopulationStatement runs one fold-guarded SQL statement. Statements run
@@ -407,8 +343,7 @@ func (fx readPopulationFixture) envelope(t *testing.T) CallEnvelope {
 // seedPopulationRows gives every declared primary row collection at least one
 // row: a peer work item bound to the child Domain, Domain observations,
 // a relation edge, a peer message, an external
-// observation, a summary context boundary, and
-// knowledge records in the knowledge home. Mutations and folds run
+// observation, and a summary context boundary. Mutations and folds run
 // through the store's own APIs; the summary context boundary uses the store's
 // SQL fixture because no public store API authors that row.
 func (fx readPopulationFixture) seedPopulationRows(t *testing.T) {

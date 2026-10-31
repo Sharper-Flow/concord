@@ -1,3 +1,85 @@
+---
+{
+  "id": "CD-0243",
+  "title": "Four roles and six operator approval classes",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0006"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0033"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0036"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0096"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0118"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0122"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0154"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0159"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0166"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0198"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0215"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0217"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0218"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0222"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0229"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0230"
+    }
+  ],
+  "product_wide_rationale": "Role ownership and the operator's approval boundary govern every agent and every Product Domain; no individual implementation Domain owns that authority."
+}
+---
 # CD-0243: Four roles and six operator approval classes
 
 - **Status:** Accepted
@@ -172,8 +254,8 @@ requires operator consent only when a D2 class applies.
 | PM10 emergency-salvage recovery record | The recovery record remains required; operator consent follows D2, not the absence of a verified snapshot alone |
 | CD-0015 relation authoring and `law_modifies`; CD-0040 D7 | Law-relation, law-delta, and freshness-policy revisions follow D4; they require operator approval only under D2 |
 
-`specs-as-laws.md` and `concord-knowledge-index.md` are companion explanations,
-not new law. They follow this same boundary: a law conflict is identified and
+`specs-as-laws.md` is a companion explanation,
+not new law. It follows this same boundary: a law conflict is identified and
 recorded, but an agent pauses for operator approval only under D2 or when
 information needed to decide the task is missing. An agent may evolve law
 within its scope and record why. It never silently cuts governed scope.
@@ -213,7 +295,8 @@ this law; this record does not claim those mechanisms are implemented.
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` checks the law record and relations.
+- Committed law-folder snapshot validation checks the law record and its
+  relations.
 - `python3 scripts/check-primary-prompts.py` checks the generated role sources.
 - `python3 scripts/generate-agent-profiles.py --check` checks their projection.
 - `bun test adapter/opencode/` checks the shipped asking instructions.

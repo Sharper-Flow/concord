@@ -1,8 +1,11 @@
 package store
 
 // CD-0159 D5 supplies standing to the closed default cohort. The Go store
-// embeds the same asset the Python manifest readers use. Other legislative
-// claims resolve through an exact approved contract in the caller's transaction.
+// embeds the same asset the Python manifest readers use, enforces the frozen
+// vehicle claim on every committed law read, and resolves every other
+// declared legislative reference through its exact approved contract at the
+// law-source verification boundary (the establishment that admits a
+// committed law folder into a consequential transaction).
 
 import (
 	"bytes"

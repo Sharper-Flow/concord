@@ -1,3 +1,36 @@
+---
+{
+  "id": "PM4",
+  "title": "product memory lifecycle relations",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "work-coordination",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The corpus asserts derived answers, not the closed state set itself. The guarantee is proved by TestLifecycleTransitionsAreClosedAndTyped (internal/store/lifecycle_relations_test.go)."
+    },
+    {
+      "criterion": 2,
+      "scenario": "Q4-blocked-reason"
+    },
+    {
+      "criterion": 3,
+      "exemption": "Atomicity of the supersede operation is not observable through a query fixture. The guarantee is proved by TestSupersessionIsAtomicAndRejectsCyclesAndSecondSuccessors (internal/store/lifecycle_relations_test.go)."
+    },
+    {
+      "criterion": 4,
+      "exemption": "The composite reopen event is an operation property, not a query answer. The guarantee is proved by TestSupersessionRejectsAlreadySupersededAndReopenRequiresCompositeEvent (internal/store/lifecycle_relations_test.go)."
+    },
+    {
+      "criterion": 5,
+      "scenario": "Q5-ready-ranking"
+    }
+  ]
+}
+---
 # Concord Product-Memory Lifecycle and Relations (PM4)
 
 > **Status:** **Accepted — binding until superseded.**

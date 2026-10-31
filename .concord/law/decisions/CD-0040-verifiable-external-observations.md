@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0040",
+  "title": "External observations prove presence; absence requires pinned completeness",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [
+    "agent-call-boundary",
+    "agent-contract",
+    "agent-evolution",
+    "agent-surface",
+    "durable-authority",
+    "work-coordination"
+  ],
+  "product_wide_rationale": "Defines shared provenance and verification across Git state, worktrees, native runs, and recovery artifacts. Its own D1 states that provenance is shared while domain truth stays local, so the shared half has no single child owner."
+}
+---
 # CD-0040: External observations prove presence; absence requires pinned completeness
 
 - **Status:** Accepted

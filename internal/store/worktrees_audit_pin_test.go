@@ -26,9 +26,8 @@ func auditManagedPinFixture(t *testing.T) (*Store, *fakeWorktreeGit, string, int
 	runKnowledgeGit(t, repo, "init", "--initial-branch=main")
 	runKnowledgeGit(t, repo, "config", "user.email", "test@example.invalid")
 	runKnowledgeGit(t, repo, "config", "user.name", "Concord Test")
-	manifest := lawTestManifest()
-	manifest.Records = []KnowledgeRecord{}
-	writeAggregateAsShards(t, repo, mustJSONValue(manifest))
+	writeKnowledgeFile(t, repo, ".concord/docs/knowledge/domain-registry.json", fixtureLawFolderRegistry)
+	commitKnowledgeRepo(t, repo, "fixture registry")
 	bindWorkflowFixtureKnowledgeSource(t, s, KnowledgeHome{HomeProjectID: "project-w", HomeLocatorID: "path-w", RepoPath: repo, HeadRef: "HEAD"})
 	path := auditWork(t, s, git, "work-done", true)
 	completeAuditWork(t, s, "work-done")

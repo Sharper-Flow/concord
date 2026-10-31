@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0111",
+  "title": "A release never requires a session restart",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0111: A release never requires a session restart
 
 - **Status:** Accepted
@@ -368,4 +381,4 @@ Scenario: the operator confirms an unfenceable tree is idle
   advances the store, and the released tree reads honestly as unfenceable.
 - The surface-evolution acceptance criterion names `contact_operator` as the
   mismatch recovery.
-- `python3 scripts/check-knowledge-index.py` passes.
+- Committed law-folder snapshot validation passes.

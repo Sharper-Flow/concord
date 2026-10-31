@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0018",
+  "title": "Declared urgency and provenance for parallel-eligible work",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "work-coordination",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-contract",
+    "agent-evolution",
+    "agent-surface",
+    "operator-surface"
+  ]
+}
+---
 # CD-0018: Declared Urgency and Provenance for Parallel-Eligible Work
 
 **Status:** Accepted under operator approval.

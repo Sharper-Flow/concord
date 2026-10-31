@@ -1,3 +1,30 @@
+---
+{
+  "id": "CD-0172",
+  "title": "Contract correction at the completion step",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-418bde718f27f3ca0afe625f",
+    "contract_version": 3
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0030"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0143"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0124"
+    }
+  ]
+}
+---
 # CD-0172: Contract correction at the completion step
 
 - **Status:** Accepted

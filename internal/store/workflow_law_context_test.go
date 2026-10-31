@@ -172,8 +172,15 @@ func TestContinuityLawOnlyContextCarriesNoRegistryPath(t *testing.T) {
 	workID := "law-context-law-only"
 	seedLawContextFixture(t, s, workID)
 	// Read the fixture home path before the transaction opens: the store
-	// pools one connection, so no s.db read may run while a tx is open.
-	wantPath := filepath.Join(workflowLawFixtureRepo(t, s), ".concord/docs/spec.md")
+	// pools one connection, so no s.db read may run while a tx is open. The
+	// law context reads the verified snapshot, so the proof is established
+	// here the way the continuity route does.
+	verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx = verified
+	wantPath := filepath.Join(workflowLawFixtureRepo(t, s), ".concord/law/specs/spec-one-fixture.md")
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

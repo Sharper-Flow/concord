@@ -1,3 +1,36 @@
+---
+{
+  "id": "PM1",
+  "title": "Product memory query contract",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "Q1-ambiguous-project"
+    },
+    {
+      "criterion": 2,
+      "scenario": "Q3-authoritative-empty"
+    },
+    {
+      "criterion": 3,
+      "scenario": "Q5-ready-ranking"
+    },
+    {
+      "criterion": 4,
+      "scenario": "Q4-blocked-reason"
+    },
+    {
+      "criterion": 5,
+      "scenario": "Q2-stale-requires-review"
+    }
+  ]
+}
+---
 # Concord Product-Memory Query Contract (PM1)
 
 > **Status:** **Accepted — binding until superseded.**

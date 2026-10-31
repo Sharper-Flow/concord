@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0185",
+  "title": "The bulk reclaim report pages before it exceeds the result envelope",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-d203f6918666271b95dce7c7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-call-boundary",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0179"
+    }
+  ]
+}
+---
 # CD-0185: The bulk reclaim report pages before it exceeds the result envelope
 
 - **Status:** Accepted
@@ -91,4 +110,5 @@ reclassifies from the current state, so the error does not persist.
   and the byte-budget stages keep every attempt row.
 - `go test ./internal/store/ -run TestWorktreeAudit` proves the cursor pages
   the classification and refuses a cursor that names no position in it.
-- `python3 scripts/check-knowledge-index.py` proves this record is registered.
+- Folder membership registers the record: the file sits under `.concord/law/`
+  on the default branch.

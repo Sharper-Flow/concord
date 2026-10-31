@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0078",
+  "title": "Terminal placement belongs to the host",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0078: Terminal placement belongs to the host
 
 - **Status:** Accepted
@@ -123,5 +136,5 @@ evidence that the implication was not enough.
 - `bun test adapter/opencode/concord.test.ts -t "a successful work start
   forks no terminal command"` proves the work-start path forks no terminal
   command.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
-  `python3 scripts/check-knowledge-index.py` pass.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass.

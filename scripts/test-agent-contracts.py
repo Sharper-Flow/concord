@@ -763,6 +763,9 @@ class ToolDescriptionTests(unittest.TestCase):
             "concord_product_view.portfolio",
             "concord_work_compact.lesson_publish",
             "concord_knowledge.unprocessed",
+            "concord_knowledge.search",
+            "concord_knowledge.resolve_note",
+            "concord_knowledge.observe_publication",
         ]
         registered = {operation["id"] for operation in manifest["operations"]}
         for operation in retired:
@@ -954,7 +957,6 @@ class ShippedSkillTests(unittest.TestCase):
     OPERATIONS = {
         "concord_domain.list",
         "concord_product_view.resolve",
-        "concord_knowledge.search", "concord_knowledge.resolve_note",
     }
 
     def content(self):
@@ -1100,7 +1102,6 @@ class LawWritingSkillTests(unittest.TestCase):
     NAME = "concord-law-writing"
     OPERATIONS = {
         "concord_product_view.resolve", "concord_domain.list",
-        "concord_knowledge.search", "concord_knowledge.resolve_note",
     }
 
     def content(self):
@@ -1140,7 +1141,7 @@ class MethodSkillTests(unittest.TestCase):
     """CD-0246 D1 and D3: portable method skills ship like any admitted skill."""
 
     NAMES = ("concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review")
-    OPERATIONS = {"concord_knowledge.search"}
+    OPERATIONS = set()
 
     def content(self, name):
         return (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")

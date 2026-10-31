@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0154",
+  "title": "Numbered primary agents remain host-owned",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0063"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0043"
+    }
+  ]
+}
+---
 # CD-0154: Numbered primary agents remain host-owned
 
 - **Status:** Accepted
@@ -154,7 +175,7 @@ remains host-owned, and utility nesting restrictions remain unchanged.
 `concord-research` uses the same generated native Task distribution boundary to
 investigate a framed question across repository and external sources. It accepts
 the caller's known context, scope and budget, resolves Product-law state through
-`concord_knowledge` before law-dependent delegation, and delegates only to
+the committed law folder before law-dependent delegation, and delegates only to
 `concord-explore` and `concord-lookup`. It chooses follow-up questions from findings
 and stops at sufficient evidence or the assigned budget. It returns claim-level
 citations, conflicting evidence, uncertainty, gaps and caller decisions; the

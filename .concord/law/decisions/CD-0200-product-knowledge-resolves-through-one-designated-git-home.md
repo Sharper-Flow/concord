@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0200",
+  "title": "Product knowledge resolves through one designated Git home",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-53464f08b2d9f2583b0ee847",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0200: Product knowledge resolves through one designated Git home
 
 - **Status:** Accepted

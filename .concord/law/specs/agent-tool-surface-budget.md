@@ -1,3 +1,32 @@
+---
+{
+  "id": "TS2",
+  "title": "agent tool surface budget",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-contract",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The budget is enforced structurally, not by scenario: scripts/generate-agent-contracts.py pins the exact tool count and surface.tool_count agreement, and scripts/test-agent-contracts.py Ts2BudgetTests fails when this document's always_visible_tools value disagrees with the manifest."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Closed tool sections and complete operation coverage are enforced by the generator's manifest validation, exercised by ManifestTamperTests in scripts/test-agent-contracts.py."
+    },
+    {
+      "criterion": 3,
+      "exemption": "The alias ban is enforced by the generator's alias rejection over every tool and operation entry."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Boundary-crossing rejection is evaluation law for future candidates, enforced by the TS8 change rule and by TS1's scenario corpus, which such a candidate fails."
+    }
+  ]
+}
+---
 # Concord Agent Tool-Surface Budget and Granularity (TS2)
 
 > **Status:** **Accepted — binding until superseded.**

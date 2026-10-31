@@ -1,3 +1,34 @@
+---
+{
+  "id": "CD-0212",
+  "title": "Reclaim gates the live head and records retained refs",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-6cc7450c84e7077407a4f7b5",
+    "contract_version": 1
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0096"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0144"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0181"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0195"
+    }
+  ]
+}
+---
 # CD-0212: Reclaim gates the live head and records retained refs
 
 - **Status:** Accepted
@@ -490,5 +521,4 @@ and the native removal stays behind the commit.
   rather than a holder refusal.
 - `python3 scripts/generate-agent-contracts.py --check` verifies the
   regenerated payload schema projection.
-- `python3 scripts/check-knowledge-index.py` and
-  `python3 scripts/check-doc-links.py` pass over this record.
+- `python3 scripts/check-doc-links.py` passes over this record.

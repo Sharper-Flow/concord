@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0063",
+  "title": "Concord ships an always-on operator conduct corpus",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0063: Concord ships an always-on operator conduct corpus
 
 - **Status:** Accepted
@@ -192,8 +203,7 @@ private predecessor history and host tool coupling into a public release.
 ## Verification
 
 - `.concord/law/decisions/CD-0063-shipped-operator-conduct-rules.md` exists and is
-  indexed exactly once as the record shard
-  `.concord/docs/knowledge/records/CD-0063.json`, composed by `scripts/knowledge_index.py`.
+  registered exactly once as the law record in `.concord/law/decisions/`.
 - A test installs, asserts the project pointer and the central agents directory,
   uninstalls, and asserts both are reversed.
 - A test proves an upgrade leaves an existing project pointer resolving to the

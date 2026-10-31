@@ -1,3 +1,31 @@
+---
+{
+  "id": "PM3",
+  "title": "Product memory domain schema",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": [
+    "product-memory",
+    "work-coordination"
+  ],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. Criterion 1 states CD-0242 D2. The guarantee is proved by TestEventLogRetirementFreshStore and TestEventLogRetirementUpgradePreservesCurrentRows (internal/store)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. The guarantee is proved by TestOpenEnforcesForeignKeysBehaviorally (internal/store/store_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. The guarantee is proved by TestOpenAppliesSchemaManifest (internal/store/schema_test.go) and TestOpenIsIdempotentAcrossProcesses (internal/store/store_test.go)."
+    }
+  ]
+}
+---
 # Concord Product-Memory Domain Schema (PM3)
 
 > **Status:** **Accepted — binding until superseded.**

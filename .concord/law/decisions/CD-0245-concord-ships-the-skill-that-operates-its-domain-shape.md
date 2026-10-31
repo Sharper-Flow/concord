@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0245",
+  "title": "Concord ships release-versioned portable skills",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0043"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0063"
+    }
+  ]
+}
+---
 # CD-0245: Concord ships release-versioned portable skills
 
 - **Status:** Accepted
@@ -73,4 +94,5 @@ not record evidence, approval, or law on its own authority.
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` checks publication identity and hashes.
+- Committed law-folder snapshot validation checks the record's identity, and
+  the folder derives its content digest from the committed bytes.

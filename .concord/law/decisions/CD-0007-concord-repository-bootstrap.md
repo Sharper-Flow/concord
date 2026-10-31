@@ -1,3 +1,17 @@
+---
+{
+  "id": "CD-0007",
+  "title": "Concord repository bootstrap",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "product_wide_rationale": "Fixes the repository bootstrap and release boundary the whole Product is built and shipped through. It governs the container for every Domain rather than behavior inside any one."
+}
+---
 # CD-0007: Concord Repository and Development Bootstrap
 
 **Status:** Accepted; bootstrap execution authorized 2026-08-07

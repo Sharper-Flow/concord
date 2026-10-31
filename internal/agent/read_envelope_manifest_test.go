@@ -14,9 +14,7 @@ import (
 // therefore pass every in-process test and fail on every real call, because
 // the dispatch helpers return the struct and never marshal it.
 //
-// TestKnowledgeReadEnvelopeMarshalsWithRealisticIdentifiers covers that for
-// the three knowledge reads it names, and the Domain and work-browse tests
-// cover one read each. A read the manifest declares and no test names is
+// The Domain and work-browse tests below cover one read each. A read the manifest declares and no test names is
 // covered by nothing, and the omission is invisible: nothing fails when a
 // read joins the manifest without a test.
 //
@@ -45,10 +43,6 @@ var readMarshalInputs = map[string]string{
 	"concord_work_trace.mutation_result":       `{"source_tool":"concord_work_relate","source_operation":"message_send","idempotency_key":"missing-mutation","digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}`,
 	"concord_work_trace.project_retirement":    `{"work_id":"work-done"}`,
 	"concord_work_trace.research":              `{"product_id":"prod-alpha"}`,
-
-	"concord_knowledge.search":              `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
-	"concord_knowledge.resolve_note":        `{"work_id":"work-done"}`,
-	"concord_knowledge.observe_publication": `{"product_id":"prod-alpha","source_project_id":"proj-web","source_locator_id":"repo-alpha-web"}`,
 
 	"concord_domain.list":   `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
 	"concord_domain.detail": `{"product_id":"prod-alpha","domain_id":"root"}`,

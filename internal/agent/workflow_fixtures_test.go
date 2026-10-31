@@ -32,12 +32,8 @@ func mustScopeVersion(t *testing.T, s *store.Store) string {
 func seedCurrentWorkflowDomainFixture(t *testing.T, s *store.Store) {
 	t.Helper()
 	ctx := context.Background()
-	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
-	if err != nil {
+	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)
-	}
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		t.Fatal(err)
 	}
 }
 

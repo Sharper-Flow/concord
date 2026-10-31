@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0165",
+  "title": "Agents begin work items only on the current release",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0111"
+    }
+  ]
+}
+---
 # CD-0165: An agent begins a work item only on the current Concord release
 
 - **Status:** Accepted
@@ -91,6 +108,6 @@ Scenario: work in progress is never interrupted
 
 ## Verification
 
-- The record passes `python3 scripts/check-knowledge-index.py`.
+- The record passes committed law-folder snapshot validation.
 - The predicate values are read from `concord host-leases` and the `current`
   root. The decision changes no code.

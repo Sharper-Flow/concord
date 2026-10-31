@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0104",
+  "title": "A session's worktree is its actual directory, and Concord stores no session binding",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0104: A session's worktree is its actual directory, and Concord stores no session binding
 
 - **Status:** Accepted
@@ -136,5 +147,5 @@ the moment of refusal, not as a stored column.
   `reconcile_operation`.
 - `python3 scripts/generate-agent-contracts.py --check` is clean with 62
   operations.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
-  `python3 scripts/check-knowledge-index.py` pass on this record.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass on this record.

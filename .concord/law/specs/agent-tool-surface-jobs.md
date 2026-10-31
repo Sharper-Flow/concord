@@ -1,3 +1,36 @@
+---
+{
+  "id": "TS1",
+  "title": "agent tool surface jobs",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-contract",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "AJ1-ambient-ready-work"
+    },
+    {
+      "criterion": 2,
+      "scenario": "AJ2-blocker-explanation"
+    },
+    {
+      "criterion": 3,
+      "scenario": "AJ3-spec-conflict"
+    },
+    {
+      "criterion": 4,
+      "scenario": "AJ4-stale-version"
+    },
+    {
+      "criterion": 5,
+      "scenario": "AJ6-partial-publication"
+    }
+  ]
+}
+---
 # Concord Canonical Agent Jobs (TS1)
 
 > **Status:** **Accepted — binding until superseded.**

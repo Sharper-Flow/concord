@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0195",
+  "title": "The escaped SQLITE_BUSY on record is an application defect, not a storage limit",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0011"
+    }
+  ]
+}
+---
 # CD-0195: The escaped SQLITE_BUSY on record is an application defect, not a storage limit
 
 - **Status:** Accepted
@@ -108,8 +125,8 @@ CD-0165 binds new work to the current release.
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` composes the manifest with the
-  CD-0195 shard and the refreshed CD-0011 hash.
+- Committed law-folder snapshot validation covers the CD-0195 record and the
+  refreshed CD-0011 digest.
 - `python3 scripts/check-doc-links.py` resolves the amendment link into
   CD-0011.
 - `python3 scripts/check-public-content.py` passes.

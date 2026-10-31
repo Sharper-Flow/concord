@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0003",
+  "title": "Concord storage layer shape",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0003 — Concord storage-layer shape
 
 > **Status:** **Accepted — binding until superseded.**

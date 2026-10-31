@@ -1,3 +1,26 @@
+---
+{
+  "id": "CD-0202",
+  "title": "The closure receipt restates the closure facts",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-08c5467c80deffb2cae0a094",
+    "contract_version": 1
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0169"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0170"
+    }
+  ]
+}
+---
 # CD-0202: The closure receipt restates the closure facts
 
 - **Status:** Accepted

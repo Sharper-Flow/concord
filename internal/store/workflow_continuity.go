@@ -120,8 +120,8 @@ type ContinuitySnapshot struct {
 	// managed execution. Nil when no handoff stands unconsumed.
 	PendingProjectHandoff *ProjectHandoff `json:"pending_project_handoff,omitempty"`
 	// LawContext resolves the approved contract's binding law and Domains
-	// against the law_subjects and domains projections at read time. Nil
-	// when the contract binds no law and no Domain.
+	// against the verified committed law folder and Domain registry at read
+	// time. Nil when the contract binds no law and no Domain.
 	LawContext *WorkflowLawContext `json:"law_context,omitempty"`
 	// WorkContext and WorkContextUnavailable carry the shared projection.
 	// The outside-repair early exit does not evaluate either field.
@@ -170,6 +170,14 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err != nil {
 		return out, err
 	}
+	// A contract that binds law or Domains reads the verified law-folder
+	// snapshot inside the transaction, so its proof is prepared before the
+	// transaction opens (CD-0195 D2).
+	verifiedCtx, proofErr := s.prepareContractLawProof(ctx, req.Work)
+	if proofErr != nil {
+		return out, proofErr
+	}
+	ctx = verifiedCtx
 	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot open a consistent continuity snapshot", true, "retry once the database is readable", err)

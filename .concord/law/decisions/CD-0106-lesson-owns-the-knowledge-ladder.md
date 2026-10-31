@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0106",
+  "title": "lesson owns the knowledge ladder",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0106: lesson owns the knowledge ladder
 
 - **Status:** Accepted

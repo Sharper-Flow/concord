@@ -1,3 +1,36 @@
+---
+{
+  "id": "PM6",
+  "title": "Canonical Git note placement",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "AJ6-compact-terminal-work"
+    },
+    {
+      "criterion": 2,
+      "exemption": "Canonical discovery and cleanup eligibility are operation properties, not one query-corpus case. TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag (internal/store/knowledge_index_test.go) is a candidate discovery witness; Q10-not-compacted, executed by TestAcceptedQ1ToQ10Corpus (internal/store/query_corpus_test.go), covers work with no verified note. Integrated coverage remains unmeasured."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Orphan recovery is an operation property below scenario grain. The guarantee is proved by TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes (internal/store/knowledge_index_test.go) and TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote (internal/agent/mutation_dispatch_test.go)."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Git-proof verification is an operation property. The guarantee is proved by TestVerifyCommittedNoteRejectsHashMismatchAndSymlink and TestVerifyCommittedNoteRejectsUnsafeAndNonBlobPaths (internal/store/knowledge_index_test.go)."
+    },
+    {
+      "criterion": 5,
+      "exemption": "Ambiguous-claim detection is a rebuild property. The guarantee is proved by TestParseKnowledgeNoteRejectsAmbiguousAndMalformedCriticalMetadata (internal/store/knowledge_index_test.go)."
+    }
+  ]
+}
+---
 # Concord Canonical Git-Note Placement (PM6)
 
 > **Status:** **Accepted — binding until superseded.**

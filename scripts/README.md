@@ -18,16 +18,6 @@ declared states share one vocabulary with the issue-state snapshot through
 `coverage_state.py`, which is a single
 definition rather than two copies kept equal by a test.
 
-`check-knowledge-vocabulary.py` makes
-`contracts/concord-knowledge-index.v1.schema.json` the one declaration of the
-knowledge manifest vocabulary. CI carries no JSON Schema validator, so
-`check-knowledge-index.py` restates that vocabulary as Python sets and
-`internal/store` restates it again as Go maps. This checker fails when the
-schema and the Python sets disagree in either direction;
-`TestKnowledgeManifestVocabularyMatchesSchema` does the same for Go. Adding a
-record kind or field is therefore a schema edit plus two failing checks that
-name exactly what to update.
-
 `install.py` is the standard-library-only Concord release installer. It verifies
 published checksums before changing managed data, adapter, launcher, or
 OpenCode skill-path files. It journals phase boundaries and recovers interrupted

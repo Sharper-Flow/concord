@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0065",
+  "title": "The conformance corpus runs what production runs",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0065: The conformance corpus runs what production runs
 
 - **Status:** Accepted

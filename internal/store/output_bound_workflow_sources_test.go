@@ -84,7 +84,7 @@ func init() {
 	findingEvidenceRefMax := maxBound(
 		goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(ref)", boundBytes),
 		goInlineBound("internal/store/workflow_registry.go", "ValidReference", "len(value)", boundBytes))
-	criterionBindingsMax := goConstantBound("internal/store/knowledge_manifest.go", "maxCriterionBindings", boundItems)
+	criterionBindingsMax := goConstantBound("internal/store/knowledge_record.go", "maxCriterionBindings", boundItems)
 	observationWindow := goConstantBound("internal/store/workflow_continuity.go", "ContinuityObservationWindow", boundItems)
 	bindingMaxLawAdditions := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxLawAdditions", boundItems)
 	bindingMaxObligations := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxObligations", boundItems)
@@ -187,14 +187,13 @@ func init() {
 	workflowPremiseMax := goConstantBound("internal/store/workflow_registry.go", "WorkflowPremiseMaxLength", boundBytes)
 	manifestCriterionPredicate := schemaBound("contracts/concord-knowledge-index.v1.schema.json", "/$defs/criterionBinding/properties/predicate_id/maxLength")
 
-	// Law context Domain identity: the manifest parse validates each
-	// registry Domain record before prepareDomainProjection copies the
-	// validated fields into the projection (ParseKnowledgeManifest ->
-	// validateKnowledgeDomainRegistry -> validateKnowledgeDomainRecord,
-	// knowledge_manifest.go:616,709 -> projection insert :502), so the
-	// full-string guards are the writer chain's bounds.
-	domainNameGuard := goInlineBound("internal/store/knowledge_manifest.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Name)", boundCharacters)
-	domainPurposeGuard := goInlineBound("internal/store/knowledge_manifest.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Purpose)", boundCharacters)
+	// Law context Domain identity: the committed law read validates each
+	// registry Domain record through the retained chain
+	// (validateKnowledgeDomainRegistry -> validateKnowledgeDomainRecord in
+	// knowledge_record.go), so the full-string guards are the writer
+	// chain's bounds.
+	domainNameGuard := goInlineBound("internal/store/knowledge_record.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Name)", boundCharacters)
+	domainPurposeGuard := goInlineBound("internal/store/knowledge_record.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Purpose)", boundCharacters)
 
 	// Continuity boundary: the summary column carries the fold's own CHECK,
 	// and recorded_at rides the timestamp format.

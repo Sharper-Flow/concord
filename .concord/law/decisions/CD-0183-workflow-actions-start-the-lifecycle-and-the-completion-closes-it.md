@@ -1,3 +1,26 @@
+---
+{
+  "id": "CD-0183",
+  "title": "Workflow actions start the lifecycle and the completion closes it",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-4c428253aab7dc64d936e08b",
+    "contract_version": 1
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0144"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0094"
+    }
+  ]
+}
+---
 # CD-0183: Workflow actions start the lifecycle and the completion closes it
 
 - **Status:** Accepted

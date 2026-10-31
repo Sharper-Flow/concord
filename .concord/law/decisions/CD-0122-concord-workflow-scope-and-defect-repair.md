@@ -1,3 +1,23 @@
+---
+{
+  "id": "CD-0122",
+  "title": "Concord workflow scope and defect repair",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0089"
+    }
+  ],
+  "product_wide_rationale": "Concord workflow participation is explicit across the Product. Outside project work and authorized defect repair must preserve repository evidence without changing host-owned roles."
+}
+---
 # CD-0122: Concord workflow scope and defect repair
 
 - **Status:** Accepted

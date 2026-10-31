@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0080",
+  "title": "Capability scoping replaces the grant token",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-call-boundary",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0080: Capability scoping replaces the grant token
 
 - **Status:** Accepted
@@ -105,5 +118,5 @@ only caller expiry would bound.
 
 - Every refusal named in D1 has a test at authorization, including the trunk
   firewall, `cross_scope`, and manifest-digest refusals.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
-  `python3 scripts/check-knowledge-index.py` pass.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass.

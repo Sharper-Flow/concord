@@ -1,3 +1,30 @@
+---
+{
+  "id": "CD-0211",
+  "title": "Defect intake classifies recurrence before a ready fix",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-b0b08d6e28a8db2bad386ee6",
+    "contract_version": 1
+  },
+  "home_domain_id": "work-coordination",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0149"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0156"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0198"
+    }
+  ]
+}
+---
 # CD-0211: Defect intake classifies recurrence before a ready fix
 
 - **Status:** Accepted

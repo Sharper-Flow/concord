@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0075",
+  "title": "A tooling inventory excludes command-selection cadence",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "repository-verification",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0075: A tooling inventory excludes command-selection cadence
 
 - **Status:** Accepted
@@ -79,6 +92,5 @@ constant parity proves this contract without adding a dependency.
 - `python3 -S scripts/test-project-tooling.py` runs the same 24 tests.
 - `python3 scripts/check-project-tooling.py` rejects `cadence` and accepts the
   dogfood manifest.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`,
-  and
-  `python3 scripts/check-knowledge-index.py` pass.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass.

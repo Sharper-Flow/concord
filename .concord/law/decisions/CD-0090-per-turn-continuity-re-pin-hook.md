@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0090",
+  "title": "A per-turn runtime continuity hook re-pins orchestrator context",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0090: A per-turn runtime continuity hook re-pins orchestrator context
 
 - **Status:** Accepted under operator approval.

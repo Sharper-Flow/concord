@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0079",
+  "title": "Directory-to-Project resolution is an operator read",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0079: Directory-to-Project resolution is an operator read
 
 - **Status:** Accepted
@@ -143,5 +154,5 @@ because it produces a durable grant record as a side effect of asking.
 - `TestRunHelpListsExactCommandFormsAndStdinShapes` and
   `TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking` cover the
   verb's registration and both invocation forms.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
-  `python3 scripts/check-knowledge-index.py` pass.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass.

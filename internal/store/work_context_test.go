@@ -224,27 +224,17 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 	writeKnowledgeFile(t, lawRepo, knowledgeRecordTree+"/spec-one.json", string(recordJSON)+"\n")
 	out.lawCommit = commitKnowledgeRepo(t, lawRepo, "synthetic law home with manifest record")
 	out.lawRepo = lawRepo
-	home := KnowledgeHome{HomeProjectID: homeProject, HomeLocatorID: homeLocator, RepoPath: lawRepo, HeadRef: "HEAD"}
-	digest, err := knowledgeContentDigest(ctx, home, out.lawCommit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The git-derived projection rows pin the exact committed identity the
-	// reading resolution discovers in the snapshot. The knowledge tables are
-	// write-seam-only, so the writes run under the write guard and release it.
+	// The archived linkage row pins the exact committed identity the reading
+	// resolution discovers in the home checkout; it is the compaction fold's
+	// retained row, seeded here under the write guard.
 	stmts := []struct {
 		tag  string
 		sql  string
 		args []any
 	}{
 		{"guard", `INSERT INTO write_guard(active) VALUES(1) ON CONFLICT(active) DO NOTHING`, nil},
-		{"law update", `UPDATE law_subjects SET content_hash=?, scanned_commit_oid=? WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, []any{out.lawHash, out.lawCommit, homeProject, homeLocator, out.lawID}},
 		{"archived", `INSERT OR REPLACE INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
 			VALUES(?, 'spec', 'Synthetic dispatch law', '2026-10-01T00:00:00Z', 'accepted', '[]', 'completed', 2, 'the fixture committed law record for declared reading resolution', ?, ?, ?, ?, ?, 'home', '1.2')`, []any{out.lawID, homeProject, homeLocator, ".concord/docs/spec.md", out.lawCommit, out.lawHash}},
-		{"watermark", `INSERT OR REPLACE INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version)
-			VALUES(?,?,'HEAD',?,?,'test',1,?)`, []any{homeProject, homeLocator, out.lawCommit, digest, knowledgeProjectionVersion}},
-		{"law domain home", `INSERT OR REPLACE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?, 'test', '')`,
-			[]any{homeProject, homeLocator, out.lawID, "product", workContextTestChild, out.lawHash}},
 		{"guard release", `DELETE FROM write_guard`, nil},
 	}
 	for _, stmt := range stmts {

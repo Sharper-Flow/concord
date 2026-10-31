@@ -1,3 +1,41 @@
+---
+{
+  "id": "CD-0230",
+  "title": "Each conflict rule names its mechanism, and law changes follow the operator's approval boundary",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0006"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0036"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0159"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0218"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0222"
+    }
+  ],
+  "product_wide_rationale": "It carries the priorities.md Appendix A conflict rules and the authority to change Product law, which bind every child Domain and every law record, so no single child Domain can own it."
+}
+---
 # CD-0230: Each conflict rule names its mechanism, and law changes follow the operator's approval boundary
 
 - **Status:** Accepted

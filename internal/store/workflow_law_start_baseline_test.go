@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/workflowproof"
 )
 
 // Naming a law after editing it cannot turn the edit into before-state.
@@ -156,7 +158,11 @@ func TestLawChangeBaselineMigrationPreservesHistoricalFacts(t *testing.T) {
 	}
 }
 
-func TestLawChangeBaselineCoversHomeLawEdit(t *testing.T) {
+// The verified snapshot certifies one commit: the baseline inventory is the
+// snapshot's own inventory, so an enacted-folder delta can only appear as a
+// moved head, and the boundary refuses the stale proof instead of comparing
+// projections (the projection-drift simulations retired with the index).
+func TestLawChangeBaselineCoversVerifiedHome(t *testing.T) {
 	s, home := seedKnowledgeHomeProduct(t, "law-start-product", KnowledgeHome{HomeProjectID: "law-start-home", HomeLocatorID: "law-start-loc", HeadRef: "HEAD"}, "SRC-LAW", ".concord/docs/decisions/CD-0901-home.md", "Home law")
 	const id = "law-start-source-work"
 	seedKnowledgeWork(t, s, id, "Source inventory work")
@@ -166,7 +172,6 @@ func TestLawChangeBaselineCoversHomeLawEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='derived' WHERE home_project_id=? AND law_id='SRC-LAW'`, home.HomeProjectID)
 	tx := lawChangeTx(t, s)
 	err = checkWorkflowLawChangeEnactmentTx(t.Context(), tx, id, nil, nil)
 	_ = tx.Rollback()
@@ -174,13 +179,28 @@ func TestLawChangeBaselineCoversHomeLawEdit(t *testing.T) {
 	tx = lawChangeTx(t, s)
 	err = checkWorkflowLawChangeEnactmentTx(verified, tx, id, nil, nil)
 	_ = tx.Rollback()
-	requireFailureKind(t, err, KindOutcomeMismatch, "unmentioned home law changed")
+	if err != nil {
+		t.Fatalf("verified snapshot refused a law-free contract: %v", err)
+	}
+	// PM1 §3.3: a commit that moves the head without touching the committed
+	// law content is part of the verified state and admits the enactment.
 	writeKnowledgeFile(t, home.RepoPath, "unrelated.go", "package synthetic\n")
-	commitKnowledgeRepo(t, home.RepoPath, "move past the verified home")
+	commitKnowledgeRepo(t, home.RepoPath, "move past the verified home without touching law")
 	tx = lawChangeTx(t, s)
 	err = checkWorkflowLawChangeEnactmentTx(verified, tx, id, nil, nil)
 	_ = tx.Rollback()
-	requireFailureKind(t, err, KindInvalidOperation, "stale source proof cannot certify a law-free contract")
+	if err != nil {
+		t.Fatalf("unrelated head movement refused the enactment check: %v", err)
+	}
+	// A commit that moves the law content itself invalidates the snapshot.
+	lawPath := ".concord/law/decisions/SRC-LAW-fixture.md"
+	original := runKnowledgeGit(t, home.RepoPath, "show", "HEAD:"+lawPath)
+	writeKnowledgeFile(t, home.RepoPath, lawPath, strings.Replace(original, "Fixture folder law", "Amended fixture law", 1))
+	commitKnowledgeRepo(t, home.RepoPath, "amend the committed law")
+	tx = lawChangeTx(t, s)
+	err = checkWorkflowLawChangeEnactmentTx(verified, tx, id, nil, nil)
+	_ = tx.Rollback()
+	requireFailureKind(t, err, KindInvalidOperation, "moved law content cannot certify a law-free contract")
 }
 
 func TestLawChangeBaselineInitializationRollsBackWithOwner(t *testing.T) {
@@ -235,4 +255,187 @@ func TestLawChangeNewLawRequiresAdditionScope(t *testing.T) {
 	binding.LawAdditions = append(binding.LawAdditions, WorkflowLawAddition{LawID: "law-existing", HomeDomainID: "agent-surface"})
 	_, err = deriveLawChange(t, s, id, lawChangeV1, fields, nil, binding)
 	requireFailureKind(t, err, KindInvalidPayload, "existing law cannot masquerade as an addition")
+}
+
+// An empty mandate must not hide a committed law edit behind the verified
+// snapshot: a law-content commit between the verification and the enactment
+// check invalidates the proof with or without a retained verification
+// context, while an unrelated commit admits (PM1 §3.3).
+func TestLawBaselineSingleSourceRejectsInvisibleStaleEdit(t *testing.T) {
+	s, home := seedKnowledgeHomeProduct(t, "single-baseline-product", KnowledgeHome{HomeProjectID: "single-baseline-home", HomeLocatorID: "single-baseline-loc", HeadRef: "HEAD"}, "HOME-LAW", ".concord/docs/decisions/CD-0901-home.md", "Home law")
+	const id = "single-baseline-work"
+	seedKnowledgeWork(t, s, id, "Single-source baseline work")
+	lawChangeFold(t, s, `UPDATE work_projects SET project_id=? WHERE work_id=? AND role='primary'`, home.HomeProjectID, id)
+	verified, err := s.EstablishKnowledgeSourceSetProof(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startLawChange(t, s, id)
+	path := ".concord/law/decisions/HOME-LAW-fixture.md"
+	original := runKnowledgeGit(t, home.RepoPath, "show", "HEAD:"+path)
+	writeKnowledgeFile(t, home.RepoPath, path, strings.Replace(original, "Fixture folder law", "Changed law outside the empty contract", 1))
+	commitKnowledgeRepo(t, home.RepoPath, "change an unmentioned law")
+	for _, withProof := range []bool{false, true} {
+		ctx := t.Context()
+		if withProof {
+			ctx = verified
+		}
+		tx := lawChangeTx(t, s)
+		err = checkWorkflowLawChangeEnactmentTx(ctx, tx, id, nil, nil)
+		_ = tx.Rollback()
+		if err == nil {
+			t.Errorf("law-free completion trusted a stale single-source snapshot (withProof=%v)", withProof)
+		} else {
+			requireFailureKind(t, err, KindInvalidOperation, "single-source proof freshness")
+			message := "was not verified before this transaction"
+			if withProof {
+				message = "moved its committed law content after its verification"
+			}
+			if !strings.Contains(err.Error(), message) {
+				t.Errorf("wrong single-source refusal (withProof=%v): %v", withProof, err)
+			}
+		}
+	}
+}
+
+// Initialization admits only an established verification whose committed law
+// content still matches the transaction head: a missing proof refuses, and a
+// proof whose law moved after establishment refuses; an unrelated commit
+// admits (PM1 §3.3). Initialization rolls back with its owner either way.
+func TestLawBaselineInitializationRequiresFreshSourceProof(t *testing.T) {
+	for _, mode := range []string{"missing", "stale", "verified"} {
+		t.Run(mode, func(t *testing.T) {
+			s, home := seedKnowledgeHomeProduct(t, "initialize-proof-product", KnowledgeHome{HomeProjectID: "initialize-proof-home", HomeLocatorID: "initialize-proof-loc", HeadRef: "HEAD"}, "HOME-LAW", ".concord/docs/decisions/CD-0901-home.md", "Home law")
+			const id = "initialize-proof-work"
+			seedKnowledgeWork(t, s, id, "Initialized law inventory")
+			lawChangeFold(t, s, `UPDATE work_projects SET project_id=? WHERE work_id=? AND role='primary'`, home.HomeProjectID, id)
+			ctx := context.Background()
+			if mode != "missing" {
+				var err error
+				ctx, err = s.EstablishKnowledgeSourceSetProofForProject(ctx, home.HomeProjectID)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if mode == "stale" {
+				path := ".concord/law/decisions/HOME-LAW-fixture.md"
+				original := runKnowledgeGit(t, home.RepoPath, "show", "HEAD:"+path)
+				writeKnowledgeFile(t, home.RepoPath, path, strings.Replace(original, "Fixture folder law", "Amended after start proof", 1))
+				commitKnowledgeRepo(t, home.RepoPath, "move the committed law after start proof")
+			}
+			definition, err := LiveWorkflowDefinitionForRef("workflow.implementation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = s.Transact(ctx, func(tx *Transaction) error {
+				return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: id, Definition: definition, Actor: lawChangeConstructorActor})
+			})
+			if mode == "verified" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				var count int
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_law_baselines WHERE work_id=?`, id).Scan(&count); err != nil || count != 1 {
+					t.Fatalf("verified initialization omitted its baseline: count=%d error=%v", count, err)
+				}
+				return
+			}
+			requireFailureKind(t, err, KindInvalidOperation, "unverified owning start")
+			message := "was not verified before this transaction"
+			if mode == "stale" {
+				message = "moved its committed law content after its verification"
+			}
+			if !strings.Contains(err.Error(), message) {
+				t.Fatalf("wrong %s initialization refusal: %v", mode, err)
+			}
+			var count int
+			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM workflow_instances WHERE work_id=?)+(SELECT count(*) FROM workflow_law_baselines WHERE work_id=?)`, id, id).Scan(&count); err != nil || count != 0 {
+				t.Fatalf("unverified initialization left effects: count=%d error=%v", count, err)
+			}
+		})
+	}
+}
+
+// A standalone law home keeps its demand-driven preparation: the verification
+// runs before the transaction and its load failure is consumed by the
+// mandate; a readable folder answers.
+func TestLawProofStandaloneHomeKeepsLegacyRead(t *testing.T) {
+	s := seedLawChangeFixture(t, "standalone-law")
+	lawChangeFold(t, s, `DELETE FROM product_knowledge_homes WHERE product_id='product'`)
+	ctx, err := s.establishKnowledgeSourceSetProofAtHome(t.Context(), "project", "workflow-law-locator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := lawChangeTx(t, s)
+	if err := checkMandatedLawsTxAtHome(ctx, tx, "project", "workflow-law-locator", []string{"spec:one"}, nil, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An older current pin remains readable. The existing outside-repair route
+// can reconcile real delivery, but cannot invent an owning-start snapshot or
+// turn a resume into ordinary completion evidence.
+func TestLawBaselineMissingCurrentPinKeepsOutsideRepairRoute(t *testing.T) {
+	const id = "pre-baseline-current-pin"
+	s, _ := lawUpgradePrefixForDefinition(t, id, "proposal", 0, 0, "workflow.implementation")
+	if _, err := ReadWorkPin(t.Context(), s, id); err != nil {
+		t.Fatal(err)
+	}
+	requireFailureKind(t, enactLawChange(t, s, id, nil, nil), KindMissingEvidence, "cannot infer owning start from a current pin")
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, id, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
+		t.Fatal(err)
+	}
+	request := outsideRepairTestRequest(t, s, id, "reconcile")
+	if err := outsideRepairApply(t, s, request, WorkflowOutsideRepairReconciled, workflowproof.Evidence{}); err == nil {
+		t.Fatal("outside repair replaced missing delivery evidence with the current pin")
+	}
+	if err := outsideRepairApply(t, s, request, WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()); err != nil {
+		t.Fatal(err)
+	}
+	pin, err := ReadWorkPin(t.Context(), s, id)
+	if err != nil || pin.Lifecycle != "completed" || pin.OutsideRepairDisposition == nil || pin.OutsideRepairDisposition.State != OutsideRepairStateCompleted {
+		t.Fatalf("outside-repair disposition: %+v error=%v", pin, err)
+	}
+	var invented int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM workflow_law_baselines WHERE work_id=?)+(SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind='workflow.completed')`, id, id).Scan(&invented); err != nil || invented != 0 {
+		t.Fatalf("reconciliation invented ordinary workflow proof: count=%d error=%v", invented, err)
+	}
+}
+
+// Native bootstrap prepares the work's designated Product law home into the
+// owning-start baseline, reading the committed law folder (no explicit
+// preparation step), and never confuses it with the execution Project's
+// canonical checkout.
+func TestBootstrapInitializesVerifiedProductLawBaseline(t *testing.T) {
+	ctx := t.Context()
+	s := openTemp(t)
+	repo := initBootstrapStoreRepo(t)
+	seedBootstrapStoreAuthority(t, s, repo)
+	lawRepo := initKnowledgeRepo(t)
+	writeFixtureLawSource(t, KnowledgeHome{HomeProjectID: "bootstrap-law-project", HomeLocatorID: "bootstrap-law-locator", RepoPath: lawRepo, HeadRef: "HEAD"}, "BOOTSTRAP-LAW")
+	home := KnowledgeHome{HomeProjectID: "bootstrap-law-project", HomeLocatorID: "bootstrap-law-locator", RepoPath: lawRepo, HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, "product-bootstrap", home, "project-bootstrap", home.HomeProjectID)
+	// No explicit preparation: native bootstrap must prepare the designated
+	// home, not confuse it with the execution Project's canonical checkout.
+	request := bootstrapStoreRequest()
+	request.IdempotencyKey = "bootstrap-verified-law"
+	operationID, workID, digest, err := CanonicalBootstrapIdentity(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	location, err := s.LocateWorktree(ctx, request.ProjectID, workID, request.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.prepareBootstrapMode(ctx, request, operationID, workID, digest, false, request, location, ExecGitRunner{}); err != nil {
+		t.Fatal(err)
+	}
+	var raw string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT baseline_json FROM workflow_law_baselines WHERE work_id=?`, workID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var baseline workflowLawBaseline
+	if err := json.Unmarshal([]byte(raw), &baseline); err != nil || baseline.Home.ProjectID != home.HomeProjectID || !strings.Contains(raw, "bootstrap-law-project/BOOTSTRAP-LAW") {
+		t.Fatalf("bootstrap did not pin its verified Product law home: %s error=%v", raw, err)
+	}
 }

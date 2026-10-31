@@ -1,3 +1,121 @@
+---
+{
+  "id": "CD-0242",
+  "title": "Knowledge-first workflows keep current state, not history",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0002"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0008"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0012"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0036"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0173"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0197"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0213"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0218"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0220"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0229"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0230"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0235"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0239"
+    },
+    {
+      "kind": "refines",
+      "target_id": "PM1"
+    },
+    {
+      "kind": "refines",
+      "target_id": "PM3"
+    },
+    {
+      "kind": "refines",
+      "target_id": "PM9"
+    },
+    {
+      "kind": "refines",
+      "target_id": "TS7"
+    },
+    {
+      "kind": "refines",
+      "target_id": "compaction-retention-policy"
+    },
+    {
+      "kind": "refines",
+      "target_id": "workflow-engine-contract"
+    },
+    {
+      "kind": "refines",
+      "target_id": "PM5"
+    },
+    {
+      "kind": "refines",
+      "target_id": "PM8"
+    },
+    {
+      "kind": "refines",
+      "target_id": "PM10"
+    },
+    {
+      "kind": "refines",
+      "target_id": "TS8"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0178"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0217"
+    }
+  ],
+  "product_wide_rationale": "Knowledge-first workflows replace the event-sourced state authority, the stage-exit and execution-loop rules, evidence binding, resumption, recovery, and the cutover path for every Domain, so the change reaches the whole Product rather than one child Domain."
+}
+---
 # CD-0242: Knowledge-first workflows keep current state, not history
 
 - **Status:** Accepted
@@ -301,7 +419,7 @@ active code progress, coordination, or fresh-session resumption is accepted.
   Planned anchors include the stage admission refusal tests, the
   resume-without-history and reviewer-repair-to-delivery acceptance fixtures,
   the administrative-recovery fixture, and the cutover interruption and
-  snapshot-restore tests. Until that change lands, `python3 scripts/check-knowledge-index.py` is the executable
+  snapshot-restore tests. Until that change lands, the committed law-folder read is the executable
   anchor for this record's law registration.
-- `python3 scripts/check-knowledge-index.py` composes the record shards and
-  checks each shard's recorded document sha256 against the document bytes.
+- Committed law-folder snapshot validation binds the authored metadata and
+  the document bytes into one content digest.

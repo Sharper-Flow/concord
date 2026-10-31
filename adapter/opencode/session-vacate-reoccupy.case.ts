@@ -60,12 +60,6 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
 async function repositoryFixture(root: string, name: string): Promise<{ repo: string }> {
   const repo = join(root, name)
   await mkdir(join(repo, ".concord/docs/knowledge"), { recursive: true })
-  await Bun.write(join(repo, ".concord/docs/knowledge", "manifest.json"), JSON.stringify({
-    schema_version: "1.2",
-    supported_kinds: [],
-    indexed_kinds: [],
-    knowledge_roots: [],
-  }, null, 2))
   await Bun.write(join(repo, ".concord/docs/knowledge", "domain-registry.json"), JSON.stringify({
     schema_version: "1.0",
     product_key: PRODUCT_ID,

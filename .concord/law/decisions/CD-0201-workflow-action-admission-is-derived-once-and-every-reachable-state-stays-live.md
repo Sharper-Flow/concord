@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0201",
+  "title": "Workflow action admission is derived once and every reachable state stays live",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0166"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0172"
+    }
+  ]
+}
+---
 # CD-0201: Workflow action admission is derived once and every reachable state stays live
 
 - **Status:** Accepted

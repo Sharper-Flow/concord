@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0043",
+  "title": "Host-specific methodology stays host-owned",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0043: Host-specific methodology stays host-owned
 
 - **Status:** Accepted
@@ -44,4 +57,5 @@ admitted skills without recording or attesting subagent execution.
 ## Verification
 
 - `python3 scripts/check-agent-contracts.py` checks shipped-skill admission.
-- `python3 scripts/check-knowledge-index.py` checks identity and content hashes.
+- Committed law-folder snapshot validation checks the record's identity, and
+  the folder derives its content digest from the committed bytes.

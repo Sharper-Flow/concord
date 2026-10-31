@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 )
 
@@ -87,3 +88,13 @@ func seedCurrentDomain(t *testing.T, s *Store, productID, domainID string) {
 }
 
 func repeatA64() string { return "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+
+// memberMigrationExec runs one seeded migration-style statement under the
+// test's context, for parent-owned backup and upgrade tests and any other
+// test that seeds retired projection state directly.
+func memberMigrationExec(t *testing.T, db *sql.DB, query string, args ...any) {
+	t.Helper()
+	if _, err := db.ExecContext(t.Context(), query, args...); err != nil {
+		t.Fatal(err)
+	}
+}

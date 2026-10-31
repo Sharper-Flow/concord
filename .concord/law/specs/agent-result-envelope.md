@@ -1,3 +1,39 @@
+---
+{
+  "id": "TS7",
+  "title": "Agent result envelope",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-call-boundary",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-contract"
+  ],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Envelope closure is a per-call schema property. The guarantee is proved by TestEnvelopeRejectsUnknownVariantsAndFields and TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome (internal/agentcontract/envelope_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Authority semantics are per-call properties. The guarantee is proved by TestEnvelopeGoldenOutcomes (internal/agentcontract/envelope_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Output bounds are producer-enforced per call. Inline bounds are proved by TestEnvelopeHasHardSerializedLimit (internal/agentcontract/envelope_test.go), TestMutationResultProducerAcceptsCanonicalPayload (internal/agent/envelope_test.go), and TestBudgetFieldsRefuseOrBoundResultsStructurally (internal/agent/runtime_test.go). TestMutationProjectionFailedAttemptMutations, TestFullWorkListProjectionCursorIntegrity and TestFullWorkListProjectionMultibyteEnvelopeFit prove oversized projection transport."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Cursor binding is a dispatch property. The guarantee is proved by TestAuthenticatedCursorBindsOperationAndRejectsTampering (internal/agent/runtime_test.go)."
+    },
+    {
+      "criterion": 5,
+      "exemption": "Durable-outcome honesty is proved at both levels: TestOutcomeMismatchIsClosedAndCannotDowngrade (internal/agentcontract/envelope_test.go) and the AJ6-partial-publication scenario of the agent-jobs corpus under TestAgentJobsCorpus (internal/agent/agent_jobs_corpus_test.go)."
+    }
+  ]
+}
+---
 # Concord Agent Result, Error, Evidence, and Pagination Envelope (TS7)
 
 > **Status:** **Accepted.**

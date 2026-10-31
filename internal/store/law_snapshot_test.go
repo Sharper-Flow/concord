@@ -718,3 +718,67 @@ func TestLawFolderSnapshotReturnsImmutableCopies(t *testing.T) {
 		t.Fatalf("snapshot mutable through returned registry relations: %+v", freshRegistry.Domains[1].ArchitectureRelations)
 	}
 }
+
+// The pinned law read must neither substitute replacement objects nor fetch
+// missing promisor objects implicitly. GIT_NO_REPLACE_OBJECTS is proved
+// behaviorally against a real replacement ref; both variables are proved to
+// reach the git process through the environment contract. The lazy-fetch
+// refusal's own behavioral fixture would need a promisor (partial-clone)
+// home; the environment contract here is its runner-level proof.
+func TestLawFolderSnapshotIgnoresReplacementObjects(t *testing.T) {
+	t.Parallel()
+	repo := initKnowledgeRepo(t)
+	writeKnowledgeFile(t, repo, ".concord/docs/knowledge/domain-registry.json", lawSnapshotRegistryJSON)
+	original := lawSnapshotDecisionContent("CD-9301", "")
+	writeKnowledgeFile(t, repo, ".concord/law/decisions/CD-9301-original.md", original)
+	commit := commitKnowledgeRepo(t, repo, "original law")
+	sum := sha256.Sum256([]byte(original))
+	originalHash := "sha256:" + hex.EncodeToString(sum[:])
+
+	replacement := strings.Replace(original, `"title":"Snapshot synthetic decision"`, `"title":"Replaced decision"`, 1)
+	if replacement == original {
+		t.Fatal("the replacement content did not differ")
+	}
+	writeKnowledgeFile(t, repo, ".concord/law/decisions/CD-9301-original.md", replacement)
+	replacementCommit := commitKnowledgeRepo(t, repo, "replacement commit")
+	runKnowledgeGit(t, repo, "replace", commit, replacementCommit)
+
+	// Control: an unguarded git read at the same OID answers from the
+	// replacement, so the pinned read's answer proves the environment held.
+	replaced, err := runGit(t.Context(), repo, "cat-file", "blob", commit+":.concord/law/decisions/CD-9301-original.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(replaced) != replacement {
+		t.Fatal("the replacement ref did not take effect for the unguarded control read")
+	}
+
+	snapshot, err := loadLawFolderSnapshot(t.Context(), repo, commit)
+	if err != nil {
+		t.Fatalf("the pinned law read refused a replaced-object home: %v", err)
+	}
+	record, ok := snapshot.Law("CD-9301")
+	if !ok || record.SHA256 != originalHash {
+		t.Fatalf("the pinned read substituted a replacement object: ok=%v hash=%s want %s", ok, record.SHA256, originalHash)
+	}
+	if record.Title != "Snapshot synthetic decision" {
+		t.Fatalf("the pinned read answered from replaced bytes: %+v", record)
+	}
+}
+
+func TestRunGitEnvReachesTheGitProcess(t *testing.T) {
+	t.Parallel()
+	repo := initKnowledgeRepo(t)
+	env := []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=lawfolder.testkey",
+		"GIT_CONFIG_VALUE_0=env-reached-git",
+	}
+	out, err := runGitEnv(t.Context(), repo, env, "config", "--get", "lawfolder.testkey")
+	if err != nil || strings.TrimSpace(string(out)) != "env-reached-git" {
+		t.Fatalf("runGitEnv did not pass its environment to git: out=%q err=%v", out, err)
+	}
+	if _, err := runGit(t.Context(), repo, "config", "--get", "lawfolder.testkey"); err == nil {
+		t.Fatal("the unguarded runner saw the guarded runner's environment")
+	}
+}

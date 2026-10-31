@@ -1,3 +1,32 @@
+---
+{
+  "id": "workflow-engine-contract",
+  "title": "Workflow engine contract",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "WF02-planning-requires-outcome"
+    },
+    {
+      "criterion": 2,
+      "scenario": "WF04-weaker-delivery"
+    },
+    {
+      "criterion": 3,
+      "scenario": "WF37-action-availability-before-register"
+    },
+    {
+      "criterion": 4,
+      "scenario": "WF19-completion-one-transaction"
+    }
+  ]
+}
+---
 # Concord Workflow Engine Contract
 
 > **Status:** Implementation contract for accepted CD-0013, v1.

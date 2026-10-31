@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0045",
+  "title": "Concurrent writers preserve exact effects without escaped busy failures",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0045: Concurrent writers preserve exact effects without escaped busy failures
 
 - **Status:** Accepted
@@ -86,6 +97,5 @@ timing verdict. Correctness remains a required check.
   the unpaced 1000-write ten-process population with exact-effect assertions.
 - `internal/store/conformance_status_test.go` verifies population resolution,
   the CI tripwire, and accepted-population zero-escaped-busy behavior.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`,
-  `python3 scripts/check-knowledge-index.py`, and
+- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
   `python3 scripts/check-public-content.py` pass.

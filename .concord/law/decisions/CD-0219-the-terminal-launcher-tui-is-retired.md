@@ -1,3 +1,44 @@
+---
+{
+  "id": "CD-0219",
+  "title": "The interactive terminal launcher is retired",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0014"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0048"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0108"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0222"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0163"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0176"
+    },
+    {
+      "kind": "refines",
+      "target_id": "C17"
+    }
+  ]
+}
+---
 # CD-0219: The interactive terminal launcher is retired
 
 - **Status:** Accepted
@@ -95,8 +136,8 @@ first-usable floor criterion.
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` proves every record matches its
-  document and no retired artifact keeps a record.
+- Folder membership proves the rule by construction: a record is its
+  document's file, and no retired artifact keeps a file under `.concord/law/`.
 - `python3 scripts/check-doc-links.py` proves no document links a retired
   artifact.
 - `go test ./internal/store/ -run

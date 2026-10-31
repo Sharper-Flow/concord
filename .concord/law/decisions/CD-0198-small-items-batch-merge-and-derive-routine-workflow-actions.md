@@ -1,3 +1,28 @@
+---
+{
+  "id": "CD-0198",
+  "title": "Small items batch, merge, and derive routine workflow actions",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0156"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0166"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0183"
+    }
+  ]
+}
+---
 # CD-0198: Small items batch, merge, and derive routine workflow actions
 
 - **Status:** Accepted
@@ -65,4 +90,5 @@ No worker-failure record, combined worker acceptance or retry launcher exists.
 - `go test ./internal/store ./internal/agent` checks batching, duplicate and
   omitted predicates, diagnosis completeness, first-action starts and delivery
   refusal for missing, failed, unresolved or mixed-candidate verification.
-- `python3 scripts/check-knowledge-index.py` checks identity and hashes.
+- Committed law-folder snapshot validation checks the record's identity and
+  content digest.

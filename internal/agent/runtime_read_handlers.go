@@ -646,138 +646,6 @@ func (r runtime) readTraceProjectRetirement(ctx context.Context, base agentcontr
 	return r.resultEnvelope(base, store.ResultMeta{QueryID: "CD-0182.R1", ContractVersion: "CD-0182/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID, ProjectIDs: []string{project}}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"retirement:" + in.WorkID}}, r.scope(store.ResultMeta{}), retirement)
 }
 
-func (r runtime) readKnowledgeSearch(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in knowledgeSearchInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	if in.ProductID == "" {
-		in.ProductID = r.Envelope.SelectedProductID
-	}
-	var home store.KnowledgeHome
-	var homeErr error
-	if in.ProductID != "" || in.ProjectID != "" {
-		home, homeErr = r.Store.ResolveKnowledgeQueryHome(ctx, in.ProductID, in.ProjectID, store.KnowledgeHome{}, "PM1.Q9")
-	} else {
-		home, homeErr = r.knowledgeHome(ctx)
-	}
-	if homeErr != nil {
-		return failureEnvelope(base, homeErr), nil
-	}
-	bindingInput := in
-	bindingInput.Page.Cursor = nil
-	binding, _ := json.Marshal(bindingInput)
-	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), string(binding), "summary", home)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	// The read is the demand (CD-0082 D1): a stale index rebuilds here,
-	// before the query and outside any transaction. A home git cannot
-	// reach is left for the query itself to refuse or degrade by rule.
-	// CD-0159 D6: under allow_degraded a suppressed demand is not silence —
-	// the exact home outcome rides the typed Q9 request, and Q9
-	// degrades the answer through its owning path. Without
-	// allow_degraded the same error refuses, as before.
-	demandFailures, err := r.knowledgeSearchDemand(ctx, in, home)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded, DemandFailures: demandFailures})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	response, err := r.q9(base, q)
-	if err != nil {
-		return response, err
-	}
-	response.Omissions = boundedNotices(response.Omissions, knowledgeSourceNotices(q.SourceOmissions))
-	return r.wrapCursor(ctx, response, string(binding), "summary")
-}
-
-func (r runtime) knowledgeSearchDemand(ctx context.Context, in knowledgeSearchInput, home store.KnowledgeHome) ([]store.KnowledgeDemandFailure, error) {
-	var demandFailures []store.KnowledgeDemandFailure
-	if err := r.Store.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
-		if !in.AllowDegraded {
-			return nil, err
-		}
-		demandFailures = append(demandFailures, store.KnowledgeDemandFailure{ProjectID: home.HomeProjectID, LocatorID: home.HomeLocatorID, FailureKind: demandFailureKind(err)})
-	}
-	return demandFailures, nil
-}
-
-func knowledgeSourceNotices(omissions []store.KnowledgeSourceOmission) []agentcontract.Notice {
-	out := make([]agentcontract.Notice, 0, len(omissions))
-	for _, omission := range omissions {
-		details := map[string]any{"project_id": omission.ProjectID, "locator": omission.LocatorID}
-		if omission.Kind == store.KnowledgeSourceDemandFailed {
-			details["cause"] = omission.Cause
-		}
-		out = append(out, agentcontract.Notice{Kind: string(omission.Kind), Details: details})
-	}
-	return out
-}
-
-// demandFailureKind names the existing failure kind a suppressed demand
-// refused with, so the degraded omission carries the cause verbatim.
-func demandFailureKind(err error) string {
-	var failure *store.Failure
-	if errors.As(err, &failure) {
-		return string(failure.Kind)
-	}
-	return "unknown"
-}
-
-// This explicit cache/provenance exception uses product_read admission. It is
-// not an ordinary knowledge read: the store performs bounded origin discovery
-// and one selected-branch fetch, then persists the observation, not Product law.
-func (r runtime) readKnowledgeObservePublication(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in struct {
-		ProductID       string `json:"product_id"`
-		SourceProjectID string `json:"source_project_id"`
-		SourceLocatorID string `json:"source_locator_id"`
-	}
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	publication, err := r.Store.ObserveKnowledgePublication(ctx, in.ProductID, in.SourceProjectID, in.SourceLocatorID)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	meta := store.ResultMeta{QueryID: "CD-0020.R1", ContractVersion: "CD-0020/1.0",
-		ResolvedScope: store.ResolvedScope{ProductID: in.ProductID, ProjectID: in.SourceProjectID},
-		Authority:     "authoritative", Freshness: store.Freshness{ObservedAt: publication.ObservedAt},
-		OrderingKeys: []string{"project_id", "locator_id"}}
-	return r.resultEnvelope(base, meta, r.scope(meta), publication)
-}
-
-func (r runtime) readKnowledgeResolveNote(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in knowledgeResolveInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	// Only Product-scoped law lookups demand the current source set; other
-	// reads retain Q10's recorded-home semantics (CD-0200).
-	if in.KnowledgeID != "" && r.Envelope.SelectedProductID != "" {
-		if err := r.freshenProductKnowledge(ctx, r.Envelope.SelectedProductID); err != nil {
-			return failureEnvelope(base, err), nil
-		}
-	}
-	q, err := r.Store.QueryQ10(ctx, store.Q10Request{Work: in.WorkID, KnowledgeID: in.KnowledgeID, Product: r.Envelope.SelectedProductID, Home: store.KnowledgeHome{}})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	response, err := r.q10(base, q)
-	if err != nil {
-		return response, err
-	}
-	if authority := q.UnverifiedAuthority; authority != nil {
-		response.Warnings = boundedNotices(response.Warnings, []agentcontract.Notice{{Kind: "legislated_authority_unverified", Details: map[string]any{
-			"law_id": authority.LawID, "work_id": authority.WorkID, "contract_version": authority.ContractVersion,
-		}}})
-	}
-	return response, nil
-}
-
 func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, input []byte, queryID string) (agentcontract.Envelope, error) {
 	var in domainReadInput
 	if err := decodeOperationInput(input, &in); err != nil {
@@ -790,15 +658,10 @@ func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, in
 	if product == "" {
 		return coreError(base, "unknown_scope", "Domain reads require a resolved Product", "reread_entities", false), nil
 	}
-	// The Domain registry is derived from the Product's knowledge home,
-	// and these reads are where an agent learns the registry hash it pins
-	// in an architecture binding. The read is the demand (CD-0082 D1):
-	// a stale registry rebuilds here, outside any transaction, so an
-	// approval never refuses for an index nobody has read yet. A Product
-	// with no designated home keeps the domain read's own refusal.
-	if err := r.freshenProductKnowledge(ctx, product); err != nil {
-		return failureEnvelope(base, err), nil
-	}
+	// These reads are where an agent learns the registry hash it pins in an
+	// architecture binding. The registry resolves from the committed snapshot
+	// of the Product's designated home, so no read carries a rebuild demand;
+	// a Product with no designated home keeps the domain read's own refusal.
 	switch r.Operation {
 	case "list":
 		result, err := r.Store.QueryDomainList(ctx, store.DomainListRequest{Product: product, Limit: effectiveLimit(in.Limit, in.Page), Cursor: deref(in.Page.Cursor)})

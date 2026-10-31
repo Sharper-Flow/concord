@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0144",
+  "title": "Reconciliation records repository reality before reclaim",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0144: Reconciliation records repository reality before reclaim
 
 - **Status:** Accepted

@@ -1,3 +1,26 @@
+---
+{
+  "id": "CD-0159",
+  "title": "Authority tier for Product law",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [
+    "workflow-engine"
+  ],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0006"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0222"
+    }
+  ]
+}
+---
 # CD-0159: Authority tier for Product law
 
 - **Status:** Accepted

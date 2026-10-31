@@ -1,3 +1,32 @@
+---
+{
+  "id": "TS9",
+  "title": "agent tool surface measurement",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-evolution",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "State-not-wording assertion is enforced by the corpus runner's absent-probe guard under TestAgentJobsCorpus (internal/agent/agent_jobs_corpus_test.go); its rejection test is TestEvaluateAbsentRequiresProbe."
+    },
+    {
+      "criterion": 2,
+      "exemption": "This criterion states what cannot authorize. It is enforced structurally: the corpus is the only accepted evidence path in .github/workflows/ci.yml, and no model-trial gate exists in any workflow."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Operator acceptance is recorded practice, not executable: the domain-overlap change carries it on issue #195, cited in TS1's approved amendments."
+    },
+    {
+      "criterion": 4,
+      "exemption": "The operational-plane boundary is enforced by scripts/check-public-content.py and the corpus runner's recorded measurements, which carry typed structural facts only."
+    }
+  ]
+}
+---
 # Concord Agent Tool Surface Evidence Contract (TS9)
 
 > **Status:** Accepted and binding until superseded.

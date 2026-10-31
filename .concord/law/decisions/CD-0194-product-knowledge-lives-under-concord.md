@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0194",
+  "title": "Product knowledge lives under .concord",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-670cac419bcacb671879316b",
+    "contract_version": 6
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0194: Product knowledge lives under .concord
 
 - **Status:** Accepted
@@ -118,8 +131,8 @@ Concord's own law carries no override.
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` proves record integrity at the
-  new home.
+- Committed law-folder snapshot validation proves record integrity at the
+  designated home.
 - `python3 scripts/test-renumber-cd.py` proves the lineage guards treat records
   the comparison ref gained after the merge base as upstream additions, and
   records the merge base carried as durable law.

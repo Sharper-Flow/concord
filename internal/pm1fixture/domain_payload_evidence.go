@@ -78,9 +78,9 @@ func SeedDomainPayloadEvidence(ctx context.Context, s *store.Store, opts DomainP
 	return seedDomainEvidence(ctx, s, DomainEvidenceOptions(opts), repo, PayloadChildDomainID, PayloadLawID, "populated domain payload")
 }
 
-// domainPayloadRepo commits a manifest declaring a root Domain and one child
-// that depends on it under a governing law, plus the accepted decision homed to
-// the child with applicability out to the root.
+// domainPayloadRepo commits a root Domain and one child that depends on it
+// under a governing law, plus the accepted decision homed to the child with
+// applicability out to the root.
 func domainPayloadRepo(dir string) (string, error) {
 	repo, err := initKnowledgeRepo(dir)
 	if err != nil {
@@ -89,33 +89,19 @@ func domainPayloadRepo(dir string) (string, error) {
 	if err := writeKnowledgeFile(repo, payloadLawPath, payloadLawBody); err != nil {
 		return "", fmt.Errorf("pm1fixture: write populated accepted decision: %w", err)
 	}
-	manifest := store.KnowledgeManifest{
-		SchemaVersion:  "1.2",
-		SupportedKinds: []string{"decision"},
-		IndexedKinds:   []string{"decision"},
-		DomainRegistry: store.KnowledgeDomainRegistry{
-			SchemaVersion: "1.0",
-			ProductKey:    payloadProductKey,
-			RootDomainID:  PayloadRootDomainID,
-			Domains: []store.KnowledgeDomain{
-				{DomainID: PayloadRootDomainID, Name: "Payload", Purpose: "Product law", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},
-				{
-					DomainID: PayloadChildDomainID, Name: "Sync", Purpose: "Synchronization", Status: "current", ParentDomainID: PayloadRootDomainID,
-					ArchitectureRelations: []store.KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: PayloadRootDomainID, GoverningLawIDs: []string{PayloadLawID}}},
-				},
-			},
-		},
-		Records: []store.KnowledgeRecord{
+	registry := store.KnowledgeDomainRegistry{
+		SchemaVersion: "1.0",
+		ProductKey:    payloadProductKey,
+		RootDomainID:  PayloadRootDomainID,
+		Domains: []store.KnowledgeDomain{
+			{DomainID: PayloadRootDomainID, Name: "Payload", Purpose: "Product law", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},
 			{
-				ID: PayloadLawID, Kind: "decision", Path: payloadLawPath, Status: "accepted", Date: "2026-08-18T00:00:00Z",
-				Title: "Synchronization authority", Summary: "The child Domain owns synchronization law", Tags: []string{},
-				Authority:    store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
-				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{PayloadChildDomainID}, TagIDs: []string{}},
-				HomeDomainID: PayloadChildDomainID, AppliesToDomainIDs: []string{PayloadRootDomainID}, SHA256: ContentDigest(payloadLawBody),
+				DomainID: PayloadChildDomainID, Name: "Sync", Purpose: "Synchronization", Status: "current", ParentDomainID: PayloadRootDomainID,
+				ArchitectureRelations: []store.KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: PayloadRootDomainID, GoverningLawIDs: []string{PayloadLawID}}},
 			},
 		},
 	}
-	if err := writeKnowledgeShards(repo, manifest); err != nil {
+	if err := WriteKnowledgeShards(repo, registry); err != nil {
 		return "", err
 	}
 	if _, err := commitKnowledgeRepo(repo, "populated domain payload knowledge"); err != nil {

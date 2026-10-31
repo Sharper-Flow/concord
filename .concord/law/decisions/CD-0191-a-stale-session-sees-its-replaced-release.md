@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0191",
+  "title": "A stale session sees its replaced release",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-fd94329981b8575144fe93ed",
+    "contract_version": 3
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0111"
+    }
+  ]
+}
+---
 # CD-0191: A stale session sees its replaced release
 
 - **Status:** Accepted

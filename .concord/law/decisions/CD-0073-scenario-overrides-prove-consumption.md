@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0073",
+  "title": "A scenario override is honored by its binding or it is not in the corpus",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "repository-verification",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0073: A scenario override is honored by its binding or it is not in the corpus
 
 - **Status:** Accepted

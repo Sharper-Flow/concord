@@ -1,3 +1,28 @@
+---
+{
+  "id": "CD-0239",
+  "title": "A later process claim refreshes the recorded host identity",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0173"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0178"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0201"
+    }
+  ]
+}
+---
 # CD-0239: A later process claim refreshes the recorded host identity
 
 - **Status:** Accepted
@@ -41,4 +66,5 @@ worker-retry eligibility or attribution subsystem.
 
 - `internal/store.TestClaimLandingRefreshesRestartedHostIdentity` checks refresh,
   repeated landing, retained identity and reconciliation.
-- `python3 scripts/check-knowledge-index.py` checks identity and hashes.
+- Committed law-folder snapshot validation checks the record's identity and
+  content digest.

@@ -1,3 +1,19 @@
+---
+{
+  "id": "CD-0062",
+  "title": "A root Domain home states why no child Domain owns it",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [
+    "durable-authority",
+    "repository-verification"
+  ]
+}
+---
 # CD-0062: A root Domain home states why no child Domain owns it
 
 - **Status:** Accepted

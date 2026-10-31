@@ -1,3 +1,18 @@
+---
+{
+  "id": "CD-0049",
+  "title": "Agent definitions are delivered per project, and Concord asserts agent identity itself",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-call-boundary",
+    "agent-surface"
+  ]
+}
+---
 # CD-0049: Agent definitions are delivered per project, and Concord asserts agent identity itself
 
 - **Status:** Accepted

@@ -1,3 +1,20 @@
+---
+{
+  "id": "C17",
+  "title": "product coordination view",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "Q5-ready-ranking"
+    }
+  ]
+}
+---
 # Product coordination view — accepted contract
 
 **Status:** Accepted C17 contract. The ranked-query contract is owned by the product-memory query contract.

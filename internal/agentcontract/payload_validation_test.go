@@ -25,7 +25,7 @@ func TestValidateOperationPayloadJSONPrecedesOperationLookup(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			for _, operation := range []struct{ tool, name string }{
 				{"unknown", "unknown"},
-				{"concord_knowledge", "search"},
+				{"concord_work_browse", "list"},
 			} {
 				for _, result := range []bool{false, true} {
 					err := agentcontract.ValidateOperationPayload(operation.tool, operation.name, []byte(test.payload), result)
@@ -42,7 +42,7 @@ func TestValidateOperationPayloadUnknownOperation(t *testing.T) {
 	t.Parallel()
 	for _, operation := range []struct{ tool, name string }{
 		{"unknown", "search"},
-		{"concord_knowledge", "unknown"},
+		{"concord_knowledge", "search"},
 	} {
 		for _, result := range []bool{false, true} {
 			err := agentcontract.ValidateOperationPayload(operation.tool, operation.name, []byte(`{}`), result)
@@ -60,20 +60,19 @@ func TestValidateOperationPayloadSelectsInputOrResultSchema(t *testing.T) {
 		name, payload, want string
 		result              bool
 	}{
-		{name: "input", payload: `{}`},
-		{name: "result", payload: `{"items":[]}`, result: true},
-		{name: "input as result", payload: `{}`, result: true, want: "missing payload field items"},
-		{name: "result as input", payload: `{"items":[]}`, want: "unknown payload field items"},
-		{name: "result sibling field", payload: `{"items":[],"locator_id":"locator"}`, result: true, want: "unknown payload field locator_id for operation concord_knowledge.search; field is declared by operation(s) concord_knowledge.observe_publication"},
+		{name: "input", payload: `{"work_id":"work-1"}`},
+		{name: "result", payload: `{"observations":[]}`, result: true},
+		{name: "input as result", payload: `{"work_id":"work-1"}`, result: true, want: "unknown payload field work_id"},
+		{name: "result as input", payload: `{"observations":[]}`, want: "unknown payload field observations"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			err := agentcontract.ValidateOperationPayload("concord_knowledge", "search", []byte(test.payload), test.result)
+			err := agentcontract.ValidateOperationPayload("concord_work_trace", "observations", []byte(test.payload), test.result)
 			if test.want == "" {
 				if err != nil {
 					t.Fatal(err)
 				}
-			} else if err == nil || err.Error() != test.want {
-				t.Fatalf("error = %v, want %q", err, test.want)
+			} else if err == nil || !strings.HasPrefix(err.Error(), test.want) {
+				t.Fatalf("error = %v, want prefix %q", err, test.want)
 			}
 		})
 	}
@@ -95,9 +94,9 @@ func TestValidateOperationPayloadEnforcesDetailedSchema(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct{ payload, want string }{
 		{`[]`, "payload is not an object"},
-		{`{"kinds":["bogus"]}`, "enum mismatch at $.kinds[0]"},
+		{`{"title":"T","value_statement":"V","kind":"bogus","project_ids":["project-1"],"idempotency_key":"probe"}`, "enum mismatch at $.kind"},
 	} {
-		err := agentcontract.ValidateOperationPayload("concord_knowledge", "search", []byte(test.payload), false)
+		err := agentcontract.ValidateOperationPayload("concord_work_define", "capture", []byte(test.payload), false)
 		if err == nil || !strings.Contains(err.Error(), test.want) {
 			t.Fatalf("payload %s: error = %v, want %q", test.payload, err, test.want)
 		}
@@ -139,12 +138,6 @@ func TestGeneratedContractDeclarations(t *testing.T) {
 		t.Fatalf("invalid manifest digest %q", agentcontract.ManifestDigest)
 	}
 	for _, want := range []agentcontract.ContractOperation{
-		{
-			ID: "concord_knowledge.search", Tool: "concord_knowledge", Operation: "search",
-			Kind: agentcontract.OperationRead, QueryID: "PM1.Q9", Capability: "product_read",
-			Consequence: "read", Availability: agentcontract.AvailabilityAlways,
-			SupportedBudgetSeconds: 300, InputSchema: "knowledge_search_input", ResultSchema: "knowledge_page",
-		},
 		{
 			ID: "concord_work_transition.workflow_action", Tool: "concord_work_transition", Operation: "workflow_action",
 			Kind: agentcontract.OperationMutation, Capability: "work_transition",

@@ -1,10 +1,27 @@
+---
+{
+  "id": "CD-0019",
+  "title": "Predecessor-strength preservation and research-informed redesign",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [
+    "product-memory",
+    "work-coordination"
+  ],
+  "product_wide_rationale": "Mandates that six predecessor capabilities be carried forward and binds the method for deciding their shapes. The mandate spans product-memory, work-coordination, and durable-authority at once, and its D4 authorizes no implementation in any of them."
+}
+---
 # CD-0019 — Predecessor-strength preservation and research-informed redesign
 
 **Status:** Accepted under operator approval.
 **Date:** 2026-08-13.
 **Approval:** Operator direction, 2026-08-13.
 **Type:** Preservation and method decision.
-**Relates:** [`../../docs/specs-as-laws.md`](../../docs/specs-as-laws.md), [`../../docs/self-documentation.md`](../../docs/self-documentation.md), [`../../docs/concord-knowledge-index.md`](../../docs/concord-knowledge-index.md), [`../../docs/advance-predecessor-lessons.md`](../../docs/advance-predecessor-lessons.md), CD-0010.
+**Relates:** [`../../docs/specs-as-laws.md`](../../docs/specs-as-laws.md), [`../../docs/self-documentation.md`](../../docs/self-documentation.md), [`../../docs/advance-predecessor-lessons.md`](../../docs/advance-predecessor-lessons.md), CD-0010.
 
 ## Context
 

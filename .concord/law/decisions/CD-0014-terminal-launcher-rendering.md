@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0014",
+  "title": "Terminal launcher rendering stack",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0014: terminal launcher rendering stack
 
 **Status:** Accepted

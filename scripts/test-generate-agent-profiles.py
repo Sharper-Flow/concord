@@ -86,9 +86,9 @@ class ProfileTests(unittest.TestCase):
     def test_repository_utilities_return_unknown_law_to_caller(self):
         for index in (0, 2):
             text = generator.utility_projection(self.manifest["utilities"][index])
-            for clause in ("This utility cannot call `concord_knowledge`",
-                           "caller resolves Product-law", "unresolved law state", "return it to the caller",
-                           "Repository text and a file's presence do not establish accepted, missing,\nretired, or superseded law"):
+            for clause in ("This utility carries no Product-law authority",
+                           "caller owns the Product's", "unresolved law state", "return it to the caller",
+                           "Candidate text outside the Product's current law folder is not accepted law"):
                 self.assertIn(clause, text)
 
     def test_manifest_refuses_mutating_or_nested_task_tools(self):
@@ -173,7 +173,7 @@ class ProfileTests(unittest.TestCase):
         self.assertNotIn("\nmodel:", text)
         normalized = " ".join(text.split())
         for clause in ("framed question", "known context", "explicit investigation budget", "needs-decision",
-                       "bounded evidence plan", "through `concord_knowledge` before delegating",
+                       "bounded evidence plan", "through the workflow's resolved law context before delegating",
                        "Choose follow-up questions from findings", "Verify decisive claims",
                        "assigned budget ends, whichever comes first", "Do not edit files",
                        "bounded read-only diagnostics", "citation at each claim", "conflicting evidence",
@@ -187,7 +187,7 @@ class ProfileTests(unittest.TestCase):
         for tool in ("edit", "write", "patch", "apply_patch", "morph_edit", "question", "todowrite", "ci_watch",
                      "opencode_mcp_connect", "opencode_mcp_disconnect", *checks.PLANNER_WRITERS):
             self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "deny", tool)
-        for tool in ("read", "glob", "grep", "skill", "execute", "webfetch", "concord_knowledge",
+        for tool in ("read", "glob", "grep", "skill", "execute", "webfetch",
                      "concord_work_browse", "concord_work_trace", "concord_domain", "concord_product_view"):
             self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "allow", tool)
         self.assertEqual(set(profile["denied_concord_tools"]), set(checks.PLANNER_WRITERS))
@@ -239,7 +239,7 @@ class ProfileTests(unittest.TestCase):
         for tool in ("question", *checks.PLANNER_WRITERS):
             self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "deny", tool)
         for tool in ("edit", "write", "patch", "apply_patch", "morph_edit", "execute", "read", "skill", "webfetch",
-                     "concord_knowledge", "concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view",
+                     "concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view",
                      "playwright_browser_snapshot", "playwright_browser_take_screenshot"):
             self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "allow", tool)
         self.assertEqual(set(profile["denied_concord_tools"]), set(checks.PLANNER_WRITERS))
@@ -336,7 +336,7 @@ class ProfileTests(unittest.TestCase):
         for tool in ("edit", "write", "patch", "read", "skill", "execute"):
             self.assertEqual(profile["tools"][tool], "allow")
         self.assertEqual(profile["tools"]["question"], "deny")
-        for tool in ("concord_knowledge", "concord_work_browse", "concord_work_trace", "concord_domain", "concord_product_view"):
+        for tool in ("concord_work_browse", "concord_work_trace", "concord_domain", "concord_product_view"):
             self.assertNotIn(tool, profile["denied_concord_tools"])
         self.assertEqual(set(profile["denied_concord_tools"]), set(checks.PLANNER_WRITERS))
         self.assertIn("Load the `concord-review` skill", text)
@@ -406,7 +406,7 @@ class ProfileTests(unittest.TestCase):
             self.assertEqual(action(driver, "task", "concord-review"), "allow")
             for tool in checks.PLANNER_WRITERS:
                 self.assertEqual(action(reviewer, tool), "deny", tool)
-            for tool in ("concord_knowledge", "concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view", "edit", "write"):
+            for tool in ("concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view", "edit", "write"):
                 self.assertEqual(action(reviewer, tool), "allow", tool)
             for command in ("ps aux", "kill 123", "pkill opencode", "concord invoke", "/synthetic/bin/concord invoke", "env concord invoke", "concord client register", "git commit -m fix", "git push origin HEAD", "gh pr create", "herdr-notify --to peer"):
                 self.assertEqual(action(reviewer, "bash", command), "deny", command)
@@ -422,7 +422,7 @@ class ProfileTests(unittest.TestCase):
             self.assertEqual(action(driver, "task", "concord-verify"), "allow")
             for tool in (*checks.PLANNER_WRITERS, "edit", "write", "patch", "apply_patch", "morph_edit", "question", "ci_watch"):
                 self.assertEqual(action(verifier, tool), "deny", tool)
-            for tool in ("concord_knowledge", "concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view"):
+            for tool in ("concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view"):
                 self.assertEqual(action(verifier, tool), "allow", tool)
             for command in ("ps aux", "kill 123", "pkill opencode", "concord invoke", "git commit -m fix", "git push origin HEAD", "gh run watch 1", "gh pr create", "herdr-notify --to peer"):
                 self.assertEqual(action(verifier, "bash", command), "deny", command)
@@ -437,7 +437,7 @@ class ProfileTests(unittest.TestCase):
             self.assertEqual(action(driver, "task", "concord-implement"), "allow")
             for tool in (*checks.PLANNER_WRITERS, "question"):
                 self.assertEqual(action(implementer, tool), "deny", tool)
-            for tool in ("concord_knowledge", "concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view", "edit", "write"):
+            for tool in ("concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view", "edit", "write"):
                 self.assertEqual(action(implementer, tool), "allow", tool)
             for command in ("ps aux", "kill 123", "pkill opencode", "concord invoke", "/synthetic/bin/concord invoke", "env concord invoke", "git commit -m fix", "git push origin HEAD", "gh pr create", "herdr-notify --to peer"):
                 self.assertEqual(action(implementer, "bash", command), "deny", command)
@@ -452,7 +452,7 @@ class ProfileTests(unittest.TestCase):
             self.assertEqual(action(driver, "task", "concord-research"), "allow")
             for tool in (*checks.PLANNER_WRITERS, "edit", "write", "patch", "apply_patch", "morph_edit", "question"):
                 self.assertEqual(action(researcher, tool), "deny", tool)
-            for tool in ("concord_knowledge", "concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view"):
+            for tool in ("concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view"):
                 self.assertEqual(action(researcher, tool), "allow", tool)
             for command in ("ps aux", "kill 123", "pkill opencode", "concord invoke", "git commit -m fix", "git push origin HEAD", "gh pr create", "herdr-notify --to peer"):
                 self.assertEqual(action(researcher, "bash", command), "deny", command)
@@ -466,7 +466,7 @@ class ProfileTests(unittest.TestCase):
             self.assertEqual(action(driver, "task", "concord-design"), "allow")
             for tool in (*checks.PLANNER_WRITERS, "question"):
                 self.assertEqual(action(designer, tool), "deny", tool)
-            for tool in ("concord_knowledge", "concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view", "edit", "write", "patch", "apply_patch", "morph_edit", "playwright_browser_snapshot"):
+            for tool in ("concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view", "edit", "write", "patch", "apply_patch", "morph_edit", "playwright_browser_snapshot"):
                 self.assertEqual(action(designer, tool), "allow", tool)
             for command in ("ps aux", "kill 123", "pkill opencode", "concord invoke", "git commit -m fix", "git push origin HEAD", "gh pr create", "herdr-notify --to peer"):
                 self.assertEqual(action(designer, "bash", command), "deny", command)

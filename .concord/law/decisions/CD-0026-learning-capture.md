@@ -1,3 +1,18 @@
+---
+{
+  "id": "CD-0026",
+  "title": "Learning capture: lesson authoring, reflection, and drift audit",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [
+    "agent-call-boundary",
+    "agent-contract",
+    "agent-surface"
+  ]
+}
+---
 # CD-0026: Learning capture — lesson and reflection publication
 
 - **Status:** Accepted

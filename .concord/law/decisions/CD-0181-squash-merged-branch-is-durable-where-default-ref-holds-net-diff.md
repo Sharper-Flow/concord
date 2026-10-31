@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0181",
+  "title": "A squash-merged branch is durable where the default ref holds its net diff",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-77b5c1691911819c7d94abcd",
+    "contract_version": 1
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0144"
+    }
+  ]
+}
+---
 # CD-0181: A squash-merged branch is durable where the default ref holds its net diff
 
 - **Status:** Accepted

@@ -1,3 +1,32 @@
+---
+{
+  "id": "CD-0182",
+  "title": "Cross-repository coordinator sessions are host-placed",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0078"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0163"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0176"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0178"
+    }
+  ]
+}
+---
 # CD-0182: Cross-repository coordinator sessions are host-placed
 
 - **Status:** Accepted
@@ -213,5 +242,4 @@ record adds no second landing rule inside one repository.
   re-reads the addressed handoff after its verified landing records
   placement, renders the shared bind's bounded job, and resolves the
   standing bind with no second consumed event.
-- `python3 scripts/check-knowledge-index.py` and
-  `python3 scripts/generate-knowledge-index.py --check` pass.
+- Committed law-folder snapshot validation passes.

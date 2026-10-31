@@ -1,3 +1,21 @@
+---
+{
+  "id": "CD-0005",
+  "title": "Concord agent tool surface",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-surface",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-call-boundary",
+    "agent-contract",
+    "agent-evolution"
+  ]
+}
+---
 # CD-0005: Concord Minimal Agent Tool Surface
 
 **Status:** Accepted

@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0190",
+  "title": "CD-0179 D1 and D4 release at the verified vacate landing",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-b8f69d65034a1207dd2b40cf",
+    "contract_version": 2
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0179"
+    }
+  ]
+}
+---
 # CD-0190: CD-0179 D1 and D4 release at the verified vacate landing
 
 - **Status:** Accepted
@@ -222,5 +241,5 @@ landing
   worktree, and a same-key replay after a later claim refuses with effect
   none without moving the host session out of claimed work, while the later
   claim's own vacate releases its row.
-- `python3 scripts/check-knowledge-index.py` proves this record registers
-  with a current content hash.
+- Committed law-folder snapshot validation registers the record; its content
+  digest is derived from the committed bytes at every read.

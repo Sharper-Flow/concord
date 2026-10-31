@@ -1,3 +1,17 @@
+---
+{
+  "id": "CD-0249",
+  "title": "Decisions carry no coverage records",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [
+    "durable-authority",
+    "repository-verification"
+  ]
+}
+---
 # CD-0249: Decisions carry no coverage records
 
 - **Status:** Accepted

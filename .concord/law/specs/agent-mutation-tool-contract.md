@@ -1,3 +1,32 @@
+---
+{
+  "id": "TS4",
+  "title": "agent mutation tool contract",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-contract",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "AJ3-capture-work"
+    },
+    {
+      "criterion": 2,
+      "scenario": "AJ4-stale-version"
+    },
+    {
+      "criterion": 3,
+      "scenario": "AJ4-completion-missing-evidence"
+    },
+    {
+      "criterion": 4,
+      "scenario": "AJ5-resolve-domain-overlap"
+    }
+  ]
+}
+---
 # Concord Agent Mutation-Tool Contract (TS4)
 
 > **Status:** **Accepted — binding until superseded.**

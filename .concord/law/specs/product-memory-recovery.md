@@ -1,3 +1,40 @@
+---
+{
+  "id": "PM10",
+  "title": "product memory recovery",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Backup mechanics are not scenario-observable. The guarantee is proved by TestBackupUsesOnlineSnapshotAndPM10Manifest (internal/store/backup_test.go) and TestBackupAndRestoreRoundTripViaCLI (cmd/concord/main_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Interrupted-backup behavior is an operation property. The guarantee is proved by TestInterruptedBackupRemovesPartialSnapshotAndManifest (internal/store/backup_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "FK-only corruption detection is a verification property. The guarantee is proved by TestBackupRejectsForeignKeyOnlyCorruption (internal/store/backup_test.go)."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Operation-only checks: TestRestoreStageRejectsCurrentStateTampering (internal/store/backup_current_state_test.go); TestBackupRestoreDoesNotInterpretHistoryPayloads and TestInterruptedBackupVerificationDiscardsSnapshotAndStaging (internal/store/backup_test.go); TestUpgradeSnapshotFailureCommitsNothingAndClosesOwnedFence (cmd/concord/upgrade_snapshot_cli_test.go)."
+    },
+    {
+      "criterion": 5,
+      "exemption": "Restore staging and promotion is an operation property. The guarantee is proved by TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase, TestRestoreBackupRefusesExistingDestinationUntouched, and TestInterruptedRestoreRemovesStagingAndLeavesDestinationAbsent (internal/store/backup_test.go)."
+    },
+    {
+      "criterion": 6,
+      "exemption": "Tamper and schema-direction rejection is a verification property. The guarantee is proved by TestBackupVerifyTamperAndOlderSchemaRejection (internal/store/fence_test.go)."
+    }
+  ]
+}
+---
 # Concord Backup, Restore, and Reclamation (PM10)
 
 > **Status:** **Accepted — binding until superseded.**

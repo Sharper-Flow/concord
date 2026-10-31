@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0173",
+  "title": "The investigation gate counts the Product",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-05a228deeb2cfc25eaea9acb",
+    "contract_version": 2
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0129"
+    }
+  ]
+}
+---
 # CD-0173: The investigation gate counts the Product
 
 - **Status:** Accepted
@@ -32,7 +51,7 @@ carries only the current Domain ref.
 
 - `TestBudgetStateAbsentFromCurrentCorrectionAndAdmission` proves that no
   attempt budget, escalation wall or convergence basis governs admission.
-  `python3 scripts/check-knowledge-index.py` checks this record's registration.
+  Committed law-folder snapshot validation checks this record's registration.
 - The store tests `TestInvestigationArtifactAdmitsSingleItemProductByDomainRef`
   and `TestInvestigationArtifactSingleItemProductStillRequiresDomainRef` prove
   both halves of D2.

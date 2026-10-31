@@ -2,11 +2,13 @@ package store
 
 import (
 	"bytes"
+	"compress/zlib"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -497,8 +499,8 @@ func commitOIDFromRefLine(line string) (string, bool) {
 }
 
 // knowledgeWorkNoteTree is the canonical work-note directory the projection
-// scans. scanKnowledgeTree and knowledgeContentDigest must name the same paths,
-// or the digest would miss content the scan projects.
+// scans. scanKnowledgeTree names the same paths the committed note proof
+// verifies.
 const knowledgeWorkNoteTree = ".concord/docs/work/"
 
 // legacyKnowledgeWorkNoteTree is the pre-migration work-note directory
@@ -521,45 +523,11 @@ var knowledgeNoteDirs = []string{
 	"docs/work/", "docs/lessons/", "docs/decisions/",
 }
 
-// knowledgeContentDigest identifies the content the knowledge index projects
-// at a commit: the knowledge shard tree, the legacy manifest blob, and both
-// work-note tiers. Git names each by an object ID that changes exactly when
-// its content does, and every record shard embeds its sha256, so a record edit
-// moves the shard tree OID. The digest is therefore a function of projected
-// content alone: a commit that touches none of the objects leaves it
-// unchanged. An absent object contributes its absence, so a manifest added or
-// removed changes the digest.
-func knowledgeContentDigest(ctx context.Context, home KnowledgeHome, commitOID string) (string, error) {
-	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-z", commitOID, "--", knowledgeShardRoot, "docs/knowledge", knowledgeManifestPath, strings.TrimSuffix(knowledgeWorkNoteTree, "/"), strings.TrimSuffix(legacyKnowledgeWorkNoteTree, "/"))
-	if err != nil {
-		return "", wrapFailure(KindGitUnreachable, "knowledge_index", "cannot read the knowledge content identity", true, "restore access to the git home and retry", err)
-	}
-	entries, err := parseTreeEntries(out)
-	if err != nil {
-		return "", wrapFailure(KindInvalidNoteProof, "knowledge_index", "git returns malformed tree entries", false, "repair the canonical git tree", err)
-	}
-	shards, manifest := "absent", "absent"
-	notes := []string{}
-	for _, entry := range entries {
-		switch entry.path {
-		case knowledgeShardRoot, "docs/knowledge":
-			// One commit carries exactly one shard-home tier (CD-0194 D5),
-			// so both tiers contribute to the same content slot.
-			shards = entry.kind + ":" + entry.oid
-		case knowledgeManifestPath:
-			manifest = entry.kind + ":" + entry.oid
-		case strings.TrimSuffix(knowledgeWorkNoteTree, "/"), strings.TrimSuffix(legacyKnowledgeWorkNoteTree, "/"):
-			// Both note tiers feed one slot, so an edit in either changes
-			// the digest (CD-0194 D5). Git sorts entries by path, so the
-			// order is deterministic.
-			notes = append(notes, entry.kind+":"+entry.oid)
-		}
-	}
-	sum := sha256.Sum256([]byte("shards=" + shards + "\nmanifest=" + manifest + "\nnotes=" + strings.Join(notes, ",") + "\n"))
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
+func runGit(ctx context.Context, repo string, args ...string) ([]byte, error) {
+	return runGitEnv(ctx, repo, nil, args...)
 }
 
-func runGit(ctx context.Context, repo string, args ...string) ([]byte, error) {
+func runGitEnv(ctx context.Context, repo string, env []string, args ...string) ([]byte, error) {
 	if repo == "" {
 		return nil, fmt.Errorf("empty git repository path")
 	}
@@ -567,6 +535,9 @@ func runGit(ctx context.Context, repo string, args ...string) ([]byte, error) {
 	defer cancel()
 	cmdArgs := append([]string{"-C", repo}, args...)
 	cmd := exec.CommandContext(gitCtx, "git", cmdArgs...) //nolint:gosec // git is fixed, callers pass separate guarded argv values, and no shell is invoked.
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	output := boundedGitOutput{limit: maxGitOutput}
 	cmd.Stdout = &output
 	if err := cmd.Run(); err != nil {
@@ -823,4 +794,199 @@ func marshalStrings(values []string) string {
 	}
 	b, _ := json.Marshal(values)
 	return string(b)
+}
+
+// cheapLawSourceOIDLimit bounds every loose object the cheap law-content
+// walk reads. A commit or directory tree larger than this is not a small
+// file read, and the walk is fail-closed: the caller re-establishes its
+// verification outside the transaction instead of guessing.
+const cheapLawSourceOIDLimit = 64 * 1024
+
+// resolveLawSourceOIDsCheap re-reads a repository's committed law content
+// identity — the law-folder tree OID and the Domain registry blob OID at the
+// resolved head — with a few small object file reads and no subprocess,
+// network call, or bulk filesystem operation, the same CD-0195 D2 admission
+// resolveKnowledgeHeadCheap runs under. It exists so the transaction-scoped
+// law boundary can distinguish a head that moved without touching committed
+// law content (admitted, PM1 §3.3) from one that moved the law itself
+// (refused). Everything it cannot resolve cheaply is an error, never a
+// guess: packed-only objects, oversized trees, and missing paths that Git
+// itself would have to decode refuse, and the caller re-verifies.
+func resolveLawSourceOIDsCheap(repoPath, headRef string) (knowledgeSourceVerifiedRevision, error) {
+	revision := knowledgeSourceVerifiedRevision{lawTreeOID: "absent", registryOID: "absent"}
+	head, err := resolveKnowledgeHeadCheap(repoPath, headRef)
+	if err != nil {
+		return revision, err
+	}
+	revision.head = head
+	gitDir, err := knowledgeGitDir(repoPath)
+	if err != nil {
+		return revision, err
+	}
+	hexLength := len(head)
+	commit, err := readLooseGitObjectCheap(gitDir, head, "commit")
+	if err != nil {
+		return revision, err
+	}
+	rootTree, err := gitCommitTreeOIDCheap(commit, hexLength)
+	if err != nil {
+		return revision, err
+	}
+	root, err := readLooseGitObjectCheap(gitDir, rootTree, "tree")
+	if err != nil {
+		return revision, err
+	}
+	concordOID, err := gitTreeEntryOIDCheap(root, ".concord", hexLength)
+	if err != nil {
+		return revision, err
+	}
+	if concordOID == "" {
+		return revision, nil
+	}
+	concord, err := readLooseGitObjectCheap(gitDir, concordOID, "tree")
+	if err != nil {
+		return revision, err
+	}
+	lawOID, err := gitTreeEntryOIDCheap(concord, "law", hexLength)
+	if err != nil {
+		return revision, err
+	}
+	if lawOID != "" {
+		revision.lawTreeOID = "tree:" + lawOID
+	}
+	docsOID, err := gitTreeEntryOIDCheap(concord, "docs", hexLength)
+	if err != nil {
+		return revision, err
+	}
+	if docsOID == "" {
+		return revision, nil
+	}
+	docs, err := readLooseGitObjectCheap(gitDir, docsOID, "tree")
+	if err != nil {
+		return revision, err
+	}
+	knowledgeOID, err := gitTreeEntryOIDCheap(docs, "knowledge", hexLength)
+	if err != nil {
+		return revision, err
+	}
+	if knowledgeOID == "" {
+		return revision, nil
+	}
+	knowledge, err := readLooseGitObjectCheap(gitDir, knowledgeOID, "tree")
+	if err != nil {
+		return revision, err
+	}
+	registryOID, err := gitTreeEntryOIDCheap(knowledge, "domain-registry.json", hexLength)
+	if err != nil {
+		return revision, err
+	}
+	if registryOID != "" {
+		revision.registryOID = "blob:" + registryOID
+	}
+	return revision, nil
+}
+
+// cheapGitObjectDirs lists the object directories a repository's loose
+// objects may live in: the worktree git directory and, for a linked
+// worktree, its common directory.
+func cheapGitObjectDirs(gitDir string) []string {
+	dirs := []string{gitDir}
+	if raw, err := os.ReadFile(path.Join(gitDir, "commondir")); err == nil { //nolint:gosec // commondir is a fixed name under the operator-selected git authority.
+		common := strings.TrimSpace(string(raw))
+		if !path.IsAbs(common) {
+			common = path.Join(gitDir, common)
+		}
+		dirs = append(dirs, common)
+	}
+	return dirs
+}
+
+// readLooseGitObjectCheap reads and inflates one small loose object of the
+// expected type from the repository's object directories and returns its
+// body without the "<type> <size>\0" header every loose object carries. A
+// packed-only object, an absent object, an object of another type, a header
+// whose size disagrees with the body, or an object beyond the small-read
+// bound is an error: the walk is fail-closed and never falls back to a
+// subprocess inside a transaction.
+func readLooseGitObjectCheap(gitDir, oid, objectType string) ([]byte, error) {
+	if len(oid) != 40 && len(oid) != 64 {
+		return nil, fmt.Errorf("object name is not a 40- or 64-hex git object name")
+	}
+	if _, err := hex.DecodeString(oid); err != nil || strings.ToLower(oid) != oid {
+		return nil, fmt.Errorf("object name is not lowercase hexadecimal")
+	}
+	for _, dir := range cheapGitObjectDirs(gitDir) {
+		objectPath := path.Join(dir, "objects", oid[:2], oid[2:])
+		info, err := os.Stat(objectPath)
+		if err != nil {
+			continue
+		}
+		if !info.Mode().IsRegular() || info.Size() > cheapLawSourceOIDLimit {
+			return nil, fmt.Errorf("git object %s exceeds the cheap read bound", oid[:8])
+		}
+		raw, err := os.ReadFile(objectPath) //nolint:gosec // the object path is assembled from the validated object name and the operator-selected git authority.
+		if err != nil {
+			return nil, err
+		}
+		reader, err := zlib.NewReader(bytes.NewReader(raw))
+		if err != nil {
+			return nil, err
+		}
+		object, err := io.ReadAll(io.LimitReader(reader, cheapLawSourceOIDLimit+1))
+		closeErr := reader.Close()
+		if err != nil {
+			return nil, err
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		if len(object) > cheapLawSourceOIDLimit {
+			return nil, fmt.Errorf("git object %s exceeds the cheap read bound", oid[:8])
+		}
+		header, body, found := bytes.Cut(object, []byte{0})
+		if !found || string(header) != objectType+" "+strconv.Itoa(len(body)) {
+			return nil, fmt.Errorf("git object %s is not a well-formed loose %s object", oid[:8], objectType)
+		}
+		return body, nil
+	}
+	return nil, fmt.Errorf("git object %s is not available as a loose object", oid[:8])
+}
+
+// gitCommitTreeOIDCheap reads the tree object name out of a commit object
+// body, whose first line is always "tree <hex>".
+func gitCommitTreeOIDCheap(commit []byte, hexLength int) (string, error) {
+	first, _, _ := strings.Cut(string(commit), "\n")
+	if oid, ok := strings.CutPrefix(first, "tree "); ok && len(oid) == hexLength {
+		return oid, nil
+	}
+	return "", fmt.Errorf("commit object carries no tree header the cheap walk can read")
+}
+
+// gitTreeEntryOIDCheap resolves one entry of a decoded tree object by name.
+// Tree entries are "<mode> <name>\0<raw object id>"; the raw id width follows
+// the repository's object-name length. A missing name resolves to an empty
+// OID, which the caller treats as committed absence.
+func gitTreeEntryOIDCheap(tree []byte, name string, hexLength int) (string, error) {
+	rawLength := hexLength / 2
+	position := 0
+	for position < len(tree) {
+		space := bytes.IndexByte(tree[position:], ' ')
+		if space < 0 {
+			return "", fmt.Errorf("tree object entry has no mode separator")
+		}
+		nul := bytes.IndexByte(tree[position+space:], 0)
+		if nul < 0 {
+			return "", fmt.Errorf("tree object entry has no name terminator")
+		}
+		entryName := string(tree[position+space+1 : position+space+nul])
+		start := position + space + nul + 1
+		if start+rawLength > len(tree) {
+			return "", fmt.Errorf("tree object entry is truncated")
+		}
+		if entryName == name {
+			return hex.EncodeToString(tree[start : start+rawLength]), nil
+		}
+		position = start + rawLength
+	}
+	return "", nil
 }

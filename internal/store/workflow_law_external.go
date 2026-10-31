@@ -109,7 +109,7 @@ func (s *Store) lawCandidateProof(ctx context.Context, workID string) *workflowL
 			proof.laws[id] = true
 		}
 	}
-	if registryMoved && workflowLawRegistryHomedAt(ctx, s.db, source, scanned) {
+	if registryMoved && workflowLawRegistryHomedAt(ctx, source, scanned) {
 		proof.registry = history.untouched(gitCtx, shards.registries())
 	}
 	if len(proof.laws) == 0 && !proof.registry {
@@ -311,8 +311,8 @@ func workflowLawCandidateDeltas(before, after *workflowLawBaseline, declared map
 }
 
 // workflowLawCandidateSource finds the baseline's one locator for the
-// candidate's Project and the single main commit its projection was scanned
-// from.
+// candidate's Project and the verified snapshot commit that locator's law
+// folder was read from.
 func workflowLawCandidateSource(ctx context.Context, q queryer, before *workflowLawBaseline, project string) (workflowLawBaselineSource, string, bool) {
 	var found []workflowLawBaselineSource
 	for _, source := range before.Sources {
@@ -324,32 +324,20 @@ func workflowLawCandidateSource(ctx context.Context, q queryer, before *workflow
 		return workflowLawBaselineSource{}, "", false
 	}
 	source := found[0]
-	rows, err := q.QueryContext(ctx, `SELECT scanned_commit_oid FROM law_subjects WHERE home_project_id=? AND home_locator_id=?
-UNION SELECT scanned_commit_oid FROM domain_registries WHERE home_project_id=? AND home_locator_id=?`, source.ProjectID, source.LocatorID, source.ProjectID, source.LocatorID)
-	if err != nil {
+	snapshot, err := lawSnapshotForSource(ctx, KnowledgeHome{HomeProjectID: source.ProjectID, HomeLocatorID: source.LocatorID}, "workflow_law_change")
+	if err != nil || snapshot.CommitOID() == "" {
 		return workflowLawBaselineSource{}, "", false
 	}
-	var commits []string
-	for rows.Next() {
-		var commit string
-		if rows.Scan(&commit) != nil {
-			_ = rows.Close()
-			return workflowLawBaselineSource{}, "", false
-		}
-		commits = append(commits, commit)
-	}
-	failed := rows.Err() != nil
-	_ = rows.Close()
-	if failed || len(commits) != 1 || commits[0] == "" {
-		return workflowLawBaselineSource{}, "", false
-	}
-	return source, commits[0], true
+	return source, snapshot.CommitOID(), true
 }
 
-func workflowLawRegistryHomedAt(ctx context.Context, q queryer, source workflowLawBaselineSource, scanned string) bool {
-	var one int
-	err := q.QueryRowContext(ctx, `SELECT 1 FROM domain_registries WHERE home_project_id=? AND home_locator_id=? AND scanned_commit_oid=?`, source.ProjectID, source.LocatorID, scanned).Scan(&one)
-	return err == nil
+// workflowLawRegistryHomedAt reports whether the verified snapshot of the
+// source was read at the scanned commit. The snapshot carries the registry
+// and the law folder of exactly one commit, so the registry is homed at the
+// commit whenever the snapshot is the one being asked about.
+func workflowLawRegistryHomedAt(ctx context.Context, source workflowLawBaselineSource, scanned string) bool {
+	snapshot, err := lawSnapshotForSource(ctx, KnowledgeHome{HomeProjectID: source.ProjectID, HomeLocatorID: source.LocatorID}, "workflow_law_change")
+	return err == nil && snapshot.CommitOID() == scanned
 }
 
 // readWorkflowLawAttributedBaselineTx reads the owning-start cursor and the

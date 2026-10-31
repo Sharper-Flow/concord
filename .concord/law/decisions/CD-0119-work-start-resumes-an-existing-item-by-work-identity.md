@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0119",
+  "title": "work start resumes an existing item by work identity",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0098"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0104"
+    }
+  ]
+}
+---
 # CD-0119: Work start resumes an existing item by work identity
 
 - **Status:** Accepted
@@ -145,5 +166,5 @@ The origin gate has no verification-lease condition.
   D1, D3, and D4.
 - `python3 scripts/generate-agent-contracts.py --check` passes with the
   pinned `oneOf` host manifest.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
-  `python3 scripts/check-knowledge-index.py` pass on this record.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass on this record.

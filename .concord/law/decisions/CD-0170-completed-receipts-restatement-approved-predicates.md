@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0170",
+  "title": "Completed receipts restate approved predicates",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0113"
+    }
+  ]
+}
+---
 # CD-0170: Completed receipts restate approved predicates
 
 - **Status:** Accepted

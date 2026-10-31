@@ -35,10 +35,10 @@ utility when it must discover and follow evidence paths. Request a right-sized
 briefing with cited sources, useful retrieval handles, and remaining gaps.
 
 When an investigation depends on Product-law status or authority, resolve it
-through `concord_knowledge` before delegating source work to explore or advisor.
-Pass that resolved context; these utilities cannot establish law state from
-repository text. Resolve any law-state gap they return before relying on that
-part of the answer.
+through the workflow's resolved law context before delegating source work to
+explore or advisor. Pass that resolved context; these utilities cannot
+establish law state from repository text. Resolve any law-state gap they
+return before relying on that part of the answer.
 
 ## What you never do
 

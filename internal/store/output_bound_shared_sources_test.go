@@ -159,7 +159,7 @@ func init() {
 	// byte guards.
 	registerOutputBound("/$defs/law_id/maxLength", maxBound(
 		goCallBound("internal/store/workflow.go", "workflowList", "workflowString", "", 1, boundBytes),
-		goConstantBound("internal/store/knowledge_manifest.go", "maxManifestID", boundCharacters),
+		goConstantBound("internal/store/knowledge_record.go", "maxManifestID", boundCharacters),
 	))
 
 	// next_valid_intent.required_fields: the pin projects the Required

@@ -475,26 +475,21 @@ func seedWorkflowLaw(t *testing.T, s *Store) {
 		t.Fatal(err)
 	}
 	seedWorkflowLawProjection(t, s)
-	// These unit fixtures author projection rows directly. Bind their synthetic
-	// projection to real committed source bytes so freshness still uses Git.
-	commit := commitKnowledgeRepo(t, locatorPath, "synthetic law source")
-	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: locatorPath, HeadRef: "HEAD"}
-	digest, err := knowledgeContentDigest(t.Context(), home, commit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES('project','workflow-law-locator','HEAD',?,?,'test',1,?); DELETE FROM write_guard`, commit, digest, knowledgeProjectionVersion); err != nil {
-		t.Fatal(err)
-	}
 }
 
-// seedWorkflowLawProjection writes the fixture's synthetic current law home
-// and law subject rows through the current-schema write guard.
+// seedWorkflowLawProjection points the fixture's synthetic Product home at a
+// committed law folder carrying the fixture law, so a pre-transaction
+// verification reads a real snapshot from it.
 func seedWorkflowLawProjection(t *testing.T, s *Store) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-law-locator'); INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:one','spec','accepted','.concord/docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM write_guard`); err != nil {
+	var repo string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT normalized_value FROM project_locators WHERE project_id='project' AND locator_id='workflow-law-locator'`).Scan(&repo); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-law-locator'); DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	writeFixtureSpecLawSource(t, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: repo, HeadRef: "HEAD"}, "spec:one")
 }
 
 func seedCompletionGateCase(t *testing.T, workID string, testCase completionGateCase) (*Store, Event) {

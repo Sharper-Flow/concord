@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0055",
+  "title": "Repository checks are structural first, and textual guards are declared exceptions",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "repository-verification",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0055: Repository checks are structural first, and textual guards are declared exceptions
 
 - **Status:** Accepted

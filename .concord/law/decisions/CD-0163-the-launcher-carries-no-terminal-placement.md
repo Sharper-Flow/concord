@@ -1,3 +1,26 @@
+---
+{
+  "id": "CD-0163",
+  "title": "Concord carries no terminal placement",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0078"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0108"
+    }
+  ]
+}
+---
 # CD-0163: Concord carries no terminal placement
 
 - **Status:** Accepted
@@ -51,5 +74,5 @@ delivered by work-start preparation and re-asserted by the per-turn hook
 - `bun test adapter/opencode/concord.test.ts -t "a successful work start
   forks no terminal command"` proves the work-start path forks no terminal
   command.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
-  `python3 scripts/check-knowledge-index.py` pass.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass.

@@ -1,3 +1,56 @@
+---
+{
+  "id": "CD-0224",
+  "title": "Ten planning and browsing operations are retired from the agent surface",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-contract",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0018"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0026"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0052"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0053"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0106"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0156"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0166"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0179"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0048"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0142"
+    }
+  ]
+}
+---
 # CD-0224: Ten planning and browsing operations are retired from the agent surface
 
 - **Status:** Accepted
@@ -136,7 +189,7 @@ are, and relation changes write current rows in one transaction.
 - The implementing change binds the CD-0242 D2 anchor: the store keeps
   current rows and finite snapshots, not an event log, and the surviving
   relation kinds stay closed. Until that change lands,
-  `python3 scripts/check-knowledge-index.py` is the executable anchor for
+  the committed law-folder read is the executable anchor for
   this record's law registration.
 - `internal/store.TestOverlapTerminalResolutionRejectsCycle` proves
   `resolve_overlap` refuses a `supersedes` or `merged_into` resolution that
@@ -148,5 +201,5 @@ are, and relation changes write current rows in one transaction.
   `resolve_overlap` `blocks` row holds the blocked item out of PM1.Q5 ready.
 - `internal/store.TestRelationKindsEnforceTheirOwnGraphRules` proves the
   surviving relation kinds keep their own graph rules.
-- `python3 scripts/check-knowledge-index.py` proves the record shards
-  compose with the amended bodies under their recorded hashes.
+- Committed law-folder snapshot validation binds the authored metadata and
+  the amended bodies into one content digest.

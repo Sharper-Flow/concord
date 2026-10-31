@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0084",
+  "title": "Concord tool results are host ToolResults",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0084: Concord tool results are host ToolResults
 
 - **Status:** Accepted

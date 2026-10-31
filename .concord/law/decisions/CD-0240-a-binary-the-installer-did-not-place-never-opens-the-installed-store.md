@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0240",
+  "title": "A binary the installer did not place never opens the installed store",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0139"
+    }
+  ]
+}
+---
 # CD-0240: A binary the installer did not place never opens the installed store
 
 - **Status:** Accepted

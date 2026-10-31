@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0112",
+  "title": "record_delivery exits the step a session executed",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0112: record_delivery exits the step a session executed
 
 - **Status:** Accepted
@@ -48,4 +61,5 @@ host's subagent execution.
 
 - `go test ./internal/store` checks hold-mode continuity and delivery admission,
   including refusal without a current start and required evidence.
-- `python3 scripts/check-knowledge-index.py` checks record identity and hashes.
+- Committed law-folder snapshot validation checks the record's identity and
+  content digest.

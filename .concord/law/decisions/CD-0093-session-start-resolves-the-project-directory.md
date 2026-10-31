@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0093",
+  "title": "Session context resolves in the claimed work directory",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0093: Session context resolves in the claimed work directory
 
 - **Status:** Accepted
@@ -120,5 +133,5 @@ resolver.
   refuses a directory other than the active claimed worktree.
 - `go test ./cmd/concord/ -run TestDeterministicHostRegistryRefusalsExit2`
   proves D3: probe and registry refusals are typed and deterministic.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
-  `python3 scripts/check-knowledge-index.py` pass.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass.

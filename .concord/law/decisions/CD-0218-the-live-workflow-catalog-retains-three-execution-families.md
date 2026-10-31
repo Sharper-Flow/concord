@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0218",
+  "title": "The live workflow catalog retains three execution families",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0218: The live workflow catalog retains three execution families
 
 - **Status:** Accepted
@@ -198,10 +209,10 @@ set at the D5 boundary.
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` proves the record shard, the
-  content hashes, and the composed aggregate agree.
-- `python3 scripts/check-doc-links.py` and `python3 scripts/check-knowledge-placement.py`
-  prove document links and knowledge placement hold.
+- Committed law-folder snapshot validation proves the record's metadata,
+  content digest, and folder placement agree.
+- `python3 scripts/check-doc-links.py` proves document links hold; law
+  placement is folder membership under `.concord/law/`.
 - Criterion 1 is covered by
   `internal/agent.TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKinds`.
   Authenticated capture of each retired family refuses with unchanged work,

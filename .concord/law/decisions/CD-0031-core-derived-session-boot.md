@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0031",
+  "title": "Core-derived operator session boot",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-call-boundary",
+    "agent-evolution",
+    "agent-surface",
+    "workflow-engine"
+  ]
+}
+---
 # CD-0031: Core-derived operator session boot
 
 **Status:** Accepted under operator approval.

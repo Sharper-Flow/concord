@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0110",
+  "title": "Work start chains from a terminal worktree",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0110: Work start chains from a terminal worktree
 
 - **Status:** Accepted
@@ -60,4 +71,4 @@ Scenario: work_start refuses a live or dirty origin
   default-branch base selection and origin retention.
 - Adapter tests cover terminal-origin forwarding and agreement with the core's
   origin refusal.
-- `python3 scripts/check-knowledge-index.py` and the repository test tier pass.
+- The repository test tier passes.

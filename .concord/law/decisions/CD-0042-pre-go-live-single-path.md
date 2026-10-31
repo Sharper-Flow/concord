@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0042",
+  "title": "Pre-go-live development keeps one agent-surface path",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-evolution",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0042: Pre-go-live development keeps one agent-surface path
 
 - **Status:** Accepted

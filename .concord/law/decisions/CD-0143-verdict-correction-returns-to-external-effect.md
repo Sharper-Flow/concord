@@ -1,3 +1,30 @@
+---
+{
+  "id": "CD-0143",
+  "title": "Verdict correction returns to the external effect",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0138"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0124"
+    }
+  ]
+}
+---
 # CD-0143: Verdict correction returns to the external effect
 
 - **Status:** Accepted
@@ -54,4 +81,5 @@ attempt or launcher recovery lifecycle.
 
 - `go test ./internal/store` checks declared returns, bound evidence, current
   verdicts, no-effect refusals and fail-closed completion.
-- `python3 scripts/check-knowledge-index.py` checks identity and hashes.
+- Committed law-folder snapshot validation checks the record's identity and
+  content digest.

@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0098",
+  "title": "Retarget the running session at work start instead of launching one",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0098: Work start retargets the running session instead of launching one
 
 - **Status:** Accepted
@@ -112,5 +125,5 @@ records why the outcome holds without a wait the route does not offer.
 - `TestWorkStartRefusesDestinationOtherThanClaimedWorktree` proves D4.
 - A repository check verifies D1's no-process boundary: no `opencode run`
   invocation remains in the adapter.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
-  `python3 scripts/check-knowledge-index.py` pass.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass.

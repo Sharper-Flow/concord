@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0060",
+  "title": "The Domain registry enacts seven child Domains",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0060: The Domain registry enacts seven child Domains
 
 - **Status:** Accepted

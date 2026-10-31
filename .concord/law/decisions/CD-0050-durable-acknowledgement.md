@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0050",
+  "title": "Durable acknowledgement at consequential boundaries",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0050: Durable acknowledgement at consequential boundaries
 
 - **Status:** Accepted

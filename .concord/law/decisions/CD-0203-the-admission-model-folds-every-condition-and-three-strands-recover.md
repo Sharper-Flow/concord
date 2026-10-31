@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0203",
+  "title": "The admission model derives every condition and two strands recover",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0201"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0172"
+    }
+  ]
+}
+---
 # CD-0203: The admission model derives every condition and two strands recover
 
 - **Status:** Accepted

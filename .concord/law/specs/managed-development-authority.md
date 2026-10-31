@@ -1,3 +1,81 @@
+---
+{
+  "id": "managed-development-authority",
+  "title": "managed development authority",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "repository-verification",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-evolution",
+    "agent-surface",
+    "durable-authority",
+    "work-coordination",
+    "workflow-engine"
+  ],
+  "law_relations": [
+    {
+      "kind": "subordinate_to",
+      "target_id": "CD-0122"
+    },
+    {
+      "kind": "subordinate_to",
+      "target_id": "CD-0213"
+    },
+    {
+      "kind": "subordinate_to",
+      "target_id": "CD-0241"
+    }
+  ],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Policy-only planning authority under CD-0213 D1. The CON-801 deletion slices remove the Concord planning write routes and carry their runtime evidence."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Process-authority assignment distinguishes eligible phase-local integration from main-branch merge evidence. Repository review, installed workflow admission, and CI retain their existing verification contracts."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Policy-only preservation of branch and worktree isolation. Existing worktree contracts and tests own runtime verification."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Policy-only requirement for explicit law amendment. Committed law-folder snapshot validation refuses an invalid declared record graph."
+    },
+    {
+      "criterion": 5,
+      "exemption": "The pull-request link check owns this criterion and runs per pull request, not as a repository test."
+    },
+    {
+      "criterion": 6,
+      "exemption": "This contract preserves durable workflow authority. Generated agent contracts and store workflow tests own its runtime evidence."
+    },
+    {
+      "criterion": 7,
+      "exemption": "Independent review checks the no-predecessor-runtime-dependency boundary; dedicated predecessor witnesses and their tests are retired."
+    },
+    {
+      "criterion": 8,
+      "exemption": "Policy-only foreign-Product route under CD-0213 D6. Concord has no write path for it, so no Concord runtime evidence applies."
+    },
+    {
+      "criterion": 9,
+      "exemption": "Policy-only outside-work boundary under CD-0122 D1. Host permissions remain authoritative."
+    },
+    {
+      "criterion": 10,
+      "exemption": "Policy-only defect-repair application under CD-0122 D2. Repository isolation and public review evidence remain required."
+    },
+    {
+      "criterion": 11,
+      "exemption": "Policy-only storage prohibition under CD-0213 D6. The store refuses an in-repository database path structurally."
+    }
+  ]
+}
+---
 # Concord managed development authority
 
 **Status:** Accepted under CD-0213.
@@ -127,8 +205,8 @@ The other boundaries retain their stated scope.
 ## Verification
 
 - Criterion 1: CD-0213 D1 owns the rule, and
-  `python3 scripts/check-knowledge-index.py` validates its supersession graph.
-  The deletion slices remove every Concord planning write route.
+  committed law-folder snapshot validation refuses an invalid supersession
+  graph. The deletion slices remove every Concord planning write route.
 - Criterion 2: main-branch merge claims require the public pull request and
   required checks. Eligible phase-local integration claims use CD-0241's local
   merge evidence and do not establish release publication or installation.
@@ -136,7 +214,7 @@ The other boundaries retain their stated scope.
   not prove a merge or workflow admission.
 - Criterion 3: worktree occupancy isolation is exercised by
   `internal/store.TestClaimWorktreeStillRefusesForeignWorkOccupancy`.
-- Criterion 4: `python3 scripts/check-knowledge-index.py` validates the
+- Criterion 4: committed law-folder snapshot validation refuses an invalid
   declared law graph.
 - Criterion 5: `python3 scripts/check-pr-linear-link.py` enforces the
   non-closing reference on each pull request.
@@ -148,10 +226,10 @@ The other boundaries retain their stated scope.
   independence and operational-coverage witnesses, their tests, and their
   history-only runbooks are retired; they are not current readiness gates.
 - Criterion 8: CD-0213 D6 owns the foreign-Product route, and Concord has no
-  write path for it. `python3 scripts/check-knowledge-index.py` validates the
+  write path for it. Committed law-folder snapshot validation covers the
   record that owns the route.
-- Criterion 9: review against CD-0122 D1.
-  `python3 scripts/check-knowledge-index.py` validates the cited record.
+- Criterion 9: review against CD-0122 D1. Committed law-folder snapshot
+  validation covers the cited record.
 - Criterion 10: review against CD-0122 D2. Isolation mechanics are exercised by
   `internal/store.TestClaimWorktreeStillRefusesForeignWorkOccupancy`.
 - Criterion 11: the store refuses an in-repository database path in

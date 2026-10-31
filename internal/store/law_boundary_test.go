@@ -2,48 +2,54 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
 
-// lawSubjectRow inserts one law subject at the fixture home carrying an
-// explicit authority tier, so a test states the standing it relies on instead
-// of inheriting the column default.
-func lawSubjectRow(t *testing.T, s *Store, lawID, tier string) {
-	t.Helper()
-	const contentHash = "sha256:" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	if _, err := s.DatabaseForTesting().Exec(
-		`INSERT INTO write_guard(active) VALUES(1);`); err != nil {
-		t.Fatal(err)
+// lawBoundaryFolderLaw authors one committed law with an explicit authority
+// tier and, when named, one conflicts_with relation the record itself
+// declares. The folder is the acceptance authority, so the declaring record
+// of every conflict is intrinsic to the file.
+func lawBoundaryFolderLaw(id, tier, conflictsWith string) string {
+	authority := `"tier":"` + tier + `"`
+	if tier == "legislated" {
+		authority += `,"legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1`
 	}
-	if _, err := s.DatabaseForTesting().Exec(
-		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier)
-		 VALUES('p','l',?,'decision','accepted',?,?,?,'commit',?)`,
-		lawID, ".concord/docs/decisions/CD-0001-"+lawID+".md", strings.ToUpper(lawID), contentHash, tier); err != nil {
-		t.Fatal(err)
+	relations := ""
+	if conflictsWith != "" {
+		relations = `,"law_relations":[{"kind":"conflicts_with","target_id":"` + conflictsWith + `"}]`
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
+	return "---\n" +
+		`{"id":"` + id + `","title":"Boundary ` + id + `","authority":{` + authority + `},"home_domain_id":"fixture-root","applies_to_domain_ids":[],"product_wide_rationale":"This fixture law governs the whole boundary fixture."` + relations + `}` + "\n" +
+		"---\n\nSynthetic boundary law body.\n"
 }
 
-// lawConflictRow records the conflicts_with pair between fixture law subjects
-// a and b, stored in ID order as the projection stores it, and declared by the
-// record named by declarer. A nil declarer is the row an older writer left
-// without one.
-func lawConflictRow(t *testing.T, s *Store, declarer any) {
+// lawConflictFolderFixture commits laws a and b with their authored tiers,
+// the declaring record carrying the conflict, and anchors the standalone
+// home pair at the committed repo.
+func lawConflictFolderFixture(t *testing.T, tierA, tierB, declarer string) (*Store, KnowledgeHome) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);`); err != nil {
-		t.Fatal(err)
+	repo := initKnowledgeRepo(t)
+	registry := `{"schema_version":"1.0","product_key":"boundary","root_domain_id":"fixture-root","domains":[{"domain_id":"fixture-root","name":"Boundary","purpose":"Governs the boundary fixture.","status":"current","architecture_relations":[]}]}` + "\n"
+	writeKnowledgeFile(t, repo, ".concord/docs/knowledge/domain-registry.json", registry)
+	conflictTarget := func(lawID string) string {
+		if lawID == declarer {
+			other := "b"
+			if lawID == "b" {
+				other = "a"
+			}
+			return other
+		}
+		return ""
 	}
-	if _, err := s.DatabaseForTesting().Exec(
-		`INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id)
-		 VALUES('p','l','a','conflicts_with','b','commit',?)`, declarer); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
+	writeKnowledgeFile(t, repo, ".concord/law/decisions/a-fixture.md", lawBoundaryFolderLaw("a", tierA, conflictTarget("a")))
+	writeKnowledgeFile(t, repo, ".concord/law/decisions/b-fixture.md", lawBoundaryFolderLaw("b", tierB, conflictTarget("b")))
+	commitKnowledgeRepo(t, repo, "boundary conflict fixture")
+	s := openTemp(t)
+	home := KnowledgeHome{HomeProjectID: "p", HomeLocatorID: "l", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeLocator(t, s, home)
+	return s, home
 }
 
 // TestAmendmentPathAcceptsDerivedConflictAndRefusesLegislated holds the tier
@@ -55,32 +61,23 @@ func TestAmendmentPathAcceptsDerivedConflictAndRefusesLegislated(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	derived := openTemp(t)
-	anchorHomePair(t, derived, "p", "l")
-	lawSubjectRow(t, derived, "a", "derived")
-	lawSubjectRow(t, derived, "b", "derived")
-	lawConflictRow(t, derived, "a")
+	derived, _ := lawConflictFolderFixture(t, "derived", "derived", "a")
 	if err := checkMandatedLawsAtHome(ctx, derived, "p", "l", []string{"a", "b"}, []string{"a"}, true); err != nil {
 		t.Fatalf("a conflict between derived law refused the amendment path: %v", err)
 	}
 
-	legislated := openTemp(t)
-	anchorHomePair(t, legislated, "p", "l")
-	lawSubjectRow(t, legislated, "a", "legislated")
-	lawSubjectRow(t, legislated, "b", "derived")
-	lawConflictRow(t, legislated, "a")
+	legislated, _ := lawConflictFolderFixture(t, "legislated", "derived", "a")
 	if err := checkMandatedLawsAtHome(ctx, legislated, "p", "l", []string{"a", "b"}, []string{"a"}, true); err == nil {
 		t.Fatal("a conflict with legislated law resolved inside the contract, bypassing the operator checkpoint")
 	}
 }
 
 // TestAmendmentPathRevisesTheDerivedSideOfAMixedTierConflict holds the case
-// CD-0159 D4 admits between a legislated commitment and a derived record, the
-// common case because the backfill makes every decision legislated and every
-// spec derived. When the derived record declares the conflict, a contract that
-// revises only that record changes nothing the operator legislated and can
-// withdraw the declaration, so it resolves inside the contract. The projection
-// stores the pair in ID order, so the declarer may sit at either end.
+// CD-0159 D4 admits between a legislated commitment and a derived record.
+// When the derived record declares the conflict, a contract that revises only
+// that record changes nothing the operator legislated and can withdraw the
+// declaration, so it resolves inside the contract. Either record may declare
+// the conflict, because the declaration is authored on its own file.
 func TestAmendmentPathRevisesTheDerivedSideOfAMixedTierConflict(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -90,16 +87,12 @@ func TestAmendmentPathRevisesTheDerivedSideOfAMixedTierConflict(t *testing.T) {
 		tierB    string
 		declarer string
 	}{
-		{"declarer stored as source", "derived", "legislated", "a"},
-		{"declarer stored as target", "legislated", "derived", "b"},
+		{"derived a declares", "derived", "legislated", "a"},
+		{"derived b declares", "legislated", "derived", "b"},
 	} {
 		t.Run(orientation.name, func(t *testing.T) {
 			t.Parallel()
-			s := openTemp(t)
-			anchorHomePair(t, s, "p", "l")
-			lawSubjectRow(t, s, "a", orientation.tierA)
-			lawSubjectRow(t, s, "b", orientation.tierB)
-			lawConflictRow(t, s, orientation.declarer)
+			s, _ := lawConflictFolderFixture(t, orientation.tierA, orientation.tierB, orientation.declarer)
 			if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, []string{orientation.declarer}, true); err != nil {
 				t.Fatalf("revising the derived declaring record was refused: %v", err)
 			}
@@ -115,11 +108,7 @@ func TestAmendmentPathRevisesTheDerivedSideOfAMixedTierConflict(t *testing.T) {
 // work at completion.
 func TestAmendmentPathRefusesADerivedRevisionOfALegislatedDeclaration(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
-	anchorHomePair(t, s, "p", "l")
-	lawSubjectRow(t, s, "a", "legislated")
-	lawSubjectRow(t, s, "b", "derived")
-	lawConflictRow(t, s, "a")
+	s, _ := lawConflictFolderFixture(t, "legislated", "derived", "a")
 	err := checkMandatedLawsAtHome(context.Background(), s, "p", "l", []string{"a", "b"}, []string{"b"}, true)
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindRelationConflict {
@@ -132,9 +121,7 @@ func TestAmendmentPathRefusesADerivedRevisionOfALegislatedDeclaration(t *testing
 
 // TestAmendmentPathRequiresTheDeclaringRecord holds the modified-set term on
 // the declarer. Both records are derived, but the contract revises only the
-// record that did not declare the conflict, so it cannot withdraw it. The
-// projection stores the pair in ID order, so the declarer may sit at either
-// end.
+// record that did not declare the conflict, so it cannot withdraw it.
 func TestAmendmentPathRequiresTheDeclaringRecord(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -143,16 +130,12 @@ func TestAmendmentPathRequiresTheDeclaringRecord(t *testing.T) {
 		declarer string
 		modified string
 	}{
-		{"declarer stored as source", "a", "b"},
-		{"declarer stored as target", "b", "a"},
+		{"a declares", "a", "b"},
+		{"b declares", "b", "a"},
 	} {
 		t.Run(orientation.name, func(t *testing.T) {
 			t.Parallel()
-			s := openTemp(t)
-			anchorHomePair(t, s, "p", "l")
-			lawSubjectRow(t, s, "a", "derived")
-			lawSubjectRow(t, s, "b", "derived")
-			lawConflictRow(t, s, orientation.declarer)
+			s, _ := lawConflictFolderFixture(t, "derived", "derived", orientation.declarer)
 			err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, []string{orientation.modified}, true)
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind != KindRelationConflict {
@@ -160,41 +143,6 @@ func TestAmendmentPathRequiresTheDeclaringRecord(t *testing.T) {
 			}
 			if len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != orientation.declarer || !strings.Contains(failure.RecoveryAction, "law_modifies") {
 				t.Fatalf("the refusal does not route to the declaring record: %+v", failure)
-			}
-		})
-	}
-}
-
-// TestAmendmentPathTreatsAnUnrecordedDeclarerAsEitherEnd holds the rule for a
-// row an older writer left without a declarer. Either end may have declared
-// it, so the amendment path admits only a contract under which either answer
-// passes: both ends revised, and both derived.
-func TestAmendmentPathTreatsAnUnrecordedDeclarerAsEitherEnd(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	for _, tc := range []struct {
-		name     string
-		tierA    string
-		modified []string
-		admitted bool
-	}{
-		{"one derived end revised", "derived", []string{"a"}, false},
-		{"both derived ends revised", "derived", []string{"a", "b"}, true},
-		{"a legislated end revised", "legislated", []string{"a", "b"}, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			s := openTemp(t)
-			anchorHomePair(t, s, "p", "l")
-			lawSubjectRow(t, s, "a", tc.tierA)
-			lawSubjectRow(t, s, "b", "derived")
-			lawConflictRow(t, s, nil)
-			err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, tc.modified, true)
-			if tc.admitted && err != nil {
-				t.Fatalf("a contract that revises both derived ends was refused: %v", err)
-			}
-			if !tc.admitted {
-				assertFailureKind(t, err, KindRelationConflict)
 			}
 		})
 	}
@@ -219,11 +167,7 @@ func TestAmendmentPathRefusesRevisingTheLegislatedSide(t *testing.T) {
 	} {
 		t.Run(orientation.name, func(t *testing.T) {
 			t.Parallel()
-			s := openTemp(t)
-			anchorHomePair(t, s, "p", "l")
-			lawSubjectRow(t, s, "a", orientation.sourceTier)
-			lawSubjectRow(t, s, "b", orientation.targetTier)
-			lawConflictRow(t, s, "a")
+			s, _ := lawConflictFolderFixture(t, orientation.sourceTier, orientation.targetTier, "a")
 			if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, orientation.modified, true); err == nil {
 				t.Fatal("revising a legislated endpoint resolved inside the contract")
 			}
@@ -236,11 +180,7 @@ func TestAmendmentPathRefusesRevisingTheLegislatedSide(t *testing.T) {
 // not admit a conflict the contract never declared it would modify.
 func TestAmendmentPathRefusesWhenOnlyTheUnmodifiedSideIsDerived(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
-	anchorHomePair(t, s, "p", "l")
-	lawSubjectRow(t, s, "a", "derived")
-	lawSubjectRow(t, s, "b", "derived")
-	lawConflictRow(t, s, "a")
+	s, _ := lawConflictFolderFixture(t, "derived", "derived", "a")
 	if err := checkMandatedLawsAtHome(context.Background(), s, "p", "l", []string{"a", "b"}, nil, true); err == nil {
 		t.Fatal("an undeclared conflict between derived law resolved without a modification declaration")
 	}
@@ -251,63 +191,9 @@ func TestAmendmentPathRefusesWhenOnlyTheUnmodifiedSideIsDerived(t *testing.T) {
 // passes allowAmendment false and must refuse the conflict whatever the tier.
 func TestCompletionStyleCheckIgnoresTheDerivedTier(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
-	anchorHomePair(t, s, "p", "l")
-	lawSubjectRow(t, s, "a", "derived")
-	lawSubjectRow(t, s, "b", "derived")
-	lawConflictRow(t, s, "a")
+	s, _ := lawConflictFolderFixture(t, "derived", "derived", "a")
 	if err := checkMandatedLawsAtHome(context.Background(), s, "p", "l", []string{"a", "b"}, []string{"a"}, false); err == nil {
 		t.Fatal("a check carrying no amendment authority accepted an unresolved conflict between derived law")
-	}
-}
-
-// TestPopulatedLawSubjectsUpgradeToTheDerivedTier holds the upgrade half of
-// migration 98. A database that carried law subjects before the tier existed
-// gains the column with every existing row at derived, which is the tier that
-// preserves the refusal those rows already met. A pre-tier database therefore
-// refuses exactly what it refused before, until a rebuild writes the declared
-// tiers.
-func TestPopulatedLawSubjectsUpgradeToTheDerivedTier(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	anchorHomePair(t, s, "p", "l")
-
-	// Insert without naming the tier, exactly as a pre-migration writer did.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);`); err != nil {
-		t.Fatal(err)
-	}
-	const contentHash = "sha256:" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	if _, err := s.DatabaseForTesting().Exec(
-		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid)
-		 VALUES('p','l','legacy','decision','accepted','.concord/docs/decisions/CD-0001-legacy.md','Legacy',?,'commit')`, contentHash); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-
-	var tier string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx,
-		`SELECT authority_tier FROM law_subjects WHERE home_project_id='p' AND home_locator_id='l' AND law_id='legacy'`).Scan(&tier); err != nil {
-		t.Fatal(err)
-	}
-	if tier != "derived" {
-		t.Fatalf("a row written without a tier carries %q", tier)
-	}
-
-	// The column refuses a tier outside the closed pair.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);`); err != nil {
-		t.Fatal(err)
-	}
-	_, err := s.DatabaseForTesting().Exec(
-		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier)
-		 VALUES('p','l','bogus','decision','accepted','.concord/docs/decisions/CD-0002-bogus.md','Bogus',?,'commit','advisory')`, contentHash)
-	if err == nil {
-		t.Fatal("law_subjects accepted a tier outside the closed pair")
-	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -318,11 +204,7 @@ func TestPopulatedLawSubjectsUpgradeToTheDerivedTier(t *testing.T) {
 func TestAmendmentPathNamesTheDeclaringReferenceAcrossSources(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openTemp(t)
-	anchorHomePair(t, s, "p", "l")
-	lawSubjectRow(t, s, "a", "derived")
-	lawSubjectRow(t, s, "b", "derived")
-	lawConflictRow(t, s, "b")
+	s, _ := lawConflictFolderFixture(t, "derived", "derived", "b")
 	mandate := []string{"p/a", "p/b"}
 	err := checkMandatedLawsAtHome(ctx, s, "p", "l", mandate, []string{"p/a"}, true)
 	var failure *Failure
@@ -331,5 +213,179 @@ func TestAmendmentPathNamesTheDeclaringReferenceAcrossSources(t *testing.T) {
 	}
 	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", mandate, failure.CandidateIDs, true); err != nil {
 		t.Fatalf("revising the named declaring reference was refused: %v", err)
+	}
+}
+
+// TestMandateAdmitsUnrelatedHeadMovementAndRefusesLawContentMovement holds
+// the PM1 §3.3 transaction proof over the committed law folder: a commit
+// that moves the head without touching the law folder or registry is part of
+// the verified state and admits the transaction, while a commit that moves
+// the law content itself invalidates the snapshot.
+func TestMandateAdmitsUnrelatedHeadMovementAndRefusesLawContentMovement(t *testing.T) {
+	t.Parallel()
+	s, home := lawConflictFolderFixture(t, "derived", "derived", "")
+	ctx, err := s.establishKnowledgeSourceSetProofAtHome(context.Background(), home.HomeProjectID, home.HomeLocatorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeKnowledgeFile(t, home.RepoPath, "unrelated.go", "package synthetic\n")
+	commitKnowledgeRepo(t, home.RepoPath, "move past the verified snapshot without touching law")
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		raw, err := transactionSQL(tx, "check_mandated_laws")
+		if err != nil {
+			return err
+		}
+		return checkMandatedLawsTxAtHome(ctx, raw, home.HomeProjectID, home.HomeLocatorID, []string{"a"}, nil, false)
+	}); err != nil {
+		t.Fatalf("a commit that touched no law content refused the transaction: %v", err)
+	}
+	newCtx, err := s.establishKnowledgeSourceSetProofAtHome(context.Background(), home.HomeProjectID, home.HomeLocatorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := ".concord/law/decisions/a-fixture.md"
+	original := lawBoundaryFolderLaw("a", "derived", "b")
+	writeKnowledgeFile(t, home.RepoPath, path, strings.Replace(original, "Boundary a", "Boundary a amended", 1))
+	commitKnowledgeRepo(t, home.RepoPath, "move the committed law content")
+	err = s.Transact(newCtx, func(tx *Transaction) error {
+		raw, err := transactionSQL(tx, "check_mandated_laws")
+		if err != nil {
+			return err
+		}
+		return checkMandatedLawsTxAtHome(newCtx, raw, home.HomeProjectID, home.HomeLocatorID, []string{"a"}, nil, false)
+	})
+	requireFailureKind(t, err, KindInvalidOperation, "moved law content cannot consume a commit-pinned snapshot")
+	if !strings.Contains(err.Error(), home.HomeProjectID+"/"+home.HomeLocatorID) || !strings.Contains(err.Error(), "law content") {
+		t.Fatalf("the refusal does not name the moved home's law content: %v", err)
+	}
+}
+
+// TestMandateNamesAnOutsideFolderIDAsAbsentLaw holds the folder's negative:
+// a mandated ID the committed folder does not carry is named absent, and an
+// archived note with the same ID is named not-law.
+func TestMandateNamesAnOutsideFolderIDAsAbsentLaw(t *testing.T) {
+	t.Parallel()
+	s, home := lawConflictFolderFixture(t, "derived", "derived", "")
+	note := canonicalWorkNote("CD-9002", "2026-08-07T00:00:00Z")
+	writeKnowledgeFile(t, home.RepoPath, ".concord/docs/work/CD-9002.md", note)
+	seedArchivedWorkNote(t, s, home, commitKnowledgeRepo(t, home.RepoPath, "archived note"), ".concord/docs/work/CD-9002.md", note)
+	ctx, err := s.establishKnowledgeSourceSetProofAtHome(context.Background(), home.HomeProjectID, home.HomeLocatorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.Transact(ctx, func(tx *Transaction) error {
+		raw, err := transactionSQL(tx, "check_mandated_laws")
+		if err != nil {
+			return err
+		}
+		return checkMandatedLawsTxAtHome(ctx, raw, home.HomeProjectID, home.HomeLocatorID, []string{"CD-9002"}, nil, false)
+	})
+	requireFailureKind(t, err, KindProjectionNotFound, "an outside-folder document is not law")
+	if !strings.Contains(err.Error(), "archived notes, not law files") || !strings.Contains(err.Error(), "CD-9002") {
+		t.Fatalf("the refusal does not name the archived not-law record: %v", err)
+	}
+}
+
+// The retained law-graph validators refuse every malformed authored relation
+// shape: an unknown or non-subject endpoint, a self edge, an unclosed kind, a
+// reverse conflict duplicate, and directed cycles.
+func TestLawGraphRelationsRejectInvalidShapes(t *testing.T) {
+	t.Parallel()
+	record := func(id, kind string, relations ...KnowledgeRelation) KnowledgeRecord {
+		front := `{"id":"` + id + `","title":"` + id + `","authority":{"tier":"derived"},"kind":"` + kind + `","home_domain_id":"product-root:fixture","applies_to_domain_ids":[]`
+		if len(relations) > 0 {
+			encoded, err := json.Marshal(relations)
+			if err != nil {
+				t.Fatal(err)
+			}
+			front += `,"law_relations":` + string(encoded)
+		}
+		front += "}"
+		var out KnowledgeRecord
+		if err := json.Unmarshal([]byte(front), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	base := func(relations ...KnowledgeRelation) (KnowledgeRecord, map[string]KnowledgeRecord) {
+		a := record("a", "decision", relations...)
+		b := record("b", "spec")
+		return a, map[string]KnowledgeRecord{"a": a, "b": b}
+	}
+	for name, relations := range map[string][]KnowledgeRelation{
+		"unknown target":   {{Kind: "refines", TargetID: "missing"}},
+		"self":             {{Kind: "refines", TargetID: "a"}},
+		"unknown kind":     {{Kind: "binds", TargetID: "b"}},
+		"reverse conflict": {{Kind: "conflicts_with", TargetID: "b"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a, byID := base(relations...)
+			b := record("b", "decision", func() []KnowledgeRelation {
+				if name == "reverse conflict" {
+					return []KnowledgeRelation{{Kind: "conflicts_with", TargetID: "a"}}
+				}
+				return nil
+			}()...)
+			byID["b"] = b
+			seen := map[string]bool{}
+			graph := map[string][]string{}
+			if err := validateManifestRecordRelations(a, byID, seen, graph); err == nil {
+				if err := validateManifestRecordRelations(b, byID, seen, graph); err == nil {
+					t.Fatal("invalid law relation accepted")
+				}
+			}
+		})
+	}
+	t.Run("directed cycle", func(t *testing.T) {
+		a, byID := base(KnowledgeRelation{Kind: "refines", TargetID: "b"})
+		b := record("b", "decision", KnowledgeRelation{Kind: "subordinate_to", TargetID: "a"})
+		byID["b"] = b
+		seen := map[string]bool{}
+		graph := map[string][]string{}
+		if err := validateManifestRecordRelations(a, byID, seen, graph); err != nil {
+			t.Fatal(err)
+		}
+		if err := validateManifestRecordRelations(b, byID, seen, graph); err != nil {
+			t.Fatal(err)
+		}
+		if !graphHasCycle(graph) {
+			t.Fatal("a mixed directed relation cycle was not detected")
+		}
+	})
+	t.Run("non-subject endpoint", func(t *testing.T) {
+		lesson := record("lesson", "lesson", KnowledgeRelation{Kind: "refines", TargetID: "a"})
+		lesson.Kind = "lesson"
+		a, byID := base()
+		byID["lesson"] = lesson
+		seen := map[string]bool{}
+		graph := map[string][]string{}
+		if err := validateManifestRecordRelations(lesson, byID, seen, graph); err == nil {
+			t.Fatal("a non-subject record authored a law relation")
+		}
+	})
+}
+
+// TestMandatedLawBoundaryChecksUnknownConflictAndAmendmentSubset holds the
+// mandate admission on the committed law folder: an unknown mandated law is
+// absent law, an unresolved conflict refuses without an amendment endpoint,
+// and law_modifies must stay a subset of the mandate.
+func TestMandatedLawBoundaryChecksUnknownConflictAndAmendmentSubset(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _ := lawConflictFolderFixture(t, "derived", "derived", "a")
+	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"missing"}, nil, true); err == nil {
+		t.Fatal("unknown mandated law accepted")
+	}
+	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, nil, true); err == nil {
+		t.Fatal("unresolved conflict accepted without amendment endpoint")
+	}
+	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, []string{"a"}, true); err != nil {
+		t.Fatalf("explicit amendment path rejected: %v", err)
+	}
+	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a", "b"}, []string{"a"}, false); err == nil {
+		t.Fatal("completion-style check accepted unresolved conflict")
+	}
+	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"a"}, []string{"b"}, true); err == nil {
+		t.Fatal("undeclared law modification accepted")
 	}
 }

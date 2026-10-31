@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0180",
+  "title": "Spec criteria bind to work-item predicates",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0180: Spec criteria bind to work-item predicates
 
 - **Status:** Accepted
@@ -69,5 +80,5 @@ law.
 - `TestContinuityLawContextCarriesThisWorkPredicateCriteria` proves the
   resolution: the law context lists this work's predicate bindings in
   criterion order and drops another work's bindings and scenario bindings.
-- `python3 scripts/test-knowledge-index.py` proves the authoring side
+- Committed law-folder snapshot validation proves the authoring side
   validates the closed shapes.

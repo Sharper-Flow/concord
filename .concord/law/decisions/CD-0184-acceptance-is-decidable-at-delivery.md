@@ -1,3 +1,28 @@
+---
+{
+  "id": "CD-0184",
+  "title": "Acceptance is decidable at delivery",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0012"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0018"
+    }
+  ]
+}
+---
 # CD-0184: Acceptance is decidable at delivery
 
 - **Status:** Accepted

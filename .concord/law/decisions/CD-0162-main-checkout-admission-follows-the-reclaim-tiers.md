@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0162",
+  "title": "The main-checkout admission follows the reclaim tiers",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-call-boundary",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0105"
+    }
+  ]
+}
+---
 # CD-0162: The main-checkout admission follows the reclaim tiers
 
 - **Status:** Accepted

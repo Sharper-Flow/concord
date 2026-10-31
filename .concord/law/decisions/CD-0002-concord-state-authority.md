@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0002",
+  "title": "Concord state authority",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0002 — SQLite as Concord's sole durable authority
 
 > **Status:** **Accepted — binding until superseded.**

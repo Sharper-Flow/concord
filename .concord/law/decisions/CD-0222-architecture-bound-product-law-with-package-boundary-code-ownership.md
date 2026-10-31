@@ -1,3 +1,21 @@
+---
+{
+  "id": "CD-0222",
+  "title": "Architecture-bound Product law",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0060"
+    }
+  ],
+  "product_wide_rationale": "Successor of the record that defines the Domain model itself. It carries what a Domain is and how law homes to one, so no partition it creates can own it."
+}
+---
 # CD-0222: Architecture-bound Product law
 
 - **Status:** Accepted
@@ -8,7 +26,7 @@
 - **Approval:** Operator-delegated approval A4 for [Concord (CON) issue
   899](https://linear.app/sharper-flow/issue/CON-899).
 - **Related:** [CD-0060](CD-0060-domain-registry-enactment.md),
-  [CD-0020](CD-0020-retain-knowledge-index-shape.md), [CD-0036](CD-0036-breaking-law-cutovers.md),
+  [CD-0036](CD-0036-breaking-law-cutovers.md),
   [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md), [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md),
   and [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md).
 - **Preserves:** CD-0002 and CD-0011 storage authority and falsifiers;
@@ -505,7 +523,8 @@ graph. Product law approval does not authorize live-state cutover.
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` proves record identity, placement, and the relation graph.
+- Committed law-folder snapshot validation proves record identity, folder
+  placement, and the relation graph.
 - `python3 scripts/test-check-domain-registry.py` proves the referential checks without a participation rule.
 - `internal/store.TestConsequentialBoundariesAdmitASharedDomainPeer` and `internal/store.TestExecutionClaimAdmitsASharedDomainPeer` prove D6: a shared-Domain peer blocks no boundary.
 - `internal/store.TestResolveOverlapRecordsRoutineRelations` and `internal/store.TestResolveOverlapMergeAndSupersessionAreAtomic` prove the `resolve_overlap` relation writer.

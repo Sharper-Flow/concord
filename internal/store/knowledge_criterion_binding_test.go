@@ -6,43 +6,28 @@ import (
 	"testing"
 )
 
-// criterionBindingManifestBytes encodes a valid schema-1.3 manifest whose one
-// record is a spec carrying exactly the criterion bindings under test, so
-// each case drives the parse-path validation over one variable.
-func criterionBindingManifestBytes(t *testing.T, bindings []KnowledgeCriterionBinding) []byte {
+// criterionBindingLawRecord decodes a spec law's frontmatter carrying exactly
+// the criterion bindings under test, so each case drives the retained
+// validator over the authored metadata shape a committed law file carries.
+func criterionBindingLawRecord(t *testing.T, bindings []KnowledgeCriterionBinding) KnowledgeRecord {
 	t.Helper()
-	manifest := KnowledgeManifest{
-		SchemaVersion:  "1.3",
-		SupportedKinds: []string{"spec"},
-		IndexedKinds:   []string{"spec"},
-		DomainRegistry: KnowledgeDomainRegistry{
-			SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
-			Domains: []KnowledgeDomain{
-				{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
-				{DomainID: "memory", Name: "Memory", Purpose: "Registry law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
-			},
-		},
-		Records: []KnowledgeRecord{{
-			ID: "spec-1", Kind: "spec", Path: ".concord/docs/specs/fixture.md", Status: "accepted",
-			Date: "2026-08-10T00:00:00Z", Title: "Fixture spec", Summary: "Spec summary", Tags: []string{},
-			Authority:    KnowledgeAuthority{Tier: "derived"},
-			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
-			HomeDomainID: "memory", CriterionBindings: bindings,
-			SHA256: "sha256:" + strings.Repeat("b", 64),
-		}},
-	}
-	encoded, err := json.Marshal(manifest)
+	encoded, err := json.Marshal(bindings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return encoded
+	front := `{"id":"spec-1","title":"Fixture spec","authority":{"tier":"derived"},"home_domain_id":"memory","applies_to_domain_ids":[],"criterion_bindings":` + string(encoded) + `}`
+	var record KnowledgeRecord
+	if err := json.Unmarshal([]byte(front), &record); err != nil {
+		t.Fatal(err)
+	}
+	return record
 }
 
-// TestKnowledgeManifestAdmitsPredicateCriterionBindings holds the third
-// binding form (CD-0180): a spec criterion resolves through a work-item
-// predicate reference, the two fields stand or fall together, and the mixed
-// or malformed shapes refuse with the typed note-proof failure.
-func TestKnowledgeManifestAdmitsPredicateCriterionBindings(t *testing.T) {
+// TestLawSpecAdmitsPredicateCriterionBindings holds the third binding form
+// (CD-0180): a spec criterion resolves through a work-item predicate
+// reference, the two fields stand or fall together, and the mixed or
+// malformed shapes refuse with the typed note-proof failure.
+func TestLawSpecAdmitsPredicateCriterionBindings(t *testing.T) {
 	t.Parallel()
 	workID := "work-" + strings.Repeat("a", 24)
 	valid := []KnowledgeCriterionBinding{
@@ -50,11 +35,11 @@ func TestKnowledgeManifestAdmitsPredicateCriterionBindings(t *testing.T) {
 		{Criterion: 2, Exemption: "A recorded reason for this exemption."},
 		{Criterion: 3, WorkID: workID, PredicateID: "predicate:criterion-bindings-predicate-form"},
 	}
-	manifest, err := parseKnowledgeManifest(criterionBindingManifestBytes(t, valid))
-	if err != nil {
-		t.Fatalf("the three binding forms compose one valid manifest: %v", err)
+	record := criterionBindingLawRecord(t, valid)
+	if err := validateKnowledgeCriterionBindings(record); err != nil {
+		t.Fatalf("the three binding forms compose one valid law record: %v", err)
 	}
-	bindings := manifest.Records[0].CriterionBindings
+	bindings := record.CriterionBindings
 	if len(bindings) != 3 || bindings[2].WorkID != workID || bindings[2].PredicateID != "predicate:criterion-bindings-predicate-form" {
 		t.Fatalf("predicate binding did not round-trip: %+v", bindings)
 	}
@@ -68,9 +53,8 @@ func TestKnowledgeManifestAdmitsPredicateCriterionBindings(t *testing.T) {
 		"malformed predicate prefix":   {{Criterion: 1, WorkID: workID, PredicateID: "pred:criterion-bindings-predicate-form"}},
 		"oversized work id":            {{Criterion: 1, WorkID: "work-" + strings.Repeat("a", 200), PredicateID: "predicate:criterion-bindings-predicate-form"}},
 	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := parseKnowledgeManifest(criterionBindingManifestBytes(t, bindings))
-			assertFailureKind(t, err, KindInvalidNoteProof)
-		})
+		record := criterionBindingLawRecord(t, bindings)
+		err := validateKnowledgeCriterionBindings(record)
+		assertFailureKind(t, err, KindInvalidNoteProof)
 	}
 }

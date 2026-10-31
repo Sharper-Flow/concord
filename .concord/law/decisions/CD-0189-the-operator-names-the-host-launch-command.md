@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0189",
+  "title": "Session context probes the calling host once",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0093"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0176"
+    }
+  ]
+}
+---
 # CD-0189: Session context probes the calling host once
 
 - **Status:** Accepted
@@ -83,5 +104,4 @@ registry than the one the session asserted against.
   proves D2: one bare probe on the session-prepare side.
 - `go test ./cmd/concord/ -run TestDeterministicHostRegistryRefusalsExit2`
   proves D3: probe and registry refusals are typed and deterministic.
-- `python3 scripts/check-knowledge-index.py` and
-  `python3 scripts/generate-knowledge-index.py --check` pass.
+- Committed law-folder snapshot validation passes.

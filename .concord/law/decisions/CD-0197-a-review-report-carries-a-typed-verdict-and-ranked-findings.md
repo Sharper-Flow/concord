@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0197",
+  "title": "A review report carries a typed verdict and ranked findings",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0197: A review report carries a typed verdict and ranked findings
 
 - **Status:** Accepted
@@ -62,4 +73,5 @@ attestation. Independent review remains required; fabricated proof is forbidden.
 
 - `go test ./internal/store` checks Review shape, subject/dependency admission,
   current-state recording and disposition gates.
-- `python3 scripts/check-knowledge-index.py` checks identity and hashes.
+- Committed law-folder snapshot validation checks the record's identity and
+  content digest.

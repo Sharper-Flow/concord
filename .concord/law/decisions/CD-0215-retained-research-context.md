@@ -1,3 +1,17 @@
+---
+{
+  "id": "CD-0215",
+  "title": "Retained research context with explicit retirement",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [
+    "durable-authority",
+    "work-coordination"
+  ]
+}
+---
 # CD-0215: Retained research context with explicit retirement
 
 - **Status:** Accepted

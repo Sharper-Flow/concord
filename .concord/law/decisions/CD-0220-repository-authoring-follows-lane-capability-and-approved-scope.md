@@ -1,3 +1,17 @@
+---
+{
+  "id": "CD-0220",
+  "title": "Repository authoring follows approved scope",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [
+    "product-memory",
+    "repository-verification"
+  ]
+}
+---
 # CD-0220: Repository authoring follows approved scope
 
 - **Status:** Accepted
@@ -63,6 +77,7 @@ machinery. Scope, law-change approval and independent review retain their owners
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` checks identity and content hashes.
+- Committed law-folder snapshot validation checks the record's identity, and
+  the folder derives its content digest from the committed bytes.
 The passing structural checks do not prove scope or approval. Independent
 review must compare the actual delta with the approved scope and evidence.

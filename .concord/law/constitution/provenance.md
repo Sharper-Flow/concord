@@ -1,3 +1,17 @@
+---
+{
+  "id": "provenance",
+  "title": "provenance",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "product_wide_rationale": "Records the origin and authority boundary of the whole public repository, including what the bootstrap excluded and where superseded records may be retained. No Domain inside the Product can own the record that establishes the Product's own provenance."
+}
+---
 # Public provenance
 
 **Status:** Constitutional bootstrap record.

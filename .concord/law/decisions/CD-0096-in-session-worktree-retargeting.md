@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0096",
+  "title": "Allow in-session worktree retargeting under tiered authority",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-call-boundary",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0096: Allow in-session worktree retargeting under tiered authority
 
 - **Status:** Accepted
@@ -146,5 +157,5 @@ retargeted tree is an identity no one verified.
 - Reclaim obeys the CD-0095 store gates for terminal work and the unstarted
   gate CD-0118 defines.
 - The continuity projection carries no verification lease.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
-  `python3 scripts/check-knowledge-index.py` pass on this record.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass on this record.

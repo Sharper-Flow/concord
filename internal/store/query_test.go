@@ -10,45 +10,6 @@ import (
 	"time"
 )
 
-func seedQueryFixture(t *testing.T) *Store {
-	t.Helper()
-	s := openTemp(t)
-	ctx := context.Background()
-	if err := ApplyOperation(ctx, s, Operation{
-		Events: []Event{
-			operationEvent("q-product", "product.created", SubjectProduct, "prod", map[string]any{
-				"display_name": "Product", "stage_maturity": "prototype", "stage_audience_commitment": "operator_only",
-			}),
-			operationEvent("q-project", "project.created", SubjectProject, "proj", map[string]any{"display_name": "Project"}),
-			operationEvent("q-membership", "product_project.added", SubjectProduct, "prod", map[string]any{
-				"product_id": "prod", "project_id": "proj", "role": "primary", "reason": "fixture", "expected_version": 1, "resulting_version": 2,
-			}),
-		},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "prod"): 0, VersionRef(SubjectProject, "proj"): 0},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []string{"blocker", "blocked"} {
-		if err := ApplyOperation(ctx, s, Operation{
-			Events: []Event{
-				workCreatedEvent(id, "q-create-"+id),
-				operationEvent("q-project-"+id, "work_project.added", SubjectWorkItem, id, map[string]any{
-					"work_id": id, "project_id": "proj", "role": "primary", "reason": "fixture", "expected_version": 1, "resulting_version": 2,
-				}),
-			},
-			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, id): 0},
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		relationAddedEvent("q-blocks", "blocks", "blocker", "blocked", 2, 3),
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	return s
-}
-
 func TestQueryMigrationFiveAndIncomingIndex(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -156,90 +117,6 @@ func TestQueryQ6ValidatesExplicitProductForWork(t *testing.T) {
 	assertFailureKind(t, err, KindUnknownScope)
 	_, err = s.QueryQ6(context.Background(), Q6Request{Product: "prod", Project: "missing", Work: "blocked"})
 	assertFailureKind(t, err, KindUnknownScope)
-}
-
-func TestQueryQ10AcceptsExactlyOneStableReferenceAndReturnsTypedStates(t *testing.T) {
-	t.Parallel()
-	s := seedQueryFixture(t)
-	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "locator", RepoPath: t.TempDir(), HeadRef: "HEAD"}
-	authorizeKnowledgeLocator(t, s, home)
-	result, err := s.QueryQ10(context.Background(), Q10Request{Work: "blocked", AllowDegraded: true, Home: home})
-	if err != nil || result.Status != "not_compacted" {
-		t.Fatalf("work-only result=%#v, err=%v", result, err)
-	}
-	result, err = s.QueryQ10(context.Background(), Q10Request{KnowledgeID: "missing-knowledge", AllowDegraded: true, Home: home})
-	if err != nil || result.Status != "missing" || result.Result == nil || result.Result.Status != "missing" {
-		t.Fatalf("knowledge-only missing result=%#v, err=%v", result, err)
-	}
-	for _, request := range []Q10Request{{}, {Work: "blocked", KnowledgeID: "knowledge"}} {
-		_, err := s.QueryQ10(context.Background(), request)
-		assertFailureKind(t, err, KindInvalidFilter)
-	}
-}
-
-func TestQueryQ10ContainsKnowledgeInSelectedProduct(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	insertArchivedKnowledge(t, s, "knowledge-b", "home", "locator", "missing.md", "missing", "missing", []string{"product-b"})
-	result, err := s.QueryQ10(context.Background(), Q10Request{KnowledgeID: "knowledge-b", Product: "product-a", AllowDegraded: true, Home: KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "locator", RepoPath: t.TempDir(), HeadRef: "HEAD"}})
-	if err == nil {
-		t.Fatalf("knowledge from another Product resolved: %#v", result)
-	}
-	assertFailureKind(t, err, KindUnknownScope)
-}
-
-func TestQueryQ10ReturnsAmbiguousAsTypedResult(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	repo := initKnowledgeRepo(t)
-	path := ".concord/docs/lessons/different.md"
-	writeKnowledgeFile(t, repo, path, canonicalKnowledgeNote("different-id", "lesson", "2026-08-07T00:00:00Z", []string{"test"}))
-	writeManifestFixture(t, repo, manifestFixtureFromFile(t, repo, "knowledge-id", "lesson", path, "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"test"}, KnowledgeRecordScopes{Mode: "explicit"}))
-	commitKnowledgeRepo(t, repo, "ambiguous knowledge")
-	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
-	authorizeKnowledgeProductHome(t, s, "prod-ambiguous", home)
-	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE archived_work SET title='tampered' WHERE id='knowledge-id'; DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	_, err := s.QueryQ10(context.Background(), Q10Request{KnowledgeID: "knowledge-id", Home: home})
-	assertFailureKind(t, err, KindKnowledgeMissing)
-}
-
-func insertArchivedKnowledge(t *testing.T, s *Store, id, homeProject, homeLocator, path, commit, hash string, products []string) {
-	t.Helper()
-	ctx := context.Background()
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES (1)`); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
-			t.Errorf("remove write guard: %v", err)
-		}
-	}()
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 't', 't')`, homeProject, homeProject); err != nil {
-		t.Fatal(err)
-	}
-	anchorProductID := "anchor-product-" + homeProject
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 't', 't')`, anchorProductID, anchorProductID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO product_projects(product_id,project_id,role) VALUES(?,?,'secondary')`, anchorProductID, homeProject); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?, ?, 'canonical_path', ?, ?, 't', 't')`, homeLocator, homeProject, "/test/"+homeLocator, "/test/"+homeLocator); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, "lesson", id, "2026-08-07T00:00:00Z", "published", "[]", "completed", 1, "summary", homeProject, homeLocator, path, commit, hash); err != nil {
-		t.Fatal(err)
-	}
-	for _, product := range products {
-		if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work_products(home_project_id,home_locator_id,work_id,product_id) VALUES (?,?,?,?)`, homeProject, homeLocator, id, product); err != nil {
-			t.Fatal(err)
-		}
-	}
 }
 
 func TestQueryQ6ProjectPaginationBoundsContinuationAndTamper(t *testing.T) {

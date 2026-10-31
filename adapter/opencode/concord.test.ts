@@ -60,7 +60,7 @@ const hostCall = (operation: string, input: Record<string, unknown>) => ({ reque
 
 test("exports exactly the generated tool names", () => {
   const names = [...source.matchAll(/export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(/g)].map((match) => match[1]).filter((name) => name !== "work_start")
-  expect(names).toEqual(["product_view", "work_browse", "work_trace", "knowledge", "work_define", "domain", "work_transition", "work_relate", "work_compact"])
+  expect(names).toEqual(["product_view", "work_browse", "work_trace", "work_define", "domain", "work_transition", "work_relate", "work_compact"])
   expect(source).toContain("export const work_start = tool(")
   expect(new Set(contractOperations.map((operation: any) => operation.tool))).toEqual(new Set(names.map((name) => `concord_${name}`)))
 })
@@ -70,7 +70,6 @@ test("published tool arguments expose a host-safe request shape", async () => {
     concord_product_view: adapter.product_view,
     concord_work_browse: adapter.work_browse,
     concord_work_trace: adapter.work_trace,
-    concord_knowledge: adapter.knowledge,
     concord_work_define: adapter.work_define,
     concord_domain: adapter.domain,
     concord_work_transition: adapter.work_transition,
@@ -259,7 +258,7 @@ test("published tool schemas type every enum node", () => {
       walk(item, `${path}.${key}`, seen)
     }
   }
-  for (const toolName of ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_work_define", "concord_domain", "concord_work_transition", "concord_work_relate", "concord_work_compact"]) {
+  for (const toolName of ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_work_define", "concord_domain", "concord_work_transition", "concord_work_relate", "concord_work_compact"]) {
     walk(adapter.publishedRequestSchema(toolName), toolName, new Set())
   }
   const workStartDefinition = { description: "", parameters: {}, jsonSchema: undefined as unknown }
@@ -273,7 +272,6 @@ test("all exported tools return one serialized Concord envelope", async () => {
     ["concord_product_view", adapter.product_view],
     ["concord_work_browse", adapter.work_browse],
     ["concord_work_trace", adapter.work_trace],
-    ["concord_knowledge", adapter.knowledge],
     ["concord_work_define", adapter.work_define],
     ["concord_domain", adapter.domain],
     ["concord_work_transition", adapter.work_transition],
@@ -298,7 +296,7 @@ test("all exported tools return one serialized Concord envelope", async () => {
 })
 
 test("request-wrapped tools refuse a missing request wrapper before any host effect", async () => {
-  const tools = { product_view: adapter.product_view, work_browse: adapter.work_browse, work_trace: adapter.work_trace, knowledge: adapter.knowledge, work_define: adapter.work_define, domain: adapter.domain, work_transition: adapter.work_transition, work_relate: adapter.work_relate, work_compact: adapter.work_compact }
+  const tools = { product_view: adapter.product_view, work_browse: adapter.work_browse, work_trace: adapter.work_trace, work_define: adapter.work_define, domain: adapter.domain, work_transition: adapter.work_transition, work_relate: adapter.work_relate, work_compact: adapter.work_compact }
   let calls = 0
   adapter.configureConcordAdapter({ runner: { run: async () => { calls++; throw new Error("must not run") } } })
   for (const [name, exportedTool] of Object.entries(tools)) {
@@ -906,7 +904,7 @@ test("an unreadable live session directory refuses before core transport", async
   })
   const runner = recordingRunner()
   adapter.configureConcordAdapter({ runner })
-  const result: any = await rawHostResult(adapter.knowledge.execute(hostCall("search", {}), contextFor()))
+  const result: any = await rawHostResult(adapter.product_view.execute(hostCall("snapshot", {}), contextFor()))
   assertAdapterEnvelope(result)
   expect(result.error.kind).toBe("transport_failure")
   expect(result.error.adapter_reason).toBe("session_directory_unreadable")

@@ -1,3 +1,15 @@
+---
+{
+  "id": "CD-0091",
+  "title": "Maturity and audience-commitment promotion ladder",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "product_wide_rationale": "Defines the evidence bar that promotes a Product's maturity and audience commitment. It governs how this Product is matured, not how it behaves, so no runtime Domain owns it."
+}
+---
 # CD-0091: Maturity and audience-commitment promotion ladder
 
 - **Status:** Accepted
@@ -110,5 +122,5 @@ the rung bars in D3 and D4 already state what each claim must prove.
   without restating the ladder.
 - Concord's `maturity` remains `prototype` and its `audience_commitment` remains
   `operator_only`.
-- `python3 scripts/check-json.py`, `check-doc-links.py`,
-  `check-knowledge-index.py`, and `check-public-content.py` pass.
+- `python3 scripts/check-json.py`, `check-doc-links.py`, and
+  `check-public-content.py` pass.

@@ -4,32 +4,39 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"path"
-	"sort"
 	"strings"
-
-	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-// The knowledge manifest is composed from shards under .concord/docs/knowledge/
-// (CD-0114). The head shard carries the root fields, the domain registry is
-// its own shard, and every record is one file under the record tree. No
-// committed file lists every record, so two commits that each add a record
-// never touch the same line.
+// Historical committed-shard reading. The manifest document these layouts
+// carry retired as authority with the law folder; the layout reader survives
+// only where committed history still names it — the outside-law attribution
+// reads candidate branches in the layout that revision actually carries, and
+// the worktree audit reads lesson record paths. No runtime read answers from
+// these shards.
 const (
 	knowledgeShardRoot     = ".concord/docs/knowledge"
 	knowledgeHeadPath      = ".concord/docs/knowledge/manifest.json"
 	knowledgeRegistryPath  = ".concord/docs/knowledge/domain-registry.json"
 	knowledgeRecordTree    = ".concord/docs/knowledge/records"
 	knowledgeRecordTreeDir = knowledgeRecordTree + "/"
+	// manifestRecordPathPrefix and its pre-migration twin are the record path
+	// tiers the historical shard layouts carry. They name committed history,
+	// not runtime authority: the law folder is the acceptance authority.
+	manifestRecordPathPrefix             = ".concord/docs/"
+	preMigrationManifestRecordPathPrefix = "docs/"
+	// maxKnowledgeRecord bounds one historical record shard the layout
+	// reader reads from committed candidate-branch history.
+	maxKnowledgeRecord = 16 * 1024
 )
 
-// knowledgeShardLayout is one shard-home tier a revision may carry
-// (CD-0194 D5). The first layout a commit carries wins; record paths in that
-// revision validate under the same tier's prefix.
+// knowledgeShardLayout is one shard-home tier a committed revision may
+// carry (CD-0194 D5). The runtime law folder replaced this layout as
+// authority; the layout reader survives only for committed history that
+// still names it: the outside-law attribution reads candidate branches in
+// the layout that revision actually carries.
 type knowledgeShardLayout struct {
 	root             string
 	headPath         string
@@ -67,85 +74,6 @@ type knowledgeShards struct {
 	registry         []byte
 	records          map[string][]byte
 	recordPathPrefix string
-}
-
-// composeKnowledgeManifest assembles the manifest document the shards
-// describe and parses it under the same strict rules as an authored
-// aggregate. Records are ordered by shard file name, which the generator
-// pins to the record id.
-func composeKnowledgeManifest(shards knowledgeShards) (KnowledgeManifest, error) {
-	if len(shards.head) == 0 {
-		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "knowledge manifest head is empty", false, "commit "+knowledgeHeadPath)
-	}
-	if err := payloadschema.ValidateUniqueJSON(shards.head); err != nil {
-		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "knowledge manifest head contains duplicate JSON keys", false, "remove duplicate keys from "+knowledgeHeadPath)
-	}
-	var head map[string]json.RawMessage
-	if err := json.Unmarshal(shards.head, &head); err != nil {
-		return KnowledgeManifest{}, wrapFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "knowledge manifest head is not a JSON object", false, "repair "+knowledgeHeadPath, err)
-	}
-	for _, reserved := range []string{"domain_registry", "records"} {
-		if _, present := head[reserved]; present {
-			return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "knowledge manifest head carries a composed field: "+reserved, false, "move "+reserved+" to its shard")
-		}
-	}
-	if len(shards.registry) != 0 {
-		if err := payloadschema.ValidateUniqueJSON(shards.registry); err != nil {
-			return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "domain registry shard contains duplicate JSON keys", false, "remove duplicate keys from "+knowledgeRegistryPath)
-		}
-		if !json.Valid(shards.registry) {
-			return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "domain registry shard is not valid JSON", false, "repair "+knowledgeRegistryPath)
-		}
-		head["domain_registry"] = json.RawMessage(bytes.TrimSpace(shards.registry))
-	}
-	if len(shards.records) > maxManifestRecords {
-		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "knowledge record shards exceed the bounded record count", false, "publish at most 1000 records")
-	}
-	names := make([]string, 0, len(shards.records))
-	for name := range shards.records {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	records := make([]json.RawMessage, 0, len(names))
-	for _, name := range names {
-		shard := shards.records[name]
-		if err := payloadschema.ValidateUniqueJSON(shard); err != nil {
-			return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "knowledge record shard contains duplicate JSON keys: "+name, false, "remove duplicate keys from the record shard")
-		}
-		if !json.Valid(shard) {
-			return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "knowledge record shard is not valid JSON: "+name, false, "repair the record shard")
-		}
-		records = append(records, json.RawMessage(bytes.TrimSpace(shard)))
-	}
-	encodedRecords, err := json.Marshal(records)
-	if err != nil {
-		return KnowledgeManifest{}, wrapFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "cannot encode the knowledge record list", false, "repair the record shards", err)
-	}
-	head["records"] = encodedRecords
-	composed, err := json.Marshal(head)
-	if err != nil {
-		return KnowledgeManifest{}, wrapFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "cannot encode the composed knowledge manifest", false, "repair the manifest shards", err)
-	}
-	pathPrefix := shards.recordPathPrefix
-	if pathPrefix == "" {
-		pathPrefix = manifestRecordPathPrefix
-	}
-	return parseKnowledgeManifestAtPrefix(composed, pathPrefix)
-}
-
-// readKnowledgeShardsAtCommitRunner reads the shard tree at one commit
-// through a single git archive call on the caller's runner, so an injected
-// test runner can execute the extraction. The second result is false when the commit carries no head
-// shard in any layout, which is the shape a commit that predates the shards
-// has. The newest layout the commit carries wins (CD-0194 D5).
-func readKnowledgeShardsAtCommitRunner(ctx context.Context, runner GitRunner, repo, commit string) (knowledgeShards, bool, error) {
-	for _, layout := range knowledgeShardLayouts {
-		shards, sharded, err := readKnowledgeShardsAtCommitLayout(ctx, runner, repo, commit, layout)
-		if err != nil || sharded {
-			return shards, sharded, err
-		}
-	}
-	return knowledgeShards{}, false, nil
 }
 
 func readKnowledgeShardsAtCommitLayout(ctx context.Context, runner GitRunner, repo, commit string, layout knowledgeShardLayout) (knowledgeShards, bool, error) {

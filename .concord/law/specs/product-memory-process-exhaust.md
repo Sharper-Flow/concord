@@ -1,3 +1,28 @@
+---
+{
+  "id": "PM9",
+  "title": "product memory process exhaust",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Salvage and the authenticated publisher's summary attestation are publication properties, not query-corpus cases. TestPublishCanonicalNoteCommitsOneNote and TestCompactionPayloadRequiresExplicitUniqueScopeArrays in internal/store/knowledge_index_test.go are candidate witnesses; integrated attestation coverage remains unmeasured."
+    },
+    {
+      "criterion": 2,
+      "exemption": "The absence of a receipt mechanism cannot be exercised by a positive scenario. The guarantee is proved structurally by the registry sweep of TestPM8AndPM9DeclareNoEvidenceOrReceiptStore (internal/store/pm8_pm9_absence_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Typed unavailability is a query property. The guarantee is proved by TestQueryQ10ReturnsAmbiguousAsTypedResult and the typed-outcome tests of internal/store/query_test.go."
+    }
+  ]
+}
+---
 # Concord Process-Exhaust Salvage and Receipt (PM9)
 
 > **Status:** **Accepted — binding until superseded.**

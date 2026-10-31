@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0022",
+  "title": "Active research findings carry applies-to scope",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0022: Active Research Findings Carry Applies-To Scope
 
 **Status:** Accepted under operator approval.

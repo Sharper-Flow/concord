@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0072",
+  "title": "File-write trunk protection is accepted as unguarded",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "repository-verification",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0072: File-write trunk protection is accepted as unguarded
 
 - **Status:** Accepted

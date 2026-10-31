@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0192",
+  "title": "The refine pass uses a verification report",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0138"
+    }
+  ]
+}
+---
 # CD-0192: The refine pass uses a verification report
 
 - **Status:** Accepted
@@ -73,5 +90,5 @@ runner, lease, epoch-timed acquisition or exact-argv gate.
   mixed-candidate evidence.
 - `python3 scripts/test-project-tooling.py` proves the checker and the schema
   refuse shell quoting and shell operators in an invocation.
-- `python3 scripts/check-knowledge-index.py` proves this record registers
-  with a current content hash.
+- Committed law-folder snapshot validation registers the record; its content
+  digest is derived from the committed bytes at every read.

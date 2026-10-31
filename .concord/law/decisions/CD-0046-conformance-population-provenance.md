@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0046",
+  "title": "Conformance population authority is invocation provenance, not measured host isolation",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0046: Conformance population authority is invocation provenance, not measured host isolation
 
 - **Status:** Accepted
@@ -80,6 +91,5 @@ identity. Neither outcome asserts measured host isolation.
   accepted-population zero-escaped-busy policy.
 - `.github/workflows/ci.yml` sets `CONCORD_ACCEPTANCE_RUNNER: "1"` on the
   acceptance-conformance step.
-- `python3 scripts/check-doc-links.py`,
-  `python3 scripts/check-knowledge-index.py`, and
+- `python3 scripts/check-doc-links.py` and
   `python3 scripts/check-public-content.py` pass.

@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0166",
+  "title": "Coordinator-owned delivery gate",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0156"
+    }
+  ]
+}
+---
 # CD-0166: Coordinator-owned delivery gate on workflow effect steps
 
 - **Status:** Accepted

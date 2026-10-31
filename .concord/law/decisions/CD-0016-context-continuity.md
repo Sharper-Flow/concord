@@ -1,3 +1,19 @@
+---
+{
+  "id": "CD-0016",
+  "title": "Context continuity",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-call-boundary",
+    "agent-contract",
+    "agent-surface"
+  ]
+}
+---
 # CD-0016: Context continuity
 
 **Status:** Accepted under operator approval.

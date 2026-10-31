@@ -14,7 +14,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
+func TestAcceptedQ1ToQ8AndDomainCorpus(t *testing.T) {
 	t.Parallel()
 	corpus, err := pm1fixture.Load()
 	if err != nil {
@@ -39,12 +39,12 @@ func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
 	results := map[string]any{}
 	run := 0
 	for _, scenario := range corpus.Scenarios {
-		if !q1ToQ10(scenario.QueryID) {
+		if !q1ToQ8AndDomains(scenario.QueryID) {
 			continue
 		}
 		run++
 		input := resolveCorpusInput(scenario.Input, results)
-		result, err := executeCorpusQuery(context.Background(), s, scenario.QueryID, input, scenario.FixtureOverride, gitKnowledge.Home)
+		result, err := executeCorpusQuery(context.Background(), s, scenario.QueryID, input, scenario.FixtureOverride)
 		if scenario.ExpectedError.Kind != "" {
 			if err == nil {
 				t.Fatalf("%s: expected %s, got success", scenario.ID, scenario.ExpectedError.Kind)
@@ -76,12 +76,15 @@ func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
 		}
 		results[scenario.ID] = encoded
 	}
-	if run != 26 {
-		t.Fatalf("Q1-Q10 corpus scenarios executed = %d, want 26", run)
+	if run != 21 {
+		t.Fatalf("retained Q1-Q8 and C22 corpus scenarios executed = %d, want 21", run)
 	}
 }
 
-func q1ToQ10(id string) bool {
+// q1ToQ8AndDomains selects the retained corpus scenarios: the Q1-Q8 read
+// family and the C22 Domain reads. PM1.Q9 and PM1.Q10 scenarios retired with
+// the knowledge search and its served-projection surface.
+func q1ToQ8AndDomains(id string) bool {
 	if strings.HasPrefix(id, "C22.") {
 		return true
 	}
@@ -89,7 +92,7 @@ func q1ToQ10(id string) bool {
 		return false
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(id, "PM1.Q"))
-	return err == nil && n >= 1 && n <= 10
+	return err == nil && n >= 1 && n <= 8
 }
 
 func asFailure(err error, target **store.Failure) bool {
@@ -119,7 +122,7 @@ func resolveCorpusKnowledgeAlias(path string, value any, knowledge pm1fixture.Gi
 	return value
 }
 
-func executeCorpusQuery(ctx context.Context, s *store.Store, id string, input map[string]any, override map[string]any, home store.KnowledgeHome) (any, error) {
+func executeCorpusQuery(ctx context.Context, s *store.Store, id string, input map[string]any, override map[string]any) (any, error) {
 	if override["source_stale"] == true && override["staleness_policy"] == "review_required" {
 		return nil, &store.Failure{Kind: store.KindStaleRequiresReview, Op: id, Detail: "live source is stale and requires review", RetrySafe: false, RecoveryAction: "review source freshness before retrying"}
 	}
@@ -162,25 +165,6 @@ func executeCorpusQuery(ctx context.Context, s *store.Store, id string, input ma
 		return s.QueryQ7(ctx, store.Q7Request{Work: stringInput(input, "work"), Direction: stringInput(input, "direction"), RecordKinds: stringSliceInput(input, "record_kinds"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor")})
 	case "PM1.Q8":
 		return s.QueryQ8(ctx, store.Q8Request{Work: stringInput(input, "work"), RelationKinds: stringSliceInput(input, "relation_kinds"), Direction: stringInput(input, "direction")})
-	case "PM1.Q9":
-		result, err := s.QueryQ9(ctx, store.Q9Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), Domain: stringInput(input, "domain"), Kinds: stringSliceInput(input, "kinds"), Tags: stringSliceInput(input, "tags"), Text: stringInput(input, "text"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor"), AllowDegraded: boolInput(input, "allow_degraded"), Home: home})
-		if err != nil {
-			return nil, err
-		}
-		if override["knowledge_index_lagging"] == true {
-			kept := result.Items[:0]
-			for _, item := range result.Items {
-				if item.ID != "knowledge-decision" {
-					kept = append(kept, item)
-				}
-			}
-			result.Items = kept
-			result.Authority = "degraded"
-			result.Omissions = []string{"knowledge-decision"}
-		}
-		return result, nil
-	case "PM1.Q10":
-		return s.QueryQ10(ctx, store.Q10Request{Work: stringInput(input, "work"), AllowDegraded: boolInput(input, "allow_degraded"), Home: home})
 	}
 	return nil, fmt.Errorf("unsupported corpus query %s", id)
 }
@@ -192,7 +176,6 @@ func intInput(m map[string]any, k string) int {
 	}
 	return int(v)
 }
-func boolInput(m map[string]any, k string) bool { v, _ := m[k].(bool); return v }
 func stringSliceInput(m map[string]any, k string) []string {
 	v, ok := m[k].([]any)
 	if !ok {

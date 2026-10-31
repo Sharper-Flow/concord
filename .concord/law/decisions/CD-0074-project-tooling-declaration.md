@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0074",
+  "title": "A project declares its ready tooling as a validated manifest",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "repository-verification",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0074: A project declares its ready tooling as a validated manifest
 
 - **Status:** Accepted
@@ -131,5 +142,5 @@ be structurally validated, drifts silently, and is already pointer-only by
   duplicate keys, schema-free adoption, JSON-whitespace-only text, raw-length
   boundaries, schema/checker lexical agreement, and multiline invocations) and
   runs in CI.
-- `python3 scripts/check-doc-links.py`, `python3 scripts/check-agents-md.py`,
-  and `python3 scripts/check-knowledge-index.py` pass.
+- `python3 scripts/check-doc-links.py` and
+  `python3 scripts/check-agents-md.py` pass.

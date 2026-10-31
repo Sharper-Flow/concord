@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -108,6 +109,12 @@ func governingRequirementsForProjectIDs(ctx context.Context, q queryer, ids []st
 	return out, rows.Err()
 }
 
+// knownGoverningRequirementRefsForProducts returns the registered governing
+// requirement refs plus the current law IDs of each Product's designated law
+// homes. The law IDs come from the verified committed law-folder snapshots the
+// pre-transaction proof carries; the capture transaction runs this check, so a
+// home without a verified snapshot refuses rather than answering from a stale
+// projection.
 func knownGoverningRequirementRefsForProducts(ctx context.Context, q queryer, productIDs []string) ([]string, error) {
 	if len(productIDs) == 0 {
 		return nil, nil
@@ -117,28 +124,48 @@ func knownGoverningRequirementRefsForProducts(ctx context.Context, q queryer, pr
 	for i, id := range productIDs {
 		placeholders[i], args[i] = "?", id
 	}
-	query := `SELECT requirement_ref FROM project_governing_requirements WHERE project_id IN (
+	query := `SELECT DISTINCT requirement_ref FROM project_governing_requirements WHERE project_id IN (
 		SELECT project_id FROM product_projects WHERE product_id IN (` + strings.Join(placeholders, ",") + `)
-	) UNION SELECT law_id FROM law_subjects WHERE home_project_id IN (
-		SELECT project_id FROM product_projects WHERE product_id IN (` + strings.Join(placeholders, ",") + `)
-	) AND status='accepted' ORDER BY 1`
-	queryArgs := append(append([]any{}, args...), args...)
-	rows, err := q.QueryContext(ctx, query, queryArgs...)
+	) ORDER BY 1`
+	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "resolve_governing_requirement_refs", "cannot resolve registered requirements and accepted laws", true, "retry once the database is readable", err)
+		return nil, wrapFailure(KindUnavailable, "resolve_governing_requirement_refs", "cannot resolve registered governing requirements", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
+	seen := map[string]bool{}
 	var refs []string
 	for rows.Next() {
 		var ref string
 		if err := rows.Scan(&ref); err != nil {
 			return nil, err
 		}
-		refs = append(refs, ref)
+		if !seen[ref] {
+			seen[ref] = true
+			refs = append(refs, ref)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	for _, productID := range productIDs {
+		sources, err := resolveKnowledgeQuerySources(ctx, q, productID, "resolve_governing_requirement_refs")
+		if err != nil {
+			return nil, err
+		}
+		for _, source := range sources {
+			snapshot, err := lawSnapshotForSource(ctx, source, "resolve_governing_requirement_refs")
+			if err != nil {
+				return nil, err
+			}
+			for _, lawID := range snapshot.LawIDs() {
+				if !seen[lawID] {
+					seen[lawID] = true
+					refs = append(refs, lawID)
+				}
+			}
+		}
+	}
+	sort.Strings(refs)
 	return refs, nil
 }
 

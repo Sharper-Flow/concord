@@ -1004,9 +1004,8 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	manifest := lawTestManifest()
-	manifest.Records = []KnowledgeRecord{}
-	writeAggregateAsShards(t, repo, mustJSONValue(manifest))
+	writeKnowledgeFile(t, repo, ".concord/docs/knowledge/domain-registry.json", fixtureLawFolderRegistry)
+	commitKnowledgeRepo(t, repo, "fixture registry")
 	peerID := livenessPeerWorkID
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
 		{EventID: peerID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: peerID, Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Peer work","priority":1}`)},

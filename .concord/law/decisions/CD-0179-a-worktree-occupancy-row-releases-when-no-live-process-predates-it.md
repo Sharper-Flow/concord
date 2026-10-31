@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0179",
+  "title": "A worktree occupancy row releases when no live process predates it, and the reclaim limit counts attempts",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-4ff581eb0bec60ebdfeb0c74",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0178"
+    }
+  ]
+}
+---
 # CD-0179: A worktree occupancy row releases when no live process can predate it, and the reclaim limit counts attempts
 
 - **Status:** Accepted
@@ -151,4 +170,5 @@ on them.
 - `bun test adapter/opencode/terminal-vacate.test.ts` proves the terminal
   transition vacates and moves the session, skips every caller without a
   vacate target, and keeps the transition on a failed move.
-- `python3 scripts/check-knowledge-index.py` proves this record is registered.
+- Folder membership registers the record: the file sits under `.concord/law/`
+  on the default branch.

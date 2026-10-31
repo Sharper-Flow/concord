@@ -303,17 +303,11 @@ func terminalCleanupFixtureForKind(t *testing.T, kind string, beforeCancel ...fu
 	requireTerminalHash(t, s, "work-done", hash)
 	repo := initKnowledgeRepo(t)
 	writeKnowledgeFile(t, repo, ".concord/docs/work/work-done.md", content)
-	commitKnowledgeRepo(t, repo, "canonical outcome")
+	commit := commitKnowledgeRepo(t, repo, "canonical outcome")
 	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "prod-alpha", home)
 	terminalCleanupSQL(t, s, `DELETE FROM product_projects WHERE product_id='anchor-product-proj-web'`, `DELETE FROM products WHERE id='anchor-product-proj-web'`)
-	if err := s.RebuildKnowledgeIndex(t.Context(), home); err != nil {
-		t.Fatal(err)
-	}
-	var indexedHash string
-	if err := s.db.QueryRowContext(t.Context(), `SELECT content_hash FROM archived_work WHERE id='work-done'`).Scan(&indexedHash); err != nil {
-		t.Fatal(err)
-	}
+	indexedHash := seedArchivedWorkNote(t, s, home, commit, ".concord/docs/work/work-done.md", content)
 	if indexedHash != hash {
 		t.Fatalf("published hash=%q, reviewed hash=%q", indexedHash, hash)
 	}
@@ -644,15 +638,14 @@ func TestTerminalCleanupRetiresUnreadKnowledgeTables(t *testing.T) {
 func TestTerminalCleanupPublishedIdentityCannotBeCapturedAgain(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
-	writeKnowledgeFile(t, repo, ".concord/docs/work/closed-work.md", canonicalWorkNote("closed-work", "2026-08-07T00:00:00Z"))
-	commitKnowledgeRepo(t, repo, "canonical work outcome")
+	note := canonicalWorkNote("closed-work", "2026-08-07T00:00:00Z")
+	writeKnowledgeFile(t, repo, ".concord/docs/work/closed-work.md", note)
+	commit := commitKnowledgeRepo(t, repo, "canonical work outcome")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
 	seedKnowledgeWork(t, s, "live-work", "Live")
 	authorizeKnowledgeProductHome(t, s, "prod-alpha", home)
-	if err := s.RebuildKnowledgeIndex(t.Context(), home); err != nil {
-		t.Fatal(err)
-	}
+	seedArchivedWorkNote(t, s, home, commit, ".concord/docs/work/closed-work.md", note)
 	capture := func(id string) error {
 		return ApplyOperation(t.Context(), s, Operation{Events: []Event{
 			{EventID: "capture-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: workCreatedCurrentVersion(), Payload: []byte(`{"work_kind":"task","title":"Capture","priority":0}`)},
@@ -678,9 +671,7 @@ func TestTerminalCleanupLegacyComponentsDoNotBecomeDomains(t *testing.T) {
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "prod-alpha", home)
-	if err := s.RebuildKnowledgeIndex(t.Context(), home); err != nil {
-		t.Fatal(err)
-	}
+	seedArchivedWorkNote(t, s, home, commitKnowledgeRepo(t, repo, "legacy outcome"), ".concord/docs/work/legacy-work.md", content)
 	var count int
 	if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM archived_work_domains WHERE work_id='legacy-work'`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("legacy components became Domain scope: count=%d, err=%v", count, err)

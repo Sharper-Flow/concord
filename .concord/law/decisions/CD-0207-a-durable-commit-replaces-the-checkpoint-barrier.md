@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0207",
+  "title": "A durable commit replaces the checkpoint barrier",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0050"
+    }
+  ]
+}
+---
 # CD-0207: A durable commit replaces the checkpoint barrier
 
 - **Status:** Accepted
@@ -125,5 +142,5 @@ The public entry points retain durable commits and their separate proof.
   transaction failure reaches the caller.
 - `internal/agent.TestWorkflowReplayCommitsDurablyUnderPinnedReader` proves the
   acknowledgement succeeds while another connection holds a WAL read mark.
-- `python3 scripts/check-knowledge-index.py` proves this record registers
-  with a current content hash.
+- Committed law-folder snapshot validation registers the record; its content
+  digest is derived from the committed bytes at every read.

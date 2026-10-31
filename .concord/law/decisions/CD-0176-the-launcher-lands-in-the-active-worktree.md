@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0176",
+  "title": "The claimed worktree is the managed session directory",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0093"
+    }
+  ]
+}
+---
 # CD-0176: The claimed worktree is the managed session directory
 
 - **Status:** Accepted
@@ -79,5 +96,4 @@ migration, event, or operator setting changes.
 - `bun test adapter/opencode/concord.test.ts -t "work start verifies the
   session directory after the move"` proves the verified move and read-back
   that establish the directory (CD-0098).
-- `python3 scripts/check-knowledge-index.py` and
-  `python3 scripts/generate-knowledge-index.py --check` pass.
+- Committed law-folder snapshot validation passes.

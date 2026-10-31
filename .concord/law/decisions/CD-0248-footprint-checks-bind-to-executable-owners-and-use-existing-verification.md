@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0248",
+  "title": "Footprint checks bind to executable owners and use existing verification",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "repository-verification",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0074"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0090"
+    }
+  ]
+}
+---
 # CD-0248: Footprint checks bind to executable owners and use existing verification
 
 - **Status:** Accepted
@@ -54,7 +75,6 @@ The required continuity population in
 - [`python3 scripts/check-project-tooling.py`](../../../scripts/check-project-tooling.py)
 - [`python3 scripts/test-project-tooling.py`](../../../scripts/test-project-tooling.py)
 - [`python3 scripts/test-adapter-acceptance.py`](../../../scripts/test-adapter-acceptance.py)
-- [`python3 scripts/check-knowledge-index.py`](../../../scripts/check-knowledge-index.py)
 
 ## Related law
 

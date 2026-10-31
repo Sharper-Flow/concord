@@ -990,8 +990,8 @@ func TestAgentJobsCorpus(t *testing.T) {
 
 	// The corpus count is pinned so scenario removal cannot masquerade as a
 	// complete binding run.
-	if len(corpus.Scenarios) != 19 {
-		t.Fatalf("corpus declares %d scenarios, want 19", len(corpus.Scenarios))
+	if len(corpus.Scenarios) != 17 {
+		t.Fatalf("corpus declares %d scenarios, want 17", len(corpus.Scenarios))
 	}
 
 	for _, sc := range corpus.Scenarios {
@@ -1329,14 +1329,11 @@ func init() {
 	jobBindings["AJ3-capture-work"] = bindAJ3CaptureWork
 	jobBindings["AJ3-spec-conflict"] = bindAJ3SpecConflict
 	jobBindings["AJ8-ground-truth-reclamation"] = bindAJ8GroundTruthReclamation
-	// AJ7 knowledge bindings (#160). The handlers live in
-	// agent_jobs_knowledge_bindings_test.go.
 	// AJ6 compaction bindings (#161). The handlers live in
-	// agent_jobs_compaction_bindings_test.go.
+	// agent_jobs_compaction_bindings_test.go. The AJ7 knowledge retrieval
+	// bindings were retired with the public knowledge family.
 	jobBindings["AJ6-compact-terminal-work"] = bindAJ6CompactTerminalWork
 	jobBindings["AJ6-partial-publication"] = bindAJ6PartialPublication
-	jobBindings["AJ7-search-knowledge"] = bindAJ7SearchKnowledge
-	jobBindings["AJ7-degraded-index"] = bindAJ7DegradedIndex
 	jobBindings["AJ4-start-valid-work"] = bindAJ4StartValidWork
 	jobBindings["AJ4-complete-valid-work"] = bindAJ4CompleteValidWork
 	jobBindings["AJ4-completion-missing-evidence"] = bindAJ4CompletionMissingEvidence

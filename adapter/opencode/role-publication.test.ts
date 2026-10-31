@@ -26,7 +26,7 @@ const utilities = JSON.parse(
   fs.readFileSync(path.resolve(import.meta.dir, "../../contracts/agent-utilities.v1.json"), "utf8"),
 ) as { utilities: Array<{ id: string; allowed_tools: string[] }> }
 const UTILITY_AGENTS = utilities.utilities.map((utility) => `concord-${utility.id}`)
-const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_domain"]
+const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_domain"]
 
 // Every registered parameter root, measured through the production
 // definition hooks exactly as the host renders them for the provider.

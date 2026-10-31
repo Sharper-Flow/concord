@@ -8,9 +8,7 @@
 
 ## Context
 
-The predecessor enumeration (`.concord/docs/predecessor-operational-coverage.md` §3)
-lists "restart cleanly into a typed agent after a boundary rather than
-summarizing". Concord must preserve authority across context boundaries;
+Concord must preserve authority across context boundaries;
 host session management owns working memory and subagent execution.
 
 ## Decision

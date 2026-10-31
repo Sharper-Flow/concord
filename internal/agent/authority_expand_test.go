@@ -10,7 +10,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CD-0097 D6: an expansion preserves every existing capability, Product scope,
+// TS5: an expansion preserves every existing capability, Product scope,
 // and Project scope, never touches the stored principal, and replays as an
 // idempotent no-op. The replace verb keeps its full-statement semantics.
 

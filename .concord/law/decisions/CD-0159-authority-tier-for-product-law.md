@@ -127,7 +127,7 @@ A scope cut stays governed by the request, not by the tier. CD-0006 and CD-0012
 continue to forbid a silent scope cut and a substituted outcome, whatever tier
 the touched law carries.
 
-### D5. Defaults for existing records and for an import
+### D5. Defaults for existing records
 
 The legislative default cohort is closed: the decision and constitutional
 records present at Git commit `fe69821f724bc8d40ec2730c9fd390bd80f1f527` that
@@ -154,11 +154,6 @@ The records present at that commit took their default tier by kind:
 
 A decision record and a constitutional record are operator-accepted by
 construction. The other kinds describe built behavior or observed material.
-
-Every record imported from a predecessor specification tree lands as `derived`.
-The predecessor change workflow authored those statements, and its archive proves
-it. The operator may promote any record to `legislated` afterward. Promotion is
-deliberate and needs an approved contract under D2.
 
 ### D6. A store verifies only the history it holds
 

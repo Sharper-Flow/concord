@@ -3,9 +3,7 @@
     "workflow-engine"
   ],
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-14T00:00:00Z",
   "evidence": [
@@ -23,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c12fc18774dc9787d085e7a2202802b23b7b6705525d7d61f86daa88b70041c2",
+  "sha256": "sha256:46f780fc40b4c6db96769c802c63f405d5e4c5be4809a958fd72b33b6ce15660",
   "status": "accepted",
   "summary": "Recorded verdicts become readable, read-scoped results: every session except the recorded executing actor audits an acceptance; influence stays with CD-0013 D5.",
   "tags": [

@@ -67,7 +67,7 @@ func newAuthorizedService(t *testing.T, db *store.Store, client, principal strin
 // attribution, so it needs the standing the Product and the Project already
 // have: a trusted client names the agents it may present. The scope is
 // fail-closed, so a client that names none authorizes none. That is the state
-// every client registered before the scope existed holds, and CD-0097 D6
+// every client registered before the scope existed holds, and TS5
 // additive expansion is the remedy: it grants the missing agents while every
 // existing grant and the stored principal survive.
 func TestAgentScopeBoundsTheAgentAClientMayPresent(t *testing.T) {

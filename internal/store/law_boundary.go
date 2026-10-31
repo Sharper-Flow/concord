@@ -865,14 +865,6 @@ func mandatedReferenceForID(mandated []string, lawID string) (string, bool) {
 	return "", false
 }
 
-func stringArgs(values []string) []any {
-	args := make([]any, len(values))
-	for i, value := range values {
-		args[i] = value
-	}
-	return args
-}
-
 // validateDerivedLawModification holds the tier-scoped half of the
 // Product-truth boundary that CD-0222 D5 states: a contract that does not change
 // Product truth may revise derived law in-contract, and nothing else. It reads each

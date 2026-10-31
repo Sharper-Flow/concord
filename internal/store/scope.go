@@ -110,27 +110,6 @@ func productsForWorkIDs(ctx context.Context, q queryer, ids []string) (map[strin
 	return out, rows.Err()
 }
 
-func (s *Store) ProductsForKnowledgeID(ctx context.Context, id string) ([]string, error) {
-	return productsForKnowledgeID(ctx, s.db, id)
-}
-
-func productsForKnowledgeID(ctx context.Context, q queryer, id string) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT product_id FROM archived_work_products WHERE work_id=? ORDER BY product_id`, id)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "scope", "cannot resolve knowledge Product scope", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			return nil, err
-		}
-		out = append(out, p)
-	}
-	return out, rows.Err()
-}
-
 func (s *Store) ProductsForProjectIDs(ctx context.Context, ids []string) (map[string][]string, error) {
 	return productsForProjectIDs(ctx, s.db, ids)
 }
@@ -266,17 +245,6 @@ func knowledgeHomeForLocator(ctx context.Context, q queryer, projectID, locatorI
 		headRef = "HEAD"
 	}
 	return KnowledgeHome{HomeProjectID: projectID, HomeLocatorID: locatorID, RepoPath: value, HeadRef: headRef}, nil
-}
-
-// ResolveKnowledgeQueryHome resolves the git authority before any watermark or
-// archived-row read. Product homes have precedence over ambient Project scope;
-// Project-only calls use exactly one canonical-path locator. A caller-supplied
-// KnowledgeHome is evidence to compare, never an authority override.
-func (s *Store) ResolveKnowledgeQueryHome(ctx context.Context, productID, projectID string, supplied KnowledgeHome, op string) (KnowledgeHome, error) {
-	if s == nil || s.db == nil {
-		return KnowledgeHome{}, newFailure(KindUnavailable, op, "store is not open", false, "open a store before resolving knowledge authority")
-	}
-	return resolveKnowledgeQueryHome(ctx, s.db, productID, projectID, supplied, op)
 }
 
 func resolveKnowledgeQueryHome(ctx context.Context, q queryer, productID, projectID string, supplied KnowledgeHome, op string) (KnowledgeHome, error) {

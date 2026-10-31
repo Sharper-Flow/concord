@@ -231,3 +231,9 @@ func TestRuntimeStateWriterCommitsWithItsRepresentation(t *testing.T) {
 		}
 	}
 }
+
+// knowledgeStateWriter is the writer row a released binary recorded for the
+// retired knowledge projection. Fixtures seed it as historical state.
+func knowledgeStateWriter(projectionVersion int64) runtimeStateWriter {
+	return runtimeStateWriter{surface: "knowledge", projectionVersion: projectionVersion}
+}

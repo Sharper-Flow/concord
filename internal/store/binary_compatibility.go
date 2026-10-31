@@ -299,10 +299,6 @@ func workflowStateWriter(pin WorkflowDefinitionPin) runtimeStateWriter {
 	return runtimeStateWriter{surface: "workflow", definitionRef: pin.Ref, digest: pin.Digest}
 }
 
-func knowledgeStateWriter(projectionVersion int64) runtimeStateWriter {
-	return runtimeStateWriter{surface: "knowledge", projectionVersion: projectionVersion}
-}
-
 func binaryCompatibilityFailure(ctx context.Context, q queryer, subject runtimeStateWriter, detail string) error {
 	writer := "unknown (writer provenance was not recorded)"
 	present, err := columnPresent(ctx, q, "runtime_state_writers", "binary_version")

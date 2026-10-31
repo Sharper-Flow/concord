@@ -354,16 +354,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ResolveKnowledgeQueryHome", run: func() error {
-			home, err := s.ResolveKnowledgeQueryHome(ctx, "neighbor-knowledge-product", "", KnowledgeHome{}, "PM1.Q9")
-			if err != nil {
-				return err
-			}
-			if home.RepoPath != knowledgeRepo {
-				return fmt.Errorf("home=%+v", home)
-			}
-			return nil
-		}},
 		{name: "KnowledgeHomeForLocator", run: func() error {
 			home, err := s.KnowledgeHomeForLocator(ctx, "home", "neighbor-locator", "")
 			if err != nil {
@@ -467,16 +457,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if len(products["proj"]) != 1 || products["proj"][0] != "prod" {
 				return fmt.Errorf("products=%+v", products)
-			}
-			return nil
-		}},
-		{name: "ProductsForKnowledgeID", run: func() error {
-			products, err := s.ProductsForKnowledgeID(ctx, "neighbor-law")
-			if err != nil {
-				return err
-			}
-			if len(products) != 0 {
-				return fmt.Errorf("products=%v, want none", products)
 			}
 			return nil
 		}},

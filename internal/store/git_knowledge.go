@@ -250,10 +250,6 @@ type treeEntry struct {
 	path string
 }
 
-func gitTreeEntry(ctx context.Context, repo, commitOID, notePath string) (treeEntry, error) {
-	return gitTreeEntryRunner(ctx, runGitRunner{}, repo, commitOID, notePath)
-}
-
 // gitTreeEntryRunner resolves exactly one tree entry at the declared path
 // through the caller's runner, so the dispatch preparation can inject a test
 // runner and keep one shared deadline. A missing or ambiguous path refuses.

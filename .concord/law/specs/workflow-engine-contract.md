@@ -531,9 +531,9 @@ verification step and only for an active-contract predicate whose latest eligibl
 verdict is missing, non-`ok`, or incomparable. An `ok` comparable verdict cannot
 be replaced. The action holds the current step and preserves attempts and evidence.
 
-At a nonterminal human checkpoint that declares `confirm_premise`, the operator
-question maps `Revise` to `supersede_contract`. The action requires a complete
-consecutive successor contract. It records the successor and keeps the current
+At a nonterminal step that declares `confirm_premise`, `supersede_contract`
+revises the contract. The action requires a complete consecutive successor
+contract. It records the successor and keeps the current
 checkpoint. Prior verdicts remain eligible only across every consecutive contract
 version where predicate identity, kind, and canonical payload are unchanged.
 Prior premise confirmations and verdicts for changed or removed predicates do not

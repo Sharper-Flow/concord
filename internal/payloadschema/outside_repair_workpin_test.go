@@ -12,7 +12,7 @@ func TestOutsideRepairWorkPinTypedAbsence(t *testing.T) {
 		"version": 1, "lifecycle": "needed", "cancelled_instance_closes": 0,
 		"workflow_type": "", "step": "",
 		"driving_sessions": []any{},
-		"watermark": "seq:1", "next_valid_intents": []any{},
+		"watermark":        "seq:1", "next_valid_intents": []any{},
 	}
 	validate := func() error {
 		raw, err := json.Marshal(pin)

@@ -13,11 +13,11 @@ import (
 // authenticated workflow_action. The caller-owned transaction is the same
 // transaction used by the action-boundary coordinator.
 type WorkflowActionExecutionRequest struct {
-	WorkID                string
-	ExpectedVersion       int64
-	ActionID              string
-	Payload               json.RawMessage
-	EvidenceRefs          []string
+	WorkID          string
+	ExpectedVersion int64
+	ActionID        string
+	Payload         json.RawMessage
+	EvidenceRefs    []string
 	// EvidenceKinds carries the per-entry evidence kind for each locator the
 	// caller submitted, in submission order. The bind-family event
 	// constructors read it so one locator submitted under two kinds binds two

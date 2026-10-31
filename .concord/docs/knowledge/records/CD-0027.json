@@ -3,9 +3,7 @@
     "workflow-engine"
   ],
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-14T00:00:00Z",
   "evidence": [
@@ -23,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b2f2be805f8a37038e6bfd630a57903e3215d22716916f6119f500386040081a",
+  "sha256": "sha256:dd9f6fad157a9b706c97257cba5d371b4b3dd888c7aa4813379bcccaaa24a717",
   "status": "accepted",
   "summary": "CD-0016's re-derived pinned continuity already prevents silent authority loss across boundaries; restart-into-lane would only preserve in-flight working memory, which the host's session management owns.",
   "tags": [

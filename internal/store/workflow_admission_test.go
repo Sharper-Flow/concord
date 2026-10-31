@@ -48,7 +48,9 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 			s.CorrectionRequestMissing = workflowCorrectionMissingGateReview
 		}, map[string]bool{"record_delivery": false, "request_correction": false}},
 		{"step legality still holds", func(*WorkflowAdmissionState) {}, map[string]bool{"record_verdict": false}},
-		{"confirmation is admitted without an operator question", func(*WorkflowAdmissionState) {}, map[string]bool{"confirm_premise": true, "record_review": true}},
+		{"confirmation is admitted without an operator question", func(s *WorkflowAdmissionState) { s.ActiveContracts = 1 }, map[string]bool{"confirm_premise": true, "record_review": true}},
+		{"confirmation requires an active contract", func(*WorkflowAdmissionState) {}, map[string]bool{"confirm_premise": false, "record_review": true}},
+		{"confirmation refuses duplicate active contracts", func(s *WorkflowAdmissionState) { s.ActiveContracts = 2 }, map[string]bool{"confirm_premise": false, "record_review": true}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

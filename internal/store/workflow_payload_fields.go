@@ -17,13 +17,13 @@ var premiseFloor = withPayloadFieldRevision("premise", func(field WorkflowPayloa
 })
 
 var (
-	confirmPremiseOperatorPayload = withClosedPayload(confirmPremiseOperatorFields)
-	proposalOutOfScopePayload     = withClosedPayload(proposalOutOfScopeActionFields)
-	canonicalVerdictPayload       = withClosedPayload(canonicalVerdictActionFields)
-	openFindingsCorrection        = withAppendedPayloadField(workflowOpenFindingsCorrectionField)
+	confirmPremisePayload     = withClosedPayload(confirmPremiseActionFields)
+	proposalOutOfScopePayload = withClosedPayload(proposalOutOfScopeActionFields)
+	canonicalVerdictPayload   = withClosedPayload(canonicalVerdictActionFields)
+	openFindingsCorrection    = withAppendedPayloadField(workflowOpenFindingsCorrectionField)
 )
 
-func confirmPremiseOperatorFields() []WorkflowPayloadField {
+func confirmPremiseActionFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionIntegerField("contract_version", false),
 	}

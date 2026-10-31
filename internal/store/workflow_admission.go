@@ -389,6 +389,16 @@ func workflowAdmitDeliveryRefused(definition WorkflowDefinition, state WorkflowA
 // workflowAdmitConfirmationRefused answers premise confirmation, completion
 // facts, and the correction request route.
 func workflowAdmitConfirmationRefused(state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
+	// Confirmation records against the one active contract; without exactly
+	// one, the confirmation write refuses, so admission and the pin refuse too.
+	if actionID == "confirm_premise" && state.ActiveContracts == 0 {
+		decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "premise confirmation requires an active workflow contract", false, "restore a verified backup into a new path with concord restore, then swap")
+		return true
+	}
+	if actionID == "confirm_premise" && state.ActiveContracts > 1 {
+		decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "premise confirmation requires exactly one active workflow contract", false, "supersede_contract naming every active contract version")
+		return true
+	}
 	// The artifact-staleness answer is the admission's (CD-0201 D5): while
 	// the artifact the step evaluates is stale, the premise confirmation
 	// cannot step past the verdict. The declared unhealthy_verdict route —

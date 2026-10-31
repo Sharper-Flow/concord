@@ -17,7 +17,7 @@ func TestWorkPinOutstandingEvidenceKindsTypedEnvelope(t *testing.T) {
 			"version": 3, "lifecycle": "in_progress", "cancelled_instance_closes": 0,
 			"workflow_type": "workflow.implementation", "step": "acceptance",
 			"driving_sessions": []any{},
-			"watermark": "seq:3", "next_valid_intents": []any{},
+			"watermark":        "seq:3", "next_valid_intents": []any{},
 			"workflow_definition_digest": "sha256:" + strings.Repeat("0", 64),
 			"obligations":                []string{"verification"},
 		}

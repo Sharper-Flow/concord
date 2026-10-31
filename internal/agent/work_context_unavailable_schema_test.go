@@ -75,7 +75,7 @@ func unavailableWorkPin(view, marker any) (map[string]any, error) {
 		"version": 1, "lifecycle": "in_progress", "cancelled_instance_closes": 0,
 		"workflow_type": "workflow.break_fix", "step": "planning",
 		"driving_sessions": []any{},
-		"watermark": "seq:1", "next_valid_intents": []any{},
+		"watermark":        "seq:1", "next_valid_intents": []any{},
 		"workflow_definition_digest": "sha256:" + strings.Repeat("a", 64),
 		"obligations":                []any{},
 	}

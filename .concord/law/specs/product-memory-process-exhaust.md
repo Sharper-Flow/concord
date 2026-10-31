@@ -3,7 +3,7 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM9; binding CD-0002 amendment.
-> **Binding inputs:** PM1 Q7/Q9/Q10, accepted PM2–PM8, CD-0002 I1–I6,
+> **Binding inputs:** PM1 Q7, accepted PM2–PM8, CD-0002 I1–I6,
 > PM6 publish proof, and compaction-retention-policy retention.
 > **Does not decide:** PM10 backup/restore, TS1–TS9, external CI retention,
 > or a durable WIP-byte store.
@@ -12,7 +12,7 @@
 
 CD-0002 carried a process-exhaust rule that assumed a salvage-and-receipt
 handoff. The
-binding inputs are PM1 Q7/Q9/Q10, the accepted PM2 through PM8, PM6 publish
+binding inputs are PM1 Q7, the accepted PM2 through PM8, PM6 publish
 proof, and compaction-retention-policy retention. This record closes the deferral: closure
 publishes one completion receipt, evidence is captured by its producer and bound
 to its subject, and the store keeps current state and finite verified snapshots

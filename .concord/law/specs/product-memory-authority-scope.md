@@ -35,8 +35,11 @@ machine.
   `~/.local/share/concord/concord.db`).
 - **Logical boundaries remain first-class:** Product and Project scope are enforced
   by the domain model and authorization, not by separate database files.
-- **Repo-local durable knowledge remains separate:** completed-work notes,
-  decisions, and lessons live in git; SQLite holds only a derived knowledge index.
+- **Repo-local durable knowledge remains separate:** completed-work notes and
+  lessons live in git. SQLite retains verified work-note linkage, not a
+  lesson registry or law catalog. Product law is the default-branch
+  `.concord/law/` folder, which the store reads into one explicit committed
+  in-memory snapshot.
 - **Research remains local:** CD-0215 pack tables live in this same SQLite
   database, never become Git knowledge, and are deleted only by explicit retirement.
 - **Product portability uses logical export:** an export is a versioned,
@@ -57,7 +60,7 @@ Accepted PM1 requires direct, bounded answers for:
 - Product-wide work snapshots and lists,
 - shared-Project ownership ambiguity,
 - one canonical work item spanning Projects,
-- dependencies/history and durable-knowledge retrieval.
+- dependencies and history.
 
 PM1 explicitly rejects application fan-out across authority stores. A global file
 answers each job within one authority and one query planner. Physical sharding

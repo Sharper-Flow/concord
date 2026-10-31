@@ -98,7 +98,7 @@ A stale historical index cannot produce authoritative counts.
 Q7 returns current-state records within the store's finite retained categories, not a process-exhaust receipt or the compact note; the store keeps no exact event history ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 Q8 resolves a superseded historical item's canonical successor from verified front matter and historical projection.
 Current relations are stored rows; the store keeps no relation history ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-Q9/Q10 retain PM6 locator proof, canonical note identity, current Git authority, and typed outcomes.
+The retained work surface carries PM6 locator proof, canonical note identity, current Git authority, and typed outcomes for its terminal work.
 
 ### 5. Identity and renewed work
 
@@ -139,7 +139,7 @@ Authorized owner reopen before retirement removes eligibility without reconstruc
 
 | Data | Treatment | Authority | Consumer | Applicability check | Safe removal condition |
 |---|---|---|---|---|---|
-| canonical Git note | retain | distilled knowledge | knowledge search and `resolve_note`; historical index rebuild; the typed-absence outcome locator | the note commit verifies from Git | none in Concord; Git owns the note |
+| canonical Git note | retain | distilled knowledge | publication and reconciliation; work-note-only recovery; the typed-absence outcome locator | the note commit verifies from Git | none in Concord; Git owns the note |
 | canonical publication proof | verify from Git; the settled operation and closure judgement gate cleanup | PM6 and CD-0242 D9 | terminal cleanup | Git proof verified before cleanup; version, lifecycle, and home re-read in the cleanup transaction | removed with its terminal execution |
 | terminal execution and owned membership/relation rows | collect only after verified closure and release of every consuming category | CD-0242 D2 | live executions that reference it; unsettled effects, claims, leases, messages, findings, and owned research | the cleanup blocker list in `internal/store/terminal_cleanup.go` | terminal, its published note matches the lifecycle, and no blocker holds |
 | defect recurrence classification and required Product/workflow scope | retain until work or Product removal | CD-0211 D2–D4 | recurrence admission of later defect captures | same-shape lookup at capture | work or Product removal |
@@ -184,7 +184,8 @@ A simpler PM10 authority must preserve the canonical note, retained receipts, an
 ## Acceptance criteria
 
 - Given a published and verified compaction link
-  When Q10 resolves the work item
+  When the retained work read or compaction linkage/reconcile verification
+  resolves the work item's note
   Then canonical locator proof and note identity remain unchanged.
 
 - Given historical and live work in one query population

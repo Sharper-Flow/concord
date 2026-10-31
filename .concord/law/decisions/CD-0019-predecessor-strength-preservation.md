@@ -11,7 +11,7 @@
 Advance (the predecessor) has stabilized after Temporal removal and tool-count
 reduction, but is not Concord's end state. Several existing constitutional docs
 already carry ADV strengths forward in part — specs-as-laws, self-documentation,
-the knowledge index.
+the law folder and Domain registry.
 
 What is not yet captured as law is two things the operator directed on 2026-08-13:
 
@@ -33,7 +33,7 @@ Concord must carry each forward, in some shape:
 |---|---|---|---|
 | 1 | Specs — queryable capability law | Behavioral contract that prevents drift; legislator-visible law | [`specs-as-laws.md`](../../docs/specs-as-laws.md) |
 | 2 | Per-change narrative artifacts — problem/decision/outcome trail | Each change leaves a coherent WHY, not just a git diff | [`self-documentation.md`](../../docs/self-documentation.md) §1.2 |
-| 3 | Knowledge index — concepts → docs → code map | Navigable map of what is where | [`concord-knowledge-index.md`](../../docs/concord-knowledge-index.md) |
+| 3 | Law folder + Domain registry — discoverable law and ownership map | Navigable map of what is where | [law-folder-authority](../constitution/law-folder-authority.md) and the Domain registry |
 | 4 | Conformance — claims-vs-reality check | Automated proof stated behavior matches delivered behavior | `internal/store.TestAcceptedQ1ToQ10Corpus` and `internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions` |
 | 5 | Triage — issue ↔ work reconciliation + portfolio balance | Overlap coalescing and what-matters-next surfacing | Linear MCP as planning authority (CD-0213) |
 | 6 | Reflection — post-completion learning | Durable lessons that fit in no single change | not yet identified; research under D2 |
@@ -73,10 +73,11 @@ is implemented by virtue of this decision.
 
 ### D5. Relationship to existing docs
 
-[`specs-as-laws.md`](../../docs/specs-as-laws.md), [`self-documentation.md`](../../docs/self-documentation.md),
-and [`concord-knowledge-index.md`](../../docs/concord-knowledge-index.md) are partial
-treatments already in force; this decision is the umbrella mandate and method
-binding them under one preservation + research-informed frame.
+[`specs-as-laws.md`](../../docs/specs-as-laws.md) and [`self-documentation.md`](../../docs/self-documentation.md)
+are partial treatments already in force; the law folder
+([law-folder-authority](../constitution/law-folder-authority.md)) is the current
+shape of the discoverable-law capability. This decision is the umbrella mandate
+and method binding them under one preservation + research-informed frame.
 [`advance-predecessor-lessons.md`](../../docs/advance-predecessor-lessons.md) captures
 failure modes to prevent; this decision captures strengths to preserve. The two
 are complementary.

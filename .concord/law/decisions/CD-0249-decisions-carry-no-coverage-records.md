@@ -13,14 +13,14 @@
   approval under CD-0243 D3, and delivers through an ordinary pull request
   with independent review and required CI. Its authority tier is `derived`
   under CD-0159 D3.
-- **Related:** CD-0026 (the evidence-path drift audit), CD-0036 (breaking law
-  cutovers), CD-0055 (repository check authority), CD-0114 (the knowledge
-  manifest is composed from shards), CD-0159 (authority tier for product
+- **Related:** CD-0036 (breaking law
+  cutovers), CD-0055 (repository check authority),
+  CD-0159 (authority tier for product
   law), CD-0222 (law homes and the footprint read), CD-0244 (Domain facts),
   [`reachability-exceptions.v1.json`](../../docs/reachability-exceptions.v1.json)
 - **Preserves:** computed reachability with declared exceptions; the shared
   state vocabulary and its live-pointer rule; the closed typed-anchor kinds
-  with resolution and required-check wiring; the evidence-path audit
+  with resolution and required-check wiring
 
 ## Context
 
@@ -33,7 +33,7 @@ Domain-fact checks still need their own evidence rules.
 
 ### D1. Decisions carry no coverage records, states or anchors; a decision Verification section alone names its tests
 
-The knowledge index holds no per-law coverage record: no coverage shard, no
+Law carries no per-law coverage record: no coverage shard, no
 per-record coverage state, no stored anchor row. A decision names its proof
 in its own Verification section; nothing else tracks whether it is proved.
 
@@ -46,8 +46,10 @@ and the verified-snapshot preservation requirement applies before the table
 drop: a failed migration step rolls back and leaves pre-upgrade catalog and
 rows unchanged.
 
-The knowledge-index machinery is untouched: shard composition, record
-identity, hashes, and the manifest schema keep their current shape.
+The knowledge index is retired by
+[law-folder-authority](../constitution/law-folder-authority.md): folder
+membership carries law status, and this decision's retirement adds no
+coverage machinery to its replacement.
 
 ### D2. Reachability is computed; only exceptions are declared, under one state vocabulary with live pointers
 
@@ -57,8 +59,8 @@ derives it, including the method plus tx-scoped-core pairs throughout
 `internal/store` that defeat textual analysis. The declaring plane states
 only its exceptions in
 [`reachability-exceptions.v1.json`](../../docs/reachability-exceptions.v1.json). The
-validator establishes the complete subject set itself rather than iterating
-the manifest's rows: an undeclared unreachable function or package is a
+validator establishes the complete subject set itself rather than iterating a
+declared list: an undeclared unreachable function or package is a
 finding, and a declaration whose subject has become reachable is stale and
 equally a finding. Exceptions may cover several symbols under one reason
 where a single accepted decision governs them. The analysis runs
@@ -112,8 +114,8 @@ amendment edits the owning record in place and states only the current rule.
 A breaking replacement deletes the old record and, when a rule replaces it,
 publishes that rule under a new law ID; no record keeps a superseded status,
 a successor, or a supersedes relation. A non-law document that claims to
-describe the current design and has been fully replaced is deleted with its
-manifest entry. Historical research and lessons that still serve current
+describe the current design and has been fully replaced is deleted.
+Historical research and lessons that still serve current
 evidence are not obsolete design descriptions.
 
 Required checks refuse mechanically established gaps: undeclared unreachable
@@ -132,7 +134,7 @@ excuse new dead material.
 
 ## Consequences
 
-1. A law change edits the decision's own text and its record shard; no
+1. A law change edits the law file; no
    coverage bookkeeping moves with it.
 2. Closing work no longer waits on a coverage record that points at it.
 3. The footprint read answers with governing Domains and current law
@@ -167,5 +169,3 @@ excuse new dead material.
   resolution and required-check wiring, and
   `internal/store.TestArchitectureAnchorConstantsServeDomainFacts` proves the
   store's domain-fact anchors share the same closed kinds (D3).
-- `python3 scripts/check-knowledge-index.py` proves record identity and that
-  no record names a dangling evidence path (CD-0026 D4).

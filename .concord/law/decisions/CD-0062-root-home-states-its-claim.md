@@ -2,14 +2,12 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-23
-- **Scope:** Law-record homing; the knowledge manifest record vocabulary; the
-  law-home projection; issue #398
+- **Scope:** Law-record homing; issue #398
 - **Approval:** Operator accepted the drafted decision as written on 2026-08-23;
   the public record is the pull request that lands this record
 - **Related:** CD-0060 (partitions the corpus; D2 gives the root Product-wide
-  law), CD-0222 D2/D3/D9.2, CD-0042 D1 (pre-go-live), CD-0002, PM1.Q10
-- **Preserves:** CD-0222 D3's one-home invariant; the derived-projection role of
-  SQLite; the one-schema manifest rule
+  law), CD-0222 D2/D3/D9.2, CD-0042 D1 (pre-go-live), CD-0002
+- **Preserves:** CD-0222 D3's one-home invariant
 
 ## Context
 
@@ -53,41 +51,16 @@ reach the home contradicts, so carrying the field on a child-homed record is
 refused. Non-law records carry no law-home fields at all, and this field
 follows them.
 
-### D3. No legacy-manifest upcast exists
+### D3. No legacy upcast exists
 
 Root-home claims follow D1 and D2.
-
-### D4. The claim is projected, not merely parsed
-
-PM1.Q10 compares the manifest against the store's current projected rows and
-requires byte equality
-(consumers read current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))). A field the projection drops therefore makes every root-homed
-record fail its own proof.
-
-`law_domain_homes` gains `product_wide_rationale` under migration 45, the
-projection writes it, and Q10 reads it back. Child-homed rows keep the empty
-default, which is what their absent claim means.
-
-### D5. Manifest version 1.2 tightens in place
-
-This adds a requirement to records that already exist at schema version 1.2,
-which no earlier version can express: the conditional fires only on a record
-carrying `home_domain_id`, and that field arrived with 1.2.
-
-No new manifest version is cut. CD-0042 D1 keeps Concord pre-go-live until an
-accepted decision names the first supported release, clients, and compatibility
-cohort. There is no cohort to break, and this repository holds the only 1.2
-manifest, updated in the same change. A version bump would buy negotiation
-nobody is party to.
 
 ## Consequences
 
 - Eight root-homed records state a rationale. Each names why no child Domain
   owns it rather than repeating the clause it comes from.
-- The manifest vocabulary gains one record field, declared once in
-  `contracts/concord-knowledge-index.v1.schema.json` and bound to both readers
-  by `scripts/check-knowledge-vocabulary.py` and
-  `internal/store/knowledge_vocabulary_test.go`.
+- The rationale is authored metadata inside each law file; readers refuse a
+  record that omits it.
 - Root homing now costs a sentence. That is the intended cost, paid by the
   author who is deciding, at the moment the decision is made.
 - The rule does not decide whether a stated claim is *true*. It guarantees a

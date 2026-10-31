@@ -41,9 +41,10 @@ content hash. CD-0222 binds it to a home Domain. The checks rerun in a
 transaction at every consequential action. Admitting a build transcript as law
 therefore costs more under Concord than under the predecessor.
 
-The manifest record is the place to fix it. Each record under
-`.concord/docs/knowledge/records/` already carries identity, kind, status, path,
-and a SHA-256 content proof. No field records standing, so a new field costs no
+The law file is the place to fix it. A law file's authored metadata carries
+its stable ID, title, and authority standing; kind and acceptance come from
+the law folder, and path and content proof come from the committed bytes — all
+derived, never authored. Standing had no authored field, so adding one cost no
 migration of existing law text.
 
 ## Decision
@@ -51,9 +52,9 @@ migration of existing law text.
 Under CD-0013 D11, recording an engineering contract or routine successor does not itself enact Product law. Actual law changes follow CD-0230 D4. A routine workflow consent class does not establish law-change authority. A governed scope cut remains a product decision requiring operator approval under CD-0230 D5 and is never silent.
 
 
-### D1. A Product law record carries an authority tier
+### D1. A Product law file carries an authority tier
 
-Each law record carries one of two tier values.
+Each law file's metadata carries one of two tier values.
 
 - `legislated` — the operator approved this statement as law in its own right.
 - `derived` — an agent authored this statement while it delivered a change, and
@@ -83,9 +84,9 @@ A record outside the closed D5 default cohort is `derived` until an
 operator-approved contract meets this test. The test reads the
 named contract version and needs no judgement about the law's content.
 
-### D3. The tier sits beside `status`, not inside `provenance`
+### D3. The tier is authored in the law file's metadata
 
-The record gains a sibling `authority` object.
+The law file's metadata gains an `authority` object.
 
 ```text
 authority
@@ -94,19 +95,21 @@ authority
   contract_version?    # integer, required when tier is legislated
 ```
 
-The `provenance` object describes where the record came from in Git. It sets
-`additionalProperties` to false and holds no place for the approving contract.
-Standing and source are separate facts, so they take separate objects.
+Identity, title, and this authority standing are authored metadata. Kind and
+acceptance come from the law folder, and path and content hash come from the
+committed bytes; they are derived, never authored
+([law-folder-authority](../constitution/law-folder-authority.md)). Standing and
+source stay separate facts.
 
-A record approved outside managed workflow carries `tier: derived` and
+A law file approved outside managed workflow carries `tier: derived` and
 no `legislated_by` or `contract_version` until a managed contract
 promotes it under D2. An issue key, pull request, or approval phrase
 does not substitute for a contract. The authority tier does not erase
 the recorded operator approval or the host route's review obligations.
 
 `legislated_by` uses the store's work-ID form, `^work-[0-9a-f]{8,64}$`.
-The referenced contract version is positive. Both manifest readers
-apply the same closed D5 cohort described in D5.
+The referenced contract version is positive. Every consumer applies the
+same closed D5 cohort described in D5.
 
 ### D4. A conflict a `derived` record declares is revised inside the contract
 
@@ -138,7 +141,7 @@ that vehicle.
 
 `internal/store/knowledge_authority_defaults.v1.json` is the one committed
 cohort source. It records that commit and the IDs and kinds of the surviving
-members. Both manifest readers must use it; membership never grows with
+members. Every consumer must use it; membership never grows with
 current `HEAD`.
 
 The records present at that commit took their default tier by kind:
@@ -165,10 +168,6 @@ its basis instead of claiming contract approval under D2.
 A store that does not hold the named work reports the claim unverified,
 not false. It preserves the declared tier; absence does not authorize
 demotion or promotion. Database failures do not count as absence.
-
-Under `allow_degraded`, a source whose admission check refuses, or that
-search did not admit, counts as a degraded source under CD-0020 D3
-and CD-0200 D3.
 
 CI checks what the checkout can prove: work-ID form, contract-version
 form, and membership of any D5 vehicle claim in the closed cohort.
@@ -200,9 +199,7 @@ this correction. Promotion still requires D2. The D5 cohort stays closed.
   Product-changing condition and record-kind reference rules.
 - A store test refuses a non-default claim backed only by read-law pins,
   and reports an absent work as unverified without changing the tier.
-- A manifest test refuses non-work IDs and out-of-cohort D5 vehicle claims.
-- A search test proves that admission refusals and unadmitted sources use
-  CD-0020 D3 and CD-0200 D3.
+- A law-metadata test refuses non-work IDs and out-of-cohort D5 vehicle claims.
 - A store test proves that a conflict a `derived` record declares records a
   contract revision line and raises no operator approval requirement.
 - A store test proves that a conflict a `legislated` record declares still raises

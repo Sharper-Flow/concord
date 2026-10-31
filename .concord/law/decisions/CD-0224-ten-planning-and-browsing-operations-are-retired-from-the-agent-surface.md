@@ -3,13 +3,13 @@
 - **Status:** Accepted
 - **Date:** 2026-10-11
 - **Scope:** The retired planning and browsing operations, the surviving
-  relation writers, the lesson publication route, the unprocessed-knowledge
-  negative, the surviving Domain reads, and the closed relation kinds;
+  relation writers, the lesson publication route,
+  the surviving Domain reads, and the closed relation kinds;
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927)
 - **Preserves:** The PM1.Q4 and PM1.Q5 readiness gates, the relation
   vocabulary, the `domain_observations` store, and contract supersession
   through `supersede_contract`; relation writes are current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
-- **Related:** CD-0005, CD-0020, CD-0030, CD-0114, CD-0213,
+- **Related:** CD-0005, CD-0030, CD-0213,
   [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md), and
   [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 - **Approval:** Operator-delegated law ruling for
@@ -79,16 +79,15 @@ The `blocks` readiness gates are unchanged: a `blocks` row from
 out of PM1.Q5 ready and hold it visible in PM1.Q4 while the blocker is not
 terminal.
 
-A lesson is authored as the lesson markdown under `.concord/docs/lessons/`
-and its manifest record shard, committed together in
-one commit on a branch of the knowledge-home Project (CD-0114 D3). The pull
+A lesson is authored as the lesson markdown under `.concord/docs/lessons/`,
+committed in
+one commit on a branch of the knowledge-home Project. The pull
 request and its required checks carry the approval, and the lesson is
-published when the pull request merges and a knowledge read verifies the
-record. CD-0026 D1 carries the full route.
+published when the pull request merges. CD-0026 D1 carries the full route.
 
-An unprocessed document stays not law. The authoritative negative is
-`concord_knowledge.resolve_note` returning `knowledge_missing` for the
-record the document would need. Text search is not a substitute for it.
+An unprocessed document stays not law: a file is law only when it sits under
+`.concord/law/` on the default branch
+([law-folder-authority](../constitution/law-folder-authority.md)).
 
 The Domain reads `list`, `detail`, and `overlaps` remain.
 Existing `domain_observations` rows stay readable on `detail` under the

@@ -1,66 +1,39 @@
-# CD-0026: Learning capture — lesson authoring, reflection, and drift audit
+# CD-0026: Learning capture — lesson and reflection publication
 
 - **Status:** Accepted
 - **Date:** 2026-08-15
-- **Scope:** Agent tool surface; durable knowledge manifest; offline validation
+- **Scope:** Agent tool surface; lesson publication
 - **Related:** CD-0215 (D7 publication destinations), CD-0019 (wisdom question),
-  CD-0020 (knowledge index), PM6 and compaction-retention-policy compaction
+  PM6 and compaction-retention-policy compaction
 - **Issue:** #108 (fc6, learning-capture group)
 
 ## Context
 
-Three enumerated predecessor outcomes were not covered. The knowledge
-infrastructure already supported lessons as a first-class kind — closed enum,
-manifest records, read paths PM1.Q9/Q10, home/explicit scopes — but every
+Two enumerated predecessor outcomes were not covered. Lessons were already a
+first-class kind, but every
 lesson was human-authored JSON plus git: no agent operation could record one,
-nothing captured post-completion learning, and no capability audited whether
-recorded law still had live implementation. CD-0019 had left standalone wisdom
+and nothing captured post-completion learning. CD-0019 had left standalone wisdom
 capture open ("not rejected — may be absorbed"); CD-0215 D7 names the lesson
 as a publication destination without implementing it.
 
 ## Decision
 
 **D1. Lessons publish through a reviewed pull request.**
-A lesson is authored as the lesson markdown under `.concord/docs/lessons/` and
-its manifest record shard, committed together in
-one commit on a branch of the knowledge-home Project
-(CD-0114 D3). The pull request and its required checks carry the approval:
-the operator reviews the note and the record before merge, and the ordinary
-authority model — an issue, a pull request, passing required checks — is
-what confers acceptance. The author writes no other surface: never the
-Project's canonical default checkout and never a foreign Project's tree.
-A merged commit is not by itself a published lesson: the lesson is published
-when the pull request merges and a knowledge read verifies the record.
-The manifest remains the lesson's durable
-backing (CD-0020); no new store surface is added.
-Canonical knowledge reads make no publication claim before the merge.
-After the merge, `resolve_note` (PM1.Q10) verifies the record against the
-manifest, and search (PM1.Q9) picks it up at the next index rebuild. The
-manifest's identity checks refuse a conflicting id or path. A lesson for a
-terminal source work names that work in its record.
+A lesson is authored as the lesson markdown under `.concord/docs/lessons/`,
+committed in
+one commit on a branch of the knowledge-home Project. The pull request and its
+required checks carry the approval: the operator reviews the lesson before
+merge, and the ordinary authority model — an issue, a pull request, passing
+required checks — is what confers acceptance. The author writes no other
+surface: never the Project's canonical default checkout and never a foreign
+Project's tree. The lesson is published when the pull request merges; before
+merge it is candidate text, not a published lesson. A lesson for a
+terminal source work names that work in its file.
 
-**D2. Promotion is scope, not a second artifact.** A lesson published with
-`home` scope applies to its owner's home broadly; a lesson published with
-`explicit` Product/Project/component/tag scopes is promoted to exactly those
-scopes and reaches them through the existing scope-filtered reads. There is
-no separate promotion step or aggregation job.
-
-**D3. A reflection is a tagged lesson.** Post-completion learning about how
-the work itself went — execution friction, process observations — is recorded
-by the same operation with a `reflection` tag. One artifact kind, two intents:
-the durable-knowledge vocabulary stays closed, and reflections are searchable
-by tag rather than by a parallel subsystem.
-
-**D4. Law/implementation drift is audited structurally.** Knowledge manifest
-records may carry an `evidence` array naming implementation paths (scenarios,
-tests, code) that carry the record's guidance. The offline validator
-(`scripts/check-knowledge-index.py`, run in CI) fails when an evidence path
-rots: law whose named implementation evidence no longer exists surfaces
-instead of drifting silently. This is deliberately structural — file
-reachability, not semantic verification. Semantic drift checking is analysis
-tooling, which the capability placement assigns to external native authority;
-Concord's contract is that recorded law names its implementation evidence and
-the validator keeps that naming honest.
+**D2. A reflection is an ordinary lesson file.** Post-completion learning
+about how the work itself went — execution friction, process observations — is
+recorded as an ordinary lesson file through D1's reviewed pull request. No
+separate artifact kind, promotion step, or aggregation job exists.
 
 ## Rejected alternatives
 
@@ -70,8 +43,7 @@ subsystem to keep aligned; the distinction is intent, not data shape.
 
 **Semantic drift detection** (parsing decisions and probing code for stated
 invariants) is scanner work: heuristic, external, and excluded from
-Concord's authority. The evidence-path audit delivers the standing capability
-deterministically.
+Concord's authority.
 
 **Operator-only lesson authoring** would leave per-change learning
 unrecordable by the sessions that produced it, contradicting CD-0215 D7's
@@ -79,21 +51,11 @@ publication destination.
 
 ## Consequences
 
-- The knowledge manifest gains an optional `evidence` field; both the Go
-  strict parser and the offline validator accept and bound it.
-- A lesson pull request commits the record shard; the
-  PR review authorizes publication.
-- After a lesson merges into the canonical knowledge home, `resolve_note`
-  verifies the record. Search picks it up after the next index rebuild; that
-  window is reconciliation, not loss. Before merge, neither canonical read
-  establishes publication.
+- A lesson pull request commits the lesson file; the PR review authorizes
+  publication. Before merge, the lesson is candidate text.
 
 ## Verification
 
-- The publication commit is proved by review: the note and the record shard
-  land in one commit on a branch, and
-  `scripts/generate-knowledge-index.py --check` proves the shards compose
-  with the new record under a fresh id and path. The index check proves
-  composition; the review proves the publication.
-- Drift audit exercised both ways: a populated evidence path passes; removing
-  the file fails the validator with `dangling evidence path`.
+- The publication commit is proved by review: the lesson file lands in one
+  commit on a branch, and the pull request's required checks pass. The review
+  proves the publication.

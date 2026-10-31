@@ -63,11 +63,9 @@ enforces it.
 
 ## Knowledge closure
 
-An unprocessed document has no manifest record and is **not law**, however much
-it reads like a spec.
-A document not resolvable through `concord_knowledge` is not law:
-`resolve_note` returning `knowledge_missing` is the authoritative negative.
-Never text-grep for law state when a record exists.
+A file is law only if it sits under `.concord/law/` on the default branch.
+Anything else is **not law**, however much it reads like a spec
+([law-folder-authority](.concord/law/constitution/law-folder-authority.md)).
 
 ## Go style
 
@@ -82,7 +80,7 @@ inference. Conventional Commit titles are load-bearing for release semver.
 |---|---|
 | What the CLI accepts, and its JSON-stdin rules | `commandSpecs` in [`cmd/concord/main.go`](cmd/concord/main.go); `concord --help` |
 | The verification contract a branch must satisfy | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
-| Knowledge manifest | [`.concord/docs/knowledge/`](.concord/docs/knowledge/) composed by [`scripts/knowledge_index.py`](scripts/knowledge_index.py); [`contracts/concord-knowledge-index.v1.schema.json`](contracts/concord-knowledge-index.v1.schema.json) |
+| What is current Product law, and its authority rules | [`.concord/law/`](.concord/law/) on the default branch; authority and precedence in [`law-folder-authority.md`](.concord/law/constitution/law-folder-authority.md) |
 | Local conformance workload and host admission | header comment in [`bin/oc-test`](bin/oc-test) |
 | Changed-behavior test selection, widening, and local evidence | [`TESTING.md`](TESTING.md) |
 | Which quality tools and check commands are declared ready | [`.concord/tooling.v1.json`](.concord/tooling.v1.json) |

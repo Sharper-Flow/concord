@@ -3,7 +3,7 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS3; binding input to CD-0005 §3 and TS5–TS9.
-> **Binding inputs:** accepted PM1 Q1–Q10 and query corpus, TS1 jobs/scenarios,
+> **Binding inputs:** accepted PM1 Q1–Q8 and query corpus, TS1 jobs/scenarios,
 > and TS2 budget/granularity rules.
 > **Does not decide:** mutation tools (TS4), ambient context or authorization
 > envelope (TS5), transport (TS6), shared success/error envelope (TS7), schema
@@ -19,37 +19,36 @@
 ## Context
 
 TS1's jobs need a bounded read surface. The binding inputs are the accepted
-PM1 Q1 through Q10 and query corpus, TS1 jobs and scenarios, and TS2 budget
-and granularity rules. This record fixes the four always-visible read tools
+PM1 Q1 through Q8 and query corpus, TS1 jobs and scenarios, and TS2 budget
+and granularity rules. This record fixes the three always-visible read tools
 and their closed discriminated operation unions. CD-0222 retires component
 identity and CD-0042 replaces component filters with Domain on the
 pre-go-live primary path.
 ## Contract
 
-The binding contract is sections 1 through 3: the four-tool decision, each
+The binding contract is sections 1 through 3: the three-tool decision, each
 tool's operation table with typed payloads, and the shared read-input
 constraints including bounds, cursors, degraded enumeration opt-in, and the
-read-only guarantee. Section 4 records why four tools; sections 5 through 7
+read-only guarantee. Section 4 records why three tools; sections 5 through 7
 record scenario mapping, rejected additions, and falsifiers, and carry no
 obligation.
 ## 1. Decision
 
-Concord exposes **four always-visible read tools**:
+Concord exposes **three always-visible read tools**:
 
 1. `concord_product_view` — resolve Product context or obtain its bounded work
    snapshot;
 2. `concord_work_browse` — inspect current/actionable work sets, readiness,
    blockage, and cross-Project scope;
-3. `concord_work_trace` — explain one work item's recorded changes and relation graph;
-4. `concord_knowledge` — search durable Product knowledge or resolve one canonical
-   note locator.
+3. `concord_work_trace` — explain one work item's recorded changes and relation graph.
 
 Each tool accepts a **closed discriminated operation union**. Operations cannot be
 invented by string, forwarded to a CLI command, expressed as SQL/JSONPath, or
 expanded through arbitrary filter maps. TS7 wraps each operation-specific payload
 in the shared authority/freshness/result/error envelope.
 
-This maps PM1's ten queries into four caller-recognizable domains. Q1–Q10 remain
+This maps PM1's Product orientation, actionable-work, and provenance queries
+into three caller-recognizable domains. Q1–Q8 remain
 contract identifiers and test cases, not tool identities.
 
 ## 2. Tool contracts
@@ -100,34 +99,6 @@ History and relation traversal share singular work scope, explanatory intent,
 bounded graph/sequence behavior, and provenance-oriented recovery. They remain
 discriminated payloads; callers never infer a recorded mutation from an edge or vice versa.
 
-### 2.4 `concord_knowledge`
-
-**Use when:** an agent needs durable prior decisions, lessons, specs, work notes, or
-the one canonical locator for a known terminal work/knowledge item.
-
-| Operation | PM1 | Required/optional inputs | Typed payload |
-|---|---|---|---|
-| `search` | Q9 | Product scope; optional Project/domain; closed knowledge kinds (every manifest kind, with `specification` and `note` as aliases for `spec` and `work_note`); tags; bounded text matched per whitespace token across ID, title, summary, tags, and body; cursor/limit | `knowledge_page`: summaries, canonical locators, commit/content identity, index watermark, and optional per-item law `status` (`accepted`/`superseded`/`published`) with `successor_id` |
-| `resolve_note` | Q10 | exactly one work or knowledge reference | `canonical_note_result`: one locator or typed not-compacted/missing/ambiguous outcome; a canonical answer may add law `status` and `successor_id`, never altering `state` |
-| `observe_publication` | CD-0020.R1 | explicit Product, designated home Project and locator | `knowledge_publication`: timestamped publication comparison, origin/ref/commit identities, cause and recovery, with earlier success labelled historical |
-
-Search never returns an unbounded artifact body. Bounded text may match a
-projected law body in the index, but that match remains ranked discovery data and
-never law authority. A canonical locator identifies the Git authority; the
-accepted client may then read that authority through its normal bounded
-file/resource path. Index lag and canonical-Git reachability remain explicit.
-Law `status` and `successor_id` are additive projections of the indexed record
-(CD-0020 D3); `state` keeps its PM1 Q10 locator meaning.
-
-`observe_publication` is the explicit cache/provenance exception in
-[CD-0020 D3](../decisions/CD-0020-retain-knowledge-index-shape.md#publication-observation),
-available to both knowledge readers and writers within their authorized Product.
-It may perform one noninteractive discovery and one selected-branch fetch within
-ten seconds, updating only the permitted Git cache and source provenance.
-Ordinary `search` and `resolve_note` calls consume labelled cached evidence;
-they never trigger this observation. Other mutation and approval permissions
-remain unchanged.
-
 ## 3. Shared read-input constraints
 
 - Stable Concord IDs are authoritative references. Paths, repository names, and
@@ -151,25 +122,19 @@ remain unchanged.
   another operation cannot consume them.
 - Empty, unknown, ambiguous, degraded, stale, unreachable, and invariant violation
   remain distinct TS7 result/error variants.
-- Degraded enumeration is opted in, never assumed (CD-0008 D3). `concord_knowledge.search`
-  carries `allow_degraded`; omitted, a knowledge index behind its git head refuses rather
-  than answering. An opted-in caller receives the readable items plus degraded authority,
-  the omissions, and the watermark the answer actually reflects.
+- Degraded enumeration is opted in, never assumed (CD-0008 D3).
 - Ordinary reads never mutate, repair, reconcile, or trigger background work.
-  The explicit `observe_publication` exception has only the cache/provenance
-  effects defined in CD-0020 D3; it never changes work or source heads.
 
-## 4. Why four tools
+## 4. Why three tools
 
 | Candidate | Result |
 |---|---|
 | **Ten Q-tools** | Rejected: mechanically turns PM1 contract cases into tools and recreates list/show/search selection overlap. |
-| **One `concord_query` tool** | Rejected: Product orientation, actionable work, provenance graphs, and git-backed knowledge have materially different intent/result/authority shapes. |
+| **One `concord_query` tool** | Rejected: Product orientation, actionable work, and provenance graphs have materially different intent/result/authority shapes. |
 | **Three tools with all work reads together** | Rejected: current-set browsing and singular-work provenance have different success oracles, payloads, and likely caller language; one six-operation work dispatcher crosses TS2's split rule. |
-| **Five tools splitting knowledge search/resolve** | Rejected: both operations share durable-knowledge authority, canonical locator semantics, and a clear discriminant; an extra tool adds selection cost without a new consequence or recovery boundary. |
-| **Four domain tools selected above** | Passes PM1/TS1 while preserving clear descriptions and leaving five tools under TS2's cap for TS4 mutation/operation boundaries. |
+| **Three domain tools selected above** | Passes PM1/TS1 while preserving clear descriptions and leaving six tools under TS2's cap for TS4 mutation/operation boundaries. |
 
-The remaining budget is a consequence, not a quota: TS4 may use fewer than five
+The remaining budget is a consequence, not a quota: TS4 may use fewer than six
 tools, but cannot collapse required mutation boundaries merely to fit.
 
 ## 5. Scenario mapping
@@ -179,7 +144,6 @@ tools, but cannot collapse required mutation boundaries merely to fit.
 | `concord_product_view` | Q1–Q2 | AJ1 ambient/ambiguous orientation |
 | `concord_work_browse` | Q3–Q6 | AJ1 cross-Project/ready; AJ2 blocker explanation |
 | `concord_work_trace` | Q7–Q8 | AJ4 evidence/history; AJ5 relation outcomes |
-| `concord_knowledge` | Q9–Q10 | AJ7 search, degradation, and canonical-note retrieval; AJ6 may consume the locator only after its separate mutation/reconciliation flow |
 
 TS3 passes only if one strict schema per tool expresses every operation above,
 every mapped PM1/TS1 scenario reaches the correct payload without arbitrary
@@ -223,15 +187,6 @@ An existing table, CLI command, or API endpoint is not sufficient evidence.
   When another operation attempts to consume that cursor
   Then the core rejects the tampered or cross-operation cursor.
 
-- Given a knowledge index behind its git head
-  When `concord_knowledge.search` runs without `allow_degraded`
-  Then the search refuses rather than answering degraded.
-
-- Given a durable-knowledge search
-  When results return
-  Then each carries its canonical locator and index watermark, never an
-  unbounded artifact body.
-
 - Given any read scenario
   When the runner probes prohibited effects
   Then reads have mutated nothing, with the probe recorded.
@@ -246,10 +201,6 @@ An existing table, CLI command, or API endpoint is not sufficient evidence.
 - Criterion 2 is proved by
   `TestAuthenticatedCursorBindsOperationAndRejectsTampering`
   (`internal/agent/runtime_test.go`).
-- Criterion 3 is proved by the bound `AJ7-degraded-index` scenario of
-  `.concord/scenarios/agent-jobs.v1.json`, executed by `TestAgentJobsCorpus`
-  (`internal/agent/agent_jobs_corpus_test.go`).
-- Criterion 4 is proved by the bound `AJ7-search-knowledge` scenario.
-- Criterion 5 is proved by the absent-probe guard of the same runner, which
+- Criterion 3 is proved by the absent-probe guard of the same runner, which
   fails any `absent` assertion a binding did not actively probe; the guard's
   own test is `TestEvaluateAbsentRequiresProbe`.

@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-27
-- **Scope:** The knowledge manifest's criterion bindings and the continuity law-context projection
-- **Related:** CD-0114, CD-0159, CD-0177
+- **Scope:** The spec law file's criterion bindings and the continuity law-context projection
+- **Related:** CD-0159
 - **Approval:** The operator approved this decision in contract version 1 of
   work item `work-439bd3dfda3079826824710f`.
 
@@ -11,7 +11,7 @@
 
 Two acceptance-criteria systems exist with no structural bridge. Spec Gherkin
 criteria bind to scenario ids or exemption reasons through
-criterion_bindings in the knowledge manifest. Work items carry outcome predicates, and completion
+criterion_bindings in the spec law file's metadata. Work items carry outcome predicates, and completion
 evaluates each predicate through its own verdict. Nothing links a predicate to
 the criterion it discharges, so verify evidence cannot chain from a command
 result to a predicate to a criterion to law.
@@ -24,20 +24,20 @@ A criterion binding carries exactly one of three forms: a scenario id, a
 recorded exemption reason, or a work-item predicate reference made of
 `work_id` and `predicate_id`. The closed patterns are
 `^work-[0-9a-f]{8,64}$` and `^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$`. The
-JSON Schema declares the form, and the store's Go manifest model declares it
-in the same change (CD-0177 D2). The form is additive, so the schema_version
-stays at 1.3.
+law file's metadata declares the form, and the store's law model declares it
+in the same change. The form is additive, so it changes no existing binding.
 
 ### D2. Authoring validates the form, and verdicts stay on the work item
 
-The knowledge-index checker and the shard generator validate the two closed
+Law-metadata parsing validates the two closed
 field shapes at authoring. No repository check judges discharge. A CI check
 cannot reach the store, so whether the named predicate passed is the work-item
 side's per-predicate verdict.
 
 ### D3. The continuity law context lists the bound criteria
 
-The `law_subjects` projection carries each law's authored bindings, and the
+The law context read carries each law's authored bindings from the law file's
+metadata, and the
 continuity read resolves the ones naming the current work item into that
 law's criteria. Its `law_context` carries them on the law's
 entry, so the agent reads which criterion each of this item's predicates
@@ -49,8 +49,8 @@ law-revision pins already bind the item to the exact law it discharges.
 - Let a repository check verify discharge against the store. Rejected: a CI check
   cannot reach the store, and a check that pretended to would decide
   correctness it cannot observe.
-- Parse the manifest again in the adapter. Rejected: the adapter would
-  grow a second manifest reader beside the store's, and the two would drift.
+- Parse the law files again in the adapter. Rejected: the adapter would
+  grow a second law reader beside the store's, and the two would drift.
 - Bind criteria to whole work items without predicates. Rejected: the
   per-predicate verdict is the discharge unit, so an item-level link proves
   less than the evidence it points at.
@@ -59,11 +59,7 @@ law-revision pins already bind the item to the exact law it discharges.
 
 A spec criterion can name the work item and predicate that discharge it, and
 verify evidence chains from a command result to a predicate to a criterion to
-law. Older cores read a manifest carrying the new form without refusal,
-because the reader drops what its model does not declare (CD-0177 D1). Cores
-since this change model both fields. A database keeps listing no criteria
-until its rebuild writes the bindings, which matches the authority-tier fill
-rule of migration 98.
+law.
 
 ## Verification
 

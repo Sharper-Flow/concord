@@ -42,8 +42,8 @@ surface candidates. A job starts with an agent-visible intent and ends with an
 observable Product-memory or external-authority outcome. It is not a table, CLI
 command, workflow phase, existing Advance tool, or proposed Concord tool.
 
-PM1's Q1–Q10 remain the canonical read contract. TS1 composes those reads with
-the mutation, knowledge, completion, and operational outcomes already required
+PM1's Q1–Q8 remain the canonical read contract. TS1 composes those reads with
+the mutation, completion, and operational outcomes already required
 by Concord. No Q-number implies a separate tool.
 
 ## 2. Canonical jobs
@@ -56,7 +56,7 @@ by Concord. No Q-number implies a separate tool.
 | **AJ4** | **Transition work with evidence.** Move work through its accepted lifecycle, including completion, while satisfying evidence and version requirements. | One atomic domain transition occurs, evidence and actor are attributable, invalid or stale transitions fail structurally, and a retry cannot duplicate the effect. |
 | **AJ5** | **Relate and scope work.** Add or remove Project membership; create typed relations; and resolve concurrent Product-changing Domain overlap. | Graph and membership invariants hold; cycles and duplicate authority are rejected; supersession is atomic; overlap authority is operator-approved and pinned to both current contract versions. |
 | **AJ6** | **Compact and reconcile terminal work.** Publish the one canonical durable note required for terminal work and reconcile its Product-memory locator. | Git publication is proven before the SQLite locator is recorded; an interruption leaves an explicit, recoverable partial outcome; retries do not create duplicate notes or competing authority. |
-| **AJ7** | **Retrieve durable Product knowledge.** Find prior work, decisions, lessons, specs, and canonical completed-work notes. | One bounded query returns canonical locators and index watermark; missing, ambiguous, degraded, and unreachable are distinct; no repeated list→show→search choreography is required. |
+| **AJ7** | **Locate terminal-work notes.** Obtain the canonical completed-work note for terminal work through the work item's retained reads and PM6 linkage. | The canonical locator (home, path, commit, content hash) travels with the work record; `not_compacted`, `ambiguous`, and `missing` remain distinct typed outcomes. Degraded or unreachable proof coverage never establishes absence. |
 | **AJ8** | **Execute operational work with consequence controls.** Carry an ops item through plan, budgeted execution, health verification, rollback when needed, and cleanup—including ground-truth reclamation of derived resources. | Native authority executes the operation; Concord preserves intent, status, and evidence. A refused budget blocks consequences, health failure triggers the declared recovery path, cleanup uses native facts rather than stale bookkeeping, and partial completion is explicit. |
 
 These eight jobs are intentionally broader than storage queries and narrower than
@@ -128,9 +128,8 @@ surface expansion or pruning. No universal numeric tool ceiling is assumed.
 
 ### Concord evidence
 
-- PM1 Q1–Q10 establish Product orientation, work views, blocked/ready selection,
-  cross-Project identity, history, relations, knowledge search, and canonical-note
-  resolution (`product-memory-query-contract.md` §§4–5).
+- PM1 Q1–Q8 establish Product orientation, work views, blocked/ready selection,
+  cross-Project identity, history, and relations (`product-memory-query-contract.md` §§4–5).
 - Concord's first-usable floor requires one Product view, required work capture,
   visible ready/blocked/next work, evidence-backed completion, and durable Product
   knowledge and architecture-bound Product law (`priorities.md` §§1, 3–6).

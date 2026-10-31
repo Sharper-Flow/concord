@@ -16,25 +16,23 @@ Operator consent follows [CD-0243 D7](CD-0243-four-roles-and-six-operator-approv
 throughout this record, including tables and acceptance criteria.
 Other admission, safety, evidence, and historical-pin requirements remain required.
 
-Concord's durable law authority remains the Git knowledge manifest. SQLite may
-hold only a derived projection of that manifest; it cannot author law, relation
-edges, or law events.
+Concord's durable law authority is the default-branch law folder under
+`.concord/law/`
+([law-folder-authority](../constitution/law-folder-authority.md)). Relations
+are in-file metadata of the law files; SQLite holds no law projection and
+cannot author law, relation edges, or law events.
 
 Decision and spec records may optionally declare the
 closed relations `supersedes`, `refines`, `subordinate_to`, and
 `conflicts_with`, each with a target law ID. Relations are authored only by an
-operator-approved manifest/spec/decision delta. No per-rule obligation field is
+operator-approved delta to the owning law files. No per-rule obligation field is
 introduced: RFC 2119 prose remains interpretive until a named enforcement path
 needs distinct behavior.
 
 `conflicts_with` is an unresolved declaration. It grants no precedence and is
-not an amendment. Manifest parsing validates same-manifest decision/spec
+not an amendment. Law-metadata parsing validates decision/spec
 endpoints, closed kinds, no self or duplicate edges, acyclic directed graphs,
 and exact agreement between supersession edges and `successor` declarations.
-
-A knowledge-index rebuild replaces the derived law rows transactionally for
-one Git home; invalid input or rollback preserves the prior projection
-byte-for-byte.
 
 Workflow contracts reuse `spec_mandate` for referenced law IDs and add bounded
 `law_modifies`. The latter must be a subset of the mandate and explicitly
@@ -44,7 +42,7 @@ explicit conflict blocks unless the endpoint whose record declares it is in
 `law_modifies`.
 Before completion, the same bounded check runs without that exception. An
 amendment intent therefore permits planning only; completion requires a Git
-manifest delta that removes or resolves the conflict.
+law delta that removes or resolves the conflict.
 
 Mandated bare law IDs resolve in the Product's designated knowledge home.
 A source-qualified `<project_id>/<law_id>` reference resolves only
@@ -56,11 +54,11 @@ dependency, law-authoring store write, or agent tool.
 
 ## Consequences
 
-- Git evidence and the manifest remain the sole law authority.
-- Existing `1.0` manifests and workflow contracts remain readable.
+- Git evidence and the law folder remain the sole law authority.
+- Existing workflow contracts remain readable.
 - Unknown or stale mandated laws fail closed at consequential workflow
   boundaries.
-- Relation changes are auditable through the Git manifest and its blob proofs.
+- Relation changes are auditable through Git and its blob proofs.
 
 ## Implementation evidence
 

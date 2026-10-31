@@ -6,11 +6,11 @@
   override route for placements outside `.concord/`, and the retirement of
   the root docs/, instructions/, and scenarios/ trees in this
   repository
-- **Related:** CD-0007, CD-0063, CD-0114, CD-0159
+- **Related:** CD-0007, CD-0063, CD-0159
 - **Approval:** The operator approved this decision on work item
   `work-670cac419bcacb671879316b`, with the objective and the design
   recorded in its dispatch packet.
-- **Preserves:** CD-0114's shard composition, CD-0063's shipped conduct
+- **Preserves:** CD-0063's shipped conduct
   corpus, and the authority and identity of every migrated record
 
 ## Context
@@ -31,21 +31,19 @@ Repository-authored Product knowledge lives under `.concord/law`, `.concord/docs
 `.concord/instructions`, and `.concord/scenarios`. Concord's accepted constitution,
 specifications, and decisions live under `.concord/law/constitution/`,
 `.concord/law/specs/`, and `.concord/law/decisions/`, preserving their basenames.
-The readers also admit existing Product law at its recorded `.concord/docs/`
-paths. Location alone does not confer authority: manifest registration and
-accepted status remain required. Product knowledge is the
-knowledge manifest and its record shards, the decisions, specifications,
-lessons, research, constitution, and reference records, the shipped operator
+Folder membership on the default branch confers law status
+([law-folder-authority](../constitution/law-folder-authority.md)); no
+registration step exists. Product knowledge is the law files, the
+lessons, research, and reference records, the shipped operator
 conduct, and the acceptance scenarios. Each artifact keeps one canonical
 location in the designated Product knowledge home under
 [CD-0200](CD-0200-product-knowledge-resolves-through-one-designated-git-home.md).
-Git-authored Markdown stays the record body, and the manifest
-shards stay the composed authority under CD-0114.
+Git-authored Markdown stays the record body.
 
 ### D2. The only escape is a recorded operator override
 
-A Product knowledge location outside `.concord/` is valid only when the
-manifest head carries an explicit operator override for it. An override
+A Product knowledge location outside `.concord/` is valid only when an
+accepted decision carries an explicit operator override for it. An override
 names the path, the Product it belongs to, the record that carries the
 operator's instruction, and the reason. The anchor record is an accepted
 decision. A superseded decision carries no authority, and a record of
@@ -75,16 +73,16 @@ admits the placement. The block refuses when any of these holds:
 - The block never closes, or a second block names one Product and path.
 - The `decision` value is not `approve` or `deny`.
 
-A recorded denial is law for the placement it names. The knowledge
-placement check validates every override before it accepts the placement
-that override names.
+A recorded denial is law for the placement it names. The override reserves
+non-law placement only: no override, approval, or exception makes a file
+outside `.concord/law/` law.
 
 ### D3. The root trees are gone
 
 The canonical knowledge homes in this repository are under `.concord/`.
-The placement check refuses root docs/, instructions/, or scenarios/
-directories and compatibility symlinks for those paths alike. A new knowledge document lands
-under `.concord/` by default.
+Root docs/, instructions/, or scenarios/ directories do not exist, and
+neither do compatibility symlinks for those paths. A new knowledge document
+lands under `.concord/` by default.
 
 ### D4. Installed conduct is a projection, not a second authoring home
 
@@ -95,44 +93,31 @@ and the installed copy stays derived from the one authored source.
 
 ### D5. History keeps the shape it has
 
-A git revision composes its manifest from the layout that revision carries.
-The reader walks the current shard home, then the pre-migration shard home,
-then the pre-shard aggregate. No history rewrite and no dual write.
+Git history is not rewritten to relocate or retire Product knowledge, and
+Product knowledge is not dual-written across locations.
 
 ## Alternatives considered
 
 - Keep the root trees or replace them with compatibility symlinks.
   Rejected: the operator's default forbids both, and a symlink keeps two
   paths to one record.
-- Convert law bodies to canonical JSON beside the shards. Rejected: the
-  approved outcome keeps Git-authored Markdown as the record body.
-- Treat manifest exclusions as overrides. Rejected: an exclusion only
-  removes a document from closure reporting. It is not an operator decision
-  about placement.
-- Point the readers at both trees for authoring. Rejected: reading history
-  in its own shape is not authoring in it. The root trees stay closed to new
-  content.
+- Convert law bodies to canonical JSON. Rejected: Git-authored Markdown
+  stays the record body.
+- Author new content in the root trees. Rejected: the root trees stay
+  closed to new content.
 
 ## Consequences
 
 One `.concord/` tree owns Product knowledge in this repository. Agents
-resolve law through the knowledge index and never through a root path. A
-Product that needs knowledge outside `.concord/` records an override first,
-and the placement check enforces that order. The manifest head carries the
-`operator_overrides` field, and the schema, the generators, and the checks
-validate it. Concord's own override list starts empty.
+resolve law through the default-branch law folder and never through a root
+path. A Product that needs knowledge outside `.concord/` records an override
+in an accepted decision first. The anchor decision
+carries the `concord-operator-override` block, and repository review
+validates it. No override makes a file outside `.concord/law/` law.
+Concord's own law carries no override.
 
 ## Verification
 
-- `python3 scripts/check-knowledge-placement.py` proves the default
-  placement, validates recorded overrides against their closed instruction
-  blocks, refuses unapproved outside placement, and refuses the three root
-  directories and their symlinks. A declared law home must be a real directory.
-- `python3 scripts/test-knowledge-placement.py` proves the check refuses a
-  root tree, an unapproved outside record, a prose denial, a cross-pair
-  instruction, a superseded or non-decision anchor, a malformed or
-  duplicated instruction, or a missing or symlinked declared law home, and accepts
-  a valid recorded override.
 - `python3 scripts/check-knowledge-index.py` proves record integrity at the
   new home.
 - `python3 scripts/test-renumber-cd.py` proves the lineage guards treat records

@@ -2,7 +2,7 @@
 
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-05.
-> **Decision:** PM1; direct accepted authority for the Q1–Q10 Product-memory query contract, evaluated by TS1/TS3.
+> **Decision:** PM1; direct accepted authority for the Q1–Q8 Product-memory query contract, evaluated by TS1/TS3.
 > **Scenario corpus:** [`product-memory-query.v1.json`](../../scenarios/product-memory-query.v1.json).
 > **Purpose:** Define the smallest storage- and tool-neutral read contract that
 > makes Concord useful as Product memory and that judges PM2/PM3 and TS1/TS3.
@@ -14,14 +14,14 @@ Concord must answer repeated Product-memory questions for one operator across
 Products, Projects, and work. The binding inputs are the accepted Product data
 model, ranked priorities, the workflow visibility rules, and the durable
 knowledge design. This record decides which questions Concord must answer —
-the ten canonical jobs Q1 through Q10 — and what a correct, bounded, fresh
+the eight canonical jobs Q1 through Q8 — and what a correct, bounded, fresh
 answer means. Storage, schema, lifecycle, membership, and tool surfaces are
 decided by PM2 through PM5 and TS1 through TS7 and hold no authority here.
 ## Contract
 
 The binding contract is sections 1, 3, and 4: the decision boundary, the
 universal query contract every implementation follows, and the canonical
-queries Q1 through Q10 with their inputs, outputs, ordering, and oracles.
+queries Q1 through Q8 with their inputs, outputs, ordering, and oracles.
 Section 2 records the evidence basis of the job set; sections 5 through 7
 record candidate evaluation, deferred and rejected reads, and falsifiers, and
 carry no obligation.
@@ -41,7 +41,7 @@ from this contract. All candidates must pass the same corpus.
 
 ## 2. Evidence basis and corpus size
 
-The ten jobs below are grounded in the current Product model, ranked priorities,
+The eight jobs below are grounded in the current Product model, ranked priorities,
 workflow visibility rules, state-model postmortem, durable-knowledge design, and
 PM/TS backlogs. The corpus deliberately merges overlapping Advance-style
 list/show/search reads into Product-memory jobs.
@@ -61,8 +61,6 @@ of PM1 is the final check that no repeated Product-memory job is missing.
 | Q6 | Inspect cross-Project work | PM5; product-data-model §4 |
 | Q7 | Explain why work changed state | workflows §2.2; postmortem C2 |
 | Q8 | Inspect dependencies and supersession | PM4; product-data-model §10 |
-| Q9 | Search prior work, decisions, lessons, and specs | compaction-retention-policy historical index; PM6 durable notes |
-| Q10 | Resolve a canonical durable note | PM6 |
 
 Rejected/deferred reads are listed in §6. The corpus remains small on purpose: a
 new canonical query requires a real unmet operator/agent job and a success oracle,
@@ -70,14 +68,14 @@ not merely an existing Advance tool or convenient table.
 
 ## 3. Universal query contract
 
-Every Q1–Q10 implementation, regardless of storage or tool surface, follows these
+Every Q1–Q8 implementation, regardless of storage or tool surface, follows these
 rules.
 
 ### 3.1 Scope and typed inputs
 
 - Product context is ambient after Q1; explicit Product override is accepted only
   for ambiguity or intentional cross-Product work (TS5).
-- Inputs use stable typed references (`product`, `project`, `work`, `knowledge`),
+- Inputs use stable typed references (`product`, `project`, `work`),
   closed filters, and opaque cursors — never paths, SQL, or free-form dispatch.
 - List queries default to `limit=20`, cap at `100`, and return an opaque
   `next_cursor`. Detail is explicit (`summary` or `full`).
@@ -101,33 +99,8 @@ errors or explicitly degraded results.
 
 - Q1–Q8 are decision-driving live-memory reads: authoritative by default. If the
   authority cannot answer, return `unreachable`; never substitute a stale snapshot.
-- Q9–Q10 may use a rebuildable knowledge index, but return the canonical git
-  commit/hash and index watermark. Lag or omissions are typed `degraded`, never
-  silently complete.
-- The index is fresh when the content it projects is unchanged at the current
-  head, not when the head itself is unchanged. A commit that touches no
-  projected content leaves the index authoritative. A read is the demand that
-  rebuilds a stale index (CD-0082 D1); no operator step sits between the demand
-  and the answer. Lag therefore means content the index cannot reach, and it
-  stays typed `degraded`.
 - Partial results are allowed only when the caller permits degradation and the
   response identifies omitted records and why. No natural-language guessing.
-
-Publication provenance follows
-[CD-0020 D3](../decisions/CD-0020-retain-knowledge-index-shape.md#publication-observation).
-Q9 carries one `publications` entry per served source, including empty or degraded
-sources. Q10 carries the located note's exact source, commit/hash, and
-`publication` evidence when the note is served. Cached evidence retains its
-observation time and basis; an unobserved or unverified comparison is unknown.
-Neither publication lag nor an unknown comparison changes read authority or law
-status. Explicit historical reads remain local and labelled historical.
-
-Both knowledge readers and writers may explicitly call
-`concord_knowledge.observe_publication` for the designated Product knowledge home.
-This operation alone performs the bounded network observation and cache effects
-defined by CD-0020 D3. Q9/Q10 and workflow boundaries do not invoke it. A failed
-latest observation supersedes the current comparison; earlier success remains
-historical evidence only.
 
 ### 3.4 Performance and boundedness
 
@@ -164,12 +137,8 @@ The JSON corpus is executable through a candidate adapter implementing
 - A scenario may declare `depends_on`; an input value shaped as
   `{ "$from": "scenario-id.$.path" }` resolves from that prior result. This is
   used only for cursor continuation, never as hidden mutable state.
-- `fixture_override` deterministically injects authority/index/staleness or
+- `fixture_override` deterministically injects authority/staleness or
   invariant failures; a candidate must not ignore it.
-- PM1 fixture knowledge fields are storage-neutral aliases under accepted PM6:
-  `repo` resolves to stable `home_project_id`/`home_locator_id`, `path` resolves to
-  `note_path`, and `commit` resolves to `commit_oid`. They are logical placeholders,
-  never raw path/URL or abbreviated-hash authority.
 - Implementation-acceptance runners record correctness plus plan, P50/P99, rows
   scanned, fan-out calls, and output bytes. Schema validation alone is not a
   passing implementation verification.
@@ -282,56 +251,6 @@ plus the recorded stage exits and evidence receipts that justify them; no event 
   uniqueness follow the accepted PM4 contract.
 - **Retention semantics:** live relation rows remain foreign key (FK) clean.
 
-### Q9. Search durable Product knowledge
-
-- **Intent:** "Have we solved this before; what decisions/specs/lessons govern it?"
-- **Input:** Product; optional Project/Domain; knowledge kinds (`work_note`,
-  `lesson`, `decision`, `spec`); tags; bounded text matched per whitespace token across ID,
-  title, summary, tags, and Git-stored body; cursor/limit.
-- **Output:** summaries with title, kind, date, tags, related work/Domain,
-  canonical note/decision/spec reference, commit/hash, and index watermark.
-- **Text admission and order:** when bounded `text` is present, Q9 splits it
-  on whitespace into case-insensitive tokens. Q9 admits a record whose stable ID,
-  title, tag, or Domain equals `text`. Q9 also admits a record when every token
-  occurs in its ID, title, summary, a tag, or its projected law body. Token
-  order and adjacency do not matter, and tokens may match in different fields.
-  Case-insensitive exact structured matches rank first. Records whose ID,
-  title, summary, or tags hold every token rank second. Records that need law
-  body evidence for a token rank third. Each class then uses date descending
-  and stable ID. Product, Project, Domain, kind, and tag inputs remain
-  conjunctive filters. Without `text`, order is date descending and stable ID.
-  Body discovery is non-authoritative and does not change Q10's typed negative.
-- **Oracle:** knowledge is found through one bounded domain query, not repeated
-  list→show→search choreography; index lag is explicit.
-- **Authority note:** an indexed answer is `authoritative` only when its watermark
-  proves completeness against the projected content at every applicable canonical
-  git authority head; otherwise it is `degraded`. Accepted PM6 supplies canonical
-  home/locator semantics.
-- **Product scope:** Q9 resolves the designated Product knowledge home and
-  verifies its watermark. An unreachable or stale home refuses unless the
-  request allows degradation. A degraded answer names the limitation and
-  never reads as an authoritative negative. The cursor binds the query and
-  home identity.
-
-### Q10. Resolve canonical durable note
-
-- **Intent:** obtain the one durable completed-work/lesson note for work or
-  knowledge.
-- **Input:** completed work or knowledge reference.
-- **Output:** exactly one typed canonical locator (repo identity, path, commit SHA,
-  content hash) or `not_compacted`, `missing`, or `ambiguous`.
-- **Order/bounds:** single result; ambiguity candidates bounded and deterministic.
-- **Oracle:** cross-Project work never creates copied notes with competing truth;
-  the result is stable under a rebuild of the derived index.
-- **PM6 semantics:** locator identity is stable Project/knowledge-locator ID plus
-  path, commit OID, and content hash. Outcomes remain locator, `not_compacted`,
-  `missing`, or `ambiguous`; authority remains `authoritative|degraded|unreachable`.
-- **Source-qualified identity:** a knowledge
-  reference may take the qualified form `<project_id>/<law_id>` and resolves only
-  through that Project's canonical knowledge locator. A Product-scoped bare
-  ID resolves through its designated knowledge home. Every returned locator names its source Project,
-  repository-relative path, commit OID, and content hash.
-
 ## 5. Decision and implementation evaluation
 
 PM2/PM3 architecture decisions use the same accepted jobs/oracles and reject any
@@ -345,7 +264,7 @@ representative scale and records query plans, P50/P99, rows scanned, fan-out cal
 and output bytes. That evidence validates implementation quality; it does not
 retroactively choose the architecture.
 
-TS1/TS3 candidates consume Q1–Q10 as **jobs**, not as mandatory one-tool-per-query
+TS1/TS3 candidates consume Q1–Q8 as **jobs**, not as mandatory one-tool-per-query
 mapping. Tool candidates are scored on scenario success, selection accuracy,
 calls/job, schema tokens, retries, and output bounds.
 
@@ -363,7 +282,7 @@ calls/job, schema tokens, retries, and output bounds.
 ## 7. Dependencies unlocked and falsifiers
 
 PM1 unlocks PM2/PM3 research comparison, PM4/PM5 query oracles, and TS1/TS3
-scenario design. Later decisions may extend Q1–Q10 only with a real unmet job.
+scenario design. Later decisions may extend Q1–Q8 only with a real unmet job.
 
 PM1 is falsified or must be amended when:
 

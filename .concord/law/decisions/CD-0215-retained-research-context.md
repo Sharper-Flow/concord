@@ -215,7 +215,7 @@ No Concord workflow contract was created here; the manifest does not invent legi
 Required witnesses cover active-session restart, conflict fences, distinct exact pins, stale required refusal, and optional nonblocking reliance.
 They also cover terminal read-only reuse, publication without deletion, optional-pin protection, bounded dry runs, deletion atomicity, and crash/replay.
 All terminal routes, reopen, owner removal, rebuild, upgrade, restore, authorization denial, and pin/retire races require evidence.
-Deleted text must remain absent from Git, retained store rows, historical pack indexes, and knowledge search.
+Deleted text must remain absent from Git, retained store rows, and historical pack indexes.
 Architecture-spike decision requirements and CD-0222 Initiative entry, narrative, and scope witnesses remain mandatory.
 `internal/store.TestResearchRetirementActivePinsProtectAndTerminalReleaseFences` is a candidate anchor for pin protection, not all these obligations.
 

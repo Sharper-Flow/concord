@@ -102,7 +102,6 @@ The plugin entry registers custom-tool definitions from `concord.ts`, including:
 product_view      → concord_product_view
 work_browse       → concord_work_browse
 work_trace        → concord_work_trace
-knowledge         → concord_knowledge
 work_define       → concord_work_define
 work_transition   → concord_work_transition
 work_relate       → concord_work_relate
@@ -199,7 +198,7 @@ MCP is rejected for v1 because:
 
 The JSON CLI contract is the stable internal client boundary. A future concrete
 client may add another thin adapter. Persistent MCP requires TS8/TS9 comparison and
-explicit CD-0003 D2 reconsideration. It must preserve the same eight semantics.
+explicit CD-0003 D2 reconsideration. It must preserve the same seven semantics.
 
 ## 8. Alternatives
 
@@ -207,7 +206,7 @@ explicit CD-0003 D2 reconsideration. It must preserve the same eight semantics.
 |---|---|
 | Agent calls CLI via `bash` | Rejected: loses schemas, hidden TS5 context, and selection reliability. |
 | Thin plugin entry with shared `concord.ts` transport | **Selected:** generated tool registration and accepted host runtime hooks; domain authority stays in Go. |
-| Eight tool files + shared library | Viable but rejected: more deployment/naming surface with no gain. |
+| Seven tool files + shared library | Viable but rejected: more deployment/naming surface with no gain. |
 | Local/remote MCP | Rejected for v1: no second client, extra context/lifecycle, no-daemon conflict. |
 | TypeScript core/SQLite access | Rejected: second authority/validator. |
 | FFI/WASM/native addon | Rejected: needless distribution/crash complexity. |
@@ -228,7 +227,7 @@ explicit CD-0003 D2 reconsideration. It must preserve the same eight semantics.
 
 Before release, prove:
 
-- all eight names/schemas match canonical registry and Go validators;
+- all seven names/schemas match canonical registry and Go validators;
 - wrong-client, inactive-client, and wrong-worktree invocations fail closed;
   registered key rotation/revocation takes effect;
 - directory/worktree/session/agent reaches core scope correctly;
@@ -251,7 +250,7 @@ Reopen TS6 when:
 - OpenCode adds a simpler external-binary tool adapter preserving schema, context,
   permission evidence, and cancellation.
 
-Any replacement preserves one core authority, eight semantics, hidden verified
+Any replacement preserves one core authority, seven semantics, hidden verified
 context, operation-bound authorization, same-key retries, and native-system ownership.
 
 ## Acceptance criteria

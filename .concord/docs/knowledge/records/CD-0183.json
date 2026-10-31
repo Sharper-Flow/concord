@@ -19,10 +19,6 @@
   "law_relations": [
     {
       "kind": "refines",
-      "target_id": "CD-0144"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0094"
     }
   ],
@@ -34,7 +30,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0898a4e9548d124d4597bb7890a94e5d98ca93852d72a960d5ba3f06885d767c",
+  "sha256": "sha256:43f07081cf122a27e18f63e1eb4e02cbbd10ca5550945cf9b2287eea54eb427e",
   "status": "accepted",
   "summary": "The first workflow action moves a needed item to in_progress and enqueues the Linear update, the Domain-overlap peer claim reads the workflow instance's execution-start fact instead of the lifecycle, the workflow completion records the terminal lifecycle transition in one transaction, and the lifecycle refuses a completed target while the item's workflow instance is live.",
   "tags": [

@@ -952,12 +952,6 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 			t.Fatal(err)
 		}
 		files[file] = id
-		if _, err := s.db.Exec(`INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at)
-			VALUES(?,?,'project',?,'synthetic-repository',? ,?,?,'verified','operator',?,'now','now')`, "wt-"+id, id, WorktreeSetID(id), "work/"+id, strings.Repeat("a", 40), dir, "req-"+id); err != nil {
-			t.Fatal(err)
-		}
-		execInFold(t, s, fmt.Sprintf(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
-			VALUES('%s','project','wt-%s','work/%s','%s','%s','synthetic-repository','active','now','{}')`, WorktreeSetID(id), id, id, strings.Repeat("a", 40), dir))
 	}
 	// Research content stays; only the cancelled work's active bindings drop.
 	execInFold(t, s, `UPDATE work_items SET kind='research' WHERE id='c-canonical'`)
@@ -976,7 +970,7 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 		}
 	}
 	untouched := map[string]string{}
-	for _, table := range []string{"relations", "work_messages", "workflow_contracts", "workflow_checkpoints", "worktree_claims", "worktree_entries", "linear_issue_links", "active_research_revisions"} {
+	for _, table := range []string{"relations", "work_messages", "workflow_contracts", "workflow_checkpoints", "linear_issue_links", "active_research_revisions"} {
 		untouched[table] = cutoverTableSnapshot(t, s, table)
 	}
 	eventsBefore := countRows(t, s, "effect_receipts")
@@ -1045,7 +1039,7 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	for file, want := range files {
 		content, err := os.ReadFile(file)
 		if err != nil || string(content) != want {
-			t.Fatalf("worktree file changed: %q, %v", content, err)
+			t.Fatalf("host file changed: %q, %v", content, err)
 		}
 	}
 	if _, err := PlanUpgradeReadiness(ctx, s.Path()); err != nil {

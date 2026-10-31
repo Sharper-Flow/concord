@@ -15,14 +15,14 @@ import (
 // after the later fractional stamp.
 func recordOrderedHandoffPair(t *testing.T, f projectHandoffFixture) (older, newer string) {
 	t.Helper()
-	first := f.recordRequest(f.sourceTree)
+	first := f.recordRequest()
 	first.Now = time.Unix(40, 0).UTC()
 	first.ArtifactRefs = []string{"sha256:" + strings.Repeat("a", 64) + ":/first-artifact.txt"}
 	firstRec, err := runRecordProjectHandoffTx(f, first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second := f.recordRequest(f.sourceTree)
+	second := f.recordRequest()
 	second.BoundedJob = "the later recorded repository job"
 	second.ArtifactRefs = []string{"sha256:" + strings.Repeat("b", 64) + ":/second-artifact.txt"}
 	second.Now = time.Unix(40, 1).UTC()
@@ -53,15 +53,6 @@ func TestProjectHandoffNewestSelectionsReadCurrentRows(t *testing.T) {
 				t.Fatalf("continuity handoff=%+v, want the later-recorded %s", pending, newer)
 			}
 		})
-		t.Run("boot", func(t *testing.T) {
-			frontier, err := PendingProjectHandoffForProjectTx(ctx, tx, f.workID, f.targetProject, "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if frontier == nil || frontier.HandoffID != newer {
-				t.Fatalf("boot frontier=%+v, want the later-recorded %s", frontier, newer)
-			}
-		})
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -84,7 +75,7 @@ func TestProjectHandoffAdmissionAndConsumeReadCurrentRows(t *testing.T) {
 			}
 			assertEventLogAbsent(t, f.store)
 			if err := inRelocationTx(t, f.store, func(_ *Transaction, tx *sql.Tx) error {
-				err := RefuseUnconsumedProjectHandoffTx(t.Context(), tx, f.workID, f.targetSession)
+				err := RefuseUnconsumedProjectHandoffTx(t.Context(), tx, f.workID, f.targetProject, f.targetSession)
 				if state == "consumed-newer" {
 					if err != nil {
 						t.Errorf("current bind refused admission: %v", err)

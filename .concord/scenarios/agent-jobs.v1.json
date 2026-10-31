@@ -55,7 +55,6 @@
   "retry_safe": "replaying the same intent does not duplicate effects",
   "bounded_context": "outputs are bounded and distinguish empty, ambiguous, degraded, and unreachable",
   "no_silent_scope_cut": "accepted obligations are not omitted without explicit human direction",
-  "ground_truth_cleanup": "cleanup and reclamation use native authoritative facts",
   "ordered_cross_authority": "git or external steps are ordered, attributed, retry-safe, and expose partial outcomes with reconciliation",
   "stable_evolution": "recorded contract versions remain interpretable"
  },
@@ -878,51 +877,6 @@
     ],
     "invariants": [
      "honest_recovery"
-    ]
-   }
-  },
-  {
-   "id": "AJ8-ground-truth-reclamation",
-   "job_id": "AJ8",
-   "instruction": "Reclaim the worktree for completed work-done.",
-   "initial_state": {
-    "fixture": "PM1",
-    "git": {
-     "merged": true,
-     "clean": true
-    },
-    "projection": {
-     "status": "active"
-    }
-   },
-   "expected": {
-    "assertions": [
-     {
-      "target": "state",
-      "path": "worktree.exists",
-      "op": "eq",
-      "value": false
-     },
-     {
-      "target": "state",
-      "path": "work.work-done.history_retained",
-      "op": "eq",
-      "value": true
-     },
-     {
-      "target": "communication",
-      "path": "ground_truth_evidence",
-      "op": "nonempty"
-     },
-     {
-      "target": "effects",
-      "path": "blocked_by_stale_projection",
-      "op": "absent"
-     }
-    ],
-    "invariants": [
-     "ground_truth_cleanup",
-     "canonical_authority"
     ]
    }
   },

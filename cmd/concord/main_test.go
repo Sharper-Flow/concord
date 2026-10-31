@@ -72,25 +72,30 @@ func TestRunWithoutArguments(t *testing.T) {
 	}
 }
 
-func TestHelpListsHostBootstrapCommands(t *testing.T) {
+func TestHelpListsSessionPreparation(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := run([]string{"--help"}, &out, &errOut); code != 0 {
 		t.Fatalf("help exit code=%d stderr=%q", code, errOut.String())
 	}
-	for _, command := range []string{"concord work-bootstrap < JSON stdin", "concord session-prepare < JSON stdin"} {
+	for _, command := range []string{"concord session-prepare < JSON stdin"} {
 		if !strings.Contains(out.String(), command) {
 			t.Fatalf("help does not list %q", command)
 		}
 	}
 }
 
-func TestHelpListsSessionVacateOperation(t *testing.T) {
+func TestHelpOmitsHostOwnershipRoutes(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := run([]string{"--help"}, &out, &errOut); code != 0 {
 		t.Fatalf("help exit code=%d stderr=%q", code, errOut.String())
 	}
-	if !strings.Contains(out.String(), "concord_work_transition.session_vacate") {
-		t.Fatalf("help does not list the session vacate operation")
+	for _, route := range []string{
+		"concord work-bootstrap", "concord work-resume", "concord worktree-locate", "concord claim-landing", "concord vacate-landing",
+		"concord_work_transition.session_vacate", "concord_work_transition.worktree_claim", "concord_work_transition.worktree_reclaim", "concord_work_transition.worktree_destroy", "concord_work_transition.worktree_audit_reclaim", "concord_work_browse.worktree_audit",
+	} {
+		if strings.Contains(out.String(), route) {
+			t.Fatalf("help advertises retired ownership route %q", route)
+		}
 	}
 }
 
@@ -330,11 +335,6 @@ func TestEveryVerbHasAHelpRoute(t *testing.T) {
 		}
 		verbs = append(verbs, verb)
 		cases = append(cases, verbCase{name: verb, args: []string{verb}, want: topLevelVerbLines(t, topLevel, verb)})
-	}
-	for _, want := range []string{"continuity-block"} {
-		if !slices.Contains(verbs, want) {
-			t.Fatalf("top-level verbs outside commandSpecs = %v, missing %q", verbs, want)
-		}
 	}
 	for _, tc := range cases {
 		for _, flag := range []string{"--help", "-h"} {

@@ -38,31 +38,6 @@ var mainCheckoutAllowedOperations = map[agentcontract.Capability]map[string]stru
 		// CD-0094 D5 admits remove conditionally: replay or the planner's
 		// exact-item shelving proof, revalidated in the transaction.
 		"remove": {},
-		// session_vacate resolves from the registered main checkout only to
-		// complete the landing of its own committed relocation request: the
-		// replay from the verified destination resolves the pending request
-		// and writes nothing here, and the adapter-only vacate-landing verb
-		// owns the release (CD-0190). It claims no worktree and touches no
-		// checkout path.
-		"session_vacate": {},
-	},
-}
-
-// mainCheckoutWorktreeRetirementOperations names the closed set of worktree
-// retirement operations that resolve from a registered Project's default
-// checkout. The ground is the tier gate each reclaimed row passes, not the
-// work item's terminality: the terminal tier retires a merged tree, the
-// unstarted tier (CD-0118) retires a clean tree whose branch holds no commit
-// beyond the default ref, and per-row eligibility in the store admits no
-// other class. Neither tier can strand implementation work, which is the
-// surface CD-0092 D2 protects (CD-0162). worktree_reclaim keeps its
-// planner-side terminality check, because its one addressed row may hold any
-// lifecycle; worktree_audit_reclaim adds no check here, because the store
-// pass applies the tier gates to every row it reclaims.
-var mainCheckoutWorktreeRetirementOperations = map[agentcontract.Capability]map[string]struct{}{
-	agentcontract.Capability("work_transition"): {
-		"worktree_audit_reclaim": {},
-		"worktree_reclaim":       {},
 	},
 }
 
@@ -457,14 +432,8 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	if resolved.MainWorktree {
 		_, capabilityAllowed := mainCheckoutAllowedCapabilities[in.RequiredCapability]
 		_, operationAllowed := mainCheckoutAllowedOperations[in.RequiredCapability][in.RequiredOperation]
-		_, retirementAllowed := mainCheckoutWorktreeRetirementOperations[in.RequiredCapability][in.RequiredOperation]
-		if !capabilityAllowed && !operationAllowed && !retirementAllowed {
-			// The route is the one the workflow already admits for a clean
-			// merged worktree: vacate the occupying session, then reclaim the
-			// worktree from the main checkout, where worktree_reclaim is a
-			// terminal-work operation. contact_operator named no operation and
-			// stopped the agent mid-cleanup.
-			return Authority{}, authorityRouteRefusal("implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)", "session_vacate", "worktree_reclaim")
+		if !capabilityAllowed && !operationAllowed {
+			return Authority{}, authorityRefusal("implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)")
 		}
 	}
 	if !containsCapability(capabilityValues(policyCaps), in.RequiredCapability) {
@@ -518,16 +487,6 @@ func (s *Service) authorizedProductProjects(ctx context.Context, tx *store.Trans
 // authorityRefusal marks the authorization boundary as a typed refusal.
 func authorityRefusal(detail string) error {
 	return newRuntimeFailure("unauthorized", detail, "contact_operator", false)
-}
-
-// authorityRouteRefusal marks an authorization refusal whose remedy is a
-// declared route of workflow actions. route is ordered: the caller executes
-// it front to back. unauthorized is deliberately absent from the
-// agentcontract recovery coupling table, so the refusal carries the route it
-// admits in RecoveryAction.RequiredRefs instead of the standing
-// contact_operator default that names no operation.
-func authorityRouteRefusal(detail string, route ...string) error {
-	return newRouteFailure("unauthorized", detail, route...)
 }
 
 func intersect(left, right []string) []string {

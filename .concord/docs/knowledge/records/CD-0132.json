@@ -27,7 +27,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4072a46fc681c97a1ad9e4d63fc292d1323b2f0f0b49a04b22fb0a180c207018",
+  "sha256": "sha256:d147633ef0af286a7989af5bd60857afa2c7d1a3c25fb6ae149f35b8821af452",
   "status": "accepted",
   "summary": "The Go envelope validator enforces unevaluatedProperties with allOf evaluation semantics so producer and adapter enforce one law, errorOutcome admits changed_refs for partially-applied mutations, and the audit post-commit failure path validates its output before it reaches the wire.",
   "tags": [

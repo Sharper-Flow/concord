@@ -69,11 +69,11 @@ large filesystem operation. Probe git facts before the transaction,
 re-validate them cheaply inside it, and run bulk removal after the commit.
 The rule binds the store and every caller that opens store transactions.
 
-### D3. The acceptance workload covers worktree claim and reclaim concurrency
+### D3. The accepted conformance population remains
 
-The ten-process conformance population stays the accepted population, and the
-workload gains worktree claim and reclaim concurrency, the operation class
-that held the lock. A tool call here is a short-lived process, and many
+The ten-process conformance population stays the accepted population. Retired
+ownership operations are not workload obligations (CD-0088 D1). A tool call
+here is a short-lived process, and many
 sessions run concurrently, so the workload must represent that shape.
 CD-0046 keeps invocation provenance as the population authority, and CD-0045
 keeps exact effects and zero escaped busy failures on the accepted population.
@@ -102,8 +102,7 @@ CD-0011's escaped-busy condition is discharged for the two classes on record,
 and every reopen condition in CD-0011 stands as written for later escapes.
 The transaction-boundary proof requires a structural guard beside
 `internal/store/txscope_test.go` that fails when a transaction-holding
-function reaches a subprocess or a bulk filesystem call, and the claim and
-reclaim workload in the conformance harness.
+function reaches a subprocess or a bulk filesystem call. No falsifier vocabulary changes.
 CD-0165 binds new work to the current release.
 
 ## Verification

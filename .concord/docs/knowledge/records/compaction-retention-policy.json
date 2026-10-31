@@ -53,7 +53,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ea82acd8743110836e181069d0bd30b41d593d5eabaacbfe0148308e95f4e4dc",
+  "sha256": "sha256:e57e299ff2a50ed1d3988ad4945c138d60f49487d8cb04e71465cab203e19f9a",
   "status": "accepted",
   "summary": "Gates terminal execution cleanup on verified closure, settled publication and released consumers; keeps research retirement separate and historical indexes Git-derived.",
   "tags": [

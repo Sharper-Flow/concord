@@ -30,19 +30,12 @@ func terminalCleanupSQL(t *testing.T, s *Store, queries ...string) {
 
 func TestTerminalCleanupDefersUnreleasedOwners(t *testing.T) {
 	const other = `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('other-work','task','Other','needed',0,1,'now','now')`
-	const claim = `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES('claim','work-done','proj-web','wts:work-done','work/closed','1111111111111111111111111111111111111111','/synthetic/work','pending','operator','fixture','now','now')`
-	const entry = `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES('wts:work-done','proj-web','claim','work/closed','1111111111111111111111111111111111111111','/synthetic/work','repository-fixture','reclaimed','now')`
 	for _, tc := range []struct {
 		name    string
 		kind    FailureKind
 		queries []string
 	}{
 		{"live_relation", KindOperationConflict, []string{other, `INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('other-work','work-done','blocks','now')`}},
-		{"pending_claim", KindResourceBusy, []string{claim}},
-		{"active_tree", KindResourceBusy, []string{entry, `UPDATE worktree_entries SET state='active'`}},
-		{"native_occupancy", KindResourceBusy, []string{entry, `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) VALUES('wts:work-done:proj-web:claim','session-fixture','now',0)`}},
-		{"ref_preservation_debt", KindOperationConflict, []string{`INSERT INTO worktree_ref_outcomes(set_id,project_id,claim_op_id,branch,phase,reason,recorded_at) VALUES('wts:work-done','proj-web','claim','work/closed','restoration_owed','restore','now')`}},
-		{"pending_vacate", KindOperationConflict, []string{`INSERT INTO session_vacate_requests VALUES('work-done','session-fixture','proj-web','/synthetic/work','/synthetic/main',1,0)`}},
 		{"outside_repair", KindOutsideRepairActive, []string{`INSERT INTO outside_repair_dispositions VALUES('work-done','active','repair','{}','now')`}},
 		{"pending_durable_effect", KindOperationConflict, []string{`INSERT INTO durable_operations SELECT 'other-operation',attempt_epoch,work_id,workflow_type_ref,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,'pending',result_payload,evidence_refs,changed_refs,resume_cursor,principal_ref,request_id,observed_at,completed_at,contract_digest,workflow_type_digest FROM durable_operations WHERE op_id='publication'`}},
 		{"pending_removal", KindOperationConflict, []string{`INSERT INTO work_removal_operations(operation_id,idempotency_key,work_id,expected_version,reason,actor,handoff_json,handoff_digest,state,created_at,updated_at) VALUES('remove-fixture','remove-key','work-done',3,'shelved','operator','{}','sha256:1111111111111111111111111111111111111111111111111111111111111111','prepared','now','now')`}},
@@ -104,9 +97,9 @@ func TestTerminalCleanupRetryOwnershipAndIssueIdentity(t *testing.T) {
 	if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM idempotency_records WHERE idempotency_key<>'non-work-request'`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("closed work retry rows remain: count=%d err=%v", count, err)
 	}
-	link, err := s.ReadLinearLinkByIssueKey(t.Context(), "SYN-123")
-	if err != nil || link.WorkID != "work-done" {
-		t.Fatalf("issue identity lost: %+v err=%v", link, err)
+	link, found, err := readLinearLinkCore(t.Context(), s.db, "work-done")
+	if err != nil || !found || link.WorkID != "work-done" || link.HumanKey != "SYN-123" {
+		t.Fatalf("issue identity lost: %+v found=%v err=%v", link, found, err)
 	}
 	err = ApplyOperation(t.Context(), s, Operation{Events: []Event{{EventID: "create-work-work-done", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-done", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: workCreatedCurrentVersion(), Payload: []byte(`{"work_kind":"task","title":"Late retry","priority":0}`)}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-done"): 0}})
 	assertFailureKind(t, err, KindProjectionNotFound)
@@ -237,8 +230,6 @@ func TestTerminalCleanupRetainsDefectAdmissionClassification(t *testing.T) {
 			assertFailureKind(t, pinErr, KindProjectionNotFound)
 			_, summaryErr := s.ReadWorkItemSummary(t.Context(), "work-done")
 			assertFailureKind(t, summaryErr, KindProjectionNotFound)
-			_, resumeErr := s.ResumeWorktreeLocation(t.Context(), "prod-alpha", "proj-web", "work-done")
-			assertFailureKind(t, resumeErr, KindProjectionNotFound)
 			if err := s.CleanupPublishedTerminalWork(t.Context(), "work-done"); err != nil {
 				t.Fatalf("classification-only re-entry: %v", err)
 			}
@@ -446,12 +437,7 @@ func lawCleanupProducer(t *testing.T, s *Store, enacting bool) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_law_baselines WHERE work_id='cleanup-producer' AND enactment_json IS NOT NULL`).Scan(&proofs); err != nil || (proofs == 1) != enacting {
 		t.Fatalf("material enactment count=%d, enacting=%t: %v", proofs, enacting, err)
 	}
-	// Release mutable native owners only; the real completion receipt and
-	// immutable attribution remain untouched until the cleanup owner runs.
-	terminalCleanupSQL(t, s,
-		`UPDATE worktree_entries SET state='reclaimed' WHERE set_id='wts:cleanup-producer'`,
-		`UPDATE worktree_claims SET state='reclaimed' WHERE work_id='cleanup-producer'`,
-	)
+	assertWorktreeTablesAbsent(t, s.db)
 	publishLawCleanupNote(t, s, "cleanup-producer", content, true)
 }
 

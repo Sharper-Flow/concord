@@ -25,52 +25,6 @@ type LinearIssueLink struct {
 // and the issue number.
 var linearIssueKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[1-9][0-9]*$`)
 
-// ReadLinearLink returns one work item's recorded identity, refusing when none
-// exists.
-func (s *Store) ReadLinearLink(ctx context.Context, workID string) (LinearIssueLink, error) {
-	link, found, err := readLinearLinkCore(ctx, s.db, workID)
-	if err != nil {
-		return LinearIssueLink{}, err
-	}
-	if !found {
-		return LinearIssueLink{}, newFailure(KindUnknownScope, "linear_link_read", "no Linear issue identity is recorded for the work item", false, "record the identity with concord_work_define.issue_link_record")
-	}
-	return link, nil
-}
-
-// ReadLinearLinkByIssueKey resolves only a unique recorded identity. Human keys
-// are not unique in storage; every match counts, regardless of scope or lifecycle.
-// The caller must still apply the selected work item's resume and scope guards.
-func (s *Store) ReadLinearLinkByIssueKey(ctx context.Context, issueKey string) (LinearIssueLink, error) {
-	const op = "linear_link_resolve"
-	if len(issueKey) > 64 || !linearIssueKeyPattern.MatchString(issueKey) {
-		return LinearIssueLink{}, newFailure(KindInvalidPayload, op, "issue key must be a Linear issue key such as CON-801", false, "supply the exact recorded Linear issue key")
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT work_id, remote_issue_uuid, human_key, url FROM linear_issue_links WHERE human_key=? ORDER BY work_id LIMIT ?`, issueKey, MaxFailureCandidates)
-	if err != nil {
-		return LinearIssueLink{}, wrapFailure(KindUnavailable, op, "cannot read recorded Linear issue identities", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	var link LinearIssueLink
-	var candidates []string
-	for rows.Next() {
-		if err := rows.Scan(&link.WorkID, &link.RemoteIssueUUID, &link.HumanKey, &link.URL); err != nil {
-			return LinearIssueLink{}, wrapFailure(KindUnavailable, op, "cannot read the Linear issue identity", true, "retry once the database is readable", err)
-		}
-		candidates = append(candidates, link.WorkID)
-	}
-	if err := rows.Err(); err != nil {
-		return LinearIssueLink{}, wrapFailure(KindUnavailable, op, "cannot finish reading recorded Linear issue identities", true, "retry once the database is readable", err)
-	}
-	if len(candidates) == 0 {
-		return LinearIssueLink{}, newFailure(KindUnknownScope, op, "no work item records that Linear issue key", false, "supply a recorded Linear issue key or an explicit work_id")
-	}
-	if len(candidates) > 1 {
-		return LinearIssueLink{}, newAmbiguousScopeFailure(op, "multiple work items record that Linear issue key", "supply an explicit work_id", candidates)
-	}
-	return link, nil
-}
-
 func readLinearLinkCore(ctx context.Context, q queryer, workID string) (LinearIssueLink, bool, error) {
 	var link LinearIssueLink
 	err := q.QueryRowContext(ctx, `SELECT work_id, remote_issue_uuid, human_key, url FROM linear_issue_links WHERE work_id=?`, workID).Scan(&link.WorkID, &link.RemoteIssueUUID, &link.HumanKey, &link.URL)

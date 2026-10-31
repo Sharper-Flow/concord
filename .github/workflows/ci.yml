@@ -163,17 +163,6 @@ jobs:
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
         run: bun test adapter/opencode/ --timings="$RUNNER_TEMP/adapter-test-timings.json" --update-timings --reporter=junit --reporter-outfile="$RUNNER_TEMP/adapter-test-results.xml"
-      - name: Require the seven adapter continuity witnesses in native results
-        run: |
-          python3 adapter/opencode/acceptance.py continuity_hook.test.ts \
-            --read-report "$RUNNER_TEMP/adapter-test-results.xml" --process-exit-code 0 \
-            --expect adapter-continuity-byte-stable-across-turns \
-            --expect adapter-continuity-state-change-replaces-block \
-            --expect adapter-continuity-failure-is-absence \
-            --expect adapter-continuity-ttl-gates-spawn \
-            --expect adapter-continuity-work-start-retarget \
-            --expect adapter-continuity-lane-leak-absent \
-            --expect adapter-continuity-post-boundary-re-pin
       - name: Retain adapter file durations
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -246,7 +235,7 @@ jobs:
       - name: Test migration compatibility classifier
         run: python3 scripts/test-migration-compatibility.py
       - name: Check vocabulary generators
-        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-branch-freshness.py --check && python3 scripts/generate-relation-vocabulary.py --check && python3 scripts/generate-durable-tier-budget.py --check
+        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-relation-vocabulary.py --check && python3 scripts/generate-durable-tier-budget.py --check
       - name: Validate native-run vocabulary
         run: python3 scripts/check-native-run-statuses.py
       - name: Test native Go result artifacts
@@ -294,7 +283,7 @@ jobs:
       - name: Test isolated rapid integration
         run: python3 scripts/test-rapid-integration.py
       - name: Test release and installer tooling
-        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-generate-agent-profiles.py && python3 scripts/test-shard-format.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py && python3 scripts/test-native-issue-key-resume.py
+        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-generate-agent-profiles.py && python3 scripts/test-shard-format.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py
 
   # Go static analysis: build hygiene, lint, and the callgraph/complexity
   # planes. Cached module and build caches keep the pinned analysis tools
@@ -327,10 +316,8 @@ jobs:
         run: go build ./...
       - name: Compile all tests
         run: go test -run '^$' -timeout=15m ./...
-      - name: Check event log references and continuity reclaim
-        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/event-log" -- go test -count=1 -timeout=300s -run '^(TestEventLogReferences|TestEventLogReferencePropertiesBite|TestSessionVacateReclaimOccupancyGateCorpus)$' ./internal/store
-      - name: Require the continuity reclaim witness in native results
-        run: bin/oc-test read-go "$RUNNER_TEMP/go-test-results/event-log" github.com/sharper-flow/concord/internal/store=TestSessionVacateReclaimOccupancyGateCorpus/adapter-continuity-session-vacate-then-reclaim-passes-occupancy-gate
+      - name: Check event log references
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/event-log" -- go test -count=1 -timeout=300s -run '^(TestEventLogReferences|TestEventLogReferencePropertiesBite)$' ./internal/store
       - name: Lint Go
         run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run --output.text.colors=false ./...
       - name: Validate product reachability

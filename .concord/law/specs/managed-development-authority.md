@@ -134,8 +134,8 @@ The other boundaries retain their stated scope.
   merge evidence and do not establish release publication or installation.
   `python3 scripts/check-doc-links.py` validates the cited records only; it does
   not prove a merge or workflow admission.
-- Criterion 3: worktree occupancy isolation is exercised by
-  `internal/store.TestClaimWorktreeStillRefusesForeignWorkOccupancy`.
+- Criterion 3: review host-owned branch and worktree isolation under CD-0088 D1;
+  Concord's ownership service is not its enforcement surface.
 - Criterion 4: `python3 scripts/check-knowledge-index.py` validates the
   declared law graph.
 - Criterion 5: `python3 scripts/check-pr-linear-link.py` enforces the
@@ -152,7 +152,6 @@ The other boundaries retain their stated scope.
   record that owns the route.
 - Criterion 9: review against CD-0122 D1.
   `python3 scripts/check-knowledge-index.py` validates the cited record.
-- Criterion 10: review against CD-0122 D2. Isolation mechanics are exercised by
-  `internal/store.TestClaimWorktreeStillRefusesForeignWorkOccupancy`.
+- Criterion 10: review against CD-0122 D2 and host isolation under CD-0088 D1.
 - Criterion 11: the store refuses an in-repository database path in
   `cmd/concord.TestDatabaseOverrideRefusesRepositoryLocalPath`.

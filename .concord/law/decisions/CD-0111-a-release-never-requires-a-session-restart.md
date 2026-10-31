@@ -7,7 +7,7 @@
   applies
 - **Approval:** The operator approved this decision for issue #841 on work item
   `work-c128cbe6b07ea2d61c7d105a`.
-- **Related:** CD-0005, CD-0027, CD-0096, CD-0105, issue #841, issue #722
+- **Related:** CD-0005, CD-0027, issue #841, issue #722
 
 ## Context
 

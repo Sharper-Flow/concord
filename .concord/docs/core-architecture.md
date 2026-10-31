@@ -43,8 +43,10 @@ The binary holds no Linear credential and makes no Linear API call. See
 **Current binding direction (finalized 2026-08-06):** Concord's core is written in
 **Go**. The TypeScript adapter exposes custom tools through the
 `concord-plugin.ts` entry module, which also registers accepted host runtime hooks. The
-`concord.ts` transport module owns no domain logic; [CD-0090 D1](../law/decisions/CD-0090-per-turn-continuity-re-pin-hook.md#d1-runtime-hooks-and-authority-hooks-are-different-classes)
-keeps authority hooks in the core.
+`concord.ts` transport module owns no domain logic;
+[TS6](../law/specs/agent-adapter-transport-contract.md#1-decision) keeps domain
+authority in the core. Agents read work context explicitly under
+[CD-0016](../law/decisions/CD-0016-context-continuity.md).
 
 This is a **clean rewrite**, not a port of Advance's TypeScript plugin or its tool
 catalog. Go-core is greenfield Concord code.
@@ -161,14 +163,14 @@ details; this table does not duplicate them.
 
 | Responsibility | Start here | Invariant and test owner |
 |---|---|---|
-| CLI routing and host bootstrap | `cmd/concord/main.go`, `cmd/concord/work_bootstrap.go`, `cmd/concord/session.go` | Command admission, session identity; same-package tests |
+| CLI routing and session preparation | `cmd/concord/main.go`, `cmd/concord/session_prepare.go`, `cmd/concord/session.go` | Command admission, session identity; same-package tests |
 | Agent authorization and mutation | `internal/agent/runtime.go`, `internal/agent/mutations.go` | `internal/agent/authority.go`; approval, replay, and budget tests |
 | Adapter transport and host context | `adapter/opencode/concord.ts`, `adapter/opencode/concord-plugin.ts` | Adjacent adapter tests |
 | SQLite connection and admission mechanism | `internal/store/internal/sqlitedb/connection.go`, `internal/store/internal/sqlitedb/read.go`, `internal/store/internal/sqlitedb/write.go` | One pooled connection and durable commit; adjacent tests, `internal/store/txbegin_guard_test.go` |
 | SQLite current-state and effect-receipt authority | `internal/store/doc.go`, `internal/store/store.go`, `internal/store/transaction.go`, `internal/store/events.go` | Transaction-scoped access; `txscope_test.go`, `tx_subprocess_guard_test.go` |
 | Work context and evidence | `internal/store/work_context.go`, `internal/store/workflow_review.go`, `internal/store/workflow_verification_report.go` | Declared sources, recorded subject, Review outcomes and verification reports; adjacent tests |
 | Workflow action and protected writes | `internal/store/workflow_dispatch.go`, `internal/store/workflow_preflight.go`, `internal/store/workflow_domain_overlap.go` | Approved scope, law revision, and work-relation resolution |
-| Sessions, worktrees, handoff | `internal/store/worktrees.go`, `internal/store/project_handoffs.go`, `internal/store/session_vacate.go` | Occupancy, same-Project incarnation, per-repository provenance; adjacent tests |
+| Project handoff | `internal/store/project_handoffs.go` | Directory-resolved receiving Project and authenticated handoff provenance; host tools own checkout inspection and lifecycle; Concord retains no worktree locator metadata |
 | Research and knowledge law | `internal/store/research_types.go`, `internal/store/research_reads.go`, `internal/store/research_mutations.go`, `internal/store/law_boundary.go` | Version and source identity, consumer pins, staleness, accepted-law lookup |
 | Repository verification | `.github/workflows/ci.yml`, `scripts/check-json.py`, `bin/oc-test` | Required checks and targeted verification routing |
 

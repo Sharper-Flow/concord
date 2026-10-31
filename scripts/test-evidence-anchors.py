@@ -587,19 +587,6 @@ def test_scenarios_require_unique_top_level_entries(tmp: Path) -> None:
         assert not anchors.scenario_exists("real"), "deferred entry is not executable evidence"
 
 
-def test_continuity_scenario_without_consumer_binding_is_not_coverage(tmp: Path) -> None:
-    import json
-    from unittest import mock
-
-    corpus_dir = tmp / ".concord/scenarios"
-    corpus_dir.mkdir(parents=True)
-    (corpus_dir / "adapter-continuity.v1.json").write_text(json.dumps({"scenarios": [{"id": "continuity-proof"}]}))
-    findings: list[str] = []
-    with mock.patch.object(anchors, "ROOT", tmp):
-        anchors.check_anchor({"kind": "scenario", "value": "continuity-proof"}, "proof", findings)
-    assert any("consumer" in finding for finding in findings), findings
-
-
 def test_nested_invocations_do_not_accept_script_as_data_or_reassigned_command(tmp: Path) -> None:
     module = tmp / "calls.py"
     module.write_text("\n".join([

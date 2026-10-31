@@ -94,20 +94,13 @@ func currentEffectRows(t *testing.T, s *Store) []currentEffectRow {
 
 func TestLiveWriteRoutesRefuseRecordedOldShapesAndCommitNothing(t *testing.T) {
 	t.Parallel()
-	s, git, _ := worktreeFixture(t)
+	s := worktreeFixture(t)
 	ctx := context.Background()
-	claim := baseClaim(git)
-	claim.SessionRef = "ses-held"
-	claimed, err := s.ClaimWorktree(ctx, claim)
-	if err != nil {
-		t.Fatal(err)
-	}
 	before := outsideRepairDatabaseSnapshot(t, s)
 	version := readWorkVersion(t, s, "work-w")
 	native := legacyNativeRunWriterPayload(t, "run-live", nil)
 	cases := map[string]Event{
-		"occupancy release occupant_session_ref": {Kind: "work.worktree_occupancy_released", Payload: jsonRaw(`{"set_id":"worktree-set:work-w","project_id":"project-w","claim_op_id":"wt-op-1","occupant_session_ref":"ses-held"}`)},
-		"native run map universe":                legacyNativeRunEvent("live-old-native", native),
+		"native run map universe": legacyNativeRunEvent("live-old-native", native),
 	}
 	for name, event := range cases {
 		event.EventID = "refused-" + strings.ReplaceAll(name, " ", "-")
@@ -123,20 +116,6 @@ func TestLiveWriteRoutesRefuseRecordedOldShapesAndCommitNothing(t *testing.T) {
 		if !reflect.DeepEqual(currentEffectRows(t, s), receipts) || outsideRepairDatabaseSnapshot(t, s) != before || readWorkVersion(t, s, "work-w") != version {
 			t.Fatalf("live %s refusal changed state", name)
 		}
-	}
-	landing := Event{EventID: "live-missing-pid", Kind: "work.session_claim_landed", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "ses-held", OccurredAt: time.Unix(42, 0).UTC(), PayloadVersion: eventKindRegistry["work.session_claim_landed"].CurrentVersion,
-		Payload: mustJSONValue(map[string]any{"work_id": "work-w", "project_id": "project-w", "session_ref": "ses-held", "claim_op_id": claimed.Entry.ClaimOpID, "source_directories": []string{}, "landed_directory": claimed.Entry.Path, "host_pid": 0, "host_pid_start": 0})}
-	receipts := currentEffectRows(t, s)
-	err = ApplyOperation(ctx, s, Operation{Events: []Event{landing}})
-	var failure *Failure
-	if !failureAs(err, &failure) || !strings.Contains(failure.Detail, "missing host_pid") {
-		t.Fatalf("missing-pid landing = %v", err)
-	}
-	if !reflect.DeepEqual(currentEffectRows(t, s), receipts) || readWorkVersion(t, s, "work-w") != version {
-		t.Fatal("refused landing changed state")
-	}
-	if got := worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-w", claimed.Entry.ClaimOpID); got != "ses-held" {
-		t.Fatalf("refused landing changed occupancy to %q", got)
 	}
 	assertFoldGuardEmpty(t, s)
 }

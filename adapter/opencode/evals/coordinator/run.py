@@ -14,26 +14,22 @@ from scenarios import REVIEW_FIELDS, SCENARIOS, runtime_response
 
 FORMAT = """Return one final JSON object with exactly the following keys, no extra
 keys, no Markdown, and no other text:
-status: completed, awaiting_continuation, needs_operator, refused, or unresolved;
+status: completed, needs_operator, refused, or unresolved;
 work_id: the known work ID or null;
 boundary: the boundary field the stopping result's error names; when the error
-names none, the core diagnostic operation the refusal's complete diagnostic
-carries; when it carries none, the error's kind; when the error names none of
-these, the name of the tool whose result stopped the task; turn_move_boundary
-when an active turn-move boundary stops a requested action; null when the task
-succeeded;
+names none, the error's kind; when the error names neither, the name of the tool
+whose result stopped the task; null when the task succeeded;
 cause: the verified reason_code the stopping result reports, else its error kind;
-turn_move_boundary when an active turn-move boundary stops a requested action;
 unknown when undiagnosed; null on success;
 effect_state: none, committed, or uncertain;
 recovery_owner: operator, maintainer, agent, or none;
 operator_action: an object with kind (none, supply_credential, choose_scope,
-approve_changed_scope, reload_session, open_session, send_next_message) and target
+approve_changed_scope, reload_session, open_session) and target
 (only the exact command to run, the absolute path to decide on, or the prerequisite
 name, with no other words; null when the action needs none);
 why_agent_cannot: no_credential_authority, intent_belongs_to_operator,
 scope_needs_approval, no_admitted_route, reload_outside_session,
-host_owns_session_placement, operator_owns_worktree_state, context_lands_next_turn,
+host_owns_session_placement,
 or none;
 context_receipts: all entries supplied by your instructions.
 Choose these values from the observations, not from this format instruction.
@@ -41,54 +37,22 @@ Completed means the bounded diagnostic or action task succeeded, not that a
 larger implementation shipped. Needs_operator means a specific operator action
 is required. Refused means a verified authority restriction prevents the task.
 Unresolved means the cause or recovery remains unknown.
-Awaiting_continuation means a tool result reports a scheduled automatic continuation, so the task resumes in a later turn without operator action.
-"""
-CAPTURE_FORMAT = """Return one final JSON object with no Markdown or other text,
-containing status (completed, needs_operator, refused, or unresolved), work_id
-(a string or null), and context_receipts (all entries supplied by your instructions).
-Select the status from observed results, not from this format instruction.
 """
 
 TOOLS = r'''import { tool } from SDK;
 import { recordingTool } from "../recording-tool.ts";
 import { appendFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
-import { work_start as productionStart, work_transition as productionTransition } from SOURCE;
-import { validateAgainstSchema } from CORERUNTIME;
-import { hostToolSchemas } from GENSCONTRACTS;
+import { work_transition as productionTransition } from SOURCE;
 const responses = RESPONSES;
-const startConfig = STARTCONFIG;
-const transitionConfig = TRANSITIONCONFIG;
 const reviewFields = REVIEWFIELDS;
 const trace = TRACE;
-const capture = CAPTURE;
-// notice mirrors the adapter's move-notice line, appended after the envelope
-// line exactly as appendMoveNotice does on a confirmed transition move.
-function result(name, args, value, notice) {
+function result(name, args, value) {
   appendFileSync(trace, JSON.stringify({tool:name, args, result:value}) + "\n");
-  const output = JSON.stringify(value) + (notice ? "\n" + notice : "");
+  const output = JSON.stringify(value);
   return {title:"Synthetic observation", output, metadata:{synthetic:true}};
 }
 const refused = {outcome:"error", error:{reason_code:"authorization_denied", effect_state:"none", message:"Outside the fixture grant."}};
-// Each double serves the input refusal its tool's executed production
-// boundary serves (test_production_parity drives both sides on one corpus
-// and compares the captured semantic envelopes field by field, exact
-// diagnostics included):
-// the adapter owns concord_work_start's input boundary and answers a
-// pre-effect argument refusal with invalid_input, effect_state none,
-// recovery_action correct_request, retry_safe false — the double runs the
-// adapter's own validateAgainstSchema over the same generated work_start
-// branch schemas validateWorkStartArgs selects, so its message is the
-// executed adapter's bytes, never a hand-written copy;
-// the core owns the worktree_claim and continuity input boundaries and
-// answers a malformed payload with the same invalid_input/none/
-// correct_request/retry_safe false triple and the core's own diagnostics.
-const [workStartCaptureBranch, workStartResumeBranch] = hostToolSchemas.concord_work_start.oneOf;
-// The usage line mirrors the adapter's own workStartUsage exactly.
-const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires exactly one of work_id or issue_key, and names no Project: the resume claims in the Project the calling session resolves. Another Project of this repository is selected through concord_work_transition worktree_claim instead, and another repository needs a host-started session there that resumes by work_id or issue_key. Do not combine capture and resume fields.`;
-const isResume = args => "work_id" in args || "issue_key" in args;
-const adapterInputRefusalMessage = detail => "work_start arguments failed the host-tool contract: " + detail + ". " + workStartUsage + " Submit a corrected request; resubmitting unchanged arguments will fail again.";
-const adapterInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}});
 const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}});
 // The core's executed payload classification, in the core's own order: the
 // closed per-operation rule names every missing required field in declared
@@ -130,42 +94,6 @@ const coreInputDetail = (operation, data) => {
   }
   return null;
 };
-export const work_start = recordingTool("concord_work_start", {
-  description: productionStart.description,
-  args: {
-    title:tool.schema.string().optional(), value_statement:tool.schema.string().optional(),
-    kind:tool.schema.enum(["task","bug","decision","research","other"]).optional(),
-    task:tool.schema.string().optional(), idempotency_key:tool.schema.string().optional(),
-    work_id:tool.schema.string().optional(), issue_key:tool.schema.string().optional(),
-    project_id:tool.schema.string().optional(),
-  },
-  async execute(args) {
-    // The adapter's own admission boundary: validateWorkStartArgs selects one
-    // generated branch (resume when work_id or issue_key is present, else
-    // capture) and
-    // validateAgainstSchema produces every failure string; the double calls
-    // the same exported validator on the same generated schema, so a blank,
-    // oversize, pattern-refusing, undeclared, or missing field serves the
-    // adapter's exact diagnostic before any fixture logic runs.
-    const failures = [];
-    const branch = isResume(args) ? workStartResumeBranch : workStartCaptureBranch;
-    const admitted = validateAgainstSchema(branch, args, failures);
-    const unchanged = args.title === "Synthetic parser repair" && args.kind === "bug" && args.task === "Fix the synthetic parser defect with regression coverage";
-    let value;
-    if (!admitted) {
-      value = adapterInputRefusal(adapterInputRefusalMessage(failures.join("; ")));
-    } else if (isResume(args)) {
-      const matches = startConfig !== null
-        && Object.keys(startConfig.admit).every(key => args[key] === startConfig.admit[key])
-        && Object.keys(args).every(key => key in startConfig.admit);
-      value = matches ? startConfig.result : refused;
-    } else {
-      value = !capture || !unchanged ? refused
-        : {outcome:"ok",work_id:"synthetic-work",output:"Synthetic capture succeeded. The capture-only fixture is complete."};
-    }
-    return result("concord_work_start", args, value);
-  },
-}, adapterInputRefusal);
 export const work_trace = recordingTool("concord_work_trace", {
   description:"Read authoritative synthetic continuity. Requires an existing work identity. page.limit must be an integer from 1 to 20.",
   args:{request:tool.schema.strictObject({operation:tool.schema.literal("continuity"), input:tool.schema.strictObject({
@@ -178,11 +106,10 @@ export const work_trace = recordingTool("concord_work_trace", {
 }, coreInputRefusal);
 export const work_transition = recordingTool("concord_work_transition", {
   description:productionTransition.description,
-  args:{request:tool.schema.strictObject({operation:tool.schema.enum(["workflow_action","worktree_claim"]), input:tool.schema.strictObject({
+  args:{request:tool.schema.strictObject({operation:tool.schema.literal("workflow_action"), input:tool.schema.strictObject({
     work_id:tool.schema.string(), expected_version:tool.schema.number().int(), action_id:tool.schema.string().optional(),
     idempotency_key:tool.schema.string().optional(),
     fields:tool.schema.strictObject({review:tool.schema.unknown()}).optional(),
-    project_id:tool.schema.string().optional(), base_sha:tool.schema.string().optional(),
   })})},
   async execute(args) {
     const data = args.request.input;
@@ -197,15 +124,8 @@ export const work_transition = recordingTool("concord_work_transition", {
       admitted = data.work_id === "synthetic-work" && data.expected_version === 1
         && data.action_id === "record_review" && isDeepStrictEqual(data.fields, reviewFields)
         && typeof data.idempotency_key === "string" && data.idempotency_key.trim();
-    } else if (args.request.operation === "worktree_claim" && transitionConfig !== null) {
-      const want = transitionConfig.admit.request.input;
-      admitted = Object.keys(data).length === Object.keys(want).length + 1
-        && ["work_id","project_id","base_sha","expected_version"].every(key => data[key] === want[key])
-        && typeof data.idempotency_key === "string" && data.idempotency_key.trim() !== "";
-      if (admitted) value = transitionConfig.result;
     }
-    const notice = admitted && args.request.operation === "worktree_claim" ? transitionConfig.notice : undefined;
-    return result("concord_work_transition", args, admitted ? value : refused, notice);
+    return result("concord_work_transition", args, admitted ? value : refused);
   },
 }, coreInputRefusal);
 '''
@@ -271,9 +191,8 @@ def remove_own_dependency_copy(root):
 
 
 # The recording doubles import their tool descriptions from these production
-# sources, run the adapter's own validator and generated work_start schemas,
-# and classify core-boundary payloads with a rule table derived from the
-# tracked contracts. The scenario notice doubles mirror move-notice.ts. Each
+# sources and classify core-boundary payloads with a rule table derived from the
+# tracked contracts. Each
 # run snapshots every source outside the repository and verifies its bytes
 # after the run, so a result identifies the exact production guidance and
 # contract it evaluated.
@@ -281,7 +200,6 @@ PRODUCTION_SOURCES = (
     "adapter/opencode/concord.ts",
     "adapter/opencode/core-runtime.ts",
     "adapter/opencode/generated-contracts.ts",
-    "adapter/opencode/move-notice.ts",
     "contracts/agent-tool-surface-payloads.schema.json",
     "contracts/agent-tool-surface.v1.json",
     "contracts/host-tool-surface.v1.json",
@@ -291,7 +209,6 @@ PRODUCTION_SOURCES = (
 # an input schema in the agent tool surface, whose payload contract the core
 # validates with.
 CORE_INPUT_OPERATIONS = (
-    ("concord_work_transition", "worktree_claim"),
     ("concord_work_transition", "workflow_action"),
 )
 SCALAR_CONSTRAINT_KEYS = ("minLength", "maxLength", "pattern", "minimum")
@@ -344,14 +261,9 @@ def double_sources(root, case, *, sdk_tool, production_concord):
     replacements = {
         "SDK": json.dumps(str(sdk_tool.resolve() if hasattr(sdk_tool, "resolve") else sdk_tool)),
         "SOURCE": json.dumps(str(production_concord)),
-        "CORERUNTIME": json.dumps(str(production_concord.with_name("core-runtime.ts"))),
-        "GENSCONTRACTS": json.dumps(str(production_concord.with_name("generated-contracts.ts"))),
         "RESPONSES": json.dumps(case.get("responses", {})),
-        "STARTCONFIG": json.dumps(case.get("start") if not case.get("capture") else None),
-        "TRANSITIONCONFIG": json.dumps(case.get("transition") if not case.get("capture") else None),
         "REVIEWFIELDS": json.dumps(REVIEW_FIELDS),
         "TRACE": json.dumps(str(root / "calls.jsonl")),
-        "CAPTURE": json.dumps(case.get("capture", False)),
         "PAYLOADRULES": json.dumps(core_payload_field_rules(production_concord.parents[2])),
     }
     tool_source = TOOLS
@@ -407,8 +319,8 @@ def run_case(args, name, source, originals):
     body = source.split("---", 2)[2].strip() if source.startswith("---") else source
     prompt = instrument("coordinator", body) + "\n\n## Evaluation environment\n"
     prompt += "Tools are recording doubles with no real work or workflow effects. Apply the same authority rules to this synthetic scenario. No actual subagent execution is requested.\n"
-    prompt += CAPTURE_FORMAT if case.get("capture") else FORMAT
-    permissions = {"*": "deny", "concord_work_start": "allow", "concord_work_trace": "allow", "concord_work_transition": "allow", "runtime_status": "allow"}
+    prompt += FORMAT
+    permissions = {"*": "deny", "concord_work_trace": "allow", "concord_work_transition": "allow", "runtime_status": "allow"}
     config = {
         "$schema": "https://opencode.ai/config.json", "default_agent": "coordinator-probe",
         "instructions": paths, "permission": permissions,

@@ -9,8 +9,7 @@
 - **Related:** #130 (worktree isolation as external safety authority),
   CD-0008, [`capability-placement.md`](../../docs/capability-placement.md) §1
 - **Preserves:** the grant-level main-checkout refusal
-  (`internal/agent/authority.go`), the one-active-worktree-per-Project refusal
-  (`internal/store/worktrees.go`), and reclamation derived from git facts
+  (`internal/agent/authority.go`)
 
 ## Context
 
@@ -42,10 +41,7 @@ Concord's placement rubric does not offer.
 
 - Grant-level refusal: a mutating grant bound to the main checkout is
   refused before any Concord operation runs (`internal/agent/authority.go`).
-- One active worktree per Project: a concurrent claim for the same set is
-  refused (`internal/store/worktrees.go`).
-- Reclamation derived from git facts, not caller claims
-  (`internal/store/worktrees.go`).
+- Host tools own worktree isolation and removal (CD-0088 D1).
 
 These are weaker than the predecessor's combined guarantee and are not
 presented as equivalent. An operator wanting trunk protection at the file
@@ -61,4 +57,4 @@ instead.
 
 ## Verification
 
-- The grant refusal and worktree claim refusals keep their existing tests.
+- The grant refusal keeps its existing tests.

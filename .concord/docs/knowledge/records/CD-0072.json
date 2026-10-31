@@ -4,8 +4,7 @@
   },
   "date": "2026-08-24T00:00:00Z",
   "evidence": [
-    "internal/agent/authority.go",
-    "internal/store/worktrees.go"
+    "internal/agent/authority.go"
   ],
   "home_domain_id": "repository-verification",
   "id": "CD-0072",
@@ -18,9 +17,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ddef1c905cc3b745eaa3b95ee92e46907e355496cb0db42b56f66da0ee875b8f",
+  "sha256": "sha256:bfed2c227ea046eab7f05e064a152aa97e924b40051d9c255eba755d32d7cfc0",
   "status": "accepted",
-  "summary": "Ordinary trunk file writes remain deliberately unguarded by Concord. Host tooling owns file-write permissions; Concord provides no subagent capability interceptor or filesystem sandbox. Main-checkout mutation refusal, worktree ownership and Git-fact reclamation retain their existing authority.",
+  "summary": "Ordinary trunk file writes remain deliberately unguarded by Concord. Host tooling owns file-write permissions, worktree isolation and removal; Concord provides no subagent capability interceptor or filesystem sandbox. The main-checkout mutation refusal remains.",
   "tags": [
     "trunk",
     "worktree",

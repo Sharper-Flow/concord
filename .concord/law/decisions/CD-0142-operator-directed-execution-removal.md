@@ -36,14 +36,15 @@ the exact audit handoff without exposing an actionable WorkItem.
 
 A lifecycle transition to `cancelled` under its existing gates may precede exact-item terminal reclamation as preparation for shelving. It cancels the managed execution, not the planning goal, and supplies no completion credit. Removal retains reason `shelved`, emits no second cancellation and claims no completion. Neither preparatory action replaces the committed `work.removed` receipt.
 
-Before removal, the caller preserves the verified cancellation identity, work version, actor, reason and evidence references, claim-generation retirement facts, retained branch references and recovery identities in the planning handoff. The caller verifies that handoff at its planning destination. When existing removal approval is required, the operator reviews its meaning through that approval. Existing shape, destination and confirmed-digest checks bind the content into the receipt; they do not infer meaning from prose.
+Before removal, the caller preserves the verified cancellation identity, work version, actor, reason and evidence references in the planning handoff. The caller verifies that handoff at its planning destination. When existing removal approval is required, the operator reviews its meaning through that approval. Existing shape, destination and confirmed-digest checks bind the content into the receipt; they do not infer meaning from prose.
 
 ### D2. Preparation fences execution and requires a complete handoff
 
 Preparation pins an operation identity, idempotency key, work revision, reason,
-and handoff digest. It refuses stale revisions,
-occupied sessions or worktrees, pending writes, effects, claims, required
-consumers, dependencies, and incomplete artifact or handoff evidence. Unknown
+and handoff digest. It refuses stale revisions, unsettled workflow execution,
+pending writes, effects, required consumers, dependencies, and incomplete
+artifact or handoff evidence. Worktree claims, occupancy, and native
+retirement facts do not gate this store-only removal under CD-0088 D2. Unknown
 host state remains unknown and never grants removal authority.
 
 The handoff contains findings, remaining scope, blockers, artifact references,
@@ -68,8 +69,8 @@ invent a Git note, GitHub adapter, second database, or generic provider layer.
 
 ### D4. Absence survives reads, recovery, and renewal
 
-Operational lists, exact-ID reads, launcher navigation, continuity, work start,
-claims, and overlap computation exclude a removed ID. Audit reads return only
+Operational lists, exact-ID reads, continuity, workflow actions,
+and overlap computation exclude a removed ID. Audit reads return only
 the explicit historical receipt. Snapshot restore, restart, migration, and
 knowledge rebuild preserve the absence; recovery restores verified snapshots and reconciles current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). A retry with the original identity returns the
 same committed receipt and records no second removal.
@@ -80,14 +81,14 @@ approvals, attempts, reservations, or checkpoints.
 
 ### D5. Liveness is read-time evidence
 
-Liveness is derived from current host occupancy, bounded waits, failures and
+Liveness is derived from current host observations, bounded waits, failures and
 progress, not inferred subagent execution. A work item without verified active
 or waiting evidence reports
 `unknown`; liveness never authorizes removal.
 
 ### D6. Complete shelving from the registered default checkout
 
-Transition the item's lifecycle to `cancelled` under its existing gates, then request exact-item terminal reclamation under CD-0162, not an audit sweep. This is the caller's preparation sequence. D5 admission checks the item's resulting retirement state and native proof, not unrecorded direct-versus-audit provenance. Remove through CD-0094 D5 and this decision's existing per-item preparation, handoff confirmation, approval and atomic removal machinery.
+Transition the item's lifecycle to `cancelled` under its existing gates. Remove through CD-0094 D5 and this decision's existing per-item preparation, handoff confirmation, approval and atomic removal machinery. Worktree ownership and native retirement proof do not gate store-only removal (CD-0088 D2); this route removes no host checkout.
 
 Shelving completes only after committed removal and verified execution-identity absence. The planning issue and exact handoff survive. D2's safety, D3's destination checks and D4's absence and new-identity renewal rules remain required.
 

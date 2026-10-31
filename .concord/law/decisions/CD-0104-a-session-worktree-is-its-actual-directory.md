@@ -1,76 +1,38 @@
-# CD-0104: A session's worktree is its actual directory, and Concord stores no session binding
+# CD-0104: A session's worktree is its actual directory
 
 - **Status:** Accepted
 - **Date:** 2026-09-03
-- **Scope:** Every stored copy of which session holds which worktree; the
-  bootstrap launch record; the in-session retarget, release, and takeover
-  operations; the `work_start` failure contract; issues #736, #737, #742, #749
-- **Approval:** The operator approved this record in-session on 2026-09-03 and
-  directed that it land with the deletion it describes.
-- **Related:** CD-0088, CD-0092, CD-0093, CD-0096, CD-0098, CD-0103, issues
-  #736, #737, #742, #749
-- **Preserves:** CD-0096 D2 (identity over input), D3 Inspect and
-  Destroy, and D4; every CD-0098 clause on the move and its read-back
+- **Scope:** Per-call host directory and transient exclusion
+- **Related:** CD-0088, CD-0092, CD-0093
+- **Preserves:** CD-0088 D3's rule that host placement grants no Product authority
 
 ## Context
 
-Which session holds which worktree is a host fact: the host process directory.
-Authorization resolves the Project and the main-worktree flag from the calling
-directory through git at every call (`internal/agent/authority.go`,
-`ProjectResolver`), so no stored copy of that fact has a reader.
-
-A stored copy of a host fact drifts. Issue #737: a launch row left at
-`prepared` with an empty session made every takeover refuse, and the refusal
-was deliberately not override-takeable. Issue #749: a replay that met that row
-fell through every branch of the prepare state table, with spawn and rollback
-both refused. Issue #742: any failure after the work item and worktree existed
-left a `partial` outcome that no typed operation could clear, because reconcile
-reads only terminal work. Issue #736: the lease-held refusal, a transient
-exclusion that recorded nothing, was typed as an operation to reconcile.
-
-The four are one defect. Each guard read a stored copy, and the copy was
-stale.
-
-The operator store showed the shape at scale: no `approve_contract`,
-`start_execution`, or `dispatch_worker` had ever succeeded on it, and sixteen
-worktrees sat on disk for work that was finished or never started.
+Authorization resolves the Project and main-checkout flag from the calling
+directory through Git at every call. A stored copy of that host fact drifts.
 
 ## Decision
 
 ### D1. The session's worktree is the directory it runs in
 
-Concord stores no binding from a session to a worktree. The directory a
-session runs in is the directory the host reports for it, read per call from
-the tool context the host supplies. No table, column, or operation records a
-copy of that fact ahead of the host.
+The directory a session runs in is the directory the host reports for it,
+read per call from the host's tool context. No Concord operation sets an
+effective session target ahead of the host. `session-prepare` performs
+verification and boot-packet derivation and records nothing.
 
-`session-prepare` performs verification and boot-packet derivation
-and records nothing.
+Each authenticated call resolves its Project from that host-reported directory.
+An explicit work ID selects work context; directory resolution never supplies
+one from worktree ownership. CD-0016 governs explicit continuity reads.
 
 ### D2. Concord stores what Concord owns
 
-`work_items`, `bootstrap_operations` (the derived identity and the operation
-journal), `worktree_claims`, and `worktree_entries` record work identity and
-claims. Concord holds no repository-check execution lease.
-
-### D3. `work_start` replays to convergence
-
-Every step of `work_start` is idempotent on the request's derived identity.
-`work-bootstrap` derives the work item and the worktree path from the request
-digest and replays the same operation on the same `idempotency_key`.
-`session-prepare` verifies and derives without recording. The host's move is a
-no-op when the session already runs at the destination. The read-back asks
-the host where the session runs.
-
-A failure returns a typed refusal carrying the verified identity of retained
-work and claims. It reports `effect_state: none` only when no durable work,
-relation, bootstrap journal, or claim effect exists; `partial` when verified
-effects remain but the start has not completed; and `possible` when the effect
-cannot be established. Effect state does not determine retry safety. A retryable
-refusal uses `retry_same_request`; replay under the same key adopts the recorded
-identity and runs the remaining steps. A deterministic refusal retains its
-applicable recovery action. The `partial` outcome remains removed from the
-`work_start` contract: success is `ok`, and refusal is `error`.
+Work items remain Concord facts. Concord retains no worktree entry or claim
+metadata and provides no worktree inspection operation. CD-0088 D1 assigns
+worktree creation, placement, recovery, and removal to host tools; its D2
+requires verified snapshots before table removal. Session preparation,
+continuity, and Review do not acquire a replacement worktree locator service.
+The host-reported directory still resolves ordinary Project authority.
+Concord holds no repository-check execution lease and continuity carries none.
 
 ### D4. Transient exclusion is `resource_busy`
 
@@ -84,57 +46,11 @@ established.
 Two sessions may run in one worktree. Concord provides no verification-command
 lease or editor exclusion.
 
-## Consequences
-
-- `work_start` has one success shape and one refusal shape. An operator who
-  meets a refusal replays the same key.
-- A session that starts in the default
-  checkout and needs implementation authority calls `work_start`, which moves
-  it. CD-0092 D2's refusal from the main checkout is unchanged.
-- The continuity projection carries no verification leases.
-- Migration 69 is breaking. A binary that defines schema version 68 refuses a
-  database at 69, which is the schema compatibility floor CD-0111 D3 applies.
-- `worktree_audit`, `worktree_reclaim`, `worktree_destroy`, and `worktree_inspect`
-  resolve their subjects through the
-  claim and the entry, which Concord owns.
-
-## Rejected alternatives
-
-**Complete the launch state table.** Add the missing edge for `prepared` with
-a live owner, and a sweep for rows whose owner died. Rejected because it
-repairs a copy that has no reader. Every edge added is a new way for the copy
-to disagree with the host.
-
-**Key the main-checkout allowlist on bootstrap state.** Let authorization
-admit repair operations when the work item's bootstrap is partial. Rejected
-because it makes the authority boundary read the copy too. The refusal from the
-main checkout is correct as stated, and a repair that needs it relaxed is a
-repair of the wrong thing.
-
-**Fold the live holders into `session_worktree_targets` before dropping the
-launch columns.** Rejected because both copies go. There is no target table to
-fold into.
-
-**Keep one-holder on the worktree entry.** Move the unique-holder rule from the
-session binding to `worktree_entries`. Rejected here and recorded as the open
-question it is: a rule that refuses a second session must know which sessions
-are live, and the host owns that. If it returns, it returns as a host query at
-the moment of refusal, not as a stored column.
-
 ## Verification
 
-- `internal/store.TestMigration59PreservesPopulatedBootstrapOperation`
-  migrates a populated `bootstrap_operations` row through 69 and reads it back.
-- `adapter/opencode/concord.test.ts#work start replays to convergence after an
-  interrupted step` interrupts `session-prepare`, asserts a `retry_same_request`
-  refusal with `effect_state: partial` carrying the work identity, replays the
-  same key, and asserts `ok`.
-- `adapter/opencode/concord.test.ts#work start leaves a resumable claim when
-  the move is refused` asserts no compensation runs.
-- `internal/agent.TestRetrySafeStoreKindsNeverCoupleToReconcile` proves no
-  store kind proposing `retry_same_request` maps to a public kind coupled to
-  `reconcile_operation`.
-- `python3 scripts/generate-agent-contracts.py --check` is clean with 62
-  operations.
+- `internal/agent.TestEveryLiteralRefusalPairsAContractualRecovery` checks
+  literal refusal sites against the public recovery coupling.
+- Session preparation records no placement; continuity carries no verification
+  lease or effective target.
 - `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
   `python3 scripts/check-knowledge-index.py` pass on this record.

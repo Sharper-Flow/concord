@@ -175,13 +175,6 @@ request their missing proof; limit errors reduce the limit where the operation
 exposes one, or name an executable recovery for that operation under
 [§8.2](#82-lossless-oversized-result-transport); budget refusal adjusts
 the budget; invalid cursors restart the query; operation conflicts reconcile.
-An adapter-origin `session_vacate` error with reason `unknown_effect` and
-effect `possible` reports the possible effect with a working recovery, per
-[CD-0190 D3](../decisions/CD-0190-cd-0179-d1-and-d4-release-at-the-verified-vacate-landing.md#d3-every-refusal-after-the-committed-request-reports-a-possible-effect-with-a-working-recovery).
-`session_vacate` reconciles against current stored state ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). [CD-0242 D12](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)
-requires the refusal to state that action: `retry_same_request`, or
-`contact_operator` when reconciliation cannot run. Core-origin errors and
-other operations keep reconciliation.
 Unreachable and internal failures contact the operator or use their
 explicitly allowed same-request retry. An unauthorized refusal contacts the
 operator or names a declared route: `required_refs` lists the workflow
@@ -322,7 +315,7 @@ The schema admits these adapter-origin kinds:
 | `malformed_response` | No schema-valid core response exists. | `none`; an uncertain effect follows the rule at the end of this section. | The typed action from section 5; uncertain effects require recovery before retry. |
 | `timeout` | The deadline ended with no authoritative effect. | `none` | `retry_same_request` |
 | `cancelled` | Cancellation completed with no authoritative effect. | `none` | `retry_same_request` |
-| `operation_conflict` | A failed operation needs reconciliation. | `none` or `possible` | `reconcile_operation`; an adapter `session_vacate` error with `unknown_effect` and `possible` reconciles against current state ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) and states its caller action ([CD-0242 D12](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)). |
+| `operation_conflict` | A failed operation needs reconciliation. | `none` or `possible` | `reconcile_operation` |
 | `invalid_input` | The host wrapper, tool arguments, or CLI input failed validation before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
 
 If the wrapper refusal cannot resolve an accepted tool/operation pair, `operation` is
@@ -335,8 +328,7 @@ to `invalid_input` with reason `invalid_cli_input`. It never derives this state
 from stderr text. Other exits and nonempty malformed stdout do not prove no effect.
 If a previous mutation invocation may have effects, a later exit 64 does not
 remove that uncertainty. The adapter returns `operation_conflict` with recovery
-`reconcile_operation`, or `retry_same_request` for `session_vacate` under
-CD-0190 D3.
+`reconcile_operation`.
 
 Every adapter error carries one closed `adapter_reason`. These reasons describe
 the producer's failure and recovery. They do not add schema couplings between
@@ -353,7 +345,7 @@ a reason and a kind beyond the input and manifest rules named below.
 | `manifest_mismatch` | The core and adapter manifests disagree. | `none` | `contact_operator`: regenerate the current manifest and restart the session. |
 | `context_resolution_failed` | Host directory or ambient context resolution failed before invocation without a classified cause. | `none` | `contact_operator` |
 | `host_lease_missing` | The host lease admission gate refused invocation. | `none` | `contact_operator` |
-| `unknown_effect` | A mutation's effect remains uncertain. | `possible` | `reconcile_operation`; an adapter `session_vacate` reconciles against current state ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)), or `contact_operator` when reconciliation cannot run ([CD-0242 D12](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)). |
+| `unknown_effect` | A mutation's effect remains uncertain. | `possible` | `reconcile_operation` |
 | `session_directory_unreadable` | The host cannot read the session directory. | `none` | `retry_same_request` |
 | `invalid_cli_input` | The CLI refused input before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
 | `invalid_request_wrapper` | The host request wrapper is absent or malformed. | `none`, with `retry_safe=false` | `correct_request` |

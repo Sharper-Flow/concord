@@ -56,12 +56,6 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 		writeUsage(errOut)
 		return 2
 	}
-	// Continuity block is a read-only transport for the adapter's per-turn
-	// hook. It must run before project and JSON routing so it does not
-	// consume stdin.
-	if len(args) > 0 && args[0] == "continuity-block" {
-		return runContinuityBlockCommand(args[1:], out, errOut)
-	}
 	// The release verbs route around the store open: host-lease and
 	// host-leases touch only the lease directory, and upgrade must be the one
 	// command that applies a pending breaking migration an open refuses
@@ -147,16 +141,11 @@ var commandSpecs = []commandSpec{
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-update", TwoWord: "project locator-update", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
-	{Canonical: "cd-reservations", TwoWord: "cd reservations", RequiredFields: requiredFields(field("directory")), Optional: "none", Enums: "prints the law-addition reservations (law_id, owner_work_id) of the Product that owns the calling checkout, with checkout_work_id naming the work that owns the checkout; read-only"},
+	{Canonical: "cd-reservations", TwoWord: "cd reservations", RequiredFields: requiredFields(field("directory")), Optional: "none", Enums: "prints the law-addition reservations (law_id, owner_work_id) of the Product that owns the calling checkout; read-only"},
 	{Canonical: "backup", RequiredFields: requiredFields(field("destination")), Optional: "none", Enums: "destination: absolute clean path that does not yet exist; a manifest is written beside it"},
-	{Canonical: "worktree-locate", RequiredFields: requiredFields(field("project_id"), field("work_id")), Optional: "ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)", Enums: "none"},
-	{Canonical: "claim-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
-	{Canonical: "vacate-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
-	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (default branch resolved after identity), defect_intake (required for bug), host_pid (required with session_ref); handler refusals exit 2; required-field refusals exit 64", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
-	{Canonical: "work-resume", RequiredFields: requiredFields(field("product_id"), field("project_id")), Optional: "exactly one of work_id or issue_key (unique locally recorded Linear key); session_ref; handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "receipt", RequiredFields: requiredFields(field("work_id")), Optional: "none", Enums: "prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed"},
-	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
-	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to cancelled; removal is not archival"},
+	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, execution_relinquished, writes_reconciled, effects_reconciled, dependencies_resolved, artifacts_verified", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
+	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, execution_relinquished, writes_reconciled, effects_reconciled, dependencies_resolved, artifacts_verified", Enums: "reason is fixed to cancelled; removal is not archival"},
 	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (max 8192 bytes; none on resume); agent is the active agent; handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
@@ -200,7 +189,6 @@ var verbUsages = []struct {
 	Verb  string
 	Lines []string
 }{
-	{"continuity-block", []string{"continuity-block <directory>   # read-only continuity packet for the session directory"}},
 	{"host-lease", []string{"host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)"}},
 	{"host-leases", []string{"host-leases                  # print live release leases; prunes stale ones"}},
 	{"upgrade", []string{"upgrade < JSON stdin      # apply pending migrations; {\"plan\":true} reports readiness"}},
@@ -422,14 +410,6 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	switch command {
 	case "invoke":
 		return runInvoke(raw, s, service, out, errOut)
-	case "work-bootstrap":
-		return runWorkBootstrap(raw, s, out, errOut)
-	case "work-resume":
-		return runWorkResume(raw, s, out, errOut)
-	case "claim-landing":
-		return runWorktreeClaimLanding(raw, s, out, errOut)
-	case "vacate-landing":
-		return runSessionVacateLanding(raw, s, out, errOut)
 	case "work-shelve", "work-cancel":
 		var request store.WorkRemovalRequest
 		if err := decodeObject(raw, &request); err != nil {
@@ -607,8 +587,6 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runProductKnowledgeConfiguration(command, raw, s, out, errOut)
 	case "backup":
 		return runBackup(command, raw, s, out, errOut)
-	case "worktree-locate":
-		return runWorktreeLocate(raw, s, out, errOut)
 	case "project-resolve":
 		return runProjectResolve(raw, s, out, errOut)
 	case "cd-reservations":

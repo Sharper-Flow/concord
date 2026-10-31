@@ -38,7 +38,7 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 		before := f.read(t)
 		effects := premiseConsentSnapshot(t, f.s)
 		err := store.WorkflowActionPreflightWithRegistry(t.Context(), f.s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{
-			WorkID: f.work, ExpectedVersion: before.Pinned.Pin.Version, ActionID: action, Payload: retryJSON(payload), Actor: actor, SessionWorktree: f.path,
+			WorkID: f.work, ExpectedVersion: before.Pinned.Pin.Version, ActionID: action, Payload: retryJSON(payload), Actor: actor,
 		})
 		var failure *store.Failure
 		if !errors.As(err, &failure) || failure.RecoveryAction == "" {
@@ -67,7 +67,7 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 			t.Fatalf("accepted Review report bindings=%d, want one: %v", bindings, err)
 		}
 		if err := store.WorkflowActionPreflightWithRegistry(t.Context(), f.s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{
-			WorkID: f.work, ExpectedVersion: accepted.Pinned.Pin.Version, ActionID: "request_correction", Payload: retryJSON(fields), Actor: actor, SessionWorktree: f.path,
+			WorkID: f.work, ExpectedVersion: accepted.Pinned.Pin.Version, ActionID: "request_correction", Payload: retryJSON(fields), Actor: actor,
 		}); err != nil {
 			t.Fatalf("accepted report's correction preflight refused: %v", err)
 		}
@@ -93,7 +93,7 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	before := f.read(t)
 	input := map[string]any{"work_id": f.work, "expected_version": before.Pinned.Pin.Version, "action_id": "request_correction", "fields": fields, "idempotency_key": "spine-current-correction"}
 	if err := store.WorkflowActionPreflightWithRegistry(t.Context(), f.s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{
-		WorkID: f.work, ExpectedVersion: before.Pinned.Pin.Version, ActionID: "request_correction", Payload: retryJSON(fields), Actor: actor, SessionWorktree: f.path,
+		WorkID: f.work, ExpectedVersion: before.Pinned.Pin.Version, ActionID: "request_correction", Payload: retryJSON(fields), Actor: actor,
 	}); err != nil {
 		t.Fatalf("current correction preflight refused: %v", err)
 	}

@@ -26,7 +26,6 @@ tools:
   concord_work_compact: false
   concord_work_define: false
   concord_work_relate: false
-  concord_work_start: false
   concord_work_trace: false
   concord_work_transition: false
 permission:

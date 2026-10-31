@@ -12,15 +12,6 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func oracleFixtureActiveClaimFor(t *testing.T, s *store.Store, work string) (string, string) {
-	t.Helper()
-	var path, branch string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT path,branch FROM worktree_entries WHERE set_id=? AND state='active' AND project_id='project-1'`, store.WorktreeSetID(work)).Scan(&path, &branch); err != nil {
-		t.Fatal(err)
-	}
-	return path, branch
-}
-
 func fixtureClaimSubject(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o700); err != nil {
@@ -70,15 +61,11 @@ func oAgentFixture(t *testing.T, s *store.Store, service *Service, env CallEnvel
 	return f
 }
 
-// oAgentClaimFixture turns the work's claimed worktree into a real Git
-// candidate on its claimed branch and binds the caller's session to it.
+// oAgentClaimFixture binds the caller's session to a real Git candidate.
 func oAgentClaimFixture(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID string) *oAgentFixtureState {
 	t.Helper()
-	path, branch := oracleFixtureActiveClaimFor(t, s, workID)
+	path := t.TempDir()
 	fixtureClaimSubject(t, path)
-	if gitRun(t, path, "branch", "--show-current") != branch {
-		gitRun(t, path, "branch", "-m", branch)
-	}
 	env.Directory, env.Worktree = path, path
 	env.ScopeVersion = mustScopeVersion(t, s)
 	return &oAgentFixtureState{spineFixture: &spineFixture{s: s, service: service, env: env, work: workID, path: path, base: gitRun(t, path, "rev-parse", "HEAD"), request: int(workVersion(t, s, workID) * 100)}}

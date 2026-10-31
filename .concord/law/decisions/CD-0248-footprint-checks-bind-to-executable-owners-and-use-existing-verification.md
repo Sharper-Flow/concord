@@ -11,7 +11,7 @@
 
 Scope: Declared-tool and scenario bindings; applicable-check evidence in existing verification and Review.
 
-This decision refines CD-0074 and CD-0090. Verification reports
+This decision refines CD-0074. Verification reports
 follow the workflow engine contract and CD-0242 D8.
 
 ## Decision
@@ -21,7 +21,7 @@ follow the workflow engine contract and CD-0242 D8.
 3. Applicable checks are selected from approved scope and the final change. Local verification and required CI supply execution evidence. Bound reports state a result and recorded commit; they are attributed claims, not execution attestation. A selected test result is not a whole-package result.
 4. Accepted Review records this rule, the applicable checks, the evidence inspected and any remaining obligation. Review must not declare the change ready while required checks lack adequate evidence. A Project without required CI supplies the applicable local execution evidence; the absence of CI waives no check.
 5. Outcome-contract, criterion-proof and accepted-Review gates retain their owners. Recorded commits must agree; no native-provenance, live-Git freshness or exact-declared-command gate is required. This adds no automatic footprint refusal at delivery or completion. No worker-job binding supplies proof under CD-0242 D8.
-6. All eight continuity obligations remain required. Coverage becomes satisfied only after checked bindings, observed passing execution and independent Review establish their assertions. A local delivery record is not evidence of passing required CI, merge or release.
+6. Coverage becomes satisfied only after checked bindings, observed passing execution and independent Review establish their assertions. A local delivery record is not evidence of passing required CI, merge or release.
 
 ## Alternatives considered
 
@@ -35,20 +35,6 @@ It does not automatically prove every footprint obligation for an arbitrary loca
 
 Existing tooling and evidence-anchor validators uphold structural bindings. Focused tests exercise invalid bindings and the consuming assertions. Existing result readers check the expected witness population. Required CI and recorded Review uphold applicable-check execution and adequacy. Existing workflow refusals uphold their current narrower guarantees.
 
-### Required continuity population
-
-The required continuity population in
-[the corpus](../../scenarios/adapter-continuity.v1.json) is:
-
-- `adapter-continuity-byte-stable-across-turns`
-- `adapter-continuity-state-change-replaces-block`
-- `adapter-continuity-failure-is-absence`
-- `adapter-continuity-ttl-gates-spawn`
-- `adapter-continuity-work-start-retarget`
-- `adapter-continuity-lane-leak-absent`
-- `adapter-continuity-post-boundary-re-pin`
-- `adapter-continuity-session-vacate-then-reclaim-passes-occupancy-gate`
-
 ## Verification
 
 - [`python3 scripts/check-project-tooling.py`](../../../scripts/check-project-tooling.py)
@@ -59,7 +45,6 @@ The required continuity population in
 ## Related law
 
 [CD-0074](CD-0074-project-tooling-declaration.md) ·
-[CD-0090](CD-0090-per-turn-continuity-re-pin-hook.md) ·
 [CD-0229](CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) ·
 [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) ·
 [CD-0192](CD-0192-the-refine-pass-proves-a-declared-analysis-ran.md)

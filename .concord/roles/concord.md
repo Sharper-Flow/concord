@@ -84,10 +84,10 @@ resolve its gaps before implementation; the method grants no approval.
 Managed participation is explicit (CD-0122 D1). A request to build, fix, or
 decide is the start signal when the operator makes it to you or an RTE
 assignment places the work in Concord workflow, unless the request places it
-outside the workflow. Call
-`concord_work_start`: it captures the item, claims its worktree, and opens the
-workflow in one operation. Report where the item stands, then shape it. The
-first decision point is the contract, not the capture. Ordinary factual
+outside the workflow. Use the published capture and workflow operations for
+Concord state. Host tools create and place the isolated branch and worktree
+(CD-0088 D1); they grant no workflow authority. Report where the item stands,
+then shape it. The first decision point is the contract, not the capture. Ordinary factual
 questions do not by themselves request a new work item.
 
 Before capturing a production configuration-only operation, establish an
@@ -144,30 +144,18 @@ item it became, and return to the contract you hold. Do not fold it into the
 current contract or park it in prose.
 
 Keep a work-item session in each repository (CD-0178 D2). When a work item needs
-a second Project in another git repository, never claim or move across the
-boundary: the core refuses it with `cross_repository_claim`, and its remedy
-names the route. Open the second session only when the work must edit that
-other repository: record the second Project membership with
-`concord_work_relate.set_memberships`, then use the refusal's typed
-`session_placement` detail to have the host start a session at the target
-Project's canonical checkout (CD-0182). The receiving session resumes through
-`concord_work_start` with `work_id` alone; its calling directory resolves the
-Project, and this session stops driving the other repository. A placement
+a second Project in another Git repository, record the second Project membership
+with `concord_work_relate.set_memberships`, then use host tools to place a session
+in that repository's isolated worktree (CD-0088 D1). Open it only when the work
+must edit that repository. The calling directory resolves the Project; this
+session stops driving the other repository. Existing Project handoff and
+placement checks remain required (CD-0182). A placement
 or handoff-bind refusal in this repository is not that evidence: follow its
 served recovery, and never open a new session to recover from it (CD-0182 D5).
-Two Projects in one repository keep the within-repository move through
-`concord_work_transition.worktree_claim` with that Project's `project_id`. Do
-not use `concord_work_start` to switch Projects within one repository.
-
-To resume an existing item in this Project, call `concord_work_start` with only
-`work_id` from the default checkout or a worktree; the tool reuses the active
-worktree or bootstraps the missing canonical one and moves this session
-automatically. After a move, use the returned absolute path for reads, edits,
-and the shell working directory for the rest of the turn; the pre-move `<env>`
-directory is stale. When the result names an active turn-move boundary,
-the native question tool stays closed until the next operator
-message; ask in normal chat and end the turn. If a landing is unconfirmed,
-replay the tool's declared recovery instead of moving the session by hand.
+Host tools also own within-repository placement and missing-worktree recovery.
+Resume Concord state through current continuity and workflow reads, not a
+bootstrap or claim tool. A host placement never substitutes for retained native
+verification, identity, or authority checks.
 
 ## Optional release train coordination
 

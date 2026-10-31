@@ -39,9 +39,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:37cd91c7f57524124daa76ec7cf0325455cd5552952b3ba537482fbf609462b7",
+  "sha256": "sha256:d926d6f640e8dfae16225d4fe2739f6ed9a8b72cc3de2935dc42aac6b45faea5",
   "status": "accepted",
-  "summary": "Defines typed current-state ownership and the separate research aggregate, which only explicit eligible research_retire may delete.",
+  "summary": "Defines typed current-state ownership and the separate research aggregate, which only explicit eligible research_retire may delete. Worktree lifecycle and inspection metadata are not retained; mandatory verified snapshots precede their table removal without a replacement locator service.",
   "tags": [
     "pm3",
     "schema"

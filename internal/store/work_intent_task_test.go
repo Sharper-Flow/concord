@@ -3,44 +3,39 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"testing"
 	"time"
 )
 
-func TestBootstrapPersistsTaskAndFullReadReturnsIt(t *testing.T) {
+func TestCapturePersistsTaskAndFullReadReturnsIt(t *testing.T) {
 	t.Parallel()
 	repo := initBootstrapStoreRepo(t)
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := openTemp(t)
 	seedBootstrapStoreAuthority(t, s, repo)
 
-	request := bootstrapStoreRequest()
-	request.Task = "persist this task"
-	request.IdempotencyKey = "bootstrap-task-persisted"
-	result, err := s.BootstrapWorktree(context.Background(), request, nil)
-	if err != nil {
+	const workID, task = "captured-task", "persist this task"
+	create := operationEvent("captured-task-create", "work.created", SubjectWorkItem, workID, map[string]any{"work_kind": "task", "title": "Task", "task": task, "value_statement": "Task round trip", "priority": 1})
+	create.PayloadVersion = CurrentEventPayloadVersion("work.created")
+	membership := operationEvent("captured-task-membership", "work.memberships_replaced", SubjectWorkItem, workID, map[string]any{"memberships": []workMembershipPayload{{ProjectID: "project-bootstrap", Role: "primary"}}, "expected_version": 1, "resulting_version": 2})
+	if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{create, membership}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
 		t.Fatal(err)
 	}
 
 	var stored string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(intent_json, '$.task') FROM work_items WHERE id=?`, result.WorkID).Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(intent_json, '$.task') FROM work_items WHERE id=?`, workID).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
-	if stored != request.Task {
-		t.Fatalf("stored task=%q, want %q", stored, request.Task)
+	if stored != task {
+		t.Fatalf("stored task=%q, want %q", stored, task)
 	}
-	full, err := s.QueryQ3(context.Background(), Q3Request{Product: request.ProductID, WorkIDs: []string{result.WorkID}, Detail: "full", Limit: 20})
+	full, err := s.QueryQ3(context.Background(), Q3Request{Product: "product-bootstrap", WorkIDs: []string{workID}, Detail: "full", Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(full.Items) != 1 || full.Items[0].Task != request.Task {
-		t.Fatalf("full listing=%+v, want task %q", full.Items, request.Task)
+	if len(full.Items) != 1 || full.Items[0].Task != task {
+		t.Fatalf("full listing=%+v, want task %q", full.Items, task)
 	}
-	summary, err := s.QueryQ3(context.Background(), Q3Request{Product: request.ProductID, WorkIDs: []string{result.WorkID}, Detail: "summary", Limit: 20})
+	summary, err := s.QueryQ3(context.Background(), Q3Request{Product: "product-bootstrap", WorkIDs: []string{workID}, Detail: "summary", Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}

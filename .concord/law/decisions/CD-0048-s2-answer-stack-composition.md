@@ -33,7 +33,7 @@ CD-0224, and no live query derives it.
 `internal/store/domain_reads.go` resolves the governing Domain and its
 architecture overlap. `cmd/concord/session.go` carries the core-derived
 session context: the bounded packet derivation and validation that
-work-start preparation applies. No stored last-activity stamp
+`session-prepare` applies. No stored last-activity stamp
 survives:
 migration 109 drops the `work_items.last_activity_at` column the 2026-09-28
 amendment carried, so no release's writes can drift a stored stamp

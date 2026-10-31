@@ -57,7 +57,7 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 				before := f.read(t)
 				effects := premiseConsentSnapshot(t, f.s)
 				err := store.WorkflowActionPreflightWithRegistry(t.Context(), f.s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{
-					WorkID: f.work, ExpectedVersion: before.Pinned.Pin.Version, ActionID: "supersede_contract", Payload: retryJSON(payload), Actor: actor, SessionWorktree: f.path,
+					WorkID: f.work, ExpectedVersion: before.Pinned.Pin.Version, ActionID: "supersede_contract", Payload: retryJSON(payload), Actor: actor,
 				})
 				var failure *store.Failure
 				if !errors.As(err, &failure) {
@@ -86,7 +86,7 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 				t.Fatal("the current complete-step recovery is not advertised")
 			}
 			if err := store.WorkflowActionPreflightWithRegistry(t.Context(), f.s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{
-				WorkID: f.work, ExpectedVersion: before.Pinned.Pin.Version, ActionID: "supersede_contract", Payload: retryJSON(fields), Actor: actor, SessionWorktree: f.path,
+				WorkID: f.work, ExpectedVersion: before.Pinned.Pin.Version, ActionID: "supersede_contract", Payload: retryJSON(fields), Actor: actor,
 			}); err != nil {
 				t.Fatalf("current complete-step recovery preflight: %v", err)
 			}

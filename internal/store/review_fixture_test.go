@@ -88,7 +88,7 @@ func currentReviewBlockForTest(t *testing.T, s *Store, workID, disposition strin
 func reviewFixtureDirectory(t *testing.T, s *Store, workID string) string {
 	t.Helper()
 	var path string
-	if err := s.db.QueryRow(`SELECT e.path FROM worktree_entries e JOIN work_projects p ON p.work_id=? AND p.project_id=e.project_id AND p.role='primary' WHERE e.set_id=? AND e.state='active'`, workID, WorktreeSetID(workID)).Scan(&path); err != nil {
+	if err := s.db.QueryRow(`SELECT l.locator_value FROM project_locators l JOIN work_projects p ON p.project_id=l.project_id WHERE p.work_id=? AND p.role='primary' AND l.locator_id=? AND l.kind='canonical_path'`, workID, "review-repo-"+workID).Scan(&path); err != nil {
 		t.Fatal(err)
 	}
 	return path

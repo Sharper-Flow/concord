@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -13,10 +12,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-// CD-0096 D3: a session inspects another work item's active worktree in the
-// same Project through the agent surface.
-
-func tiersRepoFixture(t *testing.T) (*store.Store, *Service, Authority, string) {
+func tiersRepoFixture(t *testing.T) (*store.Store, *Service, Authority) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -52,7 +48,7 @@ func tiersRepoFixture(t *testing.T) (*store.Store, *Service, Authority, string) 
 	}
 
 	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
-	return s, service, grant, repoRoot
+	return s, service, grant
 }
 
 func tiersInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, tool, operation string, input map[string]any) agentcontract.Envelope {
@@ -68,94 +64,4 @@ func tiersInvoke(t *testing.T, s *store.Store, service *Service, grant Authority
 		t.Fatalf("dispatch err=%v", err)
 	}
 	return response
-}
-
-// tiersFixture claims work-1's canonical worktree under session-1 and
-// work-2's under session-2, both inside project-1, so session-1 exercises
-// cross-worktree tiers against work-2's tree.
-func tiersFixture(t *testing.T) (*store.Store, *Service, Authority, *Service, Authority, string) {
-	t.Helper()
-	s, service, grant, repoRoot := tiersRepoFixture(t)
-	baseSHA := gitRun(t, repoRoot, "rev-parse", "HEAD")
-	if response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{"host_pid": os.Getpid(),
-		"work_id": "work-1", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "tiers-claim-1",
-	}); response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("claim work-1 response=%+v err=%+v", response, response.Error)
-	}
-	second, _, secondGrant := newAuthorizedService(t, s, "client-2", "human-2", []agentcontract.Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
-	secondGrant.SessionRef = "session-2"
-	if response := tiersInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_claim", map[string]any{"host_pid": os.Getpid(),
-		"work_id": "work-2", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "tiers-claim-2",
-	}); response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("claim work-2 response=%+v err=%+v", response, response.Error)
-	}
-	return s, service, grant, second, secondGrant, repoRoot
-}
-
-func tiersInspect(t *testing.T, s *store.Store, service *Service, grant Authority, workID, mode, path string) (agentcontract.Envelope, map[string]any) {
-	t.Helper()
-	input := map[string]any{"work_id": workID, "mode": mode}
-	if path != "" {
-		input["path"] = path
-	}
-	response := tiersInvoke(t, s, service, grant, "concord_work_browse", "worktree_inspect", input)
-	var payload map[string]any
-	if response.Outcome == agentcontract.OutcomeOK {
-		if err := json.Unmarshal(response.Result, &payload); err != nil {
-			t.Fatalf("inspect result=%s", response.Result)
-		}
-	}
-	return response, payload
-}
-
-func TestWorktreeInspectReadsSameProjectWorktree(t *testing.T) {
-	t.Parallel()
-	s, service, grant, _, _, _ := tiersFixture(t)
-	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
-
-	// Tracked change in the other session's worktree, made directly on disk.
-	if err := os.WriteFile(filepath.Join(worktreePath, "README.md"), []byte("# fixture\ninspected\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	response, payload := tiersInspect(t, s, service, grant, "work-2", "status", "")
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("inspect response=%+v err=%+v", response, response.Error)
-	}
-	if response.QueryID != "CD-0096.R1" {
-		t.Fatalf("query_id=%q, want CD-0096.R1", response.QueryID)
-	}
-	if payload["path"] != worktreePath || payload["branch"] != "work/work-2" {
-		t.Fatalf("payload=%+v, want the identity-derived worktree", payload)
-	}
-	if !strings.Contains(payload["content"].(string), "README.md") {
-		t.Fatalf("status=%v, want the modified file visible", payload["content"])
-	}
-
-	diff, diffPayload := tiersInspect(t, s, service, grant, "work-2", "diff", "")
-	if diff.Outcome != agentcontract.OutcomeOK || !strings.Contains(diffPayload["content"].(string), "inspected") {
-		t.Fatalf("diff response=%+v payload=%+v", diff, diffPayload)
-	}
-	file, filePayload := tiersInspect(t, s, service, grant, "work-2", "file", "README.md")
-	if file.Outcome != agentcontract.OutcomeOK || !strings.Contains(filePayload["content"].(string), "inspected") {
-		t.Fatalf("file response=%+v payload=%+v", file, filePayload)
-	}
-
-}
-
-func TestWorktreeInspectRefusesWithoutActiveEntry(t *testing.T) {
-	t.Parallel()
-	s, service, grant, _, _, _ := tiersFixture(t)
-	// A third work item exists in the same Project with no worktree.
-	events := []store.Event{
-		{EventID: "tiers-work-3-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-3", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Tier Three","priority":1}`)},
-		{EventID: "tiers-work-3-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-3", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-	}
-	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-3"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	response, _ := tiersInspect(t, s, service, grant, "work-3", "status", "")
-	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" {
-		t.Fatalf("response=%+v, want typed unknown_scope for a worktree-less item", response)
-	}
 }

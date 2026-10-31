@@ -110,7 +110,6 @@
         "concord_work_compact",
         "concord_work_define",
         "concord_work_relate",
-        "concord_work_start",
         "concord_work_transition"
       ]
     },
@@ -159,7 +158,6 @@
         {"pattern": "go run *cmd/concord*", "action": "deny"},
         {"pattern": "concord --help", "action": "allow"},
         {"pattern": "concord --version", "action": "allow"},
-        {"pattern": "concord continuity-block", "action": "allow"},
         {"pattern": "concord client show", "action": "allow"},
         {"pattern": "gh pr view *", "action": "allow"},
         {"pattern": "gh pr diff *", "action": "allow"},
@@ -174,7 +172,6 @@
         "concord_work_compact",
         "concord_work_define",
         "concord_work_relate",
-        "concord_work_start",
         "concord_work_transition"
       ]
     },
@@ -228,7 +225,6 @@
         {"pattern": "go run *cmd/concord*", "action": "deny"},
         {"pattern": "concord --help", "action": "allow"},
         {"pattern": "concord --version", "action": "allow"},
-        {"pattern": "concord continuity-block", "action": "allow"},
         {"pattern": "concord client show", "action": "allow"},
         {"pattern": "gh run view *", "action": "allow"},
         {"pattern": "gh run list *", "action": "allow"}
@@ -242,7 +238,6 @@
         "concord_work_compact",
         "concord_work_define",
         "concord_work_relate",
-        "concord_work_start",
         "concord_work_transition"
       ]
     },
@@ -291,7 +286,6 @@
         {"pattern": "go run *cmd/concord*", "action": "deny"},
         {"pattern": "concord --help", "action": "allow"},
         {"pattern": "concord --version", "action": "allow"},
-        {"pattern": "concord continuity-block", "action": "allow"},
         {"pattern": "concord client show", "action": "allow"},
         {"pattern": "gh pr view *", "action": "allow"},
         {"pattern": "gh pr diff *", "action": "allow"},
@@ -306,7 +300,6 @@
         "concord_work_compact",
         "concord_work_define",
         "concord_work_relate",
-        "concord_work_start",
         "concord_work_transition"
       ]
     },
@@ -355,7 +348,6 @@
         {"pattern": "go run *cmd/concord*", "action": "deny"},
         {"pattern": "concord --help", "action": "allow"},
         {"pattern": "concord --version", "action": "allow"},
-        {"pattern": "concord continuity-block", "action": "allow"},
         {"pattern": "concord client show", "action": "allow"},
         {"pattern": "gh pr view *", "action": "allow"},
         {"pattern": "gh pr diff *", "action": "allow"},
@@ -370,7 +362,6 @@
         "concord_work_compact",
         "concord_work_define",
         "concord_work_relate",
-        "concord_work_start",
         "concord_work_transition"
       ]
     },
@@ -425,7 +416,6 @@
         {"pattern": "go run *cmd/concord*", "action": "deny"},
         {"pattern": "concord --help", "action": "allow"},
         {"pattern": "concord --version", "action": "allow"},
-        {"pattern": "concord continuity-block", "action": "allow"},
         {"pattern": "concord client show", "action": "allow"},
         {"pattern": "gh pr view *", "action": "allow"},
         {"pattern": "gh pr diff *", "action": "allow"},
@@ -440,7 +430,6 @@
         "concord_work_compact",
         "concord_work_define",
         "concord_work_relate",
-        "concord_work_start",
         "concord_work_transition"
       ]
     }

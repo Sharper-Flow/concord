@@ -44,9 +44,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a310da25aaad9f32a6b118e98a2d6a637e37554cec8b26311a0f71e608566905",
+  "sha256": "sha256:a0485386778ae764de80c883acd2a192ed9ae053dc0e849eadd902a16978117d",
   "status": "accepted",
-  "summary": "The interactive terminal launcher TUI, its verb, its bare-invocation route, the internal/launcher tree, and the charm.land rendering modules are removed; the launcher contracts and portfolio scenario retire with the surface, the obligations whose subject was the TUI are vacated, and the session entry route the retirement preserved is itself removed, with the kept clauses binding host-started managed sessions and the verified worktree claim, occupancy, landing, and vacate rules untouched.",
+  "summary": "The interactive terminal launcher TUI, its verbs, bare-invocation route, implementation, rendering modules, contracts, and portfolio scenario are retired; TUI-specific obligations are vacated. Store-write-free session preparation, explicit work-context reads, host placement and identity proofs retain their owners. Host tools own worktree lifecycle; authenticated per-call Project resolution uses the host-reported directory, not an ownership lookup.",
   "tags": [
     "launcher",
     "retirement",

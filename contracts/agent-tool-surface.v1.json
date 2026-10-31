@@ -37,9 +37,7 @@
         "concord_work_browse.ready",
         "concord_work_browse.blocked",
         "concord_work_browse.scope",
-        "concord_work_browse.messages",
-        "concord_work_browse.worktree_audit",
-        "concord_work_browse.worktree_inspect"
+        "concord_work_browse.messages"
       ]
     },
     {
@@ -88,13 +86,8 @@
         "concord_work_transition.lifecycle",
         "concord_work_transition.remove",
         "concord_work_transition.workflow_action",
-        "concord_work_transition.worktree_claim",
-        "concord_work_transition.session_vacate",
         "concord_work_transition.project_handoff_record",
         "concord_work_transition.project_handoff_consume",
-        "concord_work_transition.worktree_reclaim",
-        "concord_work_transition.worktree_audit_reclaim",
-        "concord_work_transition.worktree_destroy",
         "concord_work_transition.correct_delivery",
         "concord_work_transition.outside_repair",
         "concord_work_transition.outside_repair_reconcile"
@@ -261,46 +254,6 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_browse.worktree_audit",
-      "tool": "concord_work_browse",
-      "kind": "read",
-      "query_id": "PM1.Q16",
-      "input_schema": "#/schemas/work_browse_worktree_audit_input",
-      "result_schema": "#/schemas/worktree_audit_page",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "request_id",
-        "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_browse.worktree_inspect",
-      "tool": "concord_work_browse",
-      "kind": "read",
-      "query_id": "CD-0096.R1",
-      "input_schema": "#/schemas/work_browse_worktree_inspect_input",
-      "result_schema": "#/schemas/worktree_inspect_result",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "request_id",
-        "pagination": "none",
         "output_bytes": 51200,
         "versions": [
           "1.0"
@@ -790,46 +743,6 @@
       "supported_budget_seconds": 30
     },
     {
-      "id": "concord_work_transition.worktree_claim",
-      "tool": "concord_work_transition",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_transition_worktree_claim_input",
-      "result_schema": "#/schemas/worktree_claim_result",
-      "capability": "work_transition",
-      "consequence": "lifecycle",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_transition.session_vacate",
-      "tool": "concord_work_transition",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_transition_session_vacate_input",
-      "result_schema": "#/schemas/session_vacate_result",
-      "capability": "work_transition",
-      "consequence": "lifecycle",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
       "id": "concord_work_transition.project_handoff_record",
       "tool": "concord_work_transition",
       "kind": "mutation",
@@ -856,66 +769,6 @@
       "query_id": null,
       "input_schema": "#/schemas/work_transition_project_handoff_consume_input",
       "result_schema": "#/schemas/project_handoff_consume_result",
-      "capability": "work_transition",
-      "consequence": "lifecycle",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_transition.worktree_reclaim",
-      "tool": "concord_work_transition",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_transition_worktree_reclaim_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_transition",
-      "consequence": "lifecycle",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_transition.worktree_audit_reclaim",
-      "tool": "concord_work_transition",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_transition_worktree_audit_reclaim_input",
-      "result_schema": "#/schemas/worktree_audit_reclaim_result",
-      "capability": "work_transition",
-      "consequence": "lifecycle",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_transition.worktree_destroy",
-      "tool": "concord_work_transition",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_transition_worktree_destroy_input",
-      "result_schema": "#/schemas/mutation_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
       "metadata": {
@@ -1263,10 +1116,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/session_boot_packet",
       "closed": true
     },
-    "session_vacate_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/session_vacate_result",
-      "closed": true
-    },
     "work_browse_blocked_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_blocked_input",
       "closed": true
@@ -1285,14 +1134,6 @@
     },
     "work_browse_scope_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_scope_input",
-      "closed": true
-    },
-    "work_browse_worktree_audit_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_worktree_audit_input",
-      "closed": true
-    },
-    "work_browse_worktree_inspect_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_worktree_inspect_input",
       "closed": true
     },
     "work_compact_publish_input": {
@@ -1423,42 +1264,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_remove_input",
       "closed": true
     },
-    "work_transition_session_vacate_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_session_vacate_input",
-      "closed": true
-    },
-    "work_transition_worktree_audit_reclaim_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_audit_reclaim_input",
-      "closed": true
-    },
-    "work_transition_worktree_claim_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_claim_input",
-      "closed": true
-    },
-    "work_transition_worktree_destroy_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_destroy_input",
-      "closed": true
-    },
-    "work_transition_worktree_reclaim_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_reclaim_input",
-      "closed": true
-    },
-    "worktree_audit_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_audit_page",
-      "closed": true
-    },
-    "worktree_audit_reclaim_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_audit_reclaim_result",
-      "closed": true
-    },
-    "worktree_claim_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_claim_result",
-      "closed": true
-    },
-    "worktree_inspect_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_inspect_result",
-      "closed": true
-    },
     "work_transition_project_handoff_record_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_project_handoff_record_input",
       "closed": true
@@ -1541,6 +1346,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:a231410ead65344948909becbcbf44d7206a37f8e761fd59c07766415f717416",
-  "digest": "sha256:e7bdfb48b826e4e19223da63d482b10bce4579112e1b16cfa7542be29a9b46be"
+  "payload_digest": "sha256:afa9b8b3bbc0eba73ce0175234708c2641100f4d394d4b0046761c3faf7d9a9d",
+  "digest": "sha256:af5b377d1b5af5be7640198f171750311cceac27c05ea3b3844b254dc5de95c7"
 }

@@ -33,28 +33,14 @@ exists ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-hi
 Concord retains one global local SQLite authority outside all repositories and
 worktrees. Product/workflow state never branches with Git code.
 
-- One canonical `work_id`; one optional `worktree_set_id` for implementation work.
-- Each affected Project contributes one integration worktree to that set, plus one
-  member worktree for each active member of a concurrent assignment group
-  ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)).
+- One canonical `work_id` across the affected Projects.
 - Product/Project/work identity derives from stable IDs and registered repository
   locators—not checkout/worktree paths.
 - Trunk/default checkouts remain on default branches and are read/deploy sources.
 - Worktrees and branches are native Git resources bound to work, never authority.
-- Cross-repo work uses sibling worktrees under one worktree set; it does not create
-  copied Product/work records in each repo.
-
-Worktree creation is one durable cross-authority operation:
-
-1. atomically claim the work operation and pin intended Project/base SHA/branch;
-2. ask the native Git owner to create the worktree;
-3. verify branch, base, path, and repository identity; then
-4. record the verified locator/state. An interruption reconciles the same operation
-   and never starts a second worktree.
-
-Before attempting native creation or retry, reconciliation probes the pinned branch
-and path for an already-created matching worktree. Git worktree creation is not
-assumed idempotent; Concord's durable operation and probe own retry safety.
+- Cross-repo work does not create copied Product/work records in each repo.
+- Host tools own worktree creation, placement, recovery, and removal under
+  [CD-0088 D1](CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md#d1-host-tools-own-worktree-isolation).
 
 Every mutation still requires TS5 scope, expected versions, authorization, and
 idempotency. Worktree possession grants no Product authority.
@@ -64,9 +50,7 @@ under CD-0006 R3. Dirty worktrees never silently rebase; conflicts never resolve
 File/touch-set scans may suggest edges or warn, but only accepted hard dependencies
 block.
 
-Dependents unblock on authoritative merge evidence, not branch push or “task complete.” Reclamation derives from Git
-facts: clean tree, merged/reachable head, and no required external operation. A
-stale Concord projection is reconciled but cannot override stronger Git truth.
+Dependents unblock on authoritative merge evidence, not branch push or “task complete.”
 
 ## D2. Immutable-subject evidence binding
 
@@ -253,13 +237,12 @@ such as network filesystems or multi-machine writes that this local test cannot 
   schema and test surface.
 - Evidence consumers may re-query native producers for current truth.
 - Dependency-aware unreadable analysis requires a bounded closure query.
-- Worktree creation/reconciliation needs a home in the capped agent-tool surface.
 
 ## Required conformance scenarios
 
 1. Ten worktrees share one Product truth; no copied/branched DB appears.
 2. Two agents claim one pending step; only the current epoch can complete it.
-3. Same-key retries create one worktree/external effect/result.
+3. Same-key retries create one external effect/result.
 4. PR/CI conditions do not resolve from branch push, task completion, or heuristic
    discovery; authoritative evidence resolves them.
 5. An unreadable possible blocker never yields ready/no-conflict/release-safe.
@@ -269,8 +252,6 @@ such as network filesystems or multi-machine writes that this local test cannot 
 8. A record whose schema the release does not support fails closed before any
    mutation, and derived schemas generate from one canonical source.
 9. Evidence bound to one commit cannot authorize a changed commit.
-10. Worktree reclaim succeeds from verified Git merge/cleanliness facts despite a
-    stale projection, then reconciles that projection.
 11. The ten-process SQLite conformance run records accepted, lost, duplicate,
     rejected, and invariant-violating effects before evaluating latency.
 

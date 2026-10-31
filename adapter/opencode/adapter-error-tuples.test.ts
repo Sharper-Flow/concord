@@ -1,5 +1,5 @@
 // Table tests: the closed adapter error tuple table and its
-// factory, vacate constructor, and exit validator. No AST instrumentation
+// factory and exit validator. No AST instrumentation
 // and no per-site registry: the closed table plus the strict typecheck prove
 // the emittable set, and these tests prove every member validates in every
 // context it admits.
@@ -14,10 +14,6 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 configureCoreBinary("concord")
 
 const adapter = await import("./concord")
-
-const VACATE_TOOL = "concord_work_transition"
-const VACATE_OPERATION = "session_vacate"
-const VACATE_KEYS = ["vacate_replay", "vacate_unavailable"] as const
 
 const TUPLES = {
   missing_binary: { kind: "transport_failure", adapter_reason: "missing_binary", effect_state: "none", recovery: "contact_operator" },
@@ -36,12 +32,8 @@ const TUPLES = {
   invalid_cli_input: { kind: "invalid_input", adapter_reason: "invalid_cli_input", effect_state: "none", recovery: "correct_request" },
   invalid_request_wrapper: { kind: "invalid_input", adapter_reason: "invalid_request_wrapper", effect_state: "none", recovery: "correct_request" },
   invalid_tool_input: { kind: "invalid_input", adapter_reason: "invalid_tool_input", effect_state: "none", recovery: "correct_request" },
-  vacate_replay: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", recovery: "retry_same_request" },
-  vacate_unavailable: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", recovery: "contact_operator" },
 }
 type TupleKey = keyof typeof TUPLES
-type VacateKey = (typeof VACATE_KEYS)[number]
-type GenericKey = Exclude<TupleKey, VacateKey>
 
 // retry_safe is derived in one place: false for the input entries and for
 // possible effects, true for the other no-effect entries.
@@ -75,35 +67,11 @@ describe("CON-913 closed adapter error tuples", () => {
   })
 
   test("CON-913 every generic key emits a schema-valid envelope under every declared pair", () => {
-    for (const key of Object.keys(TUPLES).filter((key): key is GenericKey => !(VACATE_KEYS as readonly string[]).includes(key))) {
+    for (const key of Object.keys(TUPLES) as TupleKey[]) {
       for (const pair of declaredPairs) {
-        // The vacate-scoped exception is exclusive: under the vacate pair an
-        // adapter operation_conflict/unknown_effect/possible error must take
-        // the replay or contact recovery, never the generic reconcile tuple.
-        if (key === "unknown_effect" && pair.tool === VACATE_TOOL && pair.operation === VACATE_OPERATION) continue
         const envelope = adapter.adapterError(pair.tool, pair.operation, requestID, key, "bounded diagnostic")
         expectEnvelopeMatchesTuple(envelope, key, pair.tool, pair.operation)
       }
-    }
-  })
-
-  test("CON-913 the generic unknown_effect tuple is refused under the vacate pair", () => {
-    expect(() => adapter.adapterError(VACATE_TOOL, VACATE_OPERATION, requestID, "unknown_effect", "bounded diagnostic")).toThrow(adapter.AdapterContractDefect)
-  })
-
-  test("CON-913 vacate tuples validate only through the vacate constructor and pair", () => {
-    for (const key of VACATE_KEYS) {
-      const envelope = adapter.vacateError(requestID, key, "the relocation request stands")
-      expectEnvelopeMatchesTuple(envelope, key, VACATE_TOOL, VACATE_OPERATION)
-      // The vacate entries are reachable only through this constructor: the
-      // generic factory refuses them under every declared pair, including
-      // the vacate pair itself.
-      for (const pair of declaredPairs) {
-        expect(() => adapter.adapterError(pair.tool, pair.operation, requestID, key as never, "forged vacate key"), `${key} via adapterError under ${pair.tool}.${pair.operation}`).toThrow(adapter.AdapterContractDefect)
-      }
-      // The vacate constructor refuses generic keys in turn.
-      expect(() => adapter.vacateError(requestID, "unknown_effect" as never, "forged generic key")).toThrow(adapter.AdapterContractDefect)
-      expect(() => adapter.vacateError(requestID, "missing_binary" as never, "forged generic key")).toThrow(adapter.AdapterContractDefect)
     }
   })
 
@@ -150,7 +118,7 @@ describe("CON-913 closed adapter error tuples", () => {
     expect(emoji.error.message.startsWith("🙂🙂")).toBe(true)
   })
 
-  test("CON-913 envelope-level couplings: default reconcile, vacate exception scope, core negatives, partial outcomes", () => {
+  test("CON-913 envelope-level couplings: default reconcile, core negatives, partial outcomes", () => {
     const queryID = (tool: string, operation: string) => {
       const found = (contractOperations as readonly any[]).find((item) => item.tool === tool && item.id === `${tool}.${operation}`)
       return found?.query_id ? { query_id: found.query_id } : {}
@@ -166,21 +134,7 @@ describe("CON-913 closed adapter error tuples", () => {
       ...overrides,
     })
     expect(validateGeneratedEnvelope(envelope({ error: errorMember({}) }))).toBe(true)
-    const coreVacateRetry = envelope({ operation: VACATE_OPERATION, ...queryID("concord_work_transition", VACATE_OPERATION), error: errorMember({ recovery_action: { kind: "retry_same_request" } }) })
-    expect(validateGeneratedEnvelope(coreVacateRetry), "core vacate retry must stay refused").toBe(false)
-    const adapterVacateReplay = { ...coreVacateRetry, origin: "adapter", authority: "unreachable", error: errorMember({ adapter_reason: "unknown_effect", effect_state: "possible", recovery_action: { kind: "retry_same_request" } }) }
-    expect(validateGeneratedEnvelope(adapterVacateReplay), "adapter vacate replay must pass").toBe(true)
-    const adapterVacateContact = { ...adapterVacateReplay, error: { ...adapterVacateReplay.error, recovery_action: { kind: "contact_operator" } } }
-    expect(validateGeneratedEnvelope(adapterVacateContact), "adapter vacate contact must pass").toBe(true)
-    for (const mutation of [
-      (candidate: any) => ({ ...candidate, origin: "core", authority: "authoritative", error: { ...candidate.error, adapter_reason: undefined } }),
-      (candidate: any) => ({ ...candidate, tool: "concord_work_browse", operation: "list", ...queryID("concord_work_browse", "list") }),
-      (candidate: any) => ({ ...candidate, operation: "lifecycle", ...queryID("concord_work_transition", "lifecycle") }),
-      (candidate: any) => ({ ...candidate, error: { ...candidate.error, adapter_reason: "worker_abandon_refused" } }),
-      (candidate: any) => ({ ...candidate, error: { ...candidate.error, effect_state: "none" } }),
-    ]) {
-      expect(validateGeneratedEnvelope(mutation(adapterVacateReplay)), "exception must not stretch beyond its scope").toBe(false)
-    }
+    expect(validateGeneratedEnvelope(envelope({ error: errorMember({ recovery_action: { kind: "retry_same_request" } }) }))).toBe(false)
     expect(validateGeneratedEnvelope(envelope({ error: errorMember({ adapter_reason: "unknown_effect" }) }))).toBe(false)
     const partial = (recovery: string) => ({
       schema_version: "1.0", manifest_digest: manifestDigest, request_id: requestID,
@@ -215,16 +169,17 @@ describe("CON-913 closed adapter error tuples", () => {
   test("CON-913 producer detail shapes validate at the factory and an invalid shape refuses", () => {
     const tool = "concord_work_transition"
     const shapes: Array<Record<string, unknown>> = [
-      { salvaged: { work_id: "work-1", worktree_path: "/worktrees/work-1", changed_refs: [{ entity_kind: "work", id: "work-1", version: "2" }] } },
+      { salvaged: { work_id: "work-1", changed_refs: [{ entity_kind: "work", id: "work-1", version: "2" }] } },
       { reconciled: { found: true, lifecycle: "in_progress", version: 3 } },
       { core_digest: "sha256:" + "a".repeat(64), adapter_digest: manifestDigest },
     ]
     for (const details of shapes) {
-      const envelope = adapter.adapterError(tool, "worktree_claim", requestID, "unknown_effect", "bounded diagnostic", details)
+      const envelope = adapter.adapterError(tool, "project_handoff_record", requestID, "unknown_effect", "bounded diagnostic", details)
       expect(validateGeneratedEnvelope(envelope), JSON.stringify(details)).toBe(true)
       expect(envelope.error.details).toEqual(details)
     }
-    expect(() => adapter.adapterError(tool, "worktree_claim", requestID, "unknown_effect", "bounded diagnostic", { note: { nested: "objects are not admitted" } })).toThrow(adapter.AdapterContractDefect)
+    expect(() => adapter.adapterError(tool, "project_handoff_record", requestID, "unknown_effect", "bounded diagnostic", { note: { nested: "objects are not admitted" } })).toThrow(adapter.AdapterContractDefect)
+    expect(() => adapter.adapterError(tool, "project_handoff_record", requestID, "unknown_effect", "bounded diagnostic", { salvaged: { worktree_path: "/worktrees/work-1" } })).toThrow(adapter.AdapterContractDefect)
   })
 
   test("CON-913 validateAdapterEnvelope returns valid envelopes and fails closed only for adapter origin", () => {

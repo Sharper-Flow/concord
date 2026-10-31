@@ -23,9 +23,7 @@
     "internal/agentcontract/envelope.go",
     "internal/agent/mutations.go",
     "internal/agentcontract/recovery_test.go",
-    "cmd/concord/release_pairs_cli_test.go",
-    "adapter/opencode/continuity-hook.ts",
-    "adapter/opencode/continuity_hook.test.ts"
+    "cmd/concord/release_pairs_cli_test.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0210",

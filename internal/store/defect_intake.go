@@ -30,6 +30,7 @@ const (
 // failure shape. It is an identifier, not a text heuristic: the operator picks
 // it once per defect class and every capture of that class repeats it.
 var defectFailureShapePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+var defectWorkIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
 // DefectIntake is the capture admission record a new public bug capture
 // requires and a research capture may carry as its cluster RCA identity. Bug
@@ -84,7 +85,7 @@ func ValidateDefectIntake(kind string, intake *DefectIntake) error {
 		}
 		seen[related] = true
 	}
-	if intake.RootCauseWorkID != "" && !bootstrapIDPattern.MatchString(intake.RootCauseWorkID) {
+	if intake.RootCauseWorkID != "" && !defectWorkIDPattern.MatchString(intake.RootCauseWorkID) {
 		return newFailure(KindInvalidPayload, "defect_intake", "root_cause_work_id is not a valid bounded identifier", false,
 			"supply a bounded work identifier")
 	}
@@ -123,21 +124,6 @@ func defectIntakeFromProjection(intake *DefectIntake) *DefectClassification {
 		RootCauseWorkID:  intake.RootCauseWorkID,
 		SiblingIDs:       []string{},
 	}
-}
-
-// normalizedDefectIntake returns a copy of the record whose related list is
-// never nil, so request marshalling and digest comparison treat an omitted
-// list and an empty list as the same capture intent without writing through
-// the caller's pointer.
-func normalizedDefectIntake(intake *DefectIntake) *DefectIntake {
-	if intake == nil {
-		return nil
-	}
-	copied := *intake
-	if copied.RelatedDefectIDs == nil {
-		copied.RelatedDefectIDs = []string{}
-	}
-	return &copied
 }
 
 // admitDefectIntakeTx is the one transaction-scoped owner of defect capture

@@ -35,7 +35,7 @@ authority_defaults = load_module("knowledge_authority_defaults_under_test", SCRI
 
 VEHICLE = authority_defaults.load().vehicle_work_id
 VEHICLE_VERSION = authority_defaults.load().vehicle_contract_version
-MEMBER_ID, MEMBER_KIND = "CD-0162", "decision"  # a frozen cohort member
+MEMBER_ID, MEMBER_KIND = "CD-0159", "decision"  # a frozen cohort member
 NONMEMBER_ID, NONMEMBER_KIND = "lesson-1", "lesson"
 ORDINARY_WORK = "work-abcdef1234567890"  # well-shaped, not the vehicle
 
@@ -137,6 +137,8 @@ def test_checker_accepts_ordinary_work_reference() -> None:
 
 
 def test_checker_keeps_derived_and_legacy_rules() -> None:
+    cohort_derived = checker_findings(manifest(MEMBER_ID, MEMBER_KIND, {"tier": "derived"}))
+    assert not authority_findings(cohort_derived), cohort_derived
     derived = checker_findings(manifest("lesson-1", "lesson", {"tier": "derived", "legislated_by": ORDINARY_WORK, "contract_version": 1}))
     assert any("derived record carries no legislative fields" in item for item in derived), derived
     legacy = manifest("lesson-1", "lesson", {}, schema_version="1.2")
@@ -171,6 +173,8 @@ def test_generator_refuses_vehicle_claim_at_wrong_version() -> None:
 def test_generator_accepts_frozen_member_and_ordinary_reference() -> None:
     member = manifest_record(MEMBER_ID, MEMBER_KIND, {"tier": "legislated", "legislated_by": VEHICLE, "contract_version": VEHICLE_VERSION})
     assert not generator_findings(member), generator_findings(member)
+    derived = manifest_record(MEMBER_ID, MEMBER_KIND, {"tier": "derived"})
+    assert not generator_findings(derived), generator_findings(derived)
     ordinary = manifest_record("lesson-1", "lesson", {"tier": "legislated", "legislated_by": ORDINARY_WORK, "contract_version": 7})
     assert not generator_findings(ordinary), generator_findings(ordinary)
 
@@ -182,7 +186,8 @@ def test_loader_parses_the_committed_asset() -> None:
     defaults = authority_defaults.load()
     assert defaults.vehicle_work_id == VEHICLE
     assert isinstance(VEHICLE_VERSION, int) and VEHICLE_VERSION >= 1
-    assert len(defaults.members) == 107
+    asset = json.loads((REPO_ROOT / authority_defaults.ASSET_RELPATH).read_text())
+    assert defaults.members == frozenset((member["record_id"], member["kind"]) for member in asset["members"])
     assert (MEMBER_ID, MEMBER_KIND) in defaults.members
     assert (NONMEMBER_ID, NONMEMBER_KIND) not in defaults.members
 
@@ -192,6 +197,8 @@ def test_loader_membership_verdicts() -> None:
     assert defaults.vehicle_membership_error(MEMBER_ID, MEMBER_KIND, VEHICLE_VERSION) is None
     assert defaults.vehicle_membership_error(NONMEMBER_ID, NONMEMBER_KIND, VEHICLE_VERSION) is not None
     assert defaults.vehicle_membership_error(MEMBER_ID, MEMBER_KIND, VEHICLE_VERSION + 1) is not None
+    for retired in ("CD-0090", "CD-0096"):
+        assert defaults.vehicle_membership_error(retired, "decision", VEHICLE_VERSION) is not None, retired
 
 
 def base_asset_document() -> dict:
@@ -247,7 +254,7 @@ def test_history_census_retains_only_surviving_members() -> None:
         identifier = "CD-0009" if args[1].endswith("CD-0009.json") else "CD-0002"
         return json.dumps({"id": identifier, "kind": "decision", "authority": {"tier": "legislated", "legislated_by": ORDINARY_WORK, "contract_version": 1}})
 
-    current = {"records": [{"id": "CD-0002", "kind": "decision"}]}
+    current = {"records": [{"id": "CD-0002", "kind": "decision", "authority": {"tier": "derived"}}]}
     with mock.patch.object(history, "git", side_effect=git_result), mock.patch.object(history.knowledge_index, "raw_manifest", return_value=current):
         assert history.census(REPO_ROOT, defaults) == []
         current["records"].append({"id": "CD-0009", "kind": "decision"})

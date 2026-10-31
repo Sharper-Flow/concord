@@ -40,8 +40,7 @@
 //   - workflow_domain_overlap.go: the resolve_overlap work-relation writer.
 //   - outside_repair.go: completion-receipt validation and persistence;
 //     internal/workflowproof owns the receipt model and authenticated collector.
-//   - worktrees.go, project_handoffs.go, session_vacate.go: claims,
-//     occupancy, same-Project incarnation, and handoff recovery.
+//   - project_handoffs.go: Project handoff record, consume, and recovery.
 //   - research_*.go, law_boundary.go, knowledge_*.go: research-pack
 //     identity, consumer pins, accepted-law lookup, derived projections.
 //   - worker_lanes.go, worker_recovery.go: lane versions, packet and report

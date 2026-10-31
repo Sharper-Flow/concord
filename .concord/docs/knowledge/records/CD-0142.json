@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-14T00:00:00Z",
   "evidence": [
@@ -11,7 +9,6 @@
     "internal/store/domain_reads.go",
     "internal/agent/mutations.go",
     "internal/agent/work_removal_default_test.go",
-    "internal/store/work_removal_default.go",
     "cmd/concord/main.go",
     "contracts/agent-tool-surface-payloads.schema.json"
   ],
@@ -36,9 +33,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:041196d4eab40a52fcead33101450725941907986979208db97371aef818238f",
+  "sha256": "sha256:97823022faac28184cbea08e6ed94a7b0f77b6de98bc3ec0df90991c20cefb52",
   "status": "accepted",
-  "summary": "Typed, fenced removal preserves the planning handoff and exact current-row receipt, removes execution projections, keeps Linear issues open and gives renewed work a fresh identity. Lifecycle cancellation and exact-item retirement may prepare default-checkout shelving; only committed removal and verified identity absence complete it. Liveness never authorizes removal.",
+  "summary": "Typed, fenced removal preserves the planning handoff and exact current-row receipt, removes execution projections, keeps Linear issues open and gives renewed work a fresh identity. Store-only shelving retains workflow, consumer, artifact and handoff gates, not worktree ownership or native retirement proof. Only committed removal and verified identity absence complete it. Liveness never authorizes removal.",
   "tags": [
     "product-law",
     "workflow",

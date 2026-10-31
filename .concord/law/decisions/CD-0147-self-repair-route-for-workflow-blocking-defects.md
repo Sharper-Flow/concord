@@ -4,7 +4,7 @@
 - **Date:** 2026-09-14
 - **Scope:** Code-first repair when a Concord defect blocks its own typed recording operation
 - **Approval:** The operator approved this bounded conduct route.
-- **Related:** CD-0013, CD-0112, CD-0122, CD-0144, and CD-0222
+- **Related:** CD-0013, CD-0112, CD-0122, and CD-0222
 - **Preserves:** Typed refusals, contract authority, repository evidence, lifecycle gates, and host-owned authority
 
 ## Context
@@ -47,7 +47,7 @@ reload. A refusal alone does not prove that a restart is required.
 This decision declares conduct. It adds no operation, flag, admission path,
 operator override, or exception to a gate. Existing refusals remain active.
 
-This route does not amend CD-0144 or CD-0222. It does not authorize fabricated
+This route does not amend CD-0222. It does not authorize fabricated
 workflow state, skipped contract supersession, missing evidence, or a terminal
 claim without the required record.
 

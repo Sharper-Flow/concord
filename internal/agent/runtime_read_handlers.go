@@ -234,61 +234,6 @@ func (r runtime) readWorkMessages(ctx context.Context, base agentcontract.Envelo
 	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"messages": messages})
 }
 
-func (r runtime) readWorktreeAudit(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in worktreeAuditInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	if in.ProductID == "" {
-		in.ProductID = r.Envelope.SelectedProductID
-	}
-	bindingInput := in
-	bindingInput.Page.Cursor = nil
-	binding, _ := json.Marshal(bindingInput)
-	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), string(binding), "summary")
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	watermark, err := r.Store.Revision(ctx)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	audit, err := r.Store.WorktreeAudit(ctx, store.WorktreeAuditRequest{ProductID: in.ProductID, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	meta := store.ResultMeta{QueryID: "PM1.Q16", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{ProductID: in.ProductID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"class", "path"}, SourceVersionWatermark: watermark}
-	if audit.NextCursor != "" {
-		next := audit.NextCursor
-		meta.NextCursor = &next
-	}
-	response, err := r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"root": audit.Root, "drift": audit.Drift})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	return r.wrapCursor(ctx, response, string(binding), "summary")
-}
-
-func (r runtime) readWorktreeInspect(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in worktreeInspectInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	// CD-0096 D3 Inspect resolves through the work and ambient Project.
-	project := r.Envelope.AmbientProjectID
-	if project == "" {
-		return coreError(base, "unknown_scope", "worktree tiers resolve through the session's Project; this session holds none", "refresh_context", false), nil
-	}
-	inspect, err := r.Store.InspectWorktree(ctx, store.WorktreeInspectRequest{
-		WorkID: in.WorkID, ProjectID: project, Mode: in.Mode, Path: in.Path,
-	})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	meta := store.ResultMeta{QueryID: "CD-0096.R1", ContractVersion: "CD-0096/1.0", ResolvedScope: store.ResolvedScope{ProductID: r.Envelope.SelectedProductID, ProjectID: project, WorkID: in.WorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"mode"}}
-	return r.resultEnvelope(base, meta, r.scope(meta), inspect)
-}
-
 func (r runtime) readTraceHistory(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in historyInput
 	if err := decodeOperationInput(input, &in); err != nil {
@@ -368,7 +313,7 @@ func (r runtime) readTraceContinuity(ctx context.Context, base agentcontract.Env
 		}
 		return response, nil
 	}
-	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: limit, Cursor: inner}
+	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: limit, Cursor: inner, ProjectID: r.Envelope.AmbientProjectID}
 	snapshot, err := store.ReadWorkflowContinuity(ctx, r.Store, continuityReq)
 	if err != nil {
 		return failureEnvelope(base, err), nil
@@ -523,7 +468,7 @@ func (r runtime) continuityProjectionSnapshot(ctx context.Context, limit int, cu
 	if captured != nil {
 		return *captured, nil
 	}
-	return store.ReadWorkflowContinuity(ctx, r.Store, store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor})
+	return store.ReadWorkflowContinuity(ctx, r.Store, store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor, ProjectID: r.Envelope.AmbientProjectID})
 }
 
 // researchPackReadV2 is the version 2 pack read result: the full pack when no
@@ -627,8 +572,9 @@ func (r runtime) readTraceRelations(ctx context.Context, base agentcontract.Enve
 // readTraceProjectRetirement answers concord_work_trace.project_retirement
 // (CD-0182.R1). The retirement identities come from the authenticated call
 // context, never from the input: the ambient Project is the session's own,
-// and the envelope session reference is the acting session. The derivation
-// is read-only and writes nothing.
+// the envelope session reference is the acting session, and the preservation
+// probe runs in the session's host-reported worktree. The derivation is
+// read-only and writes nothing.
 func (r runtime) readTraceProjectRetirement(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in workIDInput
 	if err := decodeOperationInput(input, &in); err != nil {
@@ -636,10 +582,10 @@ func (r runtime) readTraceProjectRetirement(ctx context.Context, base agentcontr
 	}
 	project := r.Envelope.AmbientProjectID
 	session := r.Envelope.SessionRef
-	if project == "" || session == "" {
-		return coreError(base, "unknown_scope", "project retirement requires a resolved Project and an authenticated session", "refresh_context", false), nil
+	if project == "" || session == "" || r.Envelope.Worktree == "" {
+		return coreError(base, "unknown_scope", "project retirement requires a resolved Project, an authenticated session, and the session's worktree", "refresh_context", false), nil
 	}
-	retirement, err := store.EvaluateProjectSessionRetirement(ctx, r.Store, in.WorkID, project, session)
+	retirement, err := store.EvaluateProjectSessionRetirement(ctx, r.Store, in.WorkID, project, session, r.Envelope.Worktree)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}

@@ -53,10 +53,11 @@ func cancelledPublicationContent(t *testing.T, publication cancelledNotePublicat
 
 func holdCompactionCleanup(t *testing.T, s *store.Store) {
 	t.Helper()
-	_, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES('cleanup-claim','work-cancelled','proj-api',?,'work/closed',?,'/synthetic/work','pending','operator','fixture','now','now')`, store.WorktreeSetID("work-cancelled"), strings.Repeat("1", 40))
-	if err != nil {
-		t.Fatal(err)
-	}
+	execProjection(t, s, []string{
+		`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('cleanup-consumer','task','Retain the relation endpoint','needed',0,1,'now','now')`,
+		`INSERT INTO work_projects(work_id,project_id,role) VALUES('cleanup-consumer','proj-api','primary')`,
+		`INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('cleanup-consumer','work-cancelled','depends_on','now')`,
+	}, [][]any{nil, nil, nil})
 }
 
 func TestTerminalCleanupAfterCompactionSettlement(t *testing.T) {
@@ -88,10 +89,10 @@ func TestTerminalCleanupAfterCompactionSettlement(t *testing.T) {
 				if err := s.DatabaseForTesting().QueryRow(`SELECT op_id FROM durable_operations WHERE work_id='work-cancelled'`).Scan(&operationID); err != nil {
 					t.Fatal(err)
 				}
-				if route != "reconcile" && (response.Outcome != agentcontract.OutcomeOK || len(response.Warnings) == 0 || response.Warnings[0].Kind != "resource_busy") {
-					t.Fatalf("deferred cleanup must preserve publication success and typed blocker: %+v", response)
+				if route != "reconcile" && (response.Outcome != agentcontract.OutcomeOK || len(response.Warnings) == 0 || response.Warnings[0].Kind != "operation_conflict" || response.Warnings[0].Details["message"] != "another execution consumes a relation endpoint") {
+					t.Fatalf("deferred cleanup must preserve publication success and typed blocker: response=%+v error=%+v", response, response.Error)
 				}
-				if _, err := s.DatabaseForTesting().Exec(`DELETE FROM worktree_claims WHERE op_id='cleanup-claim'`); err != nil {
+				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM relations WHERE work_id_from='cleanup-consumer' AND work_id_to='work-cancelled' AND kind='depends_on'; DELETE FROM write_guard`); err != nil {
 					t.Fatal(err)
 				}
 				service.publicationObserver = nil

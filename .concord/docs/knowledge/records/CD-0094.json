@@ -16,9 +16,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:dd16c0fb6aaa958f6af1d78e4c0126a6108b7219153c17915e2c6be8d0ae3bcf",
+  "sha256": "sha256:edbcc4c5aad27dbf037e35ac89b62772d6a4e3776776369703bed1e5c21a40e9",
   "status": "accepted",
-  "summary": "Allows lifecycle transitions and conditional shelving removal from a registered Project's default checkout. Shelving requires cancelled execution, exact scope, all recorded claims retired, native absence and settled cleanup debt, while preserving existing removal gates and retained authorized replay.",
+  "summary": "Allows lifecycle transitions and conditional shelving removal from a registered Project's default checkout. Shelving requires cancelled execution, exact scope, and existing non-ownership removal gates; worktree ownership and native retirement proof are not required. Authorized replay retains its scope and request checks.",
   "tags": [
     "authority",
     "worktree-isolation",

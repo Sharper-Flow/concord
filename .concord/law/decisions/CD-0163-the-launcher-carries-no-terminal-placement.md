@@ -25,15 +25,14 @@ The terminal-placement boundary binds every Concord binary and command.
 
 No Concord component creates, names, splits, focuses, or destroys a tab,
 pane, window, or session, exactly as CD-0078 D1 states. The host starts and
-resumes operator sessions and places their surfaces. A host-started session
-enters managed work through `concord_work_start`, which moves the calling
-session and creates no surface (CD-0098).
+resumes operator sessions and places their surfaces. Host tools own worktree
+placement too (CD-0088 D1).
 
-### D2. Retired: resume and prompt pass-through
+### D2. Workflow position comes from explicit continuity
 
 Resumption of workflow position is the CD-0016 canonical projection,
-delivered by work-start preparation and re-asserted by the per-turn hook
-(CD-0031, CD-0090), never a terminal session identifier.
+delivered by session preparation and explicit Concord reads (CD-0031), never
+a terminal session identifier.
 
 ## Consequences
 
@@ -48,8 +47,5 @@ delivered by work-start preparation and re-asserted by the per-turn hook
 
 - `go test ./cmd/concord/ -run TestLauncherAndCommandCarryNoMultiplexerKnowledge`
   proves D1 structurally through the command-source scan.
-- `bun test adapter/opencode/concord.test.ts -t "a successful work start
-  forks no terminal command"` proves the work-start path forks no terminal
-  command.
 - `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
   `python3 scripts/check-knowledge-index.py` pass.

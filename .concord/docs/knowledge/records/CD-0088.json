@@ -1,16 +1,12 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-30T00:00:00Z",
   "evidence": [
-    "cmd/concord/work_bootstrap.go",
-    "cmd/concord/work_bootstrap_test.go",
-    "internal/store/bootstrap.go",
     "adapter/opencode/concord.ts",
     "adapter/opencode/concord.test.ts",
+    "internal/store/worktree_retirement_upgrade_test.go",
     "scripts/check-agent-contracts.py"
   ],
   "home_domain_id": "agent-adapter",
@@ -24,9 +20,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:140965ec9f7a994858ec1e546985faad13127fe075f1dbe84440583572338d96",
+  "sha256": "sha256:8d5cf7de53f87aef886608c34742e7342b2d7c2d665d499f8fca803547832ffe",
   "status": "accepted",
-  "summary": "One host-owned operation captures or resumes work, reconciles its canonical linked worktree from durable intent, and launches the verified agent there without granting ordinary default-checkout mutation authority. The generic capability does not activate Concord self-hosting before a separate replacement-readiness claim and accepted authority change.",
+  "summary": "Host tools own worktree lifecycle and checkout inspection. Concord provides no worktree inspection or locator service and retains no worktree metadata; mandatory verified snapshots precede table removal. Ordinary directory-resolved Project authority, session identity, no-write preparation, handoffs and artifacts remain. Product-state cleanup needs no ownership proof. Self-hosting still requires proven readiness and an accepted authority change.",
   "tags": [
     "agent-surface",
     "worktree",
@@ -34,5 +30,5 @@
     "idempotency",
     "development-process"
   ],
-  "title": "Host-owned work bootstrap preserves pre-readiness authority"
+  "title": "Host tools own worktree isolation; capability does not establish self-host readiness"
 }

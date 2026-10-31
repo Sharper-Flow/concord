@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -175,15 +174,9 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	}
 }
 
-func workflowDispatchWorktreeFixture(t *testing.T, s *store.Store, env CallEnvelope) CallEnvelope {
+func workflowDispatchWorktreeFixture(t *testing.T, _ *store.Store, env CallEnvelope) CallEnvelope {
 	t.Helper()
 	env.Worktree = t.TempDir()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
-		VALUES(?,'project-1','correction-claim','work/correction',?,?,'repo-1','active','2026-09-05T00:00:00Z','{}');
-		DELETE FROM write_guard`, store.WorktreeSetID("work-1"), strings.Repeat("a", 40), env.Worktree); err != nil {
-		t.Fatal(err)
-	}
 	return env
 }
 

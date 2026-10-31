@@ -20,12 +20,12 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1c69397a5753b317acc204e6e48d24cebd081f6cc8148bb65b1d0172610ff018",
+  "sha256": "sha256:97c2ccc021f9cd70d4dba1088854eebbc9ace90e2c7187820bfe42c9578525a3",
   "status": "accepted",
-  "summary": "A managed session runs in the worktree its claim recorded: concord_work_start claims the canonical worktree, moves the calling session, and refuses success unless the directory reads back as the claimed worktree. The launch landing, its candidate read, and the member-Project selector retired; one claimed directory governs session-prepare, and resolution fails closed.",
+  "summary": "Host tools place the session; its active work directory governs agent resolution, the calling-host registry probe, and context. Session preparation fails closed and neither creates a worktree nor records a landing. Explicit Concord reads select work context by work ID; the directory resolves Project authority without retained worktree metadata, a replacement locator registry, fallback directory or inferred work identity.",
   "tags": [
     "session-boot",
     "worktrees"
   ],
-  "title": "The claimed worktree is the managed session directory"
+  "title": "The active work directory governs managed session preparation"
 }

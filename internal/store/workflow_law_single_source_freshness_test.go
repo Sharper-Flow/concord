@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -138,40 +137,5 @@ func TestLawBaselineMissingCurrentPinKeepsOutsideRepairRoute(t *testing.T) {
 	var invented int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM workflow_law_baselines WHERE work_id=?)+(SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind='workflow.completed')`, id, id).Scan(&invented); err != nil || invented != 0 {
 		t.Fatalf("reconciliation invented ordinary workflow proof: count=%d error=%v", invented, err)
-	}
-}
-
-func TestBootstrapInitializesVerifiedProductLawBaseline(t *testing.T) {
-	ctx := t.Context()
-	s := openTemp(t)
-	repo := initBootstrapStoreRepo(t)
-	seedBootstrapStoreAuthority(t, s, repo)
-	lawRepo := initKnowledgeRepo(t)
-	writeManifestFixture(t, lawRepo, manifestFixture{ID: "BOOTSTRAP-LAW", Kind: "decision", Path: ".concord/docs/decisions/CD-0903-bootstrap-law.md", Status: "accepted", Date: "2026-09-20T00:00:00Z", Title: "Bootstrap law", Summary: "A separate Product law home", Scopes: homeScope()})
-	commitKnowledgeRepo(t, lawRepo, "Product law before bootstrap")
-	home := KnowledgeHome{HomeProjectID: "bootstrap-law-project", HomeLocatorID: "bootstrap-law-locator", RepoPath: lawRepo, HeadRef: "HEAD"}
-	authorizeKnowledgeProductHome(t, s, "product-bootstrap", home, "project-bootstrap", home.HomeProjectID)
-	// No explicit rebuild: native bootstrap must prepare the designated home,
-	// not confuse it with the execution Project's canonical checkout.
-	request := bootstrapStoreRequest()
-	request.IdempotencyKey = "bootstrap-verified-law"
-	operationID, workID, digest, err := CanonicalBootstrapIdentity(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	location, err := s.LocateWorktree(ctx, request.ProjectID, workID, request.Ref)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.prepareBootstrapMode(ctx, request, operationID, workID, digest, false, request, location, ExecGitRunner{}); err != nil {
-		t.Fatal(err)
-	}
-	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT baseline_json FROM workflow_law_baselines WHERE work_id=?`, workID).Scan(&raw); err != nil {
-		t.Fatal(err)
-	}
-	var baseline workflowLawBaseline
-	if err := json.Unmarshal([]byte(raw), &baseline); err != nil || baseline.Home.ProjectID != home.HomeProjectID || !strings.Contains(raw, "bootstrap-law-project/BOOTSTRAP-LAW") {
-		t.Fatalf("bootstrap did not pin its verified Product law home: %s error=%v", raw, err)
 	}
 }

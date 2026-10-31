@@ -197,10 +197,10 @@ class ProfileTests(unittest.TestCase):
         for command in ("ps aux", "kill 123", "pkill opencode", "sudo true", "rm -rf / *", "git commit -m fix",
                         "git -C repo commit -m fix", "git push origin HEAD", "git stash", "gh pr create",
                         "gh --repo org/repo pr create", "gh release create v1", "gh workflow run ci",
-                        "gh api repos/org/repo", "herdr-notify --to peer", "concord invoke"):
+                        "gh api repos/org/repo", "herdr-notify --to peer", "concord invoke", "concord continuity-block"):
             self.assertEqual(checks.evaluate(host + bash, command), "deny", command)
         for command in ("git status", "git diff", "git log -n 5", "gh pr view 1", "concord --help",
-                        "concord --version", "concord continuity-block", "concord client show"):
+                        "concord --version", "concord client show"):
             self.assertEqual(checks.evaluate(host + bash, command), "allow", command)
         tasks = checks.permission_rules(frontmatter, "task")
         for agent in ("concord-explore", "concord-lookup"):
@@ -249,10 +249,10 @@ class ProfileTests(unittest.TestCase):
         for command in ("ps aux", "kill 123", "pkill opencode", "sudo true", "rm -rf / *", "git commit -m fix",
                         "git -C repo commit -m fix", "git push origin HEAD", "git stash", "gh pr create",
                         "gh release create v1", "gh workflow run ci", "gh api repos/org/repo", "herdr-notify --to peer",
-                        "concord invoke", "/synthetic/bin/concord invoke", "env concord invoke", "go run ./cmd/concord invoke"):
+                        "concord invoke", "/synthetic/bin/concord invoke", "env concord invoke", "go run ./cmd/concord invoke", "concord continuity-block"):
             self.assertEqual(checks.evaluate(host + bash, command), "deny", command)
         for command in ("git diff", "bin/oc-test targeted -- python3 scripts/test-generate-agent-profiles.py",
-                        "concord --help", "concord --version", "concord continuity-block", "concord client show"):
+                        "concord --help", "concord --version", "concord client show"):
             self.assertEqual(checks.evaluate(host + bash, command), "allow", command)
         tasks = checks.permission_rules(frontmatter, "task")
         for agent in ("concord-explore", "concord-lookup"):
@@ -282,7 +282,7 @@ class ProfileTests(unittest.TestCase):
         host = [("*", "allow"), ("ps *", "deny"), ("kill *", "deny"), ("pkill *", "deny")]
         for command in ("ps aux", "kill 123", "sudo true", "git commit -m fix", "git push origin HEAD", "gh pr create", "gh release create v1", "herdr-notify --to peer", "concord invoke", "/synthetic/bin/concord invoke", "env concord invoke", "go run ./cmd/concord invoke", "bash -c 'concord invoke' gh pr view 1"):
             self.assertEqual(checks.evaluate(host + bash, command), "deny", command)
-        for command in ("git diff", "bin/oc-test targeted -- python3 scripts/test-generate-agent-profiles.py", "concord --help", "concord --version", "concord continuity-block", "concord client show"):
+        for command in ("git diff", "bin/oc-test targeted -- python3 scripts/test-generate-agent-profiles.py", "concord --help", "concord --version", "concord client show"):
             self.assertEqual(checks.evaluate(host + bash, command), "allow", command)
         task = checks.permission_rules(frontmatter, "task")
         for agent in ("concord-explore", "concord-lookup"):
@@ -320,7 +320,7 @@ class ProfileTests(unittest.TestCase):
         for command in ("bin/oc-test targeted -- python3 scripts/test-generate-agent-profiles.py", "go test ./cmd/concord",
                         "gh run view 1 --repo org/repo --json status,jobs", "gh run view 1 --job 2 --log-failed",
                         "gh run list --repo org/repo", "git status", "git diff", "concord --help", "concord --version",
-                        "concord continuity-block", "concord client show"):
+                        "concord client show"):
             self.assertEqual(checks.evaluate(host + bash, command), "allow", command)
         tasks = checks.permission_rules(frontmatter, "task")
         for agent in ("concord-explore", "concord-lookup"):
@@ -369,13 +369,13 @@ class ProfileTests(unittest.TestCase):
             with self.subTest(profile=profile["id"]):
                 bash = checks.permission_rules(checks.split_frontmatter(generator.primary_projection(profile, "Role\n")), "bash")
                 for binary in ("concord", "/synthetic/bin/concord", "bin/concord", "./concord", "env concord", "env CONCORD_DB=x concord", "xargs concord", "go run ./cmd/concord"):
-                    for arguments in ("invoke --agent-ref Concord", "work-capture", "work-action", "client register", "client show-extra", "--db state.db invoke", "--help invoke"):
+                    for arguments in ("invoke --agent-ref Concord", "work-capture", "work-action", "client register", "client show-extra", "continuity-block", "--db state.db invoke", "--help invoke"):
                         command = f"{binary} {arguments}"
                         self.assertEqual(checks.evaluate(bash, command), "deny", command)
                 for command in ("bash -c 'concord invoke'", 'sh -c "cd repo && concord work-action"', "sh -c 'cd repo;concord invoke'", 'eval "concord invoke"',
                                  "bash -c 'concord invoke' /synthetic/bin/concord --help", "env herdr-notify --to peer", "bash -c 'herdr agent prompt peer hi'"):
                     self.assertEqual(checks.evaluate(bash, command), "deny", command)
-                for arguments in ("--help", "--version", "continuity-block", "client show"):
+                for arguments in ("--help", "--version", "client show"):
                     self.assertEqual(checks.evaluate(bash, f"concord {arguments}"), "allow", arguments)
 
     @unittest.skipUnless(os.environ.get("CONCORD_HOST_MERGE_PROBE"), "set CONCORD_HOST_MERGE_PROBE for isolated real-host resolution")

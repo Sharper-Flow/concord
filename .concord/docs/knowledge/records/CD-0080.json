@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-28T00:00:00Z",
   "evidence": [
@@ -21,9 +19,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:210a893370a3c131ebbfaec200a3967a7fa9d9d923de449833d588e7958f5bf7",
+  "sha256": "sha256:710cec626e337eaa5a87175a640cc7ecaf97c508e64c97dcdce3007f800f0eba",
   "status": "accepted",
-  "summary": "Per-call authorization intersects registered client policy with fresh Git-derived scope and requested capabilities. Principal identity, idempotency, worktree ownership, manifest and scope refusals remain.",
+  "summary": "Per-call authorization intersects registered client policy with fresh Git-derived scope and requested capabilities. Principal identity, idempotency, workflow authority, manifest and scope refusals remain; retired worktree ownership supplies no authority.",
   "tags": [
     "authority",
     "grants",

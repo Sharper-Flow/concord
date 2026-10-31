@@ -80,8 +80,8 @@ re-litigate them silently.
   `self-documentation.md` §1.1, `vertical-integration.md` are aligned to
   this direction.
 - **Decision:** Substantive decisions happen inside the selected Product/workflow.
-  The host owns operator session start and resume; Concord owns
-  managed worktree claims, verified landing, and work-start context.
+  The host owns operator session start, resume, and worktree lifecycle
+  (CD-0088 D1); Concord derives managed session context.
 
 ### R2. Architecture-bound related work
 - **Architecture boundary under CD-0222:** Product-changing contracts declare one home Domain,

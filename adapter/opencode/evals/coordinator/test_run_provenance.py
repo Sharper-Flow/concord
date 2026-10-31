@@ -14,7 +14,7 @@ from unittest import mock
 
 import run
 from evaluation import typed_boundary
-from scenarios import SCENARIOS, START
+from scenarios import SCENARIOS, RUNTIME
 
 REPO = Path(__file__).resolve().parents[4]
 
@@ -47,7 +47,7 @@ class RunProvenanceTests(unittest.TestCase):
                 during()
             return 0
         with mock.patch.object(run, "command_to_files", side_effect=stub):
-            return run.run_case(self.args(), "default-checkout-resume", "coordinator body", {"rules.md": b"rule"})
+            return run.run_case(self.args(), "native-route-discovery", "coordinator body", {"rules.md": b"rule"})
 
     def test_result_records_production_and_tool_source_hashes(self):
         result = self.run_case()
@@ -70,7 +70,7 @@ class RunProvenanceTests(unittest.TestCase):
         self.assertIn("evidence.md", corpus)
 
     def test_production_source_change_during_a_run_fails_the_snapshot_check(self):
-        target = self.repo / "adapter/opencode/move-notice.ts"
+        target = self.repo / "adapter/opencode/concord.ts"
         result = self.run_case(during=lambda: target.write_text(target.read_text() + "\n// changed\n"))
         self.assertFalse(result["snapshots_unchanged"])
         self.assertFalse(result["passed"])
@@ -115,13 +115,9 @@ class RunProvenanceTests(unittest.TestCase):
         self.assertNotIn("strict_output_compliance", printed["checks"])
 
 
-# The boundary sources in the precedence evaluation.typed_start_boundary
-# applies: the typed boundary field on the error, the core diagnostic
-# operation carried in the refusal message, the error kind, then the
-# stopping tool name.
+# The boundary sources in the precedence evaluation.typed_boundary applies.
 BOUNDARY_SOURCE_MARKERS = (
     "boundary field",
-    "core diagnostic operation",
     "error's kind",
     "the name of the tool",
 )
@@ -130,19 +126,6 @@ BOUNDARY_SOURCE_MARKERS = (
 def format_boundary_clause():
     """The boundary clause of run.FORMAT, whitespace-normalized."""
     return " ".join(run.FORMAT.split("boundary:", 1)[1].split("cause:", 1)[0].split())
-
-
-def core_diagnostic_operation(message):
-    """The operation the complete refusal diagnostic names: the adapter's
-    `concord work-resume: store: <operation>: <kind>: <detail>` prefix, not a
-    boundary-shaped word anywhere in the detail."""
-    if not isinstance(message, str):
-        return None
-    parts = message.split(": ", 4)
-    if (len(parts) == 5 and parts[:2] == ["concord work-resume", "store"]
-            and parts[2].isidentifier() and parts[3].isidentifier() and parts[4]):
-        return parts[2]
-    return None
 
 
 def served_error(result):
@@ -160,23 +143,17 @@ def instruction_boundary(case):
     name for a served stopping observation, applying the sources in the
     order the clause states them."""
     clause = format_boundary_clause()
-    transition = case.get("transition")
-    if isinstance(transition, dict):
-        notice = transition.get("notice")
-        if (isinstance(notice, str) and "A turn-move boundary is active" in notice
-                and "turn_move_boundary when an active turn-move boundary" in clause):
-            return "turn_move_boundary"
-        error = served_error(transition.get("result"))
-    else:
-        start = case.get("start")
-        error = served_error(start.get("result")) if isinstance(start, dict) else None
+    required = case.get("required", [])
+    if not required:
+        return None
+    tool = required[-1]
+    error = served_error(case.get("responses", {}).get(tool))
     if error is None:
         return None  # a successful task names no boundary
     extractors = {
         "boundary field": lambda error: named_string(error, "boundary"),
-        "core diagnostic operation": lambda error: core_diagnostic_operation(error.get("message")),
         "error's kind": lambda error: named_string(error, "kind"),
-        "the name of the tool": lambda error: START,
+        "the name of the tool": lambda error: tool,
     }
     stated = sorted((marker for marker in BOUNDARY_SOURCE_MARKERS if marker in clause), key=clause.find)
     for marker in stated:
@@ -192,13 +169,6 @@ class FormatBoundaryInstructionTests(unittest.TestCase):
     observation names, so an instruction that sends the model elsewhere is a
     defect in the instruction, not in the model."""
 
-    def test_scheduled_continuation_status_is_advertised_without_capture_changes(self):
-        self.assertIn("status: completed, awaiting_continuation, needs_operator, refused, or unresolved;", run.FORMAT)
-        self.assertIn("Awaiting_continuation means a tool result reports a scheduled automatic continuation, so the task resumes in a later turn without operator action.", run.FORMAT)
-        self.assertIn("recovery_owner: operator, maintainer, agent, or none;", run.FORMAT)
-        self.assertNotIn("continuing", run.FORMAT)
-        self.assertNotIn("awaiting_continuation", run.CAPTURE_FORMAT)
-
     def test_boundary_clause_states_the_evaluator_precedence(self):
         clause = format_boundary_clause()
         positions = {marker: clause.find(marker) for marker in BOUNDARY_SOURCE_MARKERS}
@@ -207,16 +177,11 @@ class FormatBoundaryInstructionTests(unittest.TestCase):
         ordered = [positions[marker] for marker in BOUNDARY_SOURCE_MARKERS]
         self.assertEqual(ordered, sorted(ordered),
                          f"boundary clause states sources out of precedence order: {positions}")
-        self.assertIn("turn_move_boundary when an active turn-move boundary", clause)
         self.assertIn("null when the task succeeded", clause)
 
     def test_boundary_clause_agrees_with_the_evaluator_on_served_observations(self):
-        # Derived from the typed observations each scenario serves, never
-        # from a model output: both sides read the same served error or
-        # move notice and must name the same boundary.
+        # Both sides read the same served error, never a model output.
         for name, case in SCENARIOS.items():
-            if case.get("capture") or ("start" not in case and "transition" not in case):
-                continue
             with self.subTest(name=name):
                 self.assertEqual(instruction_boundary(case), typed_boundary(case))
 
@@ -224,12 +189,12 @@ class FormatBoundaryInstructionTests(unittest.TestCase):
         # The recording double's own refusal constant carries no boundary
         # field, no complete core diagnostic, and no kind; instruction and
         # evaluator then both fall back to the stopping tool name.
-        case = copy.deepcopy(SCENARIOS["genuine-refusal-no-fallback"])
-        case["start"]["result"] = {"outcome": "error", "error": {
+        case = copy.deepcopy(SCENARIOS["repair-readback"])
+        case["responses"][RUNTIME] = {"outcome": "error", "error": {
             "reason_code": "authorization_denied", "effect_state": "none",
             "message": "Outside the fixture grant."}}
-        self.assertEqual(instruction_boundary(case), START)
-        self.assertEqual(typed_boundary(case), START)
+        self.assertEqual(instruction_boundary(case), RUNTIME)
+        self.assertEqual(typed_boundary(case), RUNTIME)
 
 
 if __name__ == "__main__":

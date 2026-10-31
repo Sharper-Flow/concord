@@ -130,10 +130,6 @@ func ReadMutationWorkPinTxForRegistry(ctx context.Context, transaction *Transact
 	return readMutationWorkPinForRegistryTx(ctx, tx, registry, workID, ownEventIDs)
 }
 
-func readMutationWorkPinTx(ctx context.Context, tx *sql.Tx, workID string, ownEventIDs []string) (WorkPin, bool, error) {
-	return readMutationWorkPinForRegistryTx(ctx, tx, nil, workID, ownEventIDs)
-}
-
 func readMutationWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string, ownEventIDs []string) (WorkPin, bool, error) {
 	if err := publishedWorkAbsenceQ(ctx, tx, workID, "work_pin"); err != nil {
 		return WorkPin{}, false, err

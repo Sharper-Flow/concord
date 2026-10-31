@@ -47,9 +47,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2b40194e48d8d06588fc63347fdf57a3b4c610b904385f4f5c4c826dce38f111",
+  "sha256": "sha256:4a56c806cc59fc034013798b05cf20a73fcc2bb6bb7e56ac3a192b3e5f93b3cd",
   "status": "accepted",
-  "summary": "Defines backup and restore through the SQLite online backup interface with integrity, foreign-key, and quick verification.",
+  "summary": "Defines backup and restore through the SQLite online backup interface with integrity, foreign-key, and quick verification. Host tools own checkout recovery; restore follows snapshot-backed worktree-table retirement without recreating ownership, inspection or locator metadata.",
   "tags": [
     "pm10",
     "backup",

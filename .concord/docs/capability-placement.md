@@ -144,9 +144,9 @@ re-evaluation, never "set and forget."
 | `oc-test-gate`, `oc-fresh` | Host scripts | Standalone executables, cross-tool. |
 | `concord-explore` | Generated utility agent | The registry pins its read-only repository tools, Git command set, and wall-time cap. |
 | `concord-advisor` | Generated utility agent | The registry pins its read-only repository tools, Git command set, and wall-time cap; the generated body owns the collaborative posture (CD-0157). |
-| Worktree locator derivation (`concord worktree-locate`) | Core CLI verb (read-only) | The inputs are authority data — the Project's registered `canonical_path` locator — so only the core can read them without duplicating database access (issue #316). A host script would double-hop through this verb; the adapter owns no path or branch policy; `internal/store` stays verifier-only (`worktree_claim` verifies intent, never authors it). |
-| Directory-to-Project resolution (`concord project-resolve`) | Core CLI verb (read-only) | Registered locators are authority data, and CD-0008 D1 makes a path replaceable evidence rather than identity, so a host that joins on a directory name invents an identity Concord does not hold. The same rationale as `worktree-locate`, one direction earlier (issue #533, CD-0079). |
-| CD-id reservation listing (`concord cd-reservations`) | Core CLI verb (read-only) | Law-addition reservations and claimed-worktree ownership are folded authority data only the core can read, so an agent allocating the next CD id asks the store through one verb instead of reading the database. The same unauthenticated read boundary as `project-resolve` (CD-0079 D2). |
+| Worktree lifecycle and branch/path policy | Host tools | Git isolation, placement, recovery, and removal belong to the host; Concord has no ownership route (CD-0088 D1). |
+| Directory-to-Project resolution (`concord project-resolve`) | Core CLI verb (read-only) | Registered locators are authority data, and CD-0008 D1 makes a path replaceable evidence rather than identity, so a host that joins on a directory name invents an identity Concord does not hold (issue #533, CD-0079). |
+| CD-id reservation listing (`concord cd-reservations`) | Core CLI verb (read-only) | Law-addition reservations are core-owned authority data, so an agent allocating the next CD id asks the store through one verb instead of reading the database. The same unauthenticated read boundary as `project-resolve` (CD-0079 D2). |
 | Spec / change records | Durable state | Source of truth. |
 
 ---

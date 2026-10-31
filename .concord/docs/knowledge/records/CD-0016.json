@@ -26,9 +26,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6ba33912f5b22f340f0e3c5373bdbb9c58cb1a3b2d2bd4df8eead956d7cb127a",
+  "sha256": "sha256:7a780edceb2e2061ce5e76daaeb64622a7bbe3b696e9c313951da71090bddc3f",
   "status": "accepted",
-  "summary": "Defines durable checkpoints, bounded boundaries, derived pinned context, typed restart availability, and the recorded work-context view.",
+  "summary": "Agents read work-keyed continuity explicitly; Concord injects no automatic per-turn context and derives no work from worktree ownership. Defines durable checkpoints, bounded boundaries, step actions, the recorded work-context view, typed restart availability, and lossless advancing projection pages within the envelope bound. Session preparation remains store-write-free.",
   "tags": [
     "context-continuity",
     "workflow",

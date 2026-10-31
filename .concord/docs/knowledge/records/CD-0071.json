@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-24T00:00:00Z",
   "evidence": [
@@ -23,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:72776e87d49c296ea72521cdba1e779c119cc04dd0939a4e3657ef801183f151",
+  "sha256": "sha256:7709f267643387b434b6573cd5e16a3caf5c03c38f1a978ea1714fe4bf128a3e",
   "status": "accepted",
   "summary": "The authority system constrains model output, not hostile same-UID processes. Authority tables need no tamper-evidence against that excluded adversary. Git-derived scope, cross_scope capability, manifest-digest pinning, typed refusals and principal_ref remain load-bearing. A process boundary would require a separate UID and a UID-checked socket, which CD-0003 and CD-0042 foreclose. Client revocation and key rotation remain reachable; per-grant revocation is not required.",
   "tags": [

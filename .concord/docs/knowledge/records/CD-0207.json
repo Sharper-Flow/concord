@@ -8,8 +8,6 @@
     "internal/store/internal/sqlitedb/write.go",
     "internal/store/transaction.go",
     "internal/store/fence.go",
-    "internal/store/bootstrap.go",
-    "internal/store/worktrees.go",
     "internal/store/durable_test.go"
   ],
   "home_domain_id": "durable-authority",
@@ -29,9 +27,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e38df7c367c9e7e3f8eb456c5bc7f7073f11140046320fc4eaeb8319a0e180e6",
+  "sha256": "sha256:18a1d70f44f32b99b39d567fa0e1e25545339f5f0ecd9af2fbc36cb2b1fbd38f",
   "status": "accepted",
-  "summary": "A consequential operation commits in a durable write transaction: the store pins the pool's one connection, sets synchronous=FULL before BEGIN, verifies level 2, commits, then restores NORMAL or discards the connection. The commit syncs the WAL, so no post-commit TRUNCATE checkpoint runs and a WAL reader cannot fail the acknowledgement. CD-0050 D3 adds the bootstrap journal and worktree claim and the recovery family; the fence entry points commit durably while the conformance harness checks ordinary-write correctness. D2's guarantee is unchanged; a WAL size backstop stays an open, measured follow-up.",
+  "summary": "A consequential operation commits in a durable write transaction: the store pins its connection, sets synchronous=FULL before BEGIN, verifies level 2, and restores NORMAL or discards the connection after commit or rollback. No post-commit checkpoint is needed. The public fence entry points commit durably; the conformance harness checks ordinary-write correctness. A WAL size backstop remains an open measured follow-up.",
   "tags": [
     "durability",
     "sqlite",

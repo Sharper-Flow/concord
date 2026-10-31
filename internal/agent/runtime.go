@@ -170,20 +170,6 @@ type messagesInput struct {
 	Limit     int       `json:"limit,omitempty"`
 }
 
-type worktreeAuditInput struct {
-	ProductID string    `json:"product_id"`
-	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit,omitempty"`
-}
-
-type worktreeInspectInput struct {
-	WorkID string `json:"work_id"`
-	Mode   string `json:"mode"`
-	// Path is the relative file selector for file mode. It selects inside
-	// the identity-derived worktree (CD-0096 D2), never a worktree path.
-	Path string `json:"path"`
-}
-
 type researchReadInput struct {
 	ProductID string    `json:"product_id"`
 	PackID    string    `json:"pack_id"`
@@ -261,7 +247,6 @@ type knowledgeResolveInput struct {
 }
 
 type runtime struct {
-	removalProof           *store.DefaultCheckoutRemovalProof
 	Store                  *store.Store
 	Authority              *Service
 	Registry               store.DefinitionRegistry
@@ -811,14 +796,6 @@ func newRuntimeFailure(kind, message, recovery string, retry bool) *runtimeFailu
 	return &runtimeFailure{kind: kind, message: message, recovery: recovery, retry: retry}
 }
 
-// newRouteFailure mints a refusal whose remedy is a declared route of
-// workflow actions rather than an operator. route is ordered: the caller
-// executes it front to back. unauthorized is deliberately absent from the
-// agentcontract recovery coupling table, so a refusal of that kind may name
-// the route it admits instead of the standing contact_operator default.
-func newRouteFailure(kind, message string, route ...string) *runtimeFailure {
-	return &runtimeFailure{kind: kind, message: message, recovery: "use_declared_route", retry: false, recoveryRefs: route}
-}
 func failureEnvelope(base agentcontract.Envelope, err error) agentcontract.Envelope {
 	// A failure marked EffectPossible followed a committed transaction
 	// (CD-0050 D2), so it must not read as a clean timeout even when its
@@ -1057,24 +1034,12 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "stale_requires_review"
 	case store.KindUnreachable, store.KindGitUnreachable:
 		return "unreachable"
-	case store.KindWorktreeOwnershipConflict:
-		// CD-0096 D3 Destroy: a removal refused because a live session runs in
-		// the worktree. The remedy is ending that session and retiring the
-		// worktree, so this is an authority refusal and the store names the
-		// declared vacate-then-reclaim route the caller acts on. It is not an
-		// operation to reconcile.
-		return "unauthorized"
 	case store.KindUnauthorizedDispatch:
-		// A worker dispatch refused at the admission boundary: no active
-		// worktree claim, a session outside the claimed worktree, or no
-		// authorized window. unauthorized_dispatch is the adapter's name for
-		// the same refusal; the core envelope carries it as the authority
-		// refusal it is, never as an internal fault.
+		// A dispatch admission refusal is an authority failure, not an internal
+		// fault, regardless of the store's more specific kind name.
 		return "unauthorized"
 	case store.KindProjectionConflict:
-		// A projection identity another row already holds (a second active
-		// worktree claim, a locator-drifted worktree) is a coordination
-		// refusal, not an internal fault.
+		// Conflicting projection identities require coordination, not fault recovery.
 		return "operation_conflict"
 	case store.KindIndexDegraded:
 		return "degraded_not_allowed"
@@ -1195,10 +1160,6 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readWorkScope(ctx, base, input)
 	case "concord_work_browse.messages":
 		return r.readWorkMessages(ctx, base, input)
-	case "concord_work_browse.worktree_audit":
-		return r.readWorktreeAudit(ctx, base, input)
-	case "concord_work_browse.worktree_inspect":
-		return r.readWorktreeInspect(ctx, base, input)
 	case "concord_work_trace.history":
 		return r.readTraceHistory(ctx, base, input)
 	case "concord_work_trace.observations":

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,11 +13,11 @@ import (
 )
 
 func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
-	s, service, grant, root := tiersRepoFixture(t)
+	s, service, grant := tiersRepoFixture(t)
 	initializeMutationPinWorkflow(t, s, "work-1", store.BuiltinWorkflowDefinitions()[0])
 	_, before := readWorkFromStore(t, s, "work-1")
-	input := map[string]any{"host_pid": os.Getpid(), "work_id": "work-1", "project_id": "project-1", "base_sha": gitRun(t, root, "rev-parse", "HEAD"), "expected_version": before, "idempotency_key": "response-claim"}
-	first := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", input)
+	input := map[string]any{"work_id": "work-1", "target": "in_progress", "reason": "begin work", "expected_version": before, "idempotency_key": "response-lifecycle"}
+	first := tiersInvoke(t, s, service, grant, "concord_work_transition", "lifecycle", input)
 	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first outcome=%s error=%+v", first.Outcome, first.Error)
 	}
@@ -27,7 +26,7 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := runtime{Store: s, Authority: service, Envelope: mutationEnvelope(grant, scopeVersion), Tool: "concord_work_transition", Operation: "worktree_claim"}
+	r := runtime{Store: s, Authority: service, Envelope: mutationEnvelope(grant, scopeVersion), Tool: "concord_work_transition", Operation: "lifecycle"}
 	op, _ := agentcontract.ValidateContractOperation(r.Tool, r.Operation)
 	retry := func() agentcontract.Envelope {
 		raw, _ := json.Marshal(input)
@@ -66,7 +65,7 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 	if err != nil || handled {
 		t.Fatalf("foreign principal received retained response: handled=%t err=%v", handled, err)
 	}
-	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: "response-claim"}
+	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: "response-lifecycle"}
 	prior, found, err := s.LookupMutationIdempotency(context.Background(), key)
 	if err != nil || !found {
 		t.Fatalf("retained record found=%t err=%v", found, err)
@@ -87,16 +86,16 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	effects, finalizations := 0, 0
+	effects := 0
 	response, err := r.executeMutation(context.Background(), agentcontract.NewBase("cached-effect", r.Tool, r.Operation), raw, mutationDigest(r.Tool, r.Operation, r.Envelope, raw), map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}, nil, nil,
 		func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 			effects++
 			return nil, nil, nil, nil
-		}, nil, func(context.Context) error { finalizations++; return nil })
-	if err != nil || response.Outcome != agentcontract.OutcomeOK || !response.Replayed || effects != 0 || finalizations != 0 {
-		t.Fatalf("cached replay repeated native effect: response=%+v err=%v effects=%d finalizations=%d", response.Error, err, effects, finalizations)
+		})
+	if err != nil || response.Outcome != agentcontract.OutcomeOK || !response.Replayed || effects != 0 {
+		t.Fatalf("cached replay repeated effect: response=%+v err=%v effects=%d", response.Error, err, effects)
 	}
-	input["base_sha"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	input["reason"] = "different reason"
 	conflict := retry()
 	if conflict.Error == nil || conflict.Error.Kind != "idempotency_conflict" {
 		t.Fatalf("changed input did not conflict: %+v", conflict.Error)

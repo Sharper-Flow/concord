@@ -8365,6 +8365,22 @@ DROP TABLE knowledge_package_domains;
 DROP TABLE law_evidence_paths;
 `,
 	},
+	{
+		Version:  173,
+		Name:     "worktree_ownership_retirement",
+		Breaking: true,
+		SQL: `
+DROP TABLE bootstrap_operations;
+DROP TABLE worktree_claim_native_fences;
+DROP TABLE worktree_claims;
+DROP TABLE worktree_entries;
+DROP TABLE worktree_occupancy;
+DROP TABLE worktree_ref_outcomes;
+DROP TABLE session_vacate_requests;
+DROP TABLE session_claim_landings;
+DROP TABLE session_relocation_counts;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -38,6 +38,15 @@ import install as installer
 
 
 class NativeTaskInstallerTests(unittest.TestCase):
+    def test_deleted_continuity_module_is_retired_and_other_hooks_still_ship(self):
+        self.assertNotIn("continuity-hook.ts", installer.ADAPTER_FILES)
+        self.assertIn("continuity-hook.ts", installer.RETIRED_ADAPTER_FILES)
+        self.assertNotIn("claimed-worktree.ts", installer.ADAPTER_FILES)
+        self.assertIn("claimed-worktree.ts", installer.RETIRED_ADAPTER_FILES)
+        for name in ("agent-switch-hook.ts", "host-lease.ts", "move-session.ts",
+                     "turn-move-boundary.ts", "work-start-continuation.ts"):
+            self.assertIn(name, installer.ADAPTER_FILES)
+
     def test_shipped_adapter_is_import_closed_without_launcher_modules(self):
         adapter = Path(installer.__file__).resolve().parents[1] / "adapter/opencode"
         self.assertEqual(installer.derive_adapter_files(adapter), installer.ADAPTER_FILES)

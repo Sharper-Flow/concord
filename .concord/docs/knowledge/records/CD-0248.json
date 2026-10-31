@@ -10,10 +10,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0074"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0090"
     }
   ],
   "path": ".concord/law/decisions/CD-0248-footprint-checks-bind-to-executable-owners-and-use-existing-verification.md",
@@ -24,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c3d6117231c9a2ec3bf9419c4da48a7aa37fbaeecd60e6af386b943761781af0",
+  "sha256": "sha256:14c7789f70bb39920db04dc1271de5ce3e51dfa0427151664376cbfe7612ba56",
   "status": "accepted",
   "summary": "Applicable footprint checks bind declared commands to executable owners. Local verification, required CI and independent Review establish execution and assertion adequacy. Reports are attributed claims and recorded commits must agree; no native provenance, live Git freshness or exact-command gate is required.",
   "tags": [

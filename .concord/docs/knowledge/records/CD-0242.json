@@ -61,10 +61,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0239"
-    },
-    {
-      "kind": "refines",
       "target_id": "PM1"
     },
     {
@@ -121,7 +117,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c7f15c05afc2a0006840d2bca58d7b346b8a65bc29ef6f422183493dae0e80d2",
+  "sha256": "sha256:0ab1151a6819b5cb8b0e46d9c49706fa1eca807d410107e82bd8bd222de816d5",
   "status": "accepted",
   "summary": "Knowledge and completion receipts hold durable outcomes. Main obtains independent Review and binds attributed four-field verification reports. Concord does not execute repository tests, retain native receipts or inspect live Git for workflow freshness. Recorded commits must agree; required CI, approvals and verified-snapshot retirement remain.",
   "tags": [

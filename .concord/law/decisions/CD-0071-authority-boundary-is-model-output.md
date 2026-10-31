@@ -103,7 +103,7 @@ work on it.
 **Load-bearing.** Git-derived scope resolution at authorization, and the refusals it
 produces; the `cross_scope` capability gate; manifest-digest pinning; typed
 `unauthorized` refusals; and `principal_ref`, on which idempotency
-partitioning, worktree claim ownership, workflow authority checks (CD-0242 D5),
+partitioning, workflow authority checks (CD-0242 D5),
 and durable operation attribution all depend. These constrain model output
 or carry checked identity. They stay.
 

@@ -91,10 +91,10 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         # frontmatter would strand the end-to-end work the role exists for.
         self.rewrite(
             "Concord.md",
-            lambda text: text.replace("  webfetch: allow\n", "  webfetch: allow\n  concord_work_start: deny\n"),
+            lambda text: text.replace("  webfetch: allow\n", "  webfetch: allow\n  concord_work_define: deny\n"),
         )
         findings = self.findings()
-        self.assertTrue(any("Concord.md" in finding and "concord_work_start" in finding for finding in findings))
+        self.assertTrue(any("Concord.md" in finding and "concord_work_define" in finding for finding in findings))
 
     def test_rte_lost_build_permission_grants_report(self) -> None:
         def strip_grants(text: str) -> str:
@@ -117,10 +117,10 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         # frontmatter would strand the job the role exists for.
         self.rewrite(
             "Concord-RTE.md",
-            lambda text: text.replace("  webfetch: allow\n", "  webfetch: allow\n  concord_work_start: deny\n"),
+            lambda text: text.replace("  webfetch: allow\n", "  webfetch: allow\n  concord_work_define: deny\n"),
         )
         findings = self.findings()
-        self.assertTrue(any("Concord-RTE.md" in finding and "concord_work_start" in finding for finding in findings))
+        self.assertTrue(any("Concord-RTE.md" in finding and "concord_work_define" in finding for finding in findings))
 
     def test_named_profiles_cannot_reallow_host_bash_denials(self) -> None:
         for name in check_primary_prompts.FULL_PROFILE_FILES:

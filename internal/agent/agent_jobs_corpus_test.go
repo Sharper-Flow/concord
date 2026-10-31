@@ -188,11 +188,10 @@ const agentJobsCorpusPath = "../../.concord/scenarios/agent-jobs.v1.json"
 
 // implementedInvariants are mechanically checked by the test harness.
 var implementedInvariants = map[string]func(t *testing.T, obs jobObservation){
-	"correct_scope":        invariantCorrectScope,
-	"canonical_authority":  invariantCanonicalAuthority,
-	"bounded_context":      invariantBoundedContext,
-	"no_silent_scope_cut":  invariantNoSilentScopeCut,
-	"ground_truth_cleanup": invariantGroundTruthCleanup,
+	"correct_scope":       invariantCorrectScope,
+	"canonical_authority": invariantCanonicalAuthority,
+	"bounded_context":     invariantBoundedContext,
+	"no_silent_scope_cut": invariantNoSilentScopeCut,
 	// AJ6 binds the publication seam, so cross-authority ordering is now
 	// checkable from observed execution rather than assumed.
 	"ordered_cross_authority": invariantOrderedCrossAuthority,
@@ -404,57 +403,6 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 		} else {
 			t.Error("evidence_authority: missing_evidence_refused but no error map in communication")
 		}
-	}
-}
-
-// invariantGroundTruthCleanup enforces the rule that makes ground-truth
-// reclamation safe: a cleanup driven by an external authority's stronger truth
-// may remove the native resource, and may never remove the durable history that
-// records the work. The two halves are checked together because either alone is
-// satisfiable by doing nothing — a binding that removed nothing and a binding
-// that removed everything would each pass half of it.
-func invariantGroundTruthCleanup(t *testing.T, obs jobObservation) {
-	t.Helper()
-	worktree, ok := obs.State["worktree"].(map[string]any)
-	if !ok {
-		t.Error("ground_truth_cleanup: binding recorded no worktree state")
-		return
-	}
-	exists, present := worktree["exists"].(bool)
-	if !present {
-		t.Error("ground_truth_cleanup: worktree.exists is missing or not a bool")
-		return
-	}
-	if exists {
-		t.Error("ground_truth_cleanup: native resource survived a reclamation")
-	}
-	work, ok := obs.State["work"].(map[string]any)
-	if !ok {
-		t.Error("ground_truth_cleanup: binding recorded no work state, so history retention is unproven")
-		return
-	}
-	retained := false
-	for id, entry := range work {
-		fields, isMap := entry.(map[string]any)
-		if !isMap {
-			continue
-		}
-		kept, present := fields["history_retained"].(bool)
-		if !present {
-			continue
-		}
-		if !kept {
-			t.Errorf("ground_truth_cleanup: reclamation dropped history for %s", id)
-		}
-		retained = true
-	}
-	if !retained {
-		t.Error("ground_truth_cleanup: no work item recorded history_retained, so the cleanup proved nothing about history")
-	}
-	// Cleanup must be justified by the external authority's evidence, not by the
-	// caller's assertion that it was fine to proceed.
-	if evidence, _ := obs.Communication["ground_truth_evidence"].(string); strings.TrimSpace(evidence) == "" {
-		t.Error("ground_truth_cleanup: no ground-truth evidence accompanied the cleanup")
 	}
 }
 
@@ -990,8 +938,8 @@ func TestAgentJobsCorpus(t *testing.T) {
 
 	// The corpus count is pinned so scenario removal cannot masquerade as a
 	// complete binding run.
-	if len(corpus.Scenarios) != 19 {
-		t.Fatalf("corpus declares %d scenarios, want 19", len(corpus.Scenarios))
+	if len(corpus.Scenarios) != 18 {
+		t.Fatalf("corpus declares %d scenarios, want 18", len(corpus.Scenarios))
 	}
 
 	for _, sc := range corpus.Scenarios {
@@ -1328,7 +1276,6 @@ func init() {
 	// Mutation bindings live in agent_jobs_mutations_bindings_test.go.
 	jobBindings["AJ3-capture-work"] = bindAJ3CaptureWork
 	jobBindings["AJ3-spec-conflict"] = bindAJ3SpecConflict
-	jobBindings["AJ8-ground-truth-reclamation"] = bindAJ8GroundTruthReclamation
 	// AJ7 knowledge bindings (#160). The handlers live in
 	// agent_jobs_knowledge_bindings_test.go.
 	// AJ6 compaction bindings (#161). The handlers live in

@@ -6,7 +6,7 @@
   check before capture or resume, and the comparison that decides it
 - **Approval:** The operator approved this decision on work item
   `work-471434ead56d66cf09071a66` in session chat on 2026-09-21.
-- **Related:** CD-0111, CD-0088, CD-0098
+- **Related:** CD-0111, CD-0088
 
 ## Context
 

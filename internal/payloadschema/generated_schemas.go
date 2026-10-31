@@ -3,11 +3,6 @@ package payloadschema
 
 const GeneratedPayloadSchemaDocument = `{
   "$defs": {
-    "absolute_path": {
-      "description": "Output readback absolute path. The store joins operator filesystem text with no length guard, so the readback carries no maximum.",
-      "minLength": 1,
-      "type": "string"
-    },
     "architecture_binding": {
       "additionalProperties": false,
       "description": "Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
@@ -350,7 +345,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "continuity_boot_projection_reference": {
       "additionalProperties": false,
-      "description": "CD-0090 D6: the deterministic boot projection reference for an oversized continuity projection. It carries the exact small identity header, the complete captured boot projection's digest and byte length, and the canonical initial continuity read pointer. It is not the projection and cannot carry complete authority: reconstruction through the referenced authenticated pages precedes use, and a later read may describe newer state or a different session's held leases than this captured snapshot.",
+      "description": "CD-0031: the deterministic boot projection reference for an oversized continuity projection. It carries the exact small identity header, the complete captured boot projection's digest and byte length, and the canonical initial continuity read pointer. It is not the projection and cannot carry complete authority: reconstruction through the referenced authenticated pages precedes use, and a later read may describe newer state than this captured snapshot.",
       "properties": {
         "digest": {
           "$ref": "#/$defs/digest"
@@ -632,6 +627,16 @@ const GeneratedPayloadSchemaDocument = `{
             "null"
           ]
         },
+        "consumed_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "consumed_by_session_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "contract_version": {
           "minimum": 1,
           "type": "integer"
@@ -660,7 +665,11 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "state": {
-          "const": "recorded"
+          "enum": [
+            "recorded",
+            "consumed"
+          ],
+          "type": "string"
         },
         "target_project_id": {
           "$ref": "#/$defs/id"
@@ -3042,10 +3051,6 @@ const GeneratedPayloadSchemaDocument = `{
         "operation_id": {
           "$ref": "#/$defs/id"
         },
-        "vacate_target": {
-          "$ref": "#/$defs/vacate_target",
-          "description": "Present on a completed or cancelled lifecycle transition when the calling session's linked worktree is that work item's active worktree. Names the registered main checkout the adapter moves the session to after the transition."
-        },
         "work_pins": {
           "items": {
             "$ref": "#/$defs/work_pin"
@@ -3833,15 +3838,12 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "state": {
-          "description": "ready_to_close_or_replace derives only from the three verified facts and no unfinished workflow action of the session; pending names the open blockers.",
+          "description": "ready_to_close_or_replace requires the recorded handoff, preserved artifacts, and no unfinished workflow action of the session; pending names the open blockers.",
           "enum": [
             "ready_to_close_or_replace",
             "pending"
           ],
           "type": "string"
-        },
-        "vacate_landed": {
-          "type": "boolean"
         },
         "work_id": {
           "$ref": "#/$defs/id"
@@ -3854,7 +3856,6 @@ const GeneratedPayloadSchemaDocument = `{
         "state",
         "recorded_handoff",
         "artifacts_preserved",
-        "vacate_landed",
         "blockers"
       ],
       "type": "object"
@@ -3875,7 +3876,6 @@ const GeneratedPayloadSchemaDocument = `{
         "next_valid_intents": {},
         "operation_id": {},
         "projection_reference": {},
-        "vacate_target": {},
         "work_pins": {}
       },
       "type": "object"
@@ -5564,53 +5564,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "session_vacate_result": {
-      "additionalProperties": false,
-      "properties": {
-        "changed_refs": {
-          "items": {
-            "$ref": "#/$defs/mutation_changed_ref"
-          },
-          "maxItems": 32,
-          "type": "array"
-        },
-        "destination_directory": {
-          "$ref": "#/$defs/absolute_path"
-        },
-        "next_valid_intents": {
-          "items": {
-            "$ref": "#/$defs/next_valid_intent"
-          },
-          "maxItems": 25,
-          "type": "array"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id"
-        },
-        "source_directory": {
-          "$ref": "#/$defs/absolute_path"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "work_pins": {
-          "items": {
-            "$ref": "#/$defs/work_pin"
-          },
-          "maxItems": 32,
-          "type": "array"
-        }
-      },
-      "required": [
-        "changed_refs",
-        "next_valid_intents",
-        "work_id",
-        "project_id",
-        "source_directory",
-        "destination_directory"
-      ],
-      "type": "object"
-    },
     "short": {
       "description": "Accepted shape: string; Bounds: 1..256 code points inclusive; example: \"a\"",
       "examples": [
@@ -5638,30 +5591,6 @@ const GeneratedPayloadSchemaDocument = `{
         "expedite"
       ],
       "type": "string"
-    },
-    "vacate_target": {
-      "additionalProperties": false,
-      "properties": {
-        "destination_directory": {
-          "$ref": "#/$defs/absolute_path"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id"
-        },
-        "source_directory": {
-          "$ref": "#/$defs/absolute_path"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id"
-        }
-      },
-      "required": [
-        "work_id",
-        "project_id",
-        "source_directory",
-        "destination_directory"
-      ],
-      "type": "object"
     },
     "version": {
       "description": "Accepted shape: integer; Bounds: >=1 value inclusive; example: 1",
@@ -5929,97 +5858,6 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "product_id"
-      ],
-      "type": "object"
-    },
-    "work_browse_worktree_audit_input": {
-      "additionalProperties": false,
-      "properties": {
-        "limit": {
-          "$ref": "#/$defs/limit",
-          "description": "Bounds: 1..100 value inclusive"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "product_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      },
-      "required": [
-        "product_id"
-      ],
-      "type": "object"
-    },
-    "work_browse_worktree_inspect_input": {
-      "additionalProperties": false,
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "mode": {
-              "description": "The inspection kind: porcelain status, the diff against HEAD, or one file's content.",
-              "enum": [
-                "status",
-                "diff",
-                "file"
-              ],
-              "type": "string"
-            },
-            "path": {
-              "description": "The relative file selector for file mode. It selects inside the derived worktree; absolute and parent-traversing selectors refuse. Bounds: 1..512 code points inclusive",
-              "maxLength": 512,
-              "minLength": 1,
-              "type": "string"
-            },
-            "requested_budget_seconds": {
-              "$ref": "#/$defs/requested_budget_seconds",
-              "description": "Bounds: >=1 value inclusive"
-            },
-            "work_id": {
-              "$ref": "#/$defs/id",
-              "description": "CD-0096 D3 Inspect: the work item whose active same-Project worktree is read. The worktree derives from the session's Project and work identity; no worktree path input exists (CD-0096 D2). Bounds: 1..128 code points inclusive"
-            }
-          },
-          "required": [
-            "work_id",
-            "mode"
-          ],
-          "type": "object"
-        }
-      ],
-      "properties": {
-        "mode": {
-          "enum": [
-            "status",
-            "diff",
-            "file"
-          ],
-          "type": "string"
-        },
-        "path": {
-          "description": "The relative file selector for file mode. It selects inside the derived worktree; absolute and parent-traversing selectors refuse. Bounds: 1..512 code points inclusive",
-          "maxLength": 512,
-          "minLength": 1,
-          "type": "string"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "CD-0096 D3 Inspect: the work item whose active same-Project worktree is read. The worktree derives from the session's Project and work identity; no worktree path input exists (CD-0096 D2). Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id",
-        "mode"
       ],
       "type": "object"
     },
@@ -15524,7 +15362,7 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "artifact_refs": {
-          "description": "Immutable sha256:path references into the claimed source worktree; each digest is verified against the real file bytes. Bounds: <=16 items inclusive",
+          "description": "Immutable sha256:path references into the authenticated source checkout; each digest is verified against the real file bytes. Bounds: <=16 items inclusive",
           "items": {
             "description": "Bounds: 1..512 code points inclusive",
             "maxLength": 512,
@@ -15691,33 +15529,6 @@ const GeneratedPayloadSchemaDocument = `{
           ],
           "type": "string"
         },
-        "sessions": {
-          "description": "Bounds: <=64 items inclusive",
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "session_ref": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "state": {
-                "enum": [
-                  "active",
-                  "unknown",
-                  "vacated"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "session_ref",
-              "state"
-            ],
-            "type": "object"
-          },
-          "maxItems": 64,
-          "type": "array"
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -15739,173 +15550,6 @@ const GeneratedPayloadSchemaDocument = `{
         "effects_reconciled",
         "dependencies_resolved",
         "artifacts_verified"
-      ],
-      "type": "object"
-    },
-    "work_transition_session_vacate_input": {
-      "additionalProperties": false,
-      "properties": {
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      },
-      "required": [
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "work_transition_worktree_audit_reclaim_input": {
-      "additionalProperties": false,
-      "properties": {
-        "default_ref": {
-          "$ref": "#/$defs/short",
-          "description": "Bounds: 1..256 code points inclusive"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "limit": {
-          "description": "Bounds: 1..100 value inclusive",
-          "maximum": 100,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "product_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      },
-      "required": [
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "work_transition_worktree_claim_input": {
-      "additionalProperties": false,
-      "properties": {
-        "base_sha": {
-          "description": "Bounds: 40..64 code points inclusive",
-          "maxLength": 64,
-          "minLength": 40,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "type": "string"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "host_pid": {
-          "description": "The OpenCode process pid whose adapter records the claim. The adapter injects it; an agent never supplies it. The claimed worktree's occupancy row records the process identity from creation. Bounds: >=1 value inclusive",
-          "minimum": 1,
-          "type": "integer"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id",
-        "project_id",
-        "base_sha",
-        "expected_version",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "work_transition_worktree_destroy_input": {
-      "additionalProperties": false,
-      "properties": {
-        "default_ref": {
-          "description": "Optional merge target ref. The default branch of origin resolves when empty. Bounds: 1..128 code points inclusive",
-          "maxLength": 128,
-          "minLength": 1,
-          "type": "string"
-        },
-        "destructive": {
-          "default": false,
-          "description": "Declares intent to discard local development content without the clean-tree and merged-branch gates.",
-          "type": "boolean"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "The work item's version pin; the destroy records the reclamation event that bumps it. Bounds: >=1 value inclusive"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "CD-0096 D3 Destroy: the work item whose active same-Project worktree is removed. The worktree resolves through the session's Project anchor; no path input exists (CD-0096 D2). Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id",
-        "expected_version",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "work_transition_worktree_reclaim_input": {
-      "additionalProperties": false,
-      "properties": {
-        "default_ref": {
-          "$ref": "#/$defs/short",
-          "description": "Bounds: 1..256 code points inclusive"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id",
-        "project_id",
-        "expected_version",
-        "idempotency_key"
       ],
       "type": "object"
     },
@@ -18009,497 +17653,6 @@ const GeneratedPayloadSchemaDocument = `{
         "commit",
         "result",
         "run_ref"
-      ],
-      "type": "object"
-    },
-    "worktree_audit_page": {
-      "additionalProperties": false,
-      "properties": {
-        "drift": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "claim_age_seconds": {
-                "minimum": 0,
-                "type": "integer"
-              },
-              "claim_state": {
-                "enum": [
-                  "verified",
-                  "reclaimed"
-                ],
-                "type": "string"
-              },
-              "class": {
-                "enum": [
-                  "orphan",
-                  "stale_claim",
-                  "stranded_needed",
-                  "terminal_present",
-                  "unstarted_present",
-                  "uncommitted_content",
-                  "unpushed_content",
-                  "unpublished_lesson",
-                  "retained_ref"
-                ],
-                "type": "string"
-              },
-              "commits_ahead": {
-                "minimum": 0,
-                "type": "integer"
-              },
-              "head_branch": {
-                "description": "CD-0212 D1: the live branch the row's one immutable live-HEAD observation read. Empty when the live HEAD is detached; differs from the claim when the checkout drifted. An observed live ref carries no upper bound the claim surface owns, because a reftable-backed repository admits identities no loose pathname could hold.",
-                "minLength": 1,
-                "type": "string"
-              },
-              "head_detached": {
-                "description": "CD-0212 D1: the live-HEAD observation read a detached HEAD rather than a branch checkout.",
-                "type": "boolean"
-              },
-              "lifecycle": {
-                "$ref": "#/$defs/lifecycle"
-              },
-              "path": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "project_id": {
-                "$ref": "#/$defs/id"
-              },
-              "recovery_action": {
-                "enum": [
-                  "remove_worktree",
-                  "worktree_reclaim",
-                  "worktree_claim",
-                  "worktree_inspect"
-                ],
-                "type": "string"
-              },
-              "retained_branch": {
-                "description": "CD-0212 D3: one branch ref a completed reclamation retained. The ref survived the reclaim with its branch, tip, and reason recorded in the reclamation facts; the operator decides its disposal. A retained live ref carries no upper bound the claim surface owns, so the full retained identity reports without truncation.",
-                "minLength": 1,
-                "type": "string"
-              },
-              "retained_tip": {
-                "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
-                "minLength": 40,
-                "type": "string"
-              },
-              "risk": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "unpushed_commits": {
-                "minimum": 1,
-                "type": "integer"
-              },
-              "work_id": {
-                "$ref": "#/$defs/id"
-              }
-            },
-            "required": [
-              "class",
-              "project_id",
-              "path",
-              "recovery_action"
-            ],
-            "type": "object"
-          },
-          "maxItems": 100,
-          "type": "array"
-        },
-        "root": {
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "root",
-        "drift"
-      ],
-      "type": "object"
-    },
-    "worktree_audit_reclaim_result": {
-      "additionalProperties": false,
-      "properties": {
-        "changed_refs": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "entity_kind": {
-                "$ref": "#/$defs/short"
-              },
-              "id": {
-                "$ref": "#/$defs/id"
-              },
-              "version": {
-                "$ref": "#/$defs/version"
-              }
-            },
-            "required": [
-              "entity_kind",
-              "id",
-              "version"
-            ],
-            "type": "object"
-          },
-          "maxItems": 32,
-          "type": "array"
-        },
-        "next_valid_intents": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "action_id": {
-                "$ref": "#/$defs/id"
-              },
-              "expected_version": {
-                "$ref": "#/$defs/version"
-              },
-              "operation": {
-                "$ref": "#/$defs/short"
-              },
-              "reason_code": {
-                "$ref": "#/$defs/short"
-              },
-              "required_fields": {
-                "items": {
-                  "$ref": "#/$defs/short"
-                },
-                "maxItems": 32,
-                "type": "array",
-                "uniqueItems": true
-              },
-              "tool": {
-                "$ref": "#/$defs/id"
-              }
-            },
-            "required": [
-              "tool",
-              "operation",
-              "reason_code"
-            ],
-            "type": "object"
-          },
-          "maxItems": 25,
-          "type": "array"
-        },
-        "report_only": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "claim_age_seconds": {
-                "minimum": 0,
-                "type": "integer"
-              },
-              "claim_state": {
-                "enum": [
-                  "verified",
-                  "reclaimed"
-                ],
-                "type": "string"
-              },
-              "class": {
-                "enum": [
-                  "orphan",
-                  "stale_claim",
-                  "stranded_needed",
-                  "terminal_present",
-                  "unstarted_present",
-                  "uncommitted_content",
-                  "unpushed_content",
-                  "unpublished_lesson",
-                  "retained_ref"
-                ],
-                "type": "string"
-              },
-              "commits_ahead": {
-                "minimum": 0,
-                "type": "integer"
-              },
-              "head_branch": {
-                "description": "CD-0212 D1: the live branch the row's one immutable live-HEAD observation read. Empty when the live HEAD is detached; differs from the claim when the checkout drifted. An observed live ref carries no upper bound the claim surface owns, because a reftable-backed repository admits identities no loose pathname could hold.",
-                "minLength": 1,
-                "type": "string"
-              },
-              "head_detached": {
-                "description": "CD-0212 D1: the live-HEAD observation read a detached HEAD rather than a branch checkout.",
-                "type": "boolean"
-              },
-              "lifecycle": {
-                "$ref": "#/$defs/lifecycle"
-              },
-              "path": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "project_id": {
-                "$ref": "#/$defs/id"
-              },
-              "recovery_action": {
-                "enum": [
-                  "remove_worktree",
-                  "worktree_reclaim",
-                  "worktree_claim",
-                  "worktree_inspect"
-                ],
-                "type": "string"
-              },
-              "retained_branch": {
-                "description": "CD-0212 D3: one branch ref a completed reclamation retained. The ref survived the reclaim with its branch, tip, and reason recorded in the reclamation facts; the operator decides its disposal. A retained live ref carries no upper bound the claim surface owns, so the full retained identity reports without truncation.",
-                "minLength": 1,
-                "type": "string"
-              },
-              "retained_tip": {
-                "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
-                "minLength": 40,
-                "type": "string"
-              },
-              "risk": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "unpushed_commits": {
-                "minimum": 1,
-                "type": "integer"
-              },
-              "work_id": {
-                "$ref": "#/$defs/id"
-              }
-            },
-            "required": [
-              "class",
-              "project_id",
-              "path",
-              "recovery_action"
-            ],
-            "type": "object"
-          },
-          "maxItems": 100,
-          "type": "array"
-        },
-        "root": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "rows": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "detail": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "lifecycle": {
-                "$ref": "#/$defs/lifecycle"
-              },
-              "outcome": {
-                "enum": [
-                  "reclaimed",
-                  "refused"
-                ],
-                "type": "string"
-              },
-              "path": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "project_id": {
-                "$ref": "#/$defs/id"
-              },
-              "refusal_kind": {
-                "maxLength": 64,
-                "minLength": 1,
-                "type": "string"
-              },
-              "retained_refs": {
-                "description": "CD-0212 D3: branch refs the reclamation proved it must not delete and retained instead, visible after directory removal.",
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "branch": {
-                      "description": "CD-0212 D3: a retained ref carries no upper bound the claim surface owns, so a valid long live branch retained by the reclamation reports its full identity.",
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "reason": {
-                      "maxLength": 256,
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "tip": {
-                      "minLength": 40,
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "branch",
-                    "reason"
-                  ],
-                  "type": "object"
-                },
-                "maxItems": 16,
-                "type": "array"
-              },
-              "version": {
-                "$ref": "#/$defs/version"
-              },
-              "work_id": {
-                "$ref": "#/$defs/id"
-              }
-            },
-            "required": [
-              "project_id",
-              "work_id",
-              "path",
-              "lifecycle",
-              "outcome"
-            ],
-            "type": "object"
-          },
-          "maxItems": 100,
-          "type": "array"
-        },
-        "work_pins": {
-          "items": {
-            "$ref": "#/$defs/work_pin"
-          },
-          "maxItems": 32,
-          "type": "array"
-        }
-      },
-      "required": [
-        "root",
-        "rows",
-        "report_only",
-        "changed_refs",
-        "next_valid_intents"
-      ],
-      "type": "object"
-    },
-    "worktree_claim_result": {
-      "additionalProperties": false,
-      "properties": {
-        "changed_refs": {
-          "items": {
-            "$ref": "#/$defs/mutation_changed_ref"
-          },
-          "maxItems": 32,
-          "type": "array"
-        },
-        "next_valid_intents": {
-          "items": {
-            "$ref": "#/$defs/next_valid_intent"
-          },
-          "maxItems": 25,
-          "type": "array"
-        },
-        "path": {
-          "$ref": "#/$defs/absolute_path"
-        },
-        "work_pins": {
-          "items": {
-            "$ref": "#/$defs/work_pin"
-          },
-          "maxItems": 32,
-          "type": "array"
-        }
-      },
-      "required": [
-        "changed_refs",
-        "next_valid_intents",
-        "path"
-      ],
-      "type": "object"
-    },
-    "worktree_inspect_result": {
-      "additionalProperties": false,
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "branch": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            },
-            "content": {
-              "description": "The bounded inspection content: porcelain status lines, the diff text, or the file content.",
-              "maxLength": 16384,
-              "type": "string"
-            },
-            "mode": {
-              "enum": [
-                "status",
-                "diff",
-                "file"
-              ],
-              "type": "string"
-            },
-            "path": {
-              "maxLength": 4096,
-              "minLength": 1,
-              "type": "string"
-            },
-            "project_id": {
-              "$ref": "#/$defs/id"
-            },
-            "truncated": {
-              "type": "boolean"
-            },
-            "work_id": {
-              "$ref": "#/$defs/id"
-            }
-          },
-          "required": [
-            "work_id",
-            "project_id",
-            "branch",
-            "path",
-            "mode",
-            "content",
-            "truncated"
-          ],
-          "type": "object"
-        }
-      ],
-      "properties": {
-        "branch": {
-          "maxLength": 256,
-          "type": "string"
-        },
-        "content": {
-          "description": "The bounded inspection content: porcelain status lines, the diff text, or the file content.",
-          "maxLength": 16384,
-          "type": "string"
-        },
-        "mode": {
-          "enum": [
-            "status",
-            "diff",
-            "file"
-          ],
-          "type": "string"
-        },
-        "path": {
-          "maxLength": 4096,
-          "type": "string"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id"
-        },
-        "truncated": {
-          "type": "boolean"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id"
-        }
-      },
-      "required": [
-        "work_id",
-        "project_id",
-        "mode"
       ],
       "type": "object"
     }

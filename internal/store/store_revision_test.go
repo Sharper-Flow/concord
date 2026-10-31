@@ -19,7 +19,7 @@ func revisionValue(t *testing.T, q queryer) int64 {
 
 func TestStoreRevisionWriterClasses(t *testing.T) {
 	t.Parallel()
-	for _, class := range []string{"ordinary callback", "durable callback", "raw ordinary landing", "multi-event operation"} {
+	for _, class := range []string{"ordinary callback", "durable callback", "multi-event operation"} {
 		t.Run(class, func(t *testing.T) {
 			t.Parallel()
 			s := openTemp(t)
@@ -36,11 +36,6 @@ func TestStoreRevisionWriterClasses(t *testing.T) {
 				err = s.TransactDurable(ctx, func(tx *Transaction) error {
 					_, err := tx.tx.ExecContext(ctx, `INSERT INTO agent_installation_keys VALUES('revision-fixture',zeroblob(32),'now')`)
 					return err
-				})
-			case "raw ordinary landing":
-				_, err = recordLanding(s, ctx, "revision_landing", "work-fixture", "session-fixture", "/fixture", 1, func(ctx context.Context, tx *sql.Tx) (string, error) {
-					_, err := tx.ExecContext(ctx, `INSERT INTO agent_installation_keys VALUES('revision-fixture',zeroblob(32),'now')`)
-					return "landed", err
 				})
 			case "multi-event operation":
 				err = ApplyOperation(ctx, s, Operation{

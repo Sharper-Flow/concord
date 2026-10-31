@@ -51,7 +51,7 @@ func Build(productID string, snapshot store.ContinuitySnapshot) ([]byte, error) 
 		return nil, err
 	}
 	if size > MaxBootPacketBytes {
-		// CD-0090 D6: a fixed projection no complete-prefix reduction can
+		// CD-0031: a fixed projection no complete-prefix reduction can
 		// shrink travels as the closed deterministic projection reference of
 		// the original captured snapshot, never of a reduced candidate. The
 		// reference names the exact work, the canonical digest and length,

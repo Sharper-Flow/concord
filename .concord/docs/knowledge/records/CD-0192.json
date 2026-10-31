@@ -20,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7fb7dea81baa55875a08cb8ae4d1e5055b3eb50bbf06b0a9eb4a5107c0b9b3f6",
+  "sha256": "sha256:cbff9037fd71c7c38c56d4a520198c4037bef773058b432e117aaedf8adbe313",
   "status": "accepted",
   "summary": "Refine requires a bound passing report for the recorded candidate. Failed, unresolved or mixed-candidate reports refuse; independent Review judges check adequacy. No executor lease, live Git observation or declared-command comparison qualifies the report.",
   "tags": [

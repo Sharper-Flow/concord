@@ -120,10 +120,8 @@ def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
 ADAPTER_FILES = (
     "adapter-contract-defect.ts",
     "agent-switch-hook.ts",
-    "claimed-worktree.ts",
     "concord-plugin.ts",
     "concord.ts",
-    "continuity-hook.ts",
     "core-runtime.ts",
     "credentials.ts",
     "generated-contract-tests.ts",
@@ -133,11 +131,9 @@ ADAPTER_FILES = (
     "host-lease.ts",
     "host-prompt.ts",
     "manifest-pin.ts",
-    "move-notice.ts",
     "move-session.ts",
     "mutation-result.ts",
     "primary-role.ts",
-    "project-link.ts",
     "turn-move-boundary.ts",
     "work-start-continuation.ts",
     "workflow-status.ts",
@@ -150,7 +146,9 @@ ADAPTER_FILES = (
 # traversing key still cannot reach a delete. Append on retirement; never
 # remove an entry while an installation that records it may still exist.
 RETIRED_ADAPTER_FILES = (
-    "native-subtask-refusal.ts", "ci-watch.ts", "dispatch-window.ts", "dispatch.ts", "generated-agent-lanes.ts",
+    "project-link.ts",
+    "continuity-hook.ts",
+    "native-subtask-refusal.ts", "ci-watch.ts", "claimed-worktree.ts", "dispatch-window.ts", "dispatch.ts", "generated-agent-lanes.ts", "move-notice.ts",
     "generated-lane-step-dispatch.ts", "lane_capabilities.ts", "lane_completion.ts", "lane_dispatch.ts",
     "oracle-readiness.ts", "packet.ts", "task-result.ts", "worker-report-protocol.js", "worker_control.ts",
     "worker_diff.ts", "worker_recovery.ts", "worker_source.ts", "worker_subject.ts",

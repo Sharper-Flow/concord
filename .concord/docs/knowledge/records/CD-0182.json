@@ -32,9 +32,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:daf5ad75d2ca3c1456173315d5fcb2dff00159b4d6e0a6f2f396bc2a4a213729",
+  "sha256": "sha256:bace8425f009c011fdfb5349379ab7a356caf88b3086f6a51c009be05f535176",
   "status": "accepted",
-  "summary": "A second repository's coordinator session is started by the host: the store refuses the cross-repository claim and names the concord_work_start route, the typed session_placement detail answers where the receiving session goes with restore only at the recorded path, and the receiving session resumes with the work_id alone. The session opener, the explicit Project selector, and their consent rules are removed. The installer keeps the tuple entry and its options; the bounded addressed handoff and its consumption are unchanged.",
+  "summary": "Host tools place each repository's coordinator session after Project membership is recorded. A bounded addressed handoff binds to the work and receiving Project under the current contract; any coordinator whose directory resolves that member Project may act under the consumed bind. Placement grants no authority, and stale or wrong-target handoffs refuse. The installer preserves plugin tuple options.",
   "tags": [
     "sessions",
     "adapter",

@@ -128,26 +128,6 @@ const (
 	KindResearchConsumerBlocked     FailureKind = "research_consumer_blocked"
 	// KindOutsideRepairActive refuses managed moves on operator-held work.
 	KindOutsideRepairActive FailureKind = "outside_repair_active"
-	// KindCrossRepositoryClaim marks a worktree_claim whose target Project
-	// lives in another git repository than the calling session's directory
-	// (CD-0178 D2). The refusal is non-retryable: the host refuses a move
-	// that crosses repositories, and the only route is a second coordinator
-	// session in the target repository. The two Projects of one repository
-	// keep the within-repository move.
-	KindCrossRepositoryClaim FailureKind = "cross_repository_claim"
-	// KindWorktreeOwnershipConflict marks a worktree removal that would strand
-	// a live session the host reports running there (CD-0096 D3 Destroy,
-	// CD-0104 D1, CD-0178 D3). Occupancy is one row per session in the
-	// durable projection; the record carries the host process identity and a
-	// legacy row carries no process identity. The refusal names the session
-	// and the recovery action.
-	KindWorktreeOwnershipConflict FailureKind = "worktree_ownership_conflict"
-	// KindWorktreeUnpublishedLesson marks a worktree reclaim whose branch
-	// carries a lesson record the default branch does not hold. The reclaim
-	// deletes the branch, and a pushed-then-abandoned branch holding a
-	// prepared lesson otherwise reclaims with no signal. The refusal names
-	// the records and the merge-or-supersede recovery.
-	KindWorktreeUnpublishedLesson FailureKind = "worktree_unpublished_lesson"
 	// KindDomainRegistryAbsent marks a Domain read against a Product whose Git
 	// knowledge home has not projected a Domain registry. Absent is a refusal,
 	// never an empty page: authoritative-empty requires a registry watermark.
@@ -334,14 +314,6 @@ func newAmbiguousScopeFailure(op, detail, recovery string, candidates []string) 
 // its remedy is a declared route of workflow actions. RecoveryRefs holds the
 // route in execution order; the agent envelope validates the pair.
 const RecoveryUseDeclaredRoute = "use_declared_route"
-
-// newRouteFailure builds a refusal whose remedy is a declared route of
-// workflow actions. route is ordered: the caller executes it front to back.
-func newRouteFailure(kind FailureKind, op, detail string, retrySafe bool, route ...string) *Failure {
-	f := newFailure(kind, op, detail, retrySafe, RecoveryUseDeclaredRoute)
-	f.RecoveryRefs = append([]string{}, route...)
-	return f
-}
 
 func wrapFailure(kind FailureKind, op, detail string, retrySafe bool, recovery string, err error) *Failure {
 	f := newFailure(kind, op, detail, retrySafe, recovery)

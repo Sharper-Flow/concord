@@ -147,9 +147,12 @@ func lawIndexEntryList(laws []lawIndexEntry) string {
 // readLawIndexInventory reads the legacy law inventory by home, with each
 // home's designating Products and canonical path, and its digest. The digest
 // binds everything the accounting depended on, so the transaction can confirm
-// it accounted for the inventory it is about to drop.
+// it accounted for the inventory it is about to drop. Only accepted rows are
+// current law: a store older than schema 140 still holds superseded rows,
+// which that migration drops inside the same upgrade transaction before the
+// revalidation re-reads the inventory.
 func readLawIndexInventory(ctx context.Context, q queryer) ([]lawIndexHome, string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT home_project_id,home_locator_id,law_id,path FROM law_subjects ORDER BY home_project_id,home_locator_id,law_id`)
+	rows, err := q.QueryContext(ctx, `SELECT home_project_id,home_locator_id,law_id,path FROM law_subjects WHERE status='accepted' ORDER BY home_project_id,home_locator_id,law_id`)
 	if err != nil {
 		return nil, "", lawIndexInventoryFailure(err)
 	}

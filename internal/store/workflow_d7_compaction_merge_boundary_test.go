@@ -124,3 +124,31 @@ func TestCompactionLinkRecoveryExemptPublishesUnderStaleLawRevision(t *testing.T
 		t.Fatal("recovery-exempt compaction link did not fold the archived_work row")
 	}
 }
+
+// TestCompactionLinkRecoveryExemptPublishesWithUnverifiableLawHome keeps the
+// recovery exemption whole: a law folder that no longer loads must not refuse
+// the reconcile link, which never consults law, while the revalidated link
+// still refuses on that law home.
+func TestCompactionLinkRecoveryExemptPublishesWithUnverifiableLawHome(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, home, commit, path := seedStaleLawCompaction(t)
+	lawRepo := workflowLawFixtureRepo(t, s)
+	writeKnowledgeFile(t, lawRepo, ".concord/law/decisions/CD-0999-broken.md", "# A law file without metadata\n")
+	commitKnowledgeRepo(t, lawRepo, "commit a law file whose metadata does not load")
+	if _, err := s.EstablishKnowledgeSourceSetProof(ctx, "owner"); err == nil {
+		t.Fatal("fixture law home still verifies; the unverifiable condition was not established")
+	}
+
+	if err := PublishCompactionLink(ctx, s, compactionRequest(home, commit, path, "unverifiable-law-link")); err == nil {
+		t.Fatal("revalidated compaction link admitted an unverifiable law home")
+	}
+	request := compactionRequest(home, commit, path, "unverifiable-law-recovery-link")
+	request.Boundary = CompactionBoundaryRecoveryExempt
+	if err := PublishCompactionLink(ctx, s, request); err != nil {
+		t.Fatalf("recovery-exempt compaction link refused for a law home it never checks: %v", err)
+	}
+	if countRows(t, s, "archived_work") != 1 {
+		t.Fatal("recovery-exempt compaction link did not fold the archived_work row")
+	}
+}

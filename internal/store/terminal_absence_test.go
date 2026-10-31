@@ -155,7 +155,16 @@ func TestPublishedIssueLinksSurviveWithRetainedLinkage(t *testing.T) {
 	if err != nil || len(products["work-published"]) != 1 || products["work-published"][0] != "prod-alpha" {
 		t.Fatalf("published authorization scope = %v, %v", products, err)
 	}
-
+	runKnowledgeGit(t, home.RepoPath, "rm", "--", ".concord/docs/work/work-published.md")
+	commitKnowledgeRepo(t, home.RepoPath, "remove outcome")
+	if link, found, err := readLinearLinkCore(ctx, s.db, "work-published"); err != nil || !found || link.HumanKey != "EX-3" {
+		t.Fatalf("source note deletion lost the published issue identity: %+v found=%v %v", link, found, err)
+	}
+	_, err = ReadWorkPin(ctx, s, "work-published")
+	assertPublishedAbsence(t, err, home, commit, hash)
+	if link, found, err := readLinearLinkCore(ctx, s.db, "work-live-link"); err != nil || !found || link.HumanKey != "EX-4" {
+		t.Fatalf("live link pruned after outcome removal: %+v found=%v err=%v", link, found, err)
+	}
 }
 
 func TestPublishedAbsenceHelperUsesCallerTransaction(t *testing.T) {

@@ -667,7 +667,7 @@ func knowledgeLawLocator(homeRepo, lawID, subjectPath string) (string, error) {
 		err = os.ErrNotExist
 	}
 	if errors.Is(err, os.ErrNotExist) {
-		failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law document is missing from the knowledge home checkout: "+qualified, false, "rebuild the accepted Git law projection")
+		failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law document is missing from the knowledge home checkout: "+qualified, false, "restore the bound law file in the knowledge home checkout from its default-branch commit")
 		failure.CandidateIDs = []string{lawID}
 		return "", failure
 	}
@@ -675,7 +675,7 @@ func knowledgeLawLocator(homeRepo, lawID, subjectPath string) (string, error) {
 		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot inspect the bound law document in the knowledge home checkout", true, "restore access to the Product knowledge home and retry", err)
 	}
 	if !info.Mode().IsRegular() {
-		failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law locator is not a regular file in the knowledge home checkout: "+qualified, false, "rebuild the accepted Git law projection")
+		failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law locator is not a regular file in the knowledge home checkout: "+qualified, false, "restore the bound law file in the knowledge home checkout from its default-branch commit")
 		failure.CandidateIDs = []string{lawID}
 		return "", failure
 	}

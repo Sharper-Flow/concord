@@ -455,7 +455,7 @@ func validateWorkContextDomain(ctx context.Context, tx queryer, workID, domainID
 		return workContextFailure(KindUnknownScope, "work_context_domain", "unknown Domain "+domainID, "name a current Domain of the Product registry")
 	}
 	if domainRegistryStatus(declared.Status) != "current" {
-		return workContextFailure(KindStaleRequiresReview, "work_context_domain", "non-current or stale Domain "+domainID, "rebuild the current Product Domain registry")
+		return workContextFailure(KindStaleRequiresReview, "work_context_domain", "non-current or stale Domain "+domainID, "name a current Domain of the Product registry")
 	}
 	if err := validateWorkContextAffectedDomainTx(ctx, tx, workID, domainID); err != nil {
 		return err

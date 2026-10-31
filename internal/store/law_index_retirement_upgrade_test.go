@@ -522,3 +522,45 @@ func TestLawIndexRetirementFreshAbsence(t *testing.T) {
 	assertLawIndexRetired(t, s.db)
 	retirementUpgradeHealthy(t, s.db)
 }
+
+// A store older than schema 140 still holds superseded law rows, which are
+// not current law and which migration 140 drops inside the same upgrade
+// transaction. The accounting must neither demand a folder file for them nor
+// see the inventory change when the transaction re-reads it after 140.
+func TestLawIndexRetirementAccountsOnlyCurrentLawBeforeSchema140(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	repo := initKnowledgeRepo(t)
+	writeLawIndexHome(t, repo, map[string]string{
+		lawIndexCurrentPath: fixtureLawFolderLaw(lawIndexCurrentLawID),
+	})
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "concord-v139.db"), 139)
+	hash := "sha256:" + strings.Repeat("a", 64)
+	for _, stmt := range []string{
+		`INSERT INTO fold_guard(active) VALUES(1)`,
+		`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product-upgrade','P','alpha','operator_only',1,'t','t')`,
+		`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project-upgrade','P',1,'t','t')`,
+		`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('` + lawIndexRetirementLocator + `','project-upgrade','canonical_path','` + repo + `','` + repo + `','t','t')`,
+		`INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-upgrade','project-upgrade','` + lawIndexRetirementLocator + `')`,
+		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project-upgrade','` + lawIndexRetirementLocator + `','` + lawIndexCurrentLawID + `','decision','accepted','` + lawIndexCurrentPath + `','Current','` + hash + `','commit')`,
+		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project-upgrade','` + lawIndexRetirementLocator + `','` + lawIndexMissingLawID + `','decision','superseded','` + lawIndexMissingOldPath + `','Superseded','` + hash + `','commit')`,
+		`DELETE FROM fold_guard`,
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("seed %s: %v", stmt, err)
+		}
+	}
+	proof, err := establishLawIndexRetirementProof(ctx, db)
+	if err != nil {
+		t.Fatalf("the accounting demanded a folder file for superseded legacy law: %v", err)
+	}
+	advanceHistoricalPrefix(t, db, 173)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := verifyLawIndexRetirementProof(ctx, tx, proof); err != nil {
+		t.Fatalf("migration 140's drop of superseded rows invalidated the accounting: %v", err)
+	}
+}

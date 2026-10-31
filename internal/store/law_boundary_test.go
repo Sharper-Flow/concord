@@ -65,6 +65,9 @@ func TestAmendmentPathAcceptsDerivedConflictAndRefusesLegislated(t *testing.T) {
 	if err := checkMandatedLawsAtHome(ctx, derived, "p", "l", []string{"a", "b"}, []string{"a"}, true); err != nil {
 		t.Fatalf("a conflict between derived law refused the amendment path: %v", err)
 	}
+	if err := checkMandatedLawsAtHome(ctx, derived, "p", "l", []string{"a", "b"}, []string{"a", "b"}, true); err != nil {
+		t.Fatalf("revising both derived ends refused the amendment path: %v", err)
+	}
 
 	legislated, _ := lawConflictFolderFixture(t, "legislated", "derived", "a")
 	if err := checkMandatedLawsAtHome(ctx, legislated, "p", "l", []string{"a", "b"}, []string{"a"}, true); err == nil {

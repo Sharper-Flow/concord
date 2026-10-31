@@ -105,9 +105,15 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 	if note.Kind != "work_note" || note.ID != req.WorkID {
 		return newFailure(KindInvalidNoteProof, "publish_compaction_link", "verified note identity does not match the work", false, "publish the canonical work note for the requested work ID")
 	}
-	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, req.WorkID)
-	if err != nil {
-		return err
+	// Only the revalidated boundary consumes the law proof. The recovery
+	// exemption must not refuse for a law home it never checks, so its
+	// verification is advisory, as for the work pin its result reports.
+	verified, proofErr := s.EstablishKnowledgeSourceSetProof(ctx, req.WorkID)
+	switch {
+	case proofErr == nil:
+		ctx = verified
+	case req.Boundary == CompactionBoundaryRevalidated:
+		return proofErr
 	}
 	var lifecycle string
 	if err := s.db.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id = ?`, req.WorkID).Scan(&lifecycle); err != nil {

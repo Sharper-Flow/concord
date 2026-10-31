@@ -392,7 +392,7 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 			return err
 		}
 		if _, present := current[canonical]; present {
-			return newFailure(KindOutcomeMismatch, "complete_workflow", "law declared for removal is still present in the Git projection: "+reference, false, "publish and rebuild the declared law removal")
+			return newFailure(KindOutcomeMismatch, "complete_workflow", "law declared for removal is still present in the Git projection: "+reference, false, "merge the reviewed pull request that deletes the declared law file from the law folder, then retry")
 		}
 	}
 	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
@@ -409,7 +409,7 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 		}
 		resolution, ok := resolutions[reference]
 		if !ok {
-			return newFailure(KindMissingEvidence, "complete_workflow", "the enacted law revision is missing from the Git projection: "+reference, false, "publish and rebuild the enacted law revision, or supersede the contract to declare its intended law_change_removals")
+			return newFailure(KindMissingEvidence, "complete_workflow", "the enacted law revision is missing from the Git projection: "+reference, false, "merge the reviewed pull request that commits the enacted law file under the law folder, or supersede the contract to declare its intended law_change_removals")
 		}
 		if resolution.tier != "derived" {
 			return newFailure(KindMissingEvidence, "complete_workflow", fmt.Sprintf("law %s must carry the derived tier, not %s (CD-0230 D4)", reference, resolution.tier), false, "record authority.tier derived on the changed law")

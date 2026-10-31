@@ -29,7 +29,7 @@ The source retains these records in order:
 
 The source retains these records in order:
 1. The accepted Domain contract and law assign record encoding to records, but
-    the implementation and its callers place that mechanism under transport.
+   the implementation and its callers place that mechanism under transport.
 2. An attributed architecture decision, within the change's approved scope,
    confirms the records responsibility and validates the proposed correction.
 3. The candidate moves the implementation and its callers to records. The

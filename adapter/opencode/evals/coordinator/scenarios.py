@@ -113,7 +113,7 @@ def continuity_ok():
         "outcome": "ok", "authority": "authoritative",
         "result": {"work_id": WORK, "boundaries": {"count": 0, "items": [], "next_cursor": None},
                    "work_pin": {"work_id": WORK, "version": 1, "lifecycle": "in_progress",
-                                "pending_operator_decision": None}},
+                                }},
     }
 
 
@@ -220,7 +220,7 @@ This fixture ends when record_review succeeds. Do not spawn a subagent in this f
         "responses": {
             TRACE: {"outcome": "ok", "authority": "authoritative", "result": {
                 "work_id": WORK, "version": 1, "workflow_step": "execution",
-                "admitted_action": "record_review", "pending_operator_decision": None,
+                "admitted_action": "record_review",
             }},
             TRANSITION: {"outcome": "ok", "effect_state": "committed", "result": {
                 "review_recorded": True, "synthetic": True, "fixture_complete": True,

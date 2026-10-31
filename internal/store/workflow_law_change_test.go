@@ -57,11 +57,6 @@ func setLawChangeApplicability(t *testing.T, s *Store, lawID string, appliesTo .
 	}
 }
 
-func seedLawChangeSize(t *testing.T, s *Store, workID string, size WorkSize) {
-	t.Helper()
-	lawChangeFold(t, s, `INSERT INTO work_size_assessments(event_id,work_id,sequence,model_version,size_class,inputs_json,footprint_json,recorded_at) VALUES(?,?,1,1,?,'{}','{}','2026-10-19T00:00:00Z')`, "size-"+workID, workID, string(size))
-}
-
 func lawChangeTx(t *testing.T, s *Store) *sql.Tx {
 	t.Helper()
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -168,7 +163,6 @@ func TestLawChangeAgentOwnedReasonAndTier(t *testing.T) {
 	const workID = "law-agent-owned"
 	s := seedLawChangeFixture(t, workID)
 	seedLawChangeLaw(t, s, "law-agent", "legislated", "agent-surface", "workflow-engine")
-	seedLawChangeSize(t, s, workID, WorkSizeCrucial)
 	startLawChange(t, s, workID)
 	_, err := deriveLawChange(t, s, workID, lawChangeV1, nil, []string{"law-agent"}, nil)
 	requireFailureKind(t, err, KindInvalidPayload, "missing reason")

@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -227,6 +229,15 @@ func (failingLawGit) Run(context.Context, string, ...string) ([]byte, error) {
 	return nil, errors.New("git unavailable")
 }
 
+type failingLawRecordHistoryGit struct{}
+
+func (failingLawRecordHistoryGit) Run(ctx context.Context, repo string, args ...string) ([]byte, error) {
+	if slices.Contains(args, "--parents") {
+		return nil, errors.New("record history unavailable")
+	}
+	return ExecGitRunner{}.Run(ctx, repo, args...)
+}
+
 // Attribution is decided once, before the live gate's transaction. A
 // completion replay keeps the recorded result without Git; a first
 // completion Git cannot prove refuses.
@@ -308,11 +319,14 @@ func shardHistory(t *testing.T, s *Store, start, edit map[string]string, shape s
 				gitRunStore(t, repo, "merge", "-q", "--ff-only", "main-line")
 			}
 			apply(unrelated, "unrelated item change")
-		case historyOwn:
+		case historyOwn, historySynced:
 			apply(edit, "item knowledge edit")
 			gitRunStore(t, repo, "checkout", "-q", "main-line")
 			apply(edit, "squash of the item")
 			gitRunStore(t, repo, "checkout", "-q", "-")
+			if shape == historySynced {
+				gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", "main-line")
+			}
 		default:
 			t.Fatalf("unknown history shape %q", shape)
 		}
@@ -370,6 +384,106 @@ func TestLawAttributionExternalInventoryChangeDoesNotBlock(t *testing.T) {
 			t.Fatalf("%s: external change recorded as the item's enactment: %s", item.id, proof)
 		}
 		item.reset()
+	}
+}
+
+// Another item's law removal, imported by rebase or by a later merge of main,
+// does not block an item that changed only its own declared law.
+func TestLawAttributionExternalRemovalWithOwnLawEdit(t *testing.T) {
+	for _, shape := range []string{historyRebased, historyMergeSynced} {
+		t.Run(shape, func(t *testing.T) { externalRemovalWithOwnLawEdit(t, shape) })
+	}
+}
+
+func externalRemovalWithOwnLawEdit(t *testing.T, shape string) {
+	s := seedLawChangeFixture(t, "inventory-seed")
+	seedExternalLaw(t, s, "law-removed")
+	seedExternalLaw(t, s, "law-own")
+	attributionItem(t, s, "removal-with-own-edit", []string{"law-own"}, []string{"agent-surface"})
+	baseline := attributionBaseline(t, s, "removal-with-own-edit")
+	removeExternalLaw(t, s, "law-removed")
+	reviseExternalLaw(t, s, "law-own", externalLawHash(externalLawOwnText))
+	start := map[string]string{
+		externalRecordPath("law-removed"):        externalLawRecord("law-removed", "derived"),
+		".concord/docs/decisions/law-removed.md": externalLawStartText,
+		externalRecordPath("law-own"):            externalLawRecord("law-own", "derived"),
+		".concord/docs/decisions/law-own.md":     externalLawStartText,
+	}
+	removed := map[string]string{externalRecordPath("law-removed"): "", ".concord/docs/decisions/law-removed.md": ""}
+	event := attributionCompletionWith(t, s, "removal-with-own-edit", func(repo string) {
+		// The merge shape keeps main's removal off the item's branch until a
+		// merge whose other parent still holds the removed record.
+		imported := historyRebased
+		if shape == historyMergeSynced {
+			imported = historyKept
+		}
+		shardHistory(t, s, start, removed, imported)(repo)
+		editOwn := func() {
+			for path, text := range map[string]string{
+				externalRecordPath("law-own"):        `{"id":"law-own","path":".concord/docs/decisions/law-own.md","sha256":"` + externalLawHash(externalLawOwnText) + `"}` + "\n",
+				".concord/docs/decisions/law-own.md": externalLawOwnText,
+			} {
+				if err := os.WriteFile(filepath.Join(repo, path), []byte(text), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			gitRunStore(t, repo, "add", "-A")
+			gitRunStore(t, repo, "commit", "-q", "-m", "own law edit")
+		}
+		editOwn()
+		gitRunStore(t, repo, "checkout", "-q", "main-line")
+		editOwn()
+		gitRunStore(t, repo, "checkout", "-q", "-")
+		if shape == historyMergeSynced {
+			gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", "main-line")
+		}
+		scanMain(t, s, repo)
+	})
+	previous := workflowLawExternalGit
+	workflowLawExternalGit = failingLawRecordHistoryGit{}
+	t.Cleanup(func() { workflowLawExternalGit = previous })
+	requireFailureKind(t, CompleteWorkflow(t.Context(), s, event), KindOutcomeMismatch, "unavailable removed-law history stays unproved")
+	workflowLawExternalGit = previous
+	if err := CompleteWorkflow(t.Context(), s, event); err != nil {
+		t.Fatalf("another item's removal blocked the declared law edit: %v", err)
+	}
+	if got := attributionBaseline(t, s, "removal-with-own-edit"); got != baseline {
+		t.Fatal("completion changed the owning-start baseline")
+	}
+	proof, recorded := externalLawEnactment(t, s, "removal-with-own-edit")
+	if !recorded {
+		t.Fatal("the item's own declared edit recorded no enactment")
+	}
+	var enactment workflowLawEnactment
+	if err := json.Unmarshal([]byte(proof), &enactment); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(workflowLawInventoryDifferences(&enactment.Before, &enactment.After), []string{"project/law-own"}) {
+		t.Fatalf("enactment must record only the item's own edit: %s", proof)
+	}
+}
+
+func TestLawAttributionOwnRemovalStillRefuses(t *testing.T) {
+	for _, shape := range []string{historyOwn, historySynced} {
+		t.Run(shape, func(t *testing.T) {
+			s := seedLawChangeFixture(t, "inventory-seed")
+			seedExternalLaw(t, s, "law-removed")
+			attributionItem(t, s, "own-removal", []string{}, []string{})
+			removeExternalLaw(t, s, "law-removed")
+			start := map[string]string{
+				externalRecordPath("law-removed"):        externalLawRecord("law-removed", "derived"),
+				".concord/docs/decisions/law-removed.md": externalLawStartText,
+			}
+			removed := map[string]string{externalRecordPath("law-removed"): "", ".concord/docs/decisions/law-removed.md": ""}
+			err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, "own-removal", shardHistory(t, s, start, removed, shape)))
+			requireFailureKind(t, err, KindOutcomeMismatch, "own undeclared removal")
+			if !strings.Contains(err.Error(), "law project/law-removed changed outside the active contract") {
+				t.Fatalf("refusal does not name the item's own removal: %v", err)
+			}
+			if proof, recorded := externalLawEnactment(t, s, "own-removal"); recorded {
+				t.Fatalf("refused removal recorded an enactment: %s", proof)
+			}
+		})
 	}
 }
 

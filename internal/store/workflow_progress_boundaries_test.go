@@ -28,7 +28,7 @@ func TestRepeatedCorrectionKeepsCoordinatorRoutes(t *testing.T) {
 	for cycle := 1; cycle <= 4; cycle++ {
 		if cycle > 1 {
 			pReturnProduce(t, j, fmt.Sprintf("correction-%d", cycle))
-			acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+			acceptCurrentReviewForTest(t, j.fixture, "correction_required")
 		}
 		if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 			t.Fatalf("cycle %d corrective return: %v", cycle, err)

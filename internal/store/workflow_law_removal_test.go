@@ -140,7 +140,7 @@ func TestLawRemovalClassifiedCurrentSuccessor(t *testing.T) {
 	event := attributionCompletionWithConfirmation(t, s, id, nil, func(f acceptanceRecoveryFixture) error {
 		v := readWorkVersion(t, s, id)
 		tx := lawChangeTx(t, s)
-		request := WorkflowActionExecutionRequest{WorkID: id, Actor: lawChangeConstructorActor, SelectedChoice: "confirm", Now: time.Unix(20, 0).UTC()}
+		request := WorkflowActionExecutionRequest{WorkID: id, Actor: lawChangeConstructorActor, Now: time.Unix(20, 0).UTC()}
 		events, err := workflowConfirmPremiseEventsForDefinition(t.Context(), tx, entry.Definition, request, owner, nil, "law-removal-confirm", v)
 		_ = tx.Rollback()
 		if err != nil {

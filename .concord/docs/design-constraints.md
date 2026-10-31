@@ -16,14 +16,16 @@ remain in `clarifications.md`.
 
 ## 1. One user, one machine, many-agent concurrency
 
-**Requirement.** One human operator and many local AI agents work concurrently on one machine with **zero escaped busy failures, zero lost or duplicated effects, bounded writer-admission wait**, and no manual coordination. Writes are serialized, not contention-free: one writer holds the lock at a time and the others queue. What is forbidden is a wait that escapes as an error, grows without bound, or forces the caller into a retry storm.
+**Requirement.** One human operator and many local AI agents work concurrently on one machine with **zero escaped busy failures on the accepted population, zero lost or duplicated effects**, and no manual coordination. Writes are serialized, not contention-free: one writer holds the lock at a time and the others queue. Writes must not force the caller into a retry storm.
 
 **Implication.** One operator per installation is a permanent boundary. Other humans
 may run independent installations against shared git knowledge; live workflow state
 is not shared and Concord does not become a team server. Local concurrency must be
-non-blocking for reads and serialize writes without retry storms. Writer-admission
-wait, commit duration, and escaped busy failure are distinct quantities, measured
-and reported separately against a named population per CD-0045.
+non-blocking for reads and serialize writes without retry storms.
+[CD-0045](../law/decisions/CD-0045-writer-admission-invariant.md) requires
+ten-process correctness proof with exact effects; conformance imposes no
+write-latency percentile target. CD-0011 retains queueing that materially
+blocks ordinary operator work as a storage-authority reopen condition.
 
 **Direction.** Product-scoped partitioning; single-writer-per-entity writes to current rows, with no event log or replay ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Reads are always lock-free. Storage is **resolved** — SQLite sole authority (CD-0002, 2026-08-05); see [`../law/decisions/CD-0002-concord-state-authority.md`](../law/decisions/CD-0002-concord-state-authority.md) §2b for the concurrency model (library-in-process — no daemon).
 
@@ -61,9 +63,9 @@ owns the live family boundary; CD-0242 D14 owns generated definitions.
 
 ---
 
-## 4. Bounded writer admission, no history repair
+## 4. Concurrent-writer correctness, no history repair
 
-**Requirement.** Concord-owned writes queue behind one writer and are admitted within the accepted bound, never surfacing an escaped `SQLITE_BUSY`, a lost effect, an unexpected duplicate, or an invariant violation. Reads are lock-free. Acknowledged consequential operations are durable across power loss and OS crash under [CD-0050 D2](../law/decisions/CD-0050-durable-acknowledgement.md#d2-acknowledged-consequential-operations-are-durable-ordinary-writes-are-durable-through-the-last-boundary), using the durable transactions defined by [CD-0207](../law/decisions/CD-0207-a-durable-commit-replaces-the-checkpoint-barrier.md); ordinary writes are durable through the last consequential boundary. The store keeps current state and finite snapshots, not history, so there is no history to repair ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+**Requirement.** Concord-owned writes queue behind one writer with zero escaped `SQLITE_BUSY` on the accepted population and no lost effect, unexpected duplicate, or invariant violation. Reads are lock-free. Acknowledged consequential operations are durable across power loss and OS crash under [CD-0050 D2](../law/decisions/CD-0050-durable-acknowledgement.md#d2-acknowledged-consequential-operations-are-durable-ordinary-writes-are-durable-through-the-last-boundary), using the durable transactions defined by [CD-0207](../law/decisions/CD-0207-a-durable-commit-replaces-the-checkpoint-barrier.md); ordinary writes are durable through the last consequential boundary. The store keeps current state and finite snapshots, not history, so there is no history to repair ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 **Implication.** This is a constraint on **Concord's own state model**, not a mandate to rewrite any existing system. It is the storage-model constraint.
 
@@ -290,7 +292,7 @@ The cited decisions govern implementation conformance.
 | §1 concurrency | [`product-data-model.md`](./product-data-model.md) |
 | §2 law/architecture impact | [`../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) |
 | §3 workflow evolution | [`workflows.md`](./workflows.md) |
-| §4 bounded writer admission / no history repair | [`clarifications.md`](./clarifications.md) C2 |
+| §4 concurrent-writer correctness / no history repair | [`clarifications.md`](./clarifications.md) C2 |
 | §5 fast read-path | [`rollout-plan.md`](./rollout-plan.md) |
 | §6 lightweight interface | [`../law/constitution/priorities.md`](../law/constitution/priorities.md) |
 | §7 language choice | [`core-architecture.md`](./core-architecture.md) |

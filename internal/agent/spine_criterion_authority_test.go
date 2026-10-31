@@ -38,7 +38,7 @@ func TestSpineMainAssociatesCurrentProofAcrossSessions(t *testing.T) {
 	}))
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
 		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise",
-		"selected_choice": "confirm", "idempotency_key": "spine-main-proof-confirm",
+		"idempotency_key": "spine-main-proof-confirm",
 	}))
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}))
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))

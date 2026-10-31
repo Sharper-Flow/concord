@@ -38,8 +38,6 @@ type Store struct {
 	retireProbeInterleave func()
 	// Observation-only seam at the native test program's successful Start.
 	// It cannot replace execution or change authorization.
-	nativeOracleProgramLaunched func()
-	nativeOracleStageObserved   func(string, string, []string, []string)
 
 	// durableCommits counts the durable transactions this handle committed.
 	durableCommits atomic.Uint64
@@ -51,9 +49,6 @@ func (s *Store) now() time.Time {
 	}
 	return s.Clock().UTC()
 }
-
-// Now returns the store clock value for callers that compose durable records.
-func (s *Store) Now() time.Time { return s.now() }
 
 func nowFromClock(clock func() time.Time) time.Time {
 	if clock == nil {

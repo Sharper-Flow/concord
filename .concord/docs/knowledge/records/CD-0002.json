@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-07-25T00:00:00Z",
   "home_domain_id": "durable-authority",
@@ -16,7 +14,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:90a28bb3254f2fc2463110202c8443f624b6492b0100314926d62a2afbd6282e",
+  "sha256": "sha256:abe50cc45273225ec6fb8ee26757aed7a562ac002f9662370ebdfbbf511939af",
   "status": "accepted",
   "summary": "Defines SQLite authority and durable state boundaries.",
   "tags": [

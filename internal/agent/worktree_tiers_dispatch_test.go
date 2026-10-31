@@ -7,17 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-// CD-0096 D3: the Inspect and Verify tiers through the agent surface against
-// real git. A session reads and verifies another work item's active worktree
-// in the same Project: inspection is read-only, and verification holds the
-// exclusive lease and refuses typed completion when tracked files changed.
+// CD-0096 D3: a session inspects another work item's active worktree in the
+// same Project through the agent surface.
 
 func tiersRepoFixture(t *testing.T) (*store.Store, *Service, Authority, string) {
 	t.Helper()
@@ -29,11 +26,11 @@ func tiersRepoFixture(t *testing.T) (*store.Store, *Service, Authority, string) 
 	t.Cleanup(func() { _ = s.Close() })
 	events := []store.Event{
 		{EventID: "wt-tiers-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"WT Tiers","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "wt-tiers-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"WT Tiers Project"}`)},
+		{EventID: "wt-tiers-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"display_name":"WT Tiers Project"}`)},
 		{EventID: "wt-tiers-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"tiers fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: "wt-tiers-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Tiers One","priority":1}`)},
+		{EventID: "wt-tiers-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Tiers One","priority":1}`)},
 		{EventID: "wt-tiers-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-		{EventID: "wt-tiers-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Tiers Two","priority":1}`)},
+		{EventID: "wt-tiers-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Tiers Two","priority":1}`)},
 		{EventID: "wt-tiers-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -144,14 +141,6 @@ func TestWorktreeInspectReadsSameProjectWorktree(t *testing.T) {
 		t.Fatalf("file response=%+v payload=%+v", file, filePayload)
 	}
 
-	// The Inspect tier takes no lease.
-	var leases int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worktree_verify_leases`).Scan(&leases); err != nil {
-		t.Fatal(err)
-	}
-	if leases != 0 {
-		t.Fatalf("leases=%d, want the Inspect tier lease-free", leases)
-	}
 }
 
 func TestWorktreeInspectRefusesWithoutActiveEntry(t *testing.T) {
@@ -159,7 +148,7 @@ func TestWorktreeInspectRefusesWithoutActiveEntry(t *testing.T) {
 	s, service, grant, _, _, _ := tiersFixture(t)
 	// A third work item exists in the same Project with no worktree.
 	events := []store.Event{
-		{EventID: "tiers-work-3-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-3", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Tier Three","priority":1}`)},
+		{EventID: "tiers-work-3-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-3", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Tier Three","priority":1}`)},
 		{EventID: "tiers-work-3-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-3", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-3"): 0}}); err != nil {
@@ -168,107 +157,5 @@ func TestWorktreeInspectRefusesWithoutActiveEntry(t *testing.T) {
 	response, _ := tiersInspect(t, s, service, grant, "work-3", "status", "")
 	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" {
 		t.Fatalf("response=%+v, want typed unknown_scope for a worktree-less item", response)
-	}
-}
-
-func TestWorktreeVerifyRunsUnderLeaseThroughToolSurface(t *testing.T) {
-	t.Parallel()
-	s, service, grant, _, _, _ := tiersFixture(t)
-	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
-
-	response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", map[string]any{
-		"work_id": "work-2", "command": []string{"true"}, "idempotency_key": "tiers-verify-1",
-	})
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("verify response=%+v err=%+v", response, response.Error)
-	}
-	var result struct {
-		ExitCode            int    `json:"exit_code"`
-		Path                string `json:"path"`
-		TrackedFilesChanged bool   `json:"tracked_files_changed"`
-		LeaseID             string `json:"lease_id"`
-	}
-	if err := json.Unmarshal(response.Result, &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.ExitCode != 0 || result.TrackedFilesChanged || result.Path != worktreePath || result.LeaseID == "" {
-		t.Fatalf("result=%+v", result)
-	}
-	var state string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT state FROM worktree_verify_leases WHERE lease_id=?`, result.LeaseID).Scan(&state); err != nil {
-		t.Fatal(err)
-	}
-	if state != "released" {
-		t.Fatalf("lease state=%q, want released", state)
-	}
-
-	// Exact replay returns the recorded result without a second run.
-	replay := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", map[string]any{
-		"work_id": "work-2", "command": []string{"true"}, "idempotency_key": "tiers-verify-1",
-	})
-	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
-		t.Fatalf("replay=%+v replayed=%v", replay, replay.Replayed)
-	}
-}
-
-func TestWorktreeVerifyRefusesTrackedFileMutation(t *testing.T) {
-	t.Parallel()
-	s, service, grant, _, _, _ := tiersFixture(t)
-	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
-
-	refused := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", map[string]any{
-		"work_id": "work-2", "command": []string{"sh", "-c", "echo mutated >> README.md"}, "idempotency_key": "tiers-verify-mut",
-	})
-	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil {
-		t.Fatalf("response=%+v, want typed refusal", refused)
-	}
-	if refused.Error.Kind != "operation_conflict" {
-		t.Fatalf("error=%+v, want operation_conflict", refused.Error)
-	}
-	if !strings.Contains(refused.Error.Message, worktreePath) || !strings.Contains(refused.Error.Message, "tracked files changed") {
-		t.Fatalf("error.message=%q, want the worktree and the change named", refused.Error.Message)
-	}
-	if refused.Error.RecoveryAction.Kind != "reconcile_operation" {
-		t.Fatalf("recovery=%q, want reconcile_operation", refused.Error.RecoveryAction.Kind)
-	}
-	if refused.Error.EffectState != agentcontract.EffectPossible {
-		t.Fatalf("effect_state=%q, want possible after the lease released", refused.Error.EffectState)
-	}
-	if refused.ChangedRefs == nil || len(*refused.ChangedRefs) != 1 || (*refused.ChangedRefs)[0].ID == "" {
-		t.Fatalf("changed_refs=%+v, want the committed verify lease", refused.ChangedRefs)
-	}
-	var held int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worktree_verify_leases WHERE state='held'`).Scan(&held); err != nil {
-		t.Fatal(err)
-	}
-	if held != 0 {
-		t.Fatalf("held leases=%d, want the refusal to release its lease", held)
-	}
-}
-
-func TestWorktreeVerifyConcurrentLeaseRefusesTyped(t *testing.T) {
-	t.Parallel()
-	s, service, grant, _, secondGrant, _ := tiersFixture(t)
-	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
-
-	// A held lease from session-2's in-flight verify of the same worktree.
-	commandJSON, _ := json.Marshal([]string{"go", "test", "./..."})
-	stamp := fixedTime().UTC().Format(time.RFC3339Nano)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('foreign-lease','work-2','project-1',?, 'held',?,?,?,?,?,?, 'running')`,
-		worktreePath, secondGrant.ClientRef, secondGrant.AgentRef, secondGrant.SessionRef, secondGrant.PrincipalRef, string(commandJSON), stamp); err != nil {
-		t.Fatal(err)
-	}
-
-	refused := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_verify", map[string]any{
-		"work_id": "work-2", "command": []string{"go", "test", "./..."}, "idempotency_key": "tiers-verify-contended",
-	})
-	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil {
-		t.Fatalf("response=%+v, want typed refusal", refused)
-	}
-	if refused.Error.Kind != "resource_busy" || refused.Error.RetrySafe != true || refused.Error.RecoveryAction.Kind != "retry_same_request" {
-		t.Fatalf("error=%+v, want retry-safe resource_busy with retry_same_request (#736)", refused.Error)
-	}
-	if !strings.Contains(refused.Error.Message, secondGrant.SessionRef) {
-		t.Fatalf("error.message=%q, want the holding session named", refused.Error.Message)
 	}
 }

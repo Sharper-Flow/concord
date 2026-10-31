@@ -3,18 +3,16 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"path/filepath"
-	"strings"
+	"reflect"
 	"testing"
 )
 
-// CD-0249 D1 retires per-law coverage: the coverage shards the knowledge
-// index no longer parses, the checks the footprint no longer loads, and the
-// law_coverage_anchors table itself. These tests prove the retirement and
+// CD-0249 D1 retires per-law coverage shards and the law_coverage_anchors
+// table. These tests prove the retirement and
 // the independent protections it must leave alone: the knowledge-kind
-// coverage rows, the package map, law evidence paths, and the law
-// projection survive untouched.
+// coverage rows and law projection survive untouched. The package map and
+// law evidence paths are seeded at v165 but retire at v172 with Domain Shape.
 
 var lawCoverageRetiredTables = []string{"law_coverage_anchors"}
 
@@ -27,8 +25,8 @@ var lawCoverageRetiredObjects = []string{
 
 var lawCoveragePreservedTables = []string{
 	"products", "project_locators", "work_items",
-	"knowledge_kind_coverage", "knowledge_package_domains",
-	"law_subjects", "law_bodies", "law_evidence_paths",
+	"knowledge_kind_coverage",
+	"law_subjects", "law_bodies",
 }
 
 func seedV165LawCoverageDatabase(t *testing.T, path string) *sql.DB {
@@ -70,9 +68,30 @@ func TestMigrateV165ToV166RetiresLawCoverageStorageAndPreservesCurrentState(t *t
 	db := seedV165LawCoverageDatabase(t, filepath.Join(t.TempDir(), "concord-v165.db"))
 	before := catalogUpgradeRows(t, db, lawCoveragePreservedTables...)
 	if err := Migrate(context.Background(), db); err != nil {
-		t.Fatalf("upgrade to v166: %v", err)
+		t.Fatalf("upgrade from v165: %v", err)
 	}
 	assertRetirementUpgrade(t, db, lawCoverageRetiredObjects, lawCoveragePreservedTables, before)
+}
+
+func TestMigration166PreservesPreShapeRetirementRows(t *testing.T) {
+	t.Parallel()
+	db := seedV165LawCoverageDatabase(t, filepath.Join(t.TempDir(), "concord-v166.db"))
+	tables := append([]string{"knowledge_package_domains", "law_evidence_paths"}, lawCoveragePreservedTables...)
+	before := catalogUpgradeRows(t, db, tables...)
+	// Prove migration 166's own preservation boundary independently of later
+	// retirements. Do not change the shared migration manifest to stop at 166.
+	if err := applyMigration(context.Background(), db, migrations[165]); err != nil {
+		t.Fatal(err)
+	}
+	if after := catalogUpgradeRows(t, db, tables...); !reflect.DeepEqual(after, before) {
+		t.Fatalf("migration 166 changed pre-Shape-retirement rows:\nbefore: %v\nafter: %v", before, after)
+	}
+	for _, object := range lawCoverageRetiredObjects {
+		var count int
+		if err := db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name=?`, object).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("migration 166 retained %s: count=%d err=%v", object, count, err)
+		}
+	}
 }
 
 func TestMigrateV165ToV166FailedStepRollsBack(t *testing.T) {
@@ -83,6 +102,7 @@ INSERT INTO coverage_drop_blocker VALUES('coverage-project','coverage-locator','
 		t.Fatal(err)
 	}
 	tables := append([]string{"sqlite_schema", "schema_migrations", "coverage_drop_blocker"}, lawCoverageRetiredTables...)
+	tables = append(tables, "knowledge_package_domains", "law_evidence_paths")
 	tables = append(tables, lawCoveragePreservedTables...)
 	current := catalogUpgradeRows(t, db, lawCoveragePreservedTables...)
 	assertMigrationForeignKeyRollback(t, db, tables, "migration 166 (law_coverage_retirement) failed")
@@ -102,7 +122,7 @@ func TestKnowledgeIndexRebuildIgnoresLeftoverCoverageShards(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo,
-		manifestFixture{ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-alpha.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Alpha law", Summary: "Governs alpha", Scopes: architectureFixtureScopes()},
+		manifestFixture{ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-alpha.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Alpha law", Summary: "Governs alpha", Scopes: KnowledgeRecordScopes{Mode: "explicit", DomainIDs: []string{"fixture-law"}}},
 	)
 	// The retired tree path, written literally: the constant retired with
 	// the discovery it named (CD-0249 D1).
@@ -121,27 +141,5 @@ func TestKnowledgeIndexRebuildIgnoresLeftoverCoverageShards(t *testing.T) {
 	}
 	if anchors != 0 {
 		t.Fatal("law_coverage_anchors survived the retirement")
-	}
-}
-
-// The footprint read is coverage-free: a marshaled footprint result carries
-// no checks on any law, so the wire contract loses the field with the
-// storage that fed it.
-func TestFootprintResultCarriesNoLawChecks(t *testing.T) {
-	t.Parallel()
-	s, _, _ := footprintFixtureStore(t, true)
-	result, err := s.QueryDomainFootprint(context.Background(), footprintFixtureRequest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Laws) == 0 {
-		t.Fatal("fixture premise: the footprint read reached no law")
-	}
-	encoded, err := json.Marshal(NewDomainFootprintPayload(result))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(encoded), `"checks"`) {
-		t.Fatalf("footprint payload still carries law checks: %s", encoded)
 	}
 }

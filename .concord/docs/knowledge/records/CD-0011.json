@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-07T00:00:00Z",
   "home_domain_id": "durable-authority",
@@ -16,9 +14,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:05070eb8de11f3a7820c3a280540dd17a765731f241e3004bc48c997be3cd1bb",
+  "sha256": "sha256:ad09426e7650608f70a2bad15fefccee48de912c7aaa8b710177ef59b5e218a1",
   "status": "accepted",
-  "summary": "Records the decision to retain direct local SQLite after conformance review.",
+  "summary": "Retains direct local SQLite with required ten-process correctness and recovery proof. Reopen conditions cover escaped busy, incorrect effects, operator-blocking queueing, deployment scope, and recovery failures, not a write-latency percentile target.",
   "tags": [
     "sqlite",
     "conformance"

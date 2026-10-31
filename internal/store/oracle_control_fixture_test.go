@@ -76,7 +76,7 @@ func acceptanceOracleFieldsWithoutPreparationsForTest(t *testing.T, s *Store, wo
 		"controls": []map[string]any{{
 			"control_id": "control:fixture", "owner_id": "owner:fixture", "predicate_ids": []string{predicate}, "case_ids": []string{"case:fixture"},
 			"recipe_source": map[string]any{"kind": "repository_file", "project_id": project, "path": "pkg/oracle.json", "commit_oid": testOracleCommit()},
-			"argv":          oracleGoArgv("fixture"), "cwd": "pkg", "expected_result": "pass",
+			"argv":          []string{"go", "test", "./...", "-run", "fixture"}, "cwd": "pkg", "expected_result": "pass",
 			"required_evidence_role": "reported", "readiness_evidence_refs": []string{},
 		}},
 	}

@@ -48,10 +48,6 @@ type BootstrapRequest struct {
 	// the request into the work.created payload; an absent record leaves the
 	// marshalled request, and therefore the capture identity, unchanged.
 	DefectIntake *DefectIntake `json:"defect_intake,omitempty"`
-	// SizeInputs is the optional size_inputs the work-size model decides
-	// from. Like DefectIntake, an absent value leaves the capture identity
-	// unchanged. Only the first creation sizes the work, never a replay.
-	SizeInputs *WorkSizeCaptureInput `json:"size_inputs,omitempty"`
 	// SessionRef is the session that will occupy the claimed worktree. It
 	// stays out of the marshalled request because the canonical identity
 	// digest is built from it: the same capture asked for by two sessions is
@@ -113,9 +109,8 @@ type ExistingBootstrapRequest struct {
 	SessionRef string `json:"-"`
 }
 
-// ValidateBootstrapOrigin validates a clean Concord worktree with no
-// active verify lease. It runs before bootstrap records new
-// work, so every refusal has no effect.
+// ValidateBootstrapOrigin validates a clean Concord worktree. It runs before
+// bootstrap records new work, so every refusal has no effect.
 func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path string, runner GitRunner) (BootstrapOrigin, error) {
 	var origin BootstrapOrigin
 	if s == nil || s.db == nil {
@@ -168,13 +163,6 @@ func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path str
 	}
 	if current != origin || currentClaimID != claimID {
 		return origin, newFailure(KindProjectionConflict, "work_bootstrap", "linked bootstrap origin changed during the git probe", true, "retry from the current active worktree")
-	}
-	var leased bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_verify_leases WHERE path=? AND state='held')`, filepath.Clean(path)).Scan(&leased); err != nil {
-		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot inspect origin verify leases", true, "retry once the database is readable", err)
-	}
-	if leased {
-		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from worktree "+origin.WorkID+" while a verify lease is active", true, "release the origin verify lease and retry")
 	}
 	if err := tx.Commit(); err != nil {
 		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot finish reading the linked bootstrap origin", true, "retry the same operation", err)
@@ -1203,16 +1191,6 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 	if probeErr != nil {
 		return out, probeErr
 	}
-	// A size plan runs outside the transaction. Only a capture whose probe
-	// saw no journal row, including one whose probe read failed, can create
-	// and therefore size the work.
-	var sizePlan *WorkSizePlan
-	if req.SizeInputs != nil && !existing && probe.journalErr != nil {
-		var planErr error
-		if sizePlan, planErr = s.PlanWorkSize(ctx, req.ProductID, *req.SizeInputs); planErr != nil {
-			return out, planErr
-		}
-	}
 	if !existing && probe.journalErr != nil {
 		verified, err := s.EstablishKnowledgeSourceSetProofForProject(ctx, req.ProjectID)
 		if err != nil {
@@ -1242,7 +1220,7 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 				return replay, tx.Commit()
 			}
 		}
-		if err := prepareBootstrapWorkTx(ctx, tx.Tx, req, operationID, workID, digest, existing, journalRequest, sizePlan, journal, s.Clock); err != nil {
+		if err := prepareBootstrapWorkTx(ctx, tx.Tx, req, operationID, workID, digest, existing, journalRequest, journal, s.Clock); err != nil {
 			return out, err
 		}
 	}
@@ -1325,7 +1303,7 @@ func prepareCompletedBootstrapJournalTx(ctx context.Context, tx *sql.Tx, req Boo
 	return out, nil
 }
 
-func prepareBootstrapWorkTx(ctx context.Context, tx *sql.Tx, req BootstrapRequest, operationID, workID, digest string, existing bool, journalRequest any, sizePlan *WorkSizePlan, journal bootstrapJournalPreparation, clock func() time.Time) error {
+func prepareBootstrapWorkTx(ctx context.Context, tx *sql.Tx, req BootstrapRequest, operationID, workID, digest string, existing bool, journalRequest any, journal bootstrapJournalPreparation, clock func() time.Time) error {
 	if existing && !journal.restarted {
 		var priorOperation bool
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM bootstrap_operations WHERE work_id=?)`, workID).Scan(&priorOperation); err != nil {
@@ -1356,7 +1334,7 @@ func prepareBootstrapWorkTx(ctx context.Context, tx *sql.Tx, req BootstrapReques
 	}
 	now := nowFromClock(clock)
 	if !existing && !journal.restarted {
-		if err := createBootstrapWorkTx(ctx, &Transaction{tx: tx, clock: clock}, req, operationID, workID, sizePlan, now); err != nil {
+		if err := createBootstrapWorkTx(ctx, &Transaction{tx: tx, clock: clock}, req, operationID, workID, now); err != nil {
 			return err
 		}
 		journal.expectedVersion = 4
@@ -1393,12 +1371,8 @@ func existingBootstrapWorkVersionTx(ctx context.Context, tx *sql.Tx, workID, pro
 }
 
 // createBootstrapWorkTx records a first bootstrap's work item, its primary
-// membership, its workflow instance, and, when size_inputs was planned, its
-// size, all inside the bootstrap transaction.
-func createBootstrapWorkTx(ctx context.Context, transaction *Transaction, req BootstrapRequest, operationID, workID string, sizePlan *WorkSizePlan, now time.Time) error {
-	if req.SizeInputs != nil && sizePlan == nil {
-		return newFailure(KindUnavailable, "work_bootstrap", "size_inputs reached the first creation without a size plan", true, "retry the same idempotency key")
-	}
+// membership and its workflow instance inside the bootstrap transaction.
+func createBootstrapWorkTx(ctx context.Context, transaction *Transaction, req BootstrapRequest, operationID, workID string, now time.Time) error {
 	priority := req.Priority
 	declared := append([]string{}, req.GoverningRequirements...)
 	workPayload, _ := json.Marshal(workCreatedPayload{WorkID: workID, WorkKind: req.Kind, Title: req.Title, Task: req.Task, ValueStatement: req.ValueStatement, Priority: &priority, Urgency: req.Urgency, Tags: req.Tags, WorkflowTypeRef: req.WorkflowTypeRef, ExternalRef: req.ExternalRef, RaisedFromWorkID: req.RaisedFromWorkID, DefectIntake: req.DefectIntake, GoverningRequirements: &declared})
@@ -1431,11 +1405,6 @@ func createBootstrapWorkTx(ctx context.Context, transaction *Transaction, req Bo
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/" + operationID, ActorClass: ActorOperator}
 	if err := InitializeWorkflowTx(ctx, transaction, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: now}); err != nil {
 		return err
-	}
-	if sizePlan != nil {
-		if _, err := RecordWorkSizeTx(ctx, transaction, sizePlan, workID, operationID+":work-sized", "operator", now); err != nil {
-			return err
-		}
 	}
 	return nil
 }

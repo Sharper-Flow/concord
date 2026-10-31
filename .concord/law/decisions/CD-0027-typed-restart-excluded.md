@@ -8,9 +8,7 @@
 
 ## Context
 
-The predecessor enumeration (`.concord/docs/predecessor-operational-coverage.md` §3)
-lists "restart cleanly into a typed agent after a boundary rather than
-summarizing". Concord must preserve authority across context boundaries;
+Concord must preserve authority across context boundaries;
 host session management owns working memory and subagent execution.
 
 ## Decision
@@ -24,7 +22,7 @@ re-dispatching the agent with its context rather than handing the next
 generation a summary. Concord answers that problem structurally instead:
 CD-0016's pinned continuity is durable, re-derived on every call, and never
 summarized. A session that begins after a boundary receives the exact pinned
-contract, workflow step, checkpoint, and pending operator decision — not a
+contract, workflow step, and checkpoint — not a
 paraphrase of them. Summaries are advisory by
 accepted law.
 

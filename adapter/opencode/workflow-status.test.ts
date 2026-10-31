@@ -12,7 +12,6 @@ const pin = {
   lifecycle: "in_progress",
   workflow_type: "workflow.break_fix",
   step: "repair",
-  pending_operator_decision: null,
 }
 
 afterEach(() => {

@@ -190,7 +190,7 @@ func TestWorktreeAuditReclaimMissingWorkflowPinIsExplicit(t *testing.T) {
 	completeWork(t, s, "work-2")
 	vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2"), "missing-pin-vacate")
 	input := map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "missing-pin-audit"}
-	response := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
+	response := authorityInvoke(t, s, service, grant, "worktree_audit_reclaim", input)
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("audit=%+v", response.Error)
 	}
@@ -205,7 +205,7 @@ func TestWorktreeAuditReclaimMissingWorkflowPinIsExplicit(t *testing.T) {
 	}
 	initializeMutationPinWorkflow(t, s, "work-2", store.BuiltinWorkflowDefinitions()[0])
 	commits := s.DurableCommits()
-	replay := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
+	replay := authorityInvoke(t, s, service, grant, "worktree_audit_reclaim", input)
 	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(response.Result) || !reflect.DeepEqual(replay.Omissions, response.Omissions) || !reflect.DeepEqual(replay.ChangedRefs, response.ChangedRefs) {
 		t.Fatalf("audit replay replaced its retained omission after a workflow was created: first=%+v replay=%+v", response, replay)
 	}
@@ -218,11 +218,11 @@ func TestWorktreeAuditReclaimReplayKeepsRowPin(t *testing.T) {
 	vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2"), "replay-pin-vacate")
 	initializeMutationPinWorkflow(t, s, "work-2", store.BuiltinWorkflowDefinitions()[0])
 	input := map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "replay-pin-audit"}
-	first := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
+	first := authorityInvoke(t, s, service, grant, "worktree_audit_reclaim", input)
 	_, version := readWorkFromStore(t, s, "work-2")
 	requireMutationPinVersion(t, first, "work-2", version)
 	driftWorkPinVersion(t, s, "work-2")
-	replay := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
+	replay := authorityInvoke(t, s, service, grant, "worktree_audit_reclaim", input)
 	requireMutationPinVersion(t, replay, "work-2", version)
 	if !replay.Replayed {
 		t.Fatal("audit replay must answer from its recorded row pin")
@@ -317,7 +317,7 @@ func TestWorktreeAuditReclaimThirtyTwoPinlessItems(t *testing.T) {
 	for i := range agentcontract.MaxChangedRefs {
 		workID := fmt.Sprintf("pinless-%d", i)
 		events := []store.Event{
-			{EventID: workID + ":created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Pinless work","priority":1}`)},
+			{EventID: workID + ":created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Pinless work","priority":1}`)},
 			{EventID: workID + ":member", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 		}
 		if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}}); err != nil {
@@ -327,7 +327,7 @@ func TestWorktreeAuditReclaimThirtyTwoPinlessItems(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	response := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{"product_id": "product-1", "default_ref": "main", "limit": agentcontract.MaxChangedRefs, "idempotency_key": "thirty-two-pinless"})
+	response := authorityInvoke(t, s, service, grant, "worktree_audit_reclaim", map[string]any{"product_id": "product-1", "default_ref": "main", "limit": agentcontract.MaxChangedRefs, "idempotency_key": "thirty-two-pinless"})
 	if response.Outcome != agentcontract.OutcomeOK || response.ChangedRefs == nil || len(*response.ChangedRefs) != agentcontract.MaxChangedRefs {
 		t.Fatalf("32 pinless rows must succeed: error=%+v refs=%+v", response.Error, response.ChangedRefs)
 	}
@@ -356,7 +356,7 @@ func TestMutationPinOmissionKeepsOtherWorkPins(t *testing.T) {
 	s, workID, pin := enrichmentPinFixture(t)
 	membership, _ := json.Marshal(map[string]any{"memberships": []map[string]string{{"project_id": pin.ProjectID, "role": "primary"}}, "expected_version": 1, "resulting_version": 2})
 	events := []store.Event{
-		{EventID: "unmanaged-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "unmanaged-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Unmanaged work","priority":1}`)},
+		{EventID: "unmanaged-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "unmanaged-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Unmanaged work","priority":1}`)},
 		{EventID: "unmanaged-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "unmanaged-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: membership},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "unmanaged-work"): 0}}); err != nil {

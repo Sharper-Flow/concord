@@ -50,10 +50,8 @@ var readMarshalInputs = map[string]string{
 	"concord_knowledge.resolve_note":        `{"work_id":"work-done"}`,
 	"concord_knowledge.observe_publication": `{"product_id":"prod-alpha","source_project_id":"proj-web","source_locator_id":"repo-alpha-web"}`,
 
-	"concord_domain.list":      `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
-	"concord_domain.detail":    `{"product_id":"prod-alpha","domain_id":"root"}`,
-	"concord_domain.footprint": `{"product_id":"prod-alpha","paths":["internal/store/store.go"],"page":{"cursor":null,"limit":10}}`,
-	"concord_domain.shape":     `{"product_id":"prod-alpha","path":"internal/store/store.go"}`,
+	"concord_domain.list":   `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
+	"concord_domain.detail": `{"product_id":"prod-alpha","domain_id":"root"}`,
 }
 
 // TestReadMarshalInputsCoverEveryDeclaredRead is the coverage gate. It holds

@@ -16,7 +16,6 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 	gitRun(t, f.path, "add", "pkg/value.go")
 	gitRun(t, f.path, "commit", "-qm", "fixture factual documentation error")
 	f.verify(t)
-	f.prepareControl(t)
 	if err := os.WriteFile(path, []byte("package spine\n\n// Value returns seven.\nfunc Value() int { return 7 }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +26,6 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 		t.Fatalf("the correction changed more than the factual documentation: %s", diff)
 	}
 	f.proof = f.verify(t)
-	f.prepareControl(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	f.advanceToAcceptance(t)
@@ -37,7 +35,7 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 	}))
 	spineOK(t, f.action(t, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof}}}}))
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
-		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise", "selected_choice": "confirm", "idempotency_key": "doc-correction-confirm",
+		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise", "idempotency_key": "doc-correction-confirm",
 	}))
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}))
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))

@@ -85,10 +85,10 @@ func TestEvidenceBindRefusalNamesMissingProducerOperation(t *testing.T) {
 func TestEvidenceBindRefusalNamesMismatchedProducerField(t *testing.T) {
 	t.Parallel()
 	const (
-		opID      = "worktree_verify:producer-op-2"
+		opID      = "operation:producer-op-2"
 		requestID = "request:producer-2"
 		principal = "principal/operator"
-		locator   = "worktree_verify:producer-op-2"
+		locator   = "artifact:producer-op-2"
 	)
 	cases := []struct {
 		name, producerID, watermark, field, recorded string

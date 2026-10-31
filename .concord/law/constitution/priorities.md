@@ -107,18 +107,16 @@ Product must keep true. Accepted specifications and decisions are law. Code,
 workflows, and evidence serve that law. Agents enact and change law under R3.
 
 - Durable Product knowledge is navigated through **Product → Domain**, with
-  current law, active work, evidence, decisions, and typed facts together.
+  current law, active work, evidence, and decisions together.
 - Every current law record has one canonical Domain home; superseded law remains
   historical but leaves the default current view.
 - A clean Git merge, passing tests, or heuristic similarity score cannot prove
   Product concordance.
 - Semantic analysis may suggest duplicate or conflicting law; it never owns
   persistence, supersession, or blocking.
-- Every change keeps a footprint record at every size, and a tool fills it
-  ([`../../docs/goals.md`](../../docs/goals.md) §2, goal A). The checked package map and the
-  footprint read that joins it to the law index are owned by
-  [`CD-0222`](../decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
-  D2.
+- Product-changing work declares its affected Domains and exact law revisions
+  under [`CD-0222`](../decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
+  D5.
 
 See [`../decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](../decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md),
 [`../../docs/specs-as-laws.md`](../../docs/specs-as-laws.md), and
@@ -130,7 +128,7 @@ Concord-owned state is trustworthy, durable, and evolvable without destructive
 migration or manual repair. The data model can grow, shrink, and reshape
 without corrupting in-flight work or historical records.
 
-- Agent-facing writes queue behind one writer and are admitted within the accepted bound: no escaped busy failure, no lost or duplicated effect, no retry storm. Reads are lock-free. See CD-0045.
+- Agent-facing writes queue behind one writer with no escaped busy failure on the accepted population, no lost or duplicated effect, and no retry storm. Reads are lock-free. [CD-0045](../decisions/CD-0045-writer-admission-invariant.md) requires ten-process correctness proof, not a write-latency percentile target.
 - The store keeps current state and finite verified snapshots, and each correction writes the corrected current rows ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - Acknowledged consequential operations — approvals, workflow dispatch
   and terminal transitions, cross-authority step claims, and producer evidence —
@@ -155,9 +153,9 @@ attributes, not by a fixed gate count.
 - Required-obligation blocking — unmet blocking obligations halt the work.
 - Human authority at consequence boundaries — the operator decides the six classes in [CD-0243 D2](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision), including law changes within those classes (U, R3, P12). Seriousness, Domain count, and crucial size do not independently require approval.
 - Durable proof — evidence is retained and inspectable after the work is finished.
-- Proportional rigor — the decision model (goal B) sets each change's minimum steps, proof, and testing and its mandatory stages, and no agent may waive a mandatory stage or an operator approval ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
+- Proportional rigor — each live family's definition sets its mandatory stages, Main may add depth, and no agent may waive a mandatory stage or an operator approval ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
 
-**What scales proportional rigor.** One input to the decision model is the
+**What scales proportional rigor.** One input to proportional rigor is the
 **declared lifecycle stage** of the thing being worked on (`maturity` and
 user-declared `audience_commitment`, at Product, Domain, and repo
 level; see [`../../docs/product-data-model.md`](../../docs/product-data-model.md) §8). No stage is
@@ -210,15 +208,15 @@ they become blockers or contradictory Product truth.
 
 ### Composable workflows (goal C)
 
-A workflow is a combination of shared parts (goal C in
-[`../../docs/goals.md`](../../docs/goals.md) §2).
-Families compose shared stages, and the decision model sets each execution's mandatory stages ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)). Parts define their steps once, and a definition composes parts (CD-0229 D1, D2).
+A workflow is a plain Go definition (goal C in
+[`../../docs/goals.md`](../../docs/goals.md) §2; CD-0229 D1).
+Each live family's definition sets its mandatory stages ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)). Common runtime action and payload implementations remain shared; no parts catalog or composition compiler assembles definitions.
 
 - Concord owns a full workflow coordination engine: progression, branching,
-  retries, evidence, recovery, and the accepted composition model. Native
+  retries, evidence, recovery, and forward-linked successor composition. Native
   systems retain external effects.
-- Parts are code-defined and versioned.
-- New parts and combinations can be added without breaking in-flight work.
+- The registry validates definitions and derives their canonical digests.
+- Definition changes preserve in-flight work through the existing pin and recovery rules.
 - Each workflow declares its artifacts, completion evidence, and whether it
   changes Product truth.
 
@@ -254,7 +252,7 @@ was thinking a cross-tabulation chart so we have an answer for each combo". The 
 ### A1. Goal-by-goal chart
 Axes: Law = product law. Arch = domain architecture. Speed = fast, right-sized delivery. Quality = quality and
 bloat removal. Safety = data safety. You = the six operator approval classes in CD-0243 D2. Parts =
-reusable workflow parts and programmed tools. Each pair appears once.
+reusable code and programmed tools. Each pair appears once.
 
 |  | Arch | Speed | Quality | Safety | You | Parts |
 |---|---|---|---|---|---|---|
@@ -305,7 +303,7 @@ Approved proposals (situation, then rule):
 - P8 Quality vs You. The operator asks for a behavior the agent judges adds complexity. The operator's decision
   wins. The agent states the quality cost once, with evidence, before building it.
 - P9 Quality vs Parts. A shared part has bloat or fits the change badly. Use the part and fix the part itself,
-  not a local workaround. If the fix is larger than the change's size, file a follow-up item on the part.
+  not a local workaround. If the fix is larger than the change's scope, file a follow-up item on the part.
 - P10 Safety vs You. The agent explains permanent-loss risk and any missing recovery route before asking
   for required approval. The operator may explicitly approve irreversible loss. Without that approval,
   do not risk irreversible customer-data loss. Outside the six classes, lack of recovery alone is not
@@ -319,20 +317,20 @@ Approved proposals (situation, then rule):
   behavior within assigned work on Concord from per-deletion product-direction, UI/UX and governed-scope-cut
   approval. Its recording, law-retirement, independent-review and required-CI duties, exclusions and gates remain.
 
-### A2. Conflict situations by change size
-Columns are the sizes the decision model gives a change. "Same" means the rule does not change with size.
+### A2. Conflict situations
 
-| # | Conflict | Small | Larger | Crucial | Applied by |
-|---|---|---|---|---|---|
-| 1 | A fix meets bloat | R1 | Same | Same | Agent |
-| 2 | Two agents change one domain at once | R2 | Same | Same | Coordinator |
-| 3 | A change breaks a product law | R3, with P12 for approval | Same | Same | Agent; operator when P12 requires approval |
-| 4 | A change needs a new domain or moves a domain boundary | Resize the task (row 8); apply P12 | The architect step decides; apply P12 | Same | Agent; operator when P12 requires approval |
-| 5 | Review finds problems | Review fixes problems inside the change's scope and verifies its fixes; file follow-up items for the rest | Same | Same; the coordinator runs more review until review reports no high or medium problem | Review fixes; the coordinator ends the loop |
-| 6 | A check fails for a cause the change did not make | Do not fix it in the current change. File a bug item. If it blocks shipping, the coordinator schedules the bug first | Same | Same | Coordinator |
-| 7 | A change affects UI/UX | U | Same | Same | Operator for new design or interaction; agent for minor corrections under U |
-| 8 | A task proves bigger than its workflow size | Run the decision model again, add the newly required steps, and continue without redoing completed work | Same | Same | Decision model; coordinator |
-| 9 | Data safety is at risk | S; P10 | Same | Same | Agent assesses risk; operator when CD-0243 D2 requires approval |
+These rules apply without a work-item size classification.
+
+| # | Conflict | Rule | Applied by |
+|---|---|---|---|
+| 1 | A fix meets bloat | R1 | Agent |
+| 2 | Two agents change one domain at once | R2 | Coordinator |
+| 3 | A change breaks a product law | R3, with P12 for approval | Agent; operator when P12 requires approval |
+| 4 | A change needs a new domain or moves a domain boundary | The architect step decides; apply P12 | Agent; operator when P12 requires approval |
+| 5 | Review finds problems | Review fixes problems inside the change's scope and verifies its fixes; file follow-up items for the rest. CD-0242 D5's in-scope blocking-finding rule governs execution exit. | Review fixes; the coordinator ends the loop |
+| 6 | A check fails for a cause the change did not make | Do not fix it in the current change. File a bug item. If it blocks shipping, the coordinator schedules the bug first | Coordinator |
+| 7 | A change affects UI/UX | U | Operator for new design or interaction; agent for minor corrections under U |
+| 9 | Data safety is at risk | S; P10 | Agent assesses risk; operator when CD-0243 D2 requires approval |
 
 ## Appendix B. Open conflicts with current Concord text
 Not a full sweep. In each case this file's rule wins, and the conflicting text is amended. Row numbers are stable identifiers.

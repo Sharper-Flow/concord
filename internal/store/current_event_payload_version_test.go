@@ -1,6 +1,17 @@
 package store
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
+
+func CurrentEventPayloadVersion(kind string) int {
+	registration, ok := registeredEventKind(kind)
+	if !ok {
+		panic(fmt.Sprintf("event %q is not registered", kind))
+	}
+	return registration.CurrentVersion
+}
 
 func TestCurrentEventPayloadVersionMatchesRegistry(t *testing.T) {
 	for kind, registration := range eventKindRegistry {

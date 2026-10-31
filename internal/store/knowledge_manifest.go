@@ -1507,38 +1507,27 @@ func readKnowledgeManifest(ctx context.Context, repo, commit string) (KnowledgeM
 }
 
 // readKnowledgeManifestRunner reads the manifest at a commit through the
-// caller's runner, so the dispatch reading resolution proves the committed
-// manifest under its committed-read policy runner and tests can inject a
-// deterministic runner.
+// caller's runner, so tests can inject a deterministic runner.
 func readKnowledgeManifestRunner(ctx context.Context, runner GitRunner, repo, commit string) (KnowledgeManifest, bool, error) {
-	manifest, _, missing, err := readKnowledgeManifestShardsRunner(ctx, runner, repo, commit)
-	return manifest, missing, err
-}
-
-// readKnowledgeManifestShardsRunner is readKnowledgeManifestRunner that also
-// returns the shards a sharded commit was composed from. A commit read in
-// the aggregate shape, or carrying no manifest, returns empty shards.
-func readKnowledgeManifestShardsRunner(ctx context.Context, runner GitRunner, repo, commit string) (KnowledgeManifest, knowledgeShards, bool, error) {
 	shards, sharded, err := readKnowledgeShardsAtCommitRunner(ctx, runner, repo, commit)
 	if err != nil {
-		return KnowledgeManifest{}, knowledgeShards{}, false, err
+		return KnowledgeManifest{}, false, err
 	}
 	if sharded {
 		manifest, err := composeKnowledgeManifest(shards)
 		if err != nil {
-			return KnowledgeManifest{}, knowledgeShards{}, false, err
+			return KnowledgeManifest{}, false, err
 		}
 		// Every committed manifest read proves the operator overrides it
 		// carries (CD-0194 D2): an external record is law only while its
 		// anchor decision, read from this same commit, carries the closed
 		// approve instruction for the override's exact Product and path.
 		if err := validateOverrideAnchors(manifest, committedOverrideAnchorReaderRunner(ctx, runner, repo, commit)); err != nil {
-			return KnowledgeManifest{}, knowledgeShards{}, false, err
+			return KnowledgeManifest{}, false, err
 		}
-		return manifest, shards, false, nil
+		return manifest, false, nil
 	}
-	manifest, missing, err := readAggregateKnowledgeManifestRunner(ctx, runner, repo, commit)
-	return manifest, knowledgeShards{}, missing, err
+	return readAggregateKnowledgeManifestRunner(ctx, runner, repo, commit)
 }
 
 // readAggregateKnowledgeManifestRunner reads a commit that predates the

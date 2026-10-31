@@ -116,7 +116,6 @@ func TestReadyReviewCannotBypassMandate(t *testing.T) {
 			// the report would stale that Review (CD-0242 D10).
 			law := WorkflowLawRevision{LawID: j.fixture.sources.lawProject + "/" + j.fixture.sources.lawID, ContentHash: j.fixture.sources.lawHash}
 			setAdmissionMandate(t, s, workID, law)
-			qualifyReviewSubjectForTest(t, s, workID, j.repo)
 			report := currentReviewBlockForTest(t, s, workID, disposition)
 			payload := map[string]any{"review": report}
 			for _, bound := range []bool{false, true} {

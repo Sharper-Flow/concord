@@ -113,7 +113,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, kind := range evidenceKinds {
-		if seen[kind] {
+		if seen[kind] || kind == "verification" {
 			continue
 		}
 		seen[kind] = true
@@ -125,23 +125,23 @@ func TestWorkContextCloseGit(t *testing.T) {
 			"producer_run_ref": run, "producer_watermark": "request/" + kind, "observed_at": "2026-10-10T00:00:00Z",
 		})
 	}
-	verified, err := s.VerifyWorktree(ctx, WorktreeVerifyRequest{
-		Owner:  SessionWorktreeOwner{ClientRef: owner.ClientRef, AgentRef: owner.AgentRef, SessionRef: owner.SessionRef},
-		WorkID: workID, ProjectID: "project", LeaseID: "close-git-proof", PrincipalRef: owner.PrincipalRef,
-		RequestID: "request:close-git-proof", Command: []string{"git", "diff", "--exit-code"},
-	})
-	if err != nil || verified.ExitCode != 0 || verified.SubjectRef != "commit:"+base {
-		t.Fatalf("capture passing command receipt on the close candidate: %+v err=%v", verified, err)
+	commitRef := "commit:" + base
+	if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{
+		"evidence_kind": "verification", "immutable_subject_ref": commitRef,
+		"verification_report": VerificationReport{Source: "local", Commit: base, Result: "pass", RunRef: "run:context-close"},
+	}), 0, owner); err != nil {
+		t.Fatalf("bind verification report on the close candidate: %v", err)
 	}
+	seen["verification"] = true
 	report := currentReviewBlockForTest(t, s, workID, "ready_for_final_proof")
-	report.Assessments = []ReviewAssessment{{PredicateID: "predicate:context-close", Assessment: "supported", ReceiptRefs: []string{verified.OperationRef}}}
+	report.Assessments = []ReviewAssessment{{PredicateID: "predicate:context-close", Assessment: "supported", ReceiptRefs: []string{commitRef}}}
 	if err := recordReviewForTest(t, s, workID, owner, report); err != nil {
 		t.Fatalf("record close Review: %v", err)
 	}
 	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "acceptance", ownerRef); err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", mustJSONValue(map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:context-close", "receipt_refs": []string{verified.OperationRef}}}}), 0, owner); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", mustJSONValue(map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:context-close", "receipt_refs": []string{commitRef}}}}), 0, owner); err != nil {
 		t.Fatalf("associate close criterion receipt: %v", err)
 	}
 	closeGitWorkflowEvent(t, s, ownerRef, WorkflowPremiseConfirmed, map[string]any{

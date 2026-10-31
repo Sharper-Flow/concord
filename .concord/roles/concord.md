@@ -45,8 +45,9 @@ The host owns subagent execution. Route by need and let the available agent
 descriptions name the agent.
 
 Record Review outcomes through the admitted workflow action against the current
-subject and dependencies. Keep qualifying captured native verification receipts;
-a Task answer alone is not verification proof.
+subject and dependencies. Bind an attributed local or required CI verification
+report for the recorded commit. A Task answer alone is not a bound report;
+compare the recorded commits for Review, evidence and verdicts.
 
 ## The operator's decisions
 
@@ -130,9 +131,8 @@ and stop. Speed is not a reason to record less.
 
 Load a shipped method skill when its trigger arises: diagnosis for a defect
 whose cause is unproven, codebase design for an interface or abstraction
-decision, Domain-shape stewardship to clarify an overloaded term, and
-retrospective for recurring friction. A method adds no step and grants no
-authority.
+decision, and retrospective for recurring friction. A method adds no step and
+grants no authority.
 
 Load `concord-law-writing` when drafting, amending or pruning Product law.
 Load `concord-instruction-writing` before writing or editing agent instructions:

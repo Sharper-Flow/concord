@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:150241575f2a9a21ffc827591b6735bf858b4dcf35e8decfba91a70d38c3a3f5`
-Payload schema digest: `sha256:1e6ad3290b0793ce4377073ecbac4a33f1a5df83782ee665b37d8661c6ade6ac`
+Manifest digest: `sha256:e7bdfb48b826e4e19223da63d482b10bce4579112e1b16cfa7542be29a9b46be`
+Payload schema digest: `sha256:a231410ead65344948909becbcbf44d7206a37f8e761fd59c07766415f717416`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -45,7 +45,6 @@ Envelope schema: `1.0`
 | `concord_work_transition.project_handoff_consume` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.worktree_reclaim` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.worktree_audit_reclaim` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
-| `concord_work_transition.worktree_verify` | `mutation` | `—` | `work_transition` | `claim` | `always` |
 | `concord_work_transition.worktree_destroy` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_relate.set_memberships` | `mutation` | `—` | `work_relate` | `scope` | `always` |
 | `concord_work_relate.resolve_overlap` | `mutation` | `—` | `work_relate` | `relation` | `always` |
@@ -55,8 +54,6 @@ Envelope schema: `1.0`
 | `concord_work_compact.reconcile` | `mutation` | `—` | `work_compact` | `recovery` | `always` |
 | `concord_domain.list` | `read` | `C22.DomainList` | `product_read` | `read` | `always` |
 | `concord_domain.detail` | `read` | `C22.DomainDetail` | `product_read` | `read` | `always` |
-| `concord_domain.footprint` | `read` | `C22.DomainFootprint` | `product_read` | `read` | `always` |
-| `concord_domain.shape` | `read` | `C22.DomainShape` | `product_read` | `read` | `always` |
 | `concord_work_transition.correct_delivery` | `mutation` | `—` | `work_transition` | `recovery` | `always` |
 | `concord_work_transition.outside_repair` | `mutation` | `—` | `work_transition` | `recovery` | `always` |
 | `concord_work_transition.outside_repair_reconcile` | `mutation` | `—` | `work_transition` | `recovery` | `always` |

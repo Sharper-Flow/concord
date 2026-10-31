@@ -73,33 +73,6 @@ type Project struct {
 type projectionMutation func(context.Context, *sql.Tx, Event) error
 type scopedProjectionMutation func(context.Context, *sql.Tx, Event, *writeScope) error
 
-// operationObserver is an unexported white-box measurement surface. It is
-// passed through the operation call graph rather than stored globally, so
-// production callers pay no instrumentation cost and concurrent workers cannot
-// overwrite one another's samples.
-type operationObserver struct {
-	beginWait      time.Duration
-	commitDuration time.Duration
-}
-
-func beginObservedTx(ctx context.Context, s *Store, durable bool, observer *operationObserver) (*writeTx, error) {
-	started := time.Now()
-	tx, err := s.beginStoreWriteTx(ctx, durable)
-	if observer != nil {
-		observer.beginWait = time.Since(started)
-	}
-	return tx, err
-}
-
-func commitObservedTx(tx *writeTx, observer *operationObserver) error {
-	started := time.Now()
-	err := tx.Commit()
-	if observer != nil {
-		observer.commitDuration = time.Since(started)
-	}
-	return err
-}
-
 // EventAppendAuthority is the closed set of routes allowed to append an event.
 // The zero value is deliberately invalid so every registry entry must opt in.
 type EventAppendAuthority uint8
@@ -185,7 +158,6 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.worktree_created":                   registerEventKind[worktreeCreatedPayload](1, EventAppendAuthorityGeneric, foldWorktreeCreated, nil),
 	"work.message_sent":                       registerEventKind[messageSentPayload](1, EventAppendAuthorityGeneric, foldMessageSent, nil),
 	WorkObservationRecorded:                   registerEventKind[workObservationRecordedPayload](1, EventAppendAuthorityGeneric, foldWorkObservationRecorded, nil),
-	WorkSized:                                 registerEventKind[workSizedPayload](2, EventAppendAuthorityGeneric, foldWorkSized, nil),
 	EventExternalObservationCaptured:          registerEventKind[externalObservationCapturedPayload](1, EventAppendAuthorityGeneric, foldExternalObservationCaptured, nil),
 	EventExternalObservationVerified:          registerEventKind[externalObservationVerifiedPayload](1, EventAppendAuthorityGeneric, foldExternalObservationVerified, nil),
 	"work.message_withdrawn":                  registerEventKind[messageWithdrawnPayload](1, EventAppendAuthorityGeneric, foldMessageWithdrawn, nil),
@@ -270,7 +242,7 @@ type preparedRegisteredEvent struct {
 
 func prepareRegisteredEvent(event Event) (preparedRegisteredEvent, error) {
 	switch event.Kind {
-	case WorkResized, WorkerJobSplit, WorkerJobSplitDischarged,
+	case "work.sized", WorkResized, WorkerJobSplit, WorkerJobSplitDischarged,
 		"product.planning_mode_set", "initiative_entry.added", "initiative_entry.removed",
 		"initiative_entry.reordered", "initiative_entry.requiredness_changed", "initiative.narrative_revised":
 		return preparedRegisteredEvent{stage: StageDecode}, retiredEventAppendRefused(event.Kind)
@@ -319,16 +291,6 @@ func applyEffect(ctx context.Context, tx *sql.Tx, event Event, scopes ...*writeS
 func registeredEventKind(kind string) (EventKindRegistration, bool) {
 	registration, ok := eventKindRegistry[kind]
 	return registration, ok
-}
-
-// CurrentEventPayloadVersion returns the registry-owned current payload version.
-// It panics if kind is not registered.
-func CurrentEventPayloadVersion(kind string) int {
-	registration, ok := registeredEventKind(kind)
-	if !ok {
-		panic(fmt.Sprintf("event %q is not registered", kind))
-	}
-	return registration.CurrentVersion
 }
 
 func unsupportedEventVersion(event Event, registration EventKindRegistration) *Failure {
@@ -487,10 +449,6 @@ func checkOperationEventVersionTx(ctx context.Context, tx *sql.Tx, event Event, 
 type preCommitHook func() error
 
 func applyOperationWithResult(ctx context.Context, s *Store, operation Operation, beforeCommit preCommitHook) (ApplyOperationResult, error) {
-	return applyOperationObserved(ctx, s, operation, beforeCommit, nil)
-}
-
-func applyOperationObserved(ctx context.Context, s *Store, operation Operation, beforeCommit preCommitHook, observer *operationObserver) (ApplyOperationResult, error) {
 	var output ApplyOperationResult
 	if s == nil || s.db == nil {
 		return output, newFailure(KindUnavailable, "apply_operation", "store is not open", false,
@@ -508,7 +466,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		}
 	}
 
-	tx, err := beginObservedTx(ctx, s, false, observer)
+	tx, err := s.beginStoreWriteTx(ctx, false)
 	if err != nil {
 		return output, wrapFailure(KindUnavailable, "apply_operation", "cannot begin domain operation", true,
 			"retry once the database is writable", err)
@@ -550,7 +508,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 			return output, rollback(err)
 		}
 	}
-	if err := commitObservedTx(tx, observer); err != nil {
+	if err := tx.Commit(); err != nil {
 		return output, wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", true,
 			"retry once the database is writable", err)
 	}

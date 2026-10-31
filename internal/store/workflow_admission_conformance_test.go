@@ -10,7 +10,7 @@ import (
 // Exact identities are compared by the typed Review conformance test.
 type admissionReviewView struct {
 	Present, Candidate, CandidateMatches, Dependencies, Current bool
-	Blocked, PublicationOutstanding, Crucial                    bool
+	Blocked, PublicationOutstanding                             bool
 	Disposition                                                 string
 }
 
@@ -19,7 +19,7 @@ func admissionReviewViewOf(state *WorkflowReviewState) admissionReviewView {
 		return admissionReviewView{}
 	}
 	view := admissionReviewView{Present: true, Candidate: state.Candidate != nil, Dependencies: state.Dependencies != nil,
-		Current: state.DependenciesCurrent, Blocked: state.blocker() != "", PublicationOutstanding: state.PublicationOutstanding, Crucial: state.Crucial}
+		Current: state.DependenciesCurrent, Blocked: state.blocker() != "", PublicationOutstanding: state.PublicationOutstanding}
 	if state.Accepted != nil {
 		view.Disposition = state.Accepted.Report.Disposition
 		view.CandidateMatches = state.Candidate != nil && *state.Candidate == state.Accepted.Report.OutputCandidate
@@ -33,9 +33,8 @@ type admissionConformanceView struct {
 	ActiveContracts                                                   int64
 	LateCriterionAssociation, LawPinStale, DesignStale, ArtifactStale bool
 	Review                                                            admissionReviewView
-	CorrectionRequestRecovery, PendingOperatorDecision                bool
+	CorrectionRequestRecovery                                         bool
 	AcceptanceDeliverablesMissing                                     bool
-	ConfirmationAuthority                                             string
 	CompleteStepCorrection, ContractCorrectionAvailable               bool
 	DeliveryStarted, DeliveryProofRequired, DeliveryProofReady        bool
 	DeliveryFailure, DeliveryProofFailure                             bool
@@ -53,11 +52,10 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 		LawPinStale: state.LawPinStale, DesignStale: state.DesignStale,
 		LateCriterionAssociation: state.LateCriterionAssociation, ArtifactStale: state.ArtifactStale,
 		Review: admissionReviewViewOf(state.Review), CorrectionRequestRecovery: state.CorrectionRequestRecovery,
-		PendingOperatorDecision: state.PendingOperatorDecision, AcceptanceDeliverablesMissing: state.AcceptanceDeliverablesMissing != nil,
-		ConfirmationAuthority:       string(state.ConfirmationAuthority),
-		CompleteStepCorrection:      state.CompleteStepCorrection,
-		ContractCorrectionAvailable: state.ContractCorrectionAvailable,
-		DeliveryStarted:             state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
+		AcceptanceDeliverablesMissing: state.AcceptanceDeliverablesMissing != nil,
+		CompleteStepCorrection:        state.CompleteStepCorrection,
+		ContractCorrectionAvailable:   state.ContractCorrectionAvailable,
+		DeliveryStarted:               state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
 		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,
 		MandatePresent: state.Mandate.Present, MandateMissing: state.Mandate.LawID != "", MandateBindingStep: state.Mandate.BindingStep,
 		MandateAddedByContract: state.Mandate.AddedByContract, MandateCorrectionAction: state.Mandate.CorrectionAction,
@@ -89,7 +87,7 @@ func conformanceFold(t *testing.T, s *Store, registry DefinitionRegistry, workID
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	loaded, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_admission_conformance_test", registry)
+	loaded, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_admission_conformance_test", registry)
 	if err != nil {
 		t.Fatalf("%s: load: %v", label, err)
 	}

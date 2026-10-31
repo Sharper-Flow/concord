@@ -36,9 +36,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fc922a0ea43b8ead6a2766f89bdd8ca102f283a517f9eb345702fef54f363d44",
+  "sha256": "sha256:4fbc6af0095e73d98765d36982926ea77e73eb1406c1cdb8cbfed1772b0ba327",
   "status": "accepted",
-  "summary": "Defines current-state workflow authority, evaluation and atomic completion. The coordinator records typed subject-bound Review without attempt/lane/job binding. Native preparation retains its declared bundle, exact subject, pinned recipe and environment; execution selects exact preparation_run_ref and retains runner, isolation, integrity and producer receipt checks. Criterion coverage resolves through that retained preparation, not worker jobs. Native evidence supplies no semantic verdict, consent or completion authority by itself.",
+  "summary": "Defines current-state workflow authority, evaluation and atomic completion. The coordinator records typed Review and attributed four-field verification reports. Consumers compare recorded commits without live Git; independent Review judges adequacy. Concord retains no repository-check execution, lease, stream or native receipt. Required CI remains external.",
   "tags": [
     "workflow",
     "contract"

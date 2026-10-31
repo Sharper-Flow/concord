@@ -36,16 +36,10 @@ func TestBlockingReviewDispositionRecordsWithoutAdvancing(t *testing.T) {
 			if workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "record_review") || !workPinContainsAction(pin.NextValidIntents, recovery) {
 				t.Fatalf("corrective Review lost its hold or engineering recovery: %+v", pin.NextValidIntents)
 			}
-			acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
+			acceptCurrentReviewForTest(t, j.fixture, "ready_for_final_proof")
 			reviewGateStartStep(t, j.s, j.workID, step, "start_execution", j.fixture.owner)
 			verification := j.observeRun(t, "review-ready-delivery")
-			if err := j.action(t, "bind_evidence", map[string]any{
-				"evidence_kind": "verification", "immutable_subject_ref": verification.OperationRef,
-				"producer_id": j.fixture.owner.PrincipalRef, "producer_run_ref": verification.OperationRef,
-				"producer_watermark": "request-" + strings.TrimPrefix(verification.LeaseID, "candidate-"),
-			}, j.fixture.owner); err != nil {
-				t.Fatal(err)
-			}
+			j.bindVerification(t, verification)
 			pin, err = ReadWorkPin(t.Context(), j.s, j.workID)
 			if err != nil {
 				t.Fatal(err)

@@ -1,205 +1,10 @@
 package store
 
-import "testing"
-
-func TestConformanceFalsifierFiresOnSustainedCommitDuration(t *testing.T) {
-	t.Parallel()
-
-	reports := []ConformanceReport{
-		conformanceRoundReport(150, 50, 50),
-		conformanceRoundReport(120, 50, 50),
-		conformanceRoundReport(80, 50, 50),
-	}
-	authority, _ := resolvePopulationAuthority(runnerProfileIsolatedAcceptance, "1")
-	above := roundsAboveCommitTarget(reports)
-	threshold, status := classifySustainedFalsifier(authority, above, len(reports), true, 120)
-
-	if threshold != thresholdExceeded || status != falsifierFired {
-		t.Fatalf("commit-duration P99 rounds above target = %d, classifySustainedFalsifier = %q/%q, want 2/exceeded/fired", above, threshold, status)
-	}
-}
-
-func TestConformanceSchedulerOvershootIsInconclusive(t *testing.T) {
-	t.Parallel()
-
-	reports := []ConformanceReport{
-		conformanceRoundReport(50, 150, 150),
-		conformanceRoundReport(60, 120, 120),
-		conformanceRoundReport(70, 110, 110),
-	}
-	authority, _ := resolvePopulationAuthority(runnerProfileIsolatedAcceptance, "1")
-	above := roundsAboveCommitTarget(reports)
-	threshold, status := classifySustainedFalsifier(authority, above, len(reports), true, 50)
-
-	if threshold != thresholdMet || status != falsifierPassed {
-		t.Fatalf("scheduler-overshoot rounds above commit target = %d, classifySustainedFalsifier = %q/%q, want 0/met/passed", above, threshold, status)
-	}
-}
-
-func TestConformancePacedCommitOvershootWithCleanControlIsInconclusive(t *testing.T) {
-	t.Parallel()
-
-	reports := []ConformanceReport{
-		conformanceRoundReport(150, 50, 50),
-		conformanceRoundReport(120, 50, 50),
-		conformanceRoundReport(80, 50, 50),
-	}
-	authority, _ := resolvePopulationAuthority(runnerProfileIsolatedAcceptance, "1")
-	above := roundsAboveCommitTarget(reports)
-	threshold, status := classifySustainedFalsifier(authority, above, len(reports), true, 2)
-
-	if threshold != thresholdExceeded || status != falsifierInconclusive {
-		t.Fatalf("paced commit-duration P99 rounds above target = %d, control commit P99 = %d, classifySustainedFalsifier = %q/%q, want 2/exceeded/inconclusive", above, 2, threshold, status)
-	}
-}
-
-func TestConformanceControlCommitOvershootFires(t *testing.T) {
-	t.Parallel()
-
-	reports := []ConformanceReport{
-		conformanceRoundReport(150, 50, 50),
-		conformanceRoundReport(120, 50, 50),
-		conformanceRoundReport(80, 50, 50),
-	}
-	authority, _ := resolvePopulationAuthority(runnerProfileIsolatedAcceptance, "1")
-	above := roundsAboveCommitTarget(reports)
-	threshold, status := classifySustainedFalsifier(authority, above, len(reports), true, 120)
-
-	if threshold != thresholdExceeded || status != falsifierFired {
-		t.Fatalf("paced commit-duration P99 rounds above target = %d, control commit P99 = %d, classifySustainedFalsifier = %q/%q, want 2/exceeded/fired", above, 120, threshold, status)
-	}
-}
-
-func conformanceRoundReport(commitP99, wallP99, beginWaitP99 int64) ConformanceReport {
-	return ConformanceReport{
-		CorrectnessPassed:   true,
-		P99TargetMS:         100,
-		ProductionLikeP99MS: wallP99,
-		WallLatency:         latencySummary{P99MS: wallP99},
-		BeginWaitLatency:    latencySummary{P99MS: beginWaitP99},
-		CommitLatency:       latencySummary{P99MS: commitP99},
-	}
-}
-
-func TestClassifySustainedFalsifierRequiresAcceptancePopulation(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name               string
-		profile            conformanceRunnerProfile
-		signal             string
-		aboveTarget        int
-		rounds             int
-		correctness        bool
-		controlCommitP99MS int64
-		wantThreshold      sustainedThresholdStatus
-		wantFalsifier      falsifierStatus
-	}{
-		{
-			name:               "development crossing is diagnostic",
-			profile:            runnerProfileDiagnostic,
-			signal:             "1",
-			aboveTarget:        2,
-			rounds:             3,
-			correctness:        true,
-			controlCommitP99MS: 120,
-			wantThreshold:      thresholdExceeded,
-			wantFalsifier:      falsifierInconclusive,
-		},
-		{
-			name:          "unknown profile crossing fails closed",
-			profile:       conformanceRunnerProfile("unknown"),
-			signal:        "1",
-			aboveTarget:   3,
-			rounds:        3,
-			correctness:   true,
-			wantThreshold: thresholdExceeded,
-			wantFalsifier: falsifierInconclusive,
-		},
-		{
-			name:               "acceptance crossing fires",
-			profile:            runnerProfileIsolatedAcceptance,
-			signal:             "1",
-			aboveTarget:        2,
-			rounds:             3,
-			correctness:        true,
-			controlCommitP99MS: 120,
-			wantThreshold:      thresholdExceeded,
-			wantFalsifier:      falsifierFired,
-		},
-		{
-			name:          "acceptance target met passes",
-			profile:       runnerProfileIsolatedAcceptance,
-			signal:        "1",
-			aboveTarget:   1,
-			rounds:        3,
-			correctness:   true,
-			wantThreshold: thresholdMet,
-			wantFalsifier: falsifierPassed,
-		},
-		{
-			name:          "correctness failure blocks accepted outcome",
-			profile:       runnerProfileIsolatedAcceptance,
-			signal:        "1",
-			aboveTarget:   3,
-			rounds:        3,
-			correctness:   false,
-			wantThreshold: thresholdExceeded,
-			wantFalsifier: falsifierInconclusive,
-		},
-		{
-			name:          "empty population is inconclusive",
-			profile:       runnerProfileIsolatedAcceptance,
-			signal:        "1",
-			aboveTarget:   0,
-			rounds:        0,
-			correctness:   true,
-			wantThreshold: thresholdInconclusive,
-			wantFalsifier: falsifierInconclusive,
-		},
-		{
-			name:          "diagnostic authority stays inconclusive on threshold exceedance",
-			profile:       runnerProfileDiagnostic,
-			signal:        "1",
-			aboveTarget:   3,
-			rounds:        3,
-			correctness:   true,
-			wantThreshold: thresholdExceeded,
-			wantFalsifier: falsifierInconclusive,
-		},
-		{
-			name:          "acceptance without required signal stays inconclusive",
-			profile:       runnerProfileIsolatedAcceptance,
-			signal:        "",
-			aboveTarget:   3,
-			rounds:        3,
-			correctness:   true,
-			wantThreshold: thresholdExceeded,
-			wantFalsifier: falsifierInconclusive,
-		},
-		{
-			name:          "acceptance with non-1 signal stays inconclusive",
-			profile:       runnerProfileIsolatedAcceptance,
-			signal:        "true",
-			aboveTarget:   3,
-			rounds:        3,
-			correctness:   true,
-			wantThreshold: thresholdExceeded,
-			wantFalsifier: falsifierInconclusive,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			authority, _ := resolvePopulationAuthority(tt.profile, tt.signal)
-			threshold, falsifier := classifySustainedFalsifier(authority, tt.aboveTarget, tt.rounds, tt.correctness, tt.controlCommitP99MS)
-			if threshold != tt.wantThreshold || falsifier != tt.wantFalsifier {
-				t.Fatalf("classifySustainedFalsifier(%q, %d, %d, %t) = %q/%q, want %q/%q", tt.profile, tt.aboveTarget, tt.rounds, tt.correctness, threshold, falsifier, tt.wantThreshold, tt.wantFalsifier)
-			}
-		})
-	}
-}
+import (
+	"context"
+	"strings"
+	"testing"
+)
 
 func TestResolvePopulationAuthority(t *testing.T) {
 	t.Parallel()
@@ -327,38 +132,7 @@ func TestResolveCIRunnerTripwire(t *testing.T) {
 	}
 }
 
-func TestValidateLoadPacingFailsAcceptanceUnpaced(t *testing.T) {
-	t.Parallel()
-
-	for _, tt := range []struct {
-		name    string
-		profile conformanceRunnerProfile
-		unpaced bool
-		wantErr bool
-	}{
-		{name: "acceptance paced", profile: runnerProfileIsolatedAcceptance, unpaced: false, wantErr: false},
-		{name: "acceptance unpaced fails closed", profile: runnerProfileIsolatedAcceptance, unpaced: true, wantErr: true},
-		{name: "diagnostic unpaced stays diagnostic", profile: runnerProfileDiagnostic, unpaced: true, wantErr: false},
-		{name: "unknown profile unpaced", profile: conformanceRunnerProfile("unknown"), unpaced: true, wantErr: false},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			err := validateLoadPacing(tt.profile, tt.unpaced)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("validateLoadPacing(%q, %t) error = %v, wantErr %v", tt.profile, tt.unpaced, err, tt.wantErr)
-			}
-		})
-	}
-}
-
-// TestAcceptanceEntryPointLocalInvocationStaysInconclusive asserts the
-// acceptance criterion that a local invocation of the acceptance entry point
-// must report `inconclusive` regardless of the numbers observed. The local
-// invocation is captured by: profile=acceptance, signal absent, GITHUB_ACTIONS
-// unset. Under those inputs the tripwire does not fire, the resolver returns
-// diagnostic, and the falsifier verdict stays inconclusive even when the
-// threshold is exceeded.
-func TestAcceptanceEntryPointLocalInvocationStaysInconclusive(t *testing.T) {
+func TestAcceptanceEntryPointLocalInvocationStaysDiagnostic(t *testing.T) {
 	t.Parallel()
 
 	profile := runnerProfileIsolatedAcceptance
@@ -371,10 +145,6 @@ func TestAcceptanceEntryPointLocalInvocationStaysInconclusive(t *testing.T) {
 	authority, reason := resolvePopulationAuthority(profile, signal)
 	if authority != populationAuthorityDiagnostic || reason != populationAuthorityReasonRequiredCheckSignalAbsent {
 		t.Fatalf("local invocation resolved to %q/%q, want diagnostic/required_check_signal_absent", authority, reason)
-	}
-	threshold, status := classifySustainedFalsifier(authority, 3, 3, true, 120)
-	if threshold != thresholdExceeded || status != falsifierInconclusive {
-		t.Fatalf("classifySustainedFalsifier with diagnostic authority on threshold-exceeded inputs returned %q/%q, want exceeded/inconclusive", threshold, status)
 	}
 }
 
@@ -423,5 +193,92 @@ func TestBusyEscapesBindCorrectnessFollowsResolvedAuthority(t *testing.T) {
 	required, _ := resolvePopulationAuthority(runnerProfileIsolatedAcceptance, "1")
 	if !busyEscapesBindCorrectness(required) {
 		t.Fatalf("acceptance profile with the runner signal resolved to %q and did not bind busy escapes", required)
+	}
+}
+
+func TestWritePopulationRequiresExactlyTenWorkersAndThousandAcceptedWrites(t *testing.T) {
+	t.Parallel()
+	population := func() []WorkerResult {
+		results := make([]WorkerResult, 10)
+		for worker := range results {
+			results[worker] = WorkerResult{Worker: worker, Outcome: outcomeAccepted, Attempts: 100, Samples: make([]WorkerSample, 100)}
+			for attempt := range results[worker].Samples {
+				results[worker].Samples[attempt].Outcome = outcomeAccepted
+			}
+		}
+		return results
+	}
+	if err := validateWritePopulation(population()); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func([]WorkerResult) []WorkerResult
+	}{
+		{"missing worker", func(r []WorkerResult) []WorkerResult { return r[:9] }},
+		{"duplicate worker", func(r []WorkerResult) []WorkerResult { r[1].Worker = 0; return r }},
+		{"unknown worker", func(r []WorkerResult) []WorkerResult { r[1].Worker = 10; return r }},
+		{"missing attempt", func(r []WorkerResult) []WorkerResult { r[0].Attempts--; return r }},
+		{"missing sample", func(r []WorkerResult) []WorkerResult { r[0].Samples = r[0].Samples[:99]; return r }},
+		{"extra sample", func(r []WorkerResult) []WorkerResult {
+			r[0].Samples = append(r[0].Samples, WorkerSample{Outcome: outcomeAccepted})
+			return r
+		}},
+		{"worker failure", func(r []WorkerResult) []WorkerResult { r[0].Outcome = outcomeError; return r }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateWritePopulation(tc.mutate(population())); err == nil {
+				t.Fatal("invalid write population passed")
+			}
+		})
+	}
+	for _, outcome := range []WorkerOutcome{outcomeLost, outcomeDuplicate, outcomeInvariantViolation, outcomeBusyEscaped, outcomeError, outcomeVersionConflict} {
+		t.Run(string(outcome), func(t *testing.T) {
+			results := population()
+			results[0].Samples[0].Outcome = outcome
+			if err := validateWritePopulation(results); err == nil {
+				t.Fatalf("%s sample passed", outcome)
+			}
+		})
+	}
+}
+
+func TestWriteEffectsAndReplaysInProcess(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	result := runLoadScenario(ctx, s, 0, "backup_load")
+	if result.Outcome != outcomeAccepted || len(result.Samples) != 5 || countOutcome(expandWorkerResults([]WorkerResult{result}), outcomeAccepted) != 5 {
+		t.Fatalf("five-write worker = %+v", result)
+	}
+	for replay := 0; replay < 2; replay++ {
+		if err := verifyWriteEffects(ctx, s, 1, 5); err != nil {
+			t.Fatal(err)
+		}
+	}
+	terminalCleanupSQL(t, s, `DELETE FROM effect_receipts WHERE event_id='production-0-0-membership'`)
+	if err := verifyWriteEffects(ctx, s, 1, 5); err == nil || !strings.Contains(err.Error(), "count=0, want 1") {
+		t.Fatalf("missing effect = %v, want missing receipt failure", err)
+	}
+}
+
+func TestWriteEffectsRejectMissingProjection(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	runLoadScenario(ctx, s, 0, "backup_load")
+	terminalCleanupSQL(t, s, `DELETE FROM product_projects WHERE product_id='production-0-0'`)
+	if err := verifyWriteEffects(ctx, s, 1, 5); err == nil || !strings.Contains(err.Error(), "projection count=0") {
+		t.Fatalf("missing projection = %v, want projection failure", err)
+	}
+}
+
+func TestWriteEffectsRejectExtraEffects(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	runLoadScenario(ctx, s, 0, "backup_load")
+	if err := ApplyOperation(ctx, s, conformanceCreationOperation("extra", "extra-membership")); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyWriteEffects(ctx, s, 1, 5); err == nil || !strings.Contains(err.Error(), "effect count=18, want 15") {
+		t.Fatalf("extra effects = %v, want excess receipt failure", err)
 	}
 }

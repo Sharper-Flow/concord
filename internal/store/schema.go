@@ -91,6 +91,15 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Name == "native_task_cutover" {
 		return applyNativeTaskCutover(ctx, q, m.SQL)
 	}
+	if m.Name == "repository_verification_retirement" {
+		var active bool
+		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_verify_leases WHERE state='held' OR outcome='running')`).Scan(&active); err != nil {
+			return err
+		}
+		if active {
+			return newFailure(KindResourceBusy, "migrate", "repository verification is still held or running", false, "settle verification with the installed release before upgrading")
+		}
+	}
 	if _, err := q.ExecContext(ctx, m.SQL); err != nil {
 		return wrapFailure(KindUnavailable, "migrate",
 			fmt.Sprintf("migration %d (%s) failed", m.Version, m.Name), false,
@@ -112,7 +121,7 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 		if _, err := q.ExecContext(ctx, `INSERT OR IGNORE INTO fold_guard(active) VALUES(1)`); err != nil {
 			return err
 		}
-		for _, backfill := range []func(context.Context, migrationRunner) error{backfillWorkContextFacts, backfillWorkflowReviewFacts, backfillWorkSizeProofFacts} {
+		for _, backfill := range []func(context.Context, migrationRunner) error{backfillWorkContextFacts, backfillWorkflowReviewFacts} {
 			if err := backfill(ctx, q); err != nil {
 				return err
 			}
@@ -5018,7 +5027,7 @@ ALTER TABLE law_subjects ADD COLUMN authority_tier TEXT NOT NULL DEFAULT 'derive
 		// challenge's validity, and the approval minted before that round
 		// trip would match the restored policy again. The store bumps the
 		// revision on every policy write, so the restored policy is a
-		// different version and the stale approval refuses (CD-0097 D6).
+		// different version and the stale approval refuses (TS5).
 		Version:  99,
 		Name:     "agent_clients_carry_policy_revision",
 		Breaking: false,
@@ -8282,6 +8291,80 @@ CREATE TRIGGER outside_repair_reconciliations_guard_update BEFORE UPDATE ON outs
 CREATE TRIGGER outside_repair_reconciliations_guard_delete BEFORE DELETE ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:  169,
+		Name:     "retire_human_checkpoint_kind",
+		Breaking: true,
+		SQL: `
+CREATE TABLE workflow_checkpoints_v169 (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    checkpoint_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    step_kind TEXT NOT NULL CHECK(step_kind IN ('internal_sqlite','cross_authority','external_effect')),
+    attempt_epoch INTEGER NOT NULL,
+    accepted_inputs_digest TEXT NOT NULL,
+    result_evidence_refs TEXT NOT NULL CHECK(json_valid(result_evidence_refs) AND json_type(result_evidence_refs)='array'),
+    resume_cursor TEXT NOT NULL,
+    idempotency_identity TEXT NOT NULL,
+    actor_ref TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    request_id TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY(work_id, checkpoint_id),
+    UNIQUE(work_id, step_id, attempt_epoch),
+    UNIQUE(work_id, idempotency_identity),
+    CHECK(length(checkpoint_id) BETWEEN 2 AND 128),
+    CHECK(length(step_id) BETWEEN 2 AND 128),
+    CHECK(attempt_epoch > 0 AND attempt_epoch <= 2147483647),
+    CHECK(length(accepted_inputs_digest) > 0),
+    CHECK(json_array_length(result_evidence_refs) BETWEEN 0 AND 32),
+    CHECK(length(resume_cursor) <= 2048),
+    CHECK(length(idempotency_identity) BETWEEN 2 AND 128),
+    CHECK(length(request_id) > 0)
+);
+INSERT INTO workflow_checkpoints_v169 SELECT work_id,checkpoint_id,step_id,CASE step_kind WHEN 'human_checkpoint' THEN 'internal_sqlite' ELSE step_kind END,attempt_epoch,accepted_inputs_digest,result_evidence_refs,resume_cursor,idempotency_identity,actor_ref,request_id,recorded_at FROM workflow_checkpoints;
+DROP TABLE workflow_checkpoints;
+ALTER TABLE workflow_checkpoints_v169 RENAME TO workflow_checkpoints;
+CREATE TRIGGER workflow_checkpoints_guard_insert BEFORE INSERT ON workflow_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_checkpoints is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_checkpoints_guard_update BEFORE UPDATE ON workflow_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_checkpoints is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_checkpoints_guard_delete BEFORE DELETE ON workflow_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_checkpoints is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version:  170,
+		Name:     "retire_work_size",
+		Breaking: true,
+		SQL: `
+DROP TABLE work_size_proof_facts;
+DROP TABLE work_size_assessments;
+INSERT INTO write_guard(active) VALUES(1);
+DELETE FROM effect_receipts WHERE kind='work.sized';
+DELETE FROM write_guard;
+`,
+	},
+	{
+		Version:  171,
+		Name:     "repository_verification_retirement",
+		Breaking: true,
+		SQL: `
+INSERT OR IGNORE INTO write_guard(active) VALUES(1);
+DELETE FROM workflow_evidence_bindings WHERE json_extract(payload,'$.producer_run_ref') IN (SELECT op_id FROM durable_operations WHERE workflow_type_ref='worktree.verify');
+DELETE FROM durable_operations WHERE workflow_type_ref='worktree.verify';
+DROP TABLE worktree_verify_leases;
+DELETE FROM write_guard;
+`,
+	},
+	{
+		Version:  172,
+		Name:     "retire_domain_shape",
+		Breaking: true,
+		SQL: `
+DROP TABLE knowledge_domain_facts;
+DROP TABLE knowledge_domain_roots;
+DROP TABLE knowledge_domain_shapes;
+DROP TABLE knowledge_package_domains;
+DROP TABLE law_evidence_paths;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -8654,7 +8737,10 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 	}
 
 	if scope == migrateForUpgrade {
-		// Last-locator refusal must precede even manifest and schema writes.
+		// Authored-state refusals precede even manifest and schema writes.
+		if err := preflightDomainShapeReadingUpgrade(ctx, tx); err != nil {
+			return rollback(err)
+		}
 		if err := preflightRemoteLocatorUpgrade(ctx, tx); err != nil {
 			return rollback(err)
 		}
@@ -8693,6 +8779,37 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		return upgradeRequired(*stopped)
 	}
 	return nil
+}
+
+func preflightDomainShapeReadingUpgrade(ctx context.Context, q queryer) error {
+	var present bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='work_context_state')`).Scan(&present); err != nil {
+		return wrapFailure(KindUnavailable, "migrate", "cannot inspect persisted work context before Domain Shape retirement", true, "confirm the database is readable and retry upgrade", err)
+	}
+	if !present {
+		return nil
+	}
+	// Inspect the stored source tag without decoding the retired source arm.
+	// Migration must neither rewrite authored readings nor bypass terminal cleanup.
+	var workID, lifecycle string
+	err := q.QueryRowContext(ctx, `SELECT state.work_id,work.lifecycle FROM work_context_state AS state
+JOIN work_items AS work ON work.id=state.work_id
+WHERE EXISTS(SELECT 1 FROM json_each(state.declaration_payload,'$.required_reading') AS reading
+ WHERE json_extract(reading.value,'$.source.kind')='domain_shape')
+ORDER BY state.work_id LIMIT 1`).Scan(&workID, &lifecycle)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, "migrate", "cannot inspect persisted required readings before Domain Shape retirement", true, "confirm the database is readable and retry upgrade", err)
+	}
+	recovery := fmt.Sprintf("use a pre-retirement binary that still supports domain_shape (schema 171); for live work %q, use the admitted record_work_context workflow action to replace or remove only obsolete readings while preserving the rest of the declaration, then retry concord upgrade", workID)
+	if lifecycle == "completed" || lifecycle == "cancelled" || lifecycle == "superseded" {
+		recovery = fmt.Sprintf("use a pre-retirement binary that still supports domain_shape (schema 171); terminal work %q is immutable: do not replace or rewrite its declaration; use concord_work_compact.publish with the exact reviewed closure bytes and canonical home, or concord_work_compact.reconcile for an existing publication, and settle publication plus terminal cleanup under all existing gates; resolve every reported cleanup blocker, then retry concord upgrade; if the reviewed closure or required cleanup evidence cannot be supplied, no supported upgrade recovery is available for this work: retain the schema-171 store and seek maintainer follow-up", workID)
+	}
+	return newFailure(KindUpgradeBlocked, "migrate",
+		fmt.Sprintf("work %q still has a domain_shape required reading; no migration was applied", workID), true,
+		recovery)
 }
 
 func inspectUnstampedManifest(ctx context.Context, tx *sql.Tx) (bool, error) {

@@ -17,7 +17,7 @@ func pReturnReviewFixture(t *testing.T, id, family, disposition string) *candida
 	j := pReturnClaim(t, f, id)
 	pReturnProduce(t, j, "initial")
 	if disposition != "" {
-		acceptCurrentReviewForTest(t, j.fixture, j.repo, disposition)
+		acceptCurrentReviewForTest(t, j.fixture, disposition)
 	}
 	return j
 }

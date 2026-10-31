@@ -9,8 +9,8 @@
 > [`specs-as-laws.md`](./specs-as-laws.md),
 > [`product-data-model.md`](./product-data-model.md).
 > **Purpose:** New execution selects one of three retained workflow families
-> (CD-0218 D1); §4 lists them. A workflow definition is composed from shared
-> parts, and a decision model sets each work item's size (§7; CD-0229).
+> (CD-0218 D1); §4 lists them. Each family has a plain Go definition;
+> work has no size class (§7; CD-0229).
 > **Primary surface:** Defined by [`../law/constitution/priorities.md`](../law/constitution/priorities.md); an admin
 > panel or web UI is optional and secondary.
 
@@ -23,9 +23,9 @@ existing requirements.
 ## TL;DR
 
 The live workflow catalog retains three execution families for new work
-(CD-0218 D1; §4). A workflow definition is a composition of shared parts, and a
-programmed decision model sets each work item's size (§7; CD-0229). Definitions
-are generated from one canonical source, and no released workflow-definition
+(CD-0218 D1; §4). Workflows are plain Go definitions, and
+work has no size class (§7; CD-0229). Public projections
+are generated from those definitions, and no released workflow-definition
 version, pin, or catalog list is retained for history (CD-0242 D14). The cutover
 is one documented migration with a verified snapshot and the operator's approval
 of its destructive operation (CD-0242 D13).
@@ -71,8 +71,8 @@ out of scope.
 - **Families:** new execution selects one of three retained families; a
   retired ref refuses before any capture or contract write (CD-0218 D1).
   §4 lists them.
-- **Generated definitions:** definitions are generated from one canonical
-  source, and no released workflow-definition version, pin, or catalog list is
+- **Canonical definitions:** plain Go definitions own the generated public
+  projections, and no released workflow-definition version, pin, or catalog list is
   retained for history (CD-0242 D14). No event log, fold, upcaster, or replay
   exists; the store keeps current state and finite snapshots (CD-0242 D2).
 
@@ -81,12 +81,12 @@ out of scope.
 ## 2. The workflow-type model
 
 A **workflow family** is a code-defined execution type in the registry. Its
-definitions are compositions of shared parts (§7; CD-0229 D2), and the live
+definitions are plain Go values (§7; CD-0229 D1), and the live
 catalog retains exactly three families (CD-0218 D1). What a definition fixes:
 
 | Aspect | Meaning |
 |---|---|
-| **Steps** | The steps the composition includes; the item's size selects among the family's compositions (CD-0229 D5). |
+| **Steps** | The steps the family's definition declares (CD-0229 D1). |
 | **Artifacts** | What it produces (a spec delta? a report? findings? nothing durable?). |
 | **Completion criteria** | How it's "done" (a contract satisfied? a report submitted? a signal fired?). |
 | **Value statement** | One sentence stating the work value: what it delivers and why it matters. |
@@ -95,9 +95,9 @@ catalog retains exactly three families (CD-0218 D1). What a definition fixes:
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
 | **Active visibility** | Which gates/problems are surfaced by default vs. hidden behind history. |
 
-Families and their parts are Go values in the registry; a new size, family, or
-kind is a new composition of existing parts and adds no step code (CD-0229
-D2).
+The registry validates each definition and derives its canonical manifest and
+digest. Common runtime action and payload implementations remain shared; no
+parts catalog or composition compiler assembles definitions (CD-0229 D1).
 
 ### 2.1 Value statement invariant
 
@@ -175,7 +175,7 @@ changes or external planning groups.
 - A Product owns canonical Domains and has Project memberships. Projects do not
   become architecture identity.
 - Each Domain lists current law, typed dependencies, active workflows, evidence,
-  decisions, typed facts, and recent changes.
+  decisions, and recent changes.
 - A workflow or change is **architecture-bound history** from the Domain view, not the
   top-level browse path.
 - Business grouping lives in Linear under CD-0213 and owns no architecture authority.
@@ -195,8 +195,7 @@ are two closed vocabularies, kept separate (CD-0077 D1). The capture defaults
 map operator kinds to families: tasks → `workflow.implementation`, bugs →
 `workflow.break_fix`, research → `workflow.research`; decision and other
 operator kinds require an explicit retained family (CD-0218 D1). Definitions
-are compositions of shared parts sized by the decision model (§7; CD-0229 D2,
-D4) — not one complete purpose-built definition per kind.
+are plain Go values (§7; CD-0229 D1). Work has no size class.
 
 A single workflow can spawn another: research may surface a defect, which
 matures into a break-fix workflow, which may become an implementation change.
@@ -207,7 +206,7 @@ matures into a break-fix workflow, which may become an implementation change.
 
 | Family | Captures | Shape |
 |---|---|---|
-| **`workflow.implementation`** | Tasks default here | Composes shared parts at the size the decision model sets: `small` walks define, implement, review, and ship; `larger` adds research, architect, and refine; `crucial` adds repeated implement steps and repeats review and refine (CD-0229 D5; CD-0242 D4). The outcome contract, review acceptance, and closure hold at every size. |
+| **`workflow.implementation`** | Tasks default here | Declares the family's mandatory steps, including refine. The outcome contract, review acceptance and closure apply to every item (CD-0229 D4; CD-0242 D4). |
 | **`workflow.break_fix`** | Bugs default here | One typed diagnosis with required reproduction, backlog-search, and root-cause sections, then repair, the mandatory refine pass, and verification (CD-0242 D4; CD-0138 D1). |
 | **`workflow.research`** | Research defaults here | Records findings, conclusions, and recommendations; may conclude `no_change`; outcome predicates only (CD-0218 D1). [CD-0215](../law/decisions/CD-0215-retained-research-context.md) owns the research-pack capability. |
 
@@ -230,16 +229,15 @@ the declared scope, report, and evidence (§5).
 
 Analysis tooling is an external native authority. Concord does not implement
 or ship scanners. Tracked analysis work runs in a retained family and records
-the external run's scope, report, and evidence in the steps its composition
+the external run's scope, report, and evidence in the steps its definition
 declares; that output is advisory input, not a verdict (CD-0138 D3).
-Break-fix keeps the mandatory `refine` step (CD-0138 D1), and implementation
-includes it at the sizes CD-0229 D5 names. The refine proof rule is
+Break-fix and implementation keep the mandatory `refine` step (CD-0242 D4).
+The refine proof rule is
 [CD-0192](../law/decisions/CD-0192-the-refine-pass-proves-a-declared-analysis-ran.md),
 which amends
 [CD-0138 D3](../law/decisions/CD-0138-mandatory-refinement-pass.md).
 Host-owned methodology selects the tool and analysis procedure. This boundary
 follows
-[`predecessor-operational-coverage.md` §3](./predecessor-operational-coverage.md#3-implementation-changes),
 [CD-0043 D1](../law/decisions/CD-0043-host-owned-lane-methodology.md#d1-methodology-is-not-durable-coordination-state),
 and [CD-0055 D4](../law/decisions/CD-0055-repository-check-authority.md#d4-heuristic-judgment-warns-it-never-blocks).
 
@@ -253,7 +251,7 @@ and [CD-0055 D4](../law/decisions/CD-0055-repository-check-authority.md#d4-heuri
 
 ---
 
-## 7. Composition and size
+## 7. Composition
 
 [CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
 is accepted law. This section states its model, not the current implementation
@@ -263,21 +261,15 @@ status.
    workflow/work item, then let the current workflow finish. Each retains
    independent authority and recovery. No nested child execution or parent
    waiting (CD-0006 R1).
-2. **Composition inside a definition:** a definition is a declared composition
-   of shared parts at pinned part versions; each step is defined in exactly
-   one part, and a variant need is a part parameter, never a copy (CD-0229
-   D1, D2). A change to a part is a new part version, and each composition
-   compiles to its canonical definition from the one source, with no released
-   definition version retained for history (CD-0229 D2; CD-0242 D14).
-3. **Size:** one programmed, versioned decision model sets `small`, `larger`,
-   or `crucial` from the recorded inputs; the size selects the composition,
-   and rules derived from change type and risk set its mandatory stages
-   (CD-0229 D4, D5; CD-0242 D4). An agent
-   may only request a rerun or add steps (CD-0229 D4). A task that proves
-   bigger than its size reruns the model, adds the newly required steps, and
-   continues without redoing completed work (CD-0242 D4); no production-line
-   cap, size measurement, or mandatory split applies (CD-0242 D6). A sized workflow records its define
-   start and its merge-queue entry (CD-0229 D7).
+2. **Plain definitions:** each family directly declares its step graph, actions,
+   evidence, outcomes and recovery routes in a Go value. The registry validates
+   it and derives its canonical manifest and digest. Public schemas and tool
+   contracts generate from those definitions, without a parts catalog or
+   composition compiler (CD-0229 D1; CD-0242 D14).
+3. **Mandatory stages:** each live family's definition supplies its stages.
+   Work has no size classification or size-derived review gate (CD-0229 D4).
+   Main may add research, architecture or planning depth but cannot waive a
+   mandatory stage or operator approval (CD-0242 D4).
 
 ---
 
@@ -287,12 +279,11 @@ status.
 |---|---|
 | `product-data-model.md` §6 | Product → Domain navigation. |
 | `specs-as-laws.md` | Workflow evolution couples to spec evolution. |
-| `design-constraints.md` §3 | Workflow evolution constraints; a composition change is a new part version compiled from the one canonical source (§7; CD-0229 D2; CD-0242 D14). |
+| `design-constraints.md` §3 | Workflow evolution constraints; public projections derive from the canonical Go definitions (§7; CD-0229 D1; CD-0242 D14). |
 | [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) | The three retained execution families (CD-0218 D1); the store keeps current state, and the cutover is one documented migration (CD-0242 D2, D13). |
-| [CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) | Shared-part composition and the size decision model. |
+| [CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) | Plain workflow definitions without size classification. |
 
 ---
 
-*New execution runs in one of the three retained families (§4), composed from
-shared parts at the size the decision model sets (§7); definitions are
-generated from one canonical source (CD-0242 D14).*
+*New execution runs in one of the three retained families (§4), with plain Go
+definitions (§7) that own generated public projections (CD-0242 D14).*

@@ -57,11 +57,11 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 					id := fmt.Sprintf("related-%02d", i)
 					if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{{
 						EventID: "created-" + id, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: id,
-						Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"),
+						Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4,
 						Payload: json.RawMessage(`{"work_kind":"task","title":"Related work","priority":1}`),
 					}, {
 						EventID: "membership-" + id, Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: id,
-						Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.memberships_replaced"),
+						Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1,
 						Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`),
 					}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, id): 0}}); err != nil {
 						t.Fatal(err)

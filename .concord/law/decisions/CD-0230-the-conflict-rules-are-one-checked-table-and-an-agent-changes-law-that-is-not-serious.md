@@ -21,7 +21,7 @@
 ## Context
 
 Appendix A of `priorities.md` is accepted constitutional law. It gives a rule for
-each pair of goals (A1) and for each conflict situation by change size (A2).
+each pair of goals (A1) and for each conflict situation (A2).
 Goal F asks that the rules become "a mechanism inside Concord, not prose", so
 the operator's spot checks can show that agents follow them.
 
@@ -74,17 +74,16 @@ For A2 row 5:
 
 Review repairs in-scope findings in its own pass and verifies the repairs
 (CD-0242 D5); the rest become D6 follow-up items. A high or medium problem is a
-Review finding of severity `P0`, `P1` (high) or `P2` (medium); `P3` is low. A
-crucial change cannot leave execution or complete while the current Review state
-holds an open in-scope high or medium finding, whatever the reporter's blocking
-flag. The coordinator ends the loop by dispatching corrections and Review until
-that holds. Small and larger changes keep CD-0242 D5's blocking rule. No review
-count, ledger or separate final evaluator is added.
+Review finding of severity `P0`, `P1` (high) or `P2` (medium); `P3` is low.
+Every change keeps CD-0242 D5's blocking rule: an open in-scope blocking
+finding prevents leaving execution. No size-specific severity gate applies. The
+coordinator ends the loop. No review count, ledger or separate final evaluator
+is added.
 
 ### D3. Applying a rule leaves a record
 
 When an agent, the coordinator, or the operator settles a conflict, the work
-record names the rule ID, the change's size, and the outcome. The operator's
+record names the rule ID and the outcome. The operator's
 spot checks read these records. No dedicated store record carries a
 settlement: Review records it as a finding, and other settlements name the rule
 in the existing work record or pull request.
@@ -227,8 +226,8 @@ complies, as
 [CD-0042 D3](CD-0042-pre-go-live-single-path.md#d3-superseded-development-paths-are-deleted)
 expects. P3 permits adequate guidance for an ordinary law; D2's ban
 on prose-only mechanisms governs the conflict rules. The cases' source
-labels and recorded sizes are fictional inputs, not real operation receipts or
-an assessment of the delivery's size. Carrier tests do not prove those judgments.
+labels are fictional inputs, not real operation receipts. Carrier tests do not
+prove those judgments.
 The delivery's recorded independent review supplies the application evidence;
 the method adds no runtime gate or ad-hoc-route enforcement.
 
@@ -236,10 +235,10 @@ P7, P9 and P11 use D2's recorded-review method.
 `internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` also retains
 P7/P9/P11 claims; the same source-binding controls protect their inputs.
 `scripts/testdata/conflict-review-parts-cases.md` supplies first- and
-second-occurrence, prose-versus-tool, shared-part repair, follow-up sizing and
-operator-request cases for independent application of the existing method.
+second-occurrence, prose-versus-tool, shared-part repair, out-of-scope part fix
+and operator-request cases for independent application of the existing method.
 Review judges occurrence from recorded source and planning evidence, not the
-author's claim; a missing search or size assessment leaves the outcome unproved.
+author's claim; a missing search or scope assessment leaves the outcome unproved.
 Carrier tests do not prove those judgments; the delivery's recorded independent
 review supplies the application evidence.
 No repetition counter, part registry or automatic tool builder is added. The
@@ -272,16 +271,11 @@ recorded independent review supplies the application evidence. The follow-up
 item's rule label, raising-change link enforcement and saved view remain D6's
 open duty below.
 
-A2 row 5 uses a programmed check in the existing Review admission.
-`internal/store.TestCrucialReviewExitRefusesHighOrMediumFinding` proves a crucial
-change cannot leave execution with an open in-scope `P0`-`P2` finding marked
-non-blocking, while `P3`, out-of-scope, closed, larger-size and group-opening
-cases stay admitted; `internal/store.TestReviewStateReadsCrucialFromEffectiveSize`
-proves the rule follows the effective size, including the operator's size.
-`internal/store.TestReviewCurrentAdmissionNegativeCases` proves the every-size
-blocking rule. `scripts/testdata/conflict-review-repair-cases.md` supplies
-in-scope repair, unverified fix, dropped and claimed follow-up, and crucial
-medium-finding cases for independent application of the existing review method,
+A2 row 5 uses CD-0242 D5's blocking-finding rule in Review admission.
+`internal/store.TestReviewCurrentAdmissionNegativeCases` exercises that rule.
+`scripts/testdata/conflict-review-repair-cases.md` supplies
+in-scope repair, unverified fix, and dropped and claimed follow-up
+cases for independent application of the existing review method,
 which judges in-scope repair and follow-up filing that the check does not decide.
 The follow-up item's rule label, link and saved view remain D6's open duty.
 
@@ -298,7 +292,6 @@ The remaining enforcement and proof is assigned below:
 | R2, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not selection of the shared-Domain step or release when the other change completes it. Shared stages do not by themselves prove A2 row 4's boundary-change handling. |
 | D4 and D5; CD-0243 runtime alignment | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). Recorded review does not establish prevention of external data loss, automatic six-class inference, or enforcement on the ad-hoc route. Contract-time consent does not establish informed approval of a specific loss. Classifications, carrier tests and the selected synthetic reviews do not prove whole-record runtime alignment. |
 | A2 row 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Nothing enforces labels, raising-change links, the Linear view, or closure tracking. Nothing records or checks that the coordinator schedules a shipping-blocking unrelated bug first. |
-| A2 row 8 | [CON-1344](https://linear.app/sharper-flow/issue/CON-1344). Same-item resizing does not prove adding required stages while retaining completed work. CD-0229's Verification also retains the separate small-work proof and timing owners. |
 
 The surviving outcomes still need executable proof or an explicit
 owning law disposition. CD-0242 D4–D7 replaces the old

@@ -11,16 +11,16 @@
 
 Scope: Declared-tool and scenario bindings; applicable-check evidence in existing verification and Review.
 
-This decision refines CD-0074, CD-0090 and CD-0229 D5. Native verification
-remains under the workflow engine contract and CD-0242 D8; CD-0192 is unchanged.
+This decision refines CD-0074 and CD-0090. Verification reports
+follow the workflow engine contract and CD-0242 D8.
 
 ## Decision
 
 1. Each applicable typed footprint check names a declared command and an existing executable owner. Existing repository validators check that relation. A missing, conflicting, deferred or nonexistent owner fails validation. Source structure establishes a binding, not successful execution or semantic adequacy.
 2. A scenario binding names its exact corpus entry and the test or harness that consumes that id. Review checks that its assertions uphold the scenario. Required scenario witnesses must be observed executing and passing; a missing, skipped, failed or incomplete witness remains unproved.
-3. Applicable checks are selected from approved scope and the final change. Native producer receipts, local verification and required CI supply execution evidence. Every execution claim names its actual candidate and results. An unrelated green run, preparation or declaration does not prove execution. A selected test result is not a whole-package result.
+3. Applicable checks are selected from approved scope and the final change. Local verification and required CI supply execution evidence. Bound reports state a result and recorded commit; they are attributed claims, not execution attestation. A selected test result is not a whole-package result.
 4. Accepted Review records this rule, the applicable checks, the evidence inspected and any remaining obligation. Review must not declare the change ready while required checks lack adequate evidence. A Project without required CI supplies the applicable local execution evidence; the absence of CI waives no check.
-5. Outcome-contract, criterion-proof, native-provenance, current-candidate, exact-declared-command refinement and accepted-Review gates retain their owners. This adds no automatic footprint refusal at delivery or completion, no new receipt system and no package-complete native recipe kind. No worker-job binding supplies proof under CD-0242 D8.
+5. Outcome-contract, criterion-proof and accepted-Review gates retain their owners. Recorded commits must agree; no native-provenance, live-Git freshness or exact-declared-command gate is required. This adds no automatic footprint refusal at delivery or completion. No worker-job binding supplies proof under CD-0242 D8.
 6. All eight continuity obligations remain required. Coverage becomes satisfied only after checked bindings, observed passing execution and independent Review establish their assertions. A local delivery record is not evidence of passing required CI, merge or release.
 
 ## Alternatives considered

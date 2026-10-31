@@ -682,7 +682,7 @@ func TestValidateBootstrapOriginAdmitsLiveOrigin(t *testing.T) {
 	}
 }
 
-func TestValidateBootstrapOriginRefusesDirtyOrLeasedOrigin(t *testing.T) {
+func TestValidateBootstrapOriginRefusesDirtyOrigin(t *testing.T) {
 	t.Parallel()
 	t.Run("dirty", func(t *testing.T) {
 		repo := initBootstrapStoreRepo(t)
@@ -699,49 +699,6 @@ func TestValidateBootstrapOriginRefusesDirtyOrLeasedOrigin(t *testing.T) {
 			t.Fatalf("dirty origin was not refused: %v", err)
 		}
 	})
-
-	t.Run("leased", func(t *testing.T) {
-		repo := initBootstrapStoreRepo(t)
-		s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer s.Close()
-		seedBootstrapStoreAuthority(t, s, repo)
-		origin := liveBootstrapOrigin(t, s, "bootstrap-origin-leased-combined")
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('lease-held-combined',?,?,?,'held','client-a','agent-a','session-a','principal-a','["true"]','2026-01-01T00:00:00Z','running')`, origin.WorkID, origin.Entry.ProjectID, origin.Entry.Path); err != nil {
-			t.Fatal(err)
-		}
-		_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil)
-		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindResourceBusy || !strings.Contains(failure.Detail, "verify lease") {
-			t.Fatalf("leased origin was not refused: %v", err)
-		}
-	})
-
-}
-
-func TestValidateBootstrapOriginRefusesHeldVerifyLease(t *testing.T) {
-	t.Parallel()
-	repo := initBootstrapStoreRepo(t)
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	seedBootstrapStoreAuthority(t, s, repo)
-	origin := terminalBootstrapOrigin(t, s, "bootstrap-origin-leased")
-	if _, err := s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil); err != nil {
-		t.Fatalf("clean terminal origin refused: %v", err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('lease-held',?,?,?,'held','client-a','agent-a','session-a','principal-a','["true"]','2026-01-01T00:00:00Z','running')`, origin.WorkID, origin.Entry.ProjectID, origin.Entry.Path); err != nil {
-		t.Fatal(err)
-	}
-	_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil)
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindResourceBusy || !strings.Contains(failure.Detail, "verify lease") {
-		t.Fatalf("held lease was not refused as resource_busy: %v", err)
-	}
 }
 
 func TestResumeWorktreeLocationRefusals(t *testing.T) {

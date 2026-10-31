@@ -78,7 +78,11 @@ decides which commands, if any, become agent tools.
 ### Constraints / open detail
 - **One invocation = one logical operation** (or one small batch). A CLI process is not held open across an agent's whole session. Long-lived session state lives in the SQLite file between invocations, not in a process.
 - The CLI's stdout is **structured** (JSON) for programmatic callers; a `--human` flag renders for terminal use.
-- **Reversal condition:** the §2e falsifiers are "P99 write > 100 ms sustained" and "SQLITE_BUSY escapes busy_timeout". If either fires at realistic load *because of process-startup overhead*, escalate per CD-0002 §2b to the daemon upgrade path. The CLI commands then become the daemon's request handlers, and the surface is unchanged.
+- **Reversal condition:** CD-0011 owns the storage-authority reopen conditions,
+  including escaped `SQLITE_BUSY` and queueing that materially blocks ordinary
+  operator work. If process-startup overhead is the demonstrated bottleneck,
+  compare the single-writer IPC boundary first under CD-0002 §2b. No
+  write-latency percentile threshold selects a replacement.
 
 ---
 
@@ -94,8 +98,6 @@ The Go core uses **[`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)
 
 ### Constraints
 - [`mattn/go-sqlite3`](https://pkg.go.dev/github.com/mattn/go-sqlite3) (CGO) remains the documented fallback **iff** a measured hot path shows modernc is the bottleneck — which, at the CD-0002 §2a load, is not expected. Switching is a driver swap, not an architecture change.
-- Measure modernc-specific latency as implementation acceptance evidence (part of
-  the §2e day-one instrumentation), not as an architecture-decision prerequisite.
 
 ---
 

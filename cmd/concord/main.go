@@ -18,15 +18,11 @@ import (
 
 	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/agentcontract"
-	"github.com/sharper-flow/concord/internal/predecessor"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
 )
 
 func main() {
-	if code, handled := store.RunNativeIsolationSupervisor(); handled {
-		os.Exit(code)
-	}
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
@@ -135,10 +131,10 @@ func invokeOperationEnums() string {
 // bootstrap test. Agent invoke fields remain owned by their generated
 // transport contracts.
 var commandSpecs = []commandSpec{
-	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest; pre-dispatch decode refusals exit 64; worktree_verify input uses command OR oracle (phase prepare | execute), never both; worktree_inspect mode oracle_output uses run_ref, stream stdout | stderr, offset, length (1-16384 raw bytes), never path or idempotency_key; exact fields and exclusions follow the generated agent contracts", Enums: invokeOperationEnums()},
+	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest; pre-dispatch decode refusals exit 64; exact fields and exclusions follow the generated agent contracts", Enums: invokeOperationEnums()},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research; public_key: base64 Ed25519; agent_scope: the agent references this client may present"},
 	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research; agent_scope: the agent references this client may present"},
-	{Canonical: "client-policy-expand", TwoWord: "client policy-expand", RequiredFields: requiredFields(field("client_ref")), Optional: "capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (CD-0097 D6)", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research"},
+	{Canonical: "client-policy-expand", TwoWord: "client policy-expand", RequiredFields: requiredFields(field("client_ref")), Optional: "capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (TS5)", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research"},
 	{Canonical: "client-key-rotate", TwoWord: "client key-rotate", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("public_key")), Optional: "none", Enums: "public_key: base64 Ed25519"},
 	{Canonical: "client-revoke", TwoWord: "client revoke", RequiredFields: requiredFields(field("client_ref")), Optional: "none", Enums: "none"},
 	{Canonical: "client-show", TwoWord: "client show", RequiredFields: requiredFields(field("client_ref")), Optional: "none", Enums: "read-only; returns registered policy, not session authorization; no key material"},
@@ -148,7 +144,6 @@ var commandSpecs = []commandSpec{
 	{Canonical: "product-stage-update", TwoWord: "product stage-update", RequiredFields: requiredFields(field("product_id"), field("stage_maturity"), field("stage_audience_commitment"), field("expected_version")), Optional: "reason (cite the CD-0091 rung evidence when raising maturity)", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "product-knowledge-home-designate", TwoWord: "product knowledge-home-designate", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a canonical_path locator of the member Project"},
 	{Canonical: "product-knowledge-home-clear", TwoWord: "product knowledge-home-clear", RequiredFields: requiredFields(field("product_id"), field("expected_version")), Optional: "reason", Enums: "none"},
-	{Canonical: "domain-shape-check", TwoWord: "domain shape-check", RequiredFields: requiredFields(field("product_id")), Optional: "checkout (clean exact pinned subject worktree of the designated home; defaults to its registered path)", Enums: "explicit operator command; strict ratchet; missing checks remain unverified; JSON report <=32768 bytes; diagnostics <=4096 bytes; failures exit nonzero"},
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-update", TwoWord: "project locator-update", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
@@ -157,7 +152,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "worktree-locate", RequiredFields: requiredFields(field("project_id"), field("work_id")), Optional: "ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)", Enums: "none"},
 	{Canonical: "claim-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
 	{Canonical: "vacate-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
-	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (default branch resolved after identity), defect_intake (required for bug), size_inputs (paths and/or behavior, security, user_visible, blast_radius, estimated_production_lines; the model decides the size), host_pid (required with session_ref); handler refusals exit 2; required-field refusals exit 64", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
+	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (default branch resolved after identity), defect_intake (required for bug), host_pid (required with session_ref); handler refusals exit 2; required-field refusals exit 64", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
 	{Canonical: "work-resume", RequiredFields: requiredFields(field("product_id"), field("project_id")), Optional: "exactly one of work_id or issue_key (unique locally recorded Linear key); session_ref; handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "receipt", RequiredFields: requiredFields(field("work_id")), Optional: "none", Enums: "prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed"},
 	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
@@ -165,8 +160,6 @@ var commandSpecs = []commandSpec{
 	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (max 8192 bytes; none on resume); agent is the active agent; handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
-	{Canonical: "predecessor-inventory", TwoWord: "predecessor inventory", RequiredFields: requiredFields(field("snapshot_path")), Optional: "none", Enums: "snapshot_path: absolute path to a predecessor snapshot file (CD-0097)"},
-	{Canonical: "predecessor-import", TwoWord: "predecessor import", RequiredFields: requiredFields(field("snapshot_path"), nestedField("product", "product_id", "display_name", "stage_maturity", "stage_audience_commitment"), field("projects"), field("select_change_ids")), Optional: "dry_run, surfaces", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; projects[].role: primary | secondary; select_change_ids: change ids the snapshot enumerates as active and that belong to a declared snapshot_project_id, or already-imported ids that turned terminal or left the active set since the previous harvest; surfaces: specifications | active_work | terminal_history | wisdom | reflections; only active_work imports, a surface outside this set refuses before import (CD-0097)"},
 	{Canonical: "host-lease", RequiredFields: requiredFields(field("pid")), Optional: "directory, worktree: session location, named by a breaking-migration refusal; advisory, never interpreted", Enums: "pid: the host process that holds this release; the core writes the lease under the data root"},
 	{Canonical: "host-leases", RequiredFields: requiredFields(), Optional: "none", Enums: "prints the live host leases and prunes stale ones (CD-0111 D2)"},
 	{Canonical: "upgrade", RequiredFields: requiredFields(), Optional: "plan: read-only readiness report; confirm_sessions_stopped: no session runs on an unfenceable release tree; cancel_cutover_pinned_work: cancel every nonterminal work item selected by the authoring-cutover gate after a verified snapshot inside the maintenance boundary (CD-0218 D5)", Enums: "applies pending migrations; a breaking step runs only inside the maintenance boundary, which excludes session admission until activation and refuses under a live older session (CD-0111 D3)"},
@@ -369,12 +362,6 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	if err := validateRequiredCommandFields(command, raw); err != nil {
 		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return inputRefusalExit
-	}
-	// Predecessor inventory reads only the operator-supplied snapshot file and
-	// writes nothing to the Concord store, so it routes around the database
-	// open before any authority is touched.
-	if command == "predecessor-inventory" {
-		return runPredecessorInventory(raw, out, errOut)
 	}
 	path, err := databasePath()
 	if err != nil {
@@ -586,10 +573,10 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 	var err error
 	switch command {
 	case "product-knowledge-home-designate":
-		return designateOperatorDomainShape(context.Background(), s, store.ProductKnowledgeHomeDesignation{
+		result, err = s.DesignateProductKnowledgeHome(context.Background(), store.ProductKnowledgeHomeDesignation{
 			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
 			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
-		}, out, errOut)
+		})
 	case "product-knowledge-home-clear":
 		result, err = s.ClearProductKnowledgeHome(context.Background(), store.ProductKnowledgeHomeDesignation{
 			ProductID: request.ProductID, Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
@@ -604,8 +591,6 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 
 func runInternal(command string, raw []byte, service *agent.Service, s *store.Store, out, errOut io.Writer) int {
 	switch command {
-	case "domain-shape-check":
-		return runDomainShapeCheck(raw, s, out, errOut)
 	case "client-show":
 		return runClientShow(raw, s, out, errOut)
 	case "client-register", "client-policy-update", "client-policy-expand":
@@ -628,8 +613,6 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runProjectResolve(raw, s, out, errOut)
 	case "cd-reservations":
 		return runCDReservations(raw, s, out, errOut)
-	case "predecessor-import":
-		return runPredecessorImport(raw, s, out, errOut)
 	default:
 		writeOperatorDiagnostic(errOut, command, "unsupported command")
 		return 2
@@ -873,55 +856,17 @@ func runBackup(command string, raw []byte, s *store.Store, out, errOut io.Writer
 	return writeJSON(out, manifest, errOut)
 }
 
-// runPredecessorInventory validates a harvest snapshot and emits the bounded
-// enumeration report. It runs before any store open because the inventory
-// never touches Concord authority — it is read-only against the snapshot file.
-func runPredecessorInventory(raw []byte, out, errOut io.Writer) int {
-	var request struct {
-		SnapshotPath string `json:"snapshot_path"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-inventory", diagnosticText(err))
-		return 1
-	}
-	if request.SnapshotPath == "" {
-		writeOperatorDiagnostic(errOut, "predecessor-inventory", "snapshot_path must be a non-empty path")
-		return 1
-	}
-	info, statErr := os.Stat(request.SnapshotPath)
-	if statErr != nil {
-		if errors.Is(statErr, os.ErrNotExist) {
-			writeOperatorDiagnostic(errOut, "predecessor-inventory", fmt.Sprintf("snapshot file does not exist: %s", request.SnapshotPath))
-			return 1
-		}
-		writeOperatorDiagnostic(errOut, "predecessor-inventory", "snapshot path is unavailable: "+diagnosticText(statErr))
-		return 1
-	}
-	if info.IsDir() {
-		writeOperatorDiagnostic(errOut, "predecessor-inventory", fmt.Sprintf("snapshot path is a directory: %s", request.SnapshotPath))
-		return 1
-	}
-	snapshot, err := predecessor.Load(request.SnapshotPath)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-inventory", diagnosticText(err))
-		return 1
-	}
-	report := predecessor.Inventory(snapshot)
-	return writeJSON(out, report, errOut)
-}
-
 type operatorRef struct {
 	EntityKind store.SubjectType
 	ID         string
 }
 
 type operatorResponse struct {
-	OK          bool                          `json:"ok"`
-	ProductID   string                        `json:"product_id,omitempty"`
-	ProjectID   string                        `json:"project_id,omitempty"`
-	EventIDs    []string                      `json:"event_ids,omitempty"`
-	ChangedRefs []operatorChangedRef          `json:"changed_refs"`
-	Setup       *store.DomainShapeSetupResult `json:"setup,omitempty"`
+	OK          bool                 `json:"ok"`
+	ProductID   string               `json:"product_id,omitempty"`
+	ProjectID   string               `json:"project_id,omitempty"`
+	EventIDs    []string             `json:"event_ids,omitempty"`
+	ChangedRefs []operatorChangedRef `json:"changed_refs"`
 }
 
 type operatorChangedRef struct {
@@ -930,12 +875,9 @@ type operatorChangedRef struct {
 	Version    string `json:"version"`
 }
 
-func writeOperatorResult(command string, s *store.Store, eventIDs []string, refs []operatorRef, out, errOut io.Writer, setup ...store.DomainShapeSetupResult) int {
+func writeOperatorResult(command string, s *store.Store, eventIDs []string, refs []operatorRef, out, errOut io.Writer) int {
 	changed := make([]operatorChangedRef, 0, len(refs))
 	response := operatorResponse{OK: true, EventIDs: eventIDs, ChangedRefs: changed}
-	if len(setup) != 0 {
-		response.Setup = &setup[0]
-	}
 	for _, ref := range refs {
 		version, err := s.EntityVersion(context.Background(), ref.EntityKind, ref.ID)
 		if err != nil {

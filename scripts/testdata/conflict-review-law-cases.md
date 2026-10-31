@@ -5,12 +5,11 @@ No source, law or data is changed by applying these cases. All source labels
 below are local to the scenario, not actual native record identifiers.
 
 Apply P1, P2, P3 and the letter-versus-intent duty in CD-0230 D3 where relevant.
-Record the rule, size, outcome and supporting case records. State supported,
+Record the rule, outcome and supporting case records. State supported,
 unproved or violated, without inventing missing facts or silently settling an
 interpretation conflict. Keep claims separate from approvals and acceptance.
 
-Each case's attributed work record gives its size as `larger`. Ordered records
-mean retained source identity and independently established order, not timestamps
+Ordered records mean retained source identity and independently established order, not timestamps
 the acting agent supplied. These cases concern internal engineering only: no
 UI, changed product outcome, production data, security boundary, spending or
 legal obligation changes. They do not authorize a new enforcement mechanism.
@@ -26,14 +25,14 @@ The source retains these records in order:
 3. The agent moves the law to records, preserving its obligation and recording
    the reason and derived authority. The implementation remains unchanged.
 
-## owner-map-change
+## implementation-owner-change
 
 The source retains these records in order:
 1. The accepted Domain contract and law assign record encoding to records, but
-   the implementation and package map place that mechanism under transport.
+   the implementation and its callers place that mechanism under transport.
 2. An attributed architecture decision, within the change's approved scope,
    confirms the records responsibility and validates the proposed correction.
-3. The candidate corrects the implementation ownership and map to records. The
+3. The candidate moves the implementation and its callers to records. The
    law stays in records with its original obligation. Source and caller review
    establish that the corrected mechanism performs the governed behavior.
 

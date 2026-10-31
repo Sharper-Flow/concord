@@ -1,13 +1,17 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // Work context combines the current declaration and retained finding claims
@@ -38,13 +42,11 @@ const (
 
 // The closed source union of one required reading. A repository reading
 // names the Project and one normalized repository-contained path at a
-// commit; a knowledge reading names the store's law-revision identity; a
-// domain_shape reading pins an explicit selection of the Product home. No
+// commit; a knowledge reading names the store's law-revision identity. No
 // arm accepts another arm's fields, and no reading accepts a tmp source.
 const (
 	WorkContextSourceRepositoryFile = "repository_file"
 	WorkContextSourceKnowledge      = "knowledge"
-	WorkContextSourceDomainShape    = "domain_shape"
 )
 
 // Finding origins the reader derives from the source event kind. A
@@ -66,14 +68,13 @@ const (
 // WorkContextReadingSource is the closed source union of one reading. The
 // Kind selects the arm; the other arm's fields must stay empty.
 type WorkContextReadingSource struct {
-	Kind        string               `json:"kind"`
-	ProjectID   string               `json:"project_id,omitempty"`
-	Path        string               `json:"path,omitempty"`
-	CommitOID   string               `json:"commit_oid,omitempty"`
-	SourceID    string               `json:"source_id,omitempty"`
-	LawID       string               `json:"law_id,omitempty"`
-	ContentHash string               `json:"content_hash,omitempty"`
-	Selector    *DomainShapeSelector `json:"selector,omitempty"`
+	Kind        string `json:"kind"`
+	ProjectID   string `json:"project_id,omitempty"`
+	Path        string `json:"path,omitempty"`
+	CommitOID   string `json:"commit_oid,omitempty"`
+	SourceID    string `json:"source_id,omitempty"`
+	LawID       string `json:"law_id,omitempty"`
+	ContentHash string `json:"content_hash,omitempty"`
 }
 
 // WorkContextReading is one required reading entry of the current context.
@@ -85,6 +86,61 @@ type WorkContextReading struct {
 	Reason               string                   `json:"reason"`
 	ProductWideRationale string                   `json:"product_wide_rationale,omitempty"`
 	Source               WorkContextReadingSource `json:"source"`
+}
+
+// UnmarshalJSON keeps the required-reading source union closed on internal
+// replay paths as well as at the public authoring boundary.
+func (reading *WorkContextReading) UnmarshalJSON(raw []byte) error {
+	var decoded struct {
+		DomainID             string          `json:"domain_id"`
+		Reason               string          `json:"reason"`
+		ProductWideRationale string          `json:"product_wide_rationale,omitempty"`
+		Source               json.RawMessage `json:"source"`
+	}
+	if err := decodeStrictKnowledgeJSON(raw, &decoded); err != nil {
+		return err
+	}
+	source, err := decodeClosedReadingSource(decoded.Source)
+	if err != nil {
+		return err
+	}
+	*reading = WorkContextReading{DomainID: decoded.DomainID, Reason: decoded.Reason, ProductWideRationale: decoded.ProductWideRationale, Source: source}
+	return nil
+}
+
+func decodeClosedReadingSource(raw []byte) (WorkContextReadingSource, error) {
+	var decoded WorkContextReadingSource
+	if err := decodeStrictKnowledgeJSON(raw, &decoded); err != nil {
+		return decoded, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return decoded, err
+	}
+	allowed := []string{"kind"}
+	switch decoded.Kind {
+	case WorkContextSourceRepositoryFile:
+		allowed = append(allowed, "project_id", "path", "commit_oid")
+	case WorkContextSourceKnowledge:
+		allowed = append(allowed, "source_id", "law_id", "content_hash")
+	default:
+		return decoded, fmt.Errorf("unknown work-context reading source kind %q", decoded.Kind)
+	}
+	for field := range fields {
+		if !slices.Contains(allowed, field) {
+			return decoded, fmt.Errorf("reading source kind %q forbids %s", decoded.Kind, field)
+		}
+	}
+	return decoded, nil
+}
+
+func decodeStrictKnowledgeJSON(data []byte, target any) error {
+	if err := payloadschema.ValidateUniqueJSON(data); err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(target)
 }
 
 // WorkContextFindingView is one assembled finding of the current view. The
@@ -128,12 +184,11 @@ type WorkContextDomainGroup struct {
 // retained findings), and the Domain grouping. SourceEventFrontier is the
 // highest sequence among the work item's context-source events.
 type WorkContextView struct {
-	SubjectCommit       string                    `json:"subject_commit,omitempty"`
-	OraclePreparations  []NativeOraclePreparation `json:"oracle_preparations,omitempty"`
-	SourceEventFrontier int64                     `json:"source_event_frontier"`
-	RequiredReading     []WorkContextReading      `json:"required_reading"`
-	Findings            []WorkContextFindingView  `json:"findings"`
-	DomainGroups        []WorkContextDomainGroup  `json:"domain_groups"`
+	SubjectCommit       string                   `json:"subject_commit,omitempty"`
+	SourceEventFrontier int64                    `json:"source_event_frontier"`
+	RequiredReading     []WorkContextReading     `json:"required_reading"`
+	Findings            []WorkContextFindingView `json:"findings"`
+	DomainGroups        []WorkContextDomainGroup `json:"domain_groups"`
 	// ResearchFindings carries the latest declaration anchor's selected
 	// research in authored order, resolved through the canonical
 	// selected-read helper. Research entries and event-owned findings share
@@ -236,7 +291,7 @@ func validateWorkContextReading(reading WorkContextReading) error {
 		if !workContextCommitOID(reading.Source.CommitOID) {
 			return workContextFailure(KindInvalidPayload, "work_context", "repository reading commit_oid must be 40 to 64 hex bytes", "pin the commit the reading was taken at")
 		}
-		if reading.Source.SourceID != "" || reading.Source.LawID != "" || reading.Source.ContentHash != "" || reading.Source.Selector != nil {
+		if reading.Source.SourceID != "" || reading.Source.LawID != "" || reading.Source.ContentHash != "" {
 			return workContextFailure(KindInvalidPayload, "work_context", "repository reading carries knowledge source fields", "use one closed source arm")
 		}
 	case WorkContextSourceKnowledge:
@@ -249,15 +304,11 @@ func validateWorkContextReading(reading WorkContextReading) error {
 		if !workflowDigest(reading.Source.ContentHash) {
 			return workContextFailure(KindInvalidPayload, "work_context", "knowledge reading content_hash must be a sha256 digest", "pin the law revision content hash")
 		}
-		if reading.Source.ProjectID != "" || reading.Source.Path != "" || reading.Source.CommitOID != "" || reading.Source.Selector != nil {
+		if reading.Source.ProjectID != "" || reading.Source.Path != "" || reading.Source.CommitOID != "" {
 			return workContextFailure(KindInvalidPayload, "work_context", "knowledge reading carries repository source fields", "use one closed source arm")
 		}
-	case WorkContextSourceDomainShape:
-		if err := validateDomainShapeReadingSource(reading.Source); err != nil {
-			return err
-		}
 	default:
-		return workContextFailure(KindInvalidPayload, "work_context", "reading source kind must be repository_file, knowledge or domain_shape", "use the closed source union")
+		return workContextFailure(KindInvalidPayload, "work_context", "reading source kind must be repository_file or knowledge", "use the closed source union")
 	}
 	return nil
 }
@@ -523,15 +574,6 @@ func workflowRecordWorkContextEvents(ctx context.Context, tx *sql.Tx, request Wo
 		if err := ValidateWorkContextDomainTx(ctx, tx, request.WorkID, reading.DomainID, reading.ProductWideRationale); err != nil {
 			return nil, err
 		}
-		if reading.Source.Kind == WorkContextSourceDomainShape {
-			product, err := architectureBindingProductIDTx(ctx, tx, request.WorkID)
-			if err != nil {
-				return nil, err
-			}
-			if _, err := sampleDomainShapeReading(ctx, tx, product, reading); err != nil {
-				return nil, err
-			}
-		}
 	}
 	for _, finding := range payload.ContextFindings {
 		if err := ValidateWorkContextDomainTx(ctx, tx, request.WorkID, finding.DomainID, finding.ProductWideRationale); err != nil {
@@ -685,16 +727,14 @@ func workContextOriginForKind(kind string) string {
 // nil.
 func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkContextView, error) {
 	view := WorkContextView{RequiredReading: []WorkContextReading{}, Findings: []WorkContextFindingView{}, DomainGroups: []WorkContextDomainGroup{}}
-	subject, subjectErr := readCurrentOracleSubject(ctx, q, workID)
-	if subjectErr != nil {
-		return nil, subjectErr
+	review, reviewErr := readWorkflowReviewFacts(ctx, q, workID)
+	if reviewErr != nil {
+		return nil, reviewErr
 	}
-	view.SubjectCommit = subject
-	preparations, prepareErr := readSelectedOraclePreparations(ctx, q, workID)
-	if prepareErr != nil {
-		return nil, prepareErr
+	if review.Candidate != nil {
+		view.SubjectCommit = review.Candidate.Commit
 	}
-	view.OraclePreparations = preparations
+	var prepareErr error
 	view.SourceEventFrontier, prepareErr = readWorkContextSourceFrontier(ctx, q, workID)
 	if prepareErr != nil {
 		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the work context source frontier", true, "retry once the database is readable", prepareErr)
@@ -705,10 +745,6 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	anchorErr := q.QueryRowContext(ctx, `SELECT declaration_seq,declaration_id,declaration_payload FROM work_context_state WHERE work_id=? AND declaration_seq>0`, workID).Scan(&anchorSeq, &anchor.EventID, &anchor.Payload)
 	if anchorErr != nil && anchorErr != sql.ErrNoRows {
 		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the latest work context declaration", true, "retry once the database is readable", anchorErr)
-	}
-	review, reviewErr := readWorkflowReviewFacts(ctx, q, workID)
-	if reviewErr != nil {
-		return nil, reviewErr
 	}
 	byID := make(map[string]WorkContextFindingView)
 	order := make([]string, 0, WorkContextViewFindingsMax+1)
@@ -769,7 +805,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 			fmt.Sprintf("the current work context measures %d bytes of canonical JSON, above the %d-byte view bound and the read refuses instead of truncating", len(viewJSON), WorkContextCombinedMaxBytes),
 			workContextOverflowRecovery())
 	}
-	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.ResearchFindings) == 0 && len(view.RequiredReading) == 0 && len(view.OraclePreparations) == 0 && view.SubjectCommit == "" {
+	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.ResearchFindings) == 0 && len(view.RequiredReading) == 0 && view.SubjectCommit == "" {
 		return nil, nil
 	}
 	return &view, nil

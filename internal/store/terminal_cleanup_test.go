@@ -32,7 +32,6 @@ func TestTerminalCleanupDefersUnreleasedOwners(t *testing.T) {
 	const other = `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('other-work','task','Other','needed',0,1,'now','now')`
 	const claim = `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES('claim','work-done','proj-web','wts:work-done','work/closed','1111111111111111111111111111111111111111','/synthetic/work','pending','operator','fixture','now','now')`
 	const entry = `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES('wts:work-done','proj-web','claim','work/closed','1111111111111111111111111111111111111111','/synthetic/work','repository-fixture','reclaimed','now')`
-	const lease = `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('lease-fixture','work-done','proj-web','/synthetic/work','held','client-fixture','agent-fixture','session-fixture','operator','[]','now','running')`
 	for _, tc := range []struct {
 		name    string
 		kind    FailureKind
@@ -42,7 +41,6 @@ func TestTerminalCleanupDefersUnreleasedOwners(t *testing.T) {
 		{"pending_claim", KindResourceBusy, []string{claim}},
 		{"active_tree", KindResourceBusy, []string{entry, `UPDATE worktree_entries SET state='active'`}},
 		{"native_occupancy", KindResourceBusy, []string{entry, `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) VALUES('wts:work-done:proj-web:claim','session-fixture','now',0)`}},
-		{"held_verify_lease", KindResourceBusy, []string{lease}},
 		{"ref_preservation_debt", KindOperationConflict, []string{`INSERT INTO worktree_ref_outcomes(set_id,project_id,claim_op_id,branch,phase,reason,recorded_at) VALUES('wts:work-done','proj-web','claim','work/closed','restoration_owed','restore','now')`}},
 		{"pending_vacate", KindOperationConflict, []string{`INSERT INTO session_vacate_requests VALUES('work-done','session-fixture','proj-web','/synthetic/work','/synthetic/main',1,0)`}},
 		{"outside_repair", KindOutsideRepairActive, []string{`INSERT INTO outside_repair_dispositions VALUES('work-done','active','repair','{}','now')`}},
@@ -200,26 +198,6 @@ func TestTerminalCleanupPreservesReferencedResearch(t *testing.T) {
 	}
 }
 
-func TestTerminalCleanupCollectsReleasedLeaseStreamsAfterReleaseVersion(t *testing.T) {
-	t.Parallel()
-	s, _ := terminalCleanupFixture(t)
-	terminalCleanupSQL(t, s,
-		`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome,stdout_blob,stderr_blob) VALUES('lease-fixture','work-done','proj-web','/synthetic/work','held','client-fixture','agent-fixture','session-fixture','operator','[]','now','running',X'616263',X'646566')`,
-	)
-	assertFailureKind(t, s.CleanupPublishedTerminalWork(t.Context(), "work-done"), KindResourceBusy)
-	terminalCleanupSQL(t, s,
-		`UPDATE worktree_verify_leases SET state='released',outcome='completed' WHERE lease_id='lease-fixture'`,
-		`UPDATE work_items SET version=version+1 WHERE id='work-done'`,
-	)
-	if err := s.CleanupPublishedTerminalWork(t.Context(), "work-done"); err != nil {
-		t.Fatal(err)
-	}
-	var count int
-	if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM worktree_verify_leases WHERE lease_id='lease-fixture'`).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("released stream bytes remain: count=%d err=%v", count, err)
-	}
-}
-
 func TestTerminalCleanupRetainsDefectAdmissionClassification(t *testing.T) {
 	for _, kind := range []string{"bug", "research"} {
 		t.Run(kind, func(t *testing.T) {
@@ -298,7 +276,7 @@ func terminalCleanupFixtureForKind(t *testing.T, kind string, beforeCancel ...fu
 		if err := runVerdictActionAs(t, s, "work-done", "record_verdict", criterionAssociationPayload(ref, "predicate:first", "predicate:second"), 0, f.owner); err != nil {
 			t.Fatalf("associate research criteria: %v", err)
 		}
-		if err := runCoordinatorActionTx(t, s, BuiltinWorkflowRegistry(), "work-done", "confirm_premise", f.owner, "confirm", `{}`); err != nil {
+		if err := runCoordinatorActionTx(t, s, BuiltinWorkflowRegistry(), "work-done", "confirm_premise", f.owner, `{}`); err != nil {
 			t.Fatalf("confirm research premise: %v", err)
 		}
 		if err := closureBind(t, f, "work-done", "review", hash); err != nil {
@@ -377,6 +355,39 @@ func TestTerminalCleanupDeletesOnlySettledExecution(t *testing.T) {
 		t.Fatalf("idempotent re-entry: %v", err)
 	}
 	assertFailureKind(t, publishedWorkAbsenceQ(t.Context(), s.db, "work-done", "test"), KindProjectionNotFound)
+}
+
+func TestTerminalCleanupRetiresLegacyDomainShapeReading(t *testing.T) {
+	t.Parallel()
+	// The completed research fixture binds its reviewed receipt, verifies the
+	// committed canonical note, and settles its real compaction operation.
+	s, _ := terminalCleanupFixtureForKind(t, "research")
+	var lifecycle string
+	if err := s.db.QueryRow(`SELECT lifecycle FROM work_items WHERE id='work-done'`).Scan(&lifecycle); err != nil || lifecycle != "completed" {
+		t.Fatalf("completed publication fixture lifecycle=%q err=%v", lifecycle, err)
+	}
+	// Restore legacy persisted bytes only as a fixture. No authoring action
+	// may replace this terminal declaration.
+	const payload = `{"required_reading":[{"domain_id":"legacy-domain","reason":"Required reading","source":{"kind":"domain_shape","source_id":"proj-web","selector":{"path":"internal/store"}}}],"finding_refs":[],"context_findings":[]}`
+	terminalCleanupSQL(t, s, `INSERT INTO work_context_state(work_id,source_frontier,declaration_seq,declaration_id,declaration_payload) VALUES('work-done',1,1,'legacy-declaration','`+payload+`') ON CONFLICT(work_id) DO UPDATE SET declaration_payload=excluded.declaration_payload`)
+	before := catalogUpgradeRows(t, s.db, "work_context_state", "work_items", "archived_work", "durable_operations")
+	assertFailureKind(t, preflightDomainShapeReadingUpgrade(t.Context(), s.db), KindUpgradeBlocked)
+	if after := catalogUpgradeRows(t, s.db, "work_context_state", "work_items", "archived_work", "durable_operations"); !reflect.DeepEqual(after, before) {
+		t.Fatal("upgrade preflight changed the immutable terminal declaration or publication")
+	}
+	if err := s.CleanupPublishedTerminalWork(t.Context(), "work-done"); err != nil {
+		t.Fatalf("existing verified published cleanup: %v", err)
+	}
+	var retained int
+	if err := s.db.QueryRow(`SELECT (SELECT count(*) FROM work_context_state WHERE work_id='work-done')+(SELECT count(*) FROM work_items WHERE id='work-done')`).Scan(&retained); err != nil || retained != 0 {
+		t.Fatalf("published cleanup retained legacy execution: count=%d err=%v", retained, err)
+	}
+	if after := catalogUpgradeRows(t, s.db, "archived_work"); !reflect.DeepEqual(after["archived_work"], before["archived_work"]) {
+		t.Fatal("cleanup changed the verified canonical outcome")
+	}
+	if err := preflightDomainShapeReadingUpgrade(t.Context(), s.db); err != nil {
+		t.Fatalf("published cleanup did not clear the upgrade blocker: %v", err)
+	}
 }
 
 func lawCleanupContent(id, lifecycle string) string {

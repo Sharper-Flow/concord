@@ -110,7 +110,7 @@ revisions with the installation evidence. On a fresh installation, register
 the intended names in the client's `agent_scope` before starting managed work.
 
 The additive command preserves existing grants under
-[CD-0097 D6](../../.concord/law/decisions/CD-0097-bounded-parallel-predecessor-migration.md#d6-trusted-client-policy-grows-by-an-additive-operator-command).
+[TS5](../../.concord/law/specs/agent-call-context-contract.md#additive-trusted-client-policy-changes).
 Removing retired names is a separate operator decision through the
 full-statement `client-policy-update` command; it is not part of this expansion.
 The installer does not modify trusted-client policy. This is an operator
@@ -174,11 +174,9 @@ which subagent produced the review; the coordinator owns that independence claim
 The [payload schema](../../contracts/agent-tool-surface-payloads.schema.json)
 owns the typed report.
 
-Native `worktree_verify` preparation retains its control bundle, subject, and
-environment. Execution selects only `phase: execute` and the exact
-`preparation_run_ref`. Captured producer receipts remain separate from the
-coordinator's `record_verdict`; neither a Task summary nor a claimed verdict
-replaces required verification evidence or CI.
+The coordinator binds a verification report with its source, commit, result,
+and run reference. Independent Review judges whether the evidence is adequate;
+required CI remains external and mandatory.
 
 ### Managed session participation
 
@@ -303,6 +301,31 @@ It reports commands, exit codes and failure evidence, linking known-flake record
 only when they match. It denies editing, workflow writes and CI watch; the caller
 owns waits, evidence binding and delivery. It shares the reviewer's host safety
 and no-bypass boundaries. Test output alone is not captured verification proof.
+
+The native `concord-implement` helper accepts assigned paths or a subsystem,
+an outcome and a named check. It returns needs-decision for missing inputs or
+changes outside that assignment. For a Fix it proves the regression fails before
+the fix and passes after. It leaves changes uncommitted and reports exact paths,
+commands, exits and gaps. It shares the reviewer's read access, explore/lookup-only
+delegation, host safety and no-bypass boundaries; the caller owns workflow state
+and delivery.
+
+The native `concord-research` helper investigates a framed question within the
+caller's scope and budget, using exploration and external lookup for bounded
+follow-up questions. It resolves law through `concord_knowledge`, edits no files
+and returns claim-level citations, uncertainty, gaps and caller decisions. The
+driving session records the conclusion. It shares the verifier's editing-tool
+denials and the other helpers' workflow, host safety and no-bypass boundaries;
+read-only diagnostics are allowed, but command-text restrictions are not a sandbox.
+
+The native `concord-design` helper makes one bounded visual UI or UX change in
+assigned files in the caller's worktree. It has the implementer's edit-capable
+permissions, Concord reads, explore/lookup-only delegation and no-bypass boundaries.
+It returns uncommitted changes, checks and inspectable preview material: a live
+URL or screenshots identifying the exact version shown. Missing scope or required
+approval returns needs-decision. The caller presents the material and obtains
+operator-owned UI/UX approval; a Task result never supplies it. Product browser
+tooling may be used when exposed by the host, but the profile adds no provider.
 
 Hosts that enable helper-to-utility delegation must set OpenCode's
 [`subagent_depth`](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/web/src/content/docs/config.mdx)

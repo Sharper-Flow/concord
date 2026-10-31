@@ -31,8 +31,6 @@ func TestDomainReadPayloadTypesPinResultFieldsAndSchema(t *testing.T) {
 	}{
 		{operation: "list", result: store.DomainListResult{}, payload: store.DomainListPayload{}},
 		{operation: "detail", result: store.DomainDetailResult{}, payload: store.DomainDetailPayload{}},
-		{operation: "footprint", result: store.DomainFootprintResult{}, payload: store.DomainFootprintPayload{}},
-		{operation: "shape", result: store.DomainShapeResult{}, payload: store.DomainShapeResult{}},
 	} {
 		t.Run(testCase.operation, func(t *testing.T) {
 			contract, ok := agentcontract.ValidateContractOperation("concord_domain", testCase.operation)

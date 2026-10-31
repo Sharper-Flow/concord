@@ -72,13 +72,9 @@ func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, ca
 		candidate(repo)
 	}
 	j := &candidateJourney{fixture: fixture, s: s, workID: id, repo: repo, acceptor: lawChangeConstructorActor}
-	// qAssociateCurrentProof uses a single-item lease ID. These peers share a
-	// store, so capture each real native run under its own lease instead.
-	run, err := s.VerifyWorktree(t.Context(), j.request("attribution-"+id, nil))
-	if err != nil || run.ExitCode != 0 {
-		t.Fatalf("native proof: %+v %v", run, err)
-	}
-	qAcceptCriterionReview(t, fixture, repo, run.OperationRef)
+	run := j.observeRun(t, "attribution-"+id)
+	j.bindVerification(t, run)
+	qAcceptCriterionReview(t, fixture, run.OperationRef)
 	owner := ownerRefForTest(t, lawChangeConstructorActor)
 	if err := advanceWorkflowTestInstanceToStep(t.Context(), s, id, "acceptance", owner); err != nil {
 		t.Fatal(err)
@@ -87,13 +83,12 @@ func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, ca
 	if err := runVerdictActionAs(t, s, id, "record_verdict", qAssociationPayload(t, f), 0, lawChangeConstructorActor); err != nil {
 		t.Fatal(err)
 	}
-	j.bindVerification(t, run)
 	var artifacts int
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')='artifact'`, id).Scan(&artifacts); err != nil {
 		t.Fatal(err)
 	}
 	if artifacts == 0 {
-		if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": run.OperationRef, "producer_id": "principal/operator", "producer_run_ref": run.OperationRef, "producer_watermark": "request-" + strings.TrimPrefix(run.LeaseID, "candidate-")}, lawChangeConstructorActor); err != nil {
+		if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": run.OperationRef}, lawChangeConstructorActor); err != nil {
 			t.Fatal(err)
 		}
 	}

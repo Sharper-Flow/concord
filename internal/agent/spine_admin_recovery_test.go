@@ -1,9 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"slices"
 	"testing"
 
@@ -57,22 +54,5 @@ func TestSpineAdministrativeRecoveryPreservesValidProof(t *testing.T) {
 	}
 	if f.read(t).Pinned.Step != "acceptance" {
 		t.Fatal("verdict unexpectedly left the proof-consuming gate")
-	}
-	if err := os.WriteFile(filepath.Join(f.path, "pkg/value.go"), []byte("package spine\n\nfunc Value() int { return 2 + 5 }\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	gitRun(t, f.path, "add", "pkg/value.go")
-	gitRun(t, f.path, "commit", "-qm", "advance checked candidate")
-	if gitRun(t, f.path, "rev-parse", "HEAD") == candidate {
-		t.Fatal("candidate did not advance")
-	}
-	version := f.read(t).Pinned.Pin.Version
-	refused := f.action(t, "record_verdict", verdict)
-	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "stale_requires_review" {
-		encoded, _ := json.Marshal(refused.Error)
-		t.Fatalf("same proof on a new candidate = %s / %s, want stale_requires_review", refused.Outcome, encoded)
-	}
-	if got := f.read(t).Pinned.Pin.Version; got != version {
-		t.Fatalf("stale proof changed work version: %d -> %d", version, got)
 	}
 }

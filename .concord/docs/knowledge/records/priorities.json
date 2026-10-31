@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-22T00:00:00Z",
   "home_domain_id": "product-root:concord",
@@ -17,7 +15,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:cd67754e7ee6edf3449ec04fb68ec1239ab3a1fcc3cd9dd20e6eb804c1307df8",
+  "sha256": "sha256:cbaa9f8faa8a67537cfb500b16b0fb3855aa8443422b43d3222e3e0ce05f12b5",
   "status": "accepted",
   "summary": "Ranked-first constitution and sole canonical source for the one-operator operating envelope, the constraints, the conflict rules (Appendix A), the open conflicts with current Concord text (Appendix B), the route for Concord's own development, and the standing law that serves the operator's goals in goals.md, which is guidance, not law. A cited decision record stays the authority for what it decides. Where a companion document contradicts this file, this file wins.",
   "tags": [

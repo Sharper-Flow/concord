@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Tests for the CI umbrella behavior of scripts/check-json.py.
+"""Tests for the JSON umbrella and current agent-jobs corpus cardinality.
 
 check-json.py is the one complete contract entrypoint in the verify-contracts
 job: it nests scripts/check-agent-contracts.py, the nested subprocess inherits
 the umbrella step's environment (where CONCORD_REQUIRE_BUN=1 now lives), and a
 nonzero nested exit must fail the umbrella. External-suite options forward
-ownership to separately required CI jobs. The subprocess layer is faked so
-these tests do not execute the nested checkers.
+ownership to separately required CI jobs. Umbrella tests fake subprocesses;
+cardinality tests exercise the real corpus checker and schema.
 """
 from __future__ import annotations
 
 import ast
+import copy
 import importlib.util
 import io
 import sys
@@ -176,6 +177,36 @@ class ExternalSuiteOptionForwardingTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("agent contract drift", out)
         self.assertIn("JSON validation failed", err)
+
+
+class AgentJobsCardinalityTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("check_agent_jobs", ROOT / "scripts/check-agent-jobs.py")
+        assert spec and spec.loader
+        cls.checker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.checker)
+
+    def test_current_corpus_passes_with_exactly_nineteen_scenarios(self):
+        corpus = self.checker._load_json(self.checker.CORPUS_PATH)
+        self.assertEqual(len(corpus["scenarios"]), 19)
+        self.assertEqual(self.checker.check_agent_jobs(), [])
+
+    def test_checker_and_schema_reject_missing_or_extra_scenario(self):
+        corpus = self.checker._load_json(self.checker.CORPUS_PATH)
+        for count in (18, 20):
+            with self.subTest(count=count):
+                mutated = copy.deepcopy(corpus)
+                if count == 18:
+                    mutated["scenarios"].pop()
+                else:
+                    extra = copy.deepcopy(mutated["scenarios"][0])
+                    extra["id"] = "cardinality-extra-scenario"
+                    mutated["scenarios"].append(extra)
+                findings = self.checker._check_corpus(mutated)
+                self.assertTrue(any(f"expected 19 scenarios, got {count}" in finding for finding in findings), findings)
+                bound = "minItems" if count == 18 else "maxItems"
+                self.assertTrue(any(f"{bound} at instance.scenarios" in finding for finding in findings), findings)
 
 
 if __name__ == "__main__":

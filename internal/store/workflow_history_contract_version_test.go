@@ -45,7 +45,7 @@ func setHistoryContractPin(t *testing.T, s *Store, workID string, version int64,
 // a work item at contract v2, contract_version 1 returns v1 exactly as
 // recorded, with its approval, its successor, its own definition pin, and
 // the Product-truth flag that pin answers, while the instance fields stay
-// current and the active contract's operator question is omitted.
+// current.
 func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 	t.Parallel()
 	s, workID := historyContractFixture(t, "history-contract-version")
@@ -104,9 +104,6 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 	wantTruth := registered.Definition.ChangesProductTruth
 	if contract.ChangesProductTruth == nil || *contract.ChangesProductTruth != *wantTruth || workflow.ChangesProductTruth != *wantTruth {
 		t.Fatalf("selected Product-truth flag = %v (top %v), want v1's pinned %v", contract.ChangesProductTruth, workflow.ChangesProductTruth, wantTruth)
-	}
-	if workflow.OperatorQuestion != nil || workflow.WithheldOperatorQuestion != nil {
-		t.Fatal("a historical read must omit the active contract's operator question")
 	}
 	if workflow.State != active.Workflow.State || workflow.CurrentStep != active.Workflow.CurrentStep || workflow.Definition != active.Workflow.Definition {
 		t.Fatalf("instance fields = %s/%s/%+v, want the current %s/%s/%+v", workflow.State, workflow.CurrentStep, workflow.Definition, active.Workflow.State, active.Workflow.CurrentStep, active.Workflow.Definition)

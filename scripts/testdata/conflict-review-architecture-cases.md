@@ -4,18 +4,17 @@ These are synthetic records, not receipts, permissions or real operations.
 No source, law or data is changed by applying these cases. All source labels
 below are local to the scenario, not actual native record identifiers.
 
-Apply P4 and P6 where relevant. Record the rule, size, outcome and supporting
-case records. State supported, unproved or violated, without inventing missing
+Apply P4 and P6 where relevant. Record the rule, outcome and supporting case
+records. State supported, unproved or violated, without inventing missing
 facts. Keep claims separate from approvals and acceptance.
 
-Each case's attributed work record gives its size as `larger`. Ordered records
-mean retained source identity and independently established order, not timestamps
+Ordered records mean retained source identity and independently established order, not timestamps
 the acting agent supplied. A follow-up item here means a recorded planning item
 that names the part or boundary and links the raising change; its rule label and
 the saved view belong to a separate duty and are not judged here. An architect
 step means a recorded architecture decision within the change's approved scope.
 These cases concern internal engineering only and do not authorize a new
-enforcement mechanism or size-triggered routing.
+enforcement mechanism or new routing.
 
 ## boundary-kept-with-follow-up
 

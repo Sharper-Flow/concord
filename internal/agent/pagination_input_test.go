@@ -36,7 +36,6 @@ var paginationBaseInputs = map[string]map[string]any{
 	"concord_work_trace.research":              {"product_id": "prod-alpha", "work_id": "work-done"},
 	"concord_knowledge.search":                 {},
 	"concord_domain.list":                      {"product_id": "prod-alpha"},
-	"concord_domain.footprint":                 {"product_id": "prod-alpha", "paths": []string{"internal/store/store.go"}},
 }
 
 // paginatedReadOperations derives the paginated read set from the generated

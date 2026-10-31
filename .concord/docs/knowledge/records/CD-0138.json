@@ -7,8 +7,8 @@
   "date": "2026-09-12T00:00:00Z",
   "evidence": [
     "internal/store/workflow_registry.go",
-    "internal/store/workflow_parts.go",
-    "internal/store/workflow_parts_test.go",
+    "internal/store/workflow_definitions.go",
+    "internal/store/workflow_definitions_test.go",
     "internal/store/workflow_phase_b_test.go",
     ".concord/law/specs/workflow-engine-contract.md",
     ".concord/docs/workflows.md"

@@ -103,7 +103,9 @@ func (s *Store) lawCandidateProof(ctx context.Context, workID string) *workflowL
 	now := workflowLawInventoryMap(after)
 	for _, id := range ids {
 		_, exists := now[id]
-		if history.untouched(gitCtx, shards.lawFiles(strings.TrimPrefix(id, candidate.ProjectID+"/"), !exists)) {
+		lawID := strings.TrimPrefix(id, candidate.ProjectID+"/")
+		files := shards.lawFiles(lawID)
+		if history.untouched(gitCtx, files) || !exists && len(files) == 0 && history.removedLawUntouched(gitCtx, shards, lawID) {
 			proof.laws[id] = true
 		}
 	}
@@ -140,23 +142,43 @@ func (h workflowLawHistory) untouched(ctx context.Context, paths []string) bool 
 	return err == nil && strings.TrimSpace(string(touched)) == ""
 }
 
-// workflowLawShardIndexes holds the fork, candidate, and scanned commit
-// indexes, in that order.
+// When main removed a law before the fork, its record is absent from all
+// three snapshots. Inspect changed record-tree commits and their parents to
+// recover only that law's paths, rather than charging unrelated record edits.
+func (h workflowLawHistory) removedLawUntouched(ctx context.Context, indexes workflowLawShardIndexes, lawID string) bool {
+	var trees []string
+	for _, index := range indexes {
+		if index.recordTree == "" {
+			return false
+		}
+		trees = append(trees, index.recordTree)
+	}
+	args := append([]string{"rev-list", "--parents", "--full-history", "--simplify-merges", "--end-of-options", h.fork + ".." + h.candidate, "--"}, uniqueSorted(trees)...)
+	out, err := workflowLawExternalGit.Run(ctx, h.repo, args...)
+	if err != nil {
+		return false
+	}
+	var files []string
+	for _, commit := range uniqueSorted(strings.Fields(string(out))) {
+		index, err := readWorkflowLawShardIndex(ctx, h.repo, commit)
+		if err != nil || index.recordTree == "" {
+			return false
+		}
+		files = append(files, (workflowLawShardIndexes{index}).lawFiles(lawID)...)
+	}
+	return len(files) == 0 || h.untouched(ctx, uniqueSorted(files))
+}
+
+// workflowLawShardIndexes locates law files across immutable Git snapshots.
 type workflowLawShardIndexes []*workflowLawShardIndex
 
 // lawFiles lists every record shard holding the law and every document those
-// records name. It is empty when no file can carry the law, which leaves the
-// delta charged.
-func (indexes workflowLawShardIndexes) lawFiles(lawID string, removed bool) []string {
+// records name. An empty result needs a separate removed-law history proof.
+func (indexes workflowLawShardIndexes) lawFiles(lawID string) []string {
 	var records, paths []string
 	for _, index := range indexes {
 		records = append(records, index.records[lawID]...)
 		paths = append(paths, index.documents[lawID]...)
-	}
-	if len(records) == 0 && removed && indexes[1].recordTree != "" {
-		// No read commit holds the removed law's record, so the whole
-		// record tree must be untouched.
-		records = append(records, indexes[1].recordTree)
 	}
 	if len(records) == 0 {
 		return nil

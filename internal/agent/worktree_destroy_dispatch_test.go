@@ -7,24 +7,21 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CD-0096 D3 Destroy and D5 continuity through the agent tool surface,
-// against real git. Destroy reclaims merged terminal work under the unchanged
-// git gates. The continuity read re-pins the reading session's held verify leases.
+// CD-0096 D3 Destroy through the agent tool surface against real git.
 
-func authorityInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, tool, operation string, input map[string]any) agentcontract.Envelope {
+func authorityInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, operation string, input map[string]any) agentcontract.Envelope {
 	t.Helper()
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(input)
-	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: tool, Operation: operation, Input: raw}, mutationEnvelope(grant, scopeVersion))
+	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: operation, Input: raw}, mutationEnvelope(grant, scopeVersion))
 	if err != nil {
 		t.Fatalf("dispatch err=%v", err)
 	}
@@ -49,7 +46,7 @@ func TestWorktreeDestroyDispatchReclaimsMergedTerminalWork(t *testing.T) {
 	completeWork(t, s, "work-2")
 	vacateLinkedWorktree(t, s, second, secondGrant, worktreePath, "destroy-2-vacate")
 
-	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_destroy", map[string]any{
+	response := authorityInvoke(t, s, second, secondGrant, "worktree_destroy", map[string]any{
 		"work_id": "work-2", "expected_version": 4, "default_ref": "main", "idempotency_key": "destroy-2",
 	})
 	if response.Outcome != agentcontract.OutcomeOK {
@@ -70,7 +67,7 @@ func TestWorktreeDestroyDispatchNonTerminalNeedsNoConsent(t *testing.T) {
 	vacateLinkedWorktree(t, s, service, grant, worktreePath, "destroy-nt-vacate")
 
 	// CD-0243 D3/D7 retire ordinary nonterminal consent.
-	removed := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
+	removed := authorityInvoke(t, s, service, grant, "worktree_destroy", map[string]any{
 		"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-nt",
 	})
 	if removed.Outcome != agentcontract.OutcomeOK {
@@ -99,14 +96,14 @@ func TestWorktreeDestroyDispatchDiscardsObsoleteContentWithoutConsent(t *testing
 	}
 
 	// The safe path refuses the dirty tree and names the destructive route.
-	refused := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
+	refused := authorityInvoke(t, s, service, grant, "worktree_destroy", map[string]any{
 		"work_id": "work-1", "expected_version": 4, "default_ref": "main", "idempotency_key": "destroy-dirty",
 	})
 	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" {
 		t.Fatalf("refused response=%+v err=%+v, want the dirty-tree refusal", refused, refused.Error)
 	}
 
-	removed := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
+	removed := authorityInvoke(t, s, service, grant, "worktree_destroy", map[string]any{
 		"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "destroy-dirty",
 	})
 	if removed.Outcome != agentcontract.OutcomeOK || removed.Error != nil {
@@ -123,7 +120,7 @@ func TestWorktreeDestroyDispatchKeepsOccupancyRefusalWithoutConsent(t *testing.T
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 
 	for _, destructive := range []bool{false, true} {
-		refused := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
+		refused := authorityInvoke(t, s, service, grant, "worktree_destroy", map[string]any{
 			"work_id": "work-1", "expected_version": 3, "default_ref": "main", "destructive": destructive, "idempotency_key": "destroy-stale",
 		})
 		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "unauthorized" {
@@ -155,36 +152,5 @@ func seedContinuityWorkflow(t *testing.T, s *store.Store, workID string) {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestContinuityDispatchRePinsHeldLease(t *testing.T) {
-	t.Parallel()
-	s, service, grant, _, _, _ := tiersFixture(t)
-	seedContinuityWorkflow(t, s, "work-1")
-	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
-	commandJSON, _ := json.Marshal([]string{"go", "test", "./..."})
-	stamp := fixedTime().UTC().Format(time.RFC3339Nano)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('own-lease','work-1','project-1',?, 'held',?,?,?,?,?,?, 'running')`,
-		worktreePath, grant.ClientRef, grant.AgentRef, grant.SessionRef, grant.PrincipalRef, string(commandJSON), stamp); err != nil {
-		t.Fatal(err)
-	}
-
-	response := authorityInvoke(t, s, service, grant, "concord_work_trace", "continuity", map[string]any{
-		"work_id": "work-1", "page": map[string]any{"limit": 5, "cursor": nil},
-	})
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("continuity response=%+v err=%+v", response, response.Error)
-	}
-	var payload struct {
-		Pinned struct {
-			ActiveVerifyLeases []store.ActiveWorktreeVerifyLease `json:"active_verify_leases"`
-		} `json:"pinned"`
-	}
-	if err := json.Unmarshal(response.Result, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if len(payload.Pinned.ActiveVerifyLeases) != 1 || payload.Pinned.ActiveVerifyLeases[0].LeaseID != "own-lease" {
-		t.Fatalf("pinned.active_verify_leases=%+v, want the session's held lease re-pinned", payload.Pinned.ActiveVerifyLeases)
 	}
 }

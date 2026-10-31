@@ -41,7 +41,7 @@ func testWorkListRetainedText(t *testing.T, detail string) {
 	if err := store.ApplyOperation(ctx, s, store.Operation{
 		Events: []store.Event{
 			{EventID: "retained-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID,
-				Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: payload},
+				Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: payload},
 			{EventID: "retained-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID,
 				Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1,
 				Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},

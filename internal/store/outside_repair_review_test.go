@@ -306,7 +306,7 @@ func TestOutsideRepairContinuityDoesNotReadBrokenWorkflow(t *testing.T) {
 			if err != nil {
 				t.Fatalf("held continuity consulted broken %s: %v", broken, err)
 			}
-			if out.OutsideRepairDisposition == nil || out.OutsideRepairDisposition.State != OutsideRepairStateActive || out.WorkPin == nil || out.WorkPin.WorkID != work || out.Contract != nil || len(out.StepActions) != 0 || out.PendingOperatorDecision != nil || !reflect.DeepEqual(out.OutsideRepairRoute, outsideRepairRouteNames()) {
+			if out.OutsideRepairDisposition == nil || out.OutsideRepairDisposition.State != OutsideRepairStateActive || out.WorkPin == nil || out.WorkPin.WorkID != work || out.Contract != nil || len(out.StepActions) != 0 || !reflect.DeepEqual(out.OutsideRepairRoute, outsideRepairRouteNames()) {
 				t.Fatalf("bounded outside context = %+v", out)
 			}
 			if outsideRepairDatabaseSnapshot(t, s) != before {

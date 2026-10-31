@@ -247,20 +247,52 @@ the running sessions hold. A prepared record,
 the blockers and the exact operator commands. The install prints them and
 `status` repeats them.
 
-The operator completes the prepared release with the two recorded commands:
+From an ordinary shell, the operator runs the recorded prepared-cutover command
+when the maintenance window opens:
 
 ```sh
-env -u CONCORD_DB_PATH XDG_DATA_HOME=/data /data/concord/v0.2.0/bin/concord upgrade
-python3 concord-installer.py activate --version v0.2.0
+python3 concord-installer.py cutover --version v0.2.0
 ```
+
+It refuses while **any** live session remains, naming the holders before recovery,
+snapshot or migration. An unknown session observation also refuses. Otherwise it
+sends explicit JSON to the candidate's upgrade command, verifies that no migration
+remains pending, activates the prepared tree, and checks `current`, the active
+manifest and schema. It uses the recorded candidate, without downloading a release.
+An inherited `CONCORD_DB_PATH` cannot redirect the upgrade to another store.
+This command requires the candidate's own `--version --json` descriptor to
+declare prepared-cutover protocol 1. An older or unknown candidate is retained
+and refuses before session observation or recovery. Retain the candidate and any
+recovery journal, and follow that release's separate migration, activation and
+recovery instructions. After recovery, prepare a newer release that declares the
+protocol if needed. The installer does not infer support from the release version
+or send the new inputs to an older core.
+
+The command never confirms or cancels on the operator's behalf. If an installed
+tree cannot honor the fence, inspect the named trees and use
+`--confirm-sessions-stopped` only after confirming none runs a session. If the
+authoring-cutover gate names pinned work, `--cancel-cutover-pinned-work` explicitly
+requests the existing snapshot-backed cancellation of every selected item.
+Without those flags, the original refusals remain in force.
 
 Only one maintenance command runs at a time: the migration command and every
 installer command share one lock. A second command refuses with `another
 maintenance command is in progress`; re-run it after the first ends.
-The migration command pins the store the plan read, so a shell that sets
-another `CONCORD_DB_PATH` or data home cannot redirect it. While the boundary
-is open, an install whose own activation is blocked or unknown refuses and
-keeps the prepared record. Run the recorded activation command first.
+Cutover holds that lock for the whole command. Its upgrade child inherits the
+same open directory descriptor and validates it through the native lock owner.
+The child closes only its duplicate, without unlocking the parent's descriptor.
+Each upgrade child also holds the retained `native-upgrade.lock` through a
+separate open descriptor, so two children sharing a parent cannot migrate together.
+Every recovery, migration, activation and verification stays inside this one
+exclusion; another install cannot substitute a different prepared release.
+While the boundary is open, an install whose own activation is blocked or unknown
+refuses and keeps the prepared record. Re-run the recorded cutover command to
+complete it.
+
+The separate migration and `activate` routes remain available for diagnosis.
+`concord upgrade` refuses terminal stdin immediately with the required input;
+it does not wait for terminal EOF. Pipe `{}` for defaults or `{"plan":true}`
+for a read-only plan.
 
 When breaking migrations are pending, the migration command takes and verifies
 a database snapshot after session admission closes and the final session checks
@@ -298,9 +330,11 @@ bootstrap, and the next install retries the removal.
 
 Recovery follows the boundary. Before the migration commits, a failed or
 interrupted command leaves the active release usable and the store unchanged,
-and the operator runs the migration again. After the migration commits, the
+and the operator re-runs cutover. After the migration commits, the
 older release cannot open the store, so a crashed activation recovers forward
 to the prepared candidate; repair and uninstall refuse until it completes.
+Re-running cutover after migration or activation completes verifies the same
+release without repeating a completed migration or taking another snapshot.
 
 ## Repair
 

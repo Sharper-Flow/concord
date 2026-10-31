@@ -92,7 +92,13 @@ step, or a store whose readiness it cannot establish by reading, prepares the
 candidate release durably and does not activate it. The active launcher, the
 current root, the tools and the agents stay on the release the running sessions
 hold. Activation completes only after the operator runs the migration and the
-activation commands the installer names. The core exposes this as a read-only
+activation commands the installer names, either separately or through one named
+installer command that composes the same migration and activation and then
+verifies the current release and schema. The composed command holds the shared
+maintenance lock throughout. It preserves the same operator-chosen timing,
+explicit confirmations, snapshot, session, fence, retention and recovery rules;
+it never supplies confirmation on the operator's behalf. The separate commands
+remain available. The core exposes this as a read-only
 readiness plan that reads the store through one read-only SQLite connection.
 The plan does not create a missing store, change permissions, apply migrations,
 repair manifests, or write logical state. The library's own log and
@@ -230,6 +236,15 @@ Scenario: a breaking migration waits for the operator
   And the operator re-runs the recorded activation command
   And the prepared release N+1 becomes the current release
   And a session that starts afterwards opens the store on release N+1
+
+Scenario: the operator runs a composed prepared cutover
+  Given the installer prepared release N+1 for a breaking migration
+  When the operator runs the named installer command for the prepared cutover
+  Then the command holds the shared maintenance lock throughout
+  And it runs the same snapshot-backed migration and activation under their existing protections
+  And it verifies the current release and schema after activation
+  And it never supplies an operator confirmation on the operator's behalf
+  And the separately named migration and activation commands remain available
 
 Scenario: a breaking upgrade requires a verified snapshot
   Given an existing store with a pending breaking migration

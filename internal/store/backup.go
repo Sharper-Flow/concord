@@ -24,6 +24,8 @@ type backupStartedContextKey = sqlitedb.BackupStartedContextKey
 
 type restoreStageReadyContextKey struct{}
 
+type backupVerificationEntryContextKey struct{}
+
 func notifyRestoreStageReady(ctx context.Context, path string) {
 	if notify, ok := ctx.Value(restoreStageReadyContextKey{}).(func(string)); ok {
 		notify(path)
@@ -414,6 +416,9 @@ func backupEventInventory(ctx context.Context, db *sql.DB) (int64, error) {
 }
 
 func verifyBackupFile(ctx context.Context, destination string, supportedMax int, clock func() time.Time) (BackupManifest, error) {
+	if notify, ok := ctx.Value(backupVerificationEntryContextKey{}).(func(string)); ok {
+		notify(destination)
+	}
 	info, err := os.Stat(destination)
 	if err != nil {
 		return BackupManifest{}, wrapFailure(KindUnavailable, "verify_backup", "cannot stat backup snapshot", true, "restore the snapshot path and retry", err)

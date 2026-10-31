@@ -97,6 +97,7 @@ func TestContinuityBlockRecoversWhenReviewCandidateGitIsUnavailable(t *testing.T
 	repo := initLocatorRepo(t)
 	seedLocatorAuthority(t, s, repo)
 	started := seedCLISessionWorktree(t, s, repo)
+	recordCLIWorktreeLocator(t, s, started.WorkID, repo, started.Entry)
 	execUnderWriteGuard(t, s.DatabaseForTesting(),
 		fmt.Sprintf(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 		VALUES('%s',1,'session recovery fixture','internal_sqlite','[]','[]','now',(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','[]',1,'prototype_internal')`, started.WorkID),

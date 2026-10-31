@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// reviewSubjectClaim qualifies a real clean commit on the work's claimed
+// reviewSubjectClaim qualifies a real clean commit on the work's host
 // checkout. Git authorship does not confer workflow authority.
 func reviewSubjectClaim(t *testing.T, s *Store, workID string) (string, string) {
 	t.Helper()
@@ -25,18 +25,12 @@ func reviewSubjectClaimObserved(t *testing.T, s *Store, workID string, observe b
 		t.Fatal(err)
 	}
 	git := newFakeWorktreeGit(root)
-	claim := baseClaim(git)
-	claim.WorkID, claim.ProjectID, claim.ExpectedVersion = workID, "project", readWorkVersion(t, s, workID)
-	claim.OpID, claim.RequestID = "review-claim-"+workID, "review-claim-"+workID
-	claimed, err := s.ClaimWorktree(ctx, claim)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := claimed.Entry.Path
+	entry := recordHostWorktree(t, s, git, workID, "project", "review-claim-"+workID)
+	dir := entry.Path
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	gitRunStore(t, dir, "init", "-b", claimed.Entry.Branch)
+	gitRunStore(t, dir, "init", "-b", entry.Branch)
 	gitRunStore(t, dir, "config", "user.email", "concord@example.invalid")
 	gitRunStore(t, dir, "config", "user.name", "Concord Review Subject Test")
 	if err := os.WriteFile(dir+"/seed.txt", []byte("review subject seed\n"), 0o644); err != nil {
@@ -48,9 +42,9 @@ func reviewSubjectClaimObserved(t *testing.T, s *Store, workID string, observe b
 	if !observe {
 		return dir, head
 	}
-	git.worktrees[dir] = claimed.Entry.Branch
+	git.worktrees[dir] = entry.Branch
 	git.worktreeRepos[dir] = dir
-	git.branches[claimed.Entry.Branch] = head
+	git.branches[entry.Branch] = head
 	req := verifyRequest(git, "verify-"+workID, []string{"true"}, func(context.Context, string, []string, int) (int, []byte, bool, error) {
 		return 0, nil, false, nil
 	})

@@ -2,23 +2,18 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestCLIRefusesBinarySkewBeforeMutation(t *testing.T) {
-	path := freshMigratedCLIDatabase(t)
-	s, err := store.Open(context.Background(), path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	seedLocatorAuthority(t, s, initLocatorRepo(t))
-	if _, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil); err != nil {
-		t.Fatal(err)
-	}
+	path := filepath.Join(t.TempDir(), "concord.db")
+	t.Setenv(dbOverrideEnv, path)
+	s := mustOpenStore(t, path)
+	repo := initLocatorRepo(t)
+	seedLocatorAuthority(t, s, repo)
+	seedCLISessionWorktree(t, s, repo)
 	db := s.DatabaseForTesting()
 	digest := "sha256:" + strings.Repeat("a", 64)
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);

@@ -364,10 +364,10 @@ func insertHostWorktreeRows(t *testing.T, s *Store, workID string, e WorktreeEnt
 		if err != nil {
 			return err
 		}
-		if _, err := tr.tx.ExecContext(t.Context(), `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at,member_id) VALUES(?,?,?,?,?,?,?,?,'verified','principal-1','host-fixture',?,?,?)`, e.ClaimOpID, workID, e.ProjectID, e.SetID, e.RepositoryID, e.Branch, e.BaseSHA, e.Path, e.VerifiedAt, e.VerifiedAt, e.MemberID); err != nil {
+		if _, err := tr.tx.ExecContext(t.Context(), `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,'verified','principal-1','host-fixture',?,?)`, e.ClaimOpID, workID, e.ProjectID, e.SetID, e.RepositoryID, e.Branch, e.BaseSHA, e.Path, e.VerifiedAt, e.VerifiedAt); err != nil {
 			return err
 		}
-		if _, err := tr.tx.ExecContext(t.Context(), `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts,member_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, e.SetID, e.ProjectID, e.ClaimOpID, e.Branch, e.BaseSHA, e.Path, e.RepositoryID, e.State, e.VerifiedAt, string(e.GitFacts), e.MemberID); err != nil {
+		if _, err := tr.tx.ExecContext(t.Context(), `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,?,?,?,?,?,?,?,?,?)`, e.SetID, e.ProjectID, e.ClaimOpID, e.Branch, e.BaseSHA, e.Path, e.RepositoryID, e.State, e.VerifiedAt, string(e.GitFacts)); err != nil {
 			return err
 		}
 		if _, err := tr.tx.ExecContext(t.Context(), `UPDATE work_items SET version=version+1 WHERE id=?`, workID); err != nil {

@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -121,13 +119,6 @@ func seedWorkTransition(t *testing.T, s *store.Store, workID, from, to string, e
 	}
 }
 
-// Native verification and Review still read entries from upgraded stores.
-// The fixture creates its checkout with Git and seeds only that read model.
-func seedHostWorktree(t *testing.T, s *store.Store, repoRoot, workID, projectID, baseSHA string) string {
-	t.Helper()
-	return seedHostMemberWorktree(t, s, repoRoot, workID, projectID, baseSHA, "")
-}
-
 func seedHostSessionPlacement(t *testing.T, s *store.Store, workID, sessionRef, path string) {
 	t.Helper()
 	execProjection(t, s, []string{
@@ -146,29 +137,26 @@ func seedRecordedHolderDeparture(t *testing.T, s *store.Store, sessionRef, sourc
 	}, [][]any{{sessionRef, source}, nil})
 }
 
-func seedHostMemberWorktree(t *testing.T, s *store.Store, repoRoot, workID, projectID, baseSHA, memberID string) string {
+// Native verification and Review still read entries from upgraded stores.
+// The fixture creates its checkout with Git and seeds only that read model.
+func seedHostWorktree(t *testing.T, s *store.Store, repoRoot, workID, projectID, baseSHA string) string {
 	t.Helper()
 	path := filepath.Join(filepath.Dir(s.Path()), "worktrees", projectID, workID)
 	branch := "work/" + workID
-	if memberID != "" {
-		digest := sha256.Sum256([]byte(memberID))
-		suffix := hex.EncodeToString(digest[:8])
-		path += "-" + suffix
-		branch += "-" + suffix
-	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	gitRun(t, repoRoot, "worktree", "add", "-b", branch, path, baseSHA)
 	stamp := fixedTime().UTC().Format(time.RFC3339Nano)
-	op := "fixture:" + projectID + ":" + workID + ":" + memberID
-	_, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at,repository_id,member_id) VALUES(?,?,?,?,?,?,?,'verified','principal/fixture',?,?,?,?,?);
-		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,member_id) VALUES(?,?,?,?,?,?,?,'active',?,?);
-		INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET version=version+1 WHERE id=?; DELETE FROM write_guard`,
-		op, workID, projectID, store.WorktreeSetID(workID), branch, baseSHA, path, op, stamp, stamp, repoRoot, memberID,
-		store.WorktreeSetID(workID), projectID, op, branch, baseSHA, path, repoRoot, stamp, memberID, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	op := "fixture:" + projectID + ":" + workID
+	execProjection(t, s, []string{
+		`INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at,repository_id) VALUES(?,?,?,?,?,?,?,'verified','principal/fixture',?,?,?,?)`,
+		`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?)`,
+		`UPDATE work_items SET version=version+1 WHERE id=?`,
+	}, [][]any{
+		{op, workID, projectID, store.WorktreeSetID(workID), branch, baseSHA, path, op, stamp, stamp, repoRoot},
+		{store.WorktreeSetID(workID), projectID, op, branch, baseSHA, path, repoRoot, stamp},
+		{workID},
+	})
 	return path
 }

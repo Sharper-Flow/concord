@@ -32,7 +32,6 @@ type WorktreeEntry struct {
 	SetID        string          `json:"set_id"`
 	ProjectID    string          `json:"project_id"`
 	ClaimOpID    string          `json:"claim_op_id"`
-	MemberID     string          `json:"member_id,omitempty"`
 	Branch       string          `json:"branch"`
 	BaseSHA      string          `json:"base_sha"`
 	Path         string          `json:"path"`
@@ -50,7 +49,7 @@ func (s *Store) WorktreeEntries(ctx context.Context, workID string) ([]WorktreeE
 }
 
 func worktreeEntriesCore(ctx context.Context, q queryer, workID string) ([]WorktreeEntry, error) {
-	rows, err := q.QueryContext(ctx, `SELECT set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts,member_id FROM worktree_entries WHERE set_id=? ORDER BY project_id,member_id`, WorktreeSetID(workID))
+	rows, err := q.QueryContext(ctx, `SELECT set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts FROM worktree_entries WHERE set_id=? ORDER BY project_id`, WorktreeSetID(workID))
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "worktree_entries", "cannot read worktree entries", true, "retry once the database is readable", err)
 	}
@@ -60,7 +59,7 @@ func worktreeEntriesCore(ctx context.Context, q queryer, workID string) ([]Workt
 		var e WorktreeEntry
 		var facts string
 		var reclaimed sql.NullString
-		if err := rows.Scan(&e.SetID, &e.ProjectID, &e.ClaimOpID, &e.Branch, &e.BaseSHA, &e.Path, &e.RepositoryID, &e.State, &e.VerifiedAt, &reclaimed, &facts, &e.MemberID); err != nil {
+		if err := rows.Scan(&e.SetID, &e.ProjectID, &e.ClaimOpID, &e.Branch, &e.BaseSHA, &e.Path, &e.RepositoryID, &e.State, &e.VerifiedAt, &reclaimed, &facts); err != nil {
 			return nil, err
 		}
 		e.ReclaimedAt = reclaimed.String
@@ -78,16 +77,12 @@ func activeWorktreeEntryForProject(ctx context.Context, q queryer, op, workID, p
 	if workID == "" || projectID == "" {
 		return WorktreeEntry{}, newFailure(KindUnknownScope, op, "worktree tier access requires the work item and the session's Project", false, "supply the work identity and run from a registered Project")
 	}
-	memberID, err := worktreeMemberScopeFromContext(ctx, q, workID, projectID)
-	if err != nil {
-		return WorktreeEntry{}, err
-	}
 	entries, err := worktreeEntriesCore(ctx, q, workID)
 	if err != nil {
 		return WorktreeEntry{}, err
 	}
 	for _, candidate := range entries {
-		if candidate.ProjectID == projectID && candidate.MemberID == memberID && candidate.State == worktreeEntryActive {
+		if candidate.ProjectID == projectID && candidate.State == worktreeEntryActive {
 			return candidate, nil
 		}
 	}
@@ -132,9 +127,6 @@ type WorktreeInspectResult struct {
 func (s *Store) InspectWorktree(ctx context.Context, req WorktreeInspectRequest) (WorktreeInspectResult, error) {
 	if s == nil || s.db == nil {
 		return WorktreeInspectResult{}, newFailure(KindUnavailable, "worktree_inspect", "store is not open", false, "open the authority database")
-	}
-	if err := authorizeMemberWorkScope(ctx, s.db, req.WorkID, req.ProjectID); err != nil {
-		return WorktreeInspectResult{}, err
 	}
 	if req.Mode == "oracle_output" {
 		return s.readNativeVerifyOutput(ctx, req)

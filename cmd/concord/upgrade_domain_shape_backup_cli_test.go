@@ -170,31 +170,36 @@ func TestUpgradeSnapshotFailurePreventsDomainShapeDrop(t *testing.T) {
 
 func TestUpgradeFailedDomainShapeDropKeepsVerifiedSnapshotAndRollsBack(t *testing.T) {
 	path, _ := seedV170ShapeCLIStore(t)
-	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`CREATE TABLE shape_drop_blocker(home_project_id TEXT,home_locator_id TEXT,law_id TEXT,path TEXT,FOREIGN KEY(home_project_id,home_locator_id,law_id,path) REFERENCES law_evidence_paths(home_project_id,home_locator_id,law_id,path) ON DELETE RESTRICT);
-INSERT INTO shape_drop_blocker VALUES('shape-project','shape-locator','CD-0001','internal/store/store.go')`); err != nil {
-		t.Fatal(err)
-	}
-	catalog := lawCoverageFixtureRows(t, db, "sqlite_schema")
-	manifest := lawCoverageFixtureRows(t, db, "schema_migrations")
-	guard := lawCoverageFixtureRows(t, db, "write_guard")
-	blocker := lawCoverageFixtureRows(t, db, "shape_drop_blocker")
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
 	before := shapeCLIState(t, path, true)
 	backup := snapshotDatabase
 	t.Cleanup(func() { snapshotDatabase = backup })
 	snapshotPath := ""
+	var liveBefore map[string][]string
 	snapshotDatabase = func(ctx context.Context, source, destination string) (store.BackupManifest, error) {
+		manifest, err := backup(ctx, source, destination)
+		if err != nil {
+			return manifest, err
+		}
 		snapshotPath = destination
-		return backup(ctx, source, destination)
+		// Backup verification stages an upgrade too. Inject only into the live
+		// store after the real snapshot and its verification have succeeded.
+		db, err := sql.Open("sqlite", store.SQLiteFileURI(source)+"?_pragma=foreign_keys(1)")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if _, err := db.Exec(`CREATE TABLE shape_drop_blocker(home_project_id TEXT,home_locator_id TEXT,law_id TEXT,path TEXT,FOREIGN KEY(home_project_id,home_locator_id,law_id,path) REFERENCES law_evidence_paths(home_project_id,home_locator_id,law_id,path) ON DELETE RESTRICT);
+INSERT INTO shape_drop_blocker VALUES('shape-project','shape-locator','CD-0001','internal/store/store.go')`); err != nil {
+			t.Fatal(err)
+		}
+		liveBefore = shapeCLIState(t, source, true)
+		for _, table := range []string{"sqlite_schema", "schema_migrations", "write_guard", "shape_drop_blocker"} {
+			liveBefore[table] = lawCoverageFixtureRows(t, db, table)
+		}
+		return manifest, nil
 	}
 	code, _, errOut := runUpgradeStdin(t, `{}`)
-	if code != 1 || !strings.Contains(errOut, "migration 171 (retire_domain_shape) failed") || !strings.Contains(strings.ToLower(errOut), "foreign key") {
+	if code != 1 || liveBefore == nil || !strings.Contains(errOut, "migration 171 (retire_domain_shape) failed") || !strings.Contains(strings.ToLower(errOut), "foreign key") {
 		t.Fatalf("induced final-drop failure code=%d: %s", code, errOut)
 	}
 	verified, err := store.VerifyBackup(context.Background(), snapshotPath)
@@ -204,13 +209,12 @@ INSERT INTO shape_drop_blocker VALUES('shape-project','shape-locator','CD-0001',
 	if snapshot := shapeCLIState(t, snapshotPath, true); !reflect.DeepEqual(snapshot, before) {
 		t.Fatalf("recovery snapshot changed rows:\nbefore: %v\nsnapshot: %v", before, snapshot)
 	}
-	if after := shapeCLIState(t, path, true); !reflect.DeepEqual(after, before) {
-		t.Fatalf("failed migration changed rows:\nbefore: %v\nafter: %v", before, after)
+	after := shapeCLIState(t, path, true)
+	db := openRawSQLite(t, path)
+	for _, table := range []string{"sqlite_schema", "schema_migrations", "write_guard", "shape_drop_blocker"} {
+		after[table] = lawCoverageFixtureRows(t, db, table)
 	}
-	db = openRawSQLite(t, path)
-	for table, want := range map[string][]string{"sqlite_schema": catalog, "schema_migrations": manifest, "write_guard": guard, "shape_drop_blocker": blocker} {
-		if got := lawCoverageFixtureRows(t, db, table); !reflect.DeepEqual(got, want) {
-			t.Fatalf("failed migration changed %s:\nbefore: %v\nafter: %v", table, want, got)
-		}
+	if !reflect.DeepEqual(after, liveBefore) {
+		t.Fatalf("failed migration changed live pre-migration state:\nbefore: %v\nafter: %v", liveBefore, after)
 	}
 }

@@ -3042,6 +3042,7 @@ esac''',
         self.assertIn("Concord.md", installer.AGENT_FILES)
         self.assertIn("Concord-Planner.md", installer.AGENT_FILES)
         self.assertIn("concord-review.md", installer.AGENT_FILES)
+        self.assertIn("concord-verify.md", installer.AGENT_FILES)
         self.assertNotIn("concord-coordinator.md", installer.AGENT_FILES)
         self.assertNotIn("concord-operator.md", installer.AGENT_FILES)
         self.assertNotIn("concord-rte.md", installer.AGENT_FILES)
@@ -3076,6 +3077,19 @@ esac''',
         self.assertNotEqual(upgraded.returncode, 0)
         self.assertIn("user-authored agent file", upgraded.stderr)
         self.assertEqual(target.read_bytes(), b"host reviewer\n")
+
+    def test_native_verifier_upgrade_preserves_an_unmanaged_definition(self) -> None:
+        earlier = tuple(name for name in installer.AGENT_FILES if name != "concord-verify.md")
+        self.make_release("v1.0.0", agent_names=earlier)
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        target = self.root / "config" / "opencode" / "agents" / "concord-verify.md"
+        target.write_bytes(b"host verifier\n")
+        self.make_release("v2.0.0")
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertNotEqual(upgraded.returncode, 0)
+        self.assertIn("user-authored agent file", upgraded.stderr)
+        self.assertEqual(target.read_bytes(), b"host verifier\n")
 
     def test_upgrade_refuses_unmanaged_concord_primary_over_host_file(self) -> None:
         # The collision rule is not an RTE-only rule: a host's unowned

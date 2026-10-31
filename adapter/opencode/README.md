@@ -297,9 +297,16 @@ external lookup. Its shell rules preserve inherited host safety denies. These
 command-text rules are not a sandbox; its role also prohibits direct-store and
 wrapper bypasses.
 
-Hosts that enable reviewer-to-utility delegation must set OpenCode's
+The native `concord-verify` helper runs caller-named local checks under repository
+test admission and an explicit caller budget, or diagnoses completed CI runs.
+It reports commands, exit codes and failure evidence, linking known-flake records
+only when they match. It denies editing, workflow writes and CI watch; the caller
+owns waits, evidence binding and delivery. It shares the reviewer's host safety
+and no-bypass boundaries. Test output alone is not captured verification proof.
+
+Hosts that enable helper-to-utility delegation must set OpenCode's
 [`subagent_depth`](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/web/src/content/docs/config.mdx)
-to `2`. Its default `1` admits the reviewer but stops nested Tasks; the profile's
+to `2`. Its default `1` admits the helper but stops nested Tasks; the profile's
 Task allowlist does not override that host ceiling. Concord does not change it.
 
 The read-only utility definitions deny nested Task delegation. If a host wants

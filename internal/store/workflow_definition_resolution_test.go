@@ -175,14 +175,14 @@ func runResolutionProducer(s *Store, registry DefinitionRegistry, workID, princi
 	if !ok {
 		return FenceResult{}, definitionFailure(KindDefinitionDigestMismatch, "local producer definition is not registered")
 	}
-	claimed, err := claimStepObservedAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
+	claimed, err := claimStepAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
 		OpID: opID, WorkID: workID,
 		WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
 		StepID: "execution", StepKind: StepExternalEffect,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), AcceptedScopeSnapshot: `{}`,
 		PrincipalRef: principal, Tool: "workflow-resolution-test", IdempotencyKey: opID,
 		RequestID: requestID, ObservedAt: time.Unix(11, 0).UTC(), ContractDigest: testManifestDigest,
-	}, true, nil, nil, registry)
+	}, true, nil, registry)
 	if err != nil {
 		return FenceResult{}, err
 	}
@@ -193,7 +193,7 @@ func runResolutionProducer(s *Store, registry DefinitionRegistry, workID, princi
 		PrincipalRef: principal, Tool: "workflow-resolution-test", IdempotencyKey: "complete:" + opID,
 		RequestID: requestID, ObservedAt: time.Unix(11, 1).UTC(),
 		CompletedAt: ptrTime(time.Unix(11, 2).UTC()),
-	}, true, nil, registry)
+	}, true, registry)
 	if err != nil {
 		return FenceResult{}, err
 	}
@@ -570,26 +570,26 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 		// A claim naming another step of the same workflow refuses against the
 		// stored pin.
-		if _, err := claimStepObservedAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
+		if _, err := claimStepAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
 			OpID: "resolution-claim-wrong-step-" + workID, WorkID: workID,
 			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
 			StepID: "proposal", StepKind: StepInternalSQLite,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), AcceptedScopeSnapshot: `{}`,
 			PrincipalRef: owner.PrincipalRef, Tool: "workflow-resolution-test", IdempotencyKey: "resolution-claim-wrong-step-" + workID,
 			RequestID: "request:resolution-claim-wrong-step-" + workID, ObservedAt: time.Unix(11, 3).UTC(), ContractDigest: testManifestDigest,
-		}, true, nil, nil, registry); err == nil {
+		}, true, nil, registry); err == nil {
 			t.Fatal("claim with a step outside the pinned current step was accepted")
 		}
 		// Completing a stale attempt epoch refuses and leaves the current
 		// attempt without a result.
-		next, err := claimStepObservedAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
+		next, err := claimStepAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
 			OpID: "resolution-produce-" + workID, WorkID: workID,
 			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
 			StepID: "execution", StepKind: StepExternalEffect,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), AcceptedScopeSnapshot: `{}`,
 			PrincipalRef: owner.PrincipalRef, Tool: "workflow-resolution-test", IdempotencyKey: "resolution-produce-retry-" + workID,
 			RequestID: "request:resolution-produce-" + workID, ObservedAt: time.Unix(11, 4).UTC(), ContractDigest: testManifestDigest,
-		}, true, nil, nil, registry)
+		}, true, nil, registry)
 		if err != nil {
 			t.Fatalf("retry claim refused under the local pin: %v", err)
 		}
@@ -597,7 +597,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 			OpID: next.OpID, AttemptEpoch: 1, ResultKind: ResultCompleted,
 			PrincipalRef: owner.PrincipalRef, Tool: "workflow-resolution-test", IdempotencyKey: "resolution-produce-stale-" + workID,
 			RequestID: "request:resolution-produce-" + workID, ObservedAt: time.Unix(11, 5).UTC(),
-		}, true, nil, registry); err == nil {
+		}, true, registry); err == nil {
 			t.Fatal("completion with a stale attempt epoch was accepted")
 		}
 		var pending int

@@ -1662,7 +1662,7 @@ jobs:
         if: always()
         run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
 
-  # Production-like acceptance: the ten-process conformance run and the
+  # Correctness acceptance: the ten-process conformance run and the
   # packaged black-box suite.
   verify-acceptance:
     name: verify-acceptance
@@ -1729,7 +1729,7 @@ jobs:
           uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
           uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
           chmod -R a-w "$UV_CACHE_DIR"
-      - name: Run production-like ten-process acceptance conformance
+      - name: Run ten-process correctness acceptance conformance
         env:
           CONCORD_CONFORMANCE_LONG: "1"
           CONCORD_ACCEPTANCE_RUNNER: "1"

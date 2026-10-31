@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-07-25T00:00:00Z",
   "home_domain_id": "durable-authority",
@@ -16,7 +14,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8d16cdd5055e5b8c745ad20d55cf35fe3ea496fff0bc859ae14a30318fbf1a39",
+  "sha256": "sha256:3635a4ad42d0dcde48ed16f5699982901bb807d73e231bde1894339a1dda0654",
   "status": "accepted",
   "summary": "Defines the initial storage layer shape and boundaries.",
   "tags": [

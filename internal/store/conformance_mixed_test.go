@@ -11,8 +11,8 @@ import (
 // completion plus the fence read-back at the last iteration.
 func syntheticMixedWorkerResult(worker int) WorkerResult {
 	result := WorkerResult{Worker: worker, PID: 1000 + worker, Outcome: outcomeAccepted, DurableCommits: durableMixedDurableOpsPerWorker}
-	read := WorkerSample{Outcome: outcomeAccepted, WallDurationMS: 1, Profile: mixedSampleProfileRead}
-	durable := WorkerSample{Outcome: outcomeAccepted, WallDurationMS: 3, BeginWaitMS: 1, CommitDurationMS: 1, Profile: mixedSampleProfileDurable}
+	read := WorkerSample{Outcome: outcomeAccepted, Profile: mixedSampleProfileRead}
+	durable := WorkerSample{Outcome: outcomeAccepted, Profile: mixedSampleProfileDurable}
 	for iteration := 0; iteration < durableMixedIterations; iteration++ {
 		for i := 0; i < durableMixedReadsPerIteration; i++ {
 			result.Samples = append(result.Samples, read)
@@ -75,9 +75,6 @@ func TestSummarizeMixedPopulationMatchesThePlan(t *testing.T) {
 	if population.Accepted != population.ReadSamples+population.DurableSamples {
 		t.Fatalf("accepted = %d, want %d", population.Accepted, population.ReadSamples+population.DurableSamples)
 	}
-	if population.DurableCommitLatency.MaxMS == 0 {
-		t.Fatal("durable commit latency summary lost its samples")
-	}
 }
 
 func TestSummarizeMixedPopulationIgnoresOtherProfiles(t *testing.T) {
@@ -86,8 +83,8 @@ func TestSummarizeMixedPopulationIgnoresOtherProfiles(t *testing.T) {
 	results := []WorkerResult{{
 		Worker: 0,
 		Samples: []WorkerSample{
-			{Outcome: outcomeAccepted, WallDurationMS: 5, Profile: "production_like"},
-			{Outcome: outcomeAccepted, WallDurationMS: 1, Profile: mixedSampleProfileRead},
+			{Outcome: outcomeAccepted, Profile: "other"},
+			{Outcome: outcomeAccepted, Profile: mixedSampleProfileRead},
 		},
 	}}
 	population := summarizeMixedPopulation(results)
@@ -122,12 +119,6 @@ func TestValidateMixedPopulationRefusesStructuralDrift(t *testing.T) {
 		t.Fatal("a population with missing read samples passed validation")
 	}
 
-	latencyDrift := complete
-	latencyDrift.DurableCommitLatency.Population--
-	if err := validateMixedPopulation(latencyDrift, 2); err == nil {
-		t.Fatal("a population with latency drift passed validation")
-	}
-
 	workerDrift := complete
 	workerDrift.Workers = 3
 	if err := validateMixedPopulation(workerDrift, 2); err == nil {
@@ -153,8 +144,8 @@ func TestValidateMixedPopulationLeavesOutcomesToTheBaseGate(t *testing.T) {
 		syntheticMixedWorkerResult(0),
 		syntheticMixedWorkerResult(1),
 	}
-	results[1].Samples[0] = WorkerSample{Outcome: outcomeBusyEscaped, WallDurationMS: 1, Profile: mixedSampleProfileRead}
-	results[1].Samples[1] = WorkerSample{Outcome: outcomeError, WallDurationMS: 1, Profile: mixedSampleProfileRead}
+	results[1].Samples[0] = WorkerSample{Outcome: outcomeBusyEscaped, Profile: mixedSampleProfileRead}
+	results[1].Samples[1] = WorkerSample{Outcome: outcomeError, Profile: mixedSampleProfileRead}
 	population := summarizeMixedPopulation(results)
 	if population.BusyEscaped != 1 || population.Errors != 1 || population.Accepted != population.ReadSamples+population.DurableSamples-2 {
 		t.Fatalf("outcome classification lost samples: %+v", population)

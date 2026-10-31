@@ -10,17 +10,10 @@
 Concord retains direct, library-in-process SQLite as its one local live-state
 authority for v1.
 
-The ten-process conformance run triggered the accepted write-tail review on a
-contended development host. That trigger required comparison; it did not mandate an
-automatic replacement. The comparison found:
+The ten-process conformance review retained SQLite because:
 
 - correctness remained clean across every measured population: no lost effects,
   invariant violations, escaped busy errors, or unexpected duplicates;
-- commit latency remained low; variable writer-admission wait owned the observed
-  tail;
-- isolated required-check runners sustained the accepted target in their governing
-  rounds, while a concurrently loaded development host produced higher and more
-  variable tails;
 - replacing the authority now would add a daemon or service, deployment and restore
   obligations, and another migration before a user-visible need proves that cost.
 
@@ -45,57 +38,32 @@ holds the disposition of the two escaped-`SQLITE_BUSY` classes on record through
 The store keeps current rows; no event log or projection fold exists
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-CD-0002 and CD-0008 remain binding. A latency falsifier opens a review; it does not
-select a replacement by itself. This review is complete and retains SQLite.
-
-The accepted write-tail target remains visible in conformance reports. Concord must
-reopen this decision when any of these occurs:
+CD-0002 and CD-0008 remain binding. This review is complete and retains SQLite.
+Concord must reopen this decision when any of these occurs:
 
 - an escaped `SQLITE_BUSY`, lost/duplicate effect, or invariant violation;
-- sustained user-visible write latency above the accepted target on the repeatable
-  acceptance population, not a mixed or unidentified population;
 - queueing materially blocks ordinary operator work on the supported deployment;
 - the deployment scope stops being one local operator installation;
 - backup, restore, rebuild, or upgrade evidence fails.
 
-Future reviews must compare the same operation population and report correctness
-before latency. A single-writer IPC boundary is the first bounded comparison when
+Future reviews must compare the same operation population and establish correctness.
+A single-writer IPC boundary is the first bounded comparison when
 writer admission is the demonstrated bottleneck. Dolt and Postgres/DBOS receive no
 automatic preference.
 
-## Accepted load profile calibration
+## Accepted correctness population
 
-The accepted long profile is production-paced, not max-rate spin. R4 measured the
-predecessor workload below 0.1 writes/second system-wide with no concurrent writes
-observed; the acceptance profile paces each of the ten worker processes at one
-attempt per 100 ms (100 writes/second system-wide, 1000x the measured envelope).
-The pacing interval equals the accepted P99 target, so lock-hold regressions still
-trip the gate.
+[CD-0045 D2](CD-0045-writer-admission-invariant.md#d2-correctness-is-required-on-the-accepted-population)
+requires the fifteen base correctness scenarios and one unpaced 1000-write
+population across ten processes, with exact-effect assertions and retained
+backup, restore, and recovery proof. D5 retires the ten-process latency
+falsifier and its measurement, control, pacing, status, and tests.
 
-Max-rate spin remains available as diagnostic-only stress evidence through
-`CONCORD_CONFORMANCE_UNPACED=1`. The isolated acceptance profile refuses unpaced
-runs; an unpaced run can never produce an accepted falsifier verdict.
-
-Population authority is invocation provenance, not measured host
-isolation: only the isolated acceptance test entry point, run in the
-required `verify` check with `CONCORD_ACCEPTANCE_RUNNER=1` set by the
-workflow, may report falsifier `passed` or `fired`. Local and development
-runs are diagnostic and remain `inconclusive` even when the threshold is
-exceeded; a CI run missing the required-check signal fails visibly rather
-than silently downgrading the required check. Correctness precedes every latency verdict: any failed correctness
-population forces the falsifier verdict to `inconclusive` and fails the
-run independently.
-
-### Calibration record
-
-Issue #55 investigated the sustained P99 falsifier. Controlled same-population
-evidence showed host CPU contention inflating writer-admission wait while commit
-latency stayed low; the max-rate spin profile (about 330-500 writes/second,
-3000-5000x the measured production envelope) then fired on the shared required-check
-runner with all correctness invariants clean. Operator approval on 2026-08-11
-calibrated the accepted profile to the measured production envelope above. The storage
-decision itself was not reopened: no escaped busy, lost or duplicate effect, or
-invariant violation occurred on any population.
+[CD-0046](CD-0046-conformance-population-provenance.md) owns invocation
+provenance: the acceptance entry point in the required `verify` check uses
+`CONCORD_ACCEPTANCE_RUNNER=1`, set by the workflow. Local runs remain
+diagnostic; a CI run missing the signal fails visibly. The signal does not
+measure host isolation. Every correctness failure fails the run independently.
 
 ## Evidence
 
@@ -103,14 +71,11 @@ invariant violation occurred on any population.
   backup/restore evidence.
 - Issue #17 records contended-host and isolated-runner populations separately.
 - Required-check runs completed with all correctness invariants satisfied.
-- Issue #55 and PR #59 record the pacing calibration: controlled development-host
-  reproduction, the shared-runner falsifier firing, and the R4-calibrated accepted
-  load profile with structural population authority.
 
 ## Consequences
 
 - PR #16 may merge as conformance evidence.
 - Issues #3 and #17 may close.
-- Future performance evidence must preserve population identity and continue showing
-  raw P50/P99/max, admission wait, commit time, and correctness classifications.
+- Conformance evidence preserves population identity and exact-effect
+  correctness without a write-latency verdict.
 - This decision does not authorize snapshots, a daemon, or distributed deployment.

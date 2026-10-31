@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-21T00:00:00Z",
   "evidence": [
@@ -23,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2096dc19b47c96220544fc3f71b48194443c479d041b6f49cfb2cb4c52dbc32f",
+  "sha256": "sha256:25674d8a8f218acb96fc0f47061a09e5ba81d4dacab6354370c8c37ec252fc39",
   "status": "accepted",
   "summary": "Acknowledged consequential operations survive power loss and operating-system crash; ordinary writes stay synchronous=NORMAL and are durable through the last consequential acknowledgement; schema migrations remain excluded. CD-0207 owns the durable transaction mechanism, consequential-family enumeration, and public fence placement.",
   "tags": [

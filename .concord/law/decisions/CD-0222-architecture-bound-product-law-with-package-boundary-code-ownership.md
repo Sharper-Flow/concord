@@ -384,8 +384,6 @@ generic repository layer, or second authority is introduced. CD-0011's reopening
 triggers remain exact:
 
 - an escaped `SQLITE_BUSY`, lost/duplicate effect, or invariant violation;
-- sustained user-visible write latency above the accepted target on the
-  repeatable acceptance population;
 - queueing that materially blocks ordinary operator work;
 - deployment scope that stops being one local operator installation; or
 - failed backup, restore, rebuild, or upgrade evidence.

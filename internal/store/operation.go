@@ -73,33 +73,6 @@ type Project struct {
 type projectionMutation func(context.Context, *sql.Tx, Event) error
 type scopedProjectionMutation func(context.Context, *sql.Tx, Event, *writeScope) error
 
-// operationObserver is an unexported white-box measurement surface. It is
-// passed through the operation call graph rather than stored globally, so
-// production callers pay no instrumentation cost and concurrent workers cannot
-// overwrite one another's samples.
-type operationObserver struct {
-	beginWait      time.Duration
-	commitDuration time.Duration
-}
-
-func beginObservedTx(ctx context.Context, s *Store, durable bool, observer *operationObserver) (*writeTx, error) {
-	started := time.Now()
-	tx, err := s.beginStoreWriteTx(ctx, durable)
-	if observer != nil {
-		observer.beginWait = time.Since(started)
-	}
-	return tx, err
-}
-
-func commitObservedTx(tx *writeTx, observer *operationObserver) error {
-	started := time.Now()
-	err := tx.Commit()
-	if observer != nil {
-		observer.commitDuration = time.Since(started)
-	}
-	return err
-}
-
 // EventAppendAuthority is the closed set of routes allowed to append an event.
 // The zero value is deliberately invalid so every registry entry must opt in.
 type EventAppendAuthority uint8
@@ -477,10 +450,6 @@ func checkOperationEventVersionTx(ctx context.Context, tx *sql.Tx, event Event, 
 type preCommitHook func() error
 
 func applyOperationWithResult(ctx context.Context, s *Store, operation Operation, beforeCommit preCommitHook) (ApplyOperationResult, error) {
-	return applyOperationObserved(ctx, s, operation, beforeCommit, nil)
-}
-
-func applyOperationObserved(ctx context.Context, s *Store, operation Operation, beforeCommit preCommitHook, observer *operationObserver) (ApplyOperationResult, error) {
 	var output ApplyOperationResult
 	if s == nil || s.db == nil {
 		return output, newFailure(KindUnavailable, "apply_operation", "store is not open", false,
@@ -498,7 +467,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		}
 	}
 
-	tx, err := beginObservedTx(ctx, s, false, observer)
+	tx, err := s.beginStoreWriteTx(ctx, false)
 	if err != nil {
 		return output, wrapFailure(KindUnavailable, "apply_operation", "cannot begin domain operation", true,
 			"retry once the database is writable", err)
@@ -540,7 +509,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 			return output, rollback(err)
 		}
 	}
-	if err := commitObservedTx(tx, observer); err != nil {
+	if err := tx.Commit(); err != nil {
 		return output, wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", true,
 			"retry once the database is writable", err)
 	}

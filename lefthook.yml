@@ -2,7 +2,8 @@
 #
 # Preflight, not full-suite proof: these gates stop an obviously broken push
 # before it reaches CI. CI remains the verification owner; the full Go test
-# suite, the adapter suite, the race detector, and acceptance stay CI-only.
+# suite, the adapter suite, the script battery, the race detector, and acceptance
+# stay CI-only.
 #
 # Routing: a command whose glob matches none of the pushed files is skipped,
 # so a documentation-only or Python-only push skips the Go gates. Lefthook's
@@ -76,11 +77,3 @@ pre-push:
         - lefthook.yml
         - scripts/check-complexity.py
       run: python3 scripts/check-complexity.py
-    script-tests:
-      glob:
-        - "scripts/*.py"
-        - bin/oc-test
-        - lefthook.yml
-        - .github/workflows/ci.yml
-        - ".concord/tooling.v1.json"
-      run: "python3 scripts/run-script-tests.py -- {push_files}"

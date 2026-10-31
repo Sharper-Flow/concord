@@ -437,9 +437,17 @@ func lawCleanupProducer(t *testing.T, s *Store, enacting bool) {
 
 func lawCleanupStore(t *testing.T) *Store {
 	t.Helper()
-	s := seedLawChangeFixture(t, "inventory-seed")
+	// The committed fixture law's path and title are folder-derived; the
+	// legacy projection-path mutation retired with the law index.
+	return seedLawChangeFixtureWithLaw(t, "inventory-seed")
+}
+
+// seedLawChangeFixtureWithLaw is the law-cleanup store: the shared fixture
+// plus the committed derived law the producer enacts and consumers attribute.
+func seedLawChangeFixtureWithLaw(t *testing.T, workID string) *Store {
+	t.Helper()
+	s := seedLawChangeFixture(t, workID)
 	seedLawChangeLaw(t, s, "law-peer", "derived", "agent-surface")
-	lawChangeFold(t, s, `UPDATE law_subjects SET path='.concord/docs/spec.md' WHERE law_id='law-peer'`)
 	return s
 }
 
@@ -653,11 +661,11 @@ func TestTerminalCleanupLegacyComponentsDoNotBecomeDomains(t *testing.T) {
 	repo := initKnowledgeRepo(t)
 	content := strings.Replace(canonicalWorkNote("legacy-work", "2026-08-07T00:00:00Z"), "domain_ids: [auth]", "component_ids: [auth]", 1)
 	writeKnowledgeFile(t, repo, ".concord/docs/work/legacy-work.md", content)
-	commitKnowledgeRepo(t, repo, "canonical work outcome")
+	commit := commitKnowledgeRepo(t, repo, "canonical work outcome")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "prod-alpha", home)
-	seedArchivedWorkNote(t, s, home, commitKnowledgeRepo(t, repo, "legacy outcome"), ".concord/docs/work/legacy-work.md", content)
+	seedArchivedWorkNote(t, s, home, commit, ".concord/docs/work/legacy-work.md", content)
 	var count int
 	if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM archived_work_domains WHERE work_id='legacy-work'`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("legacy components became Domain scope: count=%d, err=%v", count, err)

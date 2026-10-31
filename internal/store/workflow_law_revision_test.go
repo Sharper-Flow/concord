@@ -644,21 +644,15 @@ func attachWorkflowLawPin(t *testing.T, s *Store, workID, hash string) {
 	}
 }
 
+// cutoverLawProjection retires the mandated committed law and enacts its
+// successor through the ordinary pull-request route: the committed file is
+// deleted and the successor law file lands in the same commit series, so the
+// next verified read carries the cutover.
 func cutoverLawProjection(t *testing.T, s *Store) {
 	t.Helper()
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id=?`, "spec:one"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator',?,'spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test')`, "spec:two"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
+	removeCommittedFixtureLaw(t, home, "spec:one")
+	commitFixtureLawFile(t, home, "spec:two", fixtureLawFolderLaw("spec:two"))
 }
 
 func TestWorkflowLawRevisionPinsFoldWithoutConsultingCurrentLaw(t *testing.T) {

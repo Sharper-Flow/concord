@@ -66,9 +66,11 @@ func TestLawRelationsDeclarerMigrationKeepsExistingRowsNull(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatalf("forward migration: %v", err)
-	}
+	// The declarer migration is this test's forward step. Later breaking
+	// migrations retire law_relations itself (schema 174), so the proof runs
+	// at the pinned declarer prefix instead of the moving head. The guarded
+	// tables at this schema are fold-only.
+	advanceHistoricalPrefix(t, db, migrations[index].Version)
 
 	var declarer sql.NullString
 	if err := db.QueryRowContext(ctx, `SELECT declarer_law_id FROM law_relations WHERE source_law_id='a'`).Scan(&declarer); err != nil {
@@ -77,7 +79,7 @@ func TestLawRelationsDeclarerMigrationKeepsExistingRowsNull(t *testing.T) {
 	if declarer.Valid {
 		t.Fatalf("a pre-migration relation carries declarer %q, want NULL", declarer.String)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','a','refines','x','c')`); err != nil {
@@ -86,7 +88,7 @@ func TestLawRelationsDeclarerMigrationKeepsExistingRowsNull(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES('p','l','b','refines','x','c','a')`); err == nil || !strings.Contains(err.Error(), "CHECK constraint failed") {
 		t.Fatalf("law_relations accepted a declarer that is neither endpoint, or refused it for another reason: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 }

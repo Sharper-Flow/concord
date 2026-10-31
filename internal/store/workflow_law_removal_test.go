@@ -7,10 +7,9 @@ import (
 
 func removeLawChangeLaw(t *testing.T, s *Store) {
 	t.Helper()
-	const law = "law-remove"
-	lawChangeFold(t, s, `DELETE FROM law_domain_applicability WHERE law_id=?`, law)
-	lawChangeFold(t, s, `DELETE FROM law_domain_homes WHERE law_id=?`, law)
-	lawChangeFold(t, s, `DELETE FROM law_subjects WHERE law_id=?`, law)
+	// A law retires by deleting its committed file: folder membership is the
+	// acceptance authority, so the deletion is the removal.
+	removeWorkflowFixtureLaw(t, lawChangeFixtureHome(t, s), "law-remove")
 }
 
 func TestLawRemovalThroughCurrentSuccessor(t *testing.T) {
@@ -84,9 +83,12 @@ func TestLawRemovalDeclarationSafeguards(t *testing.T) {
 	if err := enactLawChange(t, s, id, change, nil); err != nil {
 		t.Fatal(err)
 	}
-	lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='legislated' WHERE law_id='law-retain'`)
+	// A retained revision must still carry the derived tier: commit the
+	// legislated revision and the enactment refuses, then the derived
+	// revision again and it passes.
+	seedLawChangeLaw(t, s, "law-retain", "legislated", "agent-surface")
 	requireFailureKind(t, enactLawChange(t, s, id, change, nil), KindMissingEvidence, "a removal does not exempt a retained revision from the derived tier")
-	lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='derived' WHERE law_id='law-retain'`)
+	seedLawChangeLaw(t, s, "law-retain", "derived", "agent-surface")
 	if err := enactLawChange(t, s, id, change, nil); err != nil {
 		t.Fatal(err)
 	}

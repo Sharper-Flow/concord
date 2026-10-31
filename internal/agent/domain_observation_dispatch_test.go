@@ -107,7 +107,7 @@ func TestDomainObservationResolvesFromCommittedRegistryProof(t *testing.T) {
 	s, _, _, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
 	deprecated := store.KnowledgeDomainRegistry{
 		SchemaVersion: "1.0",
-		ProductKey:    "fixture-product-1",
+		ProductKey:    "product-1",
 		RootDomainID:  "product-root:product-1",
 		Domains: []store.KnowledgeDomain{
 			{DomainID: "product-root:product-1", Name: "Population root", Purpose: "Governs the fixture Product.", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},

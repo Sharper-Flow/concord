@@ -87,6 +87,9 @@ func authorityLawRecord(t *testing.T, legislatedBy, recordID string, version int
 	if err := json.Unmarshal([]byte(front), &record); err != nil {
 		t.Fatal(err)
 	}
+	// Folder kind is derived, not authored metadata: these fixture records
+	// sit in the decisions/ tier, so the placement assigns the decision kind.
+	record.Kind = "decision"
 	return record
 }
 
@@ -374,6 +377,7 @@ func TestAuthorityLawFixtureDigestIsTheWholeFile(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	writeAuthorityLaw(t, repo, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
+	commitKnowledgeRepo(t, repo, "authority fixture law folder")
 	paths := []string{}
 	entries, err := parseTreeEntries([]byte(runKnowledgeGit(t, repo, "ls-tree", "-r", "-z", "HEAD", "--", ".concord/law")))
 	if err != nil {

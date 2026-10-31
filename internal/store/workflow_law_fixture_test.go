@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -31,6 +32,7 @@ var workflowFixtureLawPaths = map[string]string{
 	"const:one": ".concord/law/constitution/const-one-fixture.md",
 	"spec:pre":  ".concord/law/specs/spec-pre-fixture.md",
 	"law:new":   ".concord/law/specs/law-new-fixture.md",
+	"spec:two":  ".concord/law/specs/spec-two-fixture.md",
 }
 
 // committedLawFileHash derives the whole-file digest of one file the fixture
@@ -97,6 +99,34 @@ func commitFixtureLawFile(t *testing.T, home KnowledgeHome, lawID, content strin
 	}
 	writeKnowledgeFile(t, home.RepoPath, path, content)
 	return commitKnowledgeRepo(t, home.RepoPath, "commit fixture law "+lawID)
+}
+
+// workflowFixtureDecisionsLawPath is the committed decisions-tier path of one
+// fixture law ID, derived the same way writeFixtureTierLawSource derives
+// paths, so a test can pin the bytes it committed through
+// commitWorkflowFixtureLaw without extending workflowFixtureLawPaths.
+func workflowFixtureDecisionsLawPath(lawID string) string {
+	return ".concord/law/decisions/" + strings.ReplaceAll(strings.ReplaceAll(lawID, ":", "-"), "/", "-") + "-fixture.md"
+}
+
+// commitWorkflowFixtureLaw commits one decisions-tier fixture law with
+// caller-authored front matter and body. It is the retained replacement for a
+// law_subjects insert and for a projection-row amendment: committed new bytes
+// are the only way a law's revision, tier, or Domain homes change.
+func commitWorkflowFixtureLaw(t *testing.T, home KnowledgeHome, lawID, content string) string {
+	t.Helper()
+	writeKnowledgeFile(t, home.RepoPath, workflowFixtureDecisionsLawPath(lawID), content)
+	return commitKnowledgeRepo(t, home.RepoPath, "commit fixture law "+lawID)
+}
+
+// removeWorkflowFixtureLaw retires one decisions-tier fixture law by deleting
+// its committed file, the ordinary pull-request route a law removal takes.
+func removeWorkflowFixtureLaw(t *testing.T, home KnowledgeHome, lawID string) {
+	t.Helper()
+	if err := os.Remove(filepath.Join(home.RepoPath, filepath.FromSlash(workflowFixtureDecisionsLawPath(lawID)))); err != nil {
+		t.Fatal(err)
+	}
+	commitKnowledgeRepo(t, home.RepoPath, "retire fixture law "+lawID)
 }
 
 // removeCommittedFixtureLaw retires one fixture law by deleting its file and

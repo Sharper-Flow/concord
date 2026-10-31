@@ -66,10 +66,11 @@ func TestMigrateV165ToV166RetiresLawCoverageStorageAndPreservesCurrentState(t *t
 	t.Parallel()
 	db := seedV165LawCoverageDatabase(t, filepath.Join(t.TempDir(), "concord-v165.db"))
 	before := catalogUpgradeRows(t, db, lawCoveragePreservedTables...)
-	if err := Migrate(context.Background(), db); err != nil {
-		t.Fatalf("upgrade from v165: %v", err)
-	}
-	assertRetirementUpgrade(t, db, lawCoverageRetiredObjects, lawCoveragePreservedTables, before)
+	// Migration 166 owns this retirement; the preserved law-index tables it
+	// must leave alone retire later at schema 174, so the assertion runs at
+	// the pinned 166 prefix.
+	advanceHistoricalPrefix(t, db, migrations[165].Version)
+	assertRetirementUpgrade(t, db, lawCoverageRetiredObjects, lawCoveragePreservedTables, before, migrations[165].Version)
 }
 
 func TestMigration166PreservesPreShapeRetirementRows(t *testing.T) {
@@ -108,8 +109,6 @@ INSERT INTO coverage_drop_blocker VALUES('coverage-project','coverage-locator','
 	if _, err := db.Exec(`DROP TABLE coverage_drop_blocker`); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(context.Background(), db); err != nil {
-		t.Fatalf("clean upgrade after failed Migrate: %v", err)
-	}
-	assertRetirementUpgrade(t, db, lawCoverageRetiredObjects, lawCoveragePreservedTables, current)
+	advanceHistoricalPrefix(t, db, migrations[165].Version)
+	assertRetirementUpgrade(t, db, lawCoverageRetiredObjects, lawCoveragePreservedTables, current, migrations[165].Version)
 }

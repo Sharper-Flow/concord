@@ -57,7 +57,10 @@ func TestMandateAdmissionAgreement(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
 	s := fixture.store
 	ctx := context.Background()
-	setAdmissionMandate(t, s, workID, WorkflowLawRevision{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)})
+	// The pinned law revision names the committed fixture law's real whole-file
+	// digest, so the pin-vs-current comparison answers current, and the
+	// mandate dimension is what the gate answers on.
+	setAdmissionMandate(t, s, workID, WorkflowLawRevision{LawID: "spec:one", ContentHash: workflowFixtureLawPin(t, workflowLawFixtureRepo(t, s), "spec:one")})
 	for _, bound := range []bool{false, true} {
 		if bound {
 			payload := json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"spec:one"}`)

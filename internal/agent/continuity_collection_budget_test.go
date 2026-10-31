@@ -962,6 +962,11 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 	// any transaction holds the pooled connection, a nested s.db read would
 	// park on the pool forever.
 	declarationVersion := version()
+	// The research-bearing declaration is a consequential transaction: its
+	// mandated-law check demands the pre-transaction knowledge-home proof,
+	// so the proof is established before the boundary tx opens and rides the
+	// context into it.
+	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
 	if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{
 		WorkID: "work-1", ExpectedVersion: declarationVersion, ActionID: "record_work_context", Payload: declarationRaw,
 		Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent},

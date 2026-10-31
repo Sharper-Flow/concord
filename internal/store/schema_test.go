@@ -418,22 +418,23 @@ func TestMigrateV18ToV19AddsClosedKnowledgeCoverageAndScopeGuards(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
+	// Migration 19 owns this proof, and knowledge_kind_coverage retires at
+	// schema 174, so the closed-coverage assertions run at the pinned 19
+	// prefix instead of the moving head.
+	advanceHistoricalPrefix(t, db, migrations[18].Version)
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != CurrentSchemaVersion() {
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != migrations[18].Version {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO knowledge_kind_coverage(home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES('p','l','HEAD','lesson','indexed','test','`+strings.Repeat("a", 40)+`')`); err == nil {
 		t.Fatal("coverage write bypassed write guard")
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
-			t.Errorf("remove write guard: %v", err)
+		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
 		}
 	}()
 	if _, err := db.ExecContext(ctx, `INSERT INTO knowledge_kind_coverage(home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES('p','l','HEAD','invalid','indexed','test','`+strings.Repeat("a", 40)+`')`); err == nil {
@@ -530,11 +531,12 @@ func TestMigrateV20ToV21AddsDerivedLawProjectionAndAmendmentField(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
+	// Migration 21 owns this proof, and the derived law projection tables it
+	// creates retire at schema 174, so the assertions run at the pinned 21
+	// prefix instead of the moving head.
+	advanceHistoricalPrefix(t, db, migrations[20].Version)
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != CurrentSchemaVersion() {
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != migrations[20].Version {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	for _, table := range []string{"law_subjects", "law_relations"} {
@@ -1727,9 +1729,11 @@ func seedV49NativeRun(t *testing.T, db *sql.DB, verificationState string) {
 
 func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
+	// Migration 40 owns this proof; schema 174 retires five of its projection
+	// tables, so the additions assert at the pinned 41 prefix (migration 41
+	// adds the native-run witness this test also checks).
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "concord-v40.db"), 41)
 	ctx := context.Background()
-	db := s.DatabaseForTesting()
 	for _, table := range []string{
 		"domain_registries", "domains", "domain_architecture_relations", "law_domain_homes",
 		"law_domain_applicability", "archived_work_domains",
@@ -1743,8 +1747,8 @@ func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 		}
 	}
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != CurrentSchemaVersion() {
-		t.Fatalf("schema version=%d err=%v, want %d", version, err, CurrentSchemaVersion())
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != migrations[40].Version {
+		t.Fatalf("schema version=%d err=%v, want %d", version, err, migrations[40].Version)
 	}
 	var nativeRuns int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='workflow_native_runs'`).Scan(&nativeRuns); err != nil || nativeRuns != 1 {

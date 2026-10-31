@@ -8,14 +8,13 @@ import (
 	"time"
 )
 
-// seedDerivedLawExtension adds a legislated law next to the derived spec:one
-// that seedWorkflowLaw seeds. Migration 98 defaults every law_subjects row to
-// derived, so the legislated row is stated explicitly.
+// seedDerivedLawExtension adds a legislated law beside the derived spec:one
+// that seedWorkflowLaw seeds: a committed decisions-tier file whose authored
+// authority names an approving work the store does not hold, so the source
+// verification keeps the declared tier unverified.
 func seedDerivedLawExtension(t *testing.T, s *Store) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier) VALUES('project','workflow-law-locator','spec:legislated','spec','accepted','.concord/docs/decisions/spec-legislated.md','Synthetic legislated test law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test','legislated'); DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
+	commitWorkflowFixtureLaw(t, lawChangeFixtureHome(t, s), "spec:legislated", lawChangeFixtureLaw("spec:legislated", "legislated", "root"))
 }
 
 // runDerivedLawApproval drives one approve_contract on the live

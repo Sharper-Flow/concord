@@ -87,7 +87,12 @@ func pReceiptBatch(refs [][]string, indexes ...int) json.RawMessage {
 
 func pConfirmReceiptPremise(t *testing.T, f workContextFixture) error {
 	t.Helper()
-	ctx := t.Context()
+	// The confirmation fold reads the committed Domain registry inside its
+	// transaction; the proof is established before the transaction opens.
+	ctx, err := prepareTerminalTestContext(t.Context(), f.store, f.workID, "confirm_premise")
+	if err != nil {
+		return err
+	}
 	version := readWorkVersion(t, f.store, f.workID)
 	id := fmt.Sprintf("confirm-%s-%d", f.workID, version)
 	return f.store.Transact(ctx, func(tx *Transaction) error {

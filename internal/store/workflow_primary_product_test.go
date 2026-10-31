@@ -69,6 +69,12 @@ func TestWorkflowBindingProductFollowsThePrimaryMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The binding validation reads the committed Domain registry inside the
+	// transaction; the source-set proof is established before it opens.
+	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

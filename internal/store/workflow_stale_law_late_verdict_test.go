@@ -21,14 +21,13 @@ func TestStaleLawHoldsLateVerdictUntilRePin(t *testing.T) {
 	const workID = "stale-law-late-verdict"
 	// The replacement predates this item's owning start. Its retained contract
 	// still pins the deleted law, so this tests stale-pin recovery, not attribution
-	// of a post-start deletion to an uncompleted peer.
+	// of a post-start deletion to an uncompleted peer. The committed cutover
+	// retires spec:one and enacts spec:two before the initializer reads the
+	// law folder, so the owning start inventory carries the successor law.
 	fixture := seedWorkflowReturnRouteFixtureWithSource(t, workID, currentFixtureDefinition(t, "workflow.research"), "complete", []string{"verification"}, []string{"verification", "review", "artifact"}, func(s *Store) {
-		execInFold(t, s,
-			`DELETE FROM law_domain_homes WHERE law_id='spec:one'`,
-			`DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`,
-			`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test')`,
-			`INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','')`,
-		)
+		home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
+		removeCommittedFixtureLaw(t, home, "spec:one")
+		commitFixtureLawFile(t, home, "spec:two", fixtureLawFolderLaw("spec:two"))
 	})
 	s, owner := fixture.store, fixture.owner
 	defer s.Close()
@@ -49,8 +48,8 @@ func TestStaleLawHoldsLateVerdictUntilRePin(t *testing.T) {
 	f := workContextFixture{store: s, workID: workID, owner: owner}
 	pack := seedResearchContextPack(t, f, "repin-research-proof")
 	bindResearchPack(t, f, pack.PackID, 1, true)
+	// The selection's child Domain carries no product-wide rationale.
 	selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
-	selection["product_wide_rationale"] = "The selected research supports the re-pinned research contract."
 	if err := f.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
 		t.Fatal(err)
 	}

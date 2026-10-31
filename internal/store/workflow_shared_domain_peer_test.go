@@ -49,12 +49,13 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) *Store {
 		tx.Rollback()
 		t.Fatal(err)
 	}
+	// The contracts' shared Domain facts are retained workflow rows; the
+	// Domain registry they name is the committed one seedWorkflowLaw writes,
+	// and no SQL registry projection exists to seed.
 	statements := []struct {
 		query string
 		args  []any
 	}{
-		{`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,'project','workflow-law-locator','product',?,'1.0',?,'test')`, []any{d7BoundaryProduct, d7BoundaryDomain, hash}},
-		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator',?,?,'Root','Product law','current',?,'test')`, []any{d7BoundaryProduct, d7BoundaryDomain, hash}},
 		{`UPDATE workflow_instances SET current_step=?,execution_started_at='2026-08-19T00:00:00Z' WHERE work_id=?`, []any{step, workID}},
 	}
 	for _, id := range []string{workID, otherID} {

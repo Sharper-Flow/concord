@@ -290,7 +290,14 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			return WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), preflightRequest)
 		}},
 		{name: "requireRecordedInvestigationArtifactSnapshot", run: func() error {
-			return requireRecordedInvestigationArtifactSnapshot(ctx, s, "neighbor-work")
+			// The investigation precondition reads the committed Domain
+			// registry inside its read-only transaction; the source-set proof
+			// is established before that transaction opens.
+			proofed, err := s.EstablishKnowledgeSourceSetProof(ctx, "neighbor-work")
+			if err != nil {
+				return err
+			}
+			return requireRecordedInvestigationArtifactSnapshot(proofed, s, "neighbor-work")
 		}},
 		{name: "readSnapshot activeWorkflowContractVersions", run: func() error {
 			var versions []int64

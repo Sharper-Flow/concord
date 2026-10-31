@@ -68,23 +68,12 @@ func init() {
 			goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxObligations", boundItems),
 		))
 
-	// ------------------------------------------------------------------
-	// canonical note result (PM1.Q10)
-	// ------------------------------------------------------------------
-
-	// q10 writes the literal empty candidates array in its payload map
-	// (internal/agent/runtime.go:q10, field "candidates"); no code path
-	// appends, so the capacity is zero items.
-	registerOutputBound("/$defs/canonical_note_result/properties/candidates/maxItems",
-		pkEmptyLiteralItemsBound("internal/agent/runtime.go", "q10", "candidates"))
-
-	// The locator is the committed note path. validateNotePath
-	// (internal/store/git_knowledge.go:validateNotePath) bounds only shape,
-	// never length, and archived_work.note_path carries no CHECK in the
-	// final DDL, so a committed note path of any length projects into the
-	// locator unbounded; only the envelope byte ceiling applies.
-	registerOutputBound("/$defs/canonical_note_result/properties/locator/maxLength",
-		unboundedOutput("the note path accumulator admits any clean relative .md path length: validateNotePath (internal/store/git_knowledge.go:validateNotePath) checks shape only and archived_work.note_path has no length CHECK in the final DDL, so scanKnowledgeTree can project a locator of any length", "internal/agent/runtime.go:readSizeRefusal"))
+	// The canonical_note_result (PM1.Q10) and knowledge_page (PM1.Q9) output
+	// bounds retired with the knowledge search and its served-projection
+	// surface (law-folder-authority.md, Committed reads: the law index and
+	// derived projections confer no authority and are not retained); their
+	// schema definitions are no longer output-reachable and carry no
+	// registration.
 
 	// ------------------------------------------------------------------
 	// domain detail result (C22.DomainDetail)
@@ -243,26 +232,6 @@ func init() {
 	// the manifest parse guard (maxManifestSummary code points) applies
 	// the same value before projection.
 	registerOutputBound("/$defs/domain_summary/properties/purpose/maxLength", goInlineBound("internal/store/knowledge_record.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Purpose)", boundCharacters))
-
-	// ------------------------------------------------------------------
-	// knowledge page (PM1.Q9)
-	// ------------------------------------------------------------------
-
-	// Item locators are the same unbounded git note paths as the Q10
-	// locator: validateNotePath bounds shape, never length, and
-	// archived_work.note_path carries no CHECK.
-	registerOutputBound("/$defs/knowledge_page/properties/items/items/properties/locator/maxLength",
-		unboundedOutput("the note path accumulator admits any clean relative .md path length: validateNotePath (internal/store/git_knowledge.go:validateNotePath) checks shape only and archived_work.note_path has no length CHECK in the final DDL, so every merged knowledge item can carry a locator of any length", "internal/agent/runtime.go:readSizeRefusal"))
-
-	// The merged page is truncated to the admitted limit;
-	// knowledgeLimit refuses anything outside 1..knowledgeQueryLimit.
-	registerOutputBound("/$defs/knowledge_page/properties/items/maxItems",
-		goConstantBound("internal/store/git_knowledge.go", "knowledgeQueryLimit", boundItems))
-
-	// The payload watermark is the designated home's scanned commit OID or
-	// the literal "unindexed": the same validateCommitOID length set.
-	registerOutputBound("/$defs/knowledge_page/properties/watermark/maxLength",
-		pkLengthSetBound("internal/store/git_knowledge.go", "validateCommitOID", "len(oid)"))
 
 	// ------------------------------------------------------------------
 	// research finding (PM1 research content)

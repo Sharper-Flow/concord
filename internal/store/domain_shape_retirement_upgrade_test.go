@@ -75,10 +75,11 @@ func TestMigrateV171ToV172RetiresDomainShapeAndPreservesCurrentState(t *testing.
 	t.Parallel()
 	db := seedV171DomainShapeDatabase(t, filepath.Join(t.TempDir(), "concord-v171.db"))
 	before := catalogUpgradeRows(t, db, domainShapePreservedTables...)
-	if err := Migrate(context.Background(), db); err != nil {
-		t.Fatal(err)
-	}
-	assertRetirementUpgrade(t, db, domainShapeRetiredObjects(), domainShapePreservedTables, before)
+	// Migration 172 owns this retirement; its preserved law-index tables
+	// retire later at schema 174, so the preservation boundary asserts at the
+	// pinned 172 prefix.
+	advanceHistoricalPrefix(t, db, migrations[171].Version)
+	assertRetirementUpgrade(t, db, domainShapeRetiredObjects(), domainShapePreservedTables, before, migrations[171].Version)
 	var breaking bool
 	if err := db.QueryRow(`SELECT breaking FROM schema_migrations WHERE version=172 AND name='retire_domain_shape'`).Scan(&breaking); err != nil || !breaking {
 		t.Fatalf("Domain Shape retirement breaking=%v, err=%v", breaking, err)
@@ -105,10 +106,8 @@ INSERT INTO shape_drop_blocker VALUES('shape-project','shape-locator','CD-0001',
 	if _, err := db.Exec(`DROP TABLE shape_drop_blocker`); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(context.Background(), db); err != nil {
-		t.Fatalf("upgrade after removing blocker: %v", err)
-	}
-	assertRetirementUpgrade(t, db, domainShapeRetiredObjects(), domainShapePreservedTables, before)
+	advanceHistoricalPrefix(t, db, migrations[171].Version)
+	assertRetirementUpgrade(t, db, domainShapeRetiredObjects(), domainShapePreservedTables, before, migrations[171].Version)
 	var violations int
 	if err := db.QueryRow(`SELECT count(*) FROM pragma_foreign_key_check`).Scan(&violations); err != nil || violations != 0 {
 		t.Fatalf("foreign_key_check rows=%d err=%v", violations, err)
@@ -165,13 +164,11 @@ DELETE FROM write_guard`); err != nil {
 			}
 			remediated := catalogUpgradeRows(t, db, "work_context_state")
 			retained := catalogUpgradeRows(t, db, domainShapePreservedTables...)
-			if err := Migrate(context.Background(), db); err != nil {
-				t.Fatalf("upgrade after modeled live reading removal: %v", err)
-			}
+			advanceHistoricalPrefix(t, db, migrations[171].Version)
 			if after := catalogUpgradeRows(t, db, "work_context_state"); !reflect.DeepEqual(after, remediated) {
 				t.Fatalf("upgrade rewrote the remediated authored declaration: %v", after)
 			}
-			assertRetirementUpgrade(t, db, domainShapeRetiredObjects(), domainShapePreservedTables, retained)
+			assertRetirementUpgrade(t, db, domainShapeRetiredObjects(), domainShapePreservedTables, retained, migrations[171].Version)
 			view, err := readWorkContextView(context.Background(), db, "shape-work")
 			if err != nil || view == nil || len(view.RequiredReading) != 1 || view.RequiredReading[0].Reason != "Retained reading" || view.RequiredReading[0].Source.Kind != WorkContextSourceKnowledge {
 				t.Fatalf("remediated context remains unreadable: view=%+v err=%v", view, err)

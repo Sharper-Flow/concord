@@ -462,7 +462,9 @@ func TestNonQualifyingActionsCannotStartTheRepairStep(t *testing.T) {
 	receiptsBefore := workflowStartReceiptIDs(t, s, workID)
 
 	contextPayload, err := json.Marshal(map[string]any{
-		"required_reading": []map[string]any{workContextRepoReading("root", "the reading is product-wide")},
+		// The committed registry's Product root carries the product-wide
+		// rationale; "root" is its child.
+		"required_reading": []map[string]any{workContextRepoReading("product-root:product", "the reading is product-wide")},
 		"finding_refs":     []string{},
 		"context_findings": []map[string]any{},
 	})
@@ -647,12 +649,12 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 	if err := s.AddProjectLocator(t.Context(), sourceProject, ProjectLocator{ID: "liveness-source-repo", Kind: LocatorCanonicalPath, Value: sourceRepo}, 1); err != nil {
 		t.Fatal(err)
 	}
-	reading := workContextRepoReading("root", "the reading is product-wide")
+	reading := workContextRepoReading("product-root:product", "the reading is product-wide")
 	reading["source"] = map[string]any{"kind": "repository_file", "project_id": sourceProject, "path": "internal/store/work_context.go", "commit_oid": sourceCommit}
 	contextPayload, err := json.Marshal(map[string]any{
 		"required_reading": []map[string]any{reading},
 		"finding_refs":     []string{},
-		"context_findings": []map[string]any{{"kind": "direction", "statement": "the corrected contract repairs the returned subject", "subject_ref": "internal/store/workflow.go", "evidence_refs": []string{"internal/store/workflow.go"}, "domain_id": "root", "product_wide_rationale": "the finding is product-wide"}},
+		"context_findings": []map[string]any{{"kind": "direction", "statement": "the corrected contract repairs the returned subject", "subject_ref": "internal/store/workflow.go", "evidence_refs": []string{"internal/store/workflow.go"}, "domain_id": "product-root:product", "product_wide_rationale": "the finding is product-wide"}},
 	})
 	if err != nil {
 		t.Fatal(err)

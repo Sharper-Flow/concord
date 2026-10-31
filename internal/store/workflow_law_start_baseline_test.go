@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -17,6 +18,7 @@ func TestLawChangePreNamingUsesOwningStart(t *testing.T) {
 	const workID = "law-before-naming"
 	s := seedLawChangeFixture(t, workID)
 	seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+	start := committedLawFileHash(t, lawChangeFixtureHome(t, s).RepoPath, workflowFixtureDecisionsLawPath("law-agent"))
 	lawChangeConstructorItem(t, s, workID, false)
 	editLawChangeLaw(t, s, "law-agent")
 	change, err := deriveLawChange(t, s, workID, lawChangeV1Generic, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise"}), []string{"law-agent"}, nil)
@@ -24,7 +26,7 @@ func TestLawChangePreNamingUsesOwningStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	i := slices.IndexFunc(change.LawBefore, func(s workflowLawState) bool { return s.LawID == "law-agent" })
-	if i < 0 || change.LawBefore[i].ContentHash != lawChangeHashA {
+	if i < 0 || change.LawBefore[i].ContentHash != start {
 		t.Fatalf("pre-naming edit became original state: %+v", change.LawBefore)
 	}
 }
@@ -39,7 +41,7 @@ func TestLawChangeGenericRegistryEditCannotComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lawChangeFold(t, s, `UPDATE domains SET purpose='edited without a binding' WHERE domain_id='workflow-engine'`)
+	commitWorkflowFixtureRegistry(t, lawChangeFixtureHome(t, s), lawChangeRegistryWithPurpose(t, "workflow-engine", "edited without a binding"))
 	requireFailureKind(t, enactLawChange(t, s, workID, change, nil), KindOutcomeMismatch, "generic registry edit")
 }
 
@@ -56,8 +58,7 @@ func TestLawChangeUnnamedNewAndRemovedLawsRefuse(t *testing.T) {
 			case "added":
 				seedLawChangeLaw(t, s, "law-new", "derived", "agent-surface")
 			case "removed":
-				lawChangeFold(t, s, `DELETE FROM law_domain_homes WHERE law_id='law-agent'`)
-				lawChangeFold(t, s, `DELETE FROM law_subjects WHERE law_id='law-agent'`)
+				removeWorkflowFixtureLaw(t, lawChangeFixtureHome(t, s), "law-agent")
 			}
 			requireFailureKind(t, enactLawChange(t, s, id, nil, nil), KindOutcomeMismatch, "law-free contract changed a source law")
 			change, err := deriveLawChange(t, s, id, lawChangeV1, nil, nil, nil)
@@ -84,10 +85,23 @@ func TestLawChangeStartAbsenceAndSourceGraph(t *testing.T) {
 		s := openTemp(t)
 		seedWork(t, s, "no-registry")
 		seedWorkflowLaw(t, s)
+		// The shared fixture commits a registry and a law. Retire both, so the
+		// owning start records a home that carries neither: no registry, no law.
+		home := lawChangeFixtureHome(t, s)
+		if err := os.Remove(filepath.Join(home.RepoPath, filepath.FromSlash(knowledgeRegistryPath))); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(filepath.Join(home.RepoPath, filepath.FromSlash(".concord/law/specs/spec-one-fixture.md"))); err != nil {
+			t.Fatal(err)
+		}
+		commitKnowledgeRepo(t, home.RepoPath, "retire the fixture registry and law")
 		startLawChange(t, s, "no-registry")
 		if err := enactLawChange(t, s, "no-registry", nil, nil); err != nil {
 			t.Fatal(err)
 		}
+		// A committed registry appears after the owning start; the law-free
+		// contract must refuse to complete over the registry it did not hold.
+		commitWorkflowFixtureRegistry(t, home, fixtureLawFolderRegistry)
 		requireFailureKind(t, enactLawChange(t, s, "no-registry", nil, nil), KindOutcomeMismatch, "new registry is not original state")
 	})
 	t.Run("in-flight item has no invented start", func(t *testing.T) {

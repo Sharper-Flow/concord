@@ -277,6 +277,13 @@ VALUES(?,?,'implementation',19,?,'implementation','model:historical','2.0','2.0'
 	if _, err := tx.Exec(`UPDATE store_sequences SET last=? WHERE name='effect'`, seq); err != nil {
 		t.Fatal(err)
 	}
+	// The knowledge index watermark is a migration-152 input that schema 174
+	// retired with the law index, so no current store produces one. Seed the
+	// historical row (the fixture home pair) to prove migration 152 preserves
+	// it unchanged.
+	if _, err := tx.Exec(`INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete) VALUES('project','workflow-law-locator','HEAD','` + strings.Repeat("a", 40) + `','2026-08-07T12:00:00Z',1)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := tx.Exec(`UPDATE work_items SET effect_seq=? WHERE id=?`, seq, work); err != nil {
 		t.Fatal(err)
 	}

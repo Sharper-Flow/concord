@@ -10,10 +10,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// The fixture repositories commit the Domain registry at its existing
-// repository path, the one file of the retired knowledge shard tree retained
-// consumers still read. The manifest head and the per-record shards were
-// retired with the law index.
+// The fixture repositories commit the Domain registry at its repository path.
 const knowledgeRegistryPath = ".concord/docs/knowledge/domain-registry.json"
 
 // WriteKnowledgeShards lays the Domain registry out at its repository path,

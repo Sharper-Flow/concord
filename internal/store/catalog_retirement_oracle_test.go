@@ -12,7 +12,7 @@ func TestCatalogRetirementSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	for _, table := range []string{"managed_resources", "resource_products", "domain_resource_attachment_sets", "domain_resource_attachment_edges"} {
+	for _, table := range []string{"managed_resources", "resource_products", "domain_resource_attachment_sets", "domain_resource_attachment_edges", "domains", "domain_registries"} {
 		var count int
 		if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name=?`, table).Scan(&count); err != nil {
 			t.Fatal(err)
@@ -21,7 +21,7 @@ func TestCatalogRetirementSchema(t *testing.T) {
 			t.Errorf("retired catalog object remains: %s", table)
 		}
 	}
-	for _, table := range []string{"projects", "project_locators", "products", "product_projects", "work_items", "work_projects", "domains", "domain_registries"} {
+	for _, table := range []string{"projects", "project_locators", "products", "product_projects", "work_items", "work_projects"} {
 		var count int
 		if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?`, table).Scan(&count); err != nil {
 			t.Fatal(err)

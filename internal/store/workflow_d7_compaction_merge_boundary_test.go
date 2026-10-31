@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -24,8 +25,6 @@ func seedStaleLawCompaction(t *testing.T) (*Store, KnowledgeHome, string, string
 		`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES('` + actor + `','principal:operator','client:compaction','agent:operator','session:compaction','operator','2026-08-19T00:00:00Z')`,
 		`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('owner',1,'compaction boundary','internal_sqlite','[]','[]','2026-08-19T00:00:00Z','` + actor + `','["spec:one"]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('owner',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:compaction","immutable_subject_ref":"commit:compaction","expected_result":"pass"}')`,
 		`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES('owner',1,'spec:one','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')`,
-		`DELETE FROM law_domain_homes WHERE law_id='spec:one'`,
-		`DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`,
 		`DELETE FROM write_guard`,
 	}
 	for _, statement := range statements {
@@ -33,17 +32,21 @@ func seedStaleLawCompaction(t *testing.T) (*Store, KnowledgeHome, string, string
 			t.Fatalf("seed stale-law compaction (%s): %v", statement, err)
 		}
 	}
-	assertStaleLawCompactionEstablished(t, s)
+	// A law retires by deleting its committed file, the ordinary pull-request
+	// route: the workflow law home no longer carries spec:one.
+	lawHome := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
+	removeCommittedFixtureLaw(t, lawHome, "spec:one")
+	assertStaleLawCompactionEstablished(t, s, lawHome)
 	return s, home, commit, path
 }
 
 // assertStaleLawCompactionEstablished proves the fixture created the refusing
 // condition rather than some unrelated failure: the subject is terminal, its
-// active contract pins one law, and that law no longer exists.
-func assertStaleLawCompactionEstablished(t *testing.T, s *Store) {
+// active contract pins one law, and the committed law folder no longer
+// carries that law.
+func assertStaleLawCompactionEstablished(t *testing.T, s *Store, lawHome KnowledgeHome) {
 	t.Helper()
 	var lifecycle, mandate, pinnedHash string
-	var remaining int
 	db := s.DatabaseForTesting()
 	if err := db.QueryRow(`SELECT lifecycle FROM work_items WHERE id='owner'`).Scan(&lifecycle); err != nil {
 		t.Fatal(err)
@@ -51,14 +54,18 @@ func assertStaleLawCompactionEstablished(t *testing.T, s *Store) {
 	if err := db.QueryRow(`SELECT spec_mandate FROM workflow_contracts WHERE work_id='owner' AND superseded_by IS NULL`).Scan(&mandate); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`SELECT count(*) FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`).Scan(&remaining); err != nil {
+	snapshot, err := loadLawFolderSnapshotAtHome(context.Background(), lawHome)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if slices.Contains(snapshot.LawIDs(), "spec:one") {
+		t.Fatalf("stale-law compaction not established: spec:one still committed at %s", lawHome.RepoPath)
 	}
 	if err := db.QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id='owner' AND contract_version=1 AND law_id='spec:one'`).Scan(&pinnedHash); err != nil {
 		t.Fatal(err)
 	}
-	if lifecycle != "completed" || mandate != `["spec:one"]` || remaining != 0 || pinnedHash != "sha256:"+strings.Repeat("a", 64) {
-		t.Fatalf("stale-law compaction not established: lifecycle=%q mandate=%q remaining=%d pin=%q", lifecycle, mandate, remaining, pinnedHash)
+	if lifecycle != "completed" || mandate != `["spec:one"]` || pinnedHash != "sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("stale-law compaction not established: lifecycle=%q mandate=%q pin=%q", lifecycle, mandate, pinnedHash)
 	}
 }
 

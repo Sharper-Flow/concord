@@ -126,20 +126,7 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 	// The committed registry is seedWorkContextDomainRegistry's: the reading
 	// resolution pins the archived row's exact committed blob, never the
 	// registry.
-	record := KnowledgeRecord{
-		ID: out.lawID, Kind: "spec", Path: ".concord/docs/spec.md", Status: "accepted",
-		Date: "2026-10-01T00:00:00Z", Title: "Synthetic dispatch law",
-		Summary: "the fixture committed law record for declared reading resolution",
-		Tags:    []string{},
-		Scopes:  KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
-		SHA256:  out.lawHash, HomeDomainID: workContextTestChild,
-	}
-	recordJSON, err := json.Marshal(record)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeKnowledgeFile(t, lawRepo, knowledgeRecordTree+"/spec-one.json", string(recordJSON)+"\n")
-	out.lawCommit = commitKnowledgeRepo(t, lawRepo, "synthetic law home with manifest record")
+	out.lawCommit = commitKnowledgeRepo(t, lawRepo, "synthetic law home with archived note")
 	out.lawRepo = lawRepo
 	// The archived linkage row pins the exact committed identity the reading
 	// resolution discovers in the home checkout; it is the compaction fold's
@@ -406,15 +393,6 @@ func TestValidateWorkContextDomainTxRefusals(t *testing.T) {
 				t.Fatalf("%s error = %v, want %s containing %q", testCase.name, err, testCase.kind, testCase.detail)
 			}
 		})
-	}
-	// The committed registry the proof read is the only registry: the
-	// retired SQL Domain projection stays empty.
-	var retiredRows int
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_registries)+(SELECT count(*) FROM domains)`).Scan(&retiredRows); err != nil {
-		t.Fatal(err)
-	}
-	if retiredRows != 0 {
-		t.Fatalf("retired SQL Domain projection rows remain: %d", retiredRows)
 	}
 	// The two admissible arms: an affected child without rationale and the
 	// approved root with one.
@@ -974,7 +952,12 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		t.Fatalf("associate captured criterion proof: %v", err)
 	}
 	seedComparisonObservation(t, fixture.store, fixture.workID)
-	ctx := t.Context()
+	// The confirmation fold reads the committed Domain registry inside its
+	// transaction; the proof is established before the transaction opens.
+	ctx, err := prepareTerminalTestContext(t.Context(), fixture.store, fixture.workID, "confirm_premise")
+	if err != nil {
+		t.Fatal(err)
+	}
 	confirmation := WorkflowActionExecutionRequest{
 		WorkID: fixture.workID, ExpectedVersion: readWorkVersion(t, fixture.store, fixture.workID), ActionID: "confirm_premise",
 		Payload: json.RawMessage(`{}`), Actor: fixture.owner,
@@ -1041,7 +1024,6 @@ UNION ALL SELECT r.kind,f.finding FROM work_context_findings f JOIN effect_recei
 		`SELECT count(*) FROM workflow_context_checkpoints WHERE work_id=? AND (active_unit LIKE '%CON887-%' OR hypothesis LIKE '%CON887-%' OR diagnosis LIKE '%CON887-%' OR strategy LIKE '%CON887-%')`,
 		`SELECT count(*) FROM workflow_context_boundaries WHERE work_id=? AND summary LIKE '%CON887-%'`,
 		`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND premise LIKE '%CON887-%'`,
-		`SELECT count(*) FROM law_subjects WHERE title LIKE '%CON887-%' OR path LIKE '%CON887-%'`,
 	} {
 		var count int
 		if err := fixture.store.DatabaseForTesting().QueryRow(probe, fixture.workID).Scan(&count); err != nil {

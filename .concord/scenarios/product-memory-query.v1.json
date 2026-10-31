@@ -742,7 +742,7 @@
             "path": "$.result.current_law[*].law_id",
             "op": "set_eq",
             "value": [
-              "knowledge-decision"
+              "CD-0002"
             ]
           },
           {

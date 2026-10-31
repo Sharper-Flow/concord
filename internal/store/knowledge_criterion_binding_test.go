@@ -20,6 +20,9 @@ func criterionBindingLawRecord(t *testing.T, bindings []KnowledgeCriterionBindin
 	if err := json.Unmarshal([]byte(front), &record); err != nil {
 		t.Fatal(err)
 	}
+	// Folder kind is derived, not authored metadata: a specs/-folder law
+	// decodes with the spec kind the placement assigns.
+	record.Kind = "spec"
 	return record
 }
 

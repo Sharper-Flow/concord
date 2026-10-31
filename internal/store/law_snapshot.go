@@ -25,6 +25,9 @@ const lawSnapshotOp = "load_law_snapshot"
 
 const lawFolderRoot = ".concord/law/"
 
+// knowledgeRegistryPath is the independent Domain registry's repository path.
+const knowledgeRegistryPath = ".concord/docs/knowledge/domain-registry.json"
+
 // lawFolderTierKind resolves a tier directory to the kind it supplies. Every
 // tier here holds law-bearing records only, so the folder always yields
 // accepted law.
@@ -80,10 +83,13 @@ type lawFolderSnapshot struct {
 // empty inventory. Law needs its Domain homes, so law without a registry
 // refuses, as does a malformed registry; a home with neither holds no law.
 func loadLawFolderSnapshot(ctx context.Context, repo, commitOID string) (*lawFolderSnapshot, error) {
+	return loadLawFolderSnapshotWith(ctx, lawFolderGitRunner{}, repo, commitOID)
+}
+
+func loadLawFolderSnapshotWith(ctx context.Context, runner GitRunner, repo, commitOID string) (*lawFolderSnapshot, error) {
 	if err := validateCommitOID(commitOID); err != nil {
 		return nil, err
 	}
-	runner := lawFolderGitRunner{}
 	if err := verifyLawFolderCommitObject(ctx, runner, repo, commitOID); err != nil {
 		return nil, err
 	}

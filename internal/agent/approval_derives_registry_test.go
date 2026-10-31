@@ -23,13 +23,9 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)
 	}
-	var registries int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM domain_registries WHERE product_id='product-1'`).Scan(&registries); err != nil {
-		t.Fatal(err)
-	}
-	if registries != 0 {
-		t.Fatalf("fixture precondition: want an empty Domain registry, got %d rows", registries)
-	}
+	// Schema 174 retired the SQL Domain projection, so the registry exists
+	// only as committed content by construction: nothing can be rebuilt or
+	// pre-seeded, which is the state this approval must succeed in.
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -145,35 +141,11 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 		"verification_obligations": []any{},
 	}
 	// Owning-start source verification and the pre-contract actions derive
-	// their own law inventory. Remove projections only after those demands,
-	// so this approval still proves recovery without a prior Domain read.
-	wipeDerivedKnowledge(t, s)
-	var registries int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM domain_registries`).Scan(&registries); err != nil || registries != 0 {
-		t.Fatalf("precondition: want no derived registry, got %d err=%v", registries, err)
-	}
+	// their own law inventory. Schema 174 retired the SQL Domain projection,
+	// so the approval runs with no stored registry by construction: it must
+	// derive everything from the committed home again.
 	resp, _ := approvedWorkflowContract(t, s, service, env, version, fields, "derived-registry-approval-no-read")
 	if resp.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("approve_contract with no derived registry present: %+v", resp.Error)
-	}
-}
-
-// wipeDerivedKnowledge leaves the store with no derived Domain projection,
-// the state a restore from before any read would leave. The committed
-// content at HEAD is untouched.
-func wipeDerivedKnowledge(t *testing.T, s *store.Store) {
-	t.Helper()
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM domains`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM domain_registries`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
+		t.Fatalf("approve_contract with no stored registry present: %+v", resp.Error)
 	}
 }

@@ -190,7 +190,7 @@ func TestLawFolderSnapshotSuppliesKindAndAcceptancePerTier(t *testing.T) {
 
 func TestLawFolderSnapshotHashesLawLargerThanRecordShardBound(t *testing.T) {
 	content := lawSnapshotDecisionContent("CD-9101", "") + strings.Repeat("Synthetic long body line.\n", 1600)
-	if len(content) <= maxKnowledgeRecord {
+	if len(content) <= 16*1024 {
 		t.Fatalf("fixture did not exceed the record shard bound: %d", len(content))
 	}
 	repo, commit := lawSnapshotFixture(t, map[string]string{

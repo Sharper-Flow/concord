@@ -132,7 +132,10 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 	}
 	seedWork(t, s, workID+"-compared")
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("9", 16), []string{"root", workID + "-compared"})
-	if err := pConfirmReceiptPremise(t, f); err != nil {
+	// The confirmation's investigation-Domain fold reads the verified
+	// committed registry inside its transaction, so the proof is established
+	// before the action transaction opens.
+	if err := (acceptanceRecoveryFixture{store: s, workID: workID, owner: f.owner, operator: f.operator}).run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
 		t.Fatalf("confirm successor: %v", err)
 	}
 	bindCompletionClosure(t, s, workID, f.owner)
@@ -396,12 +399,6 @@ func TestBindEvidenceObligationRecoverableAfterMandateBound(t *testing.T) {
 	if _, err := seedTx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := seedTx.Exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','root','Root','Product law','current',?,'test')`, "sha256:"+strings.Repeat("d", 64)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := seedTx.Exec(`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project','workflow-law-locator','product','root','1.0',?,'0000000000000000000000000000000000000000')`, "sha256:"+strings.Repeat("d", 64)); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := seedTx.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,?, 'product',?,'root',?)`, workID, contractVersion, "sha256:"+strings.Repeat("d", 64), "sha256:"+strings.Repeat("c", 64)); err != nil {
 		t.Fatal(err)
 	}
@@ -447,12 +444,6 @@ func TestBindEvidenceObligationRefusedOnceSatisfied(t *testing.T) {
 		t.Fatal(seedErr)
 	}
 	if _, err := seedTx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := seedTx.Exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','root','Root','Product law','current',?,'test')`, "sha256:"+strings.Repeat("d", 64)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := seedTx.Exec(`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project','workflow-law-locator','product','root','1.0',?,'0000000000000000000000000000000000000000')`, "sha256:"+strings.Repeat("d", 64)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := seedTx.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,?,'product',?,'root',?)`, workID, contractVersion, "sha256:"+strings.Repeat("d", 64), "sha256:"+strings.Repeat("c", 64)); err != nil {

@@ -180,36 +180,11 @@ environment. Execution selects only `phase: execute` and the exact
 coordinator's `record_verdict`; neither a Task summary nor a claimed verdict
 replaces required verification evidence or CI.
 
-### Managed session participation
+### Session scope
 
-`concord_work_start` enrolls its calling session before capture or resume. The
-host persists participation in session metadata, and the adapter verifies
-readback before work proceeds. Enrollment changes no host permission rules and
-stores no copy of a session directory or workflow state. Native Tasks retain
-their arguments and permissions regardless of participation.
-
-Use `concord_work_start` with the existing `work_id` to resume managed work.
-Read-only Concord calls do not enroll a session. If a later bootstrap step
-fails, recorded participation remains. A host that cannot persist or read
-participation refuses the affected operation.
-
-### The second coordinator session
-
-A work item that spans two repositories gets one coordinator session per
-repository (CD-0178 D2). Concord starts no session. The coordinator or operator
-opens a session in the second repository's registered checkout, and that
-session resumes the work through `concord_work_start` with exactly
-`{ work_id }`.
-
-Resume takes only `work_id`. It claims the work in the Project the calling
-session's own repository resolves. The second session needs no environment
-variables, no added Product memberships, and no trust-scope grant changes. A
-different Project in the same repository moves through
-`concord_work_transition` operation `worktree_claim`. A claim or resume that
-targets another repository refuses with the typed `cross_repository_claim`
-failure before any worktree exists. The refusal carries a `session_placement`
-detail that names the work, the Project, and the registered checkout
-directory. The remedy is a host-started session in that directory.
+Host tools create worktrees and start sessions; Concord claims, moves, and
+vacates nothing (CD-0088 D1). A work item that spans two repositories gets one
+host-started session per repository.
 
 The resolved Project owns the session's Product scope. An inherited
 `CONCORD_SELECTED_PRODUCT_ID` selection applies only when it names one of that
@@ -219,7 +194,7 @@ names one.
 ### The calling-host registry probe
 
 Preparing a session for managed work runs one bounded probe of the calling
-host: the bare `opencode debug config` command in the session's claimed
+host: the bare `opencode debug config` command in the session's
 directory, under the environment the calling process already has. The probe
 resolves the registry the identity check reads, and Concord appends no
 wrapper, option, or placeholder to it. An interrupted probe is a typed
@@ -247,7 +222,6 @@ degrades to the header alone.
 
 A failed receipt call appends a warning line to the tool result output after
 the envelope, because the agent is the only reader that can respond to it.
-The worktree-removal notice rides the same channel.
 
 The receipt rides the assistant's own message. The work-state reporter queues
 one block per session and suppresses a second emission of the same session,
@@ -260,10 +234,9 @@ assistant message.
 
 ### Session goal title
 
-A successful `work_start` writes the host session title to `Goal: <work title>`
-through `PATCH /session/{id}` with a `{ title }` body after the confirmed
-landing, and the work-state reporter refreshes the same title from the
-post-state pin so a revised intent reaches it. OpenCode replaces a session
+The work-state reporter writes the host session title to `Goal: <work title>`
+through `PATCH /session/{id}` with a `{ title }` body from the post-state pin,
+so a revised intent reaches it. OpenCode replaces a session
 title automatically only while it is still the generated default, so the
 Concord title persists.
 

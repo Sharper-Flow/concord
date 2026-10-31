@@ -5,8 +5,8 @@
 - **Scope:** The escaped-`SQLITE_BUSY` occurrences on record through
   2026-09-30, the write-transaction boundary in the store, and the conformance
   workload population, [Concord (CON) issue 750](https://linear.app/sharper-flow/issue/CON-750)
-- **Preserves:** CD-0011's reopen conditions as written, CD-0045's bounded
-  writer admission quantities, and the single-writer comparison as the first
+- **Preserves:** CD-0011's current reopen conditions, CD-0045's concurrent-writer
+  correctness, and the single-writer comparison as the first
   bounded comparison
 - **Related:** CD-0003, CD-0045, CD-0046, CD-0165,
   [Concord (CON) issue 752](https://linear.app/sharper-flow/issue/CON-752)
@@ -76,7 +76,7 @@ workload gains worktree claim and reclaim concurrency, the operation class
 that held the lock. A tool call here is a short-lived process, and many
 sessions run concurrently, so the workload must represent that shape.
 CD-0046 keeps invocation provenance as the population authority, and CD-0045
-keeps the three quantities and the zero-escaped-busy bound.
+keeps exact effects and zero escaped busy failures on the accepted population.
 
 ### D4. The reopen path stands, single-writer comparison first
 
@@ -103,7 +103,7 @@ and every reopen condition in CD-0011 stands as written for later escapes.
 The transaction-boundary proof requires a structural guard beside
 `internal/store/txscope_test.go` that fails when a transaction-holding
 function reaches a subprocess or a bulk filesystem call, and the claim and
-reclaim workload in the conformance harness. No falsifier vocabulary changes.
+reclaim workload in the conformance harness.
 CD-0165 binds new work to the current release.
 
 ## Verification

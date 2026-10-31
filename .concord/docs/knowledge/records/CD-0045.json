@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-20T00:00:00Z",
   "evidence": [
@@ -20,13 +18,13 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a3bec4782ac90c89599745dd38fe8015c565e14f6cd24456a62352fac042976e",
+  "sha256": "sha256:60cb50918fa5d24686ba71b8ada7e913402e25a0513125f1b7d7db87115e3b1e",
   "status": "accepted",
-  "summary": "The Priority 2 concurrency invariant states bounded writer admission rather than zero contention; writer-admission wait, commit duration, and escaped busy failure are distinct measured quantities, correctness precedes latency, population identity is part of the bound, and CD-0011 retains sole ownership of the reopen conditions.",
+  "summary": "Concurrent-writer correctness requires exact effects, zero escaped busy on the accepted population, fifteen base scenarios, and one unpaced 1000-write ten-process population. D5 retires ten-process latency measurement, falsifier, control, pacing, status, and their tests, including CD-0051 and CD-0057. Unrelated read P99, durability/recovery, and runtime transaction behavior remain; CD-0011 owns storage-authority reopen conditions.",
   "tags": [
     "concurrency",
     "sqlite",
     "floor-readiness"
   ],
-  "title": "Concurrency law states bounded writer admission, not zero waiting"
+  "title": "Concurrent writers preserve exact effects without escaped busy failures"
 }

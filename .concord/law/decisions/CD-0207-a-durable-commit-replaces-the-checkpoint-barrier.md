@@ -6,7 +6,7 @@
   durable, the CD-0050 D3 enumeration, and the CD-0050 D4 placement rule
 - **Preserves:** CD-0050 D2, the durability guarantee; CD-0050 D5, the
   migration exclusion; `synchronous=NORMAL` for ordinary writes; the
-  conformance harness, its pacing, threshold, and population authority; the
+  correctness conformance harness and its population authority; the
   rejection of `synchronous=FULL` for every write
 - **Related:** CD-0050, CD-0002, CD-0011, CD-0122,
   [pull request 1558](https://github.com/Sharper-Flow/concord/pull/1558),
@@ -79,18 +79,17 @@ family. Cross-authority fence entry points are declared in D3.
 `internal/store/fence.go` commit durably. A durable commit waits for no WAL
 reader, so the CD-0050 D4 failure mode does not occur.
 
-The conformance harness calls the fence cores with `durable=false`. It still
-measures ordinary commits. Its pacing, threshold, and population authority do
-not change.
+The conformance harness calls the fence cores with `durable=false` and checks
+ordinary-write correctness under CD-0045. CD-0046 owns population authority.
+The public entry points retain durable commits and their separate proof.
 
 ## Alternatives considered
 
 - **Keep the post-commit TRUNCATE checkpoint.** Rejected on evidence. Constant
   continuity readers made the checkpoint report busy after the commit. The
   pinned-reader regression fails on the commit before pull request 1558.
-- **Set `synchronous=FULL` for every write.** Rejected again on measurement.
-  Pull request 1557 measured commit p99 of 91 ms to 109 ms on `ubuntu-latest`
-  against the accepted 100 ms target.
+- **Set `synchronous=FULL` for every write.** Rejected: CD-0050 D2 keeps
+  ordinary writes at NORMAL and requires FULL at consequential boundaries.
 - **Per-transaction pragma flipping, as CD-0050 rejected it.** Adopted. CD-0050
   rejected it because a concurrent writer on the same pooled connection could
   commit under the wrong mode. That premise does not hold. The pool has one

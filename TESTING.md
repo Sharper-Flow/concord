@@ -136,7 +136,14 @@ CI remains the executable inventory. Do not maintain a second test catalog.
 * `internal/agent` and `cmd/concord` have separate required shards. Unsharded
   Go packages use the `verify-tests-rest` job. Adapter jobs own Bun test files
   and existing timing artifacts; `verify-tooling` owns the Python battery.
-* `bin/oc-test conformance` explicitly enables the long ten-process harness.
+* `bin/oc-test conformance` enables all fifteen base ten-process correctness
+  scenarios plus one unpaced 1000-write population with exact-effect and replay
+  checks. `CONCORD_CONFORMANCE_LONG=1` selects that additional population and
+  enables the acceptance entry point; it does not select a timing profile.
+  Required CI sets `CONCORD_ACCEPTANCE_RUNNER=1` on the acceptance entry point
+  to bind the zero-escaped-busy policy. The diagnostic entry point cannot grant
+  itself accepted authority. Reports contain correctness and invocation
+  provenance only; there is no latency target, timing summary or pacing control.
   Smoke excludes every sharded Go package, but includes the adapter suite and
   JSON/law validation. It is not a cheap substitute for a named regression.
 

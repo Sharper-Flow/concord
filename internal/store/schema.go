@@ -112,7 +112,7 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 		if _, err := q.ExecContext(ctx, `INSERT OR IGNORE INTO fold_guard(active) VALUES(1)`); err != nil {
 			return err
 		}
-		for _, backfill := range []func(context.Context, migrationRunner) error{backfillWorkContextFacts, backfillWorkflowReviewFacts, backfillWorkSizeProofFacts} {
+		for _, backfill := range []func(context.Context, migrationRunner) error{backfillWorkContextFacts, backfillWorkflowReviewFacts} {
 			if err := backfill(ctx, q); err != nil {
 				return err
 			}
@@ -8280,6 +8280,18 @@ CREATE INDEX outside_repair_reconciliations_work ON outside_repair_reconciliatio
 CREATE TRIGGER outside_repair_reconciliations_guard_insert BEFORE INSERT ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TRIGGER outside_repair_reconciliations_guard_update BEFORE UPDATE ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TRIGGER outside_repair_reconciliations_guard_delete BEFORE DELETE ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version:  169,
+		Name:     "retire_work_size",
+		Breaking: true,
+		SQL: `
+DROP TABLE work_size_proof_facts;
+DROP TABLE work_size_assessments;
+INSERT INTO write_guard(active) VALUES(1);
+DELETE FROM effect_receipts WHERE kind='work.sized';
+DELETE FROM write_guard;
 `,
 	},
 }

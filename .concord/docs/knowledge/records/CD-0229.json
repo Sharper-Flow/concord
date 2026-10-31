@@ -36,15 +36,14 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e4e060a8e4b265bee764075897c11191cffc934d0278221d9edc676056de2dac",
+  "sha256": "sha256:8e1155aa5c7712c8cb1648e58b6e14ace0da5b34115293380daf0dc4cb4186ba",
   "status": "accepted",
-  "summary": "A workflow definition is a composition of versioned parts, and each step is defined in exactly one part; the registry compiles compositions, and no released definition version is retained for history. The decision model sets each work item's size and its minimum steps, proof, and testing; a task that proves bigger than its size reruns the model and continues in the same item. Sized workflows record define start and merge-queue entry.",
+  "summary": "Workflow definitions compose versioned shared parts from one canonical source. Work has no size classification, model, inputs, assessments, proofs, overrides, size-specific timing or review severity gate. Live steps, independent review, blocking-finding admission and current-subject proof remain. Store upgrades remove size facts through verified snapshots; retired size events refuse append.",
   "tags": [
     "workflow",
     "workflow-engine",
     "definition",
-    "composition",
-    "sizing"
+    "composition"
   ],
-  "title": "Workflows are composed from shared parts, and a decision model sets each work item's size"
+  "title": "Workflows compose shared parts without work-item size classification"
 }

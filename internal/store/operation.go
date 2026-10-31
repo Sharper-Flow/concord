@@ -185,7 +185,6 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.worktree_created":                   registerEventKind[worktreeCreatedPayload](1, EventAppendAuthorityGeneric, foldWorktreeCreated, nil),
 	"work.message_sent":                       registerEventKind[messageSentPayload](1, EventAppendAuthorityGeneric, foldMessageSent, nil),
 	WorkObservationRecorded:                   registerEventKind[workObservationRecordedPayload](1, EventAppendAuthorityGeneric, foldWorkObservationRecorded, nil),
-	WorkSized:                                 registerEventKind[workSizedPayload](2, EventAppendAuthorityGeneric, foldWorkSized, nil),
 	EventExternalObservationCaptured:          registerEventKind[externalObservationCapturedPayload](1, EventAppendAuthorityGeneric, foldExternalObservationCaptured, nil),
 	EventExternalObservationVerified:          registerEventKind[externalObservationVerifiedPayload](1, EventAppendAuthorityGeneric, foldExternalObservationVerified, nil),
 	"work.message_withdrawn":                  registerEventKind[messageWithdrawnPayload](1, EventAppendAuthorityGeneric, foldMessageWithdrawn, nil),
@@ -270,7 +269,7 @@ type preparedRegisteredEvent struct {
 
 func prepareRegisteredEvent(event Event) (preparedRegisteredEvent, error) {
 	switch event.Kind {
-	case WorkResized, WorkerJobSplit, WorkerJobSplitDischarged,
+	case "work.sized", WorkResized, WorkerJobSplit, WorkerJobSplitDischarged,
 		"product.planning_mode_set", "initiative_entry.added", "initiative_entry.removed",
 		"initiative_entry.reordered", "initiative_entry.requiredness_changed", "initiative.narrative_revised":
 		return preparedRegisteredEvent{stage: StageDecode}, retiredEventAppendRefused(event.Kind)

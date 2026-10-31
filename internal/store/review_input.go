@@ -12,12 +12,10 @@ import (
 type ReviewInput struct {
 	InputCandidate ReviewCandidate    `json:"input_candidate"`
 	Dependencies   ReviewDependencies `json:"dependencies"`
-	Size           *WorkSizeSummary   `json:"size,omitempty"`
 }
 
 type continuityReviewSubject struct {
 	receipt *WorktreeVerifyResult
-	size    *WorkSizeSummary
 }
 
 func sampleContinuityReviewSubjectTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) (continuityReviewSubject, error) {
@@ -30,8 +28,7 @@ func sampleContinuityReviewSubjectTx(ctx context.Context, tx *sql.Tx, work strin
 	if err != nil || subject.receipt == nil {
 		return subject, err
 	}
-	subject.size, err = readWorkSizeSummary(ctx, tx, work)
-	return subject, err
+	return subject, nil
 }
 
 func observeContinuityReviewSubject(ctx context.Context, out *ContinuitySnapshot, subject continuityReviewSubject) {
@@ -44,7 +41,7 @@ func observeContinuityReviewSubject(ctx context.Context, out *ContinuitySnapshot
 		out.ReviewInputWarning = err
 		return
 	}
-	out.ReviewInput = &ReviewInput{InputCandidate: ReviewCandidate{ProjectID: subject.receipt.ProjectID, Commit: commit, Tree: tree}, Dependencies: *out.WorkPin.Review.Dependencies, Size: subject.size}
+	out.ReviewInput = &ReviewInput{InputCandidate: ReviewCandidate{ProjectID: subject.receipt.ProjectID, Commit: commit, Tree: tree}, Dependencies: *out.WorkPin.Review.Dependencies}
 }
 
 func readReviewCandidateTree(ctx context.Context, runner GitRunner, path, commit string) (string, error) {

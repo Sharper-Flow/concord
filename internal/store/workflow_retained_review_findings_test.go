@@ -8,7 +8,7 @@ import (
 
 func TestRetainedReviewFindingsRemainVisibleAfterRecording(t *testing.T) {
 	for _, blocking := range []bool{false, true} {
-		name := "crucial"
+		name := "nonblocking"
 		if blocking {
 			name = "blocking"
 		}
@@ -29,9 +29,9 @@ func TestRetainedReviewFindingsRemainVisibleAfterRecording(t *testing.T) {
 			if err != nil || len(state.Findings) != 1 || !reflect.DeepEqual(state.Findings[0], finding) {
 				t.Fatalf("retained finding disappeared or changed: %+v, %v", state.Findings, err)
 			}
-			state.Crucial = !blocking
-			if err := workflowAdmitReview(state); !hasFailureKind(err, KindMissingEvidence) || !strings.Contains(err.Error(), finding.FindingID) {
-				t.Fatalf("open retained finding did not block exit: %v", err)
+			err = workflowAdmitReview(state)
+			if !hasFailureKind(err, KindMissingEvidence) || (blocking && !strings.Contains(err.Error(), finding.FindingID)) {
+				t.Fatalf("retained finding or review disposition did not block exit: %v", err)
 			}
 		})
 	}

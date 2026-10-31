@@ -243,18 +243,6 @@
       "authority": "check"
     },
     {
-      "table": "work_size_assessments",
-      "column": "size_class",
-      "authority": "contract",
-      "validator": "scripts/check-work-sizes.py"
-    },
-    {
-      "table": "work_size_proof_facts",
-      "column": "state",
-      "authority": "check",
-      "rationale": "This column stores the current review-proof window as JSON, not an enum; its CHECK requires valid JSON."
-    },
-    {
       "table": "workflow_actors",
       "column": "actor_class",
       "authority": "check"

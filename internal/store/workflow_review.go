@@ -23,7 +23,6 @@ type WorkflowReviewState struct {
 	Findings               []ReviewFinding         `json:"findings"`
 	DependenciesCurrent    bool                    `json:"dependencies_current"`
 	PublicationOutstanding bool                    `json:"publication_outstanding"`
-	Crucial                bool                    `json:"-"`
 	findingSources         map[string]reviewFindingSource
 }
 
@@ -196,11 +195,6 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, work string) (Workf
 	if current != nil && state.Candidate != nil && (current.ProjectID != state.Candidate.ProjectID || current.SubjectRef != "commit:"+state.Candidate.Commit) {
 		state.DependenciesCurrent = false
 	}
-	size, sized, err := readEffectiveWorkSize(ctx, q, work)
-	if err != nil {
-		return state, err
-	}
-	state.Crucial = sized && size.Effective == WorkSizeCrucial
 	return state, nil
 }
 
@@ -213,19 +207,6 @@ func (state WorkflowReviewState) blocker() string {
 	return ""
 }
 
-var reviewHighOrMediumSeverities = map[string]bool{"P0": true, "P1": true, "P2": true}
-
-func (state WorkflowReviewState) crucialExitBlocker() (string, string) {
-	if state.Crucial {
-		for _, finding := range state.Findings {
-			if finding.Status == "open" && finding.InScope && reviewHighOrMediumSeverities[finding.Severity] {
-				return finding.FindingID, finding.Severity
-			}
-		}
-	}
-	return "", ""
-}
-
 func workflowAdmitReview(state WorkflowReviewState) error {
 	if state.Accepted == nil || state.Candidate == nil {
 		return reviewFailure(KindMissingEvidence, "current candidate has no recorded Review", "obtain independent Review and record its subject-bound report")
@@ -235,9 +216,6 @@ func workflowAdmitReview(state WorkflowReviewState) error {
 	}
 	if finding := state.blocker(); finding != "" {
 		return reviewFailure(KindMissingEvidence, "open in-scope blocking finding "+finding, "resolve the finding with output-subject proof")
-	}
-	if finding, severity := state.crucialExitBlocker(); finding != "" {
-		return reviewFailure(KindMissingEvidence, "Crucial work retains open "+severity+" finding "+finding, "resolve the finding with output-subject proof")
 	}
 	if state.Accepted.Report.Disposition != "ready_for_final_proof" || len(state.Accepted.Report.RemainingObligations) != 0 {
 		return reviewFailure(KindMissingEvidence, "Review has not reached ready_for_final_proof without remaining obligations", "finish the recorded obligations and record the independent Review outcome")

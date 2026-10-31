@@ -41,7 +41,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:839922b8229aae0cf45bf4520bb3de90b1d5364a85222d023982894e40c86206",
+  "sha256": "sha256:803075e21eaa1a308ff1ace3c88570cf33c194dbed93a5d9fa7a37ea5c11567f",
   "status": "accepted",
   "summary": "priorities.md Appendix A is the only copy of the conflict rules; each rule names its enforcing mechanism or a gap, and applying a rule leaves a finding or work-record entry. Law changes and operator consent follow CD-0243's six classes; changes to the approval boundary require exact-text operator approval. Seriousness, Domain count, crucial size, and a missing classification do not independently require approval. The RTE coordinates dependencies, and operator decisions go directly to the operator. Operator-free law revisions remain derived. Recovery and permanent loss follow CD-0243 D5. Follow-up items carry a rule label in Linear.",
   "tags": [

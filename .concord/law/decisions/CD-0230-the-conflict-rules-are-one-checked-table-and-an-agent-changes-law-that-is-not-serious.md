@@ -272,16 +272,11 @@ recorded independent review supplies the application evidence. The follow-up
 item's rule label, raising-change link enforcement and saved view remain D6's
 open duty below.
 
-A2 row 5 uses a programmed check in the existing Review admission.
-`internal/store.TestCrucialReviewExitRefusesHighOrMediumFinding` proves a crucial
-change cannot leave execution with an open in-scope `P0`-`P2` finding marked
-non-blocking, while `P3`, out-of-scope, closed, larger-size and group-opening
-cases stay admitted; `internal/store.TestReviewStateReadsCrucialFromEffectiveSize`
-proves the rule follows the effective size, including the operator's size.
-`internal/store.TestReviewCurrentAdmissionNegativeCases` proves the every-size
-blocking rule. `scripts/testdata/conflict-review-repair-cases.md` supplies
-in-scope repair, unverified fix, dropped and claimed follow-up, and crucial
-medium-finding cases for independent application of the existing review method,
+A2 row 5 uses CD-0242 D5's blocking-finding rule in Review admission.
+`internal/store.TestReviewCurrentAdmissionNegativeCases` exercises that rule.
+`scripts/testdata/conflict-review-repair-cases.md` supplies
+in-scope repair, unverified fix, and dropped and claimed follow-up
+cases for independent application of the existing review method,
 which judges in-scope repair and follow-up filing that the check does not decide.
 The follow-up item's rule label, link and saved view remain D6's open duty.
 
@@ -298,7 +293,6 @@ The remaining enforcement and proof is assigned below:
 | R2, A2 rows 2 and 4 | [CON-1098](https://linear.app/sharper-flow/issue/CON-1098). `internal/agent.TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent` proves directed work-item sequencing, not selection of the shared-Domain step or release when the other change completes it. Shared stages do not by themselves prove A2 row 4's boundary-change handling. |
 | D4 and D5; CD-0243 runtime alignment | [CON-1100](https://linear.app/sharper-flow/issue/CON-1100). Recorded review does not establish prevention of external data loss, automatic six-class inference, or enforcement on the ad-hoc route. Contract-time consent does not establish informed approval of a specific loss. Classifications, carrier tests and the selected synthetic reviews do not prove whole-record runtime alignment. |
 | A2 row 6; D6 | [CON-1101](https://linear.app/sharper-flow/issue/CON-1101). Nothing enforces labels, raising-change links, the Linear view, or closure tracking. Nothing records or checks that the coordinator schedules a shipping-blocking unrelated bug first. |
-| A2 row 8 | [CON-1344](https://linear.app/sharper-flow/issue/CON-1344). Same-item resizing does not prove adding required stages while retaining completed work. CD-0229's Verification also retains the separate small-work proof and timing owners. |
 
 The surviving outcomes still need executable proof or an explicit
 owning law disposition. CD-0242 D4–D7 replaces the old

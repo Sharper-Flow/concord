@@ -53,7 +53,6 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 		{"criterion", criteria["items"], 1233},
 		{"criteria", criteria, 9873},
 		{"dependencies", defs["lane_report_review_dependencies"], 10373},
-		{"work size", defs["work_size_summary"], 479},
 		{"descriptor", defs["continuity_review_input"], 12471},
 	} {
 		got, err := schemawire.Max(row.node, row.name, schemawire.Options{Defs: defs})

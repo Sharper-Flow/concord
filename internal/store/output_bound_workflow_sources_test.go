@@ -2,8 +2,8 @@ package store
 
 // Workflow-family rows for the structural output bound ledger: the
 // workflow_, continuity_, and work_context_ definitions plus work_pin,
-// work_pin_evidence, operator_question, work_liveness, and
-// work_size_summary. Every finite row cites a real full-string producer
+// work_pin_evidence, operator_question, and work_liveness. Every finite row
+// cites a real full-string producer
 // bound traced to its writer: a store guard constant, a workflowString or
 // workflowList call argument resolved through its fold, an inline
 // comparison guard, an anchored pattern constant, a declared slice literal,
@@ -45,7 +45,6 @@ func init() {
 	boundaryRecordedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowContextBoundaryCrossed", "time.RFC3339Nano")
 	handoffRecordedAt := pkTimeLayoutWidthBound("internal/store/project_handoffs.go", "recordProjectHandoffCore", "time.RFC3339Nano")
 	observationRecordedAt := pkTimeLayoutWidthBound("internal/store/work_observations.go", "foldWorkObservationRecorded", "time.RFC3339Nano")
-	sizeRecordedAt := pkTimeLayoutWidthBound("internal/store/work_size.go", "foldWorkSized", "time.RFC3339Nano")
 	// advanceWorkEffectSeqTx retains the lexical maximum in
 	// work_items.last_progress_at. deriveWorkLivenessQ reads that column;
 	// workLivenessFromCounts copies it to LastProgress without reformatting.
@@ -384,7 +383,6 @@ func init() {
 	registerOutputBound("/$defs/work_pin_evidence/properties/immutable_subject_ref/maxLength", evidenceRefBound)
 
 	// Work size summary.
-	registerOutputBound("/$defs/work_size_summary/properties/recorded_at/maxLength", sizeRecordedAt)
 
 	// Workflow contract: the projection columns carry the admission CHECKs.
 	registerOutputBound("/$defs/workflow_contract/properties/approved_at/maxLength", contractApprovedAt)

@@ -78,7 +78,6 @@ SKILL_REFERENCES = {
     "concord-work-shaping": {
         "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
         "approval": ".concord/docs/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
-        "size": ".concord/docs/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md",
     },
     "concord-retrospective": {
         "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",

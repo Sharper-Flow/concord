@@ -1,39 +1,34 @@
-# CD-0229: Workflows compose shared parts without work-item size classification
+# CD-0229: Plain workflow definitions without work-item size classification
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
-- **Scope:** Shared workflow definitions and the absence of work-item size classification
+- **Scope:** Plain workflow definitions and the absence of work-item size classification
 - **Preserves:** CD-0218 D1's three live families; CD-0242 D4-D8's mandatory
   stages, independent review, current-subject proof and evidence requirements;
   CD-0242 D13's verified-snapshot upgrade; CD-0242 D14's single canonical source
 
 ## Decision
 
-### D1. A part defines its steps once
+### D1. Workflows use plain definitions
 
-A part is a code-defined, versioned unit that defines one or more workflow
-steps: their actions, payload contracts, required evidence and recovery routes.
-Each step is defined in exactly one part. A part may declare parameters.
+The implementation, break-fix and research families each have a plain Go
+`WorkflowDefinition` value. Each definition directly declares its steps,
+actions, edges, evidence, outcomes and recovery routes. The registry validates
+the value and derives its canonical manifest and digest. Common runtime action
+and payload implementations remain shared under CD-0242 D3.
 
-A family or Domain that needs a variant gets it through a parameter of the
-shared part, never through a copy. When the part cannot serve the need without
-a special case, file a follow-up item to redesign it.
+There is no workflow parts catalog, part-use mapping or composition compiler.
+No replacement assembly framework or workflow language is introduced. Public
+schemas and tool contracts derive from the Go definitions under
+[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source).
+This changes definition authoring, not live execution semantics. Composition
+across work items remains forward-link only under CD-0013 D7-D8.
 
-### D2. A workflow definition is a composition of parts
-
-A definition declares its family, its parts at pinned versions with their
-parameters, and the edges between them. Parts and compositions are Go values,
-not a workflow language. The registry compiles each composition to its canonical
-definition and computes the digest from that result.
-
-New execution uses only CD-0218 D1's implementation, break-fix and research
-families. Composition inside one definition is assembly, not nested execution.
-Composition across work items remains forward-link only.
-
-### D3. Compositions derive from one source
-
-Derived schemas and compositions are generated from one canonical source
-([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+Requirements for unique step ownership by part, compiling compositions and
+assembling a new workflow kind without step code are retired. Tests solely of
+the parts catalog, duplicate part ownership, part-use validation or composition
+compilation retire with those mechanisms. Registered-definition validation,
+canonical identity, generator parity and runtime route tests remain.
 
 ### D4. Work has no size classification
 
@@ -56,7 +51,8 @@ requirements remain.
 
 ## Verification
 
-Shared-part ownership and canonical compilation remain subject to D1-D3.
+Plain definitions require complete canonical-manifest and digest equivalence
+when removing assembly, plus registration and generated-contract parity checks.
 Size retirement requires checks for absent public fields, refusal of retired
 events, preserved review blockers and snapshot-backed migration of existing
 stores. Presence of a migration or a declaration alone does not prove those

@@ -62,13 +62,12 @@ the case ([`../law/constitution/priorities.md`](../law/constitution/priorities.m
 - Each live workflow retains its mandatory steps. Main chooses assignment
   complexity and may add depth; no programmed size classification selects steps.
 
-### C. Composable workflows ("legos")
-- "We need to better define those kinds of work and workflow combos. Each one should not require full
-  definition, but rather take existing parts/pieces."
-- "like having legos for different parts needed for a workflow, we snap them together in different
-  combinations for different workflows, not define each separately. Modality is crucial."
-- Measure: a new workflow kind is made by combining existing parts, with no new step code.
-  Each step is defined in exactly one part.
+### C. Plain workflow definitions and reusable implementations
+- Each live family has a plain Go definition. Common runtime action and payload implementations stay shared,
+  without a parts catalog or composition compiler ([CD-0229 D1](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md#d1-workflows-use-plain-definitions)).
+- Work items compose through forward-linked successors. Each keeps its own authority and recovery.
+- Measure: definitions preserve their complete live steps and routes, and public projections match their
+  canonical Go source.
 
 ### D. Programmed tools over prose instructions
 - "Provide fast functions and tools for agents to focus on most important context and acceptance criteria".

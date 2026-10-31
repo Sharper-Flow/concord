@@ -37,7 +37,7 @@ const GeneratedEnvelopeSchemaDocument = `{
     },
     "adapterSalvaged": {
       "additionalProperties": false,
-      "maxProperties": 3,
+      "maxProperties": 2,
       "properties": {
         "changed_refs": {
           "items": {
@@ -50,12 +50,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "maxLength": 128,
           "minLength": 1,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
-          "type": "string"
-        },
-        "worktree_path": {
-          "maxLength": 4096,
-          "minLength": 1,
-          "pattern": "^/",
           "type": "string"
         }
       },

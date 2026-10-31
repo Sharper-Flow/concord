@@ -1,22 +1,11 @@
 // The host control plane uses the client the plugin factory supplies.
 //
-// The route is `POST /experimental/control-plane/move-session` on the host's
-// own server, carrying `{ sessionID, destination: { directory } }` and
-// answering 204 on success.
-//
-// The adapter reaches it through the client the plugin factory receives, never
+// The adapter reaches host routes through the client the plugin factory receives, never
 // through a URL it rebuilds. That client dispatches in process and carries the
 // host's own headers, so it reaches the route on a host that binds no socket
 // and on one that requires credentials. The plugin's `serverUrl` is a fallback
 // placeholder when the host runs no listener, which is why nothing here reads
 // it.
-//
-// The route has a typed method only on the v2 SDK client, and the v1 plugin
-// input supplies a v1 client. Importing the v2 SDK would make this the
-// adapter's first runtime dependency on a host package, resolved from the
-// operator's config directory at whatever version is installed there. The
-// generic request surface underneath the client reaches the same route with no
-// such dependency, so the route path stays a constant here.
 //
 // `GET /session` reports live session directories for worktree occupancy.
 // `GET/PATCH /session/{id}` owns persistent Task participation metadata and
@@ -25,7 +14,6 @@
 import { execFileSync } from "node:child_process"
 import { promptAndConfirm } from "./host-prompt"
 
-export const MOVE_SESSION_ROUTE = "/experimental/control-plane/move-session"
 export const SESSION_ROUTE = "/session/{id}"
 export const SESSION_LIST_ROUTE = "/session"
 export const SESSION_MESSAGES_ROUTE = "/session/{id}/message"
@@ -55,9 +43,8 @@ function hostVersion(): string {
 }
 
 export class MoveSessionUnavailable extends Error {}
-export class MoveSessionRefused extends Error {}
 export class SessionScopeUnavailable extends Error {}
-class HostSessionMissing extends MoveSessionRefused {}
+class HostSessionMissing extends Error {}
 
 // HostControlPlane holds the route client the plugin factory received. The
 // tool path and the plugin entry reach the same instance through this module,
@@ -153,49 +140,9 @@ export class HostControlPlane {
     }
   }
 
-  // moveSession retargets a running session at an absolute directory. It
-  // never asks the host to carry local changes: CD-0098 D3 requires a clean
-  // default checkout, so uncommitted work stays where the operator left it
-  // rather than travelling with the move.
-  async moveSession(sessionID: string, directory: string, signal?: AbortSignal): Promise<void> {
-    const client = this.#require(
-      `the OpenCode move-session route ${MOVE_SESSION_ROUTE} is unavailable: this host handed the plugin no client`,
-    )
-    let result: RouteResult
-    try {
-      result = await client.post({ url: MOVE_SESSION_ROUTE, body: { sessionID, destination: { directory } }, signal })
-    } catch (error) {
-      throw new MoveSessionUnavailable(
-        `the OpenCode move-session route ${MOVE_SESSION_ROUTE} is unreachable (host version ${hostVersion()}): ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
-    const response = result.response
-    if (response.status === 404 || response.status === 405) {
-      throw new MoveSessionUnavailable(
-        `the OpenCode move-session route ${MOVE_SESSION_ROUTE} is absent from this host (host version ${hostVersion()}); Concord requires it and runs no launch fallback`,
-      )
-    }
-    if (response.status === 204 || response.status === 200) return
-    throw new MoveSessionRefused(
-      `the OpenCode move-session route refused the retarget with status ${response.status}: ${await refusalText(result)}`,
-    )
-  }
-
-  // sessionDirectory reads back where the host now runs a session. CD-0098 D3
-  // refuses success unless the move landed on the claimed worktree, so the
-  // answer comes from the host rather than from the request that asked for it.
+  // sessionDirectory reads where the host actually runs a session.
   async sessionDirectory(sessionID: string, signal?: AbortSignal): Promise<string> {
     return this.#session(sessionID, "cannot read the session directory back", signal)
-  }
-
-  // probe answers whether this session can reach its host at all. CD-0098 D2
-  // makes the retarget the only route into a claimed worktree, so a session
-  // that cannot reach the host cannot start work, and the answer is worth
-  // having before anything is captured or claimed. It reads the same session
-  // route the readback uses, so it proves reachability and that the host knows
-  // this session, without a route of its own.
-  async probe(sessionID: string, signal?: AbortSignal): Promise<void> {
-    await this.#session(sessionID, "the host control plane is unreachable", signal)
   }
 
   // Participation is a host session policy, not a stored copy of a worktree or
@@ -319,14 +266,11 @@ export class HostControlPlane {
     return this.#client
   }
 
-  // session reads one session record. Both callers want the same request and
-  // differ only in what a failure means to them, so the wording arrives as a
-  // prefix rather than each caller repeating the request.
   async #session(sessionID: string, prefix: string, signal?: AbortSignal): Promise<string> {
     const session = await this.#sessionRecord(sessionID, prefix, signal)
     const directory = (session as { directory?: unknown } | null | undefined)?.directory
     if (typeof directory !== "string" || !directory) {
-      throw new MoveSessionRefused("the session readback carried no directory")
+      throw new Error("the session readback carried no directory")
     }
     return directory
   }
@@ -337,12 +281,12 @@ export class HostControlPlane {
     try {
       result = await client.get({ url: SESSION_ROUTE, path: { id: sessionID }, signal })
     } catch (error) {
-      throw new MoveSessionRefused(`${prefix}: ${error instanceof Error ? error.message : String(error)}`)
+      throw new Error(`${prefix}: ${error instanceof Error ? error.message : String(error)}`)
     }
     if (!result.response.ok) {
       const message = `${prefix}: the host answered ${result.response.status}: ${await refusalText(result)}`
       if (result.response.status === 404) throw new HostSessionMissing(message)
-      throw new MoveSessionRefused(message)
+      throw new Error(message)
     }
     return result.data
   }

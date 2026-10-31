@@ -6,6 +6,7 @@
   "evidence": [
     "adapter/opencode/concord.ts",
     "adapter/opencode/concord.test.ts",
+    "internal/store/worktree_retirement_upgrade_test.go",
     "scripts/check-agent-contracts.py"
   ],
   "home_domain_id": "agent-adapter",
@@ -19,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:09014ef9dbea37d00b647465c92e382757255b2d83362c770c444780eb0fade5",
+  "sha256": "sha256:8d5cf7de53f87aef886608c34742e7342b2d7c2d665d499f8fca803547832ffe",
   "status": "accepted",
   "summary": "Host tools own worktree lifecycle and checkout inspection. Concord provides no worktree inspection or locator service and retains no worktree metadata; mandatory verified snapshots precede table removal. Ordinary directory-resolved Project authority, session identity, no-write preparation, handoffs and artifacts remain. Product-state cleanup needs no ownership proof. Self-hosting still requires proven readiness and an accepted authority change.",
   "tags": [

@@ -32,12 +32,6 @@ type LinearHandoffConfirmation struct {
 	CreationIntent  string `json:"creation_intent,omitempty"`
 }
 
-// WorkRemovalSession describes host evidence that still prevents removal.
-type WorkRemovalSession struct {
-	SessionRef string `json:"session_ref"`
-	State      string `json:"state"` // active | unknown | vacated
-}
-
 // WorkRemovalRequest is one operator-approved, per-item removal operation.
 // The booleans are explicit evidence gates, not stored liveness flags.
 type WorkRemovalRequest struct {
@@ -55,7 +49,6 @@ type WorkRemovalRequest struct {
 	EffectsReconciled     bool                       `json:"effects_reconciled"`
 	DependenciesResolved  bool                       `json:"dependencies_resolved"`
 	ArtifactsVerified     bool                       `json:"artifacts_verified"`
-	Sessions              []WorkRemovalSession       `json:"sessions,omitempty"`
 }
 
 // WorkRemovalReceipt is retained as a durable receipt and audit handoff after

@@ -14,17 +14,16 @@
   The operator approved replacement of the numbered-example guidance with the
   current profile as exact text on 2026-10-20 for
   [Concord (CON) issue 1274](https://linear.app/sharper-flow/issue/CON-1274).
-- **Related:** CD-0088, CD-0092, CD-0103, CD-0111, CD-0152,
+- **Related:** CD-0088, CD-0092, CD-0111, CD-0152,
   CD-0154, CD-0176, CD-0213
 - **P12:** Serious: the named primary agent and its permission boundary change.
-- **Preserves:** CD-0103 and CD-0104 D1, D2, D4, and D5
+- **Preserves:** CD-0104 D1, D2, D4, and D5
 
 ## Context
 
 The coordinator's host directory determines where its native lane worker runs.
 
-The host limits that value in three ways. A move lands on the next turn only
-(CD-0103). The host refuses a move into another git repository with
+The host refuses a move into another git repository with
 `Destination directory belongs to another project`. The refusal is deliberate
 and has existed since the move route was added in
 [anomalyco/opencode PR 30640](https://github.com/anomalyco/opencode/pull/30640).
@@ -112,9 +111,6 @@ both.
 The generated `Concord` profile carries the route of D2. Under CD-0154,
 numbered coordinator definitions remain host-owned; Concord does not modify
 those host files.
-
-A move within one repository still lands on the next turn. This record does
-not remove that cost.
 
 ## Verification
 

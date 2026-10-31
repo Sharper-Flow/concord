@@ -87,11 +87,11 @@ Commands read one strict JSON object from stdin:
     accepted values: prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed
   concord work-shelve < JSON stdin
     required: operation_id, idempotency_key, work_id, expected_version, handoff
-    optional: product_id, linear, actor, safety evidence
+    optional: product_id, linear, actor, execution_relinquished, writes_reconciled, effects_reconciled, dependencies_resolved, artifacts_verified
     accepted values: reason is fixed to shelved; no sixth lifecycle state
   concord work-cancel < JSON stdin
     required: operation_id, idempotency_key, work_id, expected_version, handoff
-    optional: product_id, linear, actor, safety evidence
+    optional: product_id, linear, actor, execution_relinquished, writes_reconciled, effects_reconciled, dependencies_resolved, artifacts_verified
     accepted values: reason is fixed to cancelled; removal is not archival
   concord session-prepare < JSON stdin
     required: product_id, work_id, agent

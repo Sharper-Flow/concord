@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-03
 - **Scope:** Per-call host directory and transient exclusion
-- **Related:** CD-0088, CD-0092, CD-0093, CD-0103
+- **Related:** CD-0088, CD-0092, CD-0093
 - **Preserves:** CD-0088 D3's rule that host placement grants no Product authority
 
 ## Context

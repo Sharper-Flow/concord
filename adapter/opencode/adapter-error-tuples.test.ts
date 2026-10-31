@@ -169,7 +169,7 @@ describe("CON-913 closed adapter error tuples", () => {
   test("CON-913 producer detail shapes validate at the factory and an invalid shape refuses", () => {
     const tool = "concord_work_transition"
     const shapes: Array<Record<string, unknown>> = [
-      { salvaged: { work_id: "work-1", worktree_path: "/worktrees/work-1", changed_refs: [{ entity_kind: "work", id: "work-1", version: "2" }] } },
+      { salvaged: { work_id: "work-1", changed_refs: [{ entity_kind: "work", id: "work-1", version: "2" }] } },
       { reconciled: { found: true, lifecycle: "in_progress", version: 3 } },
       { core_digest: "sha256:" + "a".repeat(64), adapter_digest: manifestDigest },
     ]
@@ -179,6 +179,7 @@ describe("CON-913 closed adapter error tuples", () => {
       expect(envelope.error.details).toEqual(details)
     }
     expect(() => adapter.adapterError(tool, "project_handoff_record", requestID, "unknown_effect", "bounded diagnostic", { note: { nested: "objects are not admitted" } })).toThrow(adapter.AdapterContractDefect)
+    expect(() => adapter.adapterError(tool, "project_handoff_record", requestID, "unknown_effect", "bounded diagnostic", { salvaged: { worktree_path: "/worktrees/work-1" } })).toThrow(adapter.AdapterContractDefect)
   })
 
   test("CON-913 validateAdapterEnvelope returns valid envelopes and fails closed only for adapter origin", () => {

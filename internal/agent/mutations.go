@@ -84,7 +84,6 @@ type workRemovalMutationInput struct {
 	EffectsReconciled     bool                             `json:"effects_reconciled"`
 	DependenciesResolved  bool                             `json:"dependencies_resolved"`
 	ArtifactsVerified     bool                             `json:"artifacts_verified"`
-	Sessions              []store.WorkRemovalSession       `json:"sessions"`
 }
 
 type researchRevisionInput struct {
@@ -1930,7 +1929,7 @@ func (r runtime) planWorkRemoval(ctx context.Context, base agentcontract.Envelop
 		ProductID: product, Handoff: in.Handoff, Linear: in.Linear,
 		ExecutionRelinquished: in.ExecutionRelinquished, WritesReconciled: in.WritesReconciled,
 		EffectsReconciled: in.EffectsReconciled, DependenciesResolved: in.DependenciesResolved,
-		ArtifactsVerified: in.ArtifactsVerified, Sessions: in.Sessions,
+		ArtifactsVerified: in.ArtifactsVerified,
 	}
 	if grant.MainWorktree {
 		if product != r.Envelope.SelectedProductID {
@@ -3064,7 +3063,7 @@ func (m *mutationExecution) executeTx(ctx context.Context, tx *store.Transaction
 		// the cached payload is stale when the consume bind names another
 		// receiving session or the active contract moved on, so the
 		// effect below re-reads the recorded state and resolves or
-		// refuses from it (CD-0190 D2/D3). The key stays recorded, so the
+		// refuses from it. The key stays recorded, so the
 		// tail touches instead of inserting.
 		replay = true
 	}

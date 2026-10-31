@@ -845,33 +845,6 @@
         },
         "artifacts_verified": {
           "type": "boolean"
-        },
-        "sessions": {
-          "type": "array",
-          "maxItems": 64,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "session_ref",
-              "state"
-            ],
-            "properties": {
-              "session_ref": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "state": {
-                "type": "string",
-                "enum": [
-                  "active",
-                  "unknown",
-                  "vacated"
-                ]
-              }
-            }
-          },
-          "description": "Bounds: <=64 items inclusive"
         }
       }
     },
@@ -9552,7 +9525,7 @@
             "pattern": "^sha256:[0-9a-f]{64}:/.+$",
             "description": "Bounds: 1..512 code points inclusive"
           },
-          "description": "Immutable sha256:path references into the claimed source worktree; each digest is verified against the real file bytes. Bounds: <=16 items inclusive"
+          "description": "Immutable sha256:path references into the authenticated source checkout; each digest is verified against the real file bytes. Bounds: <=16 items inclusive"
         },
         "blockers": {
           "type": "array",

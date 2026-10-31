@@ -117,12 +117,14 @@ func TestRecordedOccupancyMigration89BackfillAndReleasedRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := histEventRows(t, s)
-	if err := migrateRestoredStage(ctx, db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, db, 104)
 	var count int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("migration restored a released scalar occupant: rows=%d: %v", count, err)
 	}
+	if err := migrateRestoredStage(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	assertWorktreeTablesAbsent(t, db)
 	assertHistoricalReceipts(t, db, before)
 }

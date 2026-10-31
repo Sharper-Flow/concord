@@ -197,10 +197,10 @@ class ProfileTests(unittest.TestCase):
         for command in ("ps aux", "kill 123", "pkill opencode", "sudo true", "rm -rf / *", "git commit -m fix",
                         "git -C repo commit -m fix", "git push origin HEAD", "git stash", "gh pr create",
                         "gh --repo org/repo pr create", "gh release create v1", "gh workflow run ci",
-                        "gh api repos/org/repo", "herdr-notify --to peer", "concord invoke"):
+                        "gh api repos/org/repo", "herdr-notify --to peer", "concord invoke", "concord continuity-block"):
             self.assertEqual(checks.evaluate(host + bash, command), "deny", command)
         for command in ("git status", "git diff", "git log -n 5", "gh pr view 1", "concord --help",
-                        "concord --version", "concord continuity-block", "concord client show"):
+                        "concord --version", "concord client show"):
             self.assertEqual(checks.evaluate(host + bash, command), "allow", command)
         tasks = checks.permission_rules(frontmatter, "task")
         for agent in ("concord-explore", "concord-lookup"):
@@ -249,10 +249,10 @@ class ProfileTests(unittest.TestCase):
         for command in ("ps aux", "kill 123", "pkill opencode", "sudo true", "rm -rf / *", "git commit -m fix",
                         "git -C repo commit -m fix", "git push origin HEAD", "git stash", "gh pr create",
                         "gh release create v1", "gh workflow run ci", "gh api repos/org/repo", "herdr-notify --to peer",
-                        "concord invoke", "/synthetic/bin/concord invoke", "env concord invoke", "go run ./cmd/concord invoke"):
+                        "concord invoke", "/synthetic/bin/concord invoke", "env concord invoke", "go run ./cmd/concord invoke", "concord continuity-block"):
             self.assertEqual(checks.evaluate(host + bash, command), "deny", command)
         for command in ("git diff", "bin/oc-test targeted -- python3 scripts/test-generate-agent-profiles.py",
-                        "concord --help", "concord --version", "concord continuity-block", "concord client show"):
+                        "concord --help", "concord --version", "concord client show"):
             self.assertEqual(checks.evaluate(host + bash, command), "allow", command)
         tasks = checks.permission_rules(frontmatter, "task")
         for agent in ("concord-explore", "concord-lookup"):

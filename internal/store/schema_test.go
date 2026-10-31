@@ -2327,9 +2327,7 @@ func TestMigration89BackfillsWorktreeOccupancyForInProgressWork(t *testing.T) {
 		}
 	}
 
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, db, 104)
 
 	for _, want := range []struct {
 		workID   string
@@ -2356,4 +2354,8 @@ func TestMigration89BackfillsWorktreeOccupancyForInProgressWork(t *testing.T) {
 			t.Errorf("%s: occupant = %q, want %q (%s)", want.workID, got, want.occupant, want.reason)
 		}
 	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	assertWorktreeTablesAbsent(t, db)
 }

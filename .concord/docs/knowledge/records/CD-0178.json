@@ -20,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ed4792b4d809f8f89f833733d385f55a0ed2378ffd97d785c227cfbbd2fd376d",
+  "sha256": "sha256:773bea744e33874697c23e27e2127c3015472c9ea5df4f8cfd593868d284eb09",
   "status": "accepted",
   "summary": "Native Task execution belongs to the host, without child-directory or producer attestation. Cross-repository work has one coordinator session per repository, with Project membership and authenticated handoff evidence. Host tools own checkout inspection and lifecycle. Concord retains no worktree metadata or locator service; directory-resolved Project authority remains.",
   "tags": [

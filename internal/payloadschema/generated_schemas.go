@@ -15362,7 +15362,7 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "artifact_refs": {
-          "description": "Immutable sha256:path references into the claimed source worktree; each digest is verified against the real file bytes. Bounds: <=16 items inclusive",
+          "description": "Immutable sha256:path references into the authenticated source checkout; each digest is verified against the real file bytes. Bounds: <=16 items inclusive",
           "items": {
             "description": "Bounds: 1..512 code points inclusive",
             "maxLength": 512,
@@ -15528,33 +15528,6 @@ const GeneratedPayloadSchemaDocument = `{
             "cancelled"
           ],
           "type": "string"
-        },
-        "sessions": {
-          "description": "Bounds: <=64 items inclusive",
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "session_ref": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "state": {
-                "enum": [
-                  "active",
-                  "unknown",
-                  "vacated"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "session_ref",
-              "state"
-            ],
-            "type": "object"
-          },
-          "maxItems": 64,
-          "type": "array"
         },
         "work_id": {
           "$ref": "#/$defs/id",

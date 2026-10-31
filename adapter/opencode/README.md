@@ -55,7 +55,6 @@ other aliases are accepted:
 | `project-locator-add` | `project locator-add` |
 | `project-locator-update` | `project locator-update` |
 | `project-locator-remove` | `project locator-remove` |
-| `worktree-locate` | — |
 
 `invoke` uses only its single-word form. A first installation
 normally registers the client, runs `product-create` (which atomically creates

@@ -322,8 +322,7 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 	if again.Outcome != agentcontract.OutcomeOK || !resultBool(t, again, "already_consumed") {
 		t.Fatalf("consume replay=%s err=%+v, want AlreadyConsumed", again.Result, again.Error)
 	}
-	// The retirement read derives pending from the verified facts; this
-	// fixture records no vacate, so readiness stays open with its blockers.
+	// Consuming a Project handoff supplies none of the missing retirement facts.
 	retirement := retirementInvoke(t, s, receiveService, receiveEnv, "work-1")
 	if retirement["state"] != "pending" || retirement["recorded_handoff"] == true {
 		t.Fatalf("retirement=%+v, want pending with the recorded-handoff blocker", retirement)

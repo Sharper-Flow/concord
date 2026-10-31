@@ -118,15 +118,6 @@ func seedWorkTransition(t *testing.T, s *store.Store, workID, from, to string, e
 	}
 }
 
-// Takeover still consumes departure facts retained by upgraded stores.
-func seedRecordedHolderDeparture(t *testing.T, s *store.Store, sessionRef, source string) {
-	t.Helper()
-	execProjection(t, s, []string{
-		`INSERT INTO session_vacate_requests(work_id,session_ref,project_id,source_directory,destination_directory,request_seq,landed) SELECT 'work-1',?,'project-1',?,'/repo',last+1,0 FROM store_sequences WHERE name='effect'`,
-		`UPDATE store_sequences SET last=last+1 WHERE name='effect'`,
-	}, [][]any{{sessionRef, source}, nil})
-}
-
 // seedHostWorktree creates a checkout with Git, without recording ownership.
 func seedHostWorktree(t *testing.T, s *store.Store, repoRoot, workID, projectID, baseSHA string) string {
 	t.Helper()

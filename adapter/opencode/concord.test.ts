@@ -574,7 +574,6 @@ test("strict response failures salvage bounded entity identifiers", async () => 
   assertAdapterEnvelope(result)
   expect(result.error.details.salvaged).toEqual({
     work_id: "work-1",
-    worktree_path: "/worktrees/work-1",
     changed_refs: [{ entity_kind: "work", id: "work-1", version: "2" }],
   })
   expect(result.outcome).toBe("error")

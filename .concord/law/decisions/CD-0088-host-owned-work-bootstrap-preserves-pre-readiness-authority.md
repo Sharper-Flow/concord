@@ -72,8 +72,10 @@ establish workflow readiness or remove current verification and review duties.
 
 - Ownership and worktree inspection tools and CLI entry routes are absent from
   their authored manifests.
-- Work removal and terminal cleanup retain non-ownership refusals while ignoring
-  retained ownership rows.
+- `internal/store.TestWorktreeRetirementFreshAbsence` and
+  `internal/store.TestWorktreeRetirementVerifiedSnapshotUpgrade` assert that
+  current stores contain no ownership tables. Work removal and terminal cleanup
+  retain their non-ownership refusals without those tables.
 - The verified-snapshot upgrade removes worktree metadata without dropping
   active work, knowledge, research, Project handoffs, or artifacts.
 - Session preparation, continuity, and Review keep their non-worktree checks.

@@ -2,7 +2,7 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import nodeFs from "node:fs"
 import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { hostControlPlane, MOVE_SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
+import { hostControlPlane, SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
 import { enqueueWorkNotice, publishedRequestSchema } from "./concord"
 import { contractOperations, hostToolSchemas } from "./generated-contracts"
 import { configureCoreBinary } from "./core-runtime"
@@ -216,41 +216,35 @@ test("published request schemas cannot mutate the registered arguments or genera
   }
 })
 
-// CD-0098 D2. The control plane takes its transport from the client the host
-// supplies, because that client dispatches in process and carries the host's
-// headers. A host that binds no listener still exposes a `serverUrl`, so a
-// route reached through that value cannot connect and work start refuses on
-// every attempt.
 describe("plugin entry binds the control plane to the host client", () => {
-  test("routes the move through the client the host supplied", async () => {
-    const seen: Array<{ url: string; body?: unknown }> = []
+  test("reads the actual session directory through the client the host supplied", async () => {
+    const seen: Array<{ url: string; path?: Record<string, unknown> }> = []
     const raw = {
-      get: async () => ({ data: { directory: "/w" }, response: new Response(null, { status: 200 }) }),
-      post: async ({ url, body }: { url: string; body?: unknown }) => {
-        seen.push({ url, body })
-        return { response: new Response(null, { status: 204 }) }
+      get: async ({ url, path }: { url: string; path?: Record<string, unknown> }) => {
+        seen.push({ url, path })
+        return { data: { directory: "/w" }, response: new Response(null, { status: 200 }) }
       },
+      post: async () => { throw new Error("a directory read must not write") },
     }
     await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
 
-    await hostControlPlane().moveSession("session-1", "/w")
-    expect(seen).toEqual([{ url: MOVE_SESSION_ROUTE, body: { sessionID: "session-1", destination: { directory: "/w" } } }])
     expect(await hostControlPlane().sessionDirectory("session-1")).toBe("/w")
+    expect(seen).toEqual([{ url: SESSION_ROUTE, path: { id: "session-1" } }])
   })
 
   test("refuses the route when the host supplied no client", async () => {
     await ConcordAdapterPlugin({ serverUrl: new URL("https://example.invalid") })
-    await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toBeInstanceOf(MoveSessionUnavailable)
+    await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toBeInstanceOf(MoveSessionUnavailable)
     // A server URL is present and still yields no route: the URL is not what
     // the adapter needs, so its presence must not read as a usable transport.
-    await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toThrow(/handed the plugin no client \(host version synthetic-test-host\)/)
+    await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toThrow(/handed the plugin no client \(host version synthetic-test-host\)/)
   })
 })
 
 // The client parses the refusal body before it returns, so the parsed value on
 // the result is the only readable copy. A refusal that reads the response a
 // second time reports that the host said nothing, and the operator loses the
-// one sentence that says why the move failed.
+// one sentence that says why the session read failed.
 describe("a refusal carries the host's own words", () => {
   // A body the client already consumed. Reading it again throws, which is what
   // a real host response does once the SDK client has parsed it.
@@ -259,20 +253,6 @@ describe("a refusal carries the host's own words", () => {
     void response.text()
     return response
   }
-
-  test("reports the host message when the move is refused", async () => {
-    const raw = {
-      get: async () => ({ data: { directory: "/w" }, response: new Response(null, { status: 200 }) }),
-      post: async () => ({
-        data: { data: { message: "worktree /w is held by another session" } },
-        response: consumed(409, { data: { message: "worktree /w is held by another session" } }),
-      }),
-    }
-    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
-    await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toThrow(
-      /worktree \/w is held by another session/,
-    )
-  })
 
   test("reports the host message when the session readback is refused", async () => {
     const raw = {

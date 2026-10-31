@@ -254,15 +254,15 @@ func (s *Store) ProjectCanonicalPath(ctx context.Context, projectID string) (str
 // the runner-parameterized core used by knowledge publication.
 func resolveCommitSHARunner(ctx context.Context, runner GitRunner, repo, ref string) (string, error) {
 	if repo == "" || strings.HasPrefix(ref, "-") || strings.ContainsAny(ref, " \t\n\r\x00") {
-		return "", newFailure(KindInvalidOperation, "worktree_locate", "ref starts with a dash or contains whitespace or NUL", false, "supply one rev-syntax ref")
+		return "", newFailure(KindInvalidOperation, "project_locator", "ref starts with a dash or contains whitespace or NUL", false, "supply one rev-syntax ref")
 	}
 	out, err := runner.Run(ctx, repo, "rev-parse", "--verify", ref+"^{commit}")
 	if err != nil {
-		return "", newFailure(KindGitUnreachable, "worktree_locate", fmt.Sprintf("cannot resolve %s to a commit in %s", ref, repo), false, "supply a ref that resolves to one commit")
+		return "", newFailure(KindGitUnreachable, "project_locator", fmt.Sprintf("cannot resolve %s to a commit in %s", ref, repo), false, "supply a ref that resolves to one commit")
 	}
 	sha := strings.TrimSpace(string(out))
 	if !worktreeSHAPattern.MatchString(sha) || len(sha) != 40 {
-		return "", newFailure(KindGitUnreachable, "worktree_locate", "resolved value is not a full 40-character SHA", false, "supply a ref that resolves to one full commit SHA")
+		return "", newFailure(KindGitUnreachable, "project_locator", "resolved value is not a full 40-character SHA", false, "supply a ref that resolves to one full commit SHA")
 	}
 	return sha, nil
 }

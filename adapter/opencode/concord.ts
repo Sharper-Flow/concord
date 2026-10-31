@@ -580,10 +580,6 @@ function saneWorkID(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
 }
 
-function saneWorktreePath(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= 4096 && value.startsWith("/")
-}
-
 function saneChangedRefs(value: unknown): value is Array<Record<string, string>> {
   return Array.isArray(value) && value.length <= 32 && value.every((item) => record(item)
     && typeof item.entity_kind === "string" && item.entity_kind.length > 0 && item.entity_kind.length <= 64
@@ -599,7 +595,6 @@ function salvageFailedResponse(raw: string): Record<string, unknown> | undefined
   if (!record(parsed)) return undefined
   const salvaged: Record<string, unknown> = {}
   if (saneWorkID(parsed.work_id)) salvaged.work_id = parsed.work_id
-  if (saneWorktreePath(parsed.worktree_path)) salvaged.worktree_path = parsed.worktree_path
   if (saneChangedRefs(parsed.changed_refs)) salvaged.changed_refs = parsed.changed_refs
   return Object.keys(salvaged).length > 0 ? salvaged : undefined
 }
@@ -707,10 +702,9 @@ async function resolveSessionDirectory(context: ToolContext): Promise<string> {
 
 // invokeConcordOperation is the single `concord project-resolve` + `concord invoke`
 // transport for every adapter surface, including host-side callers outside the
-// tool exports below. It owns envelope construction, the closed core-response
-// contract check. Bootstrap supplies
-// its already-resolved placement when consuming an addressed handoff.
-async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, context: ToolContext, sessionDirectoryOverride?: string, ambientOverride?: AmbientContext): Promise<CoreConcordEnvelope> {
+// tool exports below. It owns envelope construction and the closed core-response
+// contract check.
+async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, context: ToolContext): Promise<CoreConcordEnvelope> {
   const operation = args.operation
   const requestID = `${context.sessionID}-${context.messageID}`
   // CD-0111 D2: a session that could not claim its host lease runs closed.
@@ -720,8 +714,8 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   if (leaseFault) return adapterError(toolName, operation, requestID, "host_lease_missing", `${leaseFault}; no operation ran`)
   let ambient: AmbientContext
   let sessionDirectory: string
-  try { sessionDirectory = sessionDirectoryOverride ?? await resolveSessionDirectory(context) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
-  try { ambient = ambientOverride ?? await resolveAmbientContext(context, sessionDirectory) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
+  try { sessionDirectory = await resolveSessionDirectory(context) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
+  try { ambient = await resolveAmbientContext(context, sessionDirectory) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
   const selectedProduct = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
   const envelope: any = concordCallEnvelope(context, sessionDirectory, ambient, selectedProduct)
   const run = async (input: any) => runner.run([concordBinaryPath(), "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)

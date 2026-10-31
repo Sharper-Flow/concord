@@ -39,7 +39,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:91e7787f8be09ee53b3eb71288fdbbc59a268ed849568ba43f80786b5363754f",
+  "sha256": "sha256:fd5cdd02f2f3bcdc6387a393289a894b2b548bdb13a892fa9eb6a69d5b82daba",
   "status": "accepted",
   "summary": "One tx-scoped loader and pure workflowAdmit function own admission across all sites, derived from current rows; payload and identity checks stay at existing boundaries. Review, correction and context use current findings and attributed verification reports through existing evidence-binding admission, not native preparation or execution. The registered definitions keep the liveness law and conformance checks over modeled dimensions.",
   "tags": [

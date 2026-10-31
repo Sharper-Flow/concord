@@ -14,7 +14,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ee90e3ef271bdac5f9475accf29016e7d5fff7893ccd76d9ad7807ea2e1f63e5",
+  "sha256": "sha256:effd07a3c6e3bf02b93509b245dc54015fa9bd2ac52a2f078183e68742780fcc",
   "status": "accepted",
   "summary": "A session's worktree is the directory the host reports per call; each authenticated call resolves its Project there, while explicit work IDs select context. Concord sets no effective target and session preparation records nothing. Concord retains no worktree entry or claim metadata, inspection operation, locator service or verification lease. Host tools own lifecycle; verified snapshots precede table removal. Retryable transient exclusion is resource_busy with retry_same_request.",
   "tags": [

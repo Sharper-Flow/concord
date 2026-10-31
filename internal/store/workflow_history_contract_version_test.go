@@ -105,9 +105,6 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 	if contract.ChangesProductTruth == nil || *contract.ChangesProductTruth != *wantTruth || workflow.ChangesProductTruth != *wantTruth {
 		t.Fatalf("selected Product-truth flag = %v (top %v), want v1's pinned %v", contract.ChangesProductTruth, workflow.ChangesProductTruth, wantTruth)
 	}
-	if workflow.OperatorQuestion != nil || workflow.WithheldOperatorQuestion != nil {
-		t.Fatal("a historical read must omit the active contract's operator question")
-	}
 	if workflow.State != active.Workflow.State || workflow.CurrentStep != active.Workflow.CurrentStep || workflow.Definition != active.Workflow.Definition {
 		t.Fatalf("instance fields = %s/%s/%+v, want the current %s/%s/%+v", workflow.State, workflow.CurrentStep, workflow.Definition, active.Workflow.State, active.Workflow.CurrentStep, active.Workflow.Definition)
 	}

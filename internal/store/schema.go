@@ -8282,6 +8282,44 @@ CREATE TRIGGER outside_repair_reconciliations_guard_update BEFORE UPDATE ON outs
 CREATE TRIGGER outside_repair_reconciliations_guard_delete BEFORE DELETE ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:  169,
+		Name:     "retire_human_checkpoint_kind",
+		Breaking: true,
+		SQL: `
+CREATE TABLE workflow_checkpoints_v169 (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    checkpoint_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    step_kind TEXT NOT NULL CHECK(step_kind IN ('internal_sqlite','cross_authority','external_effect')),
+    attempt_epoch INTEGER NOT NULL,
+    accepted_inputs_digest TEXT NOT NULL,
+    result_evidence_refs TEXT NOT NULL CHECK(json_valid(result_evidence_refs) AND json_type(result_evidence_refs)='array'),
+    resume_cursor TEXT NOT NULL,
+    idempotency_identity TEXT NOT NULL,
+    actor_ref TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    request_id TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY(work_id, checkpoint_id),
+    UNIQUE(work_id, step_id, attempt_epoch),
+    UNIQUE(work_id, idempotency_identity),
+    CHECK(length(checkpoint_id) BETWEEN 2 AND 128),
+    CHECK(length(step_id) BETWEEN 2 AND 128),
+    CHECK(attempt_epoch > 0 AND attempt_epoch <= 2147483647),
+    CHECK(length(accepted_inputs_digest) > 0),
+    CHECK(json_array_length(result_evidence_refs) BETWEEN 0 AND 32),
+    CHECK(length(resume_cursor) <= 2048),
+    CHECK(length(idempotency_identity) BETWEEN 2 AND 128),
+    CHECK(length(request_id) > 0)
+);
+INSERT INTO workflow_checkpoints_v169 SELECT work_id,checkpoint_id,step_id,CASE step_kind WHEN 'human_checkpoint' THEN 'internal_sqlite' ELSE step_kind END,attempt_epoch,accepted_inputs_digest,result_evidence_refs,resume_cursor,idempotency_identity,actor_ref,request_id,recorded_at FROM workflow_checkpoints;
+DROP TABLE workflow_checkpoints;
+ALTER TABLE workflow_checkpoints_v169 RENAME TO workflow_checkpoints;
+CREATE TRIGGER workflow_checkpoints_guard_insert BEFORE INSERT ON workflow_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_checkpoints is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_checkpoints_guard_update BEFORE UPDATE ON workflow_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_checkpoints is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_checkpoints_guard_delete BEFORE DELETE ON workflow_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_checkpoints is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

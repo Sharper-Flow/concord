@@ -330,7 +330,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: "neighbor-work", Limit: 20})
 			return err
 		}},
-		{name: "ReadWorkPinPendingOperatorDecision", run: func() error { _, err := readOperatorQuestionFromWorkPinForTest(ctx, s, "neighbor-work"); return err }},
 		{name: "ReadWorkflowProjection", run: func() error {
 			_, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: "neighbor-work"})
 			return err
@@ -746,7 +745,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 func requireRecordedInvestigationArtifactSnapshot(ctx context.Context, s *Store, workID string) error {
 	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot open a consistent investigation snapshot", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "workflow_confirmation", "cannot open a consistent investigation snapshot", true, "retry once the database is readable", err)
 	}
 	defer tx.Rollback()
 	return requireRecordedInvestigationArtifact(ctx, tx, workID)

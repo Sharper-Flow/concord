@@ -41,7 +41,7 @@ func TestPreflightRefusesConfirmationMissingMandatedDeliverables(t *testing.T) {
 	preflight := func(f acceptanceRecoveryFixture) error {
 		return WorkflowActionPreflightWithRegistry(ctx, f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 			WorkID: f.workID, ExpectedVersion: f.version(ctx, t), ActionID: "confirm_premise", Actor: f.owner,
-			Payload: json.RawMessage(`{}`), SelectedChoice: "confirm",
+			Payload: json.RawMessage(`{}`),
 		})
 	}
 	missing := qBuildAcceptance(t, "preflight-missing-proof", "", false)

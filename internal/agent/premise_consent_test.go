@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -12,19 +11,12 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// The coordinator records its own evidenced confirmation under its own
-// identity: an active contract projects no operator question, and the
-// closed confirm choice, the declared routes, and the caller identity
-// stay enforced.
+// The coordinator records its own evidenced confirmation under its own identity.
 func assertPublicPremiseConsent(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID string) {
 	t.Helper()
-	question, err := readOperatorQuestionFromWorkPinForTest(context.Background(), s, workID)
-	if err != nil || question != nil {
-		t.Fatalf("operator question=%+v err=%v, want none for the active contract", question, err)
-	}
 	input := map[string]any{
 		"work_id": workID, "expected_version": workVersion(t, s, workID), "action_id": "confirm_premise",
-		"selected_choice": "confirm", "idempotency_key": "research-premise-consent",
+		"idempotency_key": "research-premise-consent",
 	}
 	refuse := func(t *testing.T, actorEnv CallEnvelope, request map[string]any, kind string) {
 		t.Helper()
@@ -41,10 +33,8 @@ func assertPublicPremiseConsent(t *testing.T, s *store.Store, service *Service, 
 		name, kind string
 		mutate     func(map[string]any)
 	}{
-		{"missing choice", "invalid_input", func(in map[string]any) { delete(in, "selected_choice") }},
-		{"revise uses its declared route", "invalid_transition", func(in map[string]any) { in["selected_choice"] = "revise" }},
-		{"stop uses its declared route", "invalid_transition", func(in map[string]any) { in["selected_choice"] = "stop" }},
-		{"human digest is not an engineering binding", "invalid_input", func(in map[string]any) { in["decision_context_digest"] = "sha256:" + strings.Repeat("f", 64) }},
+		{"choice is not an input", "invalid_input", func(in map[string]any) { in["selected_choice"] = "confirm" }},
+		{"digest is not an input", "invalid_input", func(in map[string]any) { in["decision_context_digest"] = "sha256:" + strings.Repeat("f", 64) }},
 		{"payload cannot select operator", "invalid_input", func(in map[string]any) {
 			in["fields"] = map[string]any{"confirming_actor_ref": "actor:payload-selected"}
 		}},

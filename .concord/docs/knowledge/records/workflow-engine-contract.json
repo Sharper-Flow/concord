@@ -36,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fc922a0ea43b8ead6a2766f89bdd8ca102f283a517f9eb345702fef54f363d44",
+  "sha256": "sha256:1b3e1904d94ae9c7df49b8db7c409667fa270346bffb53bae090cd110c51b093",
   "status": "accepted",
   "summary": "Defines current-state workflow authority, evaluation and atomic completion. The coordinator records typed subject-bound Review without attempt/lane/job binding. Native preparation retains its declared bundle, exact subject, pinned recipe and environment; execution selects exact preparation_run_ref and retains runner, isolation, integrity and producer receipt checks. Criterion coverage resolves through that retained preparation, not worker jobs. Native evidence supplies no semantic verdict, consent or completion authority by itself.",
   "tags": [

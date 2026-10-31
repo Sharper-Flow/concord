@@ -41,20 +41,6 @@ func TestAdmissionWorkflowStateKeepsArtifactStaleBit(t *testing.T) {
 	}
 }
 
-func TestAdmissionConfirmationAuthorityRequiresOneContract(t *testing.T) {
-	definition := mustBuiltinDefinition(t, "workflow.research").Definition
-	for _, contracts := range []int64{0, 1, 2} {
-		state := admissionModelState{step: "conclude", contracts: contracts}
-		want := WorkflowConfirmationAuthority("")
-		if contracts == 1 {
-			want = WorkflowConfirmationCoordinator
-		}
-		if got := admissionWorkflowState(definition, state).ConfirmationAuthority; got != want {
-			t.Errorf("%d active contracts: confirmation authority=%q, want %q", contracts, got, want)
-		}
-	}
-}
-
 func workflowStepJudgesStaleArtifact(definition WorkflowDefinition, stepID string) bool {
 	return len(workflowStalenessSpanTargets(definition, stepID)) != 0
 }
@@ -168,14 +154,14 @@ func admissionContractCorrection(definition WorkflowDefinition, state admissionM
 	})
 	checkpoint := slices.Contains(step.Actions, "complete") ||
 		(workflowUnhealthyVerdictRouteTarget(definition, state.step) != "" && !admissionTerminalStep(definition, state.step)) ||
-		(step.Kind == WorkflowStepHumanCheckpoint && slices.Contains(step.Actions, "confirm_premise") && !admissionTerminalStep(definition, state.step)) ||
-		(step.Kind != WorkflowStepHumanCheckpoint && producing && !admissionTerminalStep(definition, state.step))
+		(slices.Contains(step.Actions, "confirm_premise") && !admissionTerminalStep(definition, state.step)) ||
+		(producing && !admissionTerminalStep(definition, state.step))
 	switch {
 	case !checkpoint:
 		return false
 	case slices.Contains(step.Actions, "complete"):
 		return admissionCompleteStepCorrection(definition, state)
-	case step.Kind == WorkflowStepHumanCheckpoint:
+	case slices.Contains(step.Actions, "confirm_premise"):
 		return true
 	case state.contracts > 1:
 		return true
@@ -217,9 +203,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		Delivery:                    delivery,
 		Review:                      admissionReviewState(state),
 	}
-	if state.contracts == 1 {
-		folded.ConfirmationAuthority = WorkflowConfirmationCoordinator
-	}
 	if folded.Delivery.ProofRequired {
 		folded.Delivery.ProofReady = state.proof
 		if state.started && !state.proof {
@@ -244,15 +227,16 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	// the observation the confirmation refuses, never admits behind an
 	// absent prerequisite. An earlier folded failure keeps its place, exactly
 	// as the loader preserves it. Evidence binding is outside the model.
-	action, _ := workflowOperatorQuestionAction(definition, state.step)
-	if state.contracts == 1 && action == "confirm_premise" && state.verdict == "" {
+	step := workflowStep(definition, state.step)
+	confirmation := step != nil && slices.Contains(step.Actions, "confirm_premise")
+	if state.contracts == 1 && confirmation && state.verdict == "" {
 		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a recorded workflow verdict", false, "record_verdict before confirming the premise")
 	}
 	// The engineering confirmation folds the investigation prerequisite at
 	// every step that hosts the confirmation action — a human checkpoint's
 	// record_verdict beside confirm_premise — exactly as the loader's
 	// prerequisite fold does.
-	if state.contracts == 1 && action != "" && folded.AcceptanceDeliverablesMissing == nil && !state.artifact {
+	if state.contracts == 1 && confirmation && folded.AcceptanceDeliverablesMissing == nil && !state.artifact {
 		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires the recorded investigation artifact", false, "record the investigation observation before confirming")
 	}
 	gate := workflowStepIsDeliveryGate(workflowStep(definition, state.step))

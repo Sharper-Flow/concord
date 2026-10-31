@@ -20,7 +20,7 @@ import (
 func workflowEvidenceGapDefinition() WorkflowDefinition {
 	changesProductTruth := false
 	steps := []WorkflowStep{
-		{ID: "gate", Kind: WorkflowStepHumanCheckpoint, Actions: []string{"approve_contract"}, RequiredEvidenceKinds: []EvidenceKind{EvidenceCommit}},
+		{ID: "gate", Kind: WorkflowStepInternalSQLite, Actions: []string{"approve_contract"}, RequiredEvidenceKinds: []EvidenceKind{EvidenceCommit}},
 		{ID: "review_output", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_review"}},
 		{ID: "complete", Kind: WorkflowStepInternalSQLite, Actions: []string{"complete"}},
 	}

@@ -107,7 +107,7 @@ test("continuity transform carries pending messages from core output", async () 
 test("continuity transform carries only the core packet", async () => {
   const packet = JSON.stringify({ continuity: { pinned: { work_pin: {
     work_id: "work-1", title: "Repair the adapter", linear_issue_key: "", project_id: "project-1", project_display_name: "Concord", version: 4, lifecycle: "in_progress", workflow_type: "workflow.break_fix",
-    step: "repair", pending_operator_decision: null,
+    step: "repair",
   } } } })
   const transformed = output("system prefix")
   const transform = createContinuityTransform({
@@ -337,7 +337,6 @@ test("continuity transform renders a held-work block without parsing step action
         step_actions: [],
         contract: null,
         spec_mandate: [],
-        pending_operator_decision: null,
         latest_checkpoint: null,
         design_record: null,
         work_pin: {
@@ -350,7 +349,6 @@ test("continuity transform renders a held-work block without parsing step action
           lifecycle: "in_progress",
           workflow_type: "workflow.implementation",
           step: "execution",
-          pending_operator_decision: null,
           outside_repair_disposition: { state: "active", reason: "bounded outside defect repair" },
           outside_repair_route: ["outside_repair_reconcile"],
         },

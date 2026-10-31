@@ -14,7 +14,6 @@ type WorkPin = {
   lifecycle: string
   workflow_type: string
   step: string
-  pending_operator_decision: { action_id: string } | null
   verified_criteria?: VerifiedCriterion[]
 }
 
@@ -33,10 +32,6 @@ const MAX_CLOSURE_KEYS = 64
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-}
-
-function safeText(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && !/[\u0000-\u001f\u007f|]/u.test(value)
 }
 
 function sanitizeNameField(value: string): string {
@@ -63,9 +58,6 @@ function workPin(value: unknown): WorkPin | null {
   const linearIssueKey = typeof value.linear_issue_key === "string" ? sanitizeNameField(value.linear_issue_key) : ""
   if (title === null || workID === "" || lifecycle === "" || step === "" || typeof value.project_id !== "string" || typeof value.project_display_name !== "string" || typeof value.linear_issue_key !== "string") return null
   if (typeof value.version !== "number" || !Number.isInteger(value.version) || value.version < 1) return null
-  if (value.pending_operator_decision !== null) {
-    if (!record(value.pending_operator_decision) || !safeText(value.pending_operator_decision.action_id)) return null
-  }
   return { ...value, work_id: workID, lifecycle, step, project_id: projectID, project_display_name: projectDisplayName, linear_issue_key: linearIssueKey, title } as unknown as WorkPin
 }
 

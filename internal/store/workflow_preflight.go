@@ -21,14 +21,12 @@ type WorkflowDefinitionPin struct {
 }
 
 type WorkflowActionPreflightRequest struct {
-	WorkID                string
-	ExpectedVersion       int64
-	StepID                string
-	ActionID              string
-	SelectedChoice        string
-	DecisionContextDigest string
-	Payload               json.RawMessage
-	Actor                 WorkflowActor
+	WorkID          string
+	ExpectedVersion int64
+	StepID          string
+	ActionID        string
+	Payload         json.RawMessage
+	Actor           WorkflowActor
 	// SessionWorktree is the host worktree boundary. It is checked only for
 	// dispatch_worker, whose worker must run in the active claimed worktree.
 	SessionWorktree string
@@ -263,10 +261,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	}
 	// One admission derivation for the preflight: the tx-scoped loader folds
 	// the instance history into the abstract admission state once, and the
-	// pure workflowAdmit decides. The refusal applies here except the
-	// closed-question wall, which the operator-selection chain owns
-	// before the fold refuses it. A staleness, impact, wall, or
-	// step-legality refusal is never deferred. The recovery flags and the
+	// pure workflowAdmit decides. The recovery flags and the
 	// supersede classification below read the same folded state instead of
 	// re-deriving the conditions per site.
 	admission, _, admissionErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", registry)
@@ -274,7 +269,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		return RegisteredDefinition{}, admissionErr
 	}
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed {
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld {
 		return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
 	}
 	if err := validateWorkflowReviewRequest(ctx, tx, request.WorkID, request.ActionID, request.Payload); err != nil {
@@ -296,7 +291,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		if err := validateWorkflowContractRecoveryPayload(entry.Definition, request.Payload); err != nil {
 			return RegisteredDefinition{}, err
 		}
-	} else if err := validateWorkflowActionEnvelopePayload(entry.Definition, request); err != nil {
+	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	// The folded admission owns step legality, applied here — the engine's
@@ -308,11 +303,6 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		return RegisteredDefinition{}, err
 	}
 	if err := preflightWorkflowActionGuardsTx(ctx, tx, entry.Definition, currentStep, request, admission); err != nil {
-		return RegisteredDefinition{}, err
-	}
-	// The selection core consumes the folded admission's confirmation
-	// answer: one classification, no second fact read.
-	if err := validateWorkflowOperatorSelectionCoreTx(ctx, tx, entry, request, workflowConfirmationFold{authority: admission.ConfirmationAuthority}); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	// See the note in the non-transactional preflight: recording a new actor is
@@ -386,80 +376,10 @@ func preflightWorkflowVerdictTx(ctx context.Context, tx *sql.Tx, definition Work
 	return guardLateCriterionAssociations(ctx, tx, request.WorkID, definition, currentStep, fields)
 }
 
-// workflowEnvelopeProjectedPayload merges the envelope-carried values of
-// declared envelope fields into the payload map the preflight and the fold
-// validate. The generated envelope schema projects the declared envelope
-// fields to the envelope outer level, so the same declaration is read here: a
-// supplied envelope value is validated against the declared type, and the
-// fields object carries only what the envelope does not project. Absent
-// values are left to the operator-selection guard, which owns presence
-// enforcement at the agent boundary; the operator-selection guard consumes
-// the answer instead. The merged copy is validation input only; the recorded payload
-// stays what the caller supplied.
-func workflowEnvelopeProjectedPayload(definition WorkflowDefinition, actionID string, payload json.RawMessage, selectedChoice, decisionContextDigest string) json.RawMessage {
-	var payloadDefinition WorkflowPayloadDefinition
-	found := false
-	for _, action := range definition.ActionDefinitions {
-		if action.ID == actionID {
-			payloadDefinition = action.Payload
-			found = true
-			break
-		}
-	}
-	if !found {
-		return payload
-	}
-	envelopeValues := map[string]string{"selected_choice": selectedChoice, "decision_context_digest": decisionContextDigest}
-	projected := map[string]string{}
-	for _, field := range payloadDefinition.Fields {
-		if !field.Envelope {
-			continue
-		}
-		if value, ok := envelopeValues[field.Name]; ok && value != "" {
-			projected[field.Name] = value
-		}
-	}
-	if len(projected) == 0 {
-		return payload
-	}
-	fields := map[string]json.RawMessage{}
-	if len(payload) != 0 {
-		// A payload that is not one JSON object is reported by
-		// validateWorkflowActionPayload with its own message; validate it
-		// unmerged so the refusal matches the unprojected shape.
-		if err := json.Unmarshal(payload, &fields); err != nil {
-			return payload
-		}
-	}
-	for name, value := range projected {
-		encoded, err := json.Marshal(value)
-		if err != nil {
-			return payload
-		}
-		fields[name] = encoded
-	}
-	// encoding/json sorts map keys, so the merged validation payload is
-	// deterministic for a given input.
-	merged, err := json.Marshal(fields)
-	if err != nil {
-		return payload
-	}
-	return merged
-}
-
 // workflowLivePayloadSchemaDocument resolves declared schema references
 // against the generated public authoring document.
 func workflowLivePayloadSchemaDocument() map[string]any {
 	return payloadschema.Document()
-}
-
-// validateWorkflowActionEnvelopePayload validates the declared action payload
-// the way the envelope carries it, projecting the envelope-level
-// operator-decision values into the validation map when the declaration names
-// them.
-func validateWorkflowActionEnvelopePayload(definition WorkflowDefinition, request WorkflowActionPreflightRequest) error {
-	payload := workflowEnvelopeProjectedPayload(definition, request.ActionID, request.Payload, request.SelectedChoice, request.DecisionContextDigest)
-	return validateWorkflowActionPayload(definition, request.ActionID, payload)
 }
 
 func validateWorkflowActionPayload(definition WorkflowDefinition, actionID string, payload json.RawMessage) error {
@@ -557,14 +477,11 @@ func validateWorkflowPayloadStructure(actionID string, definitionFields []Workfl
 	// then undeclared fields sorted by name, each segment keeping the
 	// per-field message. A payload missing N fields therefore costs one
 	// retry, not N, and the sorted undeclared walk reports the same fields
-	// in the same order on every run. Envelope fields are exempt from the
-	// required scan: the envelope carries them at the outer level, the
-	// generated envelope schema requires them there, and the
-	// operator-selection guard owns their presence at the agent boundary.
+	// in the same order on every run.
 	missing := make([]string, 0)
 	exempt := workflowAlternativeForbiddenFields(actionID, fields)
 	for _, field := range definitionFields {
-		if field.Required && !field.Envelope && !exempt[field.Name] {
+		if field.Required && !exempt[field.Name] {
 			if _, ok := fields[field.Name]; !ok {
 				missing = append(missing, field.Name)
 			}

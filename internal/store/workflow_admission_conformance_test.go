@@ -33,9 +33,8 @@ type admissionConformanceView struct {
 	ActiveContracts                                                   int64
 	LateCriterionAssociation, LawPinStale, DesignStale, ArtifactStale bool
 	Review                                                            admissionReviewView
-	CorrectionRequestRecovery, PendingOperatorDecision                bool
+	CorrectionRequestRecovery                                         bool
 	AcceptanceDeliverablesMissing                                     bool
-	ConfirmationAuthority                                             string
 	CompleteStepCorrection, ContractCorrectionAvailable               bool
 	DeliveryStarted, DeliveryProofRequired, DeliveryProofReady        bool
 	DeliveryFailure, DeliveryProofFailure                             bool
@@ -53,11 +52,10 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 		LawPinStale: state.LawPinStale, DesignStale: state.DesignStale,
 		LateCriterionAssociation: state.LateCriterionAssociation, ArtifactStale: state.ArtifactStale,
 		Review: admissionReviewViewOf(state.Review), CorrectionRequestRecovery: state.CorrectionRequestRecovery,
-		PendingOperatorDecision: state.PendingOperatorDecision, AcceptanceDeliverablesMissing: state.AcceptanceDeliverablesMissing != nil,
-		ConfirmationAuthority:       string(state.ConfirmationAuthority),
-		CompleteStepCorrection:      state.CompleteStepCorrection,
-		ContractCorrectionAvailable: state.ContractCorrectionAvailable,
-		DeliveryStarted:             state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
+		AcceptanceDeliverablesMissing: state.AcceptanceDeliverablesMissing != nil,
+		CompleteStepCorrection:        state.CompleteStepCorrection,
+		ContractCorrectionAvailable:   state.ContractCorrectionAvailable,
+		DeliveryStarted:               state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
 		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,
 		MandatePresent: state.Mandate.Present, MandateMissing: state.Mandate.LawID != "", MandateBindingStep: state.Mandate.BindingStep,
 		MandateAddedByContract: state.Mandate.AddedByContract, MandateCorrectionAction: state.Mandate.CorrectionAction,

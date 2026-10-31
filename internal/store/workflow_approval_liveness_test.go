@@ -32,15 +32,6 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 		if !decision.Admitted {
 			t.Fatalf("engineering confirm_premise is no exit at all: %v", decision.Failure)
 		}
-		if decision.OperatorQuestionClosed {
-			t.Fatal("engineering confirm_premise folded the closed-question wall; the exit must not be a human question")
-		}
-		// The work pin projects no operator question and no withheld reason
-		// for engineering work.
-		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry, definition), workID)
-		if question != nil || withheld != nil {
-			t.Fatalf("engineering work projects question %+v withheld %+v, want neither", question, withheld)
-		}
 	})
 
 	t.Run("the model folds the engineering investigation prerequisite like the fold", func(t *testing.T) {
@@ -104,15 +95,10 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 		// current (CD-0242 D7).
 		rReviseContract(t, s, workID, ownerRefForTest(t, owner), []string{})
 		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(), "successor after the revision")
-		// The work pin projects no operator question for the successor.
-		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry, definition), workID)
-		if question != nil || withheld != nil {
-			t.Fatalf("the successor projects question %+v withheld %+v, want neither", question, withheld)
-		}
 		// The judged artifact stays current through the revision, so the
 		// coordinator confirms the successor with no repeated production
 		// (CD-0242 D7).
-		if err := runCoordinatorActionTx(t, s, registry, workID, "confirm_premise", owner, "confirm", `{"selected_choice":"confirm"}`); err != nil {
+		if err := runCoordinatorActionTx(t, s, registry, workID, "confirm_premise", owner, "", `{}`); err != nil {
 			t.Fatalf("the successor's confirmation: %v", err)
 		}
 		// The confirmed successor reaches its terminal on the preserved proof.
@@ -133,49 +119,12 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 		// The continuity snapshot projects neither a question nor a
 		// withholding at the top level or on the seated work pin.
 		engineeringSnapshot := approvalContinuitySnapshot(t, s, registry, engineeringID)
-		if engineeringSnapshot.PendingOperatorDecision != nil || engineeringSnapshot.WithheldOperatorDecision != nil {
-			t.Fatalf("engineering continuity top level projects %+v/%+v, want neither", engineeringSnapshot.PendingOperatorDecision, engineeringSnapshot.WithheldOperatorDecision)
-		}
-		if engineeringSnapshot.WorkPin == nil || engineeringSnapshot.WorkPin.PendingOperatorDecision != nil || engineeringSnapshot.WorkPin.WithheldOperatorDecision != nil {
-			t.Fatalf("engineering continuity work pin projects %+v/%+v, want neither", approvalWorkPinQuestion(engineeringSnapshot), approvalWorkPinWithheld(engineeringSnapshot))
+		if engineeringSnapshot.WorkPin == nil {
+			t.Fatal("continuity omitted the work pin")
 		}
 		missingRegistry := NewWorkflowDefinitionRegistry()
 		if err := approvalContinuityProjectionError(t, s, missingRegistry, engineeringID); err == nil {
 			t.Fatal("the continuity projection accepted a registry missing the pinned definition")
-		}
-	})
-
-	t.Run("public selection keeps its no-op fast path without an instance", func(t *testing.T) {
-		t.Parallel()
-		s := openTemp(t)
-		if err := ValidateWorkflowOperatorSelectionForRegistry(context.Background(), s, nil, WorkflowActionPreflightRequest{WorkID: "approval-fastpath-public-absent", ExpectedVersion: 1, ActionID: "record_proposal", SelectedChoice: ""}); err != nil {
-			t.Fatalf("the public non-confirm selection without fields refused on absent work: %v", err)
-		}
-		publicInvalidErr := ValidateWorkflowOperatorSelectionForRegistry(context.Background(), s, nil, WorkflowActionPreflightRequest{WorkID: "approval-fastpath-public-absent", ExpectedVersion: 1, ActionID: "record_proposal", SelectedChoice: "confirm"})
-		var publicInvalidFailure *Failure
-		if publicInvalidErr == nil || !failureAs(publicInvalidErr, &publicInvalidFailure) || publicInvalidFailure.Kind != KindInvalidPayload {
-			t.Fatalf("the public non-confirm selection with question fields folded %v, want the invalid-payload refusal", publicInvalidErr)
-		}
-	})
-
-	t.Run("non-confirm selection keeps its no-op fast path without an instance", func(t *testing.T) {
-		t.Parallel()
-		s := openTemp(t)
-		ctx := context.Background()
-		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		request := WorkflowActionPreflightRequest{WorkID: "approval-fastpath-absent", ActionID: "record_proposal"}
-		if err := validateWorkflowOperatorSelectionTx(ctx, tx, BuiltinWorkflowRegistry(), request); err != nil {
-			t.Fatalf("the non-confirm selection without fields refused on absent work: %v", err)
-		}
-		request.SelectedChoice = "confirm"
-		invalidErr := validateWorkflowOperatorSelectionTx(ctx, tx, BuiltinWorkflowRegistry(), request)
-		var invalidFailure *Failure
-		if invalidErr == nil || !failureAs(invalidErr, &invalidFailure) || invalidFailure.Kind != KindInvalidPayload {
-			t.Fatalf("the non-confirm selection with question fields folded %v, want the invalid-payload refusal", invalidErr)
 		}
 	})
 
@@ -186,10 +135,6 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 		// The carry forward kept the historical NULL-fact contract
 		// authoritative; the confirmation folds the coordinator answer from
 		// the active contract's empty fact.
-		state := foldedApprovalAdmission(t, s, registry, mustBuiltinDefinition(t, "workflow.implementation").Definition, workID)
-		if state.ConfirmationAuthority != WorkflowConfirmationCoordinator {
-			t.Fatalf("the absent historical fact folded authority %q, want the coordinator answer", state.ConfirmationAuthority)
-		}
 		// The question owner must not fabricate a confirmation withholding on
 		// a step that declares no confirmation action: absence at execution is
 		// simply no question, whatever the folded fact says. The state-backed
@@ -203,27 +148,6 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 		definitionEntry, ok := registry.Current(carriedRef)
 		if !ok || definitionEntry.Digest != carriedDigest {
 			t.Fatalf("the carried pin %s %s does not resolve in the caller registry", carriedRef, carriedDigest)
-		}
-		// The store pools one connection: the version reads before the
-		// transaction opens, never beside it.
-		noActionVersion := readWorkVersion(t, s, workID)
-		tx, txErr := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if txErr != nil {
-			t.Fatal(txErr)
-		}
-		confirmation, confirmationErr := foldWorkflowConfirmationTx(context.Background(), tx, workID)
-		if confirmationErr != nil {
-			t.Fatal(confirmationErr)
-		}
-		noActionQuestion, noActionWithheld, noActionErr := workflowOperatorQuestionForDefinitionTx(context.Background(), tx, workID, "execution", noActionVersion, definitionEntry.Definition, WorkflowReadDefinition{Ref: definitionEntry.Definition.Ref, Digest: definitionEntry.Digest}, WorkflowReadContract{}, confirmation)
-		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			t.Fatal(rollbackErr)
-		}
-		if noActionErr != nil {
-			t.Fatalf("the question projection refused at a step without a confirmation action: %v", noActionErr)
-		}
-		if noActionQuestion != nil || noActionWithheld != nil {
-			t.Fatalf("the absent fact fabricated question %+v withheld %+v on a step without a confirmation action", noActionQuestion, noActionWithheld)
 		}
 	})
 
@@ -252,14 +176,6 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 				tx.Rollback()
 				t.Fatalf("%s acceptance fold under the duplicated count refused: %v", name, err)
 			}
-			if state.ConfirmationAuthority != WorkflowConfirmationNone {
-				tx.Rollback()
-				t.Fatalf("%s acceptance fold classified the duplicated projection: authority %q, want the unfolded zero answer", name, state.ConfirmationAuthority)
-			}
-			if state.PendingOperatorDecision {
-				tx.Rollback()
-				t.Fatalf("%s acceptance fold opened an operator question on the duplicated projection", name)
-			}
 			decision := workflowAdmitSupersede(definition, state, WorkflowAdmissionDecision{})
 			if !decision.RecoveryRoute || !decision.Admitted {
 				tx.Rollback()
@@ -282,18 +198,4 @@ func approvalContinuitySnapshot(t *testing.T, s *Store, registry DefinitionRegis
 		t.Fatalf("the continuity snapshot refused: %v", err)
 	}
 	return snapshot
-}
-
-func approvalWorkPinQuestion(snapshot ContinuitySnapshot) *WorkflowOperatorQuestion {
-	if snapshot.WorkPin == nil {
-		return nil
-	}
-	return snapshot.WorkPin.PendingOperatorDecision
-}
-
-func approvalWorkPinWithheld(snapshot ContinuitySnapshot) *WorkflowOperatorQuestionWithheld {
-	if snapshot.WorkPin == nil {
-		return nil
-	}
-	return snapshot.WorkPin.WithheldOperatorDecision
 }

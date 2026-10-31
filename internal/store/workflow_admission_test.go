@@ -48,8 +48,7 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 			s.CorrectionRequestMissing = workflowCorrectionMissingGateReview
 		}, map[string]bool{"record_delivery": false, "request_correction": false}},
 		{"step legality still holds", func(*WorkflowAdmissionState) {}, map[string]bool{"record_verdict": false}},
-		{"confirmation requires its open question", func(*WorkflowAdmissionState) {}, map[string]bool{"confirm_premise": false, "record_review": true}},
-		{"open question admits confirmation", func(s *WorkflowAdmissionState) { s.PendingOperatorDecision = true }, map[string]bool{"confirm_premise": true, "record_review": true}},
+		{"confirmation is admitted without an operator question", func(*WorkflowAdmissionState) {}, map[string]bool{"confirm_premise": true, "record_review": true}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -69,9 +68,6 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 				}
 				if !want && decision.Failure.RecoveryAction == "" {
 					t.Fatalf("%s: refusal has no admitted recovery", action)
-				}
-				if action == "confirm_premise" && !want && (!decision.OperatorQuestionClosed || decision.Failure.Kind != KindStaleRequiresReview) {
-					t.Fatalf("confirmation lost its typed closed-question refusal: %+v", decision)
 				}
 			}
 		})

@@ -610,17 +610,6 @@ func livenessActionActor(actionID string) WorkflowActor {
 	}
 }
 
-// readOperatorQuestionFromWorkPinForTest reads the open operator question
-// through its production owner, ReadWorkPin, so a behavioral probe sees the
-// exact question the engine serves.
-func readOperatorQuestionFromWorkPinForTest(ctx context.Context, s *Store, workID string) (*WorkflowOperatorQuestion, error) {
-	pin, err := ReadWorkPin(ctx, s, workID)
-	if err != nil {
-		return nil, err
-	}
-	return pin.PendingOperatorDecision, nil
-}
-
 // livenessApply runs one action against the store and commits it, so the
 // explorer's moves land the state the next move reads.
 func livenessApply(ctx context.Context, s *Store, workID string, move livenessMove, sequence int) error {
@@ -633,55 +622,10 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 		return err
 	}
 	label := fmt.Sprintf("liveness-%s-%d", move.action, sequence)
-	selectedChoice := ""
-	decisionDigest := ""
 	actor := livenessActionActor(move.action)
-	entry, entryErr := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
-	if entryErr != nil {
-		return entryErr
-	}
-	// consequence_v1 takes no operator substitution: an engineering contract
-	// is approved, evaluated, confirmed, and completed under the agents' own
-	// identities, and the coordinator confirms the premise with no human
-	// question open.
-	routine := workflowDeclaresDecisionDomains(entry.Definition)
-	if move.action == "confirm_premise" && routine {
-		question, questionErr := readOperatorQuestionFromWorkPinForTest(ctx, s, workID)
-		if questionErr != nil {
-			return questionErr
-		}
-		if question != nil {
-			return fmt.Errorf("engineering premise opened operator question %s", question.ActionID)
-		}
-		selectedChoice = "confirm"
-	} else if move.action == "confirm_premise" {
-		question, questionErr := readOperatorQuestionFromWorkPinForTest(ctx, s, workID)
-		if questionErr != nil {
-			return questionErr
-		}
-		if question == nil || question.ActionID != move.action {
-			return fmt.Errorf("no open operator question for %s", move.action)
-		}
-		selectedChoice = "confirm"
-		decisionDigest = question.DecisionContextDigest
-		// The operator is a distinct actor, not the invoking agent under
-		// another label. The engine refuses a relabel of the caller, which is
-		// the control this explorer must not defeat.
-	}
 	payload, bindErr := livenessBindRecordedState(ctx, s, workID, move.action, move.payload)
 	if bindErr != nil {
 		return bindErr
-	}
-	if move.action == "confirm_premise" && routine {
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(payload, &fields); err != nil {
-			return err
-		}
-		delete(fields, "decision_context_digest")
-		fields["selected_choice"], _ = json.Marshal(selectedChoice)
-		if payload, bindErr = json.Marshal(fields); bindErr != nil {
-			return bindErr
-		}
 	}
 	seedGreenRun := false
 	if move.action == "record_delivery" {
@@ -713,7 +657,6 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 	}
 	request := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: move.action,
-		SelectedChoice: selectedChoice, DecisionContextDigest: decisionDigest,
 		Payload: payload, Actor: actor,
 		EvidenceRefs:         evidenceRefs,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64),
@@ -725,7 +668,6 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 	}
 	preflight := WorkflowActionPreflightRequest{
 		WorkID: request.WorkID, ExpectedVersion: request.ExpectedVersion, ActionID: request.ActionID,
-		SelectedChoice: request.SelectedChoice, DecisionContextDigest: request.DecisionContextDigest,
 		Payload: request.Payload, Actor: request.Actor,
 	}
 	err = AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, func(tx *Transaction) error {

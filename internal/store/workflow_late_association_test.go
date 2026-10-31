@@ -71,9 +71,6 @@ func TestCriterionAssociationAtPremiseQuestionWithoutDeclaration(t *testing.T) {
 	seedComparisonObservation(t, f.store, workID)
 	preflight := func(action string, payload json.RawMessage) error {
 		request := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: readWorkVersion(t, f.store, workID), ActionID: action, Payload: payload, Actor: f.owner}
-		if action == "confirm_premise" {
-			request.SelectedChoice = "confirm"
-		}
 		return WorkflowActionPreflightWithRegistry(t.Context(), f.store, registry, request)
 	}
 	if err := preflight("confirm_premise", json.RawMessage(`{}`)); !hasFailureKind(err, KindMissingEvidence) {

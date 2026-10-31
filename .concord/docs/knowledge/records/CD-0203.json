@@ -6,7 +6,7 @@
   "evidence": [
     "internal/store/workflow_admission.go",
     "internal/store/workflow_action_guards.go",
-    "internal/store/workflow_operator.go",
+    "internal/store/workflow_confirmation_investigation.go",
     "internal/store/workflow_admission_liveness_test.go",
     "internal/store/workflow_admission_conformance_test.go",
     "internal/store/workflow_admission_review_model_test.go",
@@ -35,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e0c99df1ff0898a6963c2d780d738f2b8593c6557a3167c9283779425d374723",
+  "sha256": "sha256:0493555639f169abd45eeb7bf893a89c7f5908ff5bbbf49812d82f291a47e523",
   "status": "accepted",
   "summary": "The liveness, well-formed-exit, and conformance checks derive every condition workflowAdmit reads over the registered definitions. An advancing action with no active contract refuses at the contract step except approve_contract. Complete-step correction admits one or more active contracts so a duplicated projection recovers through the same shared gate. Active-contract confirmation records the authenticated coordinator, retaining investigation and verdict prerequisites.",
   "tags": [

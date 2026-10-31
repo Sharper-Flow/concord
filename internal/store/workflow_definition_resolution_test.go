@@ -366,11 +366,10 @@ func confirmResolutionPremise(t *testing.T, s *Store, registry DefinitionRegistr
 	if operator != nil {
 		invoker = ownerRefForTest(t, *operator)
 	}
-	choice, digest, rest := confirmationEnvelope(fields)
 	events, err := workflowConfirmPremiseEvents(context.Background(), tx, definition, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", SelectedChoice: choice, DecisionContextDigest: digest,
+		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise",
 		OperationID: "resolution-confirm-" + workID, Now: time.Unix(10, 30).UTC(),
-	}, invoker, rest, "resolution-confirm-"+workID, version)
+	}, invoker, fields, "resolution-confirm-"+workID, version)
 	// The store pools one connection: the constructor transaction must leave
 	// the pool before the fold append opens its own transaction.
 	if err := tx.Rollback(); err != nil {
@@ -444,7 +443,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		registry, definition := BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation").Definition
 		const engineeringID = "resolution-confirm-engineering"
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, engineeringID)
-		events, err := confirmResolutionPremise(t, s, registry, definition, engineeringID, coordinator, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)})
+		events, err := confirmResolutionPremise(t, s, registry, definition, engineeringID, coordinator, nil, nil)
 		if err != nil {
 			t.Fatalf("engineering confirmation refused: %v", err)
 		}
@@ -469,7 +468,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		// Engineering takes no operator substitution.
 		const substitutedID = "resolution-confirm-substituted"
 		s2, _, _, operator2, coordinator2 := engineeringConfirmationSeed(t, substitutedID)
-		_, substitutionErr := confirmResolutionPremise(t, s2, registry, definition, substitutedID, coordinator2, &operator2, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)})
+		_, substitutionErr := confirmResolutionPremise(t, s2, registry, definition, substitutedID, coordinator2, &operator2, nil)
 		var substitutionFailure *Failure
 		if substitutionErr == nil || !failureAs(substitutionErr, &substitutionFailure) || substitutionFailure.Kind != KindInvalidOperation {
 			t.Fatalf("engineering confirmation with an operator substitution returned %v, want the coordinator-typed refusal", substitutionErr)

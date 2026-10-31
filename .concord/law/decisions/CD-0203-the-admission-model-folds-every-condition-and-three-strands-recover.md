@@ -54,15 +54,15 @@ external-effect step.
 
 The active contract's coordinator confirmation records directly. Admission
 still requires the recorded investigation and verdict evidence. Work-pin,
-selection, continuity, and action admission use the same folded prerequisites.
+continuity, and action admission use the same folded prerequisites.
 
 ### D3. The checks derive every admission condition
 
 The liveness and well-formed-exit checks enumerate the abstract states over
 every condition `workflowAdmit` reads. The conformance replay compares the
 loaded state with the abstract successor on the fields `workflowAdmit`
-reads. The step-kind checks cover every registered definition and use
-the same question function as the engine.
+reads. The step-kind checks cover every registered definition and the
+confirmation action uses the same folded prerequisites as the engine.
 
 Admission code and definition content have separate owners.
 

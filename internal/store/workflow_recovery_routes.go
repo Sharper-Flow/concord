@@ -144,7 +144,7 @@ func workflowDeliveryGateCorrectionTarget(definition WorkflowDefinition, gateSte
 // workflowCorrectionReturnTarget resolves the producer step one admitted
 // request_correction returns the instance to: the step's own declared
 // unhealthy_verdict route — every admitted late evaluator context, terminal
-// or premise-question, declares one — or, at a CD-0166 delivery gate, the
+// or confirmation, declares one — or, at a CD-0166 delivery gate, the
 // route of the verdict step its single forward edge delivers into. The fold,
 // the admission derivation, and the work pin read this one function, so the
 // recorded move and the admitted intent cannot disagree about the return. No
@@ -387,7 +387,7 @@ func validateWorkflowRecoveryRouteProducer(definition WorkflowDefinition, route 
 
 // workflowLateVerdictServesVerdictStep reports whether the step hosts the
 // late-verdict correction context (CD-0204) — it is the terminal step, or it
-// hosts the premise question past every verdict step — and at least one step
+// hosts premise confirmation past every verdict step — and at least one step
 // declaring record_verdict precedes it, so an unhealthy verdict recorded
 // there demands a declared return of its own. The route table carries that
 // return; no nearest-verdict walk may derive it.
@@ -395,8 +395,7 @@ func workflowLateVerdictServesVerdictStep(definition WorkflowDefinition, stepID 
 	// Registration coverage requires the late verdict hosts in CD-0204 to
 	// declare their own return. Runtime admission reads only those routes.
 	terminal := slices.Contains(definition.StepGraph.TerminalSteps, stepID)
-	action, question := workflowOperatorQuestionAction(definition, stepID)
-	if !terminal && !(question && action == "confirm_premise" && !stepDeclaresAction(definition, stepID, "record_verdict")) {
+	if !terminal && !(stepDeclaresAction(definition, stepID, "confirm_premise") && !stepDeclaresAction(definition, stepID, "record_verdict")) {
 		return false
 	}
 	for _, candidate := range definition.StepGraph.Steps {

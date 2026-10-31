@@ -154,14 +154,10 @@ func lawUpgradeAction(t *testing.T, s *Store, id string, owner WorkflowActor, ac
 	version := readWorkVersion(t, s, id)
 	op := fmt.Sprintf("upgrade:%s:%s:%d", id, action, version)
 	payload := mustJSONValue(fields)
-	choice := ""
-	if action == "confirm_premise" {
-		choice = "confirm"
-	}
 	return s.Transact(ctx, func(tx *Transaction) error {
 		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: id, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
-			SelectedChoice: choice, EvidenceRefs: actionEvidenceRefs(action, payload),
+			EvidenceRefs:         actionEvidenceRefs(action, payload),
 			AcceptedInputsDigest: testManifestDigest, IdempotencyIdentity: op, OperationID: op,
 			PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: op, RequestID: "request:" + op,
 			ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC(),

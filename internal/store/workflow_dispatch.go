@@ -16,8 +16,6 @@ type WorkflowActionExecutionRequest struct {
 	WorkID                string
 	ExpectedVersion       int64
 	ActionID              string
-	SelectedChoice        string
-	DecisionContextDigest string
 	Payload               json.RawMessage
 	EvidenceRefs          []string
 	// EvidenceKinds carries the per-entry evidence kind for each locator the
@@ -319,7 +317,7 @@ func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 		return err
 	}
 	decision := workflowAdmit(g.entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed {
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld {
 		return workflowExecutionAdmissionFailure(decision, request.ProjectTooling)
 	}
 	if err := validateWorkflowReviewRequest(g.ctx, g.tx, request.WorkID, request.ActionID, request.Payload); err != nil {
@@ -365,7 +363,7 @@ func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, reques
 		if err := validateWorkflowContractRecoveryPayload(guards.entry.Definition, request.Payload); err != nil {
 			return err
 		}
-	} else if err := validateWorkflowActionPayload(guards.entry.Definition, request.ActionID, workflowEnvelopeProjectedPayload(guards.entry.Definition, request.ActionID, request.Payload, request.SelectedChoice, request.DecisionContextDigest)); err != nil {
+	} else if err := validateWorkflowActionPayload(guards.entry.Definition, request.ActionID, request.Payload); err != nil {
 		return err
 	}
 	if err := runWorkflowActionGuard(guards, guardPhasePostValidation); err != nil {

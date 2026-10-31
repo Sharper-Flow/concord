@@ -75,36 +75,9 @@ func runEngineeringConfirmation(t *testing.T, s *Store, definition WorkflowDefin
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	choice, digest, rest := confirmationEnvelope(fields)
 	return workflowConfirmPremiseEventsForDefinition(context.Background(), tx, definition, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", SelectedChoice: choice, DecisionContextDigest: digest, OperationID: "confirm-" + workID,
-	}, invokerRef, rest, "confirm-"+workID, version)
-}
-
-// confirmationEnvelope lifts the envelope-carried selections out of a
-// confirmation field map, as the tool boundary carries them outside the
-// action fields.
-func confirmationEnvelope(fields map[string]json.RawMessage) (choice, digest string, rest map[string]json.RawMessage) {
-	rest = map[string]json.RawMessage{}
-	for name, value := range fields {
-		rest[name] = value
-	}
-	choice = workflowFieldStringDefault(rest, "selected_choice", "")
-	digest = workflowFieldStringDefault(rest, "decision_context_digest", "")
-	delete(rest, "selected_choice")
-	delete(rest, "decision_context_digest")
-	return choice, digest, rest
-}
-
-func confirmationFields(choice bool, digest string) map[string]json.RawMessage {
-	fields := map[string]json.RawMessage{}
-	if choice {
-		fields["selected_choice"] = json.RawMessage(`"confirm"`)
-	}
-	if digest != "" {
-		fields["decision_context_digest"] = json.RawMessage(`"` + digest + `"`)
-	}
-	return fields
+		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", OperationID: "confirm-" + workID,
+	}, invokerRef, fields, "confirm-"+workID, version)
 }
 
 func TestEngineeringConfirmation(t *testing.T) {
@@ -114,7 +87,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-coordinator"
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID)
-		events, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), confirmationFields(true, ""))
+		events, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil)
 		if err != nil {
 			t.Fatalf("engineering coordinator confirmation refused: %v", err)
 		}
@@ -142,35 +115,13 @@ func TestEngineeringConfirmation(t *testing.T) {
 		}
 	})
 
-	t.Run("engineering refuses a human decision-context digest", func(t *testing.T) {
-		t.Parallel()
-		const workID = "engineering-confirm-digest"
-		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID)
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), confirmationFields(true, "digest:human-question"))
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidInput {
-			t.Fatalf("engineering confirmation with a human digest returned %v, want the invalid-input refusal", err)
-		}
-	})
-
-	t.Run("engineering refuses a choice other than confirm", func(t *testing.T) {
-		t.Parallel()
-		const workID = "engineering-confirm-choice"
-		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID)
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), confirmationFields(false, ""))
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidInput {
-			t.Fatalf("engineering confirmation with revise choice returned %v, want the invalid-input refusal", err)
-		}
-	})
-
 	t.Run("missing deliverables and investigation refuse through the constructor", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-deliverables"
 		s, _, _, _, coordinator := engineeringConfirmationFixture(t, workID, false, true)
 		// Main has not associated the accepted Review with the criteria, so
 		// the acceptance deliverables the confirmation requires are absent.
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), confirmationFields(true, ""))
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("engineering confirmation without deliverables returned %v, want the missing-evidence refusal", err)
@@ -178,72 +129,9 @@ func TestEngineeringConfirmation(t *testing.T) {
 		// The investigation artifact is demanded on the no-question route.
 		noInvestigation := "engineering-confirm-investigation"
 		s2, _, _, _, coordinator2 := engineeringConfirmationFixture(t, noInvestigation, true, false)
-		_, err = runEngineeringConfirmation(t, s2, engineeringConfirmationDefinition(t), noInvestigation, ownerRefForTest(t, coordinator2), confirmationFields(true, ""))
+		_, err = runEngineeringConfirmation(t, s2, engineeringConfirmationDefinition(t), noInvestigation, ownerRefForTest(t, coordinator2), nil)
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "investigation artifact") {
 			t.Fatalf("engineering confirmation without investigation returned %v, want the missing-investigation refusal", err)
-		}
-	})
-
-	t.Run("operator selection admits engineering without a digest", func(t *testing.T) {
-		t.Parallel()
-		const workID = "engineering-selection-engineering"
-		s, _, _, _, coordinator := engineeringConfirmationFixture(t, workID, true, true)
-		registry := BuiltinWorkflowRegistry()
-		selectionVersion := readWorkVersion(t, s, workID)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		err = validateWorkflowOperatorSelectionTx(context.Background(), tx, registry, WorkflowActionPreflightRequest{
-			WorkID: workID, ActionID: "confirm_premise", SelectedChoice: "confirm", Actor: coordinator,
-			ExpectedVersion: selectionVersion,
-		})
-		if err != nil {
-			t.Fatalf("engineering operator selection without a digest refused: %v", err)
-		}
-	})
-
-	t.Run("operator selection refuses a human digest for engineering", func(t *testing.T) {
-		t.Parallel()
-		const workID = "engineering-selection-digest"
-		s, _, _, _, _ := engineeringConfirmationFixture(t, workID, true, true)
-		registry := BuiltinWorkflowRegistry()
-		selectionVersion := readWorkVersion(t, s, workID)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		// The engineering route refuses any human digest; the refusal fires
-		// before any digest comparison, so a literal stands in for the value.
-		err = validateWorkflowOperatorSelectionTx(context.Background(), tx, registry, WorkflowActionPreflightRequest{
-			WorkID: workID, ActionID: "confirm_premise", SelectedChoice: "confirm", DecisionContextDigest: "digest:human-question",
-			ExpectedVersion: selectionVersion,
-		})
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "carries no human decision-context digest") {
-			t.Fatalf("engineering selection with a human digest returned %v, want the digest refusal", err)
-		}
-	})
-
-	t.Run("operator selection keeps the investigation requirement for engineering", func(t *testing.T) {
-		t.Parallel()
-		const workID = "engineering-selection-investigation"
-		s, _, _, _, _ := engineeringConfirmationFixture(t, workID, true, false)
-		registry := BuiltinWorkflowRegistry()
-		selectionVersion := readWorkVersion(t, s, workID)
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		err = validateWorkflowOperatorSelectionTx(context.Background(), tx, registry, WorkflowActionPreflightRequest{
-			WorkID: workID, ActionID: "confirm_premise", SelectedChoice: "confirm", ExpectedVersion: selectionVersion,
-		})
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "investigation artifact") {
-			t.Fatalf("engineering selection without investigation returned %v, want the missing-investigation refusal", err)
 		}
 	})
 
@@ -251,7 +139,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-agent-class"
 		s, _, _, operator, _ := engineeringConfirmationSeed(t, workID)
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, operator), confirmationFields(true, ""))
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, operator), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation {
 			t.Fatalf("operator-class invoker confirmation returned %v, want the coordinator-typed refusal", err)
@@ -345,7 +233,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		if err := staleTx.Rollback(); err != nil {
 			t.Fatal(err)
 		}
-		staleFields := confirmationFields(true, "")
+		staleFields := map[string]json.RawMessage{}
 		staleFields["contract_version"] = json.RawMessage(`1`)
 		_, constructorErr := runEngineeringConfirmation(t, s, definition, workID, coordinatorRef, staleFields)
 		var constructorFailure *Failure

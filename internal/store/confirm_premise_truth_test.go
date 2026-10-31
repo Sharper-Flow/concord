@@ -49,9 +49,6 @@ func TestWorkPinEngineeringConfirmPremiseOmitsDigest(t *testing.T) {
 			t.Fatalf("pin advertises confirm_premise while the confirmation refuses its missing verdict: %v", missingPin.NextValidIntents)
 		}
 	}
-	if missingPin.PendingOperatorDecision != nil || missingPin.WithheldOperatorDecision != nil {
-		t.Fatalf("active-contract pin published question=%+v withheld=%+v, want none", missingPin.PendingOperatorDecision, missingPin.WithheldOperatorDecision)
-	}
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
@@ -59,13 +56,10 @@ func TestWorkPinEngineeringConfirmPremiseOmitsDigest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pin read failed: %v", err)
 	}
-	if pin.PendingOperatorDecision != nil {
-		t.Fatalf("engineering pin opened operator question %+v", pin.PendingOperatorDecision)
-	}
 	for _, intent := range pin.NextValidIntents {
 		if intent.ActionID == "confirm_premise" {
-			if len(intent.RequiredFields) != 1 || intent.RequiredFields[0] != "selected_choice" {
-				t.Fatalf("engineering confirm_premise required_fields = %v, want [selected_choice]", intent.RequiredFields)
+			if len(intent.RequiredFields) != 0 {
+				t.Fatalf("confirm_premise required_fields = %v, want none", intent.RequiredFields)
 			}
 			return
 		}
@@ -88,20 +82,13 @@ func TestWithheldReasonNamesObservationRefFormat(t *testing.T) {
 	seedIssue31DomainRegistry(t, s)
 	seedWithheldQuestionWorkflow(t, s, workID)
 	seedActiveBreakFixContract(t, s, workID)
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
 	validate := func() error {
 		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		return validateWorkflowOperatorSelectionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-			WorkID: workID, ActionID: "confirm_premise", ExpectedVersion: version,
-			SelectedChoice: "confirm",
-		})
+		return requireRecordedInvestigationArtifact(ctx, tx, workID)
 	}
 	err := validate()
 	var failure *Failure
@@ -115,12 +102,8 @@ func TestWithheldReasonNamesObservationRefFormat(t *testing.T) {
 	}
 }
 
-// TestPreflightValidatesEnvelopeCarriedConfirmPremiseFields holds the
-// validator side of the projection: the preflight validates the
-// envelope-carried values against the declared types, the fields object keeps
-// carrying the declared non-envelope fields, and a declaration value absent
-// from the envelope stays with the operator-selection guard.
-func TestPreflightValidatesEnvelopeCarriedConfirmPremiseFields(t *testing.T) {
+// TestConfirmPremisePayloadValidation checks the closed action payload.
+func TestConfirmPremisePayloadValidation(t *testing.T) {
 	t.Parallel()
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
@@ -140,26 +123,18 @@ func TestPreflightValidatesEnvelopeCarriedConfirmPremiseFields(t *testing.T) {
 		ID:      "confirm_premise",
 		Payload: payload,
 	}}}
-	digest := "sha256:" + strings.Repeat("a", 64)
 	cases := []struct {
 		name        string
 		payload     string
-		choice      string
-		digestValue string
 		wantRefusal string
 	}{
-		{name: "envelope values with the declared optional field validate", payload: `{"contract_version":1}`, choice: "confirm", digestValue: digest},
-		{name: "an empty fields object validates", payload: `{}`, choice: "confirm", digestValue: digest},
-		{name: "an unknown choice refuses", payload: `{}`, choice: "restart", digestValue: digest, wantRefusal: `"selected_choice"`},
-		{name: "a malformed digest refuses", payload: `{}`, choice: "confirm", digestValue: "not-a-digest", wantRefusal: `"decision_context_digest"`},
-		{name: "the envelope value outranks a fields-object copy", payload: `{"selected_choice":"stop"}`, choice: "confirm", digestValue: digest},
-		{name: "absent envelope values stay with the selection guard", payload: `{}`, choice: "", digestValue: ""},
+		{name: "optional contract version validates", payload: `{"contract_version":1}`},
+		{name: "an empty fields object validates", payload: `{}`},
+		{name: "choice is not a field", payload: `{"selected_choice":"confirm"}`, wantRefusal: `"selected_choice"`},
+		{name: "digest is not a field", payload: `{"decision_context_digest":"sha256:bad"}`, wantRefusal: `"decision_context_digest"`},
 	}
 	for _, testCase := range cases {
-		err := validateWorkflowActionEnvelopePayload(definition, WorkflowActionPreflightRequest{
-			ActionID: "confirm_premise", Payload: json.RawMessage(testCase.payload),
-			SelectedChoice: testCase.choice, DecisionContextDigest: testCase.digestValue,
-		})
+		err := validateWorkflowActionPayload(definition, "confirm_premise", json.RawMessage(testCase.payload))
 		if testCase.wantRefusal == "" {
 			if err != nil {
 				t.Fatalf("%s: %v", testCase.name, err)

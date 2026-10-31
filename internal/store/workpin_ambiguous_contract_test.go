@@ -185,9 +185,6 @@ func TestContractlessInvestigatedCheckpointAdmitsNoContractRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pin.PendingOperatorDecision != nil {
-		t.Fatalf("operator question without a contract: %+v", pin.PendingOperatorDecision)
-	}
 	if workPinContainsAction(pin.NextValidIntents, "confirm_premise") {
 		t.Error("pin advertises confirm_premise with no operator question")
 	}

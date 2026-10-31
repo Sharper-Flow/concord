@@ -1587,7 +1587,7 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || !workflowString(p.StepKind, 32) || len(p.ResumeCursor) > 2048 || len(p.CheckpointPayload) > 16*1024 || p.RequestID == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "action_checkpointed has invalid checkpoint fields", false, "supply a typed bounded checkpoint")
 	}
-	if p.StepKind != "internal_sqlite" && p.StepKind != "cross_authority" && p.StepKind != "external_effect" && p.StepKind != "human_checkpoint" {
+	if p.StepKind != "internal_sqlite" && p.StepKind != "cross_authority" && p.StepKind != "external_effect" {
 		return newFailure(KindInvalidPayload, "fold_event", "checkpoint step kind is not closed", false, "use a closed workflow step kind")
 	}
 	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
@@ -2413,17 +2413,13 @@ func workflowCheckpointWriterAdmitted(executionActor, actorRef string, fenced bo
 	return !fenced || actorRef == executionActor
 }
 
-// workflowStepFences reports whether any action on the step runs fenced, and so
-// whether the step records an attempt start a checkpoint can bind to.
 // workflowStepFences reports whether the step carries a coordinator
 // execution fence: a fenced action whose attempt the step's checkpoint and
 // failure events belong to. The CD-0187 checkpoint dispatch is a lane attempt
-// beside the operator's gate, not a coordinator fence, so a confirmation step
-// hosts none: its checkpoint events record operator decisions, admit the
-// coordinator writers, and a checkpoint with no start still carries the first
-// attempt epoch (CD-0112 D3).
+// beside contract approval or confirmation, not a coordinator fence; a
+// checkpoint with no start still carries the first attempt epoch (CD-0112 D3).
 func workflowStepFences(definition WorkflowDefinition, step WorkflowStep) bool {
-	if step.Kind == WorkflowStepHumanCheckpoint {
+	if slices.Contains(step.Actions, "approve_contract") || slices.Contains(step.Actions, "confirm_premise") {
 		return false
 	}
 	for _, actionID := range step.Actions {

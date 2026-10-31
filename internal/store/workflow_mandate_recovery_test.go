@@ -69,7 +69,7 @@ func seedMandateContract(t *testing.T, s *Store, workID string) {
 
 func mandateRecoveryDefinition() WorkflowDefinition {
 	return WorkflowDefinition{StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{
-		{ID: "repair", Kind: WorkflowStepHumanCheckpoint, Actions: []string{"bind_evidence", "confirm_premise"}},
+		{ID: "repair", Kind: WorkflowStepInternalSQLite, Actions: []string{"bind_evidence", "confirm_premise"}},
 	}}}
 }
 

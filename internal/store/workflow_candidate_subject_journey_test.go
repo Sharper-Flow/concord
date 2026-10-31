@@ -147,13 +147,9 @@ func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Conte
 	}
 	version := readWorkVersion(t, j.s, j.workID)
 	id := fmt.Sprintf("%s-%s-%d", action, j.workID, version)
-	choice := ""
-	if action == "confirm_premise" {
-		choice = "confirm"
-	}
 	return j.s.Transact(ctx, func(tx *Transaction) error {
 		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-			WorkID: j.workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: actor, SelectedChoice: choice,
+			WorkID: j.workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: actor,
 			EvidenceRefs: actionEvidenceRefs(action, payload), AcceptedInputsDigest: nativeDigest([]byte(id)), IdempotencyIdentity: id,
 			OperationID: id, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id,
 			RequestID: "request:" + id, ContractDigest: testManifestDigest, Now: time.Now().UTC(),

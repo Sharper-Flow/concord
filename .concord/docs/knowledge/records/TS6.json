@@ -24,7 +24,7 @@
     },
     {
       "criterion": 5,
-      "exemption": "The approval bridge is a host-adapter property. The guarantee is proved by TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse and TestDispatchFailedDomainEffectRollsBackGrantAndApproval (internal/agent/mutation_dispatch_test.go)."
+      "exemption": "Operator questions use the host question tool, not a transport bridge. TestConfirmPremiseEnvelopeKeepsThePublishedWireFormat (internal/agent/confirm_premise_wire_test.go) checks that choice and digest inputs are absent and refused."
     }
   ],
   "date": "2026-08-06T00:00:00Z",
@@ -47,7 +47,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:af2a9e95fbc744930c0c13078ee3afc1925bf5789f1f4ef39df561cdfccccf8b",
+  "sha256": "sha256:dfc84fba56aafe3bd6d45219638971fdff2192a13a7182f4612efede5345900e",
   "status": "accepted",
   "summary": "Binds the OpenCode adapter to generated tool registration through a plugin entry and short-lived Go CLI transport; domain authority remains in the Go core.",
   "tags": [

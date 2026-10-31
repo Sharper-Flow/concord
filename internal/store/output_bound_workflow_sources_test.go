@@ -382,8 +382,6 @@ func init() {
 		workflowContainsLiteralLongestBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "slices.Contains"))
 	registerOutputBound("/$defs/work_pin_evidence/properties/immutable_subject_ref/maxLength", evidenceRefBound)
 
-	// Work size summary.
-
 	// Workflow contract: the projection columns carry the admission CHECKs.
 	registerOutputBound("/$defs/workflow_contract/properties/approved_at/maxLength", contractApprovedAt)
 	registerOutputBound("/$defs/workflow_contract/properties/approved_by/maxLength",

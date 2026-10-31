@@ -6,10 +6,9 @@ import { AdapterContractDefect } from "./adapter-contract-defect"
 // The typed fail-closed error re-exports so callers of this module can catch
 // it by class without importing the shared owner.
 export { AdapterContractDefect }
-import { hostControlPlane } from "./move-session"
+import { sessionDirectoryReader } from "./session-directory"
 import { concordBinaryPath, CoreBinaryUnavailable } from "./core-runtime"
-import { createWorkStateReporter } from "./workflow-status"
-import { hostLeaseFault, releaseStaleness, type ReleaseStaleness } from "./host-lease"
+import { hostLeaseFault } from "./host-lease"
 import { reconstructMutationResult } from "./mutation-result"
 
 type ToolContext = {
@@ -34,8 +33,7 @@ function tool<T extends { args: object; execute: (args: any, context: ToolContex
       const operation = typeof args?.operation === "string" && contractOperations.some((candidate) => candidate.tool === toolName && candidate.id === `${toolName}.${args.operation}`) ? args.operation : ""
       const requestID = `${context.sessionID}-${context.messageID}`
       const envelope = adapterError(toolName, operation, requestID, "invalid_request_wrapper", "Missing or invalid request wrapper: submit {request: {operation, input}}.")
-      const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, releaseStaleness())
-      return appendWarnings(encodeHostResult(toolName, operation, requestID, settled), extraWarnings)
+      return encodeHostResult(toolName, operation, requestID, envelope)
     }
     return execute(args, context)
   } }
@@ -693,7 +691,7 @@ async function resolveAmbientContext(context: Pick<ToolContext, "abort">, sessio
 
 async function resolveSessionDirectory(context: ToolContext): Promise<string> {
   try {
-    return await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
+    return await sessionDirectoryReader().sessionDirectory(context.sessionID, context.abort)
   } catch (error) {
     if (context.abort.aborted) throw runnerFailure(error, context.abort)
     throw new AdapterFailure("session_directory_unreadable", error instanceof Error ? error.message : String(error))
@@ -824,77 +822,8 @@ export async function invokeConcordOperation(toolName: string, args: HostToolArg
     const warnings = Array.isArray(response.warnings) ? response.warnings : []
     const annotated = { ...response, warnings: [...warnings, { kind: "mutation_result_unavailable", source_id: "adapter", details: { message } }] }
     if (warnings.length < 16 && Buffer.byteLength(JSON.stringify(annotated)) <= maxEnvelopeBytes) response = annotated
-    else enqueueWorkNotice(context.sessionID, message)
   }
   return validateAdapterEnvelope(await reconcileUnknownEffect(toolName, args, context, response))
-}
-
-const workStateReporter = createWorkStateReporter(
-  { runner: { run: (argv, input, signal) => runner.run(argv, input, signal) } },
-)
-
-// The text-part queue's public face. The plugin's experimental.text.complete
-// hook drains it into the assistant's own message; the tests seed it the same
-// way the gate brief enqueues.
-export function enqueueWorkNotice(sessionID: string, block: string): void {
-  workStateReporter.enqueueNotice(sessionID, block)
-}
-
-export function takeWorkNotices(sessionID: string): string[] {
-  return workStateReporter.takeNotices(sessionID)
-}
-
-// appendWarnings puts a failed best-effort side effect where an actor can read
-// it. `ToolResult` is a union with a bare-string arm, so both arms are handled
-// here rather than assumed away: the envelope stays the first line, and each
-// warning follows on its own.
-function appendWarnings(result: ToolResult, warnings: string[]): ToolResult {
-  if (warnings.length === 0) return result
-  const suffix = `\n${warnings.join("\n")}`
-  if (typeof result === "string") return `${result}${suffix}`
-  return { ...result, output: `${result.output}${suffix}` }
-}
-
-// CD-0191: release staleness rides the result a stale session already gets.
-// The notice lives in the envelope's bounded warnings channel — the TS7
-// notice shape, no schema change — and names both versions and the restart
-// remedy. The warnings array holds at most 16 notices, so a result whose
-// core envelope is already full carries the same notice on the output layer
-// instead: one notice per result, never an envelope this adapter would
-// itself refuse.
-const ENVELOPE_WARNINGS_LIMIT = 16
-const STALE_RELEASE_NOTICE_KIND = "release_stale"
-const STALE_RELEASE_REMEDY = "restart this session to load the installed release"
-
-function stalenessNotice(staleness: ReleaseStaleness): Record<string, unknown> {
-  return {
-    kind: STALE_RELEASE_NOTICE_KIND,
-    source_id: "adapter",
-    details: {
-      pinned_release: staleness.pinnedRelease,
-      installed_release: staleness.installedRelease,
-      remedy: STALE_RELEASE_REMEDY,
-    },
-  }
-}
-
-function stalenessSummary(staleness: ReleaseStaleness): string {
-  return `Concord staleness: this session pinned release ${staleness.pinnedRelease} but the host installed ${staleness.installedRelease}; ${STALE_RELEASE_REMEDY}.`
-}
-
-export function withReleaseStaleness(envelope: HostConcordEnvelope, staleness: ReleaseStaleness | null): { envelope: HostConcordEnvelope; extraWarnings: string[] } {
-  if (!staleness) return { envelope, extraWarnings: [] }
-  const warnings = record(envelope) && Array.isArray(envelope.warnings) ? envelope.warnings : null
-  if (warnings && warnings.length < ENVELOPE_WARNINGS_LIMIT) {
-    const carried = { ...envelope, warnings: [...warnings, stalenessNotice(staleness)] }
-    // A notice must never degrade the result it annotates: when the carried
-    // envelope would exceed the byte cap that the encoder enforces, the
-    // notice falls back to the output layer and the core result stands.
-    if (Buffer.byteLength(JSON.stringify(carried)) <= maxEnvelopeBytes) {
-      return { envelope: carried, extraWarnings: [] }
-    }
-  }
-  return { envelope, extraWarnings: [stalenessSummary(staleness)] }
 }
 
 function encodeHostResult(toolName: string, operation: string, requestID: string, envelope: HostConcordEnvelope): ToolResult {
@@ -905,7 +834,7 @@ function encodeHostResult(toolName: string, operation: string, requestID: string
     settled = unknownOutcomeEnvelope(toolName, operation, requestID, false, `Concord result exceeds ${maxEnvelopeBytes} bytes`)
   }
   // Final host exit: the serialized bytes must carry a schema-valid
-  // adapter-origin envelope, after staleness enrichment and any replacement.
+  // adapter-origin envelope, after any replacement.
   validateAdapterEnvelope(settled)
   return { title: toolName, output: JSON.stringify(settled), metadata: {} }
 }
@@ -920,12 +849,8 @@ async function encodeHostToolResult(toolName: string, args: HostToolArgs, contex
 }
 
 async function executeHostTool(toolName: string, args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
-  // One staleness observation per tool call keeps its result notice consistent.
-  const staleness = releaseStaleness()
   const envelope = await invokeConcordOperation(toolName, args, context)
-  const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
-  const warnings = operationIsMutation(toolName, args.operation) ? await workStateReporter.report(settled, context) : []
-  return appendWarnings(await encodeHostToolResult(toolName, args, context, settled), [...warnings, ...extraWarnings])
+  return encodeHostToolResult(toolName, args, context, envelope)
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -946,13 +871,6 @@ export const work_transition = tool({ description: "Concord work transition. Use
 export const work_relate = tool({
   description: "Concord work relate",
   args: argsSchema("concord_work_relate"),
-  execute: async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
-    const staleness = releaseStaleness()
-    const request = hostRequest(args)
-    const envelope = await invokeConcordOperation("concord_work_relate", request, context)
-    const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
-    const warnings = operationIsMutation("concord_work_relate", request.operation) ? await workStateReporter.report(settled, context) : []
-    return appendWarnings(await encodeHostToolResult("concord_work_relate", request, context, settled), [...warnings, ...extraWarnings])
-  },
+  execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_relate", hostRequest(args), context),
 })
 export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", hostRequest(args), context) })

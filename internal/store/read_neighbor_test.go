@@ -231,7 +231,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 
 		// Workflow reads.
 		{name: "ReadWorkPin", run: func() error { _, err := ReadWorkPin(ctx, s, "neighbor-work"); return err }},
-		{name: "ReadWorkClosure", run: func() error { _, err := ReadWorkClosure(ctx, s, "neighbor-work"); return err }},
 		{name: "ReadWorkflowContinuity", run: func() error {
 			_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: "neighbor-work", Limit: 20})
 			return err

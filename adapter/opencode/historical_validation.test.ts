@@ -1,13 +1,7 @@
 // Imports must exist in the baseline pinned by scripts/test-workflow-history.py.
-import { afterAll, test } from "bun:test"
-import ConcordAdapterPlugin from "./concord-plugin"
-import { configureHostLease } from "./host-lease"
+import { test } from "bun:test"
 import { payloadSchemas } from "./generated-contracts"
 import { validateGeneratedPayload } from "./generated-contract-tests"
-
-afterAll(async () => {
-  configureHostLease({ reset: true })
-})
 
 function repro(name: string, message: string): never {
   console.error(JSON.stringify({ historical_repro: name, message }))
@@ -36,12 +30,4 @@ test("historical reference sibling validation", () => {
   } finally {
     Reflect.deleteProperty(payloadSchemas, "historical_ref_probe")
   }
-})
-
-// The real cancelled-task incident supplies the baseline execution evidence.
-// This checks the missing host entry point; lane_completion tests verify its
-// signed terminal writes and refusal behavior, not merely its presence.
-test("historical host terminal-error entry point", async () => {
-  const hooks = await ConcordAdapterPlugin()
-  if (!("event" in hooks) || typeof hooks.event !== "function") repro("historical host terminal-error entry point", "no host terminal-error event handler")
 })

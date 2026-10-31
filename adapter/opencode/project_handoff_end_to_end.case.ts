@@ -10,7 +10,7 @@ import { configureConcordAdapter, invokeConcordOperation, work_transition } from
 import { configureCoreBinary, type CoreRunner } from "./core-runtime"
 import { configureHostLease } from "./host-lease"
 import { manifestDigest } from "./generated-contracts"
-import { hostControlPlane, SESSION_ROUTE, SESSION_MESSAGES_ROUTE } from "./move-session"
+import { sessionDirectoryReader, SESSION_ROUTE } from "./session-directory"
 import { dbValue, fixturePublicKeyBase64, type JSONRecord } from "./end-to-end.fixture"
 
 // The core owns capture, session identity, continuity and handoff state. Git
@@ -87,7 +87,7 @@ function realCoreRunner(binary: string, dbPath: string, childEnv: Record<string,
 }
 
 // The host starts sessions in their checkouts. Concord may read their live
-// directories and update participation metadata, but must never move them.
+// directories, but must never change them.
 async function fakeHostControlPlane(seed: Array<[string, string]>, runner: CoreRunner, retained?: HandoffHost) {
   const host = retained ?? { sessions: {}, taskCalls: 0 }
   for (const [id, directory] of seed) host.sessions[id] ??= { directory, metadata: {}, messages: [] }
@@ -111,20 +111,13 @@ async function fakeHostControlPlane(seed: Array<[string, string]>, runner: CoreR
           const id = String(path?.id ?? "")
           const session = host.sessions[id]
           if (!session) return { data: { message: "session missing" }, response: new Response(null, { status: 404 }) }
-          if (url === SESSION_MESSAGES_ROUTE) return { data: session.messages, response: new Response("[]", { status: 200 }) }
+          expect(url).toBe(SESSION_ROUTE)
           return { data: { id, ...session }, response: new Response(null, { status: 200 }) }
         },
         post: async ({ url }: { url: string; path?: Record<string, unknown>; body?: unknown }) => {
-          if (url === SESSION_MESSAGES_ROUTE) throw new Error("handoff performs zero subtask writes")
           throw new Error(`Concord must not create or relocate host sessions: ${url}`)
         },
-        patch: async ({ url, path, body }: { url: string; path?: Record<string, unknown>; body?: unknown }) => {
-          expect(url).toBe(SESSION_ROUTE)
-          const id = String(path?.id ?? "")
-          const patch = body as { metadata?: Record<string, unknown>; title?: string }
-          if (patch.metadata !== undefined) host.sessions[id].metadata = patch.metadata
-          return { response: new Response(null, { status: 200 }) }
-        },
+        patch: async () => { throw new Error("Concord must not change host sessions") },
       },
     },
     serverUrl: new URL("https://example.invalid"),
@@ -311,7 +304,7 @@ async function prepareSession(fixture: HandoffFixture, directory: string): Promi
 }
 
 async function readAddressedHandoff(fixture: HandoffFixture, sessionID: string): Promise<JSONRecord> {
-  const directory = await hostControlPlane().sessionDirectory(sessionID)
+  const directory = await sessionDirectoryReader().sessionDirectory(sessionID)
   expect(directory).toBe(fixture.receiveWorktree)
   const continuity = await invokeConcordOperation("concord_work_trace", { operation: "continuity", input: { work_id: fixture.workID } } as any, contextFor(sessionID, directory!))
   expect(continuity.outcome, JSON.stringify(continuity)).toBe("ok")

@@ -118,7 +118,6 @@ sys.exit(int(os.getenv("FAIL_GATE", "0")))
             "internal/store/example.go",
             "internal/store/subdir/example_test.go",
             "internal/agent/example_test.go",
-            "internal/receipt/example_test.go",
             "internal/hostlease/example_test.go",
             "internal/sessionboot/example_test.go",
             "internal/payloadschema/example_test.go",

@@ -82,9 +82,6 @@ Commands read one strict JSON object from stdin:
   concord backup < JSON stdin
     required: destination
     accepted values: destination: absolute clean path that does not yet exist; a manifest is written beside it
-  concord receipt < JSON stdin
-    required: work_id
-    accepted values: prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed
   concord work-shelve < JSON stdin
     required: operation_id, idempotency_key, work_id, expected_version, handoff
     optional: product_id, linear, actor, execution_relinquished, writes_reconciled, effects_reconciled, dependencies_resolved, artifacts_verified

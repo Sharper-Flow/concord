@@ -129,14 +129,10 @@ ADAPTER_FILES = (
     "generated-primary-profiles.ts",
     "generated-release.ts",
     "host-lease.ts",
-    "host-prompt.ts",
     "manifest-pin.ts",
-    "move-session.ts",
     "mutation-result.ts",
     "primary-role.ts",
-    "turn-move-boundary.ts",
-    "work-start-continuation.ts",
-    "workflow-status.ts",
+    "session-directory.ts",
 )
 # Adapter files an earlier release shipped and this installer no longer does.
 # A manifest an older installer wrote may still record them. A transaction
@@ -146,6 +142,7 @@ ADAPTER_FILES = (
 # traversing key still cannot reach a delete. Append on retirement; never
 # remove an entry while an installation that records it may still exist.
 RETIRED_ADAPTER_FILES = (
+    "host-prompt.ts", "move-session.ts", "turn-move-boundary.ts", "work-start-continuation.ts", "workflow-status.ts",
     "project-link.ts",
     "continuity-hook.ts",
     "native-subtask-refusal.ts", "ci-watch.ts", "claimed-worktree.ts", "dispatch-window.ts", "dispatch.ts", "generated-agent-lanes.ts", "move-notice.ts",
@@ -387,9 +384,9 @@ HOST_LEASE_TIMEOUT_SECONDS = 30
 def observe_held_releases(paths: Paths, version: str) -> dict[str, list[dict[str, object]]] | None:
     """Return the live host sessions holding each release root, keyed by the
     resolved release root, or None when the observation failed. The holder
-    sessions are the retention output's per-release restart list (CD-0191):
-    a session the install made stale keeps working, and the operator needs
-    to know which sessions to restart."""
+    sessions are the retention output's per-release holder list (CD-0191):
+    a holder keeps working on its pinned pair, and the operator can identify
+    each release's holders."""
     binary = paths.data_root / version / "bin" / "concord"
     environment = {key: value for key, value in os.environ.items() if key != "CONCORD_DB_PATH"}
     environment["XDG_DATA_HOME"] = str(paths.data_home)

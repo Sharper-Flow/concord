@@ -1004,8 +1004,8 @@ type mutationPlan struct {
 	intents []agentcontract.NextIntent
 	effect  mutationEffect
 	// evidenceRefs surfaces the operation's evidence on the result envelope.
-	// A lifecycle transition into a terminal state sets it so the adapter can
-	// render a closure receipt from the same envelope that reports the state.
+	// A lifecycle transition into a terminal state sets it so the envelope
+	// that reports the state also carries the evidence behind it.
 	evidenceRefs []agentcontract.EvidenceRef
 	// plannedInitialDurability is the optional initial-durability fact a
 	// planner raises from its own consequence branch. Nil leaves the

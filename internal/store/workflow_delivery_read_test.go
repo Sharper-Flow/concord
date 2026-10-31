@@ -10,7 +10,7 @@ import (
 )
 
 // deliveryGateFixture pins one bug work item's workflow instance to the
-// current break_fix definition sitting on the CD-0165 delivery gate, the
+// current break_fix definition sitting on the delivery gate, the
 // state a session leaves behind when it ends with the change not yet on the
 // default branch.
 func deliveryGateFixture(t *testing.T) *Store {

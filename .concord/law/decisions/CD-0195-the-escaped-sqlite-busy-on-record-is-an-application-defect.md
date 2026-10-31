@@ -25,7 +25,7 @@
 - **Preserves:** CD-0011's current reopen conditions, CD-0045's concurrent-writer
   correctness, and the single-writer comparison as the first
   bounded comparison
-- **Related:** CD-0003, CD-0045, CD-0046, CD-0165,
+- **Related:** CD-0003, CD-0045, CD-0046,
   [Concord (CON) issue 752](https://linear.app/sharper-flow/issue/CON-752)
 - **Approval:** The operator approved the work item
   [Concord (CON) issue 750](https://linear.app/sharper-flow/issue/CON-750)
@@ -120,7 +120,6 @@ and every reopen condition in CD-0011 stands as written for later escapes.
 The transaction-boundary proof requires a structural guard beside
 `internal/store/txscope_test.go` that fails when a transaction-holding
 function reaches a subprocess or a bulk filesystem call. No falsifier vocabulary changes.
-CD-0165 binds new work to the current release.
 
 ## Verification
 

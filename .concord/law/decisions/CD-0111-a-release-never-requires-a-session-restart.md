@@ -3,9 +3,7 @@
   "id": "CD-0111",
   "title": "A release never requires a session restart",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "operator-surface",
   "applies_to_domain_ids": []
@@ -186,9 +184,7 @@ readiness refusal names this route; no automated path guesses a manifest.
 
 ### D4. The typed refusal never asks for a restart
 
-No core or adapter refusal names a session restart as its recovery. An observed
-installed-release mismatch may carry the bounded reload notice of CD-0191;
-it is not a subagent dispatch refusal.
+No core or adapter refusal names a session restart as its recovery.
 `manifest_mismatch` remains the refusal for a digest the core does
 not recognize. Under D1 it is reachable only through a defect, and its recovery
 action is `contact_operator` with the two digests.

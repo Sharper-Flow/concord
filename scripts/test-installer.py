@@ -43,9 +43,12 @@ class NativeTaskInstallerTests(unittest.TestCase):
         self.assertIn("continuity-hook.ts", installer.RETIRED_ADAPTER_FILES)
         self.assertNotIn("claimed-worktree.ts", installer.ADAPTER_FILES)
         self.assertIn("claimed-worktree.ts", installer.RETIRED_ADAPTER_FILES)
-        for name in ("agent-switch-hook.ts", "host-lease.ts", "move-session.ts",
-                     "turn-move-boundary.ts", "work-start-continuation.ts"):
+        for name in ("agent-switch-hook.ts", "host-lease.ts", "session-directory.ts"):
             self.assertIn(name, installer.ADAPTER_FILES)
+        for name in ("move-session.ts", "host-prompt.ts", "turn-move-boundary.ts",
+                     "work-start-continuation.ts", "workflow-status.ts"):
+            self.assertNotIn(name, installer.ADAPTER_FILES)
+            self.assertIn(name, installer.RETIRED_ADAPTER_FILES)
 
     def test_shipped_adapter_is_import_closed_without_launcher_modules(self):
         adapter = Path(installer.__file__).resolve().parents[1] / "adapter/opencode"
@@ -653,8 +656,8 @@ esac''',
 
     def test_retention_output_lists_holder_sessions(self) -> None:
         """CD-0191: the retention output names the holder sessions per
-        retained release, so the operator knows exactly which sessions to
-        restart after the install makes them stale."""
+        retained release, so the operator can identify each release's
+        holders."""
         self.make_release("v1.0.0", "old")
         self.make_release("v1.1.0", "new")
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
@@ -1389,7 +1392,7 @@ esac''',
         """
         added = "core-runtime.ts"
         self.assertIn(added, installer.ADAPTER_FILES)
-        for shipped in ("core-runtime.ts", "mutation-result.ts", "turn-move-boundary.ts", "host-prompt.ts"):
+        for shipped in ("core-runtime.ts", "mutation-result.ts", "session-directory.ts"):
             self.assertIn(shipped, installer.ADAPTER_FILES, f"missing shared host module {shipped}")
         # Test suites and their vectors are dev-only inputs, not adapter runtime
         # inputs. Shipping them would put test code and fixtures in the

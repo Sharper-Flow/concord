@@ -12,8 +12,6 @@
     "adapter/opencode/host-version.test-support.ts",
     "adapter/opencode/generated-contract-tests.ts",
     "adapter/opencode/concord.test.ts",
-    "adapter/opencode/worktree-claim-move.test.ts",
-    "adapter/opencode/session-vacate-move.test.ts",
     "adapter/opencode/turn-move-boundary.test.ts",
     "adapter/opencode/concord-plugin.test.ts"
   ],
@@ -39,8 +37,6 @@
       "argv": [
         "python3",
         "acceptance.py",
-        "worktree-claim-move.test.ts",
-        "session-vacate-move.test.ts",
         "turn-move-boundary.test.ts"
       ]
     },

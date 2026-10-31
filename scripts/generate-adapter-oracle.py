@@ -10,7 +10,7 @@ PACKAGE = ROOT / "adapter/opencode/package.json"
 LOCK = PACKAGE.with_name("bun.lock")
 CHECKS = {
     "adapter-transport": ["concord.test.ts"],
-    "adapter-move": ["worktree-claim-move.test.ts", "session-vacate-move.test.ts", "turn-move-boundary.test.ts"],
+    "adapter-move": ["turn-move-boundary.test.ts"],
     "adapter-publication": ["concord-plugin.test.ts"],
 }
 

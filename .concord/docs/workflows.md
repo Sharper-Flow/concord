@@ -10,7 +10,7 @@
 > [`product-data-model.md`](./product-data-model.md).
 > **Purpose:** New execution selects one of three retained workflow families
 > (CD-0218 D1); §4 lists them. A workflow definition is composed from shared
-> parts, and a decision model sets each work item's size (§7; CD-0229).
+> parts; work has no size class (§7; CD-0229).
 > **Primary surface:** Defined by [`../law/constitution/priorities.md`](../law/constitution/priorities.md); an admin
 > panel or web UI is optional and secondary.
 
@@ -23,8 +23,8 @@ existing requirements.
 ## TL;DR
 
 The live workflow catalog retains three execution families for new work
-(CD-0218 D1; §4). A workflow definition is a composition of shared parts, and a
-programmed decision model sets each work item's size (§7; CD-0229). Definitions
+(CD-0218 D1; §4). A workflow definition is a composition of shared parts, and
+work has no size class (§7; CD-0229). Definitions
 are generated from one canonical source, and no released workflow-definition
 version, pin, or catalog list is retained for history (CD-0242 D14). The cutover
 is one documented migration with a verified snapshot and the operator's approval
@@ -86,7 +86,7 @@ catalog retains exactly three families (CD-0218 D1). What a definition fixes:
 
 | Aspect | Meaning |
 |---|---|
-| **Steps** | The steps the composition includes; the item's size selects among the family's compositions (CD-0229 D5). |
+| **Steps** | The steps the family's composition includes (CD-0229 D2). |
 | **Artifacts** | What it produces (a spec delta? a report? findings? nothing durable?). |
 | **Completion criteria** | How it's "done" (a contract satisfied? a report submitted? a signal fired?). |
 | **Value statement** | One sentence stating the work value: what it delivers and why it matters. |
@@ -95,8 +95,8 @@ catalog retains exactly three families (CD-0218 D1). What a definition fixes:
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
 | **Active visibility** | Which gates/problems are surfaced by default vs. hidden behind history. |
 
-Families and their parts are Go values in the registry; a new size, family, or
-kind is a new composition of existing parts and adds no step code (CD-0229
+Families and their parts are Go values in the registry; a new family or kind
+is a new composition of existing parts and adds no step code (CD-0229
 D2).
 
 ### 2.1 Value statement invariant
@@ -288,5 +288,5 @@ status.
 ---
 
 *New execution runs in one of the three retained families (§4), composed from
-shared parts at the size the decision model sets (§7); definitions are
+shared parts (§7); definitions are
 generated from one canonical source (CD-0242 D14).*

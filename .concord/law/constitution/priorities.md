@@ -114,7 +114,7 @@ workflows, and evidence serve that law. Agents enact and change law under R3.
   Product concordance.
 - Semantic analysis may suggest duplicate or conflicting law; it never owns
   persistence, supersession, or blocking.
-- Every change keeps a footprint record at every size, and a tool fills it
+- Every change keeps a footprint record, and a tool fills it
   ([`../../docs/goals.md`](../../docs/goals.md) §2, goal A). The checked package map and the
   footprint read that joins it to the law index are owned by
   [`CD-0222`](../decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
@@ -155,9 +155,9 @@ attributes, not by a fixed gate count.
 - Required-obligation blocking — unmet blocking obligations halt the work.
 - Human authority at consequence boundaries — the operator decides the six classes in [CD-0243 D2](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision), including law changes within those classes (U, R3, P12). Seriousness, Domain count, and crucial size do not independently require approval.
 - Durable proof — evidence is retained and inspectable after the work is finished.
-- Proportional rigor — the decision model (goal B) sets each change's minimum steps, proof, and testing and its mandatory stages, and no agent may waive a mandatory stage or an operator approval ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
+- Proportional rigor — each live family's definition sets its mandatory stages, Main may add depth, and no agent may waive a mandatory stage or an operator approval ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
 
-**What scales proportional rigor.** One input to the decision model is the
+**What scales proportional rigor.** One input to proportional rigor is the
 **declared lifecycle stage** of the thing being worked on (`maturity` and
 user-declared `audience_commitment`, at Product, Domain, and repo
 level; see [`../../docs/product-data-model.md`](../../docs/product-data-model.md) §8). No stage is
@@ -212,7 +212,7 @@ they become blockers or contradictory Product truth.
 
 A workflow is a combination of shared parts (goal C in
 [`../../docs/goals.md`](../../docs/goals.md) §2).
-Families compose shared stages, and the decision model sets each execution's mandatory stages ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)). Parts define their steps once, and a definition composes parts (CD-0229 D1, D2).
+Families compose shared stages, and each live family's definition sets its mandatory stages ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)). Parts define their steps once, and a definition composes parts (CD-0229 D1, D2).
 
 - Concord owns a full workflow coordination engine: progression, branching,
   retries, evidence, recovery, and the accepted composition model. Native
@@ -305,7 +305,7 @@ Approved proposals (situation, then rule):
 - P8 Quality vs You. The operator asks for a behavior the agent judges adds complexity. The operator's decision
   wins. The agent states the quality cost once, with evidence, before building it.
 - P9 Quality vs Parts. A shared part has bloat or fits the change badly. Use the part and fix the part itself,
-  not a local workaround. If the fix is larger than the change's size, file a follow-up item on the part.
+  not a local workaround. If the fix is larger than the change's scope, file a follow-up item on the part.
 - P10 Safety vs You. The agent explains permanent-loss risk and any missing recovery route before asking
   for required approval. The operator may explicitly approve irreversible loss. Without that approval,
   do not risk irreversible customer-data loss. Outside the six classes, lack of recovery alone is not

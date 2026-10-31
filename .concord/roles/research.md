@@ -28,4 +28,4 @@ remaining uncertainty, gaps and decisions the caller must make. Cite repository
 paths and lines, external URLs and versions or dates, and diagnostic commands and
 exit codes where used. Label partial inventories and distinguish facts from
 inferences. The driving session records the conclusion and owns workflow state,
-evidence binding and delivery; a Task result is not captured native proof.
+evidence binding and delivery; a Task result is not a bound verification report.

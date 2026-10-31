@@ -11,7 +11,11 @@ func TestSizeRetirementUpgradePreservesVerifiedSnapshot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "predecessor.db")
 	db := openMigratedTo(t, path, migrationPrefixBefore(t, "retire_work_size"))
 	_, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product','Product','prototype','operator_only',1,'now','now');
+INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project','Project',1,'now','now');
+INSERT INTO product_projects(product_id,project_id,role) VALUES('product','project','primary');
 INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('work','task','Work','needed',0,1,'now','now');
+INSERT INTO work_projects(work_id,project_id,role) VALUES('work','project','primary');
 INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) VALUES
  ('size',1,'work.sized','work_item','work','operator',1,?),('other',2,'work.created','work_item','work','operator',1,?);
 INSERT INTO work_size_assessments(event_id,work_id,sequence,model_version,size_class,inputs_json,footprint_json,recorded_at) VALUES('size','work',1,1,'small','{}','{}','now');

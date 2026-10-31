@@ -25,7 +25,7 @@ func TestNativePrepareStaleCoreSubjectSurfacesAuthoredRemedy(t *testing.T) {
 	s, service, grant, repoRoot := tiersRepoFixture(t)
 	// A self-contained module the prepare stages compile without executing.
 	for name, data := range map[string]string{
-		"go.mod":       "module example.invalid/nativefixture\n\ngo 1.26.0\ntoolchain go1.26.7\n",
+		"go.mod":       "module example.invalid/nativefixture\n\ngo 1.26.0\ntoolchain go1.26.10\n",
 		"pkg/value.go": "package nativefixture\n\nfunc Value() int { return 7 }\n",
 		"pkg/value_test.go": `package nativefixture
 

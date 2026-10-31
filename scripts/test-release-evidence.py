@@ -130,6 +130,22 @@ def needs_list(job: dict) -> list:
 
 
 class CIWorkflowDriftTests(unittest.TestCase):
+    def test_required_go_job_runs_pinned_vulnerability_scan_before_other_checks(self) -> None:
+        job = jobs(load_workflow(CI_WORKFLOW))["verify-go"]
+        self.assertNotIn("if", job)
+        self.assertNotIn("continue-on-error", job)
+        steps = job["steps"]
+        scan = next(step for step in steps if step.get("name") == "Run govulncheck")
+        self.assertEqual(scan["run"], "go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...")
+        self.assertNotIn("if", scan)
+        self.assertNotIn("continue-on-error", scan)
+        setup = next(i for i, step in enumerate(steps) if "actions/setup-go@" in step.get("uses", ""))
+        self.assertEqual(steps[setup + 1], scan)
+        tools = json.loads((ROOT / ".concord/tooling.v1.json").read_text())["tools"]
+        declared = next(tool for tool in tools if tool["id"] == "govulncheck")
+        self.assertEqual(declared["invocation"], scan["run"])
+        self.assertEqual(declared["automation_path"], CI_PATH)
+
     def test_ci_consumes_all_eight_continuity_witnesses_from_retained_results(self) -> None:
         block = jobs(load_workflow(CI_WORKFLOW))
         scenarios = json.loads((ROOT / ".concord/scenarios/adapter-continuity.v1.json").read_text())["scenarios"]

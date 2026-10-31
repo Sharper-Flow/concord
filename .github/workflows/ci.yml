@@ -438,6 +438,8 @@ jobs:
           go-version-file: go.mod
           cache: true
           cache-dependency-path: go.sum
+      - name: Run govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
       - name: Check Go formatting
         run: unformatted="$(gofmt -l .)" || exit 1; printf '%s\n' "$unformatted"; test -z "$unformatted"
       - name: Tidy Go modules

@@ -34,7 +34,7 @@ func newCandidateJourney(t *testing.T, workID string) *candidateJourney {
 	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: t.TempDir()}
 	j.acceptor = WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/candidate-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
 	for name, data := range map[string]string{
-		"go.mod":            "module example.invalid/oracle\n\ngo 1.26.0\ntoolchain go1.26.7\n",
+		"go.mod":            "module example.invalid/oracle\n\ngo 1.26.0\ntoolchain go1.26.10\n",
 		"pkg/value.go":      "package oracle\nfunc Value() int { return 6 }\n",
 		"pkg/value_test.go": candidateJourneyHarness,
 		"pkg/oracle.json":   `{"kind":"go_top_level_v1","package_cwd":"pkg","test_files":["pkg/value_test.go"],"fixture_files":[],"cases":{"case:fixture":["TestValue"]}}`,

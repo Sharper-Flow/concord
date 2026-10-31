@@ -177,7 +177,7 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	// A contract that binds law or Domains reads the verified law-folder
 	// snapshot inside the transaction, so its proof is prepared before the
 	// transaction opens (CD-0195 D2).
-	verifiedCtx, proofErr := s.prepareContractLawProof(ctx, req.Work)
+	verifiedCtx, proofErr := s.PrepareWorkLawProof(ctx, req.Work)
 	if proofErr != nil {
 		return out, proofErr
 	}

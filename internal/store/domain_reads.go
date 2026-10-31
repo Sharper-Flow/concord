@@ -118,10 +118,10 @@ func sliceOrEmpty[T any](values []T) []T {
 
 // loadDomainSnapshot resolves the Product's designated git home and reads the
 // committed law folder and Domain registry at its explicit head commit. It
-// must run before any transaction opens: both steps are git subprocesses the
-// pool lock must never hold (CD-0195 D2).
-func loadDomainSnapshot(ctx context.Context, q queryer, productID, op string) (*lawFolderSnapshot, KnowledgeDomainRegistry, error) {
-	home, err := resolveKnowledgeQueryHome(ctx, q, productID, "", KnowledgeHome{}, op)
+// runs on the pool, never inside a transaction: the reads are git
+// subprocesses the pool lock must never hold (CD-0195 D2).
+func (s *Store) loadDomainSnapshot(ctx context.Context, productID, op string) (*lawFolderSnapshot, KnowledgeDomainRegistry, error) {
+	home, err := resolveKnowledgeQueryHome(ctx, s.db, productID, "", KnowledgeHome{}, op)
 	if err != nil {
 		return nil, KnowledgeDomainRegistry{}, err
 	}
@@ -174,15 +174,15 @@ func (s *Store) QueryDomainList(ctx context.Context, req DomainListRequest) (Dom
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "C22.DomainList", "store is not open", false, "open a store before reading Domains")
 	}
-	return queryDomainList(ctx, s.db, req)
-}
-
-func queryDomainList(ctx context.Context, q queryer, req DomainListRequest) (DomainListResult, error) {
-	var out DomainListResult
-	snapshot, committed, err := loadDomainSnapshot(ctx, q, req.Product, "C22.DomainList")
+	snapshot, committed, err := s.loadDomainSnapshot(ctx, req.Product, "C22.DomainList")
 	if err != nil {
 		return out, err
 	}
+	return queryDomainList(req, snapshot, committed)
+}
+
+func queryDomainList(req DomainListRequest, snapshot *lawFolderSnapshot, committed KnowledgeDomainRegistry) (DomainListResult, error) {
+	var out DomainListResult
 	registry := domainRegistryView(snapshot, committed, req.Product)
 	limit := req.Limit
 	if limit == 0 {
@@ -265,15 +265,15 @@ func (s *Store) QueryDomainDetail(ctx context.Context, req DomainDetailRequest) 
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "C22.DomainDetail", "store is not open", false, "open a store before reading Domains")
 	}
-	return queryDomainDetail(ctx, s.db, req)
-}
-
-func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) (DomainDetailResult, error) {
-	var out DomainDetailResult
-	snapshot, committed, err := loadDomainSnapshot(ctx, q, req.Product, "C22.DomainDetail")
+	snapshot, committed, err := s.loadDomainSnapshot(ctx, req.Product, "C22.DomainDetail")
 	if err != nil {
 		return out, err
 	}
+	return queryDomainDetail(ctx, s.db, req, snapshot, committed)
+}
+
+func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest, snapshot *lawFolderSnapshot, committed KnowledgeDomainRegistry) (DomainDetailResult, error) {
+	var out DomainDetailResult
 	registry := domainRegistryView(snapshot, committed, req.Product)
 	summary, err := domainExistsCurrent(committed, req.Domain)
 	if err != nil {

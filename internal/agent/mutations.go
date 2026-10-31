@@ -2400,6 +2400,12 @@ func (m *compactionMutation) publish(ctx context.Context) (agentcontract.Envelop
 	m.base = base
 	// CD-0243 D7: the durable intent locks exact content and home; it is not
 	// operator consent. ClaimStepAuthorized retains the publication fence.
+	// The claim's consequential boundary compares the contract's law pins
+	// with committed law verified before the claim transaction opens.
+	ctx, proofErr := r.Store.PrepareWorkLawProof(ctx, workID)
+	if proofErr != nil {
+		return failureEnvelope(base, proofErr), nil
+	}
 	claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: m.acceptedScope, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ContractDigest: agentcontract.ManifestDigest}
 	claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
 		// CD-0222 D7: publication is consequential, so the claim refuses
@@ -3034,7 +3040,23 @@ func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelop
 	if hostErr != nil {
 		return agentcontract.Envelope{}, hostErr
 	}
-	execution := mutationExecution{runtime: r, base: base, raw: raw, digest: digest, scope: scope, intents: intents, effect: effect, host: host, contractOp: contractOp}
+	// The consequential boundary and the result's work pin compare each
+	// scoped work's law pins with current committed law, read before the
+	// transaction opens (CD-0195 D2). A verification failure is held for the
+	// consequential boundary, after exact replay; any other mutation keeps its
+	// effect, and its pin reports law currency unverified.
+	var proofErr error
+	for _, workID := range mutationScopeWorkIDs(scope) {
+		verified, err := r.Store.PrepareWorkLawProof(ctx, workID)
+		if err != nil {
+			if proofErr == nil {
+				proofErr = err
+			}
+			continue
+		}
+		ctx = verified
+	}
+	execution := mutationExecution{runtime: r, base: base, raw: raw, digest: digest, scope: scope, intents: intents, effect: effect, host: host, contractOp: contractOp, lawProofErr: proofErr}
 	mutation := func(tx *store.Transaction) error {
 		return execution.executeTx(ctx, tx, durable)
 	}
@@ -3052,14 +3074,17 @@ func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelop
 
 type mutationExecution struct {
 	runtime
-	base           agentcontract.Envelope
-	raw            []byte
-	digest         string
-	scope          map[string]any
-	intents        []agentcontract.NextIntent
-	effect         mutationEffect
-	host           store.ResolvedProjectHost
-	contractOp     agentcontract.ContractOperation
+	base       agentcontract.Envelope
+	raw        []byte
+	digest     string
+	scope      map[string]any
+	intents    []agentcontract.NextIntent
+	effect     mutationEffect
+	host       store.ResolvedProjectHost
+	contractOp agentcontract.ContractOperation
+	// lawProofErr is the scoped works' pre-transaction law verification
+	// failure; only the consequential boundary consumes it.
+	lawProofErr    error
 	response       agentcontract.Envelope
 	resultRejected bool
 }
@@ -3130,6 +3155,9 @@ func (m *mutationExecution) admitTx(ctx context.Context, tx *store.Transaction, 
 	// inspection remains available, and an operation that records no
 	// workflow state sits outside every class it lists.
 	if mutationRequiresConsequentialBoundary(r.Tool, r.Operation, raw) {
+		if m.lawProofErr != nil {
+			return m.lawProofErr
+		}
 		for _, workID := range mutationScopeWorkIDs(scope) {
 			if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
 				return err

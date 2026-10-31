@@ -77,7 +77,7 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	// A contract that binds law resolves the staleness answer from the
 	// verified law-folder snapshot inside the read, so its proof is prepared
 	// before the transaction opens (CD-0195 D2).
-	verifiedCtx, proofErr := s.prepareContractLawProof(ctx, req.Work)
+	verifiedCtx, proofErr := s.PrepareWorkLawProof(ctx, req.Work)
 	if proofErr != nil {
 		return out, proofErr
 	}

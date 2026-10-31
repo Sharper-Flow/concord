@@ -13,5 +13,5 @@ func prepareTerminalTestContext(ctx context.Context, s *Store, workID, action st
 	case "approve_contract", "supersede_contract", "complete", "record_work_context", "confirm_premise":
 		return s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	}
-	return s.prepareContractLawProof(ctx, workID)
+	return s.PrepareWorkLawProof(ctx, workID)
 }

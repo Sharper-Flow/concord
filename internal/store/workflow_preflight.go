@@ -128,11 +128,11 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
-	if _, _, err := WorkflowActionDefinitionFor(ctx, s, registry, request.WorkID, request.ActionID); err != nil {
-		return err
-	}
 	ctx, err := s.prepareWorkflowActionRegistryProof(ctx, request.ActionID, request.WorkID)
 	if err != nil {
+		return err
+	}
+	if _, _, err := WorkflowActionDefinitionFor(ctx, s, registry, request.WorkID, request.ActionID); err != nil {
 		return err
 	}
 	readTx, err := beginReadTx(ctx, s.db)
@@ -145,25 +145,23 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 }
 
 // prepareWorkflowActionRegistryProof establishes, before the preflight's read
-// snapshot or the owning transaction opens, the knowledge-source proof that
-// the Domain-registry-consuming actions read inside it: record_work_context
-// validates declared Domains and confirm_premise checks the investigation
-// artifact's Domain refs. Git runs only here, outside the pool (CD-0195 D2).
-// The preflight and the owning boundary share this one preparation, so the
-// preflight never refuses for a missing proof the owning action would hold.
-// An unreachable or invalid law home refuses: a registry boundary has no
-// degraded form.
+// snapshot or the owning transaction opens, the knowledge-source proof the
+// action reads inside it: record_work_context validates declared Domains,
+// and every other action follows the work's own demand (PrepareWorkLawProof).
+// Git runs only here, outside the pool (CD-0195 D2). The preflight and the
+// owning boundary share this one preparation, so the preflight never refuses
+// for a missing proof the owning action would hold. An unreachable or invalid
+// law home refuses: a law or registry boundary has no degraded form.
 func (s *Store) prepareWorkflowActionRegistryProof(ctx context.Context, actionID, workID string) (context.Context, error) {
 	// A caller that already verified the sources before the boundary passes
 	// that proof on; the transaction revalidates it against the live heads.
 	if knowledgeSourceSetProofFrom(ctx) != nil {
 		return ctx, nil
 	}
-	switch actionID {
-	case "record_work_context", "confirm_premise":
+	if actionID == "record_work_context" || actionID == "confirm_premise" {
 		return s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	}
-	return ctx, nil
+	return s.PrepareWorkLawProof(ctx, workID)
 }
 
 // AuthorizeWorkflowActionAtBoundaryTx is the owning-action transaction

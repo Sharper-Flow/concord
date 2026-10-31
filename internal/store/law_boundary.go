@@ -229,17 +229,23 @@ func sourceBoundInProof(ctx context.Context, home KnowledgeHome) bool {
 	return proof != nil && proof.snapshots[knowledgeSourceProofKey(home)] != nil
 }
 
-// prepareContractLawProof resolves whether the work's active contract binds
-// law or Domains and, when it does, verifies the work's law home into the
-// context before the caller's transaction opens. The verification resolves
-// git heads and reads the committed law folder — subprocesses the pooled
-// connection must never hold inside a transaction (CD-0195 D2). A work with
-// no single active contract, or one that binds no law and no Domain, needs no
-// snapshot, and identity or ambiguity refusals stay with the caller's
-// transaction path.
-func (s *Store) prepareContractLawProof(ctx context.Context, workID string) (context.Context, error) {
-	if s == nil || s.db == nil {
+// PrepareWorkLawProof verifies, before any transaction for the work opens,
+// the committed law and Domain registry that transaction may read. Every
+// admission fold compares the active contract's law pins with current law
+// (CD-0036), and a step that declares confirm_premise folds the
+// investigation artifact's Domain refs against the committed registry. The
+// verification resolves git heads and reads the committed law folder —
+// subprocesses the pooled connection must never hold inside a transaction
+// (CD-0195 D2). A context that already carries a proof passes through; the
+// transaction revalidates it. A work whose contract binds no law and no
+// Domain, at a step that folds no registry, needs no snapshot. Identity and
+// ambiguity refusals stay with the caller's transaction path.
+func (s *Store) PrepareWorkLawProof(ctx context.Context, workID string) (context.Context, error) {
+	if s == nil || s.db == nil || knowledgeSourceSetProofFrom(ctx) != nil {
 		return ctx, nil
+	}
+	if s.workStepFoldsRegistry(ctx, workID) {
+		return s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	}
 	versions, err := activeWorkflowContractVersions(ctx, s.db, workID)
 	if err != nil || len(versions) != 1 {

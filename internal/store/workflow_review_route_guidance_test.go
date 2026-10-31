@@ -101,7 +101,7 @@ func TestReviewRouteGuidanceAcceptance(t *testing.T) {
 		t.Fatalf("candidate missing: %v", err)
 	}
 	failure := reviewRouteFailure(t, workflowReviewedCommandReceipt(t.Context(), j.s.db, j.workID, "predicate:missing", "receipt:command", state.Candidate.Commit, state.Candidate.ProjectID))
-	if failure.Kind != KindMissingEvidence || failure.Detail != "command receipt receipt:command has no current Review assessment of criterion predicate:missing" || failure.RecoveryAction != "record a Review assessing that criterion and captured receipt on the final candidate" {
+	if failure.Kind != KindMissingEvidence || failure.Detail != "report receipt:command has no current Review assessment of criterion predicate:missing" || failure.RecoveryAction != "record a Review assessing that criterion and report on the final candidate" {
 		t.Fatalf("criterion assessment guidance = %+v", failure)
 	}
 }

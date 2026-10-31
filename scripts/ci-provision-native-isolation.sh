@@ -24,6 +24,8 @@ dpkg --print-architecture
 [[ $(dpkg --print-architecture) == amd64 ]] || die 'amd64 dpkg required'
 work=$(mktemp -d "$RUNNER_TEMP/native-isolation-build.XXXXXXXX")
 compat_root=''
+# The EXIT trap invokes cleanup; ShellCheck does not follow that indirect call.
+# shellcheck disable=SC2317
 cleanup() {
     local status=$?
     trap - EXIT
@@ -92,7 +94,7 @@ for deb in "${debs[@]}"; do
     python3 "$helper" audit-control "$evidence/package-controls/old-$package"
     install_debs+=("$deb")
 done
-[[ ${#install_debs[@]} == ${#changes[@]} ]] || die 'downloaded package count differs from transaction'
+[[ ${#install_debs[@]} -eq ${#changes[@]} ]] || die 'downloaded package count differs from transaction'
 if ((${#install_debs[@]})); then
     sudo apt-get -s --no-install-recommends --no-remove install "${install_debs[@]}" | tee "$evidence/apt-local-plan.txt" > /dev/null
     python3 "$helper" transaction "$evidence/apt-local-plan.txt" "$work/installed-local.json" > "$work/local-transaction.txt"

@@ -16,7 +16,6 @@ func seedComparisonObservation(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	var domainRef string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT d.domain_id FROM domains d JOIN product_projects pp ON pp.product_id=d.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? AND d.status='current' LIMIT 1`, workID).Scan(&domainRef); err != nil {
-		seedIssue31DomainRegistry(t, s)
 		domainRef = "root"
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)

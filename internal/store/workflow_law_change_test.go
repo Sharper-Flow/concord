@@ -19,7 +19,6 @@ func seedLawChangeFixture(t *testing.T, workID string) *Store {
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	hash := "sha256:" + strings.Repeat("b", 64)
 	for _, id := range []string{"agent-surface", "workflow-engine", "durable-authority"} {
 		lawChangeFold(t, s, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product',?,?,'test domain','root','current',?,'test')`, id, "Domain "+id, hash)

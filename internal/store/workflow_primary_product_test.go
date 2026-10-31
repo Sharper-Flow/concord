@@ -20,7 +20,6 @@ func crossProductBindingApprovalFixture(t *testing.T, workID string) (*Store, Wo
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	seedSecondaryProductMembership(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal:" + workID, ClientRef: "client:" + workID, AgentRef: "agent:" + workID, SessionRef: "session:" + workID, ActorClass: ActorAgent}
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
@@ -65,7 +64,6 @@ func TestWorkflowBindingProductFollowsThePrimaryMembership(t *testing.T) {
 	workID := "binding-primary-cross-product"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	seedSecondaryProductMembership(t, s, workID)
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {

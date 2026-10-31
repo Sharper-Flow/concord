@@ -450,14 +450,51 @@ func (s *Store) qualifiedSourceHomes(ctx context.Context, home KnowledgeHome, qu
 // when a source changed after it.
 func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectID, homeLocatorID string) error {
 	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
-	if err != nil || productID == "" {
+	if err != nil {
 		return err
+	}
+	if productID == "" {
+		return requireStandaloneSourceProof(ctx, q, homeProjectID, homeLocatorID)
 	}
 	sources, err := verifiedKnowledgeSourceSet(ctx, q, productID)
 	if err != nil {
 		return err
 	}
 	return requireKnowledgeSourcesProof(ctx, q, productID, sources)
+}
+
+// requireStandaloneSourceProof keeps a standalone home's demand-driven
+// preparation: without a proof, or with a recorded verification failure, the
+// consumer that reads the snapshot answers. A present proof still revalidates
+// every source it bound, so moved committed law never feeds a stale snapshot.
+func requireStandaloneSourceProof(ctx context.Context, q queryer, homeProjectID, homeLocatorID string) error {
+	proof := knowledgeSourceSetProofFrom(ctx)
+	if proof == nil || proof.refreshErr != nil {
+		return nil
+	}
+	live := make([]KnowledgeHome, 0, len(proof.sources))
+	for i, source := range proof.sources {
+		key := knowledgeSourceProofKey(source)
+		if i == 0 && (source.HomeProjectID != homeProjectID || source.HomeLocatorID != homeLocatorID) {
+			return newFailure(KindInvalidOperation, "check_mandated_laws", "the knowledge home changed after its verification", false, "verify the knowledge home again before the consequential transaction opens")
+		}
+		candidates, err := projectCanonicalHomeCandidates(ctx, q, source.HomeProjectID)
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, candidate := range candidates {
+			if candidate.HomeLocatorID == source.HomeLocatorID {
+				live = append(live, candidate)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return newFailure(KindInvalidOperation, "check_mandated_laws", "knowledge home "+key+" resolved to a different canonical location after its verification", false, "verify the knowledge home again before the consequential transaction opens")
+		}
+	}
+	return requireKnowledgeSourcesProof(ctx, q, "", live)
 }
 
 // verifiedKnowledgeSourceSet resolves the transaction's law source set: the

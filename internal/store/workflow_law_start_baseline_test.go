@@ -88,7 +88,6 @@ func TestLawChangeStartAbsenceAndSourceGraph(t *testing.T) {
 		if err := enactLawChange(t, s, "no-registry", nil, nil); err != nil {
 			t.Fatal(err)
 		}
-		seedIssue31DomainRegistry(t, s)
 		requireFailureKind(t, enactLawChange(t, s, "no-registry", nil, nil), KindOutcomeMismatch, "new registry is not original state")
 	})
 	t.Run("in-flight item has no invented start", func(t *testing.T) {

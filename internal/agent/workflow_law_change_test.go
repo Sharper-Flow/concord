@@ -93,22 +93,27 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string, removing bool) {
 	t.Helper()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
+	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
+	if err != nil {
 		t.Fatal(err)
+	}
+	// The mandate resolves its law from the committed folder: the seed's own
+	// fixture decision is legislated, and the derived tier commits a
+	// derived-tier decision beside it, so the admission reads the tier from
+	// the file the mandate resolves (law-folder-authority.md, Authority and
+	// precedence).
+	lawID := "CD-0001"
+	if tier == "derived" {
+		lawID = "CD-0002"
+		commitAgentFixtureLaw(t, home.RepoPath, ".concord/law/decisions/CD-0002-fixture-derived-law.md",
+			agentFixtureLawFrontmatter(lawID, "derived", pm1fixture.FixtureRootDomainID, "The law-change fixture registry declares no child Domain, so this law has no child home available."))
 	}
 	registered, err := store.LiveWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
 		t.Fatal(err)
 	}
 	registry := store.BuiltinWorkflowRegistry()
-	hash := "sha256:" + strings.Repeat("a", 64)
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier) VALUES('project-1','domain-locator-product-1','law:test','decision','accepted','.concord/docs/law-test.md','Fixture law',?,'fixture',?);
-INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) SELECT 'project-1','domain-locator-product-1','law:test','product-1',root_domain_id,?,'fixture' FROM domain_registries WHERE product_id='product-1';
-DELETE FROM write_guard`, hash, tier, hash); err != nil {
-		t.Fatal(err)
-	}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, "work-1")
 	if err != nil {
@@ -139,12 +144,12 @@ DELETE FROM write_guard`, hash, tier, hash); err != nil {
 	}
 	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
-	fields["spec_mandate"] = []string{"law:test"}
-	fields["law_modifies"] = []string{"law:test"}
+	fields["spec_mandate"] = []string{lawID}
+	fields["law_modifies"] = []string{lawID}
 	fields["decision_domains"] = []string{}
 	fields["law_change_reason"] = "The law needs a bounded amendment."
 	if removing {
-		fields["law_change_removals"] = []string{"law:test"}
+		fields["law_change_removals"] = []string{lawID}
 	}
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}}
 	for _, action := range []string{"approve_contract", "supersede_contract"} {
@@ -180,7 +185,7 @@ DELETE FROM write_guard`, hash, tier, hash); err != nil {
 		if err := json.Unmarshal([]byte(changeJSON), &change); err != nil {
 			t.Fatal(err)
 		}
-		if change.Reason != fields["law_change_reason"] || len(change.LawIDs) != 1 || change.LawIDs[0] != "law:test" {
+		if change.Reason != fields["law_change_reason"] || len(change.LawIDs) != 1 || change.LawIDs[0] != lawID {
 			t.Fatalf("law contract lost its declared change: %s", changeJSON)
 		}
 	}

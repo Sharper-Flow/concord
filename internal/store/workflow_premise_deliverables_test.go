@@ -26,13 +26,18 @@ func TestConfirmPremiseRequiresVerdictAndRequiredEvidence(t *testing.T) {
 }
 
 // Record the Domain investigation the premise-question boundary requires.
+// The investigation names a current Domain of the committed registry the
+// Product home carries; the confirmation revalidates it there.
 func seedPremiseDeliverablesInvestigation(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	var domainID string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT domain_id FROM domains WHERE product_id='product' AND status='current' ORDER BY domain_id LIMIT 1`).Scan(&domainID); err != nil {
+	list, err := s.QueryDomainList(context.Background(), DomainListRequest{Product: "product", Limit: 1})
+	if err != nil {
 		t.Fatalf("read the current Domain: %v", err)
 	}
-	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("d", 16), []string{domainID})
+	if len(list.Domains) != 1 {
+		t.Fatalf("read the current Domain: %d domains, want one", len(list.Domains))
+	}
+	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("d", 16), []string{list.Domains[0].DomainID})
 }
 
 func TestPreflightRefusesConfirmationMissingMandatedDeliverables(t *testing.T) {

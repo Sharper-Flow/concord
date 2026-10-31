@@ -46,6 +46,8 @@ func seedWorkContextDomainRegistry(t *testing.T, s *Store) {
 		SchemaVersion: "1.0", ProductKey: "product", RootDomainID: "product-root:product",
 		Domains: []KnowledgeDomain{
 			{DomainID: "product-root:product", Name: "Root", Purpose: "Governs the synthetic Product.", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+			{DomainID: "root", Name: "Root", Purpose: "Fixture root child Domain.", Status: "current", ParentDomainID: "product-root:product", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+			{DomainID: "child", Name: "Child", Purpose: "Fixture child Domain.", Status: "current", ParentDomainID: "product-root:product", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
 			{DomainID: workContextTestChild, Name: "Affected child", Purpose: "The approved affected child.", Status: "current", ParentDomainID: "product-root:product", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
 			{DomainID: workContextTestUnaffected, Name: "Unaffected", Purpose: "Current outside the approved affected scope.", Status: "current", ParentDomainID: "product-root:product", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
 			{DomainID: workContextTestDeprecated, Name: "Deprecated", Purpose: "Retired scope.", Status: "deprecated", ParentDomainID: "product-root:product", ArchitectureRelations: []KnowledgeArchitectureRelation{}},

@@ -24,7 +24,6 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	seedDerivedLawExtension(t, s)
-	seedIssue31DomainRegistry(t, s)
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES('project','workflow-law-locator','spec:legislated','conflicts_with','spec:one','test','spec:one'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}

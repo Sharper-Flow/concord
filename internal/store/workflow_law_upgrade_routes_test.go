@@ -110,7 +110,6 @@ func lawUpgradeRegistry(t *testing.T, s *Store) {
 	execSixClassSQL(t, s.db, `INSERT INTO write_guard(active) VALUES(1)`)
 	execSixClassSQL(t, s.db, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-law-locator','project','git_remote','https://example.invalid/research.git','https://example.invalid/research.git','t','t')`)
 	execSixClassSQL(t, s.db, `DELETE FROM write_guard`)
-	seedIssue31DomainRegistry(t, s)
 }
 
 func lawUpgradeNoBaseline(t *testing.T, s *Store, id string) {

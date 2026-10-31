@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -15,7 +16,26 @@ func TestInvokeContractRequestCorrection(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
 			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
-			seedCurrentWorkflowDomainFixture(t, s)
+			// The committed registry declares the child law-home Domain, and
+			// the committed decision CD-0002 homes there, so the modified
+			// law's canonical home exists in current law while starting
+			// outside the request's affected set (law-folder-authority.md,
+			// Identity and change).
+			registry := store.KnowledgeDomainRegistry{
+				SchemaVersion: "1.0",
+				ProductKey:    "fixture-product-1",
+				RootDomainID:  pm1fixture.FixtureRootDomainID,
+				Domains: []store.KnowledgeDomain{
+					{DomainID: pm1fixture.FixtureRootDomainID, Name: "Fixture root", Purpose: "Product law fixture", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},
+					{DomainID: "law-home", Name: "Law home", Purpose: "Modified law ownership", ParentDomainID: pm1fixture.FixtureRootDomainID, Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},
+				},
+			}
+			home, err := pm1fixture.SeedProductDomainRegistry(ctx, s, "product-1", "project-1", t.TempDir(), registry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			commitAgentFixtureLaw(t, home.RepoPath, ".concord/law/decisions/CD-0002-fixture-derived-law.md",
+				agentFixtureLawFrontmatter("CD-0002", "derived", "law-home", ""))
 			env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
 			workID := captureCompositionWork(t, ctx, s, service, env, "Correct a bounded contract request", "task", "workflow.implementation", "correction-capture")
 			version := advanceCapturedWorkToContract(t, s, service, env, workID, "correction")
@@ -29,15 +49,8 @@ func TestInvokeContractRequestCorrection(t *testing.T) {
 			if name == "missing_modified_law_home_domain" {
 				// Keep the source-backed law and its owning-start baseline, but
 				// place its canonical home outside this request's affected set.
-				if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid)
-SELECT home_project_id,home_locator_id,product_id,'law-home','Law home','Modified law ownership',root_domain_id,'current',content_hash,scanned_commit_oid FROM domain_registries WHERE product_id='product-1';
-UPDATE law_domain_homes SET domain_id='law-home' WHERE product_id='product-1' AND law_id='CD-0001';
-DELETE FROM write_guard`); err != nil {
-					t.Fatal(err)
-				}
-				fields["spec_mandate"] = []string{"CD-0001"}
-				fields["law_modifies"] = []string{"CD-0001"}
+				fields["spec_mandate"] = []string{"CD-0002"}
+				fields["law_modifies"] = []string{"CD-0002"}
 				field = "affected_domain_ids"
 				diagnostic = "modified law home Domain is outside architecture_binding.affected_domain_ids"
 				correct = func() { binding["affected_domain_ids"] = []string{root, "law-home"} }

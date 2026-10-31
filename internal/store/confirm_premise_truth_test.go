@@ -78,7 +78,6 @@ func TestConfirmationRefusalNamesObservationRefFormat(t *testing.T) {
 	seedWork(t, s, workID)
 	seedWork(t, s, otherWorkID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	seedContractlessVerifyWorkflow(t, s, workID)
 	seedActiveBreakFixContract(t, s, workID)
 	// The committed registry decides the Domain ref: the proof is established

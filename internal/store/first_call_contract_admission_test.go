@@ -218,36 +218,14 @@ func firstCallImplementationDefinition(t *testing.T) RegisteredDefinition {
 }
 
 // seedFirstCallWorkflow seeds the Product-changing fixture owners: the law
-// home (seedWorkflowLaw), the root Domain registry
-// (seedIssue31DomainRegistry), and the law-domain home row the obligation
-// guard's current-law lookup joins against, seeded under an open fold like
-// seedLawContextFixture seeds it. It then initializes a real instance of the
-// named workflow, pinned to the current registered definition.
+// home (seedWorkflowLaw) commits the law folder and Domain registry the
+// obligation guard's current-law lookup reads. It then initializes a real
+// instance of the named workflow, pinned to the current registered definition.
 func seedFirstCallWorkflow(t *testing.T, s *Store, workID, workflowRef, actorName string) WorkflowActor {
 	t.Helper()
 	ctx := context.Background()
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := enterWrite(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) SELECT 'project','workflow-law-locator','spec:one','product','root',content_hash,'test' FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := leaveWrite(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
 	actor := WorkflowActor{PrincipalRef: "principal:" + actorName, ClientRef: "client:" + actorName, AgentRef: "agent:" + actorName, SessionRef: "session:" + actorName, ActorClass: ActorAgent}
 	definition, err := BuiltinWorkflowDefinitionForRef(workflowRef)
 	if err != nil {

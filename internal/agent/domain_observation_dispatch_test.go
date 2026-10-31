@@ -15,7 +15,7 @@ import (
 // Domain detail reads the bounded open window from existing journal events.
 // Dismissed rows remain durable but do not enter the open observation payload.
 // The seed is committed registry content only: the retired SQL Domain
-// projection stays empty, and the fold resolves the Domain from the
+// projection does not exist, and the fold resolves the Domain from the
 // pre-transaction registry proof (law-folder-authority.md, Committed reads).
 func TestDomainDetailReadsExistingOpenObservations(t *testing.T) {
 	t.Parallel()
@@ -24,7 +24,7 @@ func TestDomainDetailReadsExistingOpenObservations(t *testing.T) {
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	assertNoDomainProjectionRows(t, s)
+	assertRetiredDomainProjectionAbsent(t, s)
 	domain := pm1fixture.FixtureRootDomainID
 	verified, err := s.EstablishDomainRegistryProof(ctx, "product-1")
 	if err != nil {
@@ -86,7 +86,7 @@ func TestObservationRecordDispatchSucceedsWithCommittedRegistry(t *testing.T) {
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	assertNoDomainProjectionRows(t, s)
+	assertRetiredDomainProjectionAbsent(t, s)
 	env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: json.RawMessage(`{"work_id":"work-1","statement":"dispatched observation through the committed registry","refs":[],"tags":[],"idempotency_key":"observation-proof-wire"}`)}
 	response := dispatchMutation(t, s, service, request, env)
@@ -96,7 +96,7 @@ func TestObservationRecordDispatchSucceedsWithCommittedRegistry(t *testing.T) {
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_observations`); got != 1 {
 		t.Fatalf("dispatched observation rows=%d, want the one recorded observation", got)
 	}
-	assertNoDomainProjectionRows(t, s)
+	assertRetiredDomainProjectionAbsent(t, s)
 }
 
 // A committed-registry observation succeeds with no SQL Domain projection
@@ -117,7 +117,7 @@ func TestDomainObservationResolvesFromCommittedRegistryProof(t *testing.T) {
 	if _, err := pm1fixture.SeedProductDomainRegistry(ctx, s, "product-1", "project-1", t.TempDir(), deprecated); err != nil {
 		t.Fatal(err)
 	}
-	assertNoDomainProjectionRows(t, s)
+	assertRetiredDomainProjectionAbsent(t, s)
 	verified, err := s.EstablishDomainRegistryProof(ctx, "product-1")
 	if err != nil {
 		t.Fatal(err)
@@ -166,18 +166,24 @@ func TestDomainObservationResolvesFromCommittedRegistryProof(t *testing.T) {
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_observations`); got != 1 {
 		t.Fatalf("refused observations wrote rows: %d", got)
 	}
-	assertNoDomainProjectionRows(t, s)
+	assertRetiredDomainProjectionAbsent(t, s)
 }
 
-// assertNoDomainProjectionRows pins the retired SQL Domain projection at zero
-// rows for the fixture store: the registry the observation fold validates
-// against is committed content read through the pre-transaction proof, never
-// a populated projection (law-folder-authority.md, Committed reads).
-func assertNoDomainProjectionRows(t *testing.T, s *store.Store) {
+// assertRetiredDomainProjectionAbsent pins the schema 174 retirement of the
+// SQL Domain projection and the legacy law index: the tables do not exist, so
+// they cannot hold rows. The registry the observation fold validates against
+// is committed content read through the pre-transaction proof, never a
+// populated projection (law-folder-authority.md, Committed reads; no second
+// law index or SQLite law cache exists).
+func assertRetiredDomainProjectionAbsent(t *testing.T, s *store.Store) {
 	t.Helper()
-	for _, table := range []string{"domain_registries", "domains", "law_domain_homes", "domain_architecture_relations"} {
-		if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM `+table); got != 0 {
-			t.Fatalf("retired Domain projection table %s holds %d rows, want 0", table, got)
+	for _, table := range []string{"domain_registries", "domains", "domain_architecture_relations", "law_domain_homes", "law_subjects"} {
+		var present bool
+		if err := s.DatabaseForTesting().QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?)`, table).Scan(&present); err != nil {
+			t.Fatal(err)
+		}
+		if present {
+			t.Fatalf("retired Domain projection table %s still exists, want it dropped by the law index retirement", table)
 		}
 	}
 }

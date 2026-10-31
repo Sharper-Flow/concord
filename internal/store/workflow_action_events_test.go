@@ -81,7 +81,6 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	s := openTemp(t)
 	seedWork(t, s, "workflow-issue31-actions")
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:issue31", ClientRef: "client:issue31", AgentRef: "agent:issue31", SessionRef: "session:issue31", ActorClass: ActorAgent}
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
@@ -159,7 +158,6 @@ func TestApproveContractPersistsEvidenceAndRigor(t *testing.T) {
 			workID := "workflow-contract-fields-" + testCase.name
 			seedWork(t, s, workID)
 			seedWorkflowLaw(t, s)
-			seedIssue31DomainRegistry(t, s)
 			actor := WorkflowActor{PrincipalRef: "principal:contract-fields", ClientRef: "client:contract-fields", AgentRef: "agent:contract-fields", SessionRef: "session:contract-fields", ActorClass: ActorAgent}
 			registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 			if err != nil {
@@ -194,35 +192,6 @@ func TestApproveContractPersistsEvidenceAndRigor(t *testing.T) {
 				t.Fatalf("stored contract fields=(%s,%s), want (%s,%s)", requiredEvidence, rigorClass, testCase.requiredEvidence, testCase.rigorClass)
 			}
 		})
-	}
-}
-
-func seedIssue31DomainRegistry(t *testing.T, s *Store) {
-	t.Helper()
-	ctx := context.Background()
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	hash := "sha256:" + strings.Repeat("b", 64)
-	if err := enterWrite(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project','workflow-law-locator','product','root','1.0',?,'test')`, hash); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','root','Root','Product law','current',?,'test')`, hash); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := leaveWrite(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -264,7 +233,7 @@ func TestWorkflowContractApprovalPinsLawBoundaryForLegacySurface(t *testing.T) {
 		t.Fatalf("law boundary version=%d, want 1 for a new contract submitted through the legacy surface", boundaryVersion)
 	}
 	var pinnedHash string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=1 AND law_id='spec:one'`, workID).Scan(&pinnedHash); err != nil || pinnedHash != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=1 AND law_id='spec:one'`, workID).Scan(&pinnedHash); err != nil || pinnedHash != fixtureLawFolderLawHash("spec:one") {
 		t.Fatalf("legacy-surface approval law pin=%q err=%v", pinnedHash, err)
 	}
 	if version == 0 {

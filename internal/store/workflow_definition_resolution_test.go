@@ -335,7 +335,6 @@ func seedResolutionInvestigation(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	other := workID + "-compared"
 	seedWork(t, s, other)
-	seedIssue31DomainRegistry(t, s)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 		EventID: "resolution-investigation-" + workID, Kind: WorkObservationRecorded, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: "actor:test", OccurredAt: time.Unix(8, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkObservationRecorded),

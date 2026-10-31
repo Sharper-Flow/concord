@@ -42,7 +42,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 	seedResearchWork(t, s, "neighbor-research")
 	actor, version := continuityTestWorkflow(t, s, "neighbor-work")
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	insertInvestigationGateObservation(t, s, "neighbor-work", "obs:"+strings.Repeat("3", 16), []string{"root", "blocker"})
 	pack := createSimplePack(t, s, "neighbor-pack", "neighbor-research")
 	if _, err := ClaimStepAuthorized(ctx, s, testClaim("neighbor-fence", "neighbor-fence-key"), nil); err != nil {

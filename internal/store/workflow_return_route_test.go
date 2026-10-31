@@ -48,7 +48,6 @@ func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, regis
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	if beforeInitialize != nil {
 		beforeInitialize(s)
 	}

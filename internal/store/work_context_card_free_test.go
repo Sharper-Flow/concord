@@ -28,6 +28,15 @@ func workContextCompanionRepo(t *testing.T) (string, string) {
 	writeKnowledgeFile(t, repo, ".concord/navigation/inventory.json", string(mustJSONValue(inventory)))
 	writeKnowledgeFile(t, repo, ".concord/domain-navigation.v1.json", `{"schema_version":"1.1","rules":[],"unresolved":[],"mechanisms":[],"catalog_bindings":[],"test_coverage":[],"dependency_interpretations":[]}`)
 	writeKnowledgeFile(t, repo, "README.md", "context subject\n")
+	// The companion is the Product's law home once a test repoints the
+	// locator, so it carries the committed registry the pre-transaction
+	// verification reads: the Product root plus the current child Domains the
+	// declared-context cases name.
+	registry := `{"schema_version":"1.0","product_key":"product","root_domain_id":"product-root:product","domains":[` +
+		`{"domain_id":"product-root:product","name":"Product","purpose":"Governs the synthetic fixture Product.","status":"current","architecture_relations":[]},` +
+		`{"domain_id":"child-alpha","name":"Affected child","purpose":"The approved affected child.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]},` +
+		`{"domain_id":"child-unaffected","name":"Unaffected","purpose":"Current outside the approved affected scope.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]}]}`
+	writeKnowledgeFile(t, repo, knowledgeRegistryPath, registry+"\n")
 	return repo, commitKnowledgeRepo(t, repo, "companion fixture")
 }
 

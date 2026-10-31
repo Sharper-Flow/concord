@@ -17,7 +17,6 @@ func TestRecordedInvestigationArtifactRequiresResolvableDomainAndWorkRefs(t *tes
 	seedWork(t, s, workID)
 	seedWork(t, s, otherWorkID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 
 	// The committed registry decides whether a ref names a current Domain:
 	// the proof is established per operation before the gate runs.
@@ -95,7 +94,6 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 	workID := "investigation-gate-same-action"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:investigation", ClientRef: "client:investigation", AgentRef: "agent:investigation", SessionRef: "session:investigation", ActorClass: ActorAgent}
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
@@ -230,7 +228,6 @@ func TestInvestigationArtifactAdmitsSingleItemProductByDomainRef(t *testing.T) {
 	workID := "investigation-gate-single"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 
 	// The Product holds no second work item, so a current Domain ref alone
 	// satisfies the artifact.
@@ -252,7 +249,6 @@ func TestInvestigationArtifactSingleItemProductStillRequiresDomainRef(t *testing
 	workID := "investigation-gate-single-badref"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)

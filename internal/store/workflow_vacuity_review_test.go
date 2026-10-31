@@ -103,7 +103,6 @@ func TestApprovalDecisionIgnoresGroundTruthLabels(t *testing.T) {
 		}
 	}
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 
 	live, err := LiveWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {

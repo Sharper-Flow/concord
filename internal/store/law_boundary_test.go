@@ -21,7 +21,7 @@ func lawBoundaryFolderLaw(id, tier, conflictsWith string) string {
 		relations = `,"law_relations":[{"kind":"conflicts_with","target_id":"` + conflictsWith + `"}]`
 	}
 	return "---\n" +
-		`{"id":"` + id + `","title":"Boundary ` + id + `","authority":{` + authority + `},"home_domain_id":"fixture-root","applies_to_domain_ids":[],"product_wide_rationale":"This fixture law governs the whole boundary fixture."` + relations + `}` + "\n" +
+		`{"id":"` + id + `","title":"Boundary ` + id + `","authority":{` + authority + `},"home_domain_id":"product-root:fixture","applies_to_domain_ids":[],"product_wide_rationale":"This fixture law governs the whole fixture Product."` + relations + `}` + "\n" +
 		"---\n\nSynthetic boundary law body.\n"
 }
 
@@ -31,7 +31,7 @@ func lawBoundaryFolderLaw(id, tier, conflictsWith string) string {
 func lawConflictFolderFixture(t *testing.T, tierA, tierB, declarer string) (*Store, KnowledgeHome) {
 	t.Helper()
 	repo := initKnowledgeRepo(t)
-	registry := `{"schema_version":"1.0","product_key":"boundary","root_domain_id":"fixture-root","domains":[{"domain_id":"fixture-root","name":"Boundary","purpose":"Governs the boundary fixture.","status":"current","architecture_relations":[]}]}` + "\n"
+	registry := `{"schema_version":"1.0","product_key":"fixture","root_domain_id":"product-root:fixture","domains":[{"domain_id":"product-root:fixture","name":"Boundary","purpose":"Governs the boundary fixture.","status":"current","architecture_relations":[]}]}` + "\n"
 	writeKnowledgeFile(t, repo, ".concord/docs/knowledge/domain-registry.json", registry)
 	conflictTarget := func(lawID string) string {
 		if lawID == declarer {

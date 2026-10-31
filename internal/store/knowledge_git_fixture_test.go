@@ -64,10 +64,12 @@ func runKnowledgeGit(t *testing.T, repo string, args ...string) string {
 const fixtureLawFolderRegistry = `{"schema_version":"1.0","product_key":"product","root_domain_id":"product-root:product","domains":[{"domain_id":"product-root:product","name":"Product","purpose":"Governs the synthetic fixture Product.","status":"current","architecture_relations":[]},{"domain_id":"product-root:fixture","name":"Law fixture home","purpose":"The committed spec fixture's home Domain.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]},{"domain_id":"root","name":"Root","purpose":"Fixture root child Domain.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]},{"domain_id":"child","name":"Child","purpose":"Fixture child Domain.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]},{"domain_id":"child-alpha","name":"Affected child","purpose":"The approved affected child.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]}]}` + "\n"
 
 // fixtureLawFolderLaw is one minimal committed law homed at the fixture
-// registry's Product root.
+// registry's root child Domain — the Domain every workflow binding fixture
+// affects, matching the law_domain_homes row the retired projection seeded. A
+// child-homed law states no product-wide rationale; only root-homed law does.
 func fixtureLawFolderLaw(id string) string {
 	return "---\n" +
-		`{"id":"` + id + `","title":"Fixture folder law ` + id + `","authority":{"tier":"derived"},"home_domain_id":"product-root:product","applies_to_domain_ids":[],"product_wide_rationale":"This fixture law governs the whole fixture Product."}` + "\n" +
+		`{"id":"` + id + `","title":"Fixture folder law ` + id + `","authority":{"tier":"derived"},"home_domain_id":"root","applies_to_domain_ids":[]}` + "\n" +
 		"---\n\nSynthetic fixture law body.\n"
 }
 

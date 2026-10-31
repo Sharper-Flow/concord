@@ -12,7 +12,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -24,7 +23,6 @@ import (
 // at all, so only a home-qualified locator can name a readable file.
 func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string {
 	t.Helper()
-	ctx := context.Background()
 	seedWork(t, s, workID)
 	homeDir := initKnowledgeRepo(t)
 	dispatchDir := t.TempDir()
@@ -44,55 +42,21 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 	if err := os.WriteFile(filepath.Join(specDir, "spec-one-fixture.md"), []byte("---\n"+spec+"\n---\n\nSynthetic home law body.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	hash := "sha256:" + strings.Repeat("b", 64)
-	// The registry/domain rows carry mutually deferred foreign keys, so the
-	// seeding commits inside one transaction, mirroring seedLawContextFixture.
-	// One statement group per Exec: the driver binds placeholders per
-	// statement, so distinct path arguments must not share an Exec string.
-	seedTx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
+	seed := func(query string, args ...any) {
+		t.Helper()
+		if _, err := s.DatabaseForTesting().Exec(query, args...); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := enterWrite(ctx, seedTx); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('project-dispatch-locator','project','canonical_path',?,?,'now','now')`, dispatchDir, dispatchDir); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project-home','Home',1,'now','now');
-		INSERT INTO product_projects(product_id,project_id,role) VALUES('product','project-home','secondary')`); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('project-home-locator','project-home','canonical_path',?,?,'now','now')`, homeDir, homeDir); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project-home','project-home-locator')`); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project-home','project-home-locator','product','root','1.0',?,'test')`, hash); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project-home','project-home-locator','product','root','Root','Product law','current',?,'test')`, hash); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project-home','project-home-locator','product','child','Child','Child law','root','current',?,'test')`, hash); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if err := leaveWrite(ctx, seedTx); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if err := seedTx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	// The driver binds placeholders per statement, so distinct path arguments
+	// must not share an Exec string.
+	seed(`INSERT INTO write_guard(active) VALUES(1)`)
+	seed(`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('project-dispatch-locator','project','canonical_path',?,?,'now','now')`, dispatchDir, dispatchDir)
+	seed(`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project-home','Home',1,'now','now')`)
+	seed(`INSERT INTO product_projects(product_id,project_id,role) VALUES('product','project-home','secondary')`)
+	seed(`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('project-home-locator','project-home','canonical_path',?,?,'now','now')`, homeDir, homeDir)
+	seed(`INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project-home','project-home-locator')`)
+	seed(`DELETE FROM write_guard`)
 	commitKnowledgeRepo(t, homeDir, "synthetic cross-repository law source")
 	// The approval helper derives its actor ref from the law-context actor
 	// identity, so initialization records exactly that actor.
@@ -101,7 +65,7 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 	if !ok {
 		t.Fatal("latest implementation definition missing")
 	}
-	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,25 +127,28 @@ func TestContinuityQualifiesLawContextWithTheRegisteredKnowledgeHome(t *testing.
 	}
 }
 
-// A knowledge home whose checkout carries no registry under any supported
-// layout refuses the law context typed: the packet must never advertise a
-// locator no lane can open, and must never silently drop the binding.
+// A knowledge home whose committed revision carries no registry under any
+// supported layout refuses the law context typed: the packet must never
+// advertise a locator no lane can open, and must never silently drop the
+// binding. The contract is approved while the registry is committed; the
+// registry's committed retirement is the next revision the read verifies.
 func TestContinuityRefusesUnresolvableRegistrySource(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	workID := "law-context-missing-registry"
 	seedLawContextFixture(t, s, workID)
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
 	homeRepo := workflowLawFixtureRepo(t, s)
 	if err := os.Remove(filepath.Join(homeRepo, ".concord/docs/knowledge/domain-registry.json")); err != nil {
 		t.Fatal(err)
 	}
-	binding := WorkflowArchitectureBinding{HomeDomainID: "fixture-root", AffectedDomainIDs: []string{"fixture-root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
+	commitKnowledgeRepo(t, homeRepo, "retire the registry revision")
 	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent || failure.Op != "read_workflow_law_context" {
-		t.Fatalf("missing registry diagnosis = %v, want typed domain_registry_absent from the law context", err)
+	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent {
+		t.Fatalf("missing registry diagnosis = %v, want typed domain_registry_absent from the committed read", err)
 	}
 }
 
@@ -250,7 +217,9 @@ func TestLawContextRefusesRemovedBoundLawDocument(t *testing.T) {
 
 // The whole knowledge home checkout disappearing before a law-only read must
 // refuse typed too: an absent home cannot ground any locator the packet
-// advertises, and the lane has no Concord route to repair it.
+// advertises, and the lane has no Concord route to repair it. The committed
+// read resolves the home's git head first, so the refusal is the
+// verification's git_unreachable, before any locator is qualified.
 func TestLawContextRefusesRemovedKnowledgeHomeBeforeLawOnlyRead(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -264,19 +233,23 @@ func TestLawContextRefusesRemovedKnowledgeHomeBeforeLawOnlyRead(t *testing.T) {
 		t.Fatalf("removed knowledge home still resolved a context: %+v", lawContext)
 	}
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "read_workflow_law_context" || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:one" {
-		t.Fatalf("removed knowledge home diagnosis = %v, want typed projection_not_found naming spec:one", err)
+	if !failureAs(err, &failure) || failure.Kind != KindGitUnreachable || failure.Op != "knowledge_home" {
+		t.Fatalf("removed knowledge home diagnosis = %v, want typed git_unreachable from the pre-transaction verification", err)
 	}
 }
 
 // A registry locator occupied by a directory is not a registry the lane can
-// read: the context refuses typed instead of advertising the directory.
+// read: the context refuses typed instead of advertising the directory. The
+// contract is approved while the registry file is committed; the committed
+// revision that replaces it with a directory is what the read verifies.
 func TestContinuityRefusesRegistryReplacedByDirectory(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	workID := "law-context-registry-directory"
 	seedLawContextFixture(t, s, workID)
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
 	homeRepo := workflowLawFixtureRepo(t, s)
 	registryPath := filepath.Join(homeRepo, ".concord", "docs", "knowledge", "domain-registry.json")
 	if err := os.Remove(registryPath); err != nil {
@@ -285,12 +258,11 @@ func TestContinuityRefusesRegistryReplacedByDirectory(t *testing.T) {
 	if err := os.MkdirAll(registryPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	binding := WorkflowArchitectureBinding{HomeDomainID: "fixture-root", AffectedDomainIDs: []string{"fixture-root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
+	commitKnowledgeRepo(t, homeRepo, "replace the registry with a directory")
 	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent || failure.Op != "read_workflow_law_context" {
-		t.Fatalf("directory registry diagnosis = %v, want typed domain_registry_absent from the law context", err)
+	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent {
+		t.Fatalf("directory registry diagnosis = %v, want typed domain_registry_absent from the committed read", err)
 	}
 }
 
@@ -339,17 +311,20 @@ func TestLawContextLocatorsRequireReadableSources(t *testing.T) {
 
 // The law context reads the one committed registry at its existing path: a
 // leftover registry under a pre-migration layout tier never stands in for
-// the registry file the Product home does not carry.
+// the registry file the committed revision does not carry.
 func TestContinuityRegistryDoesNotFallBackAcrossTheSelectedLayout(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	workID := "law-context-selected-layout"
 	seedLawContextFixture(t, s, workID)
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
 	homeRepo := workflowLawFixtureRepo(t, s)
 	if err := os.Remove(filepath.Join(homeRepo, filepath.FromSlash(knowledgeRegistryPath))); err != nil {
 		t.Fatal(err)
 	}
+	commitKnowledgeRepo(t, homeRepo, "retire the canonical registry revision")
 	legacyDir := filepath.Join(homeRepo, "docs", "knowledge")
 	if err := os.MkdirAll(legacyDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -358,11 +333,9 @@ func TestContinuityRegistryDoesNotFallBackAcrossTheSelectedLayout(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(legacyDir, "domain-registry.json"), []byte(registry+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	binding := WorkflowArchitectureBinding{HomeDomainID: "fixture-root", AffectedDomainIDs: []string{"fixture-root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
 	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent || failure.Op != "read_workflow_law_context" {
+	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent {
 		t.Fatalf("selected-layout registry diagnosis = %v (context %+v), want typed domain_registry_absent", err, snapshot.LawContext)
 	}
 }

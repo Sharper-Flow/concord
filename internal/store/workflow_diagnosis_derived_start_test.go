@@ -221,7 +221,6 @@ func TestRecordDiagnosisRecordsAllSectionsAtomically(t *testing.T) {
 	seedWork(t, s, workID)
 	seedWork(t, s, relatedID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	actor := diagnosisS1Actor(workID, "owner")
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
@@ -296,7 +295,6 @@ func TestRecordDiagnosisRefusalsLeaveZeroWrites(t *testing.T) {
 	const workID = "diagnosis-refusal-zero-writes"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	actor := diagnosisS1Actor(workID, "owner")
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {

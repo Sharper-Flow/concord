@@ -16,7 +16,6 @@ func TestConfirmPremiseRefusalNamesTheMissingArtifact(t *testing.T) {
 	workID := "confirmation-refusal-artifact"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	seedContractlessVerifyWorkflow(t, s, workID)
 	seedActiveBreakFixContract(t, s, workID)
 

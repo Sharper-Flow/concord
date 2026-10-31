@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -250,6 +252,7 @@ type upgradeInput struct {
 	Plan                    bool `json:"plan"`
 	ConfirmSessionsStopped  bool `json:"confirm_sessions_stopped"`
 	CancelCutoverPinnedWork bool `json:"cancel_cutover_pinned_work"`
+	RequireNoSessions       bool `json:"require_no_sessions"`
 }
 
 // preparedReleaseRecord carries the one field the CLI echoes from the
@@ -367,16 +370,25 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// never this run's to remove; removal is identity-checked so a no-op or
 	// failed run cannot delete another operation's exclusion.
 	boundary := upgradeFence{dataRoot: dataRoot}
-	if maintenanceRequired {
+	if maintenanceRequired || request.RequireNoSessions {
 		var code int
 		boundary, code = openUpgradeFence(dataRoot, errOut)
 		if code != 0 {
 			return code
 		}
 	}
-	held, code := boundary.observeSessions(maintenanceRequired, request.ConfirmSessionsStopped, errOut)
+	held, code := boundary.observeSessions(maintenanceRequired || request.RequireNoSessions, request.ConfirmSessionsStopped, errOut)
 	if code != 0 {
 		return code
+	}
+	if request.RequireNoSessions && len(held) != 0 {
+		var holders []string
+		for _, lease := range held {
+			holders = append(holders, fmt.Sprintf("pid %d holds %s at schema version %d", lease.PID, lease.ReleaseRoot, lease.SchemaVersion))
+		}
+		boundary.close(errOut)
+		writeOperatorDiagnostic(errOut, "upgrade", "prepared cutover requires no live sessions: "+strings.Join(holders, "; "))
+		return 1
 	}
 	// Every boundary-owned mutation requires a verified snapshot. A failed
 	// session check or snapshot applies no migration or cancellation.
@@ -688,6 +700,16 @@ func decodeReleaseInput(args []string, in io.Reader, errOut io.Writer, command s
 		writeDiagnostic(errOut, fmt.Sprintf("concord %s: unsupported arguments: %s", command, args[0]))
 		writeCommandUsageSection(errOut, command)
 		return 2
+	}
+	if command == "upgrade" {
+		if file, ok := in.(*os.File); ok {
+			var terminal syscall.Termios
+			_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), syscall.TCGETS, uintptr(unsafe.Pointer(&terminal)))
+			if errno == 0 {
+				writeOperatorDiagnostic(errOut, command, `upgrade requires JSON on stdin; pipe '{}' for defaults or '{"plan":true}' for a read-only plan`)
+				return 1
+			}
+		}
 	}
 	raw, err := io.ReadAll(io.LimitReader(in, agent.MaxEnvelopeBytes+1))
 	if err != nil || int64(len(raw)) > agent.MaxEnvelopeBytes {

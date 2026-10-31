@@ -257,6 +257,27 @@ class InstallerTests(unittest.TestCase):
         # silent default: the core names the tree it actually sits in and the
         # digest the staged adapter actually pins (CON-807).
         synthetic_digest = self.synthetic_pair_digest(version)
+        cutover_upgrade = '''import json, os, pathlib, sys
+request = json.load(sys.stdin)
+log = pathlib.Path(os.environ["CONCORD_TEST_CUTOVER_LOG"])
+with log.open("a", encoding="utf-8") as output:
+    output.write(json.dumps(request) + "\\n")
+plan = pathlib.Path(os.environ["CONCORD_TEST_UPGRADE_PLAN"])
+marker = pathlib.Path(os.environ["CONCORD_TEST_CUTOVER_MARKER"])
+mode = os.environ.get("CONCORD_TEST_CUTOVER_MODE", "success")
+if request.get("plan") is True:
+    if marker.exists() and mode == "unknown":
+        print("synthetic post-migration readiness failure", file=sys.stderr)
+        sys.exit(1)
+    print(plan.read_text(encoding="utf-8"))
+else:
+    if mode == "fail":
+        print("synthetic migration failure", file=sys.stderr)
+        sys.exit(1)
+    marker.write_text("migrated", encoding="utf-8")
+    if mode == "success":
+        plan.write_text(pathlib.Path(os.environ["CONCORD_TEST_CUTOVER_READY"]).read_text(encoding="utf-8"), encoding="utf-8")
+'''
         binary.write_text(
             "#!/bin/sh\n"
             f"# marker:{marker or version}\n"
@@ -278,6 +299,7 @@ class InstallerTests(unittest.TestCase):
             '    if [ -n "$CONCORD_TEST_HOST_LEASES_FAIL" ]; then echo "leases unavailable" >&2; exit 1; fi\n'
             '    if [ -n "$CONCORD_TEST_HOST_LEASES" ] && [ -f "$CONCORD_TEST_HOST_LEASES" ]; then cat "$CONCORD_TEST_HOST_LEASES"; else printf \'{"leases":[]}\\n\'; fi ;;\n'
             "  upgrade)\n"
+            f'    if [ -n "$CONCORD_TEST_CUTOVER_LOG" ]; then exec python3 -c {shlex.quote(cutover_upgrade)}; fi\n'
             '    if [ -n "$CONCORD_TEST_UPGRADE_PLAN_FAIL" ]; then echo "concord upgrade: readiness_unknown: the store cannot be read" >&2; exit 1; fi\n'
             '    if [ -n "$CONCORD_TEST_UPGRADE_PLAN" ] && [ -f "$CONCORD_TEST_UPGRADE_PLAN" ]; then cat "$CONCORD_TEST_UPGRADE_PLAN"; else printf \'{"store_present":false,"fresh_store":true,"applied_versions":[],"schema_version":0,"pending":[],"pending_breaking":[],"activation_blocked":false,"compatibility_floor":0,"migration_command":"concord upgrade","activation_command":"","maintenance_fence":null}\\n\'; fi ;;\n'
             "  *) exit 2 ;;\n"
@@ -774,6 +796,173 @@ esac''',
         self.install_release("v1.0.0")
         result = self.install_release("v1.1.0", env=self.plan_env(blocked=True))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def cutover_env(self, mode: str = "success", *, already_migrated: bool = False) -> dict[str, str]:
+        environment = self.plan_env(blocked=False)
+        ready = self.root / "cutover-ready.json"
+        ready.write_bytes(Path(environment["CONCORD_TEST_UPGRADE_PLAN"]).read_bytes())
+        plan = self.readiness_plan(blocked=not already_migrated)
+        environment.update({
+            "CONCORD_TEST_UPGRADE_PLAN": str(plan),
+            "CONCORD_TEST_CUTOVER_READY": str(ready),
+            "CONCORD_TEST_CUTOVER_LOG": str(self.root / "cutover-requests.jsonl"),
+            "CONCORD_TEST_CUTOVER_MARKER": str(self.root / "cutover-migrated"),
+            "CONCORD_TEST_CUTOVER_MODE": mode,
+        })
+        return environment
+
+    def cutover_requests(self, environment: dict[str, str]) -> list[dict[str, object]]:
+        log = Path(environment["CONCORD_TEST_CUTOVER_LOG"])
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    def cutover_mutations(self, environment: dict[str, str]) -> list[dict[str, object]]:
+        return [request for request in self.cutover_requests(environment) if request.get("plan") is not True]
+
+    def managed_snapshot(self) -> dict[str, dict[str, bytes]]:
+        return {name: _repository_snapshot(self.root / name) for name in ("data", "config", "bin")}
+
+    def test_cutover_executes_printed_command_with_spaced_root(self) -> None:
+        spaced = self.root / "root with spaces"
+        spaced.mkdir()
+        for name in ("bin", "published", "config"):
+            (self.root / name).rename(spaced / name)
+        self.root = spaced
+        self.commands = spaced / "bin"
+        self.artifacts = spaced / "published"
+        self.env["PATH"] = str(self.commands) + os.pathsep + os.defpath
+        self.assertEqual(self.install_release("v1.0.0").returncode, 0)
+        prepared = self.install_release("v1.1.0", env=self.plan_env(blocked=True))
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        record = json.loads(self.prepared_path.read_text())
+        command = record["cutover_command"]
+        self.assertIn(command, prepared.stdout)
+        self.assertIn(str(self.root), shlex.split(command))
+        environment = self.cutover_env()
+        result = subprocess.run(command, shell=True, text=True, capture_output=True, env=environment)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertFalse(self.prepared_path.exists())
+        self.assertFalse(self.fence_path.exists())
+        self.assertEqual(len(self.cutover_mutations(environment)), 1)
+
+    def test_cutover_refuses_any_live_or_unknown_lease_without_changes(self) -> None:
+        self.prepare_a_blocked_release()
+        for kind in ("live", "unknown"):
+            with self.subTest(kind=kind):
+                environment = self.cutover_env()
+                if kind == "live":
+                    environment["CONCORD_TEST_HOST_LEASES"] = str(self.retention_report("/synthetic/unrelated-release"))
+                else:
+                    environment["CONCORD_TEST_HOST_LEASES_FAIL"] = "1"
+                before = self.managed_snapshot()
+                result = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("4242" if kind == "live" else "unknown", result.stderr)
+                self.assertEqual(self.managed_snapshot(), before)
+                self.assertEqual(self.cutover_mutations(environment), [])
+                self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_cutover_never_activates_on_failed_or_unverified_migration(self) -> None:
+        for mode in ("fail", "blocked", "unknown"):
+            with self.subTest(mode=mode):
+                self.tearDown()
+                self.setUp()
+                self.prepare_a_blocked_release()
+                environment = self.cutover_env(mode)
+                before = self.managed_snapshot()
+                result = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(len(self.cutover_mutations(environment)), 1)
+                self.assertEqual(self.managed_snapshot(), before)
+                self.assert_active_release("v1.0.0", "v1.0.0")
+                self.assertTrue(self.prepared_path.exists())
+                self.assertEqual(Path(environment["CONCORD_TEST_CUTOVER_MARKER"]).exists(), mode != "fail")
+
+    def test_cutover_forwards_only_explicit_operator_confirmations(self) -> None:
+        for flags in ((), ("--confirm-sessions-stopped",), ("--cancel-cutover-pinned-work",),
+                      ("--confirm-sessions-stopped", "--cancel-cutover-pinned-work")):
+            with self.subTest(flags=flags):
+                self.tearDown()
+                self.setUp()
+                self.prepare_a_blocked_release()
+                environment = self.cutover_env()
+                result = self.run_installer("cutover", "--version", "v1.1.0", *flags, env=environment)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                mutations = self.cutover_mutations(environment)
+                self.assertEqual(len(mutations), 1)
+                request = mutations[0]
+                self.assertIs(request.get("require_no_sessions"), True)
+                self.assertEqual(request.get("confirm_sessions_stopped", False), "--confirm-sessions-stopped" in flags)
+                self.assertEqual(request.get("cancel_cutover_pinned_work", False), "--cancel-cutover-pinned-work" in flags)
+
+    def test_cutover_resumes_migrated_store_and_reruns_idempotently(self) -> None:
+        self.prepare_a_blocked_release()
+        environment = self.cutover_env(already_migrated=True)
+        first = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        before = self.managed_snapshot()
+        second = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(self.managed_snapshot(), before)
+        self.assertEqual(self.cutover_mutations(environment), [])
+        self.assertFalse(self.prepared_path.exists())
+        self.assertFalse(self.fence_path.exists())
+
+    def test_cutover_refuses_wrong_version_modified_candidate_and_foreign_fence(self) -> None:
+        for kind in ("version", "modified", "fence"):
+            with self.subTest(kind=kind):
+                self.tearDown()
+                self.setUp()
+                self.prepare_a_blocked_release()
+                environment = self.cutover_env(already_migrated=True)
+                version = "v1.2.0" if kind == "version" else "v1.1.0"
+                if kind == "modified":
+                    (self.data_root / "v1.1.0" / "skills" / "concord-demo.md").write_text("tampered")
+                if kind == "fence":
+                    self.fence_path.write_text(json.dumps({"fence_id": "foreign", "operation": installer.CORE_UPGRADE_OPERATION,
+                                                           "release_root": str(self.data_root / "v9.0.0")}))
+                before = self.managed_snapshot()
+                result = self.run_installer("cutover", "--version", version, env=environment)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(self.managed_snapshot(), before)
+                self.assertEqual(self.cutover_mutations(environment), [])
+                self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_cutover_refuses_a_session_admitted_before_activation_fence(self) -> None:
+        self.prepare_a_blocked_release()
+        environment = self.cutover_env(already_migrated=True)
+        args = SimpleNamespace(root=self.root, version="v1.1.0",
+                               confirm_sessions_stopped=False, cancel_cutover_pinned_work=False)
+        holders = {"/synthetic/release": [{"pid": 4242}]}
+        prepared = self.prepared_path.read_bytes()
+        with mock.patch.dict(os.environ, environment, clear=True), \
+                mock.patch.object(installer, "observe_held_releases", side_effect=[{}, {}, holders]), \
+                self.assertRaisesRegex(installer.InstallerError, "pid 4242"):
+            installer.cutover(args)
+        self.assertFalse(self.fence_path.exists(), "a refused activation left its newly opened fence")
+        self.assertEqual(self.prepared_path.read_bytes(), prepared)
+        self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_cutover_crash_recovers_forward_at_each_activation_phase(self) -> None:
+        for phase in ("staged", "version_activated", "agents_swapped", "adapter_swapped",
+                      "launcher_swapped", "config_swapped", "manifest_committed"):
+            with self.subTest(phase=phase):
+                self.tearDown()
+                self.setUp()
+                self.prepare_a_blocked_release()
+                environment = self.cutover_env()
+                stopped_env = environment.copy()
+                stopped_env["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = phase
+                stopped = self.run_installer("cutover", "--version", "v1.1.0", env=stopped_env)
+                self.assertEqual(stopped.returncode, 97, stopped.stderr)
+                self.assertTrue(self.fence_path.exists())
+                recovered = self.run_installer("cutover", "--version", "v1.1.0", env=environment)
+                self.assertEqual(recovered.returncode, 0, recovered.stderr)
+                self.assert_active_release("v1.1.0", "v1.1.0")
+                self.assertFalse(self.prepared_path.exists())
+                self.assertFalse(self.fence_path.exists())
+                self.assertEqual(len(self.cutover_mutations(environment)), 1)
 
     def test_a_blocked_readiness_prepares_without_activating(self) -> None:
         """CON-807: a pending breaking step must leave the running sessions'

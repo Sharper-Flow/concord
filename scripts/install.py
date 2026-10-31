@@ -535,6 +535,13 @@ def installer_invocation() -> str:
     return str(Path(sys.argv[0]).resolve())
 
 
+def cutover_command_for(version: str, root: Path | None) -> str:
+    parts = [sys.executable or "python3", installer_invocation(), "cutover", "--version", version]
+    if root is not None:
+        parts.extend(["--root", str(root)])
+    return shlex.join(parts)
+
+
 def activation_command_for(version: str, root: Path | None) -> str:
     """The exact activation command, quoted for a POSIX shell.
 
@@ -712,7 +719,23 @@ def require_owned_fence(paths: Paths, fence: dict[str, object], owner_roots: set
         )
 
 
-def ensure_maintenance_fence(paths: Paths, notice: str, release_root: str | None = None) -> dict[str, object]:
+def read_maintenance_fence(paths: Paths) -> dict[str, object] | None:
+    path = maintenance_fence_path(paths)
+    if path.is_symlink():
+        raise InstallerError(f"refusing symlinked maintenance fence {path}")
+    if not path.exists():
+        return None
+    try:
+        fence = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise InstallerError(f"cannot read maintenance fence {path}: {error}") from error
+    if not isinstance(fence, dict) or not isinstance(fence.get("fence_id"), str) or not fence.get("fence_id"):
+        raise InstallerError(f"refusing malformed maintenance fence {path}")
+    return fence
+
+
+def ensure_maintenance_fence(paths: Paths, notice: str, release_root: str | None = None,
+                             *, fence_id: str | None = None) -> dict[str, object]:
     """Open the session-admission exclusion when it is not already open.
 
     The core's migration command opens the boundary before its final lease
@@ -730,19 +753,12 @@ def ensure_maintenance_fence(paths: Paths, notice: str, release_root: str | None
     """
     path = maintenance_fence_path(paths)
     with admission_lock(paths):
-        if path.is_symlink():
-            raise InstallerError(f"refusing symlinked maintenance fence {path}")
-        if path.exists():
-            try:
-                fence = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as error:
-                raise InstallerError(f"cannot read maintenance fence {path}: {error}") from error
-            if not isinstance(fence, dict) or not isinstance(fence.get("fence_id"), str) or not fence.get("fence_id"):
-                raise InstallerError(f"refusing malformed maintenance fence {path}")
+        fence = read_maintenance_fence(paths)
+        if fence is not None:
             return fence
         ensure_directory(paths.data_root, mode=0o700)
         fence = {
-            "fence_id": uuid.uuid4().hex,
+            "fence_id": fence_id or uuid.uuid4().hex,
             "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "notice": notice,
             "release_root": release_root or "",
@@ -901,6 +917,7 @@ def prepare_release(
         "blockers": blockers,
         "migration_command": migration_command,
         "activation_command": activation_command_for(version, root),
+        "cutover_command": cutover_command_for(version, root),
         "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     write_prepared_release(paths, record)
@@ -913,8 +930,11 @@ def print_prepared_release(record: dict[str, object]) -> None:
     print("The launcher, the current root, the tools, and the agents keep the active release.")
     for blocker in record["blockers"]:  # type: ignore[union-attr]
         print(f"Blocker: {blocker}")
-    print(f"Run the migration command when the maintenance window opens: {record['migration_command']}")
-    print(f"Then run the activation command: {record['activation_command']}")
+    if record.get("cutover_command"):
+        print(f"Run the prepared cutover from an ordinary shell when the maintenance window opens: {record['cutover_command']}")
+    else:
+        print(f"Run the migration command when the maintenance window opens: {record['migration_command']}")
+        print(f"Then run the activation command: {record['activation_command']}")
 
 
 def retained_release_records(manifest: dict[str, object] | None) -> dict[str, dict[str, str]]:
@@ -3666,7 +3686,89 @@ def install(args: argparse.Namespace) -> int:
     return 0
 
 
-def activate(args: argparse.Namespace) -> int:
+def require_no_live_sessions(paths: Paths, version: str) -> None:
+    held = observe_held_releases(paths, version)
+    if held is None:
+        raise InstallerError("prepared cutover refused: live session observation is unknown")
+    if held:
+        holders = "; ".join(f"{root}: {describe_release_holders(sessions)}" for root, sessions in sorted(held.items()))
+        raise InstallerError(f"prepared cutover requires no live sessions: {holders}")
+
+
+def require_migrated_store(paths: Paths, version: str) -> dict[str, object]:
+    report = read_upgrade_plan(paths, version)
+    schema = report.get("schema_version")
+    if (report["activation_blocked"] or report.get("pending") != []
+            or report.get("store_present") is not True
+            or not isinstance(schema, int) or isinstance(schema, bool) or schema <= 0):
+        raise InstallerError("prepared cutover verification failed: the candidate store is not fully migrated; "
+                             + "; ".join(plan_blockers(report)))
+    return report
+
+
+def cutover(args: argparse.Namespace) -> int:
+    """Compose locked prepare, native migration, and forward activation.
+
+    The core must acquire the same maintenance lock itself. No installer
+    recovery or mutation runs while the core owns that lock; its committed
+    breaking-migration fence survives until activation takes ownership.
+    """
+    paths = paths_for(args.root)
+    version = parse_version(args.version)
+    with maintenance_lock(paths):
+        prepared = load_prepared_release(paths)
+        if prepared is not None and prepared["version"] != version:
+            raise InstallerError(f"the prepared release is {prepared['version']}, not {version}")
+        record = prepared if prepared is not None else load_manifest(paths)
+        if record is None or record.get("version") != version:
+            raise InstallerError(f"no prepared or active release {version} is recorded; run install first")
+        records = record["version_files"]
+        assert isinstance(records, dict)
+        validate_owned_tree(paths.data_root / version, records)
+        require_no_live_sessions(paths, version)
+        fence = read_maintenance_fence(paths)
+        if fence is not None:
+            require_owned_fence(paths, fence, {str((paths.data_root / version).resolve())})
+        recover_transactions(paths)
+        recover_pending_project_links(paths)
+        plan = read_upgrade_plan(paths, version)
+        needs_upgrade = bool(plan.get("pending")) or plan["activation_blocked"]
+    if needs_upgrade:
+        environment = {key: value for key, value in os.environ.items() if key != "CONCORD_DB_PATH"}
+        environment["XDG_DATA_HOME"] = str(paths.data_home)
+        request = {"require_no_sessions": True,
+                   "confirm_sessions_stopped": args.confirm_sessions_stopped,
+                   "cancel_cutover_pinned_work": args.cancel_cutover_pinned_work}
+        print(f"Running the snapshot-backed upgrade for {version}.", flush=True)
+        try:
+            completed = subprocess.run(upgrade_plan_command(paths, version), input=json.dumps(request).encode(),
+                                       env=environment, check=False)
+        except OSError as error:
+            raise InstallerError(f"cannot run the prepared upgrade: {error}; re-run cutover to recover") from error
+        if completed.returncode != 0:
+            raise InstallerError("prepared upgrade failed; activation was not attempted; re-run cutover after resolving the reported refusal")
+    with maintenance_lock(paths):
+        validate_owned_tree(paths.data_root / version, records)
+        require_no_live_sessions(paths, version)
+        require_migrated_store(paths, version)
+        result = activate(args, require_quiet=True)
+        if result != 0:
+            return result
+        expected = paths.data_root / version
+        if (not paths.stable_root.is_symlink()
+                or paths.stable_root.resolve() != expected.resolve()):
+            raise InstallerError("prepared cutover verification failed: current does not name the candidate")
+        manifest = load_manifest(paths)
+        if manifest is None or manifest.get("version") != version:
+            raise InstallerError("prepared cutover verification failed: active manifest does not name the candidate")
+        report = require_migrated_store(paths, version)
+        if maintenance_fence_path(paths).exists() or maintenance_fence_path(paths).is_symlink():
+            raise InstallerError("prepared cutover verification failed: a maintenance boundary remains; it was not closed by this command")
+        print(f"Verified Concord {version}: current and schema {report['schema_version']}.")
+        return 0
+
+
+def activate(args: argparse.Namespace, *, require_quiet: bool = False) -> int:
     """Activate the prepared release after the operator's migration (CON-807).
 
     The prepared record names the candidate, the exact migration command,
@@ -3739,12 +3841,21 @@ def activate(args: argparse.Namespace) -> int:
     # afterward recovers an owner for the fence it must close — never a
     # foreign one (CON-807).
     version_root_resolved = str(version_root.resolve())
+    activation_fence_id = uuid.uuid4().hex
     fence = ensure_maintenance_fence(
         paths,
         f"session admission reopens when {version} activates; activation command: {prepared['activation_command']}",
         release_root=version_root_resolved,
+        fence_id=activation_fence_id,
     )
     require_owned_fence(paths, fence, {version_root_resolved})
+    if require_quiet:
+        try:
+            require_no_live_sessions(paths, version)
+        except InstallerError:
+            if fence["fence_id"] == activation_fence_id:
+                remove_maintenance_fence(paths, activation_fence_id)
+            raise
     prepared = record_boundary_ownership(paths, prepared, str(fence["fence_id"]), version)
     # Runtime usability cannot veto completing a committed migration.
     # Managed-path and configuration safety still apply.
@@ -4920,6 +5031,10 @@ def main() -> int:
         help="activate the prepared release after its migration completed (CON-807)",
     )
     activate_parser.add_argument("--version", help="confirm the prepared release tag; a different tag refuses")
+    cutover_parser = subparsers.add_parser("cutover", help="migrate, activate and verify the prepared release from an ordinary shell")
+    cutover_parser.add_argument("--version", required=True, help="confirm the prepared release tag")
+    cutover_parser.add_argument("--confirm-sessions-stopped", action="store_true", help="confirm no session runs on an unfenceable installed release tree")
+    cutover_parser.add_argument("--cancel-cutover-pinned-work", action="store_true", help="explicitly cancel every work item selected by the authoring-cutover gate")
     repair_parser = subparsers.add_parser("repair", help="complete an incomplete installation of the installed release")
     repair_parser.add_argument("--version", help="confirm the installed release tag; a different tag refuses")
     repair_parser.add_argument("--artifact-dir", help="use local published assets instead of downloading")
@@ -4935,7 +5050,7 @@ def main() -> int:
     link_parser.add_argument("--project", type=Path, required=True, help="project directory to update")
     unlink_parser = subparsers.add_parser("unlink", help="remove the conduct corpus entry from a project")
     unlink_parser.add_argument("--project", type=Path, required=True, help="project directory to update")
-    for command_parser in (install_parser, uninstall_parser, activate_parser, repair_parser, status_parser, link_parser, unlink_parser):
+    for command_parser in (install_parser, uninstall_parser, activate_parser, cutover_parser, repair_parser, status_parser, link_parser, unlink_parser):
         command_parser.add_argument("--root", type=Path, help="test root; maps home/data/config/bin under it")
     args = parser.parse_args()
     commands = {
@@ -4948,6 +5063,8 @@ def main() -> int:
         "status": status,
     }
     try:
+        if args.command == "cutover":
+            return cutover(args)
         # Every command recovers transactions first, so every command is a
         # maintenance command and runs alone. The release removes nothing:
         # the lock root is retained through failed installation, normal

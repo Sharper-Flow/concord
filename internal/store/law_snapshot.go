@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -79,6 +81,9 @@ func loadLawFolderSnapshot(ctx context.Context, repo, commitOID string) (*lawFol
 		return nil, err
 	}
 	runner := CommittedReadGitRunner{}
+	if err := verifyLawFolderCommitObject(ctx, runner, repo, commitOID); err != nil {
+		return nil, err
+	}
 	registry, err := loadLawFolderRegistry(ctx, runner, repo, commitOID)
 	if err != nil {
 		return nil, err
@@ -121,6 +126,24 @@ func loadLawFolderSnapshot(ctx context.Context, repo, commitOID string) (*lawFol
 		return nil, err
 	}
 	return &lawFolderSnapshot{commitOID: commitOID, registry: registry, laws: laws, order: order}, nil
+}
+
+// Tree reads accept tree and tag OIDs too; neither is a committed revision.
+func verifyLawFolderCommitObject(ctx context.Context, runner GitRunner, repo, commitOID string) error {
+	if strings.ToLower(commitOID) != commitOID {
+		return newFailure(KindInvalidNoteProof, lawSnapshotOp,
+			"law snapshot commit OID is not lowercase hexadecimal", false, "supply the resolved commit OID as Git prints it")
+	}
+	out, err := runner.Run(ctx, repo, "cat-file", "-t", commitOID)
+	if err != nil {
+		return wrapFailure(KindGitUnreachable, lawSnapshotOp,
+			"cannot inspect the explicit law snapshot commit", true, "confirm the git home and commit are reachable", err)
+	}
+	if strings.TrimSpace(string(out)) != "commit" {
+		return newFailure(KindInvalidNoteProof, lawSnapshotOp,
+			"law snapshot OID does not name a commit", false, "supply the resolved default-branch commit OID")
+	}
+	return nil
 }
 
 // CommitOID returns the frozen commit the snapshot was read at.
@@ -343,27 +366,33 @@ func loadLawFolderRecord(ctx context.Context, runner GitRunner, repo, commitOID 
 	// each nested retained object decodes strictly before the metadata is
 	// trusted.
 	for _, nested := range []struct {
-		key    string
-		target any
+		key     string
+		target  any
+		members []string
 	}{
-		{"authority", &record.Authority},
-		{"law_relations", &record.LawRelations},
-		{"criterion_bindings", &record.CriterionBindings},
+		{"authority", &record.Authority, []string{"tier", "legislated_by", "contract_version"}},
+		{"law_relations", &record.LawRelations, []string{"kind", "target_id"}},
+		{"criterion_bindings", &record.CriterionBindings, []string{"criterion", "scenario", "exemption", "work_id", "predicate_id"}},
 	} {
 		if raw, ok := fields[nested.key]; ok {
-			if err := lawFolderStrictDecode(nested.target, raw); err != nil {
+			if err := lawFolderStrictDecode(nested.target, raw, nested.members); err != nil {
 				return KnowledgeRecord{}, wrapFailure(KindInvalidNoteProof, lawSnapshotOp,
 					"law frontmatter field "+nested.key+" holds unknown or malformed fields: "+placement.path,
 					false, "author only the retained "+nested.key+" fields", err)
 			}
 		}
 	}
+	if len(record.LawRelations) > maxManifestRelations {
+		return KnowledgeRecord{}, newFailure(KindInvalidNoteProof, lawSnapshotOp,
+			"law_relations exceed the bounded relation count: "+placement.path,
+			false, fmt.Sprintf("declare at most %d typed law relations", maxManifestRelations))
+	}
 	record.Kind = placement.kind
 	record.Status = "accepted"
 	record.Path = placement.path
 	sum := sha256.Sum256(content)
 	record.SHA256 = "sha256:" + hex.EncodeToString(sum[:])
-	if !validManifestID(record.ID) || strings.Contains(record.ID, "/") {
+	if !validManifestID(record.ID) || strings.ContainsAny(record.ID, "/\r\n\u2028\u2029") {
 		return KnowledgeRecord{}, newFailure(KindInvalidNoteProof, lawSnapshotOp,
 			"law ID is empty, oversized, unclean, or uses the reserved qualified form: "+placement.path,
 			false, "author one bounded stable law ID without '/'")
@@ -375,6 +404,11 @@ func loadLawFolderRecord(ctx context.Context, runner GitRunner, repo, commitOID 
 	if err := validateKnowledgeRecordAuthority(record); err != nil {
 		return KnowledgeRecord{}, lawFileFailure(placement.path, err)
 	}
+	if record.Authority.ContractVersion > 2147483647 {
+		return KnowledgeRecord{}, newFailure(KindInvalidNoteProof, lawSnapshotOp,
+			"authority contract_version exceeds the bounded version: "+placement.path,
+			false, "declare a positive contract_version no larger than 2147483647")
+	}
 	if err := validateKnowledgeCriterionBindings(record); err != nil {
 		return KnowledgeRecord{}, lawFileFailure(placement.path, err)
 	}
@@ -384,12 +418,40 @@ func loadLawFolderRecord(ctx context.Context, runner GitRunner, repo, commitOID 
 	return record, nil
 }
 
-// lawFolderStrictDecode decodes one nested retained object, refusing unknown
-// and mistyped fields.
-func lawFolderStrictDecode(target any, raw json.RawMessage) error {
+// encoding/json matches keys case-insensitively, so DisallowUnknownFields
+// alone cannot prevent a case-variant spelling from overwriting a field.
+func lawFolderStrictDecode(target any, raw json.RawMessage, members []string) error {
+	if err := lawFolderExactMembers(raw, members); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(target)
+}
+
+func lawFolderExactMembers(raw json.RawMessage, members []string) error {
+	trimmed := bytes.TrimSpace(raw)
+	var objects []map[string]json.RawMessage
+	switch {
+	case bytes.HasPrefix(trimmed, []byte("[")):
+		if err := json.Unmarshal(trimmed, &objects); err != nil {
+			return err
+		}
+	case bytes.HasPrefix(trimmed, []byte("{")):
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(trimmed, &object); err != nil {
+			return err
+		}
+		objects = append(objects, object)
+	}
+	for _, object := range objects {
+		for key := range object {
+			if !slices.Contains(members, key) {
+				return fmt.Errorf("unknown field %q", key)
+			}
+		}
+	}
+	return nil
 }
 
 // splitLawFolderFrontMatter splits the leading --- delimited JSON block from a

@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -359,6 +360,9 @@ func TestLawFolderSnapshotRefusesInvalidLawFiles(t *testing.T) {
 	authorityUnknownField := strings.Replace(lawSnapshotDecisionContent("CD-9120", ""), `"contract_version":1}`, `"contract_version":1,"vehicle":"extra"}`, 1)
 	relationsUnknownField := lawSnapshotDecisionContent("CD-9120", `"law_relations":[{"kind":"refines","target_id":"CD-9125","note":"extra"}]`)
 	bindingsUnknownField := lawSnapshotTierLawContent("SPEC-9120", "Snapshot synthetic spec", `"criterion_bindings":[{"criterion":1,"scenario":"synthetic-scenario","weight":2}]`)
+	authorityCaseVariant := strings.Replace(lawSnapshotDecisionContent("CD-9120", ""), `"tier":"legislated"`, `"tier":"derived","Tier":"legislated"`, 1)
+	newlineID := strings.Replace(lawSnapshotDecisionContent("CD-9120", ""), `"id":"CD-9120"`, `"id":"CD-91\n20"`, 1)
+	overboundVersion := strings.Replace(lawSnapshotDecisionContent("CD-9120", ""), `"contract_version":1`, `"contract_version":2147483648`, 1)
 	nullHome := strings.Replace(lawSnapshotDecisionContent("CD-9120", ""), `"home_domain_id":"product:reviews"`, `"home_domain_id":null`, 1)
 	missingHome := strings.Replace(lawSnapshotDecisionContent("CD-9120", ""), `"home_domain_id":"product:reviews",`, ``, 1)
 	emptyHome := strings.Replace(lawSnapshotDecisionContent("CD-9120", ""), `"home_domain_id":"product:reviews"`, `"home_domain_id":""`, 1)
@@ -477,6 +481,21 @@ func TestLawFolderSnapshotRefusesInvalidLawFiles(t *testing.T) {
 			detail: "field criterion_bindings holds unknown",
 		},
 		{
+			name:   "case-variant member inside authority",
+			files:  map[string]string{lawPath: authorityCaseVariant},
+			detail: "field authority holds unknown",
+		},
+		{
+			name:   "line break inside law ID",
+			files:  map[string]string{lawPath: newlineID},
+			detail: "law ID is empty, oversized, unclean",
+		},
+		{
+			name:   "authority version beyond the schema bound",
+			files:  map[string]string{lawPath: overboundVersion},
+			detail: "contract_version exceeds",
+		},
+		{
 			name:   "null home domain",
 			files:  map[string]string{lawPath: nullHome},
 			detail: "home_domain_id cannot be null",
@@ -534,6 +553,60 @@ func TestLawFolderSnapshotRequiresFullCommitOID(t *testing.T) {
 	})
 	_, err := loadLawFolderSnapshot(t.Context(), repo, commit[:8])
 	requireFailureKind(t, err, KindInvalidNoteProof, "short commit OID")
+}
+
+func TestLawFolderSnapshotRequiresLowercaseCommitObject(t *testing.T) {
+	repo, commit := lawSnapshotFixture(t, map[string]string{
+		".concord/law/decisions/CD-9101-snapshot-decision.md": lawSnapshotDecisionContent("CD-9101", ""),
+		".concord/docs/knowledge/domain-registry.json":        lawSnapshotRegistryJSON,
+	})
+	tree := strings.TrimSpace(runKnowledgeGit(t, repo, "rev-parse", commit+"^{tree}"))
+	runKnowledgeGit(t, repo, "tag", "-a", "synthetic-law-revision", "-m", "synthetic tagged revision", commit)
+	tag := strings.TrimSpace(runKnowledgeGit(t, repo, "rev-parse", "refs/tags/synthetic-law-revision"))
+	for _, tc := range []struct{ name, oid, detail string }{
+		{"tree", tree, "does not name a commit"},
+		{"tag", tag, "does not name a commit"},
+		{"uppercase", strings.ToUpper(commit), "lowercase"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := loadLawFolderSnapshot(t.Context(), repo, tc.oid)
+			requireFailureKind(t, err, KindInvalidNoteProof, tc.name+" as the snapshot commit")
+			if !strings.Contains(err.Error(), tc.detail) {
+				t.Fatalf("OID refusal lost its cause: %v", err)
+			}
+		})
+	}
+}
+
+func TestLawFolderSnapshotBoundsRelationsWithValidTargets(t *testing.T) {
+	for _, count := range []int{maxManifestRelations, maxManifestRelations + 1} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			files := map[string]string{".concord/docs/knowledge/domain-registry.json": lawSnapshotRegistryJSON}
+			var relations []string
+			for i := range count {
+				id := fmt.Sprintf("CD-%04d", 9200+i)
+				files[".concord/law/decisions/"+id+".md"] = lawSnapshotDecisionContent(id, "")
+				relations = append(relations, `{"kind":"refines","target_id":"`+id+`"}`)
+			}
+			files[".concord/law/decisions/CD-9199.md"] = lawSnapshotDecisionContent("CD-9199", `"law_relations":[`+strings.Join(relations, ",")+`]`)
+			repo, commit := lawSnapshotFixture(t, files)
+			snapshot, err := loadLawFolderSnapshot(t.Context(), repo, commit)
+			if count > maxManifestRelations {
+				requireFailureKind(t, err, KindInvalidNoteProof, "overbound relations with valid targets")
+				if !strings.Contains(err.Error(), "law_relations exceed the bounded relation count") {
+					t.Fatalf("relation bound refusal lost its cause: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("refused exactly bounded relations: %v", err)
+			}
+			record, _ := snapshot.Law("CD-9199")
+			if len(record.LawRelations) != count {
+				t.Fatalf("bounded relations lost: got %d, want %d", len(record.LawRelations), count)
+			}
+		})
+	}
 }
 
 func TestLawFolderSnapshotRefusesSymlinkUnderLawRoot(t *testing.T) {

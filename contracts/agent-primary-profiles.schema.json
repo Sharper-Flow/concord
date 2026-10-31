@@ -8,7 +8,7 @@
   "properties": {
     "schema_version": {"const": "1.0"},
     "registry": {"const": "agent_primary_profiles"},
-    "profiles": {"type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/profile"}}
+    "profiles": {"type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true, "items": {"$ref": "#/$defs/profile"}}
   },
   "$defs": {
     "agent_id": {"type": "string", "minLength": 2, "maxLength": 64, "pattern": "^[a-zA-Z][a-zA-Z0-9-]*$"},

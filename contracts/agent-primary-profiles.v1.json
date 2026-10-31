@@ -177,6 +177,74 @@
         "concord_work_start",
         "concord_work_transition"
       ]
+    },
+    {
+      "id": "concord-verify",
+      "mode": "subagent",
+      "description": "Run caller-named test-only steps or local suites, or diagnose already-completed CI runs. Use for test execution and failure-log triage; returns commands, exits and evidence without editing files or waiting on CI.",
+      "role_source": ".concord/roles/verify.md",
+      "tools": {
+        "edit": "deny",
+        "write": "deny",
+        "patch": "deny",
+        "apply_patch": "deny",
+        "morph_edit": "deny",
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "skill": "allow",
+        "execute": "allow",
+        "webfetch": "allow",
+        "question": "deny",
+        "todowrite": "deny",
+        "ci_watch": "deny",
+        "opencode_mcp_connect": "deny",
+        "opencode_mcp_disconnect": "deny"
+      },
+      "bash": [
+        {"pattern": "sudo *", "action": "deny"},
+        {"pattern": "rm -rf / *", "action": "deny"},
+        {"pattern": "*git *commit *", "action": "deny"},
+        {"pattern": "*git *commit-tree *", "action": "deny"},
+        {"pattern": "*git *cherry-pick *", "action": "deny"},
+        {"pattern": "*git *revert *", "action": "deny"},
+        {"pattern": "*git *am *", "action": "deny"},
+        {"pattern": "*git *push *", "action": "deny"},
+        {"pattern": "*git *merge *", "action": "deny"},
+        {"pattern": "*git *rebase *", "action": "deny"},
+        {"pattern": "*git *tag *", "action": "deny"},
+        {"pattern": "*gh *", "action": "deny"},
+        {"pattern": "*herdr*", "action": "deny"},
+        {"pattern": "*ci_watch*", "action": "deny"},
+        {"pattern": "*ci-watch*", "action": "deny"},
+        {"pattern": "concord *", "action": "deny"},
+        {"pattern": "* concord *", "action": "deny"},
+        {"pattern": "*'concord *", "action": "deny"},
+        {"pattern": "*\"concord *", "action": "deny"},
+        {"pattern": "* -c *concord*", "action": "deny"},
+        {"pattern": "./concord *", "action": "deny"},
+        {"pattern": "/*/concord *", "action": "deny"},
+        {"pattern": "*bin/concord *", "action": "deny"},
+        {"pattern": "go run *cmd/concord*", "action": "deny"},
+        {"pattern": "concord --help", "action": "allow"},
+        {"pattern": "concord --version", "action": "allow"},
+        {"pattern": "concord continuity-block", "action": "allow"},
+        {"pattern": "concord client show", "action": "allow"},
+        {"pattern": "gh run view *", "action": "allow"},
+        {"pattern": "gh run list *", "action": "allow"}
+      ],
+      "task": [
+        {"pattern": "*", "action": "deny"},
+        {"pattern": "concord-explore", "action": "allow"},
+        {"pattern": "concord-lookup", "action": "allow"}
+      ],
+      "denied_concord_tools": [
+        "concord_work_compact",
+        "concord_work_define",
+        "concord_work_relate",
+        "concord_work_start",
+        "concord_work_transition"
+      ]
     }
   ]
 }

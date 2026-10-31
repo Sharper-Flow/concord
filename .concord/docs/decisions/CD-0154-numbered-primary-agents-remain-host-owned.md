@@ -117,6 +117,23 @@ state, publish, contact the operator or send session notices. It may delegate
 only to exploration and external lookup utilities. Host safety and assigned-path
 permissions remain in force; model selection remains host-owned.
 
+`concord-verify` uses the same generated native Task distribution boundary. It
+runs the caller's named test-only steps or local suite under repository test
+admission and the caller's explicit budget, or diagnoses an already-completed
+named CI run. It reports commands, exits and failure output; CI findings include
+job URLs and assertions. A known-flake classification requires matching evidence
+and a linked record; missing evidence remains unknown.
+
+The verifier must not edit files, repair failures, wait on CI, write planning or
+Concord state, commit, publish or contact the operator. The caller owns waits,
+evidence binding, verdicts and delivery. The verifier may read Concord law and
+work context and delegate only to exploration and external lookup utilities.
+Its profile denies editing tools, CI watch and workflow writers, and declares
+no bash wildcard rule that could replace inherited host safety denies. Command-
+text restrictions are conduct controls, not a sandbox; connected tool exposure
+and model selection remain host-owned. Its result alone is not captured native
+verification proof. Utility boundaries remain unchanged.
+
 The installer refuses a conflicting unmanaged named-profile file.
 It preserves the numbered host files under D1.
 The host selects the role names explicitly and owns its launch defaults.
@@ -154,3 +171,8 @@ Utility results never become managed review or verification evidence.
   survive install, upgrade, repair, and uninstall while named profiles remain
   managed.
 - The release workflow packages named primary profiles, never numbered host files.
+- `scripts/test-generate-agent-profiles.py` checks verifier tool and command
+  permissions, inherited safety denies and test-only instructions.
+- `adapter/opencode/session-scope.test.ts` checks native helper Task pass-through
+  without dispatch; `adapter/opencode/primary-role.test.ts` checks read access
+  and write refusal before transport.

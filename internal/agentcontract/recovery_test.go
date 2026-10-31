@@ -77,9 +77,6 @@ func companionFields(err *TypedError) {
 	switch err.Kind {
 	case "ambiguous_scope":
 		err.Candidates = []string{"prod-alpha", "prod-beta"}
-	case "cross_repository_claim":
-		err.RecoveryAction.RequiredRefs = []string{"concord_work_start"}
-		err.SessionPlacement = &SessionPlacement{WorkID: "work-1", ProjectID: "project-1", Directory: "/example/repository"}
 	case "outside_repair_active":
 		// CD-0210: completed and resume use the store's single reconcile route.
 		err.RecoveryAction.RequiredRefs = []string{"outside_repair_reconcile"}

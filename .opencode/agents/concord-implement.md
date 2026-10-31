@@ -56,7 +56,6 @@ permission:
   concord_work_compact: deny
   concord_work_define: deny
   concord_work_relate: deny
-  concord_work_start: deny
   concord_work_transition: deny
 ---
 

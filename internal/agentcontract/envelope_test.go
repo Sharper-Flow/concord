@@ -454,53 +454,6 @@ func TestStaleLawRevisionRequiresSHA256Proofs(t *testing.T) {
 	}
 }
 
-func TestSessionPlacementRequiresCrossRepositoryKindAndCheckout(t *testing.T) {
-	t.Parallel()
-	for _, scenario := range []string{"valid", "missing", "wrong-kind", "empty-work", "empty-project", "relative-path", "nul-path", "oversized-path"} {
-		t.Run(scenario, func(t *testing.T) {
-			placement := &SessionPlacement{WorkID: "work-1", ProjectID: "project-1", Directory: "/example/repository"}
-			typed := TypedError{Kind: "cross_repository_claim", RecoveryAction: RecoveryAction{Kind: "use_declared_route", RequiredRefs: []string{"concord_work_start"}}, EffectState: EffectNone, SessionPlacement: placement}
-			switch scenario {
-			case "missing":
-				typed.SessionPlacement = nil
-			case "wrong-kind":
-				typed.Kind = "invalid_input"
-			case "empty-work":
-				placement.WorkID = ""
-			case "empty-project":
-				placement.ProjectID = ""
-			case "relative-path":
-				placement.Directory = "example/repository"
-			case "nul-path":
-				placement.Directory = "/example/\x00"
-			case "oversized-path":
-				placement.Directory = "/" + strings.Repeat("a", 4096)
-			}
-			wantValid := scenario == "valid"
-			if err := validateError(typed); (err == nil) != wantValid {
-				t.Fatalf("Go error validation=%v, want valid=%v", err, wantValid)
-			}
-			base := NewCoreError(NewBase("placement", "concord_work_transition", "worktree_claim"), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone})
-			encoded, err := base.Encode()
-			if err != nil {
-				t.Fatal(err)
-			}
-			var raw map[string]any
-			if err := json.Unmarshal(encoded, &raw); err != nil {
-				t.Fatal(err)
-			}
-			raw["error"] = typed
-			encoded, err = json.Marshal(raw)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := payloadschema.ValidateEnvelope(encoded); (err == nil) != wantValid {
-				t.Fatalf("schema validation=%v, want valid=%v", err, wantValid)
-			}
-		})
-	}
-}
-
 func TestEnvelopeAllowsBoundedListErrorDetails(t *testing.T) {
 	t.Parallel()
 	e := NewBase("req", "concord_work_define", "capture")

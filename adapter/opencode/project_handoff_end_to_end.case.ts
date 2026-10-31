@@ -6,7 +6,7 @@ import { basename, join } from "node:path"
 import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
 requireOwnedFixtureRun()
 import ConcordAdapterPlugin from "./concord-plugin"
-import { configureConcordAdapter, consumeAddressedProjectHandoff, invokeConcordOperation, projectHandoffConsumeKey, work_transition } from "./concord"
+import { configureConcordAdapter, invokeConcordOperation, work_transition } from "./concord"
 import { concordBinaryPath, configureCoreBinary, type CoreRunner } from "./core-runtime"
 import { configureHostLease } from "./host-lease"
 import { manifestDigest } from "./generated-contracts"
@@ -336,16 +336,6 @@ async function readAddressedHandoff(fixture: HandoffFixture, sessionID: string):
   return handoff
 }
 
-async function receiveTransport(fixture: HandoffFixture) {
-  const directory = fixture.receiveWorktree
-  const runner = realCoreRunner(fixture.binary, fixture.dbPath, fixture.childEnv, fixture.captured, fixture.host)
-  const result = await runner.run([fixture.binary, "project-resolve"], JSON.stringify({ directory, worktree: directory }))
-  expect(result.exitCode, result.stderr).toBe(0)
-  const ambient = JSON.parse(result.stdout)
-  expect(ambient.project_id).toBe(RECEIVE_PROJECT)
-  return { sessionDirectory: directory, ambient: { projectID: ambient.project_id as string, productIDs: ambient.product_ids as string[], scopeVersion: ambient.scope_version as string, mainWorktree: ambient.main_worktree as boolean } }
-}
-
 afterEach(async () => {
   configureConcordAdapter({ reset: true })
   configureHostLease({ reset: true })
@@ -459,8 +449,9 @@ routeDeclaration("prepares, consumes, and retires through the real core routes",
     expect(rendered.source_project_id).toBe(SOURCE_PROJECT)
     expect(rendered.next_action).toContain("consume the handoff")
     expect(rendered.artifact_refs).toEqual([fixture.artifactRef])
-    const consumed = await consumeAddressedProjectHandoff(workID, rendered.handoff_id, receiveContext, await receiveTransport(fixture))
-    expect(consumed, JSON.stringify(consumed)).toEqual({ consumed: true, handoffID })
+    const consumeKey = "handoff-e2e-consume-receiver"
+    const consumed = await consumeHandoff(workID, rendered.handoff_id, consumeKey, receiveContext)
+    expect(consumed, JSON.stringify(consumed)).toMatchObject({ outcome: "ok", result: { handoff_id: handoffID } })
     expect(host.sessions[RECEIVE_SESSION].directory).toBe(receiveWorktree)
 
     // The consume carries the continuity-rendered id and the host's actual
@@ -475,13 +466,8 @@ routeDeclaration("prepares, consumes, and retires through the real core routes",
     expect(envelope.ambient_project_id).toBe(RECEIVE_PROJECT)
     expect(envelope.manifest_digest).toBe(manifestDigest)
     expect((captured.invoke?.input as JSONRecord).handoff_id).toBe(handoffID)
-    // The automatic consume key is the bounded hash of the complete consume
-    // identity: the real route sent exactly the construction that stays
-    // inside the payload contract's 128-character idempotency_key bound for
-    // every accepted work_id and handoff_id length (the reviewed overflow
-    // reproduced at a 123-character work_id).
     const sentKey = (captured.invoke?.input as JSONRecord).idempotency_key as string
-    expect(sentKey).toBe(projectHandoffConsumeKey(workID, handoffID))
+    expect(sentKey).toBe(consumeKey)
     expect(sentKey.length).toBeLessThanOrEqual(128)
     expect(sentKey).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)
     // The core recorded the bind on the shared work.
@@ -495,8 +481,8 @@ routeDeclaration("prepares, consumes, and retires through the real core routes",
     expect(renderedAgain.bounded_job).toContain("verify the receiving repository's adapter surface")
     expect(renderedAgain.next_action).toContain("consume the handoff")
     expect(dbValue(dbPath, `SELECT state, consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`).consumer).toBe(RECEIVE_SESSION)
-    const replay = await consumeAddressedProjectHandoff(workID, renderedAgain.handoff_id, receiveContext, await receiveTransport(fixture))
-    expect(replay).toEqual({ consumed: true, handoffID })
+    const replay = await consumeHandoff(workID, renderedAgain.handoff_id, consumeKey, receiveContext)
+    expect(replay).toMatchObject({ outcome: "ok", replayed: true, result: { handoff_id: handoffID } })
 
     // A second host-started receiver resolves the same work-and-Project bind.
     await prepareSession(fixture, receiveWorktree)
@@ -504,14 +490,15 @@ routeDeclaration("prepares, consumes, and retires through the real core routes",
     expect(renderedB.handoff_id).toBe(handoffID)
     expect(renderedB.bounded_job).toContain("verify the receiving repository's adapter surface")
     expect(renderedB.next_action).toContain("consume the handoff")
-    const consumedB = await consumeAddressedProjectHandoff(workID, renderedB.handoff_id, contextFor(RECEIVE_SESSION_B, receiveWorktree), await receiveTransport(fixture))
-    expect(consumedB).toEqual({ consumed: true, handoffID })
+    const consumeKeyB = "handoff-e2e-consume-receiver-b"
+    const consumedB = await consumeHandoff(workID, renderedB.handoff_id, consumeKeyB, contextFor(RECEIVE_SESSION_B, receiveWorktree))
+    expect(consumedB).toMatchObject({ outcome: "ok", result: { handoff_id: handoffID, already_consumed: true } })
     expect(host.sessions[RECEIVE_SESSION_B].directory).toBe(receiveWorktree)
     expect(captured.invoke?.tool).toBe("concord_work_transition")
     expect(captured.invoke?.operation).toBe("project_handoff_consume")
     expect((captured.invoke?.call_envelope ?? {} as JSONRecord).session_ref).toBe(RECEIVE_SESSION_B)
     expect((captured.invoke?.input as JSONRecord).handoff_id).toBe(handoffID)
-    expect((captured.invoke?.input as JSONRecord).idempotency_key).toBe(projectHandoffConsumeKey(workID, handoffID))
+    expect((captured.invoke?.input as JSONRecord).idempotency_key).toBe(consumeKeyB)
     const consumedEvents = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE kind='work.project_handoff_consumed' AND subject_id='${workID}'`).n as number
     expect(consumedEvents).toBe(1)
     expect(dbValue(dbPath, `SELECT consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`).consumer).toBe(RECEIVE_SESSION)
@@ -556,6 +543,10 @@ function parseToolResult(result: any): JSONRecord {
   } catch {
     throw new Error(`unparsable tool output: ${String(result.output).slice(0, 2000)}`)
   }
+}
+
+async function consumeHandoff(workID: string, handoffID: string, key: string, context: any): Promise<JSONRecord> {
+  return parseToolResult(await work_transition.execute({ request: { operation: "project_handoff_consume", input: { work_id: workID, handoff_id: handoffID, idempotency_key: key } } }, context))
 }
 
 function parseWorktreeVerifyResult(value: unknown) {
@@ -636,9 +627,9 @@ routeDeclaration(RESTART_WITNESS, async () => {
     const rendered = await readAddressedHandoff(fixture, RECEIVE_SESSION)
     expect(rendered).toMatchObject(expectedHandoff)
     host.lostConsumeAcknowledgement = true
-    const uncertain = await consumeAddressedProjectHandoff(workID, rendered.handoff_id, contextFor(RECEIVE_SESSION, fixture.receiveWorktree), await receiveTransport(fixture))
-    expect(uncertain.consumed, JSON.stringify(uncertain)).toBe(false)
-    expect(uncertain.message).toContain("synthetic lost handoff-consume acknowledgement")
+    const uncertain = await consumeHandoff(workID, rendered.handoff_id, "handoff-restart-consume", contextFor(RECEIVE_SESSION, fixture.receiveWorktree))
+    expect(uncertain, JSON.stringify(uncertain)).toMatchObject({ outcome: "error", error: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible" } })
+    expect(uncertain.error.message).toContain("synthetic lost handoff-consume acknowledgement")
     expect(host.lostConsumeAcknowledgement).toBe(false)
     expect(handoff()).toEqual({ state: "consumed", consumer: RECEIVE_SESSION })
     expect(consumedCount()).toBe(1)
@@ -648,8 +639,8 @@ routeDeclaration(RESTART_WITNESS, async () => {
     await prepareSession(fixture, fixture.receiveWorktree)
     const rendered = await readAddressedHandoff(fixture, RECEIVE_SESSION)
     expect(rendered).toMatchObject(expectedHandoff)
-    const replay = await consumeAddressedProjectHandoff(workID, rendered.handoff_id, context, await receiveTransport(fixture))
-    expect(replay).toEqual({ consumed: true, handoffID })
+    const replay = await consumeHandoff(workID, rendered.handoff_id, "handoff-restart-consume", context)
+    expect(replay).toMatchObject({ outcome: "ok", replayed: true, result: { handoff_id: handoffID } })
     expect(handoff()).toEqual(fixture.originalHandoff)
     expect(consumedCount()).toBe(1)
     const head = await runProcess(["git", "rev-parse", "HEAD"], "", fixture.receiveWorktree)
@@ -678,11 +669,10 @@ routeDeclaration(RESTART_WITNESS, async () => {
     fixture.executionInput = executionInput
     fixture.nativeResult = nativeResult
   } else {
-    expect(phase).toBe("resume")
+    expect(phase).toBe("recover")
     const context = contextFor(RECEIVE_SESSION, fixture.receiveWorktree)
-    const boot = parseToolResult(await work_start.execute({ work_id: workID } as any, context))
-    expect(boot.outcome, JSON.stringify(boot)).toBe("ok")
-    expect(boot.project_handoff).toMatchObject(expectedHandoff)
+    await prepareSession(fixture, fixture.receiveWorktree)
+    expect(await readAddressedHandoff(fixture, RECEIVE_SESSION)).toMatchObject(expectedHandoff)
     const result = await invoke("concord_work_transition", { operation: "worktree_verify", input: fixture.executionInput }, context)
     expect(result.outcome, JSON.stringify(result)).toBe("ok")
     expect(parseWorktreeVerifyResult(result.result)).toEqual(fixture.nativeResult)

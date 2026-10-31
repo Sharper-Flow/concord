@@ -1065,13 +1065,6 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "stale_requires_review"
 	case store.KindUnreachable, store.KindGitUnreachable:
 		return "unreachable"
-	case store.KindWorktreeOwnershipConflict:
-		// CD-0096 D3 Destroy: a removal refused because a live session runs in
-		// the worktree. The remedy is ending that session and retiring the
-		// worktree, so this is an authority refusal and the store names the
-		// declared vacate-then-reclaim route the caller acts on. It is not an
-		// operation to reconcile.
-		return "unauthorized"
 	case store.KindUnauthorizedDispatch:
 		// A worker dispatch refused at the admission boundary: no active
 		// worktree claim, a session outside the claimed worktree, or no

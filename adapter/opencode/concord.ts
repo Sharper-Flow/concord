@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { clientRef } from "./credentials"
 import { contractOperations, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
@@ -942,47 +941,6 @@ function record(value: unknown): value is Record<string, unknown> {
 function boundedUTF8(value: string, maxBytes: number): string {
   if (Buffer.byteLength(value) <= maxBytes) return value
   return new TextDecoder().decode(Buffer.from(value).subarray(0, maxBytes))
-}
-
-// projectHandoffConsumeKey derives the automatic consume idempotency key from
-// the complete consume identity — work and handoff — through a JSON encoding
-// the digest unambiguously decodes back into exactly one identity pair. Every
-// accepted pair (each id up to the contract's 128-character bound) hashes to
-// the same bounded 48-character key, so the generated input always satisfies
-// the owning idempotency_key schema, while equal identities replay the
-// standing bind and a different work or handoff can never reuse a prior
-// bind's cached answer. The export serves the consume-boundary tests that
-// pin that bound at maximum accepted identity lengths.
-export function projectHandoffConsumeKey(workID: string, handoffID: string): string {
-  return `handoff-consume-${createHash("sha256").update(JSON.stringify([workID, handoffID])).digest("hex").slice(0, 32)}`
-}
-
-// consumeAddressedProjectHandoff issues the typed consume for one rendered
-// handoff after the session's verified landing, through the owning invoke
-// route — never a second raw invoke path. The verified landing supplies the
-// transport facts: the session directory the host readback proved and the
-// ambient context the flow already resolved, so the consume re-resolves
-// neither and the core binds against the authenticated boundary. The input
-// carries the handoff_id the boot rendered: the generated tool contract
-// requires it, and the key is derived from the complete consume identity so
-// a successor handoff under a renewed contract can never replay a prior
-// bind's cached answer. Every refusal surfaces as the returned message the
-// caller carries as a refusal — the consuming session either binds the
-// rendered handoff or fails closed. The export serves this file's own
-// consume-boundary tests.
-export async function consumeAddressedProjectHandoff(workID: string, handoffID: string, context: ToolContext, transport: { sessionDirectory: string; ambient: AmbientContext }): Promise<{ consumed: boolean; handoffID: string; message?: string }> {
-  if (!workID || !handoffID || !context.sessionID) return { consumed: false, handoffID: "", message: "consume skipped: the landing named no work, handoff, and session" }
-  const envelope = await invokeConcordOperationRaw("concord_work_transition", { operation: "project_handoff_consume", input: { work_id: workID, handoff_id: handoffID, idempotency_key: projectHandoffConsumeKey(workID, handoffID) } }, context, transport.sessionDirectory, transport.ambient)
-  if (envelope.outcome === "ok") {
-    const result = envelope.result as { handoff_id?: string } | undefined
-    if (typeof result?.handoff_id === "string" && result.handoff_id) {
-      return { consumed: true, handoffID: result.handoff_id }
-    }
-    return { consumed: false, handoffID: "", message: "the addressed handoff consume answered ok without a handoff id" }
-  }
-  const error = envelope.error as { kind?: string; message?: string } | undefined
-  const refusal = typeof error?.message === "string" ? error.message : "the addressed handoff consume refused without a typed message"
-  return { consumed: false, handoffID: "", message: `the addressed handoff consume refused (${error?.kind ?? "unknown"}): ${refusal}` }
 }
 
 export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", hostRequest(args), context) })

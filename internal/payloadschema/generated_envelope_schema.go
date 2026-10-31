@@ -283,13 +283,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "remove",
             "workflow_action",
             "correct_delivery",
-            "worktree_audit",
-            "worktree_audit_reclaim",
-            "worktree_claim",
-            "session_vacate",
-            "worktree_destroy",
             "worktree_inspect",
-            "worktree_reclaim",
             "worktree_verify",
             "project_handoff_consume",
             "project_handoff_record",
@@ -988,13 +982,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "remove",
             "workflow_action",
             "correct_delivery",
-            "worktree_audit",
-            "worktree_audit_reclaim",
-            "worktree_claim",
-            "session_vacate",
-            "worktree_destroy",
             "worktree_inspect",
-            "worktree_reclaim",
             "worktree_verify",
             "project_handoff_consume",
             "project_handoff_record",
@@ -1137,13 +1125,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "correct_delivery",
                       "lifecycle",
                       "remove",
-                      "session_vacate",
                       "project_handoff_record",
                       "project_handoff_consume",
-                      "worktree_audit_reclaim",
-                      "worktree_claim",
-                      "worktree_destroy",
-                      "worktree_reclaim",
                       "worktree_verify",
                       "workflow_action",
                       "outside_repair",
@@ -1889,24 +1872,6 @@ const GeneratedEnvelopeSchemaDocument = `{
         {
           "properties": {
             "operation": {
-              "const": "worktree_audit"
-            },
-            "query_id": {
-              "const": "PM1.Q16"
-            },
-            "tool": {
-              "const": "concord_work_browse"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
               "const": "worktree_inspect"
             },
             "query_id": {
@@ -2020,13 +1985,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "remove",
                 "workflow_action",
                 "correct_delivery",
-                "worktree_claim",
-                "session_vacate",
                 "project_handoff_record",
                 "project_handoff_consume",
-                "worktree_destroy",
-                "worktree_reclaim",
-                "worktree_audit_reclaim",
                 "worktree_verify",
                 "outside_repair",
                 "outside_repair_reconcile"
@@ -2273,39 +2233,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                 }
               }
             }
-          }
-        },
-        {
-          "else": {
-            "not": {
-              "required": [
-                "session_placement"
-              ]
-            }
-          },
-          "if": {
-            "properties": {
-              "kind": {
-                "const": "cross_repository_claim"
-              }
-            },
-            "required": [
-              "kind"
-            ]
-          },
-          "then": {
-            "properties": {
-              "recovery_action": {
-                "properties": {
-                  "kind": {
-                    "const": "use_declared_route"
-                  }
-                }
-              }
-            },
-            "required": [
-              "session_placement"
-            ]
           }
         },
         {
@@ -2634,7 +2561,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "idempotency_conflict",
             "operation_conflict",
             "resource_busy",
-            "cross_repository_claim",
             "invalid_transition",
             "invalid_relation",
             "invariant_violation",
@@ -2680,33 +2606,6 @@ const GeneratedEnvelopeSchemaDocument = `{
         },
         "retry_safe": {
           "type": "boolean"
-        },
-        "session_placement": {
-          "additionalProperties": false,
-          "properties": {
-            "directory": {
-              "maxLength": 4096,
-              "minLength": 1,
-              "pattern": "^/[^\\x00]*$",
-              "type": "string"
-            },
-            "project_id": {
-              "maxLength": 128,
-              "minLength": 1,
-              "type": "string"
-            },
-            "work_id": {
-              "maxLength": 128,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          "required": [
-            "work_id",
-            "project_id",
-            "directory"
-          ],
-          "type": "object"
         },
         "stale_law_revision": {
           "additionalProperties": false,
@@ -2786,75 +2685,13 @@ const GeneratedEnvelopeSchemaDocument = `{
         ]
       },
       "then": {
-        "else": {
-          "properties": {
-            "error": {
-              "properties": {
-                "recovery_action": {
-                  "properties": {
-                    "kind": {
-                      "const": "reconcile_operation"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "if": {
-          "properties": {
-            "error": {
-              "properties": {
-                "adapter_reason": {
-                  "const": "unknown_effect"
-                },
-                "effect_state": {
-                  "const": "possible"
-                },
-                "kind": {
-                  "const": "operation_conflict"
-                }
-              },
-              "required": [
-                "kind",
-                "adapter_reason",
-                "effect_state"
-              ]
-            },
-            "operation": {
-              "const": "session_vacate"
-            },
-            "origin": {
-              "const": "adapter"
-            },
-            "outcome": {
-              "const": "error"
-            },
-            "tool": {
-              "const": "concord_work_transition"
-            }
-          },
-          "required": [
-            "origin",
-            "outcome",
-            "tool",
-            "operation",
-            "error"
-          ]
-        },
-        "then": {
-          "properties": {
-            "error": {
-              "properties": {
-                "recovery_action": {
-                  "properties": {
-                    "kind": {
-                      "enum": [
-                        "retry_same_request",
-                        "contact_operator"
-                      ],
-                      "type": "string"
-                    }
+        "properties": {
+          "error": {
+            "properties": {
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "reconcile_operation"
                   }
                 }
               }

@@ -72,7 +72,7 @@ describe("version-skew self-heal", () => {
     for (const [tool, toolName, operation, mutation] of [
       [adapter.product_view, "concord_product_view", "resolve", false],
       [adapter.work_define, "concord_work_define", "capture", true],
-      [adapter.work_transition, "concord_work_transition", "session_vacate", true],
+      [adapter.work_transition, "concord_work_transition", "lifecycle", true],
     ] as const) {
       for (const stdout of ["", "\n", " \t"]) {
         resetManifestPinForTesting()
@@ -90,7 +90,7 @@ describe("version-skew self-heal", () => {
         const typedRefusal = !mutation && stdout === ""
         expect(result.error.kind).toBe(mutation ? "operation_conflict" : typedRefusal ? "invalid_input" : "transport_failure")
         expect(result.error.effect_state).toBe(mutation ? "possible" : "none")
-        expect(result.error.recovery_action.kind).toBe(typedRefusal ? "correct_request" : operation === "capture" ? "reconcile_operation" : "retry_same_request")
+        expect(result.error.recovery_action.kind).toBe(typedRefusal ? "correct_request" : mutation ? "reconcile_operation" : "retry_same_request")
       }
     }
   })

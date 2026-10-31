@@ -62,15 +62,17 @@ capture policy for every work-item term. `contracts/native-run-statuses.v1.json`
 owns each native-run phase/status pair and its failure classification.
 
 Deterministic generators derive the Go runtime projections and content digests.
-Closure validators compare the declarations with agent schemas, scenario schemas,
-generated Go, and the literal migration rows. A changed contract without a
-matching migration decision fails validation.
+The native-run closure validator compares its declaration with agent schemas,
+scenario schemas, generated Go, and the literal migration rows. A changed
+native-run contract without a matching migration decision fails validation.
+Work-kind enforcement uses the generated projections and SQLite registry;
+it requires no cross-surface closure audit.
 
 ### D3. SQLite enforces both declarations through registries and triggers
 
-Migration 49 creates `work_kinds` and `workflow_native_run_statuses`. It seeds
-literal rows that the closure validators compare with the contracts. The
-migration then makes both registries immutable with insert, update, and delete
+Migration 49 creates `work_kinds` and `workflow_native_run_statuses` and seeds
+literal rows. The native-run closure validator compares its rows with its
+contract. The migration makes both registries immutable with insert, update, and delete
 refusal triggers. Consumer insert and update triggers refuse an unstored
 work-item kind or an undeclared native-run phase/status pair.
 
@@ -138,8 +140,8 @@ vocabulary copy, hide policy columns, and require another table rebuild for each
 new stored kind.
 
 **Generate migration SQL from the current contract.** Rejected because old
-migrations must remain byte-stable. Literal seed rows plus closure validation keep
-history immutable and current declarations accountable.
+migrations must remain byte-stable. Literal seed rows preserve immutable
+checksums; the native-run closure validator also binds its rows to its contract.
 
 ## Verification
 
@@ -154,7 +156,8 @@ history immutable and current declarations accountable.
   refuses an unpinned successor.
 - Vocabulary tests cover every declared native-run pair and both work-kind policy
   boundaries.
-- Paired Python suites mutate contracts, schemas, migration rows, trigger
-  predicates, and runtime call sites to prove each closure validator fails.
+- The native-run Python suite mutates migration rows, trigger predicates,
+  registry immutability triggers, runtime guard calls, and generated output to
+  prove its closure validator fails.
 - The workflow scenario corpus passes with operator kinds at creation and
   workflow families at definition selection.

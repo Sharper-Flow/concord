@@ -69,7 +69,6 @@ following families:
 | Family | Sites | Why it is consequential |
 |---|---|---|
 | Bootstrap journal and worktree claim | `internal/store/bootstrap.go` `claimCrossProjectWorktree`, `prepareBootstrapMode`, `setBootstrapState`, `rollbackBootstrap`, `finalizeBootstrap`; `internal/store/worktrees.go` `ClaimWorktree` | The journal and the claim decide which work item owns a worktree on disk. A claim lost after its acknowledgement permits a second owner of the same worktree. |
-| Predecessor import | `cmd/concord/predecessor_import.go` `writeProductAndProjects`, `writeSecondaryProjects`, `writeSelectedWork` | The acknowledged import is the record of which Products, Projects, and work items migrated. A loss after the acknowledgement misstates the migration. |
 
 Workflow completion commits inside the workflow action dispatch boundary
 family. Cross-authority fence entry points are declared in D3.
@@ -125,8 +124,7 @@ not change.
   reader does not fail a durable commit.
 - `internal/store.TestDurableTransactFailureSurfaces` proves a durable
   transaction failure reaches the caller.
-- `internal/agent.TestWorkflowReplayCommitsDurablyUnderPinnedReader` and
-  `cmd/concord.TestPredecessorImportAcknowledgesUnderPinnedReader` prove the
+- `internal/agent.TestWorkflowReplayCommitsDurablyUnderPinnedReader` proves the
   acknowledgement succeeds while another connection holds a WAL read mark.
 - `python3 scripts/check-knowledge-index.py` proves this record registers
   with a current content hash.

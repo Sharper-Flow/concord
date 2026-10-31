@@ -283,12 +283,6 @@ jobs:
         run: python3 scripts/check-agents-md.py
       - name: Validate primary agent examples
         run: python3 scripts/check-primary-prompts.py
-      - name: Validate predecessor independence
-        run: python3 scripts/check-predecessor-independence.py
-      - name: Test predecessor independence
-        run: python3 scripts/test-predecessor-independence.py
-      - name: Test predecessor harvest
-        run: python3 scripts/test-predecessor-harvest.py
       - name: Validate script test coverage
         run: python3 scripts/check-script-tests.py
       # Strict Bun and registry failures remain required. Only suite

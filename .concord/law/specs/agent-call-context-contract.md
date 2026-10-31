@@ -122,6 +122,21 @@ which TS3/TS7 must report under PM1's authority contract.
 
 ## 4. Principal and authorization
 
+### Additive trusted-client policy changes
+
+`client-policy-update` replaces the complete capability, Product, Project, and
+agent-scope arrays and restates the principal. `client-policy-expand` widens an
+active trusted client policy by union. Every stored grant survives unchanged,
+and the stored principal is untouched. Changing a principal uses the replace
+verb, not expansion.
+
+An expansion that names an unknown capability, an oversized entry, or a union
+past a policy bound refuses typed and leaves the stored policy unchanged.
+Replaying the same expansion applies no further change; an expansion with no
+additions changes nothing. The client-policy tests must prove preservation of
+every existing grant, unchanged principal, idempotency, and refusal without
+partial changes. These safeguards apply independently of any migration use.
+
 ### 4.1 Principal source and authorization
 
 Authorization is computed on every invocation. There is no bearer token. The

@@ -35,7 +35,7 @@ func TestNeighborProcessLocks(t *testing.T) {
 		_, err = store.AppendEvent(t.Context(), tx, store.Event{
 			EventID: id, Kind: "product.created", SubjectType: store.SubjectProduct,
 			SubjectID: "neighbor-product", Actor: "principal:neighbor-fixture", OccurredAt: time.Unix(1, 0).UTC(),
-			PayloadVersion: store.CurrentEventPayloadVersion("product.created"),
+			PayloadVersion: 1,
 			Payload:        []byte(`{"display_name":"Neighbor Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`),
 		})
 		if err != nil {

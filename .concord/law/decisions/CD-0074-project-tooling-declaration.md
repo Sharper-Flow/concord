@@ -9,8 +9,7 @@
   that opened issue #510 on 2026-08-25; the merged pull request is the public
   record.
 - **Related:** CD-0040 (D6), CD-0043 (D1),
-  CD-0055 (D1), [`../../docs/capability-placement.md`](../../docs/capability-placement.md) §3–§4,
-  [`../../docs/predecessor-operational-coverage.md`](../../docs/predecessor-operational-coverage.md)
+  CD-0055 (D1), [`../../docs/capability-placement.md`](../../docs/capability-placement.md) §3–§4
 - **Preserves:** CD-0043 D1's host-owned methodology boundary; CD-0040 D6's
   probe-family limit
 

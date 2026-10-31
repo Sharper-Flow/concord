@@ -320,16 +320,6 @@ func registeredEventKind(kind string) (EventKindRegistration, bool) {
 	return registration, ok
 }
 
-// CurrentEventPayloadVersion returns the registry-owned current payload version.
-// It panics if kind is not registered.
-func CurrentEventPayloadVersion(kind string) int {
-	registration, ok := registeredEventKind(kind)
-	if !ok {
-		panic(fmt.Sprintf("event %q is not registered", kind))
-	}
-	return registration.CurrentVersion
-}
-
 func unsupportedEventVersion(event Event, registration EventKindRegistration) *Failure {
 	return newFailure(KindUnsupportedPayloadVersion, "fold_event",
 		fmt.Sprintf("event %s uses payload version %d; current version is %d", event.EventID, event.PayloadVersion, registration.CurrentVersion), false,

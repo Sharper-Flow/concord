@@ -22,11 +22,9 @@ program. They also described generic replacement state, cutover steps, shadow
 requirements, rollback limits, and final-retirement work that no accepted runtime
 surface implements or needs.
 
-The existing predecessor inventory and import commands already provide bounded
-utilities with local input, idempotency, and provenance safeguards. They do not
-need a Product-wide authority transition. Migration and correction should start
-from a concrete demand and use an operation whose scope and evidence fit that
-demand.
+Migration and correction start from a concrete demand and use an operation
+whose scope and evidence fit that demand. No current demand requires an
+Advance inventory, importer, or parallel migration mode.
 
 ## Decision
 
@@ -39,9 +37,15 @@ migration record.
 
 When a concrete demand calls for migration or correction, the selected operation
 defines its local authority, input, idempotency, provenance, recovery, and native
-execution boundary. The existing predecessor inventory and import commands remain
-utilities with their current safeguards. They do not become a global authority
-transition.
+execution boundary. Concord has no predecessor inventory or import utility,
+snapshot or harvest contract, or parallel predecessor migration mode. Their
+implementation, importer-only store probes, and tests of those retired
+behaviors are removed, not disabled or retained for compatibility.
+
+Work already imported remains ordinary Concord work. Its identity, intent,
+provenance metadata, lifecycle, and Project membership remain unchanged and
+readable through ordinary work reads. Retirement performs no schema or data
+rewrite. The predecessor lessons and CD-0019/CD-0053 strength obligations remain.
 
 ### D2. Readiness follows current Product law
 
@@ -73,8 +77,7 @@ inform a concrete migration demand. They create no global cutover obligation.
 ## Rejected alternatives
 
 **Keep a Product-at-a-time migration program.** Rejected because no current
-demand requires a global authority transition, and the existing utilities have
-local safeguards.
+demand requires a global authority transition.
 
 **Add a generic replacement state machine.** Rejected because the accepted
 Domain and PM4 relations already own their bounded semantics, while other

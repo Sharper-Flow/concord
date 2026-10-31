@@ -52,9 +52,6 @@ func (s *Store) now() time.Time {
 	return s.Clock().UTC()
 }
 
-// Now returns the store clock value for callers that compose durable records.
-func (s *Store) Now() time.Time { return s.now() }
-
 func nowFromClock(clock func() time.Time) time.Time {
 	if clock == nil {
 		return time.Now().UTC()

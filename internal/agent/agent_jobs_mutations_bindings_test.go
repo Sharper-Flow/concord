@@ -855,7 +855,7 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 	if err != nil {
 		t.Fatal(err)
 	}
-	created := store.Event{EventID: workID + "-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Run the approved audit","priority":3}`)}
+	created := store.Event{EventID: workID + "-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Run the approved audit","priority":3}`)}
 	membership := store.Event{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"proj-web","role":"primary"}],"expected_version":1,"resulting_version":2}`)}
 	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{created, membership}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}}); err != nil {
 		t.Fatalf("seed work: %v", err)

@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:375940ffc2eb5a97c6905eba8a1895351bf0368bc4a362c0bcef099bc7fc0ad8",
+  "sha256": "sha256:0b050661dbc60ee81d7e642b2d9b4c4f5c7c0ff0c4ee4ec15c0c0705decf9056",
   "status": "published",
   "summary": "Describes the three retained execution families and shared-part workflow composition without size classification. Definitions derive from one canonical source under CD-0218, CD-0229 and CD-0242; mandatory stages and review protections remain.",
   "tags": [

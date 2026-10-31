@@ -1249,14 +1249,14 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         "related_ids": teaching["alignment_combination_rule"],
         "architecture_binding": teaching["architecture_domain_rule"],
     }
-    # Main associates accepted criteria with captured producer receipts. A
-    # caller verdict, missing receipt, or operation-minted ref is not proof.
+    # Main associates accepted criteria with recorded evidence. A caller
+    # verdict, missing evidence, or operation-minted ref is not proof.
     defs["workflow_verdict_batch_entry"] = {
         "type": "object", "additionalProperties": False,
         "required": ["predicate_id", "receipt_refs"],
         "properties": {
             "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
-            "receipt_refs": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}, "description": "Captured passing producer receipts covering this criterion on the current candidate. Main associates proof; it supplies no verdict or replacement subject."},
+            "receipt_refs": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}, "description": "Recorded evidence references for this criterion. Main associates proof; it supplies no verdict or replacement subject."},
         },
     }
     defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"type": "string", "enum": ["hard", "soft", "none"]}, "severity": {"type": "string", "enum": ["breaking", "non-breaking", "informational"]}}}

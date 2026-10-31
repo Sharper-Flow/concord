@@ -481,7 +481,7 @@ func workflowReviewedCommandReceipt(ctx context.Context, q queryer, work, predic
 			}
 		}
 	}
-	return reviewFailure(KindMissingEvidence, "command receipt "+ref+" has no current Review assessment of criterion "+predicate, "record a Review assessing that criterion and captured receipt on the final candidate")
+	return reviewFailure(KindMissingEvidence, "report "+ref+" has no current Review assessment of criterion "+predicate, "record a Review assessing that criterion and report on the final candidate")
 }
 
 func workflowResearchCriterionFamily(ctx context.Context, q queryer, work string) (bool, error) {
@@ -503,7 +503,7 @@ func verifyWorkflowCriterionAssociation(ctx context.Context, q queryer, work str
 		return err
 	}
 	if !research && (association.Candidate == nil || state.Candidate == nil || *association.Candidate != *state.Candidate) || association.VerdictKind != "ok" || association.IncomparableWithApproved || len(association.EvaluationEvidence) == 0 {
-		return reviewFailure(KindMissingEvidence, "criterion proof does not identify the current integrated candidate", "associate passing receipts for the current candidate")
+		return reviewFailure(KindMissingEvidence, "criterion proof does not identify the current integrated candidate", "associate passing reports for the current candidate")
 	}
 	deps, err := workflowReviewDependencies(ctx, q, work)
 	if err != nil {

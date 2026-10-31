@@ -821,23 +821,6 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "type": "object"
     },
-    "continuity_review_input": {
-      "additionalProperties": false,
-      "description": "The native-qualified Review subject and the exact criterion and architecture revisions a Review must judge. Recording a Review rechecks them through its own sealed preparation.",
-      "properties": {
-        "dependencies": {
-          "$ref": "#/$defs/lane_report_review_dependencies"
-        },
-        "input_candidate": {
-          "$ref": "#/$defs/lane_report_review_candidate"
-        }
-      },
-      "required": [
-        "input_candidate",
-        "dependencies"
-      ],
-      "type": "object"
-    },
     "continuity_snapshot": {
       "additionalProperties": false,
       "properties": {
@@ -1022,9 +1005,6 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "proposal_record": {
               "$ref": "#/$defs/workflow_proposal_record"
-            },
-            "review_input": {
-              "$ref": "#/$defs/continuity_review_input"
             },
             "spec_mandate": {
               "items": {
@@ -19028,7 +19008,7 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Bounds: 1..128 code points inclusive"
         },
         "receipt_refs": {
-          "description": "Captured passing producer receipts covering this criterion on the current candidate. Main associates proof; it supplies no verdict or replacement subject. Bounds: 1..32 items inclusive",
+          "description": "Recorded evidence references for this criterion. Main associates proof; it supplies no verdict or replacement subject. Bounds: 1..32 items inclusive",
           "items": {
             "$ref": "#/$defs/reference",
             "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"

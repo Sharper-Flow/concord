@@ -3839,9 +3839,6 @@
             "work_pin": {
               "$ref": "#/$defs/work_pin"
             },
-            "review_input": {
-              "$ref": "#/$defs/continuity_review_input"
-            },
             "compatible_law_amendments": {
               "type": "array",
               "maxItems": 32,
@@ -10228,7 +10225,7 @@
             "$ref": "#/$defs/reference",
             "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
           },
-          "description": "Captured passing producer receipts covering this criterion on the current candidate. Main associates proof; it supplies no verdict or replacement subject. Bounds: 1..32 items inclusive"
+          "description": "Recorded evidence references for this criterion. Main associates proof; it supplies no verdict or replacement subject. Bounds: 1..32 items inclusive"
         }
       }
     },
@@ -17757,23 +17754,6 @@
           ]
         }
       ]
-    },
-    "continuity_review_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "input_candidate",
-        "dependencies"
-      ],
-      "description": "The native-qualified Review subject and the exact criterion and architecture revisions a Review must judge. Recording a Review rechecks them through its own sealed preparation.",
-      "properties": {
-        "input_candidate": {
-          "$ref": "#/$defs/lane_report_review_candidate"
-        },
-        "dependencies": {
-          "$ref": "#/$defs/lane_report_review_dependencies"
-        }
-      }
     },
     "lane_report_review_refs": {
       "type": "array",

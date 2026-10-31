@@ -2489,8 +2489,7 @@ func (r runtime) planWorkRemoval(ctx context.Context, base agentcontract.Envelop
 // worktree reclaims through the direct reclaim's own gates, in its own
 // transaction, so one refused row never rolls back another's reclamation.
 // That is why the effect cannot sit inside executeMutation's single
-// transaction, and why this planner takes the shape mutateWorktreeVerify
-// established: the store owns the row transactions, and this planner owns
+// transaction: the store owns the row transactions, and this planner owns
 // the envelope and the idempotency record. A replay under the same key
 // returns the recorded pass and does not run the audit again.
 //

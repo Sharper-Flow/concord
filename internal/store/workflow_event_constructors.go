@@ -516,7 +516,7 @@ func normalizeWorkflowVerdictEntries(fields map[string]json.RawMessage) ([]workf
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict verdicts entry predicate_id must satisfy the reference rule: 2 to 128 bytes with no whitespace", false, "name an approved contract predicate in every entry")
 		}
 		if len(item.ReceiptRefs) < 1 || len(item.ReceiptRefs) > 32 {
-			return nil, reviewFailure(KindInvalidPayload, "each criterion association requires 1 to 32 producer receipt references", "supply receipt_refs from the declared producer")
+			return nil, reviewFailure(KindInvalidPayload, "each criterion association requires 1 to 32 evidence references", "supply receipt_refs for recorded evidence")
 		}
 		entries = append(entries, workflowVerdictBatchEntry{PredicateID: item.PredicateID, VerdictKind: "ok", EvaluationEvidence: item.ReceiptRefs})
 	}

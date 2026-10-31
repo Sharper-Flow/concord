@@ -1676,9 +1676,6 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if snapshot.WorkPin != nil {
 		pinned["work_pin"] = snapshot.WorkPin
 	}
-	if snapshot.ReviewInput != nil {
-		pinned["review_input"] = snapshot.ReviewInput
-	}
 	// Empty peer signals stay out of the prompt. This keeps the unchanged
 	// projection's bytes stable while non-empty signals remain visible.
 	if len(snapshot.CompatibleLawAmendments) > 0 {

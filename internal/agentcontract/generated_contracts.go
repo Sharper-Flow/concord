@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:a10e95a2809f84b8ee4bb3a67b11fb52c8b4796e138be972ff4d667363ebf913"
+const ManifestDigest = "sha256:fd4aae15c84dbfeb93f735870cffac0036c0ec7808a6a11ce9fe8b9ffe022909"
 
 type OperationKind string
 
@@ -118,7 +118,6 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"continuity_pending_project_handoff":                    {Required: []string{"handoff_id", "work_id", "contract_version", "source_project_id", "target_project_id", "source_session_ref", "bounded_job", "changes", "verification", "artifact_refs", "blockers", "next_action", "state", "recorded_at"}, Properties: []string{"handoff_id", "work_id", "contract_version", "source_project_id", "target_project_id", "source_session_ref", "bounded_job", "changes", "verification", "artifact_refs", "blockers", "next_action", "state", "recorded_at"}},
 	"continuity_projection_page":                            {Required: []string{"work_id", "workflow_instance", "workflow_step", "watermark", "projection_page", "next_kind"}, Properties: []string{"work_id", "work_version", "workflow_instance", "workflow_step", "watermark", "projection_page", "next_kind"}},
 	"continuity_read_result":                                {Required: []string{}, Properties: []string{"work_id", "pinned", "boundaries", "typed_availability", "observations", "observations_total", "observations_read", "pending_messages", "work_version", "workflow_instance", "workflow_step", "watermark", "projection_page", "next_kind"}},
-	"continuity_review_input":                               {Required: []string{"input_candidate", "dependencies"}, Properties: []string{"input_candidate", "dependencies"}},
 	"continuity_snapshot":                                   {Required: []string{"work_id", "pinned", "boundaries", "typed_availability", "pending_messages", "observations", "observations_total", "observations_read"}, Properties: []string{"work_id", "pinned", "boundaries", "typed_availability", "observations", "observations_total", "observations_read", "pending_messages"}},
 	"defect_classification":                                 {Required: []string{"failure_shape", "reproduction", "searched", "related_defect_ids", "sibling_ids"}, Properties: []string{"failure_shape", "reproduction", "searched", "related_defect_ids", "root_cause_work_id", "sibling_ids"}},
 	"defect_intake":                                         {Required: []string{"failure_shape", "reproduction", "searched", "related_defect_ids"}, Properties: []string{"failure_shape", "reproduction", "searched", "related_defect_ids", "root_cause_work_id"}},

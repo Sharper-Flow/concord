@@ -107,6 +107,18 @@ ORDER BY CASE name WHEN 'projects' THEN 0 WHEN 'project_locators' THEN 1 ELSE 2 
 	source := s
 	s = &Store{db: db, path: path, Clock: s.Clock}
 	historical := contentIdentity151WorkerFixture(t, s.db, work)
+	// The knowledge index watermark is a migration-152 input that no current
+	// store produces. Seed one historical row for the fixture home pair to
+	// prove migration 152 preserves it unchanged.
+	for _, stmt := range []string{
+		`INSERT INTO write_guard(active) VALUES(1)`,
+		`INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete) VALUES('project','workflow-law-locator','HEAD','` + strings.Repeat("a", 40) + `','2026-08-07T12:00:00Z',1)`,
+		`DELETE FROM write_guard`,
+	} {
+		if _, err := s.db.Exec(stmt); err != nil {
+			t.Fatalf("seed %s: %v", stmt, err)
+		}
+	}
 	assertHistoricalReceipts(t, s.db, historical)
 	want := contentIdentity152Snapshot(t, s.db, true)
 	for table, rows := range want {
@@ -275,13 +287,6 @@ VALUES(?,?,'implementation',19,?,'implementation','model:historical','2.0','2.0'
 		seq += 4
 	}
 	if _, err := tx.Exec(`UPDATE store_sequences SET last=? WHERE name='effect'`, seq); err != nil {
-		t.Fatal(err)
-	}
-	// The knowledge index watermark is a migration-152 input that schema 174
-	// retired with the law index, so no current store produces one. Seed the
-	// historical row (the fixture home pair) to prove migration 152 preserves
-	// it unchanged.
-	if _, err := tx.Exec(`INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete) VALUES('project','workflow-law-locator','HEAD','` + strings.Repeat("a", 40) + `','2026-08-07T12:00:00Z',1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`UPDATE work_items SET effect_seq=? WHERE id=?`, seq, work); err != nil {

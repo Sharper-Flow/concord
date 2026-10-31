@@ -43,19 +43,15 @@ func approvalRouteDefinition(t *testing.T) WorkflowDefinition {
 
 // runCoordinatorActionTx drives one workflow action through the public
 // ApplyWorkflowActionTx entry under the caller registry, the same transaction
-// entry the owning boundary uses. The store pools one connection, so the
+// entry and pre-transaction proof preparation the owning boundary uses. The store pools one connection, so the
 // transaction is the store's own Transact scope and the action commits or
 // rolls back as one unit. It returns the refusal so negative callers can
 // assert it.
 func runCoordinatorActionTx(t *testing.T, s *Store, registry DefinitionRegistry, workID, actionID string, actor WorkflowActor, payload string) error {
 	t.Helper()
-	ctx := context.Background()
-	if actionID == "approve_contract" || actionID == "supersede_contract" || actionID == "complete" {
-		verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
-		if err != nil {
-			return err
-		}
-		ctx = verified
+	ctx, err := s.prepareWorkflowActionRegistryProof(context.Background(), actionID, workID)
+	if err != nil {
+		return err
 	}
 	version := readWorkVersion(t, s, workID)
 	request := WorkflowActionExecutionRequest{

@@ -41,9 +41,15 @@ func seedDomainReadStoreWithRelation(t *testing.T, lawIDs []string, relation Kno
 	}
 	writeKnowledgeFile(t, repo, ".concord/docs/knowledge/domain-registry.json", string(registryBytes)+"\n")
 	for i, lawID := range lawIDs {
-		front := `{"id":"` + lawID + `","title":"Domain law","authority":{"tier":"derived"},"home_domain_id":"sync","applies_to_domain_ids":["product-root:concord"]}`
+		front, err := json.Marshal(map[string]any{
+			"id": lawID, "title": "Domain law", "authority": map[string]string{"tier": "derived"},
+			"home_domain_id": "sync", "applies_to_domain_ids": []string{"product-root:concord"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 		path := fmt.Sprintf(".concord/law/decisions/CD-%04d.md", i+1)
-		writeKnowledgeFile(t, repo, path, "---\n"+front+"\n---\n\n"+lawContent)
+		writeKnowledgeFile(t, repo, path, "---\n"+string(front)+"\n---\n\n"+lawContent)
 	}
 	commitKnowledgeRepo(t, repo, "domain law folder")
 	s := openTemp(t)

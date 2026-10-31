@@ -312,11 +312,13 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest, 
 			}
 			seenRelation[key] = true
 			out.Relations = append(out.Relations, DomainRelationView{
-				Kind:          relation.Kind,
-				SourceDomain:  domain.DomainID,
-				TargetDomain:  relation.TargetDomainID,
-				State:         domainRegistryRelationState(relation.State),
-				GoverningLaws: orderedStrings(relation.GoverningLawIDs),
+				Kind:         relation.Kind,
+				SourceDomain: domain.DomainID,
+				TargetDomain: relation.TargetDomainID,
+				State:        domainRegistryRelationState(relation.State),
+				// The detail contract renders a law-free relation as an empty
+				// array, never null.
+				GoverningLaws: append([]string{}, orderedStrings(relation.GoverningLawIDs)...),
 			})
 		}
 	}

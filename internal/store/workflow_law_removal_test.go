@@ -141,9 +141,15 @@ func TestLawRemovalClassifiedCurrentSuccessor(t *testing.T) {
 	}
 	event := attributionCompletionWithConfirmation(t, s, id, nil, func(f acceptanceRecoveryFixture) error {
 		v := readWorkVersion(t, s, id)
+		// The owning boundary prepares the confirmation's proof before its
+		// transaction opens; this raw event builder needs the same proof.
+		ctx, err := s.prepareWorkflowActionRegistryProof(t.Context(), "confirm_premise", id)
+		if err != nil {
+			return err
+		}
 		tx := lawChangeTx(t, s)
 		request := WorkflowActionExecutionRequest{WorkID: id, Actor: lawChangeConstructorActor, Now: time.Unix(20, 0).UTC()}
-		events, err := workflowConfirmPremiseEventsForDefinition(t.Context(), tx, entry.Definition, request, owner, nil, "law-removal-confirm", v)
+		events, err := workflowConfirmPremiseEventsForDefinition(ctx, tx, entry.Definition, request, owner, nil, "law-removal-confirm", v)
 		_ = tx.Rollback()
 		if err != nil {
 			return err

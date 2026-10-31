@@ -21,13 +21,9 @@ func issue31WorkflowAction(t *testing.T, s *Store, workID string, version int64,
 func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, version int64, actionID, operationID string, actor WorkflowActor, payload json.RawMessage) int64 {
 	t.Helper()
 	payload = testApprovalPayload(t, s, workID, actionID, payload)
-	ctx := context.Background()
-	if actionID == "approve_contract" || actionID == "supersede_contract" || actionID == "complete" {
-		var err error
-		ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
-		if err != nil {
-			t.Fatal(err)
-		}
+	ctx, err := s.prepareWorkflowActionRegistryProof(context.Background(), actionID, workID)
+	if err != nil {
+		t.Fatal(err)
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {

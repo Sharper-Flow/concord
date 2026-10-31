@@ -105,9 +105,9 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 	if note.Kind != "work_note" || note.ID != req.WorkID {
 		return newFailure(KindInvalidNoteProof, "publish_compaction_link", "verified note identity does not match the work", false, "publish the canonical work note for the requested work ID")
 	}
-	verifiedCtx, proofErr := s.EstablishKnowledgeSourceSetProof(ctx, req.WorkID)
-	if proofErr != nil {
-		return proofErr
+	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, req.WorkID)
+	if err != nil {
+		return err
 	}
 	var lifecycle string
 	if err := s.db.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id = ?`, req.WorkID).Scan(&lifecycle); err != nil {
@@ -131,7 +131,7 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 			// Publication is proof-backed archive, not destruction (CD-0217):
 			// an identical relink is idempotent and research is never a side
 			// effect. Only an explicit research_retire batch deletes packs.
-			return s.Transact(verifiedCtx, func(tx *Transaction) error {
+			return s.Transact(ctx, func(tx *Transaction) error {
 				return replayCompactionLinkTx(ctx, tx, req, note.ContentHash)
 			})
 		}
@@ -158,7 +158,7 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 		Events:           []Event{{EventID: req.EventID, Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: req.OccurredAt, PayloadVersion: 3, Payload: payloadBytes}},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion},
 	}
-	if err := s.Transact(verifiedCtx, func(tx *Transaction) error {
+	if err := s.Transact(ctx, func(tx *Transaction) error {
 		return publishCompactionLinkTx(ctx, tx, req, operation, note.ContentHash)
 	}); err != nil {
 		return err

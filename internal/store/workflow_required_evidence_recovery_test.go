@@ -87,15 +87,11 @@ func (f acceptanceRecoveryFixture) actors() (WorkflowActor, WorkflowActor) {
 // run applies one declared action through the real action layer. Engineering
 // confirmation uses Main's choice.
 func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label string, version int64, payload json.RawMessage, evidenceRefs []string) error {
-	if actionID == "complete" || actionID == "confirm_premise" {
-		// The owning completion and confirmation boundaries read the verified
-		// knowledge sources inside their transactions, so the proof is
-		// established before this raw action transaction opens.
-		verified, err := f.store.EstablishKnowledgeSourceSetProof(ctx, f.workID)
-		if err != nil {
-			return err
-		}
-		ctx = verified
+	// The owning boundary prepares the knowledge-source proof before its
+	// transaction opens; this raw action transaction does the same.
+	ctx, err := f.store.prepareWorkflowActionRegistryProof(ctx, actionID, f.workID)
+	if err != nil {
+		return err
 	}
 	invoking, operator := f.actors()
 	request := WorkflowActionExecutionRequest{

@@ -385,7 +385,7 @@ func publishLawCleanupNote(t *testing.T, s *Store, id, content string, settle bo
 	t.Helper()
 	home, err := s.ResolveCompactionHome(t.Context(), id)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("resolve the compaction home: %v", err)
 	}
 	path := ".concord/docs/work/" + id + ".md"
 	writeKnowledgeFile(t, home.RepoPath, path, content)
@@ -393,12 +393,12 @@ func publishLawCleanupNote(t *testing.T, s *Store, id, content string, settle bo
 	hash := nativeDigest([]byte(content))
 	version := readWorkVersion(t, s, id)
 	if err := PublishCompactionLink(t.Context(), s, CompactionLinkRequest{EventID: "publish-" + id, WorkID: id, ExpectedVersion: version, Actor: "operator", OccurredAt: time.Now().UTC(), Home: home, CommitOID: commit, NotePath: path, ExpectedHash: hash, Reason: "publish reviewed outcome"}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("publish the compaction link: %v", err)
 	}
 	scope, _ := json.Marshal(map[string]any{"work_version": version, "content_digest": hash, "home_project_id": home.HomeProjectID, "home_locator_id": home.HomeLocatorID})
 	claim, err := ClaimStepAuthorized(t.Context(), s, ClaimRequest{OpID: "publication-" + id, WorkID: id, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: StepCrossAuthority, AcceptedInputsDigest: hash, AcceptedScopeSnapshot: string(scope), PrincipalRef: "operator", Tool: "concord_work_compact", IdempotencyKey: "publish-" + id, RequestID: "publish-" + id, ObservedAt: time.Now().UTC(), ContractDigest: hash}, nil)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("claim the publication step: %v", err)
 	}
 	if settle {
 		settleLawCleanupNote(t, s, id, claim.AttemptEpoch)
@@ -425,7 +425,7 @@ func lawCleanupProducer(t *testing.T, s *Store, enacting bool) {
 	}
 	content := lawCleanupContent("cleanup-producer", "completed")
 	if err := CompleteWorkflow(t.Context(), s, attributionCompletion(t, s, "cleanup-producer", nativeDigest([]byte(content)))); err != nil {
-		t.Fatal(err)
+		t.Fatalf("complete the producer: %v", err)
 	}
 	var proofs int
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_law_baselines WHERE work_id='cleanup-producer' AND enactment_json IS NOT NULL`).Scan(&proofs); err != nil || (proofs == 1) != enacting {

@@ -28,9 +28,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:72bebe01897bd8b70bf714d55af68b5937649e33a62f6d49cfdabcef7343bcf7",
+  "sha256": "sha256:1fce4d5495cea1386fe19680d112c4d1f68d15e81f583b0fd597712beeb2c8db",
   "status": "accepted",
-  "summary": "Batched verdicts retain per-predicate actor/evidence/kind and reject duplicates; omitted predicates remain missing. Typed break-fix diagnosis retains reproduction, alignment and root-cause guards. Repair/refine starts derive atomically from the first action and retain fences, epochs and exact declared-command native verification. Delivery uses its complete admission and Review records separately; no combined worker acceptance or retry dispatch remains.",
+  "summary": "Batched verdicts retain per-predicate evidence and reject duplicates; diagnosis retains its guards. Repair and refine starts derive atomically. Refine uses a passing bound report for the recorded candidate, without native leases, live Git or exact-command matching. Delivery and Review remain separate.",
   "tags": [
     "workflow",
     "workflow-actions",

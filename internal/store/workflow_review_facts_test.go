@@ -41,13 +41,13 @@ CREATE TABLE workflow_contract_law_revisions(work_id TEXT,contract_version INTEG
 func TestG32ReviewLogBlind(t *testing.T) {
 	j, _ := retainedReviewFixture(t, "g32-current-log-blind")
 	finding := reviewBlockFixture().Findings[0]
-	completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required", func(report *ReviewBlock) { report.Findings = []ReviewFinding{finding} })
+	completeCurrentReviewForTest(t, j.fixture, "correction_required", func(report *ReviewBlock) { report.Findings = []ReviewFinding{finding} })
 	assertWorkerFactsLogBlind(t, j.s, map[string]func() (any, error){
 		"current-review": func() (any, error) { return loadWorkflowReviewState(t.Context(), j.s.db, j.workID) },
 	})
 	assertEventLogAbsent(t, j.s)
 	head := descendantCommit(t, j, "log-blind-correction")
-	ref, _ := completeCurrentReviewForTest(t, j.fixture, j.repo, "continue")
+	ref, _ := completeCurrentReviewForTest(t, j.fixture, "continue")
 	state, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID)
 	actor, actorErr := WorkflowActorRef(j.fixture.owner)
 	if err != nil || actorErr != nil || state.Candidate == nil || state.Candidate.Commit != head || state.Accepted == nil || state.Accepted.ReportRef != ref || state.Accepted.ActorRef != actor || state.blocker() != finding.FindingID {
@@ -59,7 +59,7 @@ func TestG32RecordedReviewOrder(t *testing.T) {
 	j, _ := retainedReviewFixture(t, "g32-report-order")
 	for _, label := range []string{"a", "b", "a-again"} {
 		head := descendantCommit(t, j, label)
-		ref, _ := completeCurrentReviewForTest(t, j.fixture, j.repo, "continue")
+		ref, _ := completeCurrentReviewForTest(t, j.fixture, "continue")
 		state, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID)
 		if err != nil || state.Accepted == nil || state.Accepted.ReportRef != ref || state.Candidate == nil || state.Candidate.Commit != head {
 			t.Fatalf("%s: latest recorded Review identity=%+v, %v", label, state, err)
@@ -142,7 +142,7 @@ func TestChangedPinnedLawStalesAcceptedReview(t *testing.T) {
 	if _, err := j.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,'spec:one',?); DELETE FROM write_guard`, j.workID, "sha256:"+strings.Repeat("a", 64)); err != nil {
 		t.Fatal(err)
 	}
-	completeCurrentReviewForTest(t, j.fixture, j.repo, "continue")
+	completeCurrentReviewForTest(t, j.fixture, "continue")
 	read := func() WorkflowReviewState {
 		t.Helper()
 		state, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID)

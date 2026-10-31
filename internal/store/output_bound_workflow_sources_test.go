@@ -242,8 +242,6 @@ func init() {
 	registerOutputBound("/$defs/continuity_snapshot/properties/observations/items/properties/tags/items/maxLength", observationTagBound)
 	registerOutputBound("/$defs/continuity_snapshot/properties/observations/items/properties/tags/maxItems", observationTagsCount)
 	registerOutputBound("/$defs/continuity_snapshot/properties/observations/maxItems", observationWindow)
-	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/active_verify_leases/maxItems",
-		workflowSQLLimitItemsBound("internal/store/worktrees.go", "heldWorktreeVerifyLeasesByOwnerTx"))
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/compatible_law_amendments/maxItems",
 		contractSpecMandate) // at most one amendment per mandated law (workflow_law_revision.go:438-462)
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/product_identity/maxItems", productIdentityBound)
@@ -326,7 +324,6 @@ func init() {
 		registerOutputBound("/$defs/"+def+"/properties/domain_groups/maxItems",
 			sumBound(requiredReadingMax, viewFindingsMax)) // one group per distinct Domain across <=32 readings + <=32 finding slots
 		registerOutputBound("/$defs/"+def+"/properties/findings/maxItems", viewFindingsMax)
-		registerOutputBound("/$defs/"+def+"/properties/oracle_preparations/maxItems", nativePreparationCountDerived())
 		registerOutputBound("/$defs/"+def+"/properties/required_reading/maxItems", requiredReadingMax)
 		registerOutputBound("/$defs/"+def+"/properties/subject_commit/maxLength", commitOIDBound)
 	}

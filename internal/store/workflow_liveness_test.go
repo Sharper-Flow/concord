@@ -697,9 +697,7 @@ func livenessGreenRunDigest(workID, action string, sequence int) string {
 	return fmt.Sprintf("%x", sum[:])
 }
 
-// livenessSeedGreenVerifyTx seeds, inside the action's own transaction, one
-// green worktree_verify run acquired just after the current refine start and
-// binds it as verification evidence for the CD-0192 refine exit.
+// livenessSeedGreenVerifyTx binds a passing report for the recorded candidate.
 // It returns the work version after
 // the binding, which the caller's action request must carry.
 func livenessSeedGreenVerifyTx(ctx context.Context, sqlTx *sql.Tx, workID, digest string) (int64, error) {
@@ -711,30 +709,22 @@ func livenessSeedGreenVerifyTx(ctx context.Context, sqlTx *sql.Tx, workID, diges
 	if err != nil {
 		return 0, err
 	}
-	leaseID := digest + ":worktree-verify:" + workID
-	command := []string{"go", "vet", "./..."}
-	resultJSON, err := json.Marshal(WorktreeVerifyResult{WorkID: workID, ProjectID: "project-s", Branch: "work/" + workID, Path: "/tmp/worktrees/" + workID, LeaseID: leaseID, Command: command, ExitCode: 0, TrackedFilesChanged: false})
+	state, err := readWorkflowReviewFacts(ctx, sqlTx, workID)
 	if err != nil {
 		return 0, err
 	}
-	commandJSON, err := json.Marshal(command)
-	if err != nil {
-		return 0, err
+	if state.Candidate == nil {
+		return 0, fmt.Errorf("cannot bind a report without a recorded Review candidate")
 	}
+	ref := "commit:" + state.Candidate.Commit
 	acquiredText := startedAt.Add(time.Second).UTC().Format(time.RFC3339Nano)
-	if _, err := sqlTx.ExecContext(ctx, `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,released_at,exit_code,outcome,result_json)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		leaseID, workID, "project-s", "/tmp/worktrees/"+workID, "released", "client/liveness", "agent/owner", "session/liveness", "principal/operator",
-		string(commandJSON), acquiredText, startedAt.Add(2*time.Second).UTC().Format(time.RFC3339Nano), 0, "completed", string(resultJSON)); err != nil {
-		return 0, err
-	}
-	opRef := worktreeVerifyOperationRef(leaseID)
+	opRef := "liveness-report:" + digest
 	if _, err := sqlTx.ExecContext(ctx, `INSERT INTO durable_operations
 			(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,
 			 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,
 			 result_kind,result_payload,evidence_refs,changed_refs,completed_at)
-			VALUES(?,1,?,'worktree.verify','','','external_effect','sha256:`+digest+`','{}','principal/operator','request/verify','`+acquiredText+`','','completed',?,?, '[]', ?)`,
-		opRef, workID, string(resultJSON), workflowJSON([]string{opRef}), startedAt.Add(2*time.Second).UTC().Format(time.RFC3339Nano)); err != nil {
+			VALUES(?,1,?,'workflow.report','','','internal_sqlite','sha256:`+digest+`','{}','principal/operator','request/verify','`+acquiredText+`','','completed','{}',?, '[]', ?)`,
+		opRef, workID, workflowJSON([]string{ref}), startedAt.Add(2*time.Second).UTC().Format(time.RFC3339Nano)); err != nil {
 		return 0, err
 	}
 	var version int64
@@ -742,9 +732,10 @@ func livenessSeedGreenVerifyTx(ctx context.Context, sqlTx *sql.Tx, workID, diges
 		return 0, err
 	}
 	binding := workflowTypedEvent(opRef+":bound", WorkflowEvidenceBound, workID, "principal/operator", startedAt.Add(time.Second), version, map[string]any{
-		"evidence_kind": "verification", "immutable_subject_ref": opRef, "producer_id": "principal/operator",
+		"evidence_kind": "verification", "immutable_subject_ref": ref, "producer_id": "principal/operator",
 		"producer_run_ref": opRef, "producer_watermark": "request/verify",
-		"observed_at": acquiredText,
+		"observed_at":         acquiredText,
+		"verification_report": VerificationReport{Source: "local", Commit: state.Candidate.Commit, Result: "pass", RunRef: "run:" + digest},
 	})
 	if _, err := appendEvent(ctx, sqlTx, binding, true); err != nil {
 		return 0, err

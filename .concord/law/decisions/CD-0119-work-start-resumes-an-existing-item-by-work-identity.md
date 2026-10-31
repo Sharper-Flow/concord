@@ -103,7 +103,7 @@ Scenario: A live item without an active worktree starts under its original ident
 
 Scenario: An unclaimed live item refuses an unsafe bootstrap origin
   Given a live work item with Project membership and no active worktree
-  And the invoking linked worktree is dirty or has an active verify lease
+  And the invoking linked worktree is dirty
   When the session calls concord_work_start with only the work_id
   Then the origin gate refuses before bootstrap intent is recorded
 
@@ -112,6 +112,8 @@ Scenario: Occupancy never refuses the move
   When the session calls concord_work_start with that work_id
   Then the session moves anyway (CD-0104 D5)
 ```
+
+The origin gate has no verification-lease condition.
 
 ## Consequences
 

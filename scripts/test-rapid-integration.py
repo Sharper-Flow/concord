@@ -112,26 +112,16 @@ sys.exit(int(os.getenv("FAIL_GATE", "0")))
         self.candidate = self.git("rev-parse", "change")
         self.request.update(candidate=self.candidate, reviewed_commit=self.candidate, eligible_paths=[path])
 
-    def test_literal_store_fixture_is_eligible(self):
-        self.fixture_only_candidate("internal/store/worktree_verify_finalization_test.go")
-        result = self.run_route()
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        receipt = json.loads(result.stdout)
-        self.assertEqual(receipt["candidate"], self.candidate)
-        self.assertEqual(receipt["tree"], self.git("rev-parse", self.candidate + "^{tree}"))
-        self.assertIn("./internal/store", receipt["gates"][-1]["argv"])
-        self.assertEqual(self.git("rev-parse", "main"), self.base)
-
-    def test_fixture_allowance_does_not_admit_other_denied_paths(self):
+    def test_safety_owners_reject_go_paths(self):
         for path in (
             "internal/store/other_test.go",
-            "internal/store/worktree_verify_finalization.go",
-            "internal/store/subdir/worktree_verify_finalization_test.go",
-            "internal/agent/worktree_verify_finalization_test.go",
-            "internal/receipt/worktree_verify_finalization_test.go",
-            "internal/hostlease/worktree_verify_finalization_test.go",
-            "internal/sessionboot/worktree_verify_finalization_test.go",
-            "internal/payloadschema/worktree_verify_finalization_test.go",
+            "internal/store/example.go",
+            "internal/store/subdir/example_test.go",
+            "internal/agent/example_test.go",
+            "internal/receipt/example_test.go",
+            "internal/hostlease/example_test.go",
+            "internal/sessionboot/example_test.go",
+            "internal/payloadschema/example_test.go",
         ):
             with self.subTest(path=path):
                 self.fixture_only_candidate(path)

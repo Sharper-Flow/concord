@@ -523,8 +523,8 @@ func TestCriterionAssociationModelKeepsUnchangedSupersession(t *testing.T) {
 	}
 }
 
-// admissionAgentMoves models observation records and the native verify route
-// outside workflow_action. Verification still needs an admitted evidence bind.
+// admissionAgentMoves models observations and reported verification.
+// Verification still needs an admitted evidence bind.
 func admissionAgentMoves(definition WorkflowDefinition, state admissionModelState) []admissionModelState {
 	return admissionAgentMovesWith(definition, state, func() bool {
 		return workflowAdmit(definition, admissionWorkflowState(definition, state), "bind_evidence").Admitted
@@ -543,8 +543,7 @@ func admissionAgentMovesWith(definition WorkflowDefinition, state admissionModel
 		observed.artifact, observed.observed = true, true
 		successors = append(successors, observed)
 	}
-	// worktree_verify is outside workflow_action. A green run can prove the
-	// epoch only when it follows the start and bind_evidence is admitted.
+	// A report can supply missing proof only while binding is admitted.
 	proves := state.started && !state.proof && workflowRefineProofGateActive(definition, state.step)
 	if !proves || !bindEvidenceAdmitted() {
 		return successors
@@ -557,7 +556,7 @@ func admissionAgentMovesWith(definition WorkflowDefinition, state admissionModel
 
 func admissionAgentMoveName(before, after admissionModelState) string {
 	if before.proof != after.proof {
-		return "worktree_verify+bind_evidence"
+		return "bind_evidence:verification_report"
 	}
 	return "observation_record"
 }

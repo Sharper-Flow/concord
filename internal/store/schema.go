@@ -91,6 +91,15 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Name == "native_task_cutover" {
 		return applyNativeTaskCutover(ctx, q, m.SQL)
 	}
+	if m.Name == "repository_verification_retirement" {
+		var active bool
+		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_verify_leases WHERE state='held' OR outcome='running')`).Scan(&active); err != nil {
+			return err
+		}
+		if active {
+			return newFailure(KindResourceBusy, "migrate", "repository verification is still held or running", false, "settle verification with the installed release before upgrading")
+		}
+	}
 	if _, err := q.ExecContext(ctx, m.SQL); err != nil {
 		return wrapFailure(KindUnavailable, "migrate",
 			fmt.Sprintf("migration %d (%s) failed", m.Version, m.Name), false,
@@ -8329,6 +8338,18 @@ DROP TABLE work_size_proof_facts;
 DROP TABLE work_size_assessments;
 INSERT INTO write_guard(active) VALUES(1);
 DELETE FROM effect_receipts WHERE kind='work.sized';
+DELETE FROM write_guard;
+`,
+	},
+	{
+		Version:  171,
+		Name:     "repository_verification_retirement",
+		Breaking: true,
+		SQL: `
+INSERT OR IGNORE INTO write_guard(active) VALUES(1);
+DELETE FROM workflow_evidence_bindings WHERE json_extract(payload,'$.producer_run_ref') IN (SELECT op_id FROM durable_operations WHERE workflow_type_ref='worktree.verify');
+DELETE FROM durable_operations WHERE workflow_type_ref='worktree.verify';
+DROP TABLE worktree_verify_leases;
 DELETE FROM write_guard;
 `,
 	},

@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-97112522add701d86a7a9d94",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-10-01T00:00:00Z",
   "evidence": [
@@ -41,9 +39,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bf46a008ff1123e71bff6dbb17509e03d2de3b408c7230268e3b12e6dc2c2f32",
+  "sha256": "sha256:91e7787f8be09ee53b3eb71288fdbbc59a268ed849568ba43f80786b5363754f",
   "status": "accepted",
-  "summary": "One tx-scoped loader and pure workflowAdmit function own admission across all sites, derived from current rows; payload and identity checks stay at existing boundaries. Oracle work consumes one ranked-finding lineage, counts its open findings, and exposes canonical IDs and retained receipts through shared correction/context readers. Dispatch refuses above 32 blockers without truncation. Readiness, oracle defects, and uncovered cases retain declared preparation, correction, supersession, or stop recovery without erasing open blockers. The registered definitions keep the liveness law and conformance checks over modeled dimensions.",
+  "summary": "One tx-scoped loader and pure workflowAdmit function own admission across all sites, derived from current rows; payload and identity checks stay at existing boundaries. Review, correction and context use current findings and attributed verification reports through existing evidence-binding admission, not native preparation or execution. The registered definitions keep the liveness law and conformance checks over modeled dimensions.",
   "tags": [
     "workflow",
     "workflow-engine",

@@ -128,7 +128,7 @@ func TestReviewCheckpointCorrectionAvailability(t *testing.T) {
 				}
 			}
 			check("ordinary producer before Review", true, 1)
-			acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+			acceptCurrentReviewForTest(t, j.fixture, "correction_required")
 			check("recorded corrective Review", true, 1)
 			// This malformed inactive projection retains its referenced row;
 			// availability must not invent an active contract to recover it.

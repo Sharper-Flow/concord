@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-06T00:00:00Z",
   "evidence": [
@@ -35,7 +33,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b78f1f79d127a3a0d5f63efe0552595990e9bc4024d5bca6cf4c37e5c7567510",
+  "sha256": "sha256:c0ebd89f665bfe9b9cc3142956e431d81ab29350c3b94b4df98ea0b94426ffc2",
   "status": "accepted",
   "summary": "concord_work_start accepts a resume shape naming an existing item by work identity. The work-resume path reuses an active entry read-only or durably bootstraps a missing canonical worktree under the original work identity after the same Product, Project, terminal, and origin guards. The bootstrap derives branch and path identity from the registered Project locator, and the adapter runs the same session-prepare, move, and read-back tail as a capture.",
   "tags": [

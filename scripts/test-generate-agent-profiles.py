@@ -122,11 +122,8 @@ class ProfileTests(unittest.TestCase):
         profile = next(profile for profile in self.profiles["profiles"] if profile["id"] == "Concord")
         source = (ROOT / profile["role_source"]).read_text()
         text = " ".join(generator.primary_projection(profile, source).split())
-        for clause in ("Use native Task to delegate implementation and design under host permissions",
-                       "Obtain independent review through native Task against the exact current subject",
-                       "You are the only participant that advances workflow state",
-                       "Keep qualifying captured native verification receipts",
-                       "a Task answer alone is not verification proof"):
+        for clause in (*checks.DELEGATION_ANCHOR_MARKERS,
+                       "You are the only participant that advances workflow state"):
             self.assertIn(clause, text)
 
     def test_authored_roles_do_not_require_retired_launcher(self):
@@ -208,7 +205,7 @@ class ProfileTests(unittest.TestCase):
         for clause in ("explicit execution budget", "`TESTING.md` and `bin/oc-test`", "Do not edit files",
                        "Read its status first", "if it is not completed", "Never\nwatch, poll or wait",
                        "matches a linked record", "explicitly unknown", "exit codes", "unexpected changed paths",
-                       "not captured native verification\nproof"):
+                       "A Task result is not a bound verification report\nor a Concord verdict"):
             self.assertIn(clause, text)
 
     def test_verifier_effective_permissions_preserve_host_denies_and_caller_owned_waits(self):

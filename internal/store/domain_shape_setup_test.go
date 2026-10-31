@@ -96,7 +96,7 @@ func TestDomainShapeSetupIndependentProductsAndRepeat(t *testing.T) {
 			}
 			toolBytes, _ := os.ReadFile(filepath.Join(request.RepoPath, projectToolingManifestPath))
 			tools, err := ParseProjectToolingManifest(toolBytes)
-			if err != nil || len(tools.Declared) != 0 || tools.DomainShape == nil || ProjectToolingInvocationDeclared(tools, []string{"true"}) {
+			if err != nil || len(tools.Declared) != 0 || tools.DomainShape == nil {
 				t.Fatalf("initial tooling must grant no check proof: %+v, %v", tools, err)
 			}
 			before = setupShapeSnapshot(t, request.RepoPath)

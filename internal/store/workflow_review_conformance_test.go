@@ -22,7 +22,7 @@ func TestDeliveryGateCorrectionAdmitsInapplicableReview(t *testing.T) {
 	gitRunStore(t, repo, "branch", "-m", branch)
 	journey := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
 	conformanceImplementChange(t, journey, "gate-correction")
-	completeCurrentReviewForTest(t, f, repo, "ready_for_final_proof")
+	completeCurrentReviewForTest(t, f, "ready_for_final_proof")
 	ctx := t.Context()
 	loaded, err := loadWorkflowReviewState(ctx, f.store.db, f.workID)
 	if err != nil {
@@ -122,7 +122,7 @@ func TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			ref, _ := completeCurrentReviewForTest(t, f, repo, disposition)
+			ref, _ := completeCurrentReviewForTest(t, f, disposition)
 			model.Candidate = &candidate
 			model.Accepted = &WorkflowAcceptedReview{ReportRef: ref, ReportDigest: reviewDigest(report), ActorRef: actor, Report: *report}
 			model.DependenciesCurrent = true

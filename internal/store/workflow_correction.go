@@ -262,7 +262,7 @@ func workflowDeliveryGateCorrectionContextForRegistry(ctx context.Context, q que
 		defer readTx.Rollback()
 		tx = readTx
 	}
-	state, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, currentStep, subject, registry)
+	state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, currentStep, subject, registry)
 	if err != nil {
 		return nil, err
 	}

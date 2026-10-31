@@ -658,7 +658,6 @@ RETAINED_OUTPUT_TWINS = {
     "workflow_law_context_law": ("/properties/path/maxLength",),
     "work_context_finding_view": ("/properties/source_event_id/maxLength",),
     "research_source": tuple(f"/properties/{name}/maxLength" for name in ("locator", "title", "publisher_or_author", "published_at", "accessed_at")),
-    "native_oracle_preparation": tuple(f"{branch}/properties/{name}/maxLength" for branch in ("", "/oneOf/0", "/oneOf/1") for name in ("project_id", "toolchain_identity")),
     "work_context_research_finding": ("/properties/statement/maxLength", "/properties/source_ids/maxItems", "/properties/source_ids/items/maxLength"),
     "work_context_research_finding_view": ("/oneOf/0/properties/selection_event_id/maxLength", "/oneOf/0/properties/sources/maxItems", "/oneOf/1/properties/selection_event_id/maxLength"),
     "work_context_view": (),
@@ -1036,92 +1035,6 @@ def workflow_payload_alternative_branch(payload: dict, defs: dict, field_teachin
     return result
 
 
-def closed_operation_variants(branches: list[dict], required: list[str]) -> dict:
-    """Keep the operation's object root while closed branches own exclusions."""
-    properties = {}
-    for branch in branches:
-        properties.update(copy.deepcopy(branch["properties"]))
-    return {"type": "object", "additionalProperties": False, "required": required,
-            "properties": properties, "oneOf": branches}
-
-
-def project_native_oracle_requests(defs: dict) -> None:
-    """CD-0096: extend the existing verify mutation and inspect read only."""
-    def obj(properties: dict, required: list[str] | None = None) -> dict:
-        return {"type": "object", "additionalProperties": False,
-                "required": list(properties) if required is None else required, "properties": properties}
-
-    defs["native_oracle_digest"] = {"type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$"}
-
-    control = copy.deepcopy(defs["worker_oracle_control"])
-    control["required"].remove("readiness_evidence_refs")
-    control["properties"].pop("readiness_evidence_refs")
-    control["description"] = "Native prepare input: readiness references are produced by preparation, never supplied by the caller."
-    defs["native_oracle_prepare_control"] = control
-    case = copy.deepcopy(defs["worker_oracle_case"])
-    case.pop("oneOf")
-    case["properties"].pop("judge")
-    case["required"].append("control_ids")
-    case["description"] = "Executable cases only: native preparation never admits judge=review cases."
-    defs["native_oracle_executable_case"] = case
-    defs["native_oracle_control_bundle"] = obj({
-        "owner": {"$ref": "#/$defs/worker_oracle_owner"},
-        "control": {"$ref": "#/$defs/native_oracle_prepare_control"},
-        "cases": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/native_oracle_executable_case"}},
-    })
-    defs["native_oracle_prepare_request"] = obj({
-        "phase": {"type": "string", "const": "prepare"},
-        "expected_contract_version": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
-        "control_bundle": {"$ref": "#/$defs/native_oracle_control_bundle"},
-    })
-    defs["native_oracle_execute_request"] = obj({
-        "phase": {"type": "string", "const": "execute"},
-        "preparation_run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
-    })
-    prepare = defs["native_oracle_prepare_request"]
-    execute = defs["native_oracle_execute_request"]
-    defs["native_oracle_request"] = closed_operation_variants([prepare, execute], ["phase"])
-    defs["native_oracle_request"]["properties"]["phase"] = {"type": "string", "enum": ["prepare", "execute"]}
-    defs["native_oracle_request"]["description"] = (
-        "native_oracle_v2: prepare qualifies one closed recipe family without running its workload and grants readiness only. "
-        "The pinned pure-Go harness compiles without test execution; a target_runner_v1 recipe materializes its pinned "
-        "dependencies offline and runs only its collection or check-input stage. Execute selects the exact persisted preparation "
-        "and requires the same clean subject. The producer owns the control bundle, recipe bytes, cwd, environment, candidate, stages, and "
-        "streams. Unsupported recipes, families, and materializer/runner pairs are unavailable. Preparation runs no acceptance "
-        "body and performs no install. Execution runs only the declared prepared workload; no automatic preparation."
-    )
-    verify = defs["work_transition_worktree_verify_input"]
-    verify = verify.get("oneOf", [verify])[0]
-    # Projection is idempotent: the legacy branch retains the exact authored
-    # command fields and bounds, not oracle properties from a prior run.
-    legacy = obj({name: copy.deepcopy(verify["properties"][name]) for name in
-                  ("work_id", "command", "idempotency_key", "requested_budget_seconds")},
-                 ["work_id", "command", "idempotency_key"])
-    native_properties = {name: copy.deepcopy(value) for name, value in legacy["properties"].items() if name != "command"}
-    native_properties["oracle"] = {"$ref": "#/$defs/native_oracle_request"}
-    native = obj(native_properties, ["work_id", "oracle", "idempotency_key"])
-    defs["work_transition_worktree_verify_input"] = closed_operation_variants([legacy, native], ["work_id", "idempotency_key"])
-    inspect = defs["work_browse_worktree_inspect_input"]
-    inspect = inspect.get("oneOf", [inspect])[0]
-    legacy = obj({name: copy.deepcopy(inspect["properties"][name]) for name in
-                  ("work_id", "mode", "path", "requested_budget_seconds")}, ["work_id", "mode"])
-    legacy["properties"]["mode"]["enum"] = ["status", "diff", "file"]
-    output = obj({
-        "work_id": copy.deepcopy(legacy["properties"]["work_id"]),
-        "mode": {"type": "string", "const": "oracle_output"},
-        "run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
-        "stream": {"type": "string", "enum": ["stdout", "stderr"]},
-        "offset": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
-        "length": {"type": "integer", "minimum": 1, "maximum": 16384},
-        "requested_budget_seconds": {"$ref": "#/$defs/requested_budget_seconds"},
-    }, ["work_id", "mode", "run_ref", "stream", "offset", "length"])
-    defs["work_browse_worktree_inspect_input"] = closed_operation_variants([legacy, output], ["work_id", "mode"])
-    defs["work_browse_worktree_inspect_input"]["properties"]["mode"] = {
-        "type": "string", "enum": ["status", "diff", "file", "oracle_output"],
-        "description": "oracle_output reads retained same-work/ambient-Project native stream bytes, even after worktree reclaim. No caller path, process, lease, or idempotency write. At most 16 KiB raw bytes per page within the unchanged envelope.",
-    }
-
-
 def field_variants_disjoint(left: dict, right: dict) -> bool:
     """Prove object alternatives incompatible by required values or closed keys."""
     if "$ref" in left or "$ref" in right or left.get("type") != "object" or right.get("type") != "object":
@@ -1201,135 +1114,6 @@ def closed_field_union(branches: list[dict], defs: dict, name: str) -> dict:
     return {"oneOf": disjoint}
 
 
-def project_native_oracle_metadata(defs: dict) -> None:
-    """Project producer results from the native preparation schema owned here."""
-    stage = {
-        "name": {"type": "string", "minLength": 1, "maxLength": 128},
-        "argv": copy.deepcopy(defs["work_transition_worktree_verify_input"]["properties"]["command"]),
-        "exit_code": {"type": "integer", "minimum": -1, "maximum": 255},
-    }
-    stage.update({field: {"type": "integer", "minimum": 0, "maximum": 2097152} for field in
-                  ("stdout_offset", "stdout_length", "stderr_offset", "stderr_length")})
-    stage_required = list(stage)
-    stage.update({
-        "isolation_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-        "isolation_enforced": {"type": "boolean", "const": True},
-    })
-    defs["native_oracle_stage"] = {"type": "object", "additionalProperties": False, "required": stage_required, "properties": stage}
-    defs["native_oracle_stage"]["if"] = {"anyOf": [{"required": ["isolation_fingerprint"]}, {"required": ["isolation_enforced"]}]}
-    defs["native_oracle_stage"]["then"] = {"required": ["isolation_fingerprint", "isolation_enforced"]}
-
-    def project_phase_into_branches(node: dict, properties: dict, required: list[str]) -> None:
-        """Each closed family branch carries the phase's own fields: a
-        result fixture synthesizes from one branch alone, so a branch that
-        omits a phase-required field would build an invalid result."""
-        for branch in node.get("oneOf", []):
-            branch["properties"] = {**branch.get("properties", {}), **copy.deepcopy(properties)}
-            known = list(branch.get("required", []))
-            branch["required"] = known + [name for name in required if name not in known]
-
-    # The worktree_verify result replays the lease's stored preparation, so
-    # it starts from the retained shape, not the dispatch-admitted one.
-    prepare = copy.deepcopy(defs["native_oracle_preparation"])
-    drop_retained_caps(prepare, "native_oracle_preparation")
-    # Full inventories belong to retained producer results, not the bounded
-    # dispatch DTO, whose environment digest already binds their identity.
-    git_metadata = {"$ref": "#/$defs/native_git_metadata"}
-    prepare["properties"]["git_metadata"] = copy.deepcopy(git_metadata)
-    # The Go branch forbids it the way it forbids every other target-only field.
-    for branch in prepare.get("oneOf", []):
-        if branch.get("properties", {}).get("recipe_kind", {}).get("const") == "target_runner_v1":
-            branch["properties"]["git_metadata"] = copy.deepcopy(git_metadata)
-        else:
-            branch["not"]["anyOf"].append({"required": ["git_metadata"]})
-    prepare_fields = {
-        "control_id": copy.deepcopy(defs["worker_oracle_control"]["properties"]["control_id"]),
-        "input_manifest_digest": {"$ref": "#/$defs/native_oracle_digest"},
-        "binary_digest": {"$ref": "#/$defs/native_oracle_digest"},
-        "stages": {"type": "array", "minItems": 0, "maxItems": 16, "items": {"$ref": "#/$defs/native_oracle_stage"}},
-        "detail": {"type": "string"},
-    }
-    prepare["properties"].update(copy.deepcopy(prepare_fields))
-    prepare["required"].extend(["control_id", "stages"])
-    project_phase_into_branches(prepare, prepare_fields, ["control_id", "stages"])
-    execute = copy.deepcopy(prepare)
-    execute["properties"]["phase"] = {"type": "string", "const": "execute"}
-    execute["properties"]["qualification"] = {"type": "string", "enum": ["pass", "fail", "unavailable"]}
-    request = defs["native_oracle_execute_request"]
-    for name in ("preparation_run_ref",):
-        execute["properties"][name] = copy.deepcopy(request["properties"][name])
-        execute["required"].append(name)
-    execute["properties"].update({
-        "observed_test_names": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
-                                "items": {"$ref": "#/$defs/native_oracle_test_name"}},
-        "observed_witness_ids": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
-                                 "items": {"type": "string", "minLength": 1, "maxLength": 256,
-                                           "pattern": "^[^\\x00-\\x1f\\x7f]*$"}},
-    })
-    project_phase_into_branches(execute, {name: copy.deepcopy(execute["properties"][name]) for name in
-                                          ("preparation_run_ref", "input_manifest_digest", "binary_digest",
-                                           "observed_test_names", "observed_witness_ids")},
-                                ["preparation_run_ref"])
-    # The family branches restate the phase fields they inherited from the
-    # preparation union; an execute branch speaks the execute phase grammar.
-    for branch in execute.get("oneOf", []):
-        branch["properties"]["phase"] = {"type": "string", "const": "execute"}
-        branch["properties"]["qualification"] = {"type": "string", "enum": ["pass", "fail", "unavailable"]}
-    execute["if"] = {"properties": {"qualification": {"const": "pass"}}, "required": ["qualification"]}
-    # A pass names the witnesses the run actually observed, in the record's
-    # own family grammar: observed_test_names for a Go preparation and
-    # observed_witness_ids for a target_runner_v1 preparation, never both.
-    # The ready-then streams block lives in each family branch of the
-    # authored preparation union.
-    streams_then = copy.deepcopy(defs["native_oracle_preparation"].get("oneOf", [{}])[0].get("then", {}))
-    def pass_branch(observed: str) -> dict:
-        branch = copy.deepcopy(streams_then)
-        branch["required"] = ["input_manifest_digest", "binary_digest", observed]
-        branch["not"] = {"required": ["observed_witness_ids" if observed == "observed_test_names" else "observed_test_names"]}
-        branch["properties"] = {**branch.get("properties", {}), observed: {"minItems": 1}}
-        return branch
-    execute["then"] = {"oneOf": [pass_branch("observed_test_names"), pass_branch("observed_witness_ids")]}
-    defs["native_oracle_result"] = {"oneOf": [prepare, execute], "description": (
-        "Native producer observations only. The canonical plan/digest are immutable in the existing lease; command remains bare argv. "
-        "Prepare grants readiness only. Execute pass requires actual run/pass witnesses in the record's own family grammar "
-        "(observed test names for Go, observed witness IDs for target_runner_v1), complete streams, pinned inputs/cwd/environment, "
-        "and the persisted preparation's clean subject equality. "
-        "Qualified green result metadata is byte-identical to lease result_json. "
-        "Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."
-    )}
-    defs["worktree_verify_result"]["properties"]["oracle"] = {"$ref": "#/$defs/native_oracle_result"}
-    defs["worktree_verify_result"]["properties"]["branch"]["maxLength"] = 256
-    page_properties = {
-        "run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
-        "stream": {"type": "string", "enum": ["stdout", "stderr"]},
-        "offset": {"type": "integer", "minimum": 0, "maximum": 2097152},
-        "data_base64": {"type": "string", "maxLength": 21848, "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"},
-        "length": {"type": "integer", "minimum": 0, "maximum": 16384},
-        "total_length": {"type": "integer", "minimum": 0, "maximum": 2097152},
-        "sha256": {"$ref": "#/$defs/native_oracle_digest"}, "complete": {"type": "boolean"},
-        "next_offset": {"type": "integer", "minimum": 0, "maximum": 2097152}, "eof": {"type": "boolean"},
-    }
-    defs["native_oracle_output_page"] = {"type": "object", "additionalProperties": False, "required": list(page_properties), "properties": page_properties}
-    result = defs["worktree_inspect_result"]
-    result = result.get("oneOf", [result])[0]
-    legacy = {"type": "object", "additionalProperties": False, "required": list(result["required"]),
-              "properties": {name: copy.deepcopy(result["properties"][name]) for name in
-                             ("work_id", "project_id", "branch", "path", "mode", "content", "truncated")}}
-    legacy["required"] = list(legacy["properties"])
-    legacy["properties"]["branch"]["maxLength"] = 256
-    legacy["properties"]["mode"]["enum"] = ["status", "diff", "file"]
-    output_properties = {name: copy.deepcopy(value) for name, value in legacy["properties"].items()}
-    output_properties["mode"] = {"type": "string", "const": "oracle_output"}
-    for name in ("branch", "path"):
-        output_properties[name].pop("minLength", None)
-    output_properties["oracle_output"] = {"$ref": "#/$defs/native_oracle_output_page"}
-    output = {"type": "object", "additionalProperties": False, "required": list(output_properties), "properties": output_properties}
-    defs["worktree_inspect_result"] = closed_operation_variants([legacy, output], ["work_id", "project_id", "mode"])
-    defs["worktree_inspect_result"]["properties"]["mode"] = {"type": "string", "enum": ["status", "diff", "file", "oracle_output"]}
-    for name in ("branch", "path"):
-        defs["worktree_inspect_result"]["properties"][name].pop("minLength", None)
-
-
 def remove_generated_guidance(node: object) -> None:
     """Rebuild teaching after constraints change, rather than retaining stale examples."""
     if isinstance(node, dict):
@@ -1388,8 +1172,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     projected = copy.deepcopy(document)
     remove_generated_guidance(projected)
     defs = projected["$defs"]
-    project_native_oracle_requests(defs)
-    project_native_oracle_metadata(defs)
     # The action-discriminated variants replaced the shared conditional input.
     # Projection starts from the previous document, so drop the retired
     # definition explicitly; a stale copy would keep satisfying checks that
@@ -1467,14 +1249,14 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         "related_ids": teaching["alignment_combination_rule"],
         "architecture_binding": teaching["architecture_domain_rule"],
     }
-    # Main associates accepted criteria with captured producer receipts. A
-    # caller verdict, missing receipt, or operation-minted ref is not proof.
+    # Main associates accepted criteria with recorded evidence. A caller
+    # verdict, missing evidence, or operation-minted ref is not proof.
     defs["workflow_verdict_batch_entry"] = {
         "type": "object", "additionalProperties": False,
         "required": ["predicate_id", "receipt_refs"],
         "properties": {
             "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
-            "receipt_refs": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}, "description": "Captured passing producer receipts covering this criterion on the current candidate. Main associates proof; it supplies no verdict or replacement subject."},
+            "receipt_refs": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}, "description": "Recorded evidence references for this criterion. Main associates proof; it supplies no verdict or replacement subject."},
         },
     }
     defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"type": "string", "enum": ["hard", "soft", "none"]}, "severity": {"type": "string", "enum": ["breaking", "non-breaking", "informational"]}}}
@@ -1522,6 +1304,8 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
             for payload in payloads:
                 validate_workflow_cross_field(action, payload)
                 branch = workflow_payload_object_schema(payload, defs, field_teaching, action["cross_field"])
+                if action_id == "bind_evidence":
+                    branch["properties"]["verification_report"] = {"$ref": "#/$defs/workflow_verification_report"}
                 if branch not in branches:
                     branches.append(branch)
             field_object = closed_field_union(branches, defs, name)
@@ -1603,7 +1387,7 @@ def prune_payload_definitions(payload: dict, manifest: dict, public_variants: li
     defs = payload["$defs"]
     roots = {schema["ref"].rsplit("/", 1)[-1] for schema in manifest["schemas"].values()
              if schema["ref"].partition("#")[0] in {"", "contracts/agent-tool-surface-payloads.schema.json"}}
-    roots.update(("worker_oracle_control", "worker_oracle_case", "native_oracle_preparation", "workflow_review_report",
+    roots.update(("worker_oracle_control", "worker_oracle_case", "workflow_review_report",
                   "work_transition_action_public_input", "workflow_action_outcome"))
     roots.update(RETAINED_OUTPUT_TWINS)
     roots.update(variant["schema"] for variant in public_variants)
@@ -1737,7 +1521,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 54
+    expected_operations = 53
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -1752,8 +1536,8 @@ def validate(manifest: dict) -> str:
             fail(f"operation section is not closed: {op.get('id')}")
         if set(op["metadata"]) != {"context", "idempotency", "pagination", "output_bytes", "versions"}:
             fail(f"operation metadata is not closed: {op.get('id')}")
-        if not isinstance(op.get("supported_budget_seconds"), int) or not 1 <= op["supported_budget_seconds"] <= 1800:
-            fail(f"operation budget ceiling is not an integer in [1, 1800]: {op.get('id')}")
+        if not isinstance(op.get("supported_budget_seconds"), int) or not 1 <= op["supported_budget_seconds"] <= 300:
+            fail(f"operation budget ceiling is not an integer in [1, 300]: {op.get('id')}")
         if not re.fullmatch(r"concord_[a-z0-9_]+\.[a-z0-9_]+", op["id"]): fail(f"invalid operation id {op.get('id')}")
         if op["id"].split(".", 1)[0] != op["tool"]: fail(f"operation/tool pairing mismatch: {op['id']}")
         if op["capability"] not in capabilities or op["consequence"] not in consequences: fail(f"operation classification is not declared: {op['id']}")
@@ -1762,23 +1546,15 @@ def validate(manifest: dict) -> str:
         if op["id"] == "concord_work_transition.workflow_action" and op.get("availability") != "workflow_definition": fail("workflow_action must be accepted but unavailable")
         if op["input_schema"] not in {f"#/schemas/{key}" for key in manifest.get("schemas", {})} or op["result_schema"] not in {f"#/schemas/{key}" for key in manifest.get("schemas", {})}:
             fail(f"operation schema reference missing: {op['id']}")
-    # CD-0038 D2: one ceiling value serves the whole surface. Per-operation
-    # proliferation is what this rule exists to prevent: a ceiling may only
-    # differ where accepted scenario evidence fixes it. Two operations are
-    # evidence-fixed today: workflow_action at 30 (TS1) and worktree_verify
-    # at 1800 (the verification lane measured 367.08s). This rule
-    # pins both operations to their evidence-fixed values, so a new distinct
-    # value arrives only with accepted evidence and this rule failing loudly,
-    # never by quiet accretion.
+    # CD-0038 D2: workflow_action has the evidence-fixed TS1 ceiling.
     evidence_fixed = {
         "concord_work_transition.workflow_action": 30,
-        "concord_work_transition.worktree_verify": 1800,
     }
     uniform = {o["supported_budget_seconds"] for o in operations if o["id"] not in evidence_fixed}
     if (len(uniform) != 1
             or uniform & set(evidence_fixed.values())
             or any(o["supported_budget_seconds"] != evidence_fixed[o["id"]] for o in operations if o["id"] in evidence_fixed)):
-        fail("supported_budget_seconds must be one uniform value across all operations except the evidence-fixed ceilings (workflow_action TS1 30, worktree_verify CON-317 1800)")
+        fail("supported_budget_seconds must be one uniform value across all operations except workflow_action TS1 30")
     if any(set(value) != {"ref", "closed"} or value["closed"] is not True for value in manifest.get("schemas", {}).values()):
         fail("schema references must be closed")
     if manifest.get("envelope", {}).get("max_bytes") != 51200 or manifest.get("bounds", {}).get("max_output_bytes") != 51200:

@@ -4632,8 +4632,9 @@ finally:
     connection.close()
 
 
-# Size retirement (170) sets the live compatibility floor; the checkpoint
-# step-kind CHECK rebuild (169) also constrains older binaries.
+# Verification retirement (171) sets the live compatibility floor; size
+# retirement (170) and the checkpoint step-kind CHECK rebuild (169) also
+# constrain older binaries.
 # The conflict application evidence table (162), which the recorder maintains
 # per effect, requires current writers. The owning-start law baseline
 # table (161) also requires current writers. The ordinary-consent CHECK
@@ -4666,7 +4667,7 @@ with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170}
+required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171}
 if max(live_breaking, default=0) != max(required_breaking):
     FAILURES.append(
         f"live compatibility floor moved: {max(live_breaking, default=0)}")

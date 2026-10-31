@@ -49,11 +49,8 @@ IDENTIFIER_PATTERN = r"^(?!.*[\r\n])[a-z][a-z0-9-]{1,63}$"
 SAFE_PATH_PATTERN = r"^(?!/)(?!.*//)(?!\.{1,2}(?:/|$))(?!.*\/\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
 NON_WHITESPACE_PATTERN = r"[^ \t\r\n]"
 SINGLE_LINE_PATTERN = r"^[^\u0000-\u001F\u007F]+$"
-# CD-0192: the refine-exit proof compares a worktree_verify run's argv against
-# the whitespace-split invocation, so the invocation must be plain argv.
-# Shell quoting and shell operators would make a shell re-tokenize the
-# command and break the exact equality. The pattern is byte-identical to the
-# one contracts/project-tooling.v1.schema.json declares for invocation.
+# Invocations declare plain argv, not shell programs. Keep this pattern
+# byte-identical to contracts/project-tooling.v1.schema.json.
 PLAIN_ARGV_PATTERN = r'''^[^'"`\\$;|&<>()]+$'''
 TEXT_CONSTRAINTS = {
     "purpose": (4, 256, False),

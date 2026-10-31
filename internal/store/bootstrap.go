@@ -109,9 +109,8 @@ type ExistingBootstrapRequest struct {
 	SessionRef string `json:"-"`
 }
 
-// ValidateBootstrapOrigin validates a clean Concord worktree with no
-// active verify lease. It runs before bootstrap records new
-// work, so every refusal has no effect.
+// ValidateBootstrapOrigin validates a clean Concord worktree. It runs before
+// bootstrap records new work, so every refusal has no effect.
 func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path string, runner GitRunner) (BootstrapOrigin, error) {
 	var origin BootstrapOrigin
 	if s == nil || s.db == nil {
@@ -164,13 +163,6 @@ func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path str
 	}
 	if current != origin || currentClaimID != claimID {
 		return origin, newFailure(KindProjectionConflict, "work_bootstrap", "linked bootstrap origin changed during the git probe", true, "retry from the current active worktree")
-	}
-	var leased bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_verify_leases WHERE path=? AND state='held')`, filepath.Clean(path)).Scan(&leased); err != nil {
-		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot inspect origin verify leases", true, "retry once the database is readable", err)
-	}
-	if leased {
-		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from worktree "+origin.WorkID+" while a verify lease is active", true, "release the origin verify lease and retry")
 	}
 	if err := tx.Commit(); err != nil {
 		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot finish reading the linked bootstrap origin", true, "retry the same operation", err)

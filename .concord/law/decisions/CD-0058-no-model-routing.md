@@ -22,7 +22,7 @@ Recorded workflow results do not attest which model produced them.
 
 ## Consequences
 
-Model configuration remains host-owned. Independent review and native receipt
+Model configuration remains host-owned. Independent review and attributed verification report
 requirements remain under CD-0242 D5 and D8.
 
 ## Verification

@@ -503,7 +503,6 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 		{`SELECT count(*) FROM work_messages WHERE (sender_work_id=? OR recipient_work_id=?) AND state='sent'`, "work has an undelivered message"},
 		{`SELECT count(*) FROM worktree_claims WHERE work_id=? AND state IN ('pending','verified')`, "work has an active worktree claim"},
 		{`SELECT count(*) FROM worktree_entries WHERE set_id=? AND state='active'`, "work has an active worktree"},
-		{`SELECT count(*) FROM worktree_verify_leases WHERE work_id=? AND state='held'`, "work has a held worktree verification lease"},
 		{`SELECT count(*) FROM bootstrap_operations WHERE work_id=? AND state IN ('pending','creating','native_ready','rolling_back')`, "work has an incomplete bootstrap effect"},
 		{`SELECT count(*) FROM active_research_consumers WHERE consumer_work_id=? AND required=1`, "work has a required research consumer"},
 		{`SELECT count(*) FROM active_research_consumers c JOIN active_research_packs p ON p.pack_id=c.pack_id WHERE p.owner_work_id=? AND c.required=1 AND c.consumer_work_id<>?`, "work has a required research consumer that depends on its findings"},
@@ -620,7 +619,6 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 		query string
 	}{
 		{"bootstrap_operations", `DELETE FROM bootstrap_operations WHERE work_id=?`},
-		{"worktree_verify_leases", `DELETE FROM worktree_verify_leases WHERE work_id=?`},
 		{"durable_operations", `DELETE FROM durable_operations WHERE work_id=?`},
 	} {
 		var err error

@@ -4,14 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
 )
 
-// Refine exit requires a passing unchanged-tree producer receipt covering the
-// current integrated candidate. Stage chronology cannot stale unchanged proof.
+// Refine exit requires a passing report covering the recorded Review candidate.
 
 func refineProofStartRefine(t *testing.T, fixture workflowReturnRouteFixture, workID string) {
 	t.Helper()
@@ -30,7 +28,7 @@ func refineProofAcceptReadyReview(t *testing.T, fixture workflowReturnRouteFixtu
 	t.Helper()
 	reviewSubjectClaim(t, fixture.store, workID)
 	f := workContextFixture{store: fixture.store, workID: workID, owner: fixture.owner, operator: fixture.operator}
-	acceptCurrentReviewForTest(t, f, reviewFixtureDirectory(t, fixture.store, workID), "ready_for_final_proof")
+	acceptCurrentReviewForTest(t, f, "ready_for_final_proof")
 }
 
 // refineProofCandidateFixture seeds the refine-proof work without a
@@ -41,20 +39,12 @@ func refineProofCandidateFixture(t *testing.T, workID, definitionRef string) wor
 	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, definitionRef), "refine", []string{"verification"}, []string{"review", "artifact"})
 }
 
-// refineProofCandidateRun runs one green worktree_verify through the real
-// producer on the claimed worktree at head and binds its receipt through
-// bind_evidence.
-func refineProofCandidateRun(t *testing.T, s *Store, workID, name, head string, command []string) {
+// refineProofCandidateRun binds a coordinator's report for a recorded commit.
+func refineProofCandidateRun(t *testing.T, s *Store, workID, name, head string) {
 	t.Helper()
-	git := checksRepairClaimGit(t, s, workID, reviewFixtureDirectory(t, s, workID), head)
-	req := verifyRequest(git, "refine-proof-"+name+"-"+workID, command, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
-	req.WorkID, req.ProjectID, req.PrincipalRef = workID, "project", "principal/operator"
-	run, err := s.VerifyWorktree(t.Context(), req)
-	if err != nil || run.SubjectRef != "commit:"+head {
-		t.Fatalf("verify %s: %+v err=%v", name, run, err)
-	}
-	if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "evidence_ref": run.OperationRef}), 0, reviewGateAcceptor(workID)); err != nil {
-		t.Fatalf("bind verify %s: %v", name, err)
+	report := VerificationReport{Source: "local", Commit: head, Result: "pass", RunRef: "run:" + name}
+	if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": "commit:" + head, "verification_report": report}), 0, reviewGateAcceptor(workID)); err != nil {
+		t.Fatalf("bind report %s: %v", name, err)
 	}
 }
 
@@ -68,7 +58,7 @@ func refineProofCandidate(t *testing.T, s *Store, workID string) string {
 	return candidate.Commit
 }
 
-func refineProofDelivery(t *testing.T, s *Store, workID string, tooling *ProjectToolingManifest) error {
+func refineProofDelivery(t *testing.T, s *Store, workID string) error {
 	t.Helper()
 	version := readWorkVersion(t, s, workID)
 	actor := reviewGateAcceptor(workID)
@@ -82,7 +72,6 @@ func refineProofDelivery(t *testing.T, s *Store, workID string, tooling *Project
 		EvidenceRefs: actionEvidenceRefs("record_delivery", payload), WorkID: workID, ExpectedVersion: version, ActionID: "record_delivery", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64) + fmt.Sprint(version), IdempotencyIdentity: "record_delivery-refine-proof-" + workID + "-" + fmt.Sprint(version), OperationID: "record_delivery-refine-proof-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "record_delivery-refine-proof-" + workID + "-" + fmt.Sprint(version), RequestID: "request:refine-proof-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
-		ProjectTooling: tooling,
 	})
 	if err != nil {
 		return err
@@ -99,41 +88,6 @@ func refineProofRequireMissingEvidence(t *testing.T, err error, wantContains str
 	if !strings.Contains(failure.Detail, wantContains) {
 		t.Fatalf("refusal %q does not name %q", failure.Detail, wantContains)
 	}
-}
-
-// refineProofSeedVerifyRunForProject seeds one green verify lease and the
-// durable worktree.verify operation the production release path records, under
-// a named Project so the integration facet's per-scope coverage can be exercised.
-func refineProofSeedVerifyRunForProject(t *testing.T, s *Store, workID, digest string, command []string, acquired time.Time, project string) string {
-	t.Helper()
-	leaseID := digest + ":worktree-verify:" + workID
-	outcome := "completed"
-	resultJSON, err := json.Marshal(WorktreeVerifyResult{WorkID: workID, ProjectID: project, Branch: "work/" + workID, Path: "/tmp/worktrees/" + workID, LeaseID: leaseID, Command: command, ExitCode: 0, TrackedFilesChanged: false})
-	if err != nil {
-		t.Fatal(err)
-	}
-	commandJSON, err := json.Marshal(command)
-	if err != nil {
-		t.Fatal(err)
-	}
-	acquiredText := acquired.UTC().Format(time.RFC3339Nano)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,released_at,exit_code,outcome,result_json)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		leaseID, workID, project, "/tmp/worktrees/"+workID, "released", "client/concord-1", "agent/owner", "session/"+workID, "principal/operator",
-		string(commandJSON), acquiredText, acquired.Add(time.Second).UTC().Format(time.RFC3339Nano), 0, outcome, string(resultJSON)); err != nil {
-		t.Fatalf("seed the verify lease: %v", err)
-	}
-	// Only a passing run may stand as verification authority; mirror the
-	// production release fold.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations
-			(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,
-			 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,
-			 result_kind,result_payload,evidence_refs,changed_refs,completed_at)
-			VALUES(?,1,?,'worktree.verify','','','external_effect','sha256:`+digest+`','{}','principal/operator','request/verify','`+acquiredText+`','','completed',?,?, '[]', ?)`,
-		worktreeVerifyOperationRef(leaseID), workID, string(resultJSON), workflowJSON([]string{worktreeVerifyOperationRef(leaseID)}), acquired.Add(time.Second).UTC().Format(time.RFC3339Nano)); err != nil {
-		t.Fatalf("seed the verify authority: %v", err)
-	}
-	return worktreeVerifyOperationRef(leaseID)
 }
 
 // refineProofBindVerification binds one verification evidence. The fold
@@ -156,107 +110,24 @@ func refineProofBindVerification(t *testing.T, s *Store, workID, ref, producerRu
 	}
 }
 
-func refineProofTooling(entries ...ProjectDeclaredTool) *ProjectToolingManifest {
-	return &ProjectToolingManifest{Project: "concord", Declared: entries}
-}
-
-// refineProofSeedGreenRun binds one green worktree_verify run after the current
-// instance's timing anchor, with the refine start retained in its owning row.
-func refineProofSeedGreenRun(t *testing.T, s *Store, workID, digest string) {
-	t.Helper()
-	var occurred string
-	if workflowCurrentStartAtStep(t, s, workID, "refine") == nil {
-		t.Fatal("the refine proof fixture has no current refine start")
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(last_checkpoint_at,execution_started_at,started_at) FROM workflow_instances WHERE work_id=?`, workID).Scan(&occurred); err != nil {
-		t.Fatalf("read the current refine instance time: %v", err)
-	}
-	startedAt, err := time.Parse(time.RFC3339Nano, occurred)
-	if err != nil {
-		t.Fatalf("parse the refine start: %v", err)
-	}
-	// The proof run's Project must match the work's primary Project, the
-	// same scope the recorded worker-job revisions carry. Otherwise the
-	// integration facet's per-Project coverage refuses the proof, and the
-	// recorded-job fold (CD-0205 D3) reads JobsIntegrated as false.
-	var project string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
-		t.Fatalf("read the work primary Project: %v", err)
-	}
-	ref := refineProofSeedVerifyRunForProject(t, s, workID, digest, []string{"go", "vet", "./..."}, startedAt.Add(time.Second), project)
-	refineProofBindVerification(t, s, workID, ref, ref)
-}
-
-// workerJobIntegrationGreenRun seeds the integration evidence the job-capable
-// delivery admission requires (CD-0205 D3): one green worktree_verify run for
-// each current Project scope, acquired after the instance's timing anchor and
-// the retained completed-result population, then bound as verification evidence.
-func workerJobIntegrationGreenRun(t *testing.T, s *Store, workID, digest string) {
-	t.Helper()
-	var occurred string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(last_checkpoint_at,execution_started_at,started_at) FROM workflow_instances WHERE work_id=?`, workID).Scan(&occurred); err != nil {
-		t.Fatalf("read the delivery-bearing instance time: %v", err)
-	}
-	anchor, err := time.Parse(time.RFC3339Nano, occurred)
-	if err != nil {
-		t.Fatalf("parse the delivery-bearing step start: %v", err)
-	}
-	srows, err := s.DatabaseForTesting().Query(`SELECT DISTINCT COALESCE(project_scope,'') FROM worker_job_revisions j WHERE j.work_id=? AND j.revision=(SELECT MAX(l.revision) FROM worker_job_revisions l WHERE l.work_id=j.work_id AND l.job_id=j.job_id)`, workID)
-	if err != nil {
-		t.Fatalf("read the required job scopes: %v", err)
-	}
-	defer func() { _ = srows.Close() }()
-	scopes := []string{}
-	anyScope := false
-	for srows.Next() {
-		var scope string
-		if err := srows.Scan(&scope); err != nil {
-			t.Fatal(err)
-		}
-		if scope == "" {
-			anyScope = true
-		} else {
-			scopes = append(scopes, scope)
-		}
-	}
-	if err := srows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	if err := srows.Close(); err != nil {
-		t.Fatal(err)
-	}
-	seed := len(scopes)
-	if seed == 0 && anyScope {
-		seed = 1
-	}
-	for i := 0; i < seed; i++ {
-		scope := "project-1"
-		if len(scopes) > 0 {
-			scope = scopes[i]
-		}
-		ref := refineProofSeedVerifyRunForProject(t, s, workID, digest+fmt.Sprintf("-%02d", i), []string{"go", "vet", "./..."}, anchor.Add(time.Second), scope)
-		refineProofBindVerification(t, s, workID, ref, ref)
-	}
-}
-
 func TestRefineExitRefusesWithoutGreenVerifyRunInEpoch(t *testing.T) {
 	const workID = "refine-proof-refusal"
 	c := acceptDeliveryUnobservedCandidateAt(t, workID, "workflow.implementation")
 	s := c.f.store
 
 	// The retained candidate has no applicable producer receipt.
-	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID, nil), "no passing producer verification covers the current integrated candidate")
+	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID), "no passing verification report covers the recorded Review candidate")
 
 	// A binding that names a workflow operation id proves nothing. The
 	// seeded workflow.test authority carries the binding's producer identity
 	// and records the reference among its evidence.
 	seedWorkflowAuthority(t, s, "return-authority-refine-proof-"+workID, workID, "principal/operator", "request/verify", []string{"evidence:return-route-verification"})
 	refineProofBindVerification(t, s, workID, "evidence:return-route-verification", "return-authority-refine-proof-"+workID)
-	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID, nil), "no passing unchanged-tree producer receipt")
+	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID), "verification does not cover the current integrated candidate")
 
 	// The green run in the epoch admits the exit.
 	acceptDeliveryBindFresh(t, c, "exit")
-	if err := refineProofDelivery(t, s, workID, nil); err != nil {
+	if err := refineProofDelivery(t, s, workID); err != nil {
 		t.Fatalf("record_delivery with the candidate's green run: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")
@@ -267,18 +138,16 @@ func TestRefineExitRefusesAStaleVerifyRun(t *testing.T) {
 	c := acceptDeliveryCorrectedCandidateAt(t, workID, "workflow.implementation")
 	s := c.f.store
 	c.j.bindVerification(t, c.early)
-	// Review qualification also observes the current candidate through Git.
-	// Only the Project's declared check can satisfy this proof obligation.
-	tooling := refineProofTooling(ProjectDeclaredTool{ID: "go-vet", Invocation: "go vet ./..."})
+	// The retained report must cover the recorded candidate.
 	before := c.j.effects(t)
-	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID, tooling), "verification does not cover the current integrated candidate")
+	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID), "verification does not cover the current integrated candidate")
 	if c.j.effects(t) != before {
 		t.Fatal("refused stale proof changed durable state")
 	}
 	reviewGateRequireStep(t, s, workID, "refine")
 
-	refineProofCandidateRun(t, s, workID, "corrected", refineProofCandidate(t, s, workID), []string{"go", "vet", "./..."})
-	if err := refineProofDelivery(t, s, workID, tooling); err != nil {
+	refineProofCandidateRun(t, s, workID, "corrected", refineProofCandidate(t, s, workID))
+	if err := refineProofDelivery(t, s, workID); err != nil {
 		t.Fatalf("record_delivery with corrected candidate proof: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")
@@ -288,33 +157,28 @@ func TestRefineExitRefusesWithoutGreenVerifyRunOnBreakFix(t *testing.T) {
 	const workID = "refine-proof-break-fix"
 	c := acceptDeliveryUnobservedCandidateAt(t, workID, "workflow.break_fix")
 	s := c.f.store
-	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID, nil), "no passing producer verification covers the current integrated candidate")
+	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID), "no passing verification report covers the recorded Review candidate")
 	acceptDeliveryBindFresh(t, c, "exit")
-	if err := refineProofDelivery(t, s, workID, nil); err != nil {
+	if err := refineProofDelivery(t, s, workID); err != nil {
 		t.Fatalf("record_delivery with the candidate's green run: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")
 }
 
-func TestDeclaredToolInvocationAdmitsRefineExitAndUndeclaredArgvRefuses(t *testing.T) {
-	const workID = "refine-proof-declared-invocation"
-	c := acceptDeliveryCandidateAt(t, workID, "workflow.implementation", "refine", false)
-	s := c.f.store
-	refineProofCandidateRun(t, s, workID, "declared", refineProofCandidate(t, s, workID), []string{"go", "vet", "./..."})
-
-	// A manifest that declares another tool refuses and names its declared
-	// checks.
-	undeclared := refineProofTooling(ProjectDeclaredTool{ID: "go-test-race", Invocation: "go test -race ./..."})
-	err := refineProofDelivery(t, s, workID, undeclared)
-	refineProofRequireMissingEvidence(t, err, "not a tool the Project declares")
-	refineProofRequireMissingEvidence(t, err, "declared checks: go-test-race (go test -race ./...)")
-
-	// The exact declared split admits the exit.
-	declared := refineProofTooling(ProjectDeclaredTool{ID: "go-vet", Invocation: "go vet ./..."}, ProjectDeclaredTool{ID: "go-test-race", Invocation: "go test -race ./..."})
-	if err := refineProofDelivery(t, s, workID, declared); err != nil {
-		t.Fatalf("record_delivery with the declared invocation: %v", err)
+func TestRefineExitRefusesFailedReport(t *testing.T) {
+	const workID = "refine-proof-failed-report"
+	c := acceptDeliveryUnobservedCandidateAt(t, workID, "workflow.implementation")
+	commit := refineProofCandidate(t, c.f.store, workID)
+	report := VerificationReport{Source: "required_ci", Commit: commit, Result: "fail", RunRef: "run:failed"}
+	err := runVerdictActionAs(t, c.f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": "commit:" + commit, "verification_report": report}), 0, reviewGateAcceptor(workID))
+	if err != nil {
+		t.Fatal(err)
 	}
-	reviewGateRequireStep(t, s, workID, "delivery")
+	refineProofRequireMissingEvidence(t, refineProofDelivery(t, c.f.store, workID), "verification does not cover the current integrated candidate")
+	refineProofCandidateRun(t, c.f.store, workID, "passing", commit)
+	if err := refineProofDelivery(t, c.f.store, workID); err != nil {
+		t.Fatalf("passing replacement report refused: %v", err)
+	}
 }
 
 func TestProjectWithoutManifestPassesOnGreenRunRefusesWithoutRun(t *testing.T) {
@@ -322,13 +186,11 @@ func TestProjectWithoutManifestPassesOnGreenRunRefusesWithoutRun(t *testing.T) {
 	c := acceptDeliveryUnobservedCandidateAt(t, workID, "workflow.implementation")
 	s := c.f.store
 
-	// No run, no manifest: the refusal states the Project declares none.
-	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID, nil), "the Project declares no checks in .concord/tooling.v1.json")
+	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID), "no passing verification report covers the recorded Review candidate")
 
-	// Any green run passes when the Project declares no manifest.
-	// The producer receipt qualifies without a separate evidence binding.
-	c.j.observeRun(t, "exit")
-	if err := refineProofDelivery(t, s, workID, nil); err != nil {
+	// A recorded passing report qualifies without a tooling manifest.
+	c.j.bindVerification(t, c.j.observeRun(t, "exit"))
+	if err := refineProofDelivery(t, s, workID); err != nil {
 		t.Fatalf("record_delivery without a manifest: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")
@@ -354,70 +216,6 @@ func TestRefineProofStartRecorded(t *testing.T) {
 	}
 }
 
-type refineProofFakeRunner struct {
-	responses map[string][]byte
-	absent    bool
-}
-
-func (r refineProofFakeRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
-	key := strings.Join(args, " ")
-	if r.absent && len(args) > 0 && args[0] == "ls-tree" {
-		// The manifest is absent at the ref: ls-tree exits 0 with no output.
-		return nil, nil
-	}
-	if out, ok := r.responses[key]; ok {
-		return out, nil
-	}
-	return nil, fmt.Errorf("unexpected git invocation: %s", key)
-}
-
-func TestRefineToolingResolutionReadsTheDefaultRefOnly(t *testing.T) {
-	s := openTemp(t)
-	ctx := context.Background()
-	seedWork(t, s, "refine-proof-tooling")
-
-	// The working tree carries a different declaration than the default ref.
-	// The resolution resolves the Project's canonical path at this working
-	// tree and must still read only the ref: git is faked, so the only way
-	// the working-tree file could leak is an os read, which the resolution
-	// never performs.
-	repo := t.TempDir()
-	if err := os.MkdirAll(repo+"/.concord", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(repo+"/.concord/tooling.v1.json", []byte(`{"schema_version":"1.0","project":"concord","tools":[{"id":"working-tree-check","invocation":"bin/working-tree-check","tier":"fast"}]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	seedWorkCanonicalPath(t, s, repo)
-	runner := refineProofFakeRunner{responses: map[string][]byte{
-		"symbolic-ref refs/remotes/origin/HEAD":           []byte("refs/remotes/origin/main\n"),
-		"ls-tree origin/main -- .concord/tooling.v1.json": []byte("100644 blob 1111111111111111111111111111111111111111\t.concord/tooling.v1.json\n"),
-		"show origin/main:.concord/tooling.v1.json":       []byte(`{"schema_version":"1.0","project":"concord","tools":[{"id":"default-ref-check","invocation":"bin/check default","tier":"fast"}]}`),
-	}}
-
-	tooling, err := resolveWorkProjectTooling(ctx, s, "refine-proof-tooling", runner)
-	if err != nil {
-		t.Fatalf("resolve the tooling manifest: %v", err)
-	}
-	if tooling == nil || len(tooling.Declared) != 1 || tooling.Declared[0].ID != "default-ref-check" {
-		t.Fatalf("resolved tooling = %+v, want the default ref's declaration", tooling)
-	}
-	if ProjectToolingInvocationDeclared(tooling, []string{"bin", "working-tree-check"}) {
-		t.Fatal("the working tree's declaration leaked into the resolution")
-	}
-	if !ProjectToolingInvocationDeclared(tooling, []string{"bin/check", "default"}) {
-		t.Fatal("the default ref's declaration does not split to its argv")
-	}
-
-	// No manifest at the default ref: the resolution reports none and the
-	// working tree's manifest stays unread.
-	runner.absent = true
-	missing, err := resolveWorkProjectTooling(ctx, s, "refine-proof-tooling", runner)
-	if err != nil || missing != nil {
-		t.Fatalf("resolution with an absent manifest = (%v, %v), want (nil, nil)", missing, err)
-	}
-}
-
 func TestParseProjectToolingManifest(t *testing.T) {
 	parsed, err := ParseProjectToolingManifest([]byte(`{"schema_version":"1.0","project":"concord","tools":[{"id":"go-vet","invocation":"go vet ./...","tier":"fast"}]}`))
 	if err != nil {
@@ -437,38 +235,5 @@ func TestParseProjectToolingManifest(t *testing.T) {
 		if _, err := ParseProjectToolingManifest([]byte(raw)); err == nil {
 			t.Fatalf("%s parsed without a refusal", name)
 		}
-	}
-}
-
-func TestRefineProofManifestRequiredTracksTheGate(t *testing.T) {
-	for _, ref := range []string{"workflow.implementation", "workflow.break_fix"} {
-		workID := "refine-proof-required-" + strings.TrimPrefix(ref, "workflow.")
-		fixture := refineProofCurrentFixture(t, workID, ref)
-
-		// record_delivery alone exits refine; evidence binding resolves no tooling.
-		required, err := RefineProofManifestRequired(context.Background(), fixture.store, workID, "record_delivery")
-		if err != nil || !required {
-			t.Fatalf("%s record_delivery tooling requirement = (%v, %v), want (true, nil)", ref, required, err)
-		}
-		other, err := RefineProofManifestRequired(context.Background(), fixture.store, workID, "bind_evidence")
-		if err != nil || other {
-			t.Fatalf("%s bind_evidence tooling requirement = (%v, %v), want (false, nil)", ref, other, err)
-		}
-	}
-}
-
-// seedWorkCanonicalPath gives the work item's seeded primary Project a
-// canonical_path locator, which is the only locator the tooling resolution
-// reads.
-func seedWorkCanonicalPath(t *testing.T, s *Store, canonicalPath string) {
-	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator:refine-proof','project','canonical_path',?,?,'2026-09-29T00:00:00Z','2026-09-29T00:00:00Z')`, canonicalPath, canonicalPath); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
 	}
 }

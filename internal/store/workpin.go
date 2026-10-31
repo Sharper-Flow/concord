@@ -243,7 +243,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 		// projection, and workflowAdmitSupersede classifies the recovery, so
 		// the pin, the preflight, and the fold answer identically for the
 		// same state.
-		state, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, registered.Definition, pin.Step, "work_pin", registry)
+		state, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, registered.Definition, pin.Step, "work_pin", registry)
 		if stateErr != nil {
 			return pin, stateErr
 		}
@@ -381,7 +381,7 @@ func verifyReadWorkflowDefinitionForRegistry(definition WorkflowReadDefinition, 
 // conditions per site. The pin never offers an advance the shared admission
 // refuses.
 func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, registry DefinitionRegistry) (WorkflowAdmissionState, error) {
-	state, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, pin.Step, "work_pin", registry)
+	state, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, pin.Step, "work_pin", registry)
 	if stateErr != nil {
 		return WorkflowAdmissionState{}, stateErr
 	}

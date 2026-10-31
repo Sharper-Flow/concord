@@ -14,9 +14,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ecf1e18d05d1871f6df9a252a224b1aae4e2bd66daa6fa7bc2ecd5fb561c7157",
+  "sha256": "sha256:5269302aaa02fb9045dd70e5892fdcb093687f2e986da030e42163f5ce26d71d",
   "status": "accepted",
-  "summary": "The coordinator records the existing typed review block through record_review, binding candidates, dependencies, findings and one of four dispositions without lane, job or attempt identity. Independent native Task review remains required; Concord does not attest the producer. Open blocking findings prevent progression. Review content supplies no native receipt, approval or completion by itself.",
+  "summary": "The coordinator records the typed Review block and its candidate, dependencies, findings and disposition. Independent Review remains required; recorded commits are compared without live Git freshness. Review alone supplies no bound report, approval or completion.",
   "tags": [
     "agent-surface",
     "review",

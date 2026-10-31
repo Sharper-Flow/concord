@@ -1,4 +1,0 @@
-{
-  "extends": "./.svelte-kit/tsconfig.json",
-  "compilerOptions": { "strict": true, "allowJs": true, "checkJs": true, "moduleResolution": "bundler", "ignoreDeprecations": "6.0", "types": ["node", "vitest/globals", "@testing-library/jest-dom/vitest"] }
-}

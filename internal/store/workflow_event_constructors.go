@@ -411,13 +411,37 @@ func workflowEvidenceBindingEvents(request WorkflowActionExecutionRequest, actor
 		return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("%s binds one immutable subject per call; the call names %d distinct subjects (%s); split the submission into one bind per subject", request.ActionID, len(subjects), strings.Join(named, ", ")), false, "split the submission into one bind per subject")
 	}
 	subject := subjects[0]
+	var report *VerificationReport
+	if raw, present := fields["verification_report"]; present {
+		if request.ActionID != "bind_evidence" {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "verification reports require bind_evidence", false, "bind the report through bind_evidence")
+		}
+		var decoded VerificationReport
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&decoded); err != nil {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "verification report is malformed", false, "supply the complete report")
+		}
+		if err := validateVerificationReport(subject, &decoded); err != nil {
+			return nil, err
+		}
+		report = &decoded
+		producerID, producerRunRef, producerWatermark = request.PrincipalRef, request.OperationID, request.RequestID
+	}
 	kinds, err := workflowEvidenceBindingKinds(request.ActionID, request.EvidenceKinds, fields, subject)
 	if err != nil {
 		return nil, err
 	}
 	events := make([]Event, 0, len(kinds))
 	for i, kind := range kinds {
-		events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(i), WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected+int64(i), map[string]any{"evidence_kind": kind, "immutable_subject_ref": subject, "producer_id": producerID, "producer_run_ref": producerRunRef, "producer_watermark": producerWatermark, "observed_at": request.Now.UTC().Format(time.RFC3339Nano)}))
+		payload := map[string]any{"evidence_kind": kind, "immutable_subject_ref": subject, "producer_id": producerID, "producer_run_ref": producerRunRef, "producer_watermark": producerWatermark, "observed_at": request.Now.UTC().Format(time.RFC3339Nano)}
+		if report != nil {
+			if kind != "verification" {
+				return nil, newFailure(KindInvalidPayload, "workflow_action", "verification report requires only verification evidence", false, "bind the report as verification evidence")
+			}
+			payload["verification_report"] = report
+		}
+		events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(i), WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected+int64(i), payload))
 	}
 	return events, nil
 }
@@ -492,7 +516,7 @@ func normalizeWorkflowVerdictEntries(fields map[string]json.RawMessage) ([]workf
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict verdicts entry predicate_id must satisfy the reference rule: 2 to 128 bytes with no whitespace", false, "name an approved contract predicate in every entry")
 		}
 		if len(item.ReceiptRefs) < 1 || len(item.ReceiptRefs) > 32 {
-			return nil, reviewFailure(KindInvalidPayload, "each criterion association requires 1 to 32 producer receipt references", "supply receipt_refs from the declared producer")
+			return nil, reviewFailure(KindInvalidPayload, "each criterion association requires 1 to 32 evidence references", "supply receipt_refs for recorded evidence")
 		}
 		entries = append(entries, workflowVerdictBatchEntry{PredicateID: item.PredicateID, VerdictKind: "ok", EvaluationEvidence: item.ReceiptRefs})
 	}

@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-22T00:00:00Z",
   "evidence": [
@@ -19,9 +17,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:18019d4abaf45b973ba487a79c3a3b4747c9bda8878b24dba0d89ea6f42d159d",
+  "sha256": "sha256:e6bfd99c49b1905255078cdd3f1c7ba2fbace77e3c01cb27f7bdb1f5528670d4",
   "status": "accepted",
-  "summary": "Concrete model selection remains host-owned. Concord has no routing policy, model pin, fallback or subagent model-readback gate and its workflow results attest no executing model identity.",
+  "summary": "Concrete model selection remains host-owned. Concord has no routing policy, model pin, fallback or subagent model-readback gate and its workflow results attest no executing model identity. Independent Review and attributed verification reports remain required.",
   "tags": [
     "routing",
     "lanes",

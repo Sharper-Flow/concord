@@ -21,7 +21,7 @@ func TestRetainedReviewFindingsRemainVisibleAfterRecording(t *testing.T) {
 				InScope: true, Blocking: blocking, Status: "open",
 				EvidenceRefs: []string{"evidence:retained"}, ClosureRefs: []string{},
 			}
-			completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required", func(report *ReviewBlock) {
+			completeCurrentReviewForTest(t, j.fixture, "correction_required", func(report *ReviewBlock) {
 				report.InputCandidate = input
 				report.Findings = []ReviewFinding{finding}
 			})
@@ -64,7 +64,7 @@ func TestRetainedReviewDraftKeepsCandidateBoundary(t *testing.T) {
 func TestRetainedReviewReadyForFinalProofAdmitsExit(t *testing.T) {
 	j, input := retainedReviewFixture(t, "retained-ready-for-proof")
 	head := descendantCommit(t, j, "ordinary-editor")
-	ref, _ := completeCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof", func(report *ReviewBlock) {
+	ref, _ := completeCurrentReviewForTest(t, j.fixture, "ready_for_final_proof", func(report *ReviewBlock) {
 		report.InputCandidate = input
 	})
 	state, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID)

@@ -233,44 +233,13 @@ func TestWorkContextUnavailableSurvivesReopen(t *testing.T) {
 	}
 }
 
-// workContextVerifyLeaseRow is one native verify-lease custody row: the
-// lease identity, the recorded result bytes, the immutable native plan bytes
-// and their digest, and both stream blobs.
-type workContextVerifyLeaseRow struct {
-	LeaseID, ResultJSON, NativePlanJSON, NativePlanSHA256, StdoutBlob, StderrBlob string
-}
-
-// workContextVerifyLeaseRows reads the work's native verify-lease custody
-// rows ordered by lease id, so a compound read can prove it changed no row.
-func workContextVerifyLeaseRows(t *testing.T, s *Store, workID string) []workContextVerifyLeaseRow {
-	t.Helper()
-	rows, err := s.DatabaseForTesting().Query(`SELECT lease_id,coalesce(result_json,''),coalesce(native_plan_json,''),coalesce(native_plan_sha256,''),coalesce(stdout_blob,''),coalesce(stderr_blob,'') FROM worktree_verify_leases WHERE work_id=? ORDER BY lease_id`, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	var out []workContextVerifyLeaseRow
-	for rows.Next() {
-		var row workContextVerifyLeaseRow
-		if err := rows.Scan(&row.LeaseID, &row.ResultJSON, &row.NativePlanJSON, &row.NativePlanSHA256, &row.StdoutBlob, &row.StderrBlob); err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return out
-}
-
 // Native custody behind the strict refusal: the mandatory native evidence at
 // both qualified overflow edges refuses the strict read with the detail
 // naming its own bound — the whole view past the 64 KiB canonical JSON bound
 // inside the 32-slot bound at 24 blockers, the shared slot count itself at
 // 33 — while the open ranked lineage holds exactly the seeded blockers, the
-// selected native preparations and the attributed native runs stay readable,
-// and the compound reads leave every event row and every verify-lease
-// custody row byte-identical.
+// attributed native runs stay readable, and compound reads leave every event
+// row byte-identical.
 func TestWorkContextUnavailableNativeCustody(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -306,13 +275,6 @@ func TestWorkContextUnavailableNativeCustody(t *testing.T) {
 			if got := len(lineage.Findings); got != tc.blockers {
 				t.Fatalf("open ranked lineage = %d, want the seeded %d blockers", got, tc.blockers)
 			}
-			preparations, prepErr := readSelectedOraclePreparations(context.Background(), s.DatabaseForTesting(), fixture.workID)
-			if prepErr != nil {
-				t.Fatal(prepErr)
-			}
-			if len(preparations) == 0 {
-				t.Fatal("the seeded oracle job selected no native preparations")
-			}
 			continuity, continuityErr := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: fixture.workID})
 			if continuityErr != nil {
 				t.Fatal(continuityErr)
@@ -320,16 +282,10 @@ func TestWorkContextUnavailableNativeCustody(t *testing.T) {
 			if len(continuity.NativeRuns) == 0 {
 				t.Fatal("the continuity snapshot carries no attributed native runs for the seeded report")
 			}
-			events, leases := currentEffectRows(t, s), workContextVerifyLeaseRows(t, s, fixture.workID)
-			if len(leases) == 0 {
-				t.Fatal("the fixture holds no native verify-lease custody rows")
-			}
+			events := currentEffectRows(t, s)
 			assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)
 			if !reflect.DeepEqual(events, currentEffectRows(t, s)) {
 				t.Fatal("compound reads changed retained event headers, order, or bytes")
-			}
-			if !reflect.DeepEqual(leases, workContextVerifyLeaseRows(t, s, fixture.workID)) {
-				t.Fatal("compound reads changed a retained native verify-lease custody row")
 			}
 		})
 	}
@@ -373,117 +329,4 @@ func TestWorkContextUnavailableNonLimitError(t *testing.T) {
 	if !errors.Is(projectionErr, sentinel) {
 		t.Fatalf("non-limit projection lost its source cause: %v", projectionErr)
 	}
-}
-
-// workContextPreparationInventoryControls sizes the bounded oracle graph of
-// the selected-preparation subcase: 32 stays inside the closed graph bounds
-// (64 controls, 64 cases, at most 8 controls per case, at most 8 readiness
-// refs per control), and 32 complete trusted preparations serialize above
-// the 32 KiB bound readSelectedOraclePreparations enforces, so the graph can
-// exercise that bound without inventing qualification.
-const workContextPreparationInventoryControls = 32
-
-// TestWorkContextUnavailableInventories isolates the two inventory refusals
-// behind the strict work-context refusal, one subcase per inventory the
-// strict view assembles. Each subcase classifies its own refusal and proves
-// the reads retained every event row unchanged; the prepared subcase also
-// proves every native verify-lease custody row unchanged.
-func TestWorkContextUnavailableInventories(t *testing.T) {
-	t.Parallel()
-	t.Run("selected preparations", func(t *testing.T) {
-		fixture := seedWorkContextFixture(t, "ctx-unavailable-preparations")
-		defer fixture.store.Close()
-		s := fixture.store
-		db := s.DatabaseForTesting()
-		repo, _ := reviewSubjectClaim(t, s, fixture.workID)
-		qualifyReviewSubjectForTest(t, s, fixture.workID, repo)
-		// Clone the baseline one-control fixture into a bounded graph of 32
-		// distinct controls and cases. Every clone preserves the owner,
-		// predicate, and recipe fields and changes only its identity, its
-		// case tie, and its closed-selector argv label.
-		baseline := acceptanceOracleFieldsWithoutPreparationsForTest(t, s, fixture.workID)
-		baseControl := baseline["controls"].([]map[string]any)[0]
-		baseCase := baseline["cases"].([]map[string]any)[0]
-		controls := make([]map[string]any, 0, workContextPreparationInventoryControls)
-		cases := make([]map[string]any, 0, workContextPreparationInventoryControls)
-		for i := 0; i < workContextPreparationInventoryControls; i++ {
-			label := fmt.Sprintf("preparation-%02d", i)
-			control := make(map[string]any, len(baseControl))
-			for key, value := range baseControl {
-				control[key] = value
-			}
-			control["control_id"] = "control:" + label
-			control["case_ids"] = []string{"case:" + label}
-			control["argv"] = oracleGoArgv(label)
-			control["readiness_evidence_refs"] = []string{}
-			candidate := make(map[string]any, len(baseCase))
-			for key, value := range baseCase {
-				candidate[key] = value
-			}
-			candidate["case_id"] = "case:" + label
-			candidate["control_ids"] = []string{"control:" + label}
-			controls = append(controls, control)
-			cases = append(cases, candidate)
-		}
-		oracle := map[string]any{"owners": baseline["owners"], "cases": cases, "controls": controls}
-		// Seed the actual trusted qualification ledger. Every control receives
-		// one complete preparation the production completeness check admits,
-		// and the seeding writes each exact run ref back into its control.
-		seedOraclePreparationFieldsFixture(t, s, fixture.workID, oracle)
-		events, leases := currentEffectRows(t, s), workContextVerifyLeaseRows(t, s, fixture.workID)
-		// Gather every selected control's receipt and prove the complete
-		// serialized metadata alone passes the bound: no control is skipped
-		// and no receipt is forged, foreign, or stale.
-		var graph AcceptanceOracle
-		if err := json.Unmarshal(mustJSONValue(oracle), &graph); err != nil {
-			t.Fatal(err)
-		}
-		version, err := activeWorkflowContractVersion(t.Context(), db, fixture.workID, "fixture")
-		if err != nil {
-			t.Fatal(err)
-		}
-		var gathered []NativeOraclePreparation
-		for _, control := range graph.Controls {
-			bundle, err := nativeBundleForControl(&graph, control.ControlID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, ref := range control.ReadinessEvidenceRefs {
-				preparation, err := readOraclePreparationReceiptTx(context.Background(), db, fixture.workID, control.RecipeSource.ProjectID, ref)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if preparation == nil || preparation.ContractVersion != version || preparation.BundleDigest != nativeBundleDigest(bundle) {
-					t.Fatalf("control %s preparation = %+v, want a qualified receipt for the selected job's version and bundle", control.ControlID, preparation)
-				}
-				gathered = append(gathered, *preparation)
-			}
-		}
-		raw, err := json.Marshal(gathered)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(raw) <= 32*1024 {
-			t.Fatalf("complete selected preparation metadata = %d bytes, want above the 32768-byte bound the selection read enforces", len(raw))
-		}
-		var failure *Failure
-		preparations, prepErr := readSelectedOraclePreparations(context.Background(), db, fixture.workID)
-		if preparations != nil || !errors.As(prepErr, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.Detail, "selected preparation metadata") {
-			t.Fatalf("selected preparations = (%d entries, %v), want nil with %s naming that bound", len(preparations), prepErr, KindLimitExceeded)
-		}
-		view, viewErr := readWorkContextView(context.Background(), db, fixture.workID)
-		if view != nil || !errors.As(viewErr, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.Detail, "selected preparation metadata") {
-			t.Fatalf("strict view = (%+v, %v), want nil with %s naming that same bound", view, viewErr, KindLimitExceeded)
-		}
-		state := assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)
-		if state.pinMarker == "" || state.continuityMarker == "" || state.embeddedMarker == "" {
-			t.Fatal("a compound read surface omits the work_context_unavailable marker")
-		}
-		if !reflect.DeepEqual(events, currentEffectRows(t, s)) {
-			t.Fatal("the inventory reads changed retained event headers, order, or bytes")
-		}
-		if !reflect.DeepEqual(leases, workContextVerifyLeaseRows(t, s, fixture.workID)) {
-			t.Fatal("the inventory reads changed a retained native verify-lease custody row")
-		}
-	})
 }

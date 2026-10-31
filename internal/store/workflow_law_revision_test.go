@@ -615,7 +615,7 @@ func seedLawRevisionPendingReview(t *testing.T, workID string) *Store {
 	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "spec:one"}), 0, f.owner); err != nil {
 		t.Fatalf("bind mandated law before Review: %v", err)
 	}
-	acceptCurrentReviewForTest(t, f, j.repo, "continue")
+	acceptCurrentReviewForTest(t, f, "continue")
 	return f.store
 }
 

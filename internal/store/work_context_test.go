@@ -1014,15 +1014,11 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		t.Fatalf("start ordinary repair: %v", err)
 	}
 	conformanceImplementChange(t, journey, "ctx-no-promotion-candidate")
-	request := journey.request("ctx-no-promotion-proof", nil)
-	request.Command = []string{"git", "diff", "--exit-code", "HEAD"}
-	proof, err := fixture.store.VerifyWorktree(t.Context(), request)
-	if err != nil || proof.ExitCode != 0 || proof.SubjectRef != "commit:"+journey.head(t) {
-		t.Fatalf("capture criterion proof on the current candidate: %+v err=%v", proof, err)
-	}
+	proof := journey.observeRun(t, "ctx-no-promotion-proof")
+	journey.bindVerification(t, proof)
 	retained := []WorkContextFinding{{Kind: "observation", Statement: workerMarker, SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
 	seedContextFactTerminal(t, fixture, "worker.completed", map[string]any{"context_findings": retained})
-	completeCurrentReviewForTest(t, fixture, repo, "ready_for_final_proof", func(report *ReviewBlock) {
+	completeCurrentReviewForTest(t, fixture, "ready_for_final_proof", func(report *ReviewBlock) {
 		report.Assessments = []ReviewAssessment{{PredicateID: "predicate:work-context", Assessment: "supported", ReceiptRefs: []string{proof.OperationRef}}}
 	})
 	// The compaction-draft-adjacent boundary: a durable checkpoint and a
@@ -1041,9 +1037,6 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}
 	// Main associates the captured proof and completes through the declared
 	// exits. Context claims cannot stand in for criterion evidence.
-	if err := journey.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proof.OperationRef}, fixture.owner); err != nil {
-		t.Fatalf("bind captured proof: %v", err)
-	}
 	delivery := map[string]any{"delivery_artifact": "commit:" + journey.head(t), "delivery_state": "asserted"}
 	for _, action := range []string{"record_delivery", "checkpoint_refine", "record_delivery", "record_delivery"} {
 		fields := delivery
@@ -1061,11 +1054,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		t.Fatalf("associate captured criterion proof: %v", err)
 	}
 	seedComparisonObservation(t, fixture.store, fixture.workID)
-	freshness, err := PrepareWorkflowAcceptanceFreshness(t.Context(), fixture.store, PrepareWorkflowSubjectRequest{WorkID: fixture.workID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := WithWorkflowSubjectPreparation(t.Context(), freshness)
+	ctx := t.Context()
 	confirmation := WorkflowActionExecutionRequest{
 		WorkID: fixture.workID, ExpectedVersion: readWorkVersion(t, fixture.store, fixture.workID), ActionID: "confirm_premise",
 		Payload: json.RawMessage(`{}`), Actor: fixture.owner, SessionWorktree: repo,

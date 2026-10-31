@@ -30,7 +30,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
 	gitRun(t, livePath, "add", "live-work.md")
 	gitRun(t, livePath, "-c", "user.email=fixture@example.com", "-c", "user.name=fixture", "commit", "-m", "work in flight")
 
-	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
+	response := authorityInvoke(t, s, second, secondGrant, "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-1",
 	})
 	if response.Outcome != agentcontract.OutcomeOK {
@@ -66,7 +66,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
 	}
 
 	// Replay: same key, recorded result, no second pass.
-	replay := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
+	replay := authorityInvoke(t, s, second, secondGrant, "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-1",
 	})
 	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
@@ -87,7 +87,7 @@ func TestWorktreeAuditReclaimDispatchReportsMixedEffects(t *testing.T) {
 	// and can reclaim.
 	vacateLinkedWorktree(t, s, second, secondGrant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2"), "audit-mixed-vacate-2")
 
-	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
+	response := authorityInvoke(t, s, second, secondGrant, "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-mixed",
 	})
 	if response.Outcome != agentcontract.OutcomeOK || response.Error != nil {
@@ -130,7 +130,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsUnstartedWork(t *testing.T) {
 	vacateLinkedWorktree(t, s, service, grant, filepath.Join(root, "work-1"), "unstarted-vacate-1")
 	vacateLinkedWorktree(t, s, second, secondGrant, filepath.Join(root, "work-2"), "unstarted-vacate-2")
 
-	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
+	response := authorityInvoke(t, s, second, secondGrant, "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "unstarted-reclaim-1",
 	})
 	if response.Outcome != agentcontract.OutcomeOK {

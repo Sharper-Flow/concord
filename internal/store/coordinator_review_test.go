@@ -98,60 +98,37 @@ func TestCoordinatorReviewFindingIdentityAndHistoricalMetadata(t *testing.T) {
 	}
 }
 
-func TestCoordinatorReviewCandidatesRequireExactObservedInputAndOutput(t *testing.T) {
+func TestCoordinatorReviewCandidatesRequireConsistentRecordedInputAndOutput(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		change func(*ReviewBlock, **WorktreeVerifyResult, **WorkflowSubjectPreparation, **ReviewCandidate)
+		change func(*ReviewBlock, **ReviewCandidate)
 		valid  bool
 	}{
-		{"unchanged", func(*ReviewBlock, **WorktreeVerifyResult, **WorkflowSubjectPreparation, **ReviewCandidate) {}, true},
-		{"corrected", func(r *ReviewBlock, _ **WorktreeVerifyResult, _ **WorkflowSubjectPreparation, _ **ReviewCandidate) {
+		{"unchanged", func(*ReviewBlock, **ReviewCandidate) {}, true},
+		{"corrected", func(r *ReviewBlock, old **ReviewCandidate) {
 			r.InputCandidate.Commit = strings.Repeat("d", 40)
+			(*old).Commit = r.InputCandidate.Commit
 		}, true},
-		{"foreign-project", func(r *ReviewBlock, _ **WorktreeVerifyResult, _ **WorkflowSubjectPreparation, _ **ReviewCandidate) {
+		{"foreign-project", func(r *ReviewBlock, _ **ReviewCandidate) {
 			r.InputCandidate.ProjectID = "project:other"
 		}, false},
-		{"missing-receipt", func(_ *ReviewBlock, c **WorktreeVerifyResult, _ **WorkflowSubjectPreparation, _ **ReviewCandidate) {
-			*c = nil
-		}, false},
-		{"foreign-receipt", func(_ *ReviewBlock, c **WorktreeVerifyResult, _ **WorkflowSubjectPreparation, _ **ReviewCandidate) {
-			(*c).ProjectID = "project:other"
-		}, false},
-		{"old-receipt", func(_ *ReviewBlock, c **WorktreeVerifyResult, _ **WorkflowSubjectPreparation, _ **ReviewCandidate) {
-			(*c).SubjectRef = "commit:" + strings.Repeat("d", 40)
-		}, false},
-		{"missing-observation", func(_ *ReviewBlock, _ **WorktreeVerifyResult, p **WorkflowSubjectPreparation, _ **ReviewCandidate) {
-			*p = nil
-		}, false},
-		{"foreign-observation", func(_ *ReviewBlock, _ **WorktreeVerifyResult, p **WorkflowSubjectPreparation, _ **ReviewCandidate) {
-			(*p).workID = "work:other"
-		}, false},
-		{"wrong-observed-tree", func(_ *ReviewBlock, _ **WorktreeVerifyResult, p **WorkflowSubjectPreparation, _ **ReviewCandidate) {
-			(*p).candidate.Tree = strings.Repeat("e", 40)
-		}, false},
-		{"same-commit-other-tree", func(r *ReviewBlock, _ **WorktreeVerifyResult, _ **WorkflowSubjectPreparation, _ **ReviewCandidate) {
+		{"same-commit-other-tree", func(r *ReviewBlock, _ **ReviewCandidate) {
 			r.InputCandidate.Tree = strings.Repeat("e", 40)
 		}, false},
-		{"unretained-input", func(r *ReviewBlock, _ **WorktreeVerifyResult, _ **WorkflowSubjectPreparation, old **ReviewCandidate) {
+		{"unretained-input", func(r *ReviewBlock, old **ReviewCandidate) {
 			r.InputCandidate.Commit = strings.Repeat("d", 40)
 			*old = nil
 		}, false},
-		{"different-retained-input", func(r *ReviewBlock, _ **WorktreeVerifyResult, _ **WorkflowSubjectPreparation, _ **ReviewCandidate) {
+		{"different-retained-input", func(r *ReviewBlock, _ **ReviewCandidate) {
 			r.InputCandidate.Commit = strings.Repeat("e", 40)
 		}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			candidate := ReviewCandidate{ProjectID: "project:one", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}
 			report := ReviewBlock{InputCandidate: candidate, OutputCandidate: candidate}
-			observed := candidate
-			prepared := &WorkflowSubjectPreparation{workID: "work:one", candidate: &observed}
-			current := &WorktreeVerifyResult{ProjectID: candidate.ProjectID, SubjectRef: "commit:" + candidate.Commit}
-			retained := &ReviewCandidate{ProjectID: candidate.ProjectID, Commit: strings.Repeat("d", 40), Tree: candidate.Tree}
-			tc.change(&report, &current, &prepared, &retained)
-			err := validateReviewCandidates(&report, current, retained)
-			if err == nil {
-				err = validateRecordedReviewObservation(WithWorkflowSubjectPreparation(t.Context(), prepared), "work:one", &report)
-			}
+			retained := &ReviewCandidate{ProjectID: candidate.ProjectID, Commit: candidate.Commit, Tree: candidate.Tree}
+			tc.change(&report, &retained)
+			err := validateReviewCandidates(&report, retained)
 			if (err == nil) != tc.valid {
 				t.Fatalf("candidate admission=%v, valid=%v", err, tc.valid)
 			}
@@ -159,7 +136,7 @@ func TestCoordinatorReviewCandidatesRequireExactObservedInputAndOutput(t *testin
 	}
 }
 
-func TestCoordinatorReviewPreflightDefersObservationToAtomicFold(t *testing.T) {
+func TestCoordinatorReviewRecordsCandidateWithoutGitObservation(t *testing.T) {
 	j, _ := retainedReviewFixture(t, "review-preflight-observation")
 	report := currentReviewBlockForTest(t, j.s, j.workID, "continue")
 	preflight := func() error {
@@ -170,25 +147,17 @@ func TestCoordinatorReviewPreflightDefersObservationToAtomicFold(t *testing.T) {
 	}
 	before := j.effects(t)
 	if err := preflight(); err != nil {
-		t.Fatalf("SQL-only inspection requires a premature Git observation: %v", err)
+		t.Fatalf("recorded candidate preflight failed: %v", err)
 	}
 	if j.effects(t) != before {
 		t.Fatal("Review inspection changed durable state")
 	}
-	tree := report.OutputCandidate.Tree
 	report.InputCandidate.Tree, report.OutputCandidate.Tree = strings.Repeat("e", 40), strings.Repeat("e", 40)
 	if err := preflight(); err != nil {
-		t.Fatalf("inspection compared a tree before native observation: %v", err)
+		t.Fatalf("recorded candidate preflight failed after tree change: %v", err)
 	}
-	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, report); !hasFailureKind(err, KindStaleRequiresReview) {
-		t.Fatalf("live Review admitted a tree the native probe did not observe: %v", err)
-	}
-	if j.effects(t) != before {
-		t.Fatal("refused Review changed durable state")
-	}
-	report.InputCandidate.Tree, report.OutputCandidate.Tree = tree, tree
 	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, report); err != nil {
-		t.Fatalf("live Review refused the exact native observation: %v", err)
+		t.Fatalf("Review refused its recorded candidate: %v", err)
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,7 +89,9 @@ func TestContinuityBlockReadFailureIsSilentOnStdout(t *testing.T) {
 	}
 }
 
-func TestContinuityBlockRecoversWhenReviewCandidateGitIsUnavailable(t *testing.T) {
+// Continuity reads recorded state only, so a session boots with its
+// worktree's Git hidden.
+func TestContinuityBlockRecoversWhenWorktreeGitIsUnavailable(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "session.db")
 	t.Setenv(dbOverrideEnv, dbPath)
 	s := mustOpenStore(t, dbPath)
@@ -98,22 +99,6 @@ func TestContinuityBlockRecoversWhenReviewCandidateGitIsUnavailable(t *testing.T
 	started, err := s.BootstrapWorktree(t.Context(), bootstrapRequest(), nil)
 	if err != nil {
 		t.Fatal(err)
-	}
-	execUnderWriteGuard(t, s.DatabaseForTesting(),
-		fmt.Sprintf(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
-		VALUES('%s',1,'session recovery fixture','internal_sqlite','[]','[]','now',(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','[]',1,'prototype_internal')`, started.WorkID),
-		fmt.Sprintf(`INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
-		VALUES('%s',1,'predicate:session',0,'exists','{"kind":"exists","subjects":["README.md"],"surface":"repository"}')`, started.WorkID))
-	if _, err := s.VerifyWorktree(t.Context(), store.WorktreeVerifyRequest{
-		WorkID: started.WorkID, ProjectID: "project-wl", Command: []string{"true"},
-		Owner:   store.SessionWorktreeOwner{ClientRef: "client/session", AgentRef: "agent/session", SessionRef: "session/session"},
-		LeaseID: "lease:session", PrincipalRef: "principal/session", RequestID: "request:session",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := store.ReadWorkflowContinuity(t.Context(), s, store.ContinuityRequest{Work: started.WorkID})
-	if err != nil || snapshot.ReviewInput == nil {
-		t.Fatalf("reachable review candidate: %+v, %v", snapshot.ReviewInput, err)
 	}
 	t.Cleanup(hideGitDir(t, started.Entry.Path))
 	var out, errOut bytes.Buffer

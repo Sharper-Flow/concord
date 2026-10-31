@@ -21,12 +21,13 @@
       "notes": "Sanctioned local entry for the ten-process SQLite conformance harness."
     },
     {
-      "id": "go-test-race",
-      "purpose": "The Go test suite with the race detector.",
-      "invocation": "bin/oc-test broad -- go test -race -timeout=20m ./...",
+      "id": "go-test-store",
+      "purpose": "The local store test suite without the race detector.",
+      "invocation": "bin/oc-test broad -- go test -timeout=15m ./internal/store",
       "tier": "slow",
-      "cost_hint": "The command timeout is 20 minutes.",
+      "cost_hint": "The command timeout is 15 minutes.",
       "automation_path": ".github/workflows/ci.yml",
+      "notes": "Required CI runs store tests in shards and the reclaim witness separately without race. Bounded verify-race remains a distinct CI-only selection, not this local invocation.",
       "coverage": [
         {
           "anchor": {"kind": "scenario", "value": "adapter-continuity-session-vacate-then-reclaim-passes-occupancy-gate"},

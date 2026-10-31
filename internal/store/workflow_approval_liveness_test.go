@@ -98,12 +98,12 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 		// The judged artifact stays current through the revision, so the
 		// coordinator confirms the successor with no repeated production
 		// (CD-0242 D7).
-		if err := runCoordinatorActionTx(t, s, registry, workID, "confirm_premise", owner, "", `{}`); err != nil {
+		if err := runCoordinatorActionTx(t, s, registry, workID, "confirm_premise", owner, `{}`); err != nil {
 			t.Fatalf("the successor's confirmation: %v", err)
 		}
 		// The confirmed successor reaches its terminal on the preserved proof.
 		bindCompletionClosure(t, s, workID, owner)
-		if err := runCoordinatorActionTx(t, s, registry, workID, "complete", owner, "", `{"impact_verdict":"non-breaking"}`); err != nil {
+		if err := runCoordinatorActionTx(t, s, registry, workID, "complete", owner, `{"impact_verdict":"non-breaking"}`); err != nil {
 			t.Fatalf("the confirmed successor's completion: %v", err)
 		}
 		if lifecycle, instanceState := approvalWorkAndInstanceState(t, s, workID); lifecycle != "completed" || instanceState != "completed" {
@@ -128,19 +128,14 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 		}
 	})
 
-	t.Run("the absent historical fact folds the coordinator answer and fabricates no question", func(t *testing.T) {
+	t.Run("the absent historical fact keeps its carried pin resolvable", func(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-liveness-absent-fact"
 		s, registry, _ := seedApprovalAbsentFactAtAcceptance(t, workID)
 		// The carry forward kept the historical NULL-fact contract
-		// authoritative; the confirmation folds the coordinator answer from
-		// the active contract's empty fact.
-		// The question owner must not fabricate a confirmation withholding on
-		// a step that declares no confirmation action: absence at execution is
-		// simply no question, whatever the folded fact says. The state-backed
-		// projection resolves the actual carried registered definition and
-		// digest, the pin the carry forward retained, never a freshly made
-		// definition shape.
+		// authoritative. The caller registry resolves the actual carried
+		// registered definition and digest, never a freshly made definition
+		// shape.
 		var carriedRef, carriedDigest string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&carriedRef, &carriedDigest); err != nil {
 			t.Fatal(err)
@@ -155,9 +150,9 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 		t.Parallel()
 		// Direct state over real seeds: the duplicated count claims the
 		// ambiguous projection the supersede recovery owns, so the acceptance
-		// fold must skip its singular active-contract read and leave the
-		// confirmation unfolded — never fail the loader before
-		// workflowAdmitSupersede classifies the recovery.
+		// fold must skip its singular active-contract read and the confirmation
+		// prerequisites — never fail the loader before workflowAdmitSupersede
+		// classifies the recovery.
 		const engineeringID = "approval-duplicate-count-engineering"
 		const decisionID = "approval-duplicate-count-decision"
 		s, _, definition, _ := seedApprovalItemAtAcceptance(t, engineeringID, []string{})

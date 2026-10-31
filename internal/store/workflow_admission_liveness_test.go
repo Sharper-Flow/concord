@@ -219,12 +219,10 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	if state.contracts > 1 {
 		folded.Mandate.Failure = newFailure(KindInvariantViolation, "workflow_action", "workflow contract projection has multiple active contracts", false, "use the typed operator recovery for duplicate active contracts")
 	}
-	// The acceptance gate folds the recorded verdict: an open premise
-	// question without one refuses confirm_premise, and record_verdict on the
-	// same step stays the exit. Engineering work keeps the same deliverable
-	// gate — its confirmation replaces the question, not the prerequisites —
-	// and folds the recorded-investigation prerequisite beside it: without
-	// the observation the confirmation refuses, never admits behind an
+	// The acceptance gate folds the recorded verdict: without one,
+	// confirm_premise refuses and record_verdict on the same step stays the
+	// exit. The gate folds the recorded-investigation prerequisite beside it:
+	// without the observation the confirmation refuses, never admits behind an
 	// absent prerequisite. An earlier folded failure keeps its place, exactly
 	// as the loader preserves it. Evidence binding is outside the model.
 	step := workflowStep(definition, state.step)
@@ -232,10 +230,9 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	if state.contracts == 1 && confirmation && state.verdict == "" {
 		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a recorded workflow verdict", false, "record_verdict before confirming the premise")
 	}
-	// The engineering confirmation folds the investigation prerequisite at
-	// every step that hosts the confirmation action — a human checkpoint's
-	// record_verdict beside confirm_premise — exactly as the loader's
-	// prerequisite fold does.
+	// The confirmation folds the investigation prerequisite at every step
+	// that declares confirm_premise, exactly as the loader's prerequisite fold
+	// does.
 	if state.contracts == 1 && confirmation && folded.AcceptanceDeliverablesMissing == nil && !state.artifact {
 		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires the recorded investigation artifact", false, "record the investigation observation before confirming")
 	}

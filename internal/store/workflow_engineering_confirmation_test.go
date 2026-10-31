@@ -8,15 +8,9 @@ import (
 	"testing"
 )
 
-// The premise authority owner keeps the confirm_premise action for both
-// classes. Under consequence_v1 the active contract's stored decision fact
-// classifies the confirmation: engineering records the authenticated
-// non-worker coordinator's own confirm choice — no operator substitution, no
-// pending human question, no human decision-context digest — while
-// decision-bearing work keeps the exact verified operator identity, human
-// choice, and decision-context digest. Every confirmation stays bound to its
-// contract version; deliverables stay required; historical events replay with
-// their original operator authority.
+// Premise confirmation records the authenticated non-worker coordinator, with
+// no operator substitution. Every confirmation stays bound to its contract
+// version, and the recorded investigation and deliverables stay required.
 
 // engineeringConfirmationSeed parks a workflow.implementation item at
 // acceptance on the live journey and records the routine actors.

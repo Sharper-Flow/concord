@@ -298,7 +298,7 @@ func terminalCleanupFixtureForKind(t *testing.T, kind string, beforeCancel ...fu
 		if err := runVerdictActionAs(t, s, "work-done", "record_verdict", criterionAssociationPayload(ref, "predicate:first", "predicate:second"), 0, f.owner); err != nil {
 			t.Fatalf("associate research criteria: %v", err)
 		}
-		if err := runCoordinatorActionTx(t, s, BuiltinWorkflowRegistry(), "work-done", "confirm_premise", f.owner, "confirm", `{}`); err != nil {
+		if err := runCoordinatorActionTx(t, s, BuiltinWorkflowRegistry(), "work-done", "confirm_premise", f.owner, `{}`); err != nil {
 			t.Fatalf("confirm research premise: %v", err)
 		}
 		if err := closureBind(t, f, "work-done", "review", hash); err != nil {

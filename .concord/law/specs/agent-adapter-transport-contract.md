@@ -31,7 +31,7 @@ fails closed.
 The binding contract is sections 1 through 5: the adapter boundary and its
 host responsibilities, the process and transport rules including client
 bootstrap, the registration and schema rules including the hidden
-TS5 envelope, the operator-question route, and the adapter
+TS5 envelope, the consequential-mutation flow, and the adapter
 boundary of allowed and forbidden behaviors. Sections 6 through 11 describe
 registration, alternatives, evidence, implementation acceptance, and
 falsifiers, and carry no obligation.

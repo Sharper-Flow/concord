@@ -336,7 +336,7 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	if workflowAdmitDeliveryRefused(definition, state, actionID, &decision) {
 		return decision
 	}
-	if workflowAdmitConfirmationRefused(state, actionID, &decision) {
+	if workflowAdmitConfirmationRefused(definition, state, actionID, &decision) {
 		return decision
 	}
 	if workflowAdmitStepRefused(definition, state, actionID, &decision) {
@@ -388,14 +388,16 @@ func workflowAdmitDeliveryRefused(definition WorkflowDefinition, state WorkflowA
 
 // workflowAdmitConfirmationRefused answers premise confirmation, completion
 // facts, and the correction request route.
-func workflowAdmitConfirmationRefused(state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
+func workflowAdmitConfirmationRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
 	// Confirmation records against the one active contract; without exactly
 	// one, the confirmation write refuses, so admission and the pin refuse too.
-	if actionID == "confirm_premise" && state.ActiveContracts == 0 {
+	// An undeclared confirmation keeps the step-legality refusal.
+	declared := actionID == "confirm_premise" && stepDeclaresAction(definition, state.Step, actionID)
+	if declared && state.ActiveContracts == 0 {
 		decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "premise confirmation requires an active workflow contract", false, "restore a verified backup into a new path with concord restore, then swap")
 		return true
 	}
-	if actionID == "confirm_premise" && state.ActiveContracts > 1 {
+	if declared && state.ActiveContracts > 1 {
 		decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "premise confirmation requires exactly one active workflow contract", false, "supersede_contract naming every active contract version")
 		return true
 	}

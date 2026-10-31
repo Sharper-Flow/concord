@@ -7,18 +7,17 @@ import (
 	"testing"
 )
 
-// TestConfirmPremiseRefusalNamesTheMissingArtifact pins the call-path refusal.
-// Without it the selection guard falls through to a message that reports a
-// question which expired, and the caller is sent to refresh context instead of
-// to the observation that opens the confirmation.
+// TestConfirmPremiseRefusalNamesTheMissingArtifact pins the confirmation
+// prerequisite's refusal: it names the missing investigation artifact and the
+// observation that satisfies it, so the caller is not sent to refresh context.
 func TestConfirmPremiseRefusalNamesTheMissingArtifact(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
-	workID := "withheld-question-refusal"
+	workID := "confirmation-refusal-artifact"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
-	seedWithheldQuestionWorkflow(t, s, workID)
+	seedContractlessVerifyWorkflow(t, s, workID)
 	seedActiveBreakFixContract(t, s, workID)
 
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -46,10 +45,8 @@ func TestConfirmPremiseRefusalNamesTheMissingArtifact(t *testing.T) {
 
 // TestUnavailableConfirmationIsNotAdvertised holds the intent-projection side
 // of the confirmation gate. The pin states what the caller may do, and a
-// confirm_premise whose deliverables are missing would refuse at the
-// selection guard, so the pin must not advertise it. An active contract
-// projects neither a question nor a withholding; once the deliverables
-// stand, the action returns.
+// confirm_premise whose deliverables are missing would refuse, so the pin must
+// not advertise it. Once the deliverables stand, the action returns.
 func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	ctx := context.Background()
 	workID := "hidden-confirmation-work"
@@ -70,8 +67,7 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	}
 
 	// The confirmation gate closes the action while the deliverables stand
-	// missing, and the active contract projects neither question nor
-	// withholding: the investigation artifact changes nothing there.
+	// missing; the investigation artifact alone does not open it.
 	hidden := pinIntents()
 	if advertised(hidden) {
 		t.Fatal("pin advertised confirm_premise while its deliverables were missing")
@@ -91,11 +87,10 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	}
 }
 
-// seedWithheldQuestionWorkflow puts a break-fix instance at one step with no
-// active contract: the legacy pin whose confirmation folds the human
-// question path. The instance row is the least state the projection and the
-// selection guard both need.
-func seedWithheldQuestionWorkflow(t *testing.T, s *Store, workID string) WorkflowReadDefinition {
+// seedContractlessVerifyWorkflow puts a break-fix instance at its verify step
+// with no active contract. The instance row is the least state the
+// confirmation and pin reads need; callers add a contract when they need one.
+func seedContractlessVerifyWorkflow(t *testing.T, s *Store, workID string) WorkflowReadDefinition {
 	t.Helper()
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {

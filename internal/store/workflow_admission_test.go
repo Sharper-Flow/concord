@@ -51,6 +51,7 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 		{"confirmation is admitted without an operator question", func(s *WorkflowAdmissionState) { s.ActiveContracts = 1 }, map[string]bool{"confirm_premise": true, "record_review": true}},
 		{"confirmation requires an active contract", func(*WorkflowAdmissionState) {}, map[string]bool{"confirm_premise": false, "record_review": true}},
 		{"confirmation refuses duplicate active contracts", func(s *WorkflowAdmissionState) { s.ActiveContracts = 2 }, map[string]bool{"confirm_premise": false, "record_review": true}},
+		{"undeclared confirmation before a contract is off-step", func(s *WorkflowAdmissionState) { s.Step, s.Review.Accepted = "delivery", nil }, map[string]bool{"confirm_premise": false}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -70,6 +71,9 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 				}
 				if !want && decision.Failure.RecoveryAction == "" {
 					t.Fatalf("%s: refusal has no admitted recovery", action)
+				}
+				if !want && !definitionStepAllows(definition, state.Step, action) && (!decision.OffStep || decision.Failure.Kind != KindIllegalLifecycleTransition) {
+					t.Fatalf("%s: undeclared action did not take the off-step refusal: %+v", action, decision.Failure)
 				}
 			}
 		})

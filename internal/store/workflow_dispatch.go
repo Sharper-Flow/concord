@@ -308,8 +308,8 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 }
 
 // One admission derivation for the fold: the tx-scoped loader folds the
-// instance history once. Only the payload-bound review, operator approval,
-// and interactive closed-question walls defer to their owning guards.
+// instance history once. Only the payload-bound review and operator approval
+// defer to their owning guards.
 func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 	request := g.request
 	admission, proofRuns, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)

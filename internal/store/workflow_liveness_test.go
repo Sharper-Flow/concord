@@ -977,13 +977,13 @@ func livenessReplay(t *testing.T, definition WorkflowDefinition, path []liveness
 	return s, workID
 }
 
-// livenessSeedInvestigation records the observation that opens an operator
-// question: one current Domain of the work item's Product, plus a second work
+// livenessSeedInvestigation records the investigation premise confirmation
+// requires: one current Domain of the work item's Product, plus a second work
 // item, named by one observation.
 //
 // No workflow action produces this state. The gate reads the observation
 // projection, which concord_work_define fills from a different tool surface, so
-// an instance whose only exit is an operator question waits on evidence its own
+// an instance whose only exit is premise confirmation waits on evidence its own
 // declared actions cannot record. Seeding it here keeps the explorer measuring
 // the workflow graph rather than re-reporting that one cross-surface gate at
 // every checkpoint step.

@@ -72,7 +72,7 @@ func rReviseContract(t *testing.T, s *Store, workID, actorRef string, domains []
 // rComplete runs the ordinary public completion as the executing coordinator.
 func rComplete(t *testing.T, f acceptanceRecoveryFixture) error {
 	t.Helper()
-	return runCoordinatorActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "complete", f.owner, "", `{"impact_verdict":"non-breaking"}`)
+	return runCoordinatorActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "complete", f.owner, `{"impact_verdict":"non-breaking"}`)
 }
 
 // rAcceptanceModel is the abstract admission state of an rAcceptance item:

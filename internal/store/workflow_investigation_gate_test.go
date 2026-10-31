@@ -227,7 +227,7 @@ func TestInvestigationArtifactAdmitsSingleItemProductByDomainRef(t *testing.T) {
 	seedIssue31DomainRegistry(t, s)
 
 	// The Product holds no second work item, so a current Domain ref alone
-	// admits the question.
+	// satisfies the artifact.
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("a", 16), []string{"root"})
 	if err := requireRecordedInvestigationArtifact(context.Background(), s.DatabaseForTesting(), workID); err != nil {
 		t.Fatalf("single-item Product refused a domain-only investigation artifact: %v", err)

@@ -45,7 +45,7 @@ func setHistoryContractPin(t *testing.T, s *Store, workID string, version int64,
 // a work item at contract v2, contract_version 1 returns v1 exactly as
 // recorded, with its approval, its successor, its own definition pin, and
 // the Product-truth flag that pin answers, while the instance fields stay
-// current and the active contract's operator question is omitted.
+// current.
 func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 	t.Parallel()
 	s, workID := historyContractFixture(t, "history-contract-version")

@@ -29,10 +29,9 @@ func seedActiveBreakFixContract(t *testing.T, s *Store, workID string) {
 }
 
 // TestWorkPinEngineeringConfirmPremiseOmitsDigest holds the pin side of the
-// coordinator confirmation: an active contract opens no operator question,
-// the pin hides confirm_premise while the confirmation's verdict deliverable
-// is missing, and the advertised intent requires the closed choice alone,
-// because the confirmation refuses a human digest.
+// coordinator confirmation: the pin hides confirm_premise while the
+// confirmation's verdict deliverable is missing, and the advertised intent
+// requires no fields.
 func TestWorkPinEngineeringConfirmPremiseOmitsDigest(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -67,11 +66,11 @@ func TestWorkPinEngineeringConfirmPremiseOmitsDigest(t *testing.T) {
 	t.Fatalf("engineering pin intents %v omit confirm_premise", pin.NextValidIntents)
 }
 
-// TestWithheldReasonNamesObservationRefFormat holds the discoverability side
+// TestConfirmationRefusalNamesObservationRefFormat holds the discoverability side
 // of the premise gate: the confirmation refusal names the observation ref
 // format the gate enforces, so a refused caller can repair in one read
 // instead of reading the store source.
-func TestWithheldReasonNamesObservationRefFormat(t *testing.T) {
+func TestConfirmationRefusalNamesObservationRefFormat(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -80,7 +79,7 @@ func TestWithheldReasonNamesObservationRefFormat(t *testing.T) {
 	seedWork(t, s, otherWorkID)
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
-	seedWithheldQuestionWorkflow(t, s, workID)
+	seedContractlessVerifyWorkflow(t, s, workID)
 	seedActiveBreakFixContract(t, s, workID)
 	validate := func() error {
 		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)

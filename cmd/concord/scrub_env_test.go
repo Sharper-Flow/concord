@@ -6,14 +6,10 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/gittest"
-	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/testenv"
 )
 
 func TestMain(m *testing.M) {
-	if code, handled := store.RunNativeIsolationSupervisor(); handled {
-		os.Exit(code)
-	}
 	// launch_refusal_test.go re-executes this binary to prove the removed
 	// argv[0] forwarding rule is gone. That child reports the route result
 	// for the parent's arguments and must exit before the suite runs or the

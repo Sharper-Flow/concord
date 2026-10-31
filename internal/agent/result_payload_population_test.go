@@ -950,7 +950,7 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 	})
 	t.Run("typeless_anyOf_selects_first_non_null_arm", func(t *testing.T) {
 		union := map[string]any{"anyOf": []any{
-			map[string]any{"$ref": "#/$defs/work_size_summary"},
+			map[string]any{"$ref": "#/$defs/work_pin"},
 			map[string]any{"type": "null"},
 		}}
 		arm := schemaFixtureValue(t, union, defs, 0)
@@ -958,8 +958,8 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := payloadschema.Validate("work_size_summary", data); err != nil {
-			t.Fatalf("typeless anyOf fixture does not satisfy the first arm work_size_summary: %v", err)
+		if err := payloadschema.Validate("work_pin", data); err != nil {
+			t.Fatalf("typeless anyOf fixture does not satisfy the first arm work_pin: %v", err)
 		}
 	})
 	t.Run("typeless_anyOf_sibling_constraints_bind_the_arm", func(t *testing.T) {
@@ -1223,15 +1223,9 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 
 // enrichmentChangedRefs names the changed refs each operation's real effect
 // returns. Every generic-tail mutation returns work-item refs, so enrichment
-// stamps its pin onto the result; worktree_verify answers with a lease ref,
-// which does not pass the work-item filter.
-func enrichmentChangedRefs(workID string, version int64, opID string) []agentcontract.ChangedRef {
-	switch opID {
-	case "concord_work_transition.worktree_verify":
-		return []agentcontract.ChangedRef{{EntityKind: "worktree_verify_lease", ID: "lease-1", Version: "1"}}
-	default:
-		return []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
-	}
+// stamps its pin onto the result.
+func enrichmentChangedRefs(workID string, version int64, _ string) []agentcontract.ChangedRef {
+	return []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
 }
 
 // TestClosedMutationResultPayloadsSurviveEnrichment runs every mutation

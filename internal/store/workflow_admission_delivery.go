@@ -2,10 +2,8 @@ package store
 
 import (
 	"context"
-	"slices"
 )
 
-// Raw proof commands stay outside the comparable state for tooling checks.
 type workflowDeliveryAdmission struct {
 	Started           bool
 	ProofRequired     bool
@@ -15,25 +13,23 @@ type workflowDeliveryAdmission struct {
 	Failure           *Failure
 }
 
-// Runs retain binding order: a malformed operation refuses when reached,
-// while a qualifying earlier run settles the proof without reading past it.
+func workflowDefinitionProducesDelivery(definition WorkflowDefinition) bool {
+	for _, step := range definition.StepGraph.Steps {
+		for _, action := range step.Actions {
+			if action == "record_delivery" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type workflowVerificationRun struct {
-	Command      []string
 	Disqualifier string
 	Failure      error
 }
 
-// Tooling adds diagnostic context without changing the folded decision.
-func workflowExecutionAdmissionFailure(decision WorkflowAdmissionDecision, tooling *ProjectToolingManifest) *Failure {
-	if !decision.DeliveryProofMissing {
-		return decision.Failure
-	}
-	failure := *decision.Failure
-	failure.Detail += " " + ProjectToolingDeclaredText(tooling)
-	return &failure
-}
-
-func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string) (workflowDeliveryAdmission, []workflowVerificationRun, error) {
+func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string) (workflowDeliveryAdmission, error) {
 	state := workflowDeliveryAdmission{ProofRequired: workflowRefineProofGateActive(definition, currentStep)}
 	startStep := currentStep
 	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
@@ -46,37 +42,37 @@ func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string
 	}
 	_, _, found, err := latestWorkflowActionStart(ctx, q, workID, startStep)
 	if err != nil {
-		return state, nil, err
+		return state, err
 	}
 	state.Started = found
 	if !state.ProofRequired || !found {
-		return state, nil, nil
+		return state, nil
 	}
 	refs, err := workflowCandidateVerificationRefs(ctx, q, workID)
 	if err != nil {
-		return state, nil, err
+		return state, err
 	}
 	var runs []workflowVerificationRun
 	for _, ref := range refs {
-		command, _, why, err := workflowCandidateVerificationRun(ctx, q, workID, ref)
+		why, err := workflowCandidateVerificationDisqualifier(ctx, q, workID, ref)
 		if err != nil {
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
-				return state, nil, err
+				return state, err
 			}
 		}
-		runs = append(runs, workflowVerificationRun{Command: command, Disqualifier: why, Failure: err})
+		runs = append(runs, workflowVerificationRun{Disqualifier: why, Failure: err})
 	}
-	state.ProofReady, state.ProofDisqualifier, err = workflowVerificationProof(runs, nil)
+	state.ProofReady, state.ProofDisqualifier, err = workflowVerificationProof(runs)
 	if err != nil {
 		state.ProofFailure = workflowFailureOf(err)
 	}
-	return state, runs, nil
+	return state, nil
 }
 
-func workflowVerificationProof(runs []workflowVerificationRun, tooling *ProjectToolingManifest) (bool, string, error) {
+func workflowVerificationProof(runs []workflowVerificationRun) (bool, string, error) {
 	if len(runs) == 0 {
-		return false, "no passing producer verification covers the current integrated candidate", nil
+		return false, "no passing verification report covers the recorded Review candidate", nil
 	}
 	first := ""
 	for _, run := range runs {
@@ -85,10 +81,7 @@ func workflowVerificationProof(runs []workflowVerificationRun, tooling *ProjectT
 		}
 		why := run.Disqualifier
 		if why == "" {
-			if tooling == nil || ProjectToolingInvocationDeclared(tooling, run.Command) {
-				return true, "", nil
-			}
-			why = "the bound verify run's command is not a tool the Project declares"
+			return true, "", nil
 		}
 		if first == "" {
 			first = why
@@ -99,60 +92,30 @@ func workflowVerificationProof(runs []workflowVerificationRun, tooling *ProjectT
 
 func workflowRefineProofFailure(why string) *Failure {
 	return newFailure(KindMissingEvidence, "workflow_action",
-		"leaving refine requires a passing worktree_verify run on the current integrated candidate: "+why,
-		false, "run worktree_verify on the current integrated candidate before record_delivery")
+		"leaving refine requires a passing verification report on the current integrated candidate: "+why,
+		false, "bind a passing report on the current integrated candidate before record_delivery")
 }
 
-// Proof applicability follows the producer's subject, not its position relative
-// to a Review or a stage start. An unchanged candidate needs no rerun.
-func workflowCandidateVerificationRun(ctx context.Context, q queryer, workID, ref string) ([]string, string, string, error) {
-	producer, err := readOracleVerifySubjectReceipt(ctx, q, workID, ref)
+// Proof applicability follows the recorded commit, not stage chronology.
+func workflowCandidateVerificationDisqualifier(ctx context.Context, q queryer, workID, ref string) (string, error) {
+	reports, err := readVerificationReports(ctx, q, workID, ref)
 	if err != nil {
-		return nil, "", "", err
-	}
-	if producer == nil {
-		return nil, "", "no passing unchanged-tree producer receipt", nil
+		return "", err
 	}
 	candidate, err := workflowVerificationCandidate(ctx, q, workID)
 	if err != nil {
-		return nil, "", "", err
+		return "", err
 	}
-	if candidate == nil || producer.SubjectRef != "commit:"+candidate.Commit || producer.ProjectID != candidate.ProjectID {
-		return producer.Command, producer.ProjectID, "verification does not cover the current integrated candidate", nil
+	for _, report := range reports {
+		if reportCovers(report, candidate) {
+			return "", nil
+		}
 	}
-	return producer.Command, producer.ProjectID, "", nil
+	return "verification does not cover the current integrated candidate", nil
 }
 
-// Explicit bindings and qualified producer receipts share the same candidate
-// admission. Reading a tool's own receipt creates no duplicate evidence row.
 func workflowCandidateVerificationRefs(ctx context.Context, q queryer, workID string) ([]string, error) {
-	refs, err := workflowVerificationBindingsAfter(ctx, q, workID, 0, "workflow_action")
-	if err != nil {
-		return nil, err
-	}
-	candidate, err := workflowVerificationCandidate(ctx, q, workID)
-	if err != nil || candidate == nil {
-		return refs, err
-	}
-	rows, err := q.QueryContext(ctx, oracleVerifyReceiptSQL+` AND json_extract(l.result_json,'$.subject_ref')=? AND l.project_id=? ORDER BY d.rowid`, workID, "commit:"+candidate.Commit, candidate.ProjectID)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the candidate's producer verification", true, "retry once the producer receipts are readable", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var raw string
-		if err := rows.Scan(&raw); err != nil {
-			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan the candidate's producer verification", true, "retry once the producer receipts are readable", err)
-		}
-		producer, err := decodeOracleVerifyReceipt(raw, workID)
-		if err != nil {
-			return nil, err
-		}
-		if !slices.Contains(refs, producer.OperationRef) {
-			refs = append(refs, producer.OperationRef)
-		}
-	}
-	return refs, rows.Err()
+	return workflowVerificationBindingsAfter(ctx, q, workID, 0, "workflow_action")
 }
 
 func workflowVerificationCandidate(ctx context.Context, q queryer, workID string) (*ReviewCandidate, error) {

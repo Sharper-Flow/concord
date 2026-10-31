@@ -166,7 +166,7 @@ details; this table does not duplicate them.
 | Adapter transport and host context | `adapter/opencode/concord.ts`, `adapter/opencode/concord-plugin.ts` | Adjacent adapter tests |
 | SQLite connection and admission mechanism | `internal/store/internal/sqlitedb/connection.go`, `internal/store/internal/sqlitedb/read.go`, `internal/store/internal/sqlitedb/write.go` | One pooled connection and durable commit; adjacent tests, `internal/store/txbegin_guard_test.go` |
 | SQLite current-state and effect-receipt authority | `internal/store/doc.go`, `internal/store/store.go`, `internal/store/transaction.go`, `internal/store/events.go` | Transaction-scoped access; `txscope_test.go`, `tx_subprocess_guard_test.go` |
-| Work context and evidence | `internal/store/work_context.go`, `internal/store/workflow_review.go`, `internal/store/worktree_verify_oracle.go` | Declared sources, exact subject, Review outcomes and producer receipts; adjacent tests |
+| Work context and evidence | `internal/store/work_context.go`, `internal/store/workflow_review.go`, `internal/store/workflow_verification_report.go` | Declared sources, recorded subject, Review outcomes and verification reports; adjacent tests |
 | Workflow action and protected writes | `internal/store/workflow_dispatch.go`, `internal/store/workflow_preflight.go`, `internal/store/workflow_domain_overlap.go` | Approved scope, law revision, and work-relation resolution |
 | Sessions, worktrees, handoff | `internal/store/worktrees.go`, `internal/store/project_handoffs.go`, `internal/store/session_vacate.go` | Occupancy, same-Project incarnation, per-repository provenance; adjacent tests |
 | Research and knowledge law | `internal/store/research_types.go`, `internal/store/research_reads.go`, `internal/store/research_mutations.go`, `internal/store/law_boundary.go` | Version and source identity, consumer pins, staleness, accepted-law lookup |
@@ -185,7 +185,7 @@ details; this table does not duplicate them.
 | [`rollout-plan.md`](./rollout-plan.md) | Entry conditions | Go-core direction is not an entry condition. |
 | [`advance-postmortem.md`](./advance-postmortem.md) | Failure evidence | Public predecessor lessons source the resilience invariants in §2. |
 | [`capability-placement.md`](./capability-placement.md) | Placement rubric | Places capabilities under CD-0005; TS6 selects the plugin-entry adapter and rejects MCP v1. |
-| [`workflows.md`](./workflows.md) | Workflow families | Three retained execution families (§4), composed from shared parts at the size the decision model sets (§7). |
+| [`workflows.md`](./workflows.md) | Workflow families | Three retained execution families (§4), authored as plain Go definitions (§7). |
 
 ---
 

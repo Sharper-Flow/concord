@@ -32,7 +32,7 @@ You cannot fix an unsafe cast by shouting at the compiler, and you cannot fix an
 agent's semantic drift by stuffing more instructions into a prompt.
 
 Concord supplies the structural runtime guard. It enforces workflow conditions,
-outcome predicates, and cryptographic receipts outside the model's context
+outcome predicates, and evidence bindings outside the model's context
 window before state transitions commit:
 
 - **Completion requires evidence.** Concord refuses completion requests until
@@ -76,11 +76,11 @@ Every change progresses through five deterministic enforcement stages:
    - *Why*: Prevents changes from bleeding across packages or breaking trunk.
    - *How*: Concord boots each task in an isolated Git worktree pinned to an
      approved path scope. Operations outside the assigned paths are refused.
-3. **Capture verification evidence.**
-   - *Why*: A claimed result is not proof that a check ran.
-   - *How*: Native verification retains producer receipts bound to the prepared
-     recipe, environment, and exact candidate. The workflow checks those receipts
-     separately from the coordinator's acceptance verdict.
+3. **Record verification evidence.**
+   - *Why*: Review needs test results for the same commit it judges.
+   - *How*: The coordinator binds an attributed local or required CI report with
+     its source, commit, result and run reference. Concord compares recorded
+     commits; independent review judges adequacy. Concord does not run the tests.
 4. **Require independent review.**
    - *Why*: The author must not approve their own work.
    - *How*: The coordinator obtains independent review through the host's native
@@ -88,7 +88,7 @@ Every change progresses through five deterministic enforcement stages:
      Concord checks the recorded subject and findings, not which subagent
      produced the review. The coordinator owns that independence claim.
 5. **Gate terminal transitions on recorded evidence.**
-   - *Why*: Keeps completion claims bound to what actually ran.
+   - *Why*: Keeps completion tied to recorded evidence for the reviewed commit.
    - *How*: When an agent requests a `completed` transition, Concord validates
      every required evidence binding and refuses the transition with
      `missing_evidence` until the bindings stand.

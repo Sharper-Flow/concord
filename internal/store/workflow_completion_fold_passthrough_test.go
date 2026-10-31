@@ -47,6 +47,10 @@ func TestWorkflowCompletionAcceptsEvidenceCountAbove32(t *testing.T) {
 		includePremise: true, verdictKind: "ok",
 	})
 	const extra = 30
+	var initialBound int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&initialBound); err != nil {
+		t.Fatal(err)
+	}
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
@@ -71,8 +75,8 @@ func TestWorkflowCompletionAcceptsEvidenceCountAbove32(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&bound); err != nil {
 		t.Fatal(err)
 	}
-	if bound != 36 {
-		t.Fatalf("bound evidence events = %d, want 36 (six fixture bindings plus thirty bulk bindings)", bound)
+	if bound != initialBound+extra || bound <= 32 {
+		t.Fatalf("bound evidence events = %d, want %d fixture bindings plus %d bulk bindings and a total above 32", bound, initialBound, extra)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)

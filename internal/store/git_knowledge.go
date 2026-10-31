@@ -560,10 +560,6 @@ func knowledgeContentDigest(ctx context.Context, home KnowledgeHome, commitOID s
 }
 
 func runGit(ctx context.Context, repo string, args ...string) ([]byte, error) {
-	return runGitEnv(ctx, repo, nil, args...)
-}
-
-func runGitEnv(ctx context.Context, repo string, env []string, args ...string) ([]byte, error) {
 	if repo == "" {
 		return nil, fmt.Errorf("empty git repository path")
 	}
@@ -571,9 +567,6 @@ func runGitEnv(ctx context.Context, repo string, env []string, args ...string) (
 	defer cancel()
 	cmdArgs := append([]string{"-C", repo}, args...)
 	cmd := exec.CommandContext(gitCtx, "git", cmdArgs...) //nolint:gosec // git is fixed, callers pass separate guarded argv values, and no shell is invoked.
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
 	output := boundedGitOutput{limit: maxGitOutput}
 	cmd.Stdout = &output
 	if err := cmd.Run(); err != nil {
@@ -583,36 +576,6 @@ func runGitEnv(ctx context.Context, repo string, env []string, args ...string) (
 		return nil, fmt.Errorf("git command output exceeds %d-byte limit", maxGitOutput)
 	}
 	return output.Bytes(), nil
-}
-
-// The committed-read policy of the pinned-source proofs. A reading proof
-// must decide from locally committed content only: a lazy fetch would turn a
-// missing pinned object into a network fetch, and a replacement ref would
-// substitute different content under the exact pinned identity. The two
-// environment variables are Git's documented per-command equivalents of
-// --no-lazy-fetch (git(1): "Setting this Boolean environment variable to
-// true tells Git not to lazily fetch missing objects from the promisor
-// remote on demand") and --no-replace-objects (git(1): "ignore replacement
-// refs and do not replace Git objects"). The policy rides only these
-// read-only committed-object commands; explicit fetch routes elsewhere are
-// unaffected.
-const (
-	gitNoLazyFetchEnv      = "GIT_NO_LAZY_FETCH"
-	gitNoReplaceObjectsEnv = "GIT_NO_REPLACE_OBJECTS"
-)
-
-func committedReadGitEnv() []string {
-	return []string{gitNoLazyFetchEnv + "=1", gitNoReplaceObjectsEnv + "=1"}
-}
-
-// CommittedReadGitRunner executes read-only committed-object Git commands
-// under the committed-read policy, with bounded output and the caller's
-// deadline. It is the default runner of the dispatch reading resolution; an
-// injected test runner replaces it whole.
-type CommittedReadGitRunner struct{}
-
-func (CommittedReadGitRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	return runGitEnv(ctx, dir, committedReadGitEnv(), args...)
 }
 
 // runGitRunner adapts the bounded package Git execution to the GitRunner

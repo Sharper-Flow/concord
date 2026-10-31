@@ -5,12 +5,11 @@ No source, law or data is changed by applying these cases. All source labels
 below are local to the scenario, not actual native record identifiers.
 
 Apply P1, P2, P3 and the letter-versus-intent duty in CD-0230 D3 where relevant.
-Record the rule, size, outcome and supporting case records. State supported,
+Record the rule, outcome and supporting case records. State supported,
 unproved or violated, without inventing missing facts or silently settling an
 interpretation conflict. Keep claims separate from approvals and acceptance.
 
-Each case's attributed work record gives its size as `larger`. Ordered records
-mean retained source identity and independently established order, not timestamps
+Ordered records mean retained source identity and independently established order, not timestamps
 the acting agent supplied. These cases concern internal engineering only: no
 UI, changed product outcome, production data, security boundary, spending or
 legal obligation changes. They do not authorize a new enforcement mechanism.

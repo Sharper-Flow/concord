@@ -12,7 +12,7 @@
 A session left in a terminal worktree needs a safe route to its next item.
 
 The session can chain safely when the origin is a clean, terminal Concord
-worktree. A live item, dirty tree or active verify lease
+worktree. A live item or dirty tree
 must refuse before capture. The vacated worktree remains for the audit.
 
 ## Decision
@@ -22,7 +22,7 @@ must refuse before capture. The vacated worktree remains for the audit.
 `concord_work_start` admits the Project default checkout or an active Concord
 worktree whose item is `completed`, `cancelled`, or `superseded`.
 
-The origin check refuses a live item, a dirty tree or an active verify lease.
+The origin check refuses a live item or a dirty tree. It has no verification-lease gate.
 The core owns this
 refusal. The adapter forwards it and does not create a second origin rule.
 
@@ -47,16 +47,16 @@ Scenario: work_start chains from a terminal item's worktree
   And the session moves to the new worktree
   And the origin remains for worktree_audit_reclaim
 
-Scenario: work_start refuses a live, dirty or leased origin
+Scenario: work_start refuses a live or dirty origin
   Given a session that runs in a Concord-claimed worktree
-  When the origin has a live lifecycle, dirty files or an active verify lease
+  When the origin has a live lifecycle or dirty files
   Then the core refuses before capture
   And the adapter forwards the core refusal
 ```
 
 ## Verification
 
-- Core tests cover terminal admission, live refusal, dirty refusal, lease refusal,
+- Core tests cover terminal admission, live refusal, dirty refusal,
   default-branch base selection and origin retention.
 - Adapter tests cover terminal-origin forwarding and agreement with the core's
   origin refusal.

@@ -97,22 +97,6 @@ func TestBootstrapOriginGitProbeHoldsNoDatabaseTransaction(t *testing.T) {
 	}
 }
 
-func TestBootstrapOriginValidationReadsLeaseAfterGitProbe(t *testing.T) {
-	t.Parallel()
-	s, other, origin := bootstrapContentionFixture(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	probe := bootstrapOriginProbe(func(context.Context, string, ...string) ([]byte, error) {
-		_, err := other.db.ExecContext(ctx, `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('lease-during-probe',?,?,?,'held','client-a','agent-a','session-a','principal-a','["true"]','2026-01-01T00:00:00Z','running')`, origin.WorkID, origin.ProjectID, origin.Entry.Path)
-		return nil, err
-	})
-	_, err := s.ValidateBootstrapOrigin(ctx, origin.ProjectID, origin.Entry.Path, probe)
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindResourceBusy || !strings.Contains(failure.Detail, "verify lease") {
-		t.Fatalf("lease acquired during git probe was not observed: %v", err)
-	}
-}
-
 // The origin identity observed before the probe must still name the same
 // active claim afterwards. Native probing grants no authority to a new row.
 func TestBootstrapOriginValidationRefusesClaimDriftDuringGitProbe(t *testing.T) {

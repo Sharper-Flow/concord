@@ -105,9 +105,7 @@ offered by the work item's accepted workflow definition.
 `supersede_contract` action, and an overlap resolution that terminalizes a
 work item goes through `concord_work_relate.resolve_overlap` with `supersedes`
 or `merged_into`, which commits the relation and the terminal transition
-together. A task that proves bigger than its size reruns the decision model,
-adds the newly required steps, and continues without redoing completed work or
-creating a successor item ([CD-0242](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D4, D6). Reopening
+together. Reopening
 superseded work has no operation; a superseded work item keeps its terminal
 record.
 

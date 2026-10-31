@@ -2,9 +2,8 @@ package store
 
 import "slices"
 
-// WorkflowCapability names one behavior a compiled definition enables. The
-// compiled definition publishes the union over its parts in its canonical
-// manifest, so its digest covers every capability it enables.
+// WorkflowCapability names one behavior a definition enables and publishes
+// in its canonical manifest.
 type WorkflowCapability string
 
 const (

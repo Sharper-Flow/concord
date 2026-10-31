@@ -75,17 +75,13 @@ type admissionModelState struct {
 	started bool
 	proof   bool
 	mandate string
-	// sizeStop is the CD-0229 D6 stop: a review proved the larger change
-	// bigger after its latest size record. Only the size rerun, a
-	// revise_intent outside workflow_action, releases it.
-	sizeStop bool
 	// done is the completed instance with the closed work lifecycle.
 	done bool
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q sizeStop %v done %v review %+v)",
-		s.step, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.sizeStop, s.done, s.review)
+	return fmt.Sprintf("(step %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q done %v review %+v)",
+		s.step, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.done, s.review)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
@@ -527,8 +523,8 @@ func TestCriterionAssociationModelKeepsUnchangedSupersession(t *testing.T) {
 	}
 }
 
-// admissionAgentMoves models the size rerun, observation records, and the native verify route
-// outside workflow_action. Verification still needs an admitted evidence bind.
+// admissionAgentMoves models observations and reported verification.
+// Verification still needs an admitted evidence bind.
 func admissionAgentMoves(definition WorkflowDefinition, state admissionModelState) []admissionModelState {
 	return admissionAgentMovesWith(definition, state, func() bool {
 		return workflowAdmit(definition, admissionWorkflowState(definition, state), "bind_evidence").Admitted
@@ -542,18 +538,12 @@ func admissionAgentMovesWith(definition WorkflowDefinition, state admissionModel
 		return nil
 	}
 	var successors []admissionModelState
-	if state.sizeStop {
-		rerun := state
-		rerun.sizeStop = false
-		successors = append(successors, rerun)
-	}
 	if !state.artifact || !state.observed {
 		observed := state
 		observed.artifact, observed.observed = true, true
 		successors = append(successors, observed)
 	}
-	// worktree_verify is outside workflow_action. A green run can prove the
-	// epoch only when it follows the start and bind_evidence is admitted.
+	// A report can supply missing proof only while binding is admitted.
 	proves := state.started && !state.proof && workflowRefineProofGateActive(definition, state.step)
 	if !proves || !bindEvidenceAdmitted() {
 		return successors
@@ -565,19 +555,14 @@ func admissionAgentMovesWith(definition WorkflowDefinition, state admissionModel
 }
 
 func admissionAgentMoveName(before, after admissionModelState) string {
-	if before.sizeStop != after.sizeStop {
-		return "revise_intent:size_rerun"
-	}
 	if before.proof != after.proof {
-		return "worktree_verify+bind_evidence"
+		return "bind_evidence:verification_report"
 	}
 	return "observation_record"
 }
 
 // admissionEnvironmentMoves are the moves no agent controls: a breaking law
-// cutover makes the active contract's pin stale (CD-0036), and a
-// review's findings can prove a larger change bigger (CD-0229 D5), which
-// sets the size stop.
+// cutover makes the active contract's pin stale (CD-0036).
 func admissionEnvironmentMoves(state admissionModelState) []admissionModelState {
 	if state.done || state.contracts != 1 {
 		return nil
@@ -587,11 +572,6 @@ func admissionEnvironmentMoves(state admissionModelState) []admissionModelState 
 		law := state
 		law.stale = "law"
 		moves = append(moves, law)
-	}
-	if !state.sizeStop {
-		proved := state
-		proved.sizeStop = true
-		moves = append(moves, proved)
 	}
 	return moves
 }
@@ -632,8 +612,8 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 	}
 	design := admissionDeclaresAction(definition, "record_design")
 	return func(yield func(admissionModelState) bool) {
-		// Each base state expands in place into its evidence, size-stop, and
-		// Review variants, in that nesting order, so a walk never
+		// Each base state expands in place into its evidence and Review
+		// variants, in that nesting order, so a walk never
 		// holds the whole state space in memory.
 		withReview := func(state admissionModelState) bool {
 			for _, variant := range admissionReviewVariants(definition, state) {
@@ -642,19 +622,6 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 				}
 			}
 			return true
-		}
-		// The size stop exists only under one active contract: its proof needs
-		// two accepted reviews of the contracted work.
-		withStops := func(state admissionModelState) bool {
-			if !withReview(state) {
-				return false
-			}
-			if state.contracts != 1 {
-				return true
-			}
-			stopped := state
-			stopped.sizeStop = true
-			return withReview(stopped)
 		}
 		withEvidence := func(state admissionModelState) bool {
 			starts := []bool{false}
@@ -682,7 +649,7 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 					for _, mandate := range mandates {
 						next := state
 						next.started, next.proof, next.mandate = started, proof, mandate
-						if !withStops(next) {
+						if !withReview(next) {
 							return false
 						}
 					}
@@ -1119,7 +1086,7 @@ func admissionModelKeyOf(steps []string, state admissionModelState) admissionMod
 	p.put(admissionKeyCode(state.verdict, admissionKeyVerdicts), 2)
 	p.put(admissionKeyCode(state.mandate, admissionKeyMandates), 2)
 	p.put(admissionKeyCount(state.contracts), 8)
-	for _, set := range []bool{state.designStale, state.artifactStale, state.artifact, state.observed, state.started, state.proof, state.sizeStop, state.done} {
+	for _, set := range []bool{state.designStale, state.artifactStale, state.artifact, state.observed, state.started, state.proof, state.done} {
 		var bit uint8
 		if set {
 			bit = 1
@@ -1140,7 +1107,7 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 	state.verdict = admissionKeyVerdicts[p.get(2)]
 	state.mandate = admissionKeyMandates[p.get(2)]
 	state.contracts = int64(p.get(8))
-	for _, flag := range []*bool{&state.designStale, &state.artifactStale, &state.artifact, &state.observed, &state.started, &state.proof, &state.sizeStop, &state.done} {
+	for _, flag := range []*bool{&state.designStale, &state.artifactStale, &state.artifact, &state.observed, &state.started, &state.proof, &state.done} {
 		*flag = p.get(1) == 1
 	}
 	state.review = admissionUnpackReview(&p)
@@ -1149,7 +1116,7 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 
 // admissionModelKeyFields is the number of admissionModelState fields
 // admissionModelKeyOf encodes.
-const admissionModelKeyFields = 14
+const admissionModelKeyFields = 13
 
 func TestAdmissionModelKeyEncodesEveryField(t *testing.T) {
 	if got := reflect.TypeOf(admissionModelState{}).NumField(); got != admissionModelKeyFields {
@@ -1186,7 +1153,7 @@ func TestAdmissionModelKeyRoundTrips(t *testing.T) {
 				step: pick(steps), stale: pick(admissionKeyStales), verdict: pick(admissionKeyVerdicts),
 				mandate: pick(admissionKeyMandates), contracts: random.Int64N(256),
 				designStale: flip(), artifactStale: flip(),
-				artifact: flip(), observed: flip(), started: flip(), proof: flip(), sizeStop: flip(), done: flip(),
+				artifact: flip(), observed: flip(), started: flip(), proof: flip(), done: flip(),
 				review: admissionModelReview{accepted: pick(admissionReviewDispositions), candidate: flip(), changed: flip(), current: flip(), blocked: flip()},
 			})
 		}
@@ -1276,7 +1243,7 @@ func (graph admissionModelGraph) state(i int32) admissionModelState {
 }
 
 // admissionEnvironmentMoveName labels the environment's edges: pin
-// staleness and a size proof.
+// staleness.
 const admissionEnvironmentMoveName = "environment"
 
 // admissionLiveGraphStates computes completion reachability from the

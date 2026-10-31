@@ -191,13 +191,6 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   await Bun.write(probe, `#!/bin/sh\necho '{"agent":{"${AGENT}":{"mode":"all","disable":false}}}'\n`)
   await chmod(probe, 0o755)
   const childEnv = { HOME: homeRoot, PATH: `${binRoot}:${process.env.PATH ?? ""}` }
-  if (restartWitness) {
-    // The oracle producer uses the installed toolchain, not the module
-    // launcher's cache under the fixture's synthetic HOME.
-    const toolchain = await runProcess(["go", "env", "GOROOT"], "", join(import.meta.dir, "..", ".."))
-    expect(toolchain.exitCode, toolchain.stderr).toBe(0)
-    childEnv.PATH = `${binRoot}:${join(toolchain.stdout.trim(), "bin")}:${process.env.PATH ?? ""}`
-  }
   const binary = join(binRoot, "concord")
   const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
   expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
@@ -217,12 +210,6 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     await Bun.write(join(repo, "README.md"), "synthetic handoff fixture\n")
     if (restartWitness) {
       await Bun.write(join(repo, "AGENTS.md"), repo === repoReceive ? "Synthetic receiver instructions: preserve the bounded handoff.\n" : "Synthetic source instructions: record the bounded handoff.\n")
-      await mkdir(join(repo, "oraclekit"))
-      await mkdir(join(repo, "test-oracle"))
-      await Bun.write(join(repo, "go.mod"), "module example.test/handoff\n\ngo 1.26.0\ntoolchain go1.26.10\n")
-      await Bun.write(join(repo, "oraclekit/oracle.go"), "package oraclekit\n\nfunc HandoffReady() bool { return true }\n")
-      await Bun.write(join(repo, "oraclekit/oracle_test.go"), 'package oraclekit\n\nimport "testing"\n\nfunc TestHandoffReady(t *testing.T) { if !HandoffReady() { t.Fatal("handoff not ready") } }\n')
-      await Bun.write(join(repo, "test-oracle/manifest.json"), JSON.stringify({ kind: "go_top_level_v1", package_cwd: "oraclekit", test_files: ["oraclekit/oracle_test.go"], fixture_files: [], cases: { "case:handoff": ["TestHandoffReady"] } }))
     }
     await git(repo, "init", "--quiet", "--initial-branch=main")
     await git(repo, "config", "user.email", "test@example.invalid")
@@ -716,23 +703,6 @@ function parseToolResult(result: any): JSONRecord {
   }
 }
 
-function parseWorktreeVerifyResult(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)
-    || !("exit_code" in value) || typeof value.exit_code !== "number"
-    || !("tracked_files_changed" in value) || typeof value.tracked_files_changed !== "boolean") {
-    throw new Error(`invalid worktree verification result: ${JSON.stringify(value)}`)
-  }
-  const result = { exit_code: value.exit_code, tracked_files_changed: value.tracked_files_changed }
-  if (!("oracle" in value)) return { ...result, oracle: undefined }
-  const oracle = value.oracle
-  if (!oracle || typeof oracle !== "object" || Array.isArray(oracle)
-    || !("qualification" in oracle) || typeof oracle.qualification !== "string"
-    || !("run_ref" in oracle) || typeof oracle.run_ref !== "string") {
-    throw new Error(`invalid native oracle result: ${JSON.stringify(oracle)}`)
-  }
-  return { ...result, oracle: { qualification: oracle.qualification, run_ref: oracle.run_ref } }
-}
-
 function assertReceiverCounts(fixture: HandoffFixture): void {
   const { dbPath, workID, host } = fixture
   expect(dbValue(dbPath, `SELECT count(*) AS n FROM worktree_claims WHERE work_id='${workID}' AND project_id='${RECEIVE_PROJECT}'`).n).toBe(1)
@@ -784,7 +754,6 @@ routeDeclaration(RESTART_WITNESS, async () => {
   const phase = process.env.HANDOFF_RESTART_PHASE
   const runner = realCoreRunner(binary, dbPath, childEnv, captured, host)
   await fakeHostControlPlane([[RECEIVE_SESSION, host.sessions[RECEIVE_SESSION].directory]], runner, host)
-  const invoke = (tool: string, request: any, context: any) => invokeConcordOperation(tool, request, context)
   const handoff = () => dbValue(dbPath, `SELECT state, consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`)
   const consumedCount = () => dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE kind='work.project_handoff_consumed' AND subject_id='${workID}'`).n
   const expectedHandoff = {
@@ -818,40 +787,14 @@ routeDeclaration(RESTART_WITNESS, async () => {
     expect(replay.project_id).toBe(RECEIVE_PROJECT)
     expect(handoff()).toEqual(fixture.originalHandoff)
     expect(consumedCount()).toBe(1)
-    const head = await runProcess(["git", "rev-parse", "HEAD"], "", fixture.receiveWorktree)
-    expect(head.exitCode, head.stderr).toBe(0)
-    const owner = { owner_id: "owner:handoff", domain_id: `product-root:${PRODUCT_ID}`, mechanism: { project_id: RECEIVE_PROJECT, path: "oraclekit/oracle.go", entry_point: "HandoffReady" }, obligation: "The synthetic handoff check passes.", predicate_ids: [HANDOFF_PREDICATE.predicate_id], law_bindings: [] }
-    const oracleCase = { case_id: "case:handoff", owner_id: owner.owner_id, entry_point: "HandoffReady", input_class: "synthetic handoff", expected_state: "The handoff is ready.", control_ids: ["control:handoff"] }
-    const control = { control_id: "control:handoff", owner_id: owner.owner_id, predicate_ids: owner.predicate_ids, case_ids: [oracleCase.case_id], recipe_source: { kind: "repository_file", project_id: RECEIVE_PROJECT, path: "test-oracle/manifest.json", commit_oid: head.stdout.trim() }, argv: ["go", "test", "-count=1", "-run", "^(TestHandoffReady)$", "."], cwd: "oraclekit", expected_result: "pass", required_evidence_role: "reported" }
-    const subject = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, idempotency_key: "handoff-oracle-subject", command: ["git", "status", "--porcelain"] } }, context)
-    expect(subject.outcome, JSON.stringify(subject)).toBe("ok")
-    const subjectResult = parseWorktreeVerifyResult(subject.result)
-    expect(subjectResult.exit_code).toBe(0)
-    expect(subjectResult.tracked_files_changed).toBe(false)
-    const prepare = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, idempotency_key: "handoff-oracle-prepare", requested_budget_seconds: 300, oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner, cases: [oracleCase], control } } } }, context)
-    expect(prepare.outcome, JSON.stringify(prepare)).toBe("ok")
-    const prepareResult = parseWorktreeVerifyResult(prepare.result)
-    if (!prepareResult.oracle) throw new Error("native preparation returned no oracle result")
-    expect(prepareResult.oracle.qualification).toBe("ready")
-    const preparationRef = prepareResult.oracle.run_ref
-    const executionInput = { work_id: workID, idempotency_key: "handoff-native-execute", requested_budget_seconds: 300, oracle: { phase: "execute", preparation_run_ref: preparationRef } }
-    const execution = await invoke("concord_work_transition", { operation: "worktree_verify", input: executionInput }, context)
-    expect(execution.outcome, JSON.stringify(execution)).toBe("ok")
-    const nativeResult = parseWorktreeVerifyResult(execution.result)
-    expect(nativeResult.oracle?.qualification).toBe("pass")
     host.sessions[RECEIVE_SESSION].messages = [{ info: { id: "original-parent-message", sessionID: RECEIVE_SESSION, role: "assistant" }, parts: [{ type: "text", text: expectedHandoff.bounded_job }] }]
     fixture.originalParentMessages = host.sessions[RECEIVE_SESSION].messages
-    fixture.executionInput = executionInput
-    fixture.nativeResult = nativeResult
   } else {
     expect(phase).toBe("resume")
     const context = contextFor(RECEIVE_SESSION, fixture.receiveWorktree)
     const boot = parseToolResult(await work_start.execute({ work_id: workID } as any, context))
     expect(boot.outcome, JSON.stringify(boot)).toBe("ok")
     expect(boot.project_handoff).toMatchObject(expectedHandoff)
-    const result = await invoke("concord_work_transition", { operation: "worktree_verify", input: fixture.executionInput }, context)
-    expect(result.outcome, JSON.stringify(result)).toBe("ok")
-    expect(parseWorktreeVerifyResult(result.result)).toEqual(fixture.nativeResult)
     expect(host.sessions[RECEIVE_SESSION].messages).toEqual(fixture.originalParentMessages)
     expect(host.taskCalls).toBe(0)
     expect(handoff()).toEqual(fixture.originalHandoff)

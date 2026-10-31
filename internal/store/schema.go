@@ -91,6 +91,15 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Name == "native_task_cutover" {
 		return applyNativeTaskCutover(ctx, q, m.SQL)
 	}
+	if m.Name == "repository_verification_retirement" {
+		var active bool
+		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_verify_leases WHERE state='held' OR outcome='running')`).Scan(&active); err != nil {
+			return err
+		}
+		if active {
+			return newFailure(KindResourceBusy, "migrate", "repository verification is still held or running", false, "settle verification with the installed release before upgrading")
+		}
+	}
 	if _, err := q.ExecContext(ctx, m.SQL); err != nil {
 		return wrapFailure(KindUnavailable, "migrate",
 			fmt.Sprintf("migration %d (%s) failed", m.Version, m.Name), false,
@@ -112,7 +121,7 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 		if _, err := q.ExecContext(ctx, `INSERT OR IGNORE INTO fold_guard(active) VALUES(1)`); err != nil {
 			return err
 		}
-		for _, backfill := range []func(context.Context, migrationRunner) error{backfillWorkContextFacts, backfillWorkflowReviewFacts, backfillWorkSizeProofFacts} {
+		for _, backfill := range []func(context.Context, migrationRunner) error{backfillWorkContextFacts, backfillWorkflowReviewFacts} {
 			if err := backfill(ctx, q); err != nil {
 				return err
 			}
@@ -8318,6 +8327,30 @@ ALTER TABLE workflow_checkpoints_v169 RENAME TO workflow_checkpoints;
 CREATE TRIGGER workflow_checkpoints_guard_insert BEFORE INSERT ON workflow_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_checkpoints is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TRIGGER workflow_checkpoints_guard_update BEFORE UPDATE ON workflow_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_checkpoints is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TRIGGER workflow_checkpoints_guard_delete BEFORE DELETE ON workflow_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_checkpoints is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version:  170,
+		Name:     "retire_work_size",
+		Breaking: true,
+		SQL: `
+DROP TABLE work_size_proof_facts;
+DROP TABLE work_size_assessments;
+INSERT INTO write_guard(active) VALUES(1);
+DELETE FROM effect_receipts WHERE kind='work.sized';
+DELETE FROM write_guard;
+`,
+	},
+	{
+		Version:  171,
+		Name:     "repository_verification_retirement",
+		Breaking: true,
+		SQL: `
+INSERT OR IGNORE INTO write_guard(active) VALUES(1);
+DELETE FROM workflow_evidence_bindings WHERE json_extract(payload,'$.producer_run_ref') IN (SELECT op_id FROM durable_operations WHERE workflow_type_ref='worktree.verify');
+DELETE FROM durable_operations WHERE workflow_type_ref='worktree.verify';
+DROP TABLE worktree_verify_leases;
+DELETE FROM write_guard;
 `,
 	},
 }

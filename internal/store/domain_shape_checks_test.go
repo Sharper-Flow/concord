@@ -268,8 +268,8 @@ func TestDomainShapeExplicitRunnerAndTooling(t *testing.T) {
 		}
 	}
 	empty, err := ParseProjectToolingManifest([]byte(`{"schema_version":"1.0","project":"demo","tools":[],"domain_shape":{}}`))
-	if err != nil || empty.DomainShape == nil || len(empty.Declared) != 0 || ProjectToolingInvocationDeclared(empty, []string{"anything"}) {
-		t.Fatalf("fresh Product empty tooling or refine declaration guard: %+v %v", empty, err)
+	if err != nil || empty.DomainShape == nil || len(empty.Declared) != 0 {
+		t.Fatalf("fresh Product empty tooling: %+v %v", empty, err)
 	}
 	if _, err := ParseProjectToolingManifest([]byte(`{"schema_version":"1.0","project":"demo","tools":[],"domain_shape":null}`)); err == nil {
 		t.Fatal("null shape accepted")
@@ -331,21 +331,6 @@ func TestDomainShapeExecRunnerBoundsDeadlineAndNoShell(t *testing.T) {
 	}
 	if _, err := runner.Run(context.Background(), t.TempDir(), []string{}, nil); err == nil {
 		t.Fatal("empty command accepted")
-	}
-}
-
-func TestDomainShapeRefineEmptyManifestStillRefuses(t *testing.T) {
-	// Exercise the existing resolver path, not only invocation matching.
-	s := openTemp(t)
-	seedWork(t, s, "shape-empty-tooling")
-	seedWorkCanonicalPath(t, s, t.TempDir())
-	runner := refineProofFakeRunner{responses: map[string][]byte{
-		"symbolic-ref refs/remotes/origin/HEAD":           []byte("refs/remotes/origin/main\n"),
-		"ls-tree origin/main -- .concord/tooling.v1.json": []byte("100644 blob 1111111111111111111111111111111111111111\t.concord/tooling.v1.json\n"),
-		"show origin/main:.concord/tooling.v1.json":       []byte(`{"schema_version":"1.0","project":"demo","tools":[],"domain_shape":{}}`),
-	}}
-	if _, err := resolveWorkProjectTooling(context.Background(), s, "shape-empty-tooling", runner); err == nil || !strings.Contains(err.Error(), "declares no tools") {
-		t.Fatalf("empty setup manifest bypassed refine guard: %v", err)
 	}
 }
 

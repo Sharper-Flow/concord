@@ -441,12 +441,13 @@ type workflowDesignRecordedPayload struct {
 
 type workflowEvidenceBoundPayload struct {
 	WorkflowVersionFields
-	EvidenceKind        string `json:"evidence_kind"`
-	ImmutableSubjectRef string `json:"immutable_subject_ref"`
-	ProducerID          string `json:"producer_id"`
-	ProducerRunRef      string `json:"producer_run_ref"`
-	ProducerWatermark   string `json:"producer_watermark"`
-	ObservedAt          string `json:"observed_at"`
+	EvidenceKind        string              `json:"evidence_kind"`
+	ImmutableSubjectRef string              `json:"immutable_subject_ref"`
+	ProducerID          string              `json:"producer_id"`
+	ProducerRunRef      string              `json:"producer_run_ref"`
+	ProducerWatermark   string              `json:"producer_watermark"`
+	ObservedAt          string              `json:"observed_at"`
+	VerificationReport  *VerificationReport `json:"verification_report,omitempty"`
 }
 
 type workflowVerdictRecordedPayload struct {
@@ -1043,7 +1044,6 @@ func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Ev
 		if err := refreshWorkflowHealthySequence(ctx, tx, event.SubjectID, p.ContractVersion, true); err != nil {
 			return err
 		}
-		return advanceWorkSizeProofFactsTx(ctx, tx, event)
 	}
 	return nil
 }
@@ -1245,9 +1245,6 @@ func finishWorkflowContractSupersessionTx(ctx context.Context, tx *sql.Tx, event
 		if err := resetWorkflowInstanceToContractStepTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID); err != nil {
 			return err
 		}
-	}
-	if err := advanceWorkSizeProofFactsTx(ctx, tx, event); err != nil {
-		return err
 	}
 	return nil
 }
@@ -2203,9 +2200,6 @@ func persistWorkflowActionCompletionTx(ctx context.Context, tx *sql.Tx, event Ev
 	if err := advanceWorkflowRecordedReviewTx(ctx, tx, event, p); err != nil {
 		return err
 	}
-	if err := advanceWorkSizeProofFactsTx(ctx, tx, event); err != nil {
-		return err
-	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_step_completions(work_id,step_id,completion_seq) VALUES(?,?,?) ON CONFLICT(work_id,step_id) DO UPDATE SET completion_seq=excluded.completion_seq`, event.SubjectID, p.StepID, event.Seq); err != nil {
 		return workflowProjectionError(err, "cannot record the step completion frontier")
 	}
@@ -2703,6 +2697,14 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 	}
 	if !slices.Contains([]string{"verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"}, p.EvidenceKind) || !workflowEvidenceRef(p.ImmutableSubjectRef) || !workflowString(p.ProducerID, 128) || !workflowString(p.ProducerRunRef, 128) || !workflowString(p.ProducerWatermark, 128) || p.ObservedAt == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "evidence_bound has invalid evidence identity", false, "supply a complete immutable evidence binding")
+	}
+	if p.VerificationReport != nil {
+		if p.EvidenceKind != "verification" {
+			return newFailure(KindInvalidPayload, "fold_event", "verification report requires verification evidence", false, "bind the report as verification evidence")
+		}
+		if err := validateVerificationReport(p.ImmutableSubjectRef, p.VerificationReport); err != nil {
+			return err
+		}
 	}
 	var authoritative int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE op_id=? AND work_id=? AND principal_ref=? AND request_id=? AND result_kind='completed'`, p.ProducerRunRef, event.SubjectID, p.ProducerID, p.ProducerWatermark).Scan(&authoritative); err != nil {

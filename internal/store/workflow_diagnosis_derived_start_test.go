@@ -414,9 +414,8 @@ func TestDerivedRepairStartClaimsEpochFromFirstQualifyingCheckpoint(t *testing.T
 }
 
 // TestDerivedRefineStartClaimsEpochFromCheckpointRefine proves the same
-// derivation on the refine step, where the CD-0192 direct-work proof reads
-// the derived start: a fresh verify run bound after it satisfies the proof,
-// and the delivery exits through the declared route.
+// derivation on the refine step: a passing report on the Reviewed candidate
+// satisfies the proof, and the delivery exits through the declared route.
 func TestDerivedRefineStartClaimsEpochFromCheckpointRefine(t *testing.T) {
 	t.Parallel()
 	for _, family := range []struct{ ref string }{
@@ -440,7 +439,6 @@ func TestDerivedRefineStartClaimsEpochFromCheckpointRefine(t *testing.T) {
 		if start == nil || len(workflowStartReceiptIDs(t, s, workID)) != 1 || start.ActionID != "checkpoint_refine" || start.Epoch != 1 {
 			t.Fatalf("%s: refine current start = %+v, want one checkpoint_refine start at epoch 1", family.ref, start)
 		}
-		refineProofSeedGreenRun(t, s, workID, "derivedrefine"+workID)
 		proveDerivedCheckpointDelivery(t, fixture, workID)
 		if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:derived-refine-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
 			t.Fatalf("%s: record_delivery behind the derived refine start: %v", family.ref, err)
@@ -461,7 +459,7 @@ func TestNonQualifyingActionsCannotStartTheRepairStep(t *testing.T) {
 	s := fixture.store
 	actor := fixture.owner
 	j := pReturnClaim(t, fixture, workID)
-	acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
+	acceptCurrentReviewForTest(t, j.fixture, "ready_for_final_proof")
 	setWorkflowStepForOperatorVerdictTest(t, s, workID, "repair")
 	receiptsBefore := workflowStartReceiptIDs(t, s, workID)
 
@@ -507,8 +505,7 @@ func TestNonQualifyingActionsCannotStartTheRepairStep(t *testing.T) {
 // TestRepeatedQualifyingActionsDoNotResetTheStartCutoff proves the epoch and
 // cutoff stay fixed: the store admits one checkpoint identity per step epoch,
 // so the repeat shape is further activity at the started step — a context
-// checkpoint, a fresh qualifying read — and the verification bound inside
-// the first epoch keeps satisfying the refine proof afterwards.
+// checkpoint, a fresh qualifying read — and delivery still exits afterwards.
 func TestRepeatedQualifyingActionsDoNotResetTheStartCutoff(t *testing.T) {
 	t.Parallel()
 	const workID = "derived-start-repeat"
@@ -521,7 +518,6 @@ func TestRepeatedQualifyingActionsDoNotResetTheStartCutoff(t *testing.T) {
 	firstStart := workflowCurrentStartAtStep(t, s, workID, "refine")
 	firstReceipts := workflowStartReceiptIDs(t, s, workID)
 	firstStartedAt, firstActor := instanceExecutionStart(t, s, workID)
-	refineProofSeedGreenRun(t, s, workID, "repeatrefine"+workID)
 	contextCheckpoint := json.RawMessage(`{"active_unit":"the refine unit","hypothesis":"the refined subject holds","diagnosis":"the review found no defect","strategy":"deliver the refined work","touched_refs":["internal/store/workflow.go"],"evidence_refs":["evidence:repeat-context"],"pending_questions":[],"pending_decisions":[]}`)
 	if err := runWorkflowActionWithIdentity(t, s, workID, "checkpoint_context", contextCheckpoint, 0, actor, "repeat-context"); err != nil {
 		t.Fatalf("context checkpoint behind the derived start: %v", err)
@@ -681,7 +677,7 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 	bindKind("review", "review:liveness-"+workID)
 	bindKind("artifact", "artifact:liveness-"+workID)
 	proof := journey.observeRun(t, "liveness-current")
-	qAcceptCriterionReview(t, current, journey.repo, proof.OperationRef)
+	qAcceptCriterionReview(t, current, proof.OperationRef)
 	journey.bindVerification(t, proof)
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:liveness-repair-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
 		t.Fatalf("record_delivery on the corrected contract: %v", err)
@@ -756,8 +752,8 @@ func proveDerivedCheckpointDelivery(t *testing.T, f workflowReturnRouteFixture, 
 	j := pReturnClaim(t, f, workID)
 	j.acceptor = f.owner
 	proof := j.observeRun(t, "derived-checkpoint")
-	qAcceptCriterionReview(t, j.fixture, j.repo, proof.OperationRef)
 	j.bindVerification(t, proof)
+	qAcceptCriterionReview(t, j.fixture, proof.OperationRef)
 }
 
 func runVerdictActionAtVersion(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor) error {

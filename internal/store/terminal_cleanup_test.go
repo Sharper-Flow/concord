@@ -32,7 +32,6 @@ func TestTerminalCleanupDefersUnreleasedOwners(t *testing.T) {
 	const other = `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('other-work','task','Other','needed',0,1,'now','now')`
 	const claim = `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES('claim','work-done','proj-web','wts:work-done','work/closed','1111111111111111111111111111111111111111','/synthetic/work','pending','operator','fixture','now','now')`
 	const entry = `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES('wts:work-done','proj-web','claim','work/closed','1111111111111111111111111111111111111111','/synthetic/work','repository-fixture','reclaimed','now')`
-	const lease = `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('lease-fixture','work-done','proj-web','/synthetic/work','held','client-fixture','agent-fixture','session-fixture','operator','[]','now','running')`
 	for _, tc := range []struct {
 		name    string
 		kind    FailureKind
@@ -42,7 +41,6 @@ func TestTerminalCleanupDefersUnreleasedOwners(t *testing.T) {
 		{"pending_claim", KindResourceBusy, []string{claim}},
 		{"active_tree", KindResourceBusy, []string{entry, `UPDATE worktree_entries SET state='active'`}},
 		{"native_occupancy", KindResourceBusy, []string{entry, `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) VALUES('wts:work-done:proj-web:claim','session-fixture','now',0)`}},
-		{"held_verify_lease", KindResourceBusy, []string{lease}},
 		{"ref_preservation_debt", KindOperationConflict, []string{`INSERT INTO worktree_ref_outcomes(set_id,project_id,claim_op_id,branch,phase,reason,recorded_at) VALUES('wts:work-done','proj-web','claim','work/closed','restoration_owed','restore','now')`}},
 		{"pending_vacate", KindOperationConflict, []string{`INSERT INTO session_vacate_requests VALUES('work-done','session-fixture','proj-web','/synthetic/work','/synthetic/main',1,0)`}},
 		{"outside_repair", KindOutsideRepairActive, []string{`INSERT INTO outside_repair_dispositions VALUES('work-done','active','repair','{}','now')`}},
@@ -197,26 +195,6 @@ func TestTerminalCleanupPreservesReferencedResearch(t *testing.T) {
 				t.Fatalf("terminal execution remaining=%d, owned research=%t", remaining, owned)
 			}
 		})
-	}
-}
-
-func TestTerminalCleanupCollectsReleasedLeaseStreamsAfterReleaseVersion(t *testing.T) {
-	t.Parallel()
-	s, _ := terminalCleanupFixture(t)
-	terminalCleanupSQL(t, s,
-		`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome,stdout_blob,stderr_blob) VALUES('lease-fixture','work-done','proj-web','/synthetic/work','held','client-fixture','agent-fixture','session-fixture','operator','[]','now','running',X'616263',X'646566')`,
-	)
-	assertFailureKind(t, s.CleanupPublishedTerminalWork(t.Context(), "work-done"), KindResourceBusy)
-	terminalCleanupSQL(t, s,
-		`UPDATE worktree_verify_leases SET state='released',outcome='completed' WHERE lease_id='lease-fixture'`,
-		`UPDATE work_items SET version=version+1 WHERE id='work-done'`,
-	)
-	if err := s.CleanupPublishedTerminalWork(t.Context(), "work-done"); err != nil {
-		t.Fatal(err)
-	}
-	var count int
-	if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM worktree_verify_leases WHERE lease_id='lease-fixture'`).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("released stream bytes remain: count=%d err=%v", count, err)
 	}
 }
 

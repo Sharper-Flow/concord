@@ -287,7 +287,7 @@ func TestMutationDurabilityStoreBoundPlannerFacts(t *testing.T) {
 		t.Parallel()
 		s, service, grant, _, _, _ := tiersFixture(t)
 		before := s.DurableCommits()
-		occupied := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "durability-destroy-occupied"})
+		occupied := authorityInvoke(t, s, service, grant, "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "durability-destroy-occupied"})
 		if occupied.Error == nil || occupied.Error.Kind != "unauthorized" {
 			t.Fatalf("recorded occupancy destroy = %+v, want occupancy refusal", occupied.Error)
 		}
@@ -298,7 +298,7 @@ func TestMutationDurabilityStoreBoundPlannerFacts(t *testing.T) {
 			t.Fatalf("occupancy refusal changed work to %s v%d", lifecycle, version)
 		}
 		vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1"), "durability-nonterminal-vacate")
-		removed := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "durability-destroy-1"})
+		removed := authorityInvoke(t, s, service, grant, "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "durability-destroy-1"})
 		if removed.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("clean unoccupied non-terminal destroy = %+v", removed.Error)
 		}
@@ -315,7 +315,7 @@ func TestMutationDurabilityStoreBoundPlannerFacts(t *testing.T) {
 		completeWork(t, s, "work-1")
 		vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1"), "durability-destructive-vacate")
 		before := s.DurableCommits()
-		removed := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "durability-destructive-1"})
+		removed := authorityInvoke(t, s, service, grant, "worktree_destroy", map[string]any{"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "durability-destructive-1"})
 		if removed.Outcome != agentcontract.OutcomeOK || removed.Error != nil {
 			t.Fatalf("destructive destroy outcome=%s err=%+v, want removal", removed.Outcome, removed.Error)
 		}

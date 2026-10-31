@@ -16,7 +16,6 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 	gitRun(t, f.path, "add", "pkg/value.go")
 	gitRun(t, f.path, "commit", "-qm", "fixture factual documentation error")
 	f.verify(t)
-	f.prepareControl(t)
 	if err := os.WriteFile(path, []byte("package spine\n\n// Value returns seven.\nfunc Value() int { return 7 }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +26,6 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 		t.Fatalf("the correction changed more than the factual documentation: %s", diff)
 	}
 	f.proof = f.verify(t)
-	f.prepareControl(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	f.advanceToAcceptance(t)

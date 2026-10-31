@@ -46,9 +46,6 @@ type captureMutationInput struct {
 	// fails to cover the requirements the target scope declares, and the caller
 	// cannot assert satisfaction or mark a requirement inapplicable.
 	GoverningRequirements []string `json:"governing_requirements"`
-	// SizeInputs is what the change will touch, for the work-size model
-	// (CD-0229 D4). It carries no size: the model decides it.
-	SizeInputs *store.WorkSizeCaptureInput `json:"size_inputs"`
 }
 type reviseMutationInput struct {
 	WorkID          string                      `json:"work_id"`
@@ -64,8 +61,6 @@ type reviseMutationInput struct {
 	Reason          string                      `json:"reason"`
 	IdempotencyKey  string                      `json:"idempotency_key"`
 	Evidence        []agentcontract.EvidenceRef `json:"evidence"`
-	// SizeInputs reruns the size model on fresh declared inputs.
-	SizeInputs *store.WorkSizeCaptureInput `json:"size_inputs"`
 }
 type lifecycleMutationInput struct {
 	WorkID          string                      `json:"work_id"`
@@ -126,14 +121,6 @@ type worktreeAuditReclaimInput struct {
 	IdempotencyKey string `json:"idempotency_key"`
 }
 
-type worktreeVerifyInput struct {
-	WorkID string `json:"work_id"`
-	// Command is the bounded argv that runs in the derived worktree under
-	// the exclusive lease. A shell command string is never accepted.
-	Command        []string                   `json:"command"`
-	Oracle         *store.NativeOracleRequest `json:"oracle"`
-	IdempotencyKey string                     `json:"idempotency_key"`
-}
 type worktreeDestroyInput struct {
 	WorkID          string `json:"work_id"`
 	ExpectedVersion int64  `json:"expected_version"`
@@ -966,23 +953,6 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 	}
 	scopeJSON, _ := json.Marshal(scope)
 	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, ExpectedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: agentcontract.ManifestDigest, Now: r.Authority.now()}
-	// CD-0192: the refine-exit proof guard reads the Project's declared
-	// tooling from its default ref, so the manifest resolves here, outside
-	// the action's transaction, and rides the request into the guard. Git
-	// never runs inside the store transaction (store connection invariant).
-	// CD-0198 D4: the combined accept_worker_result at the delivery-admitting
-	// refinement step runs the same admission, so it resolves the same
-	// default-ref manifest for that accept exactly as record_delivery does.
-	// bind_evidence on a size-capable pin that holds a split
-	// resolves the same manifest, so the automatic integration discharge
-	// keeps only runs of declared tools.
-	if in.ActionID == "record_delivery" || in.ActionID == "bind_evidence" {
-		tooling, toolingErr := r.refineProofToolingForAction(ctx, in.WorkID, in.ActionID)
-		if toolingErr != nil {
-			return failureEnvelope(base, toolingErr), nil
-		}
-		actionRequest.ProjectTooling = tooling
-	}
 	// CD-0200: the approval, supersession, and completion gates each run the
 	// mandated-law boundary inside their transaction, so their registered
 	// source set verifies before the transaction opens (store connection
@@ -992,12 +962,8 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 		return *proofEnvelope, nil
 	}
 	ctx = verifiedCtx
-	ctx, err := r.prepareWorkflowSubjectContext(ctx, in.WorkID, in.ActionID)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
 	m.host, m.inv, m.scopeJSON, m.takeover, m.request = host, inv, string(scopeJSON), takeover, actionRequest
-	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, preflight, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &m.result, &m.resultRejected), func(tx *store.Transaction) error {
+	err := store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, preflight, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &m.result, &m.resultRejected), func(tx *store.Transaction) error {
 		return m.authorizeTx(ctx, tx)
 	}, func(tx *store.Transaction) error {
 		return m.applyTx(ctx, tx)
@@ -1065,35 +1031,6 @@ func (m *workflowActionMutation) applyTx(ctx context.Context, tx *store.Transact
 	changedJSON, _ := json.Marshal(changed)
 	responseScope, _ := json.Marshal(mutationResponseScope(m.scope, agentcontract.NewOKMutation(base, resultPayload, changed, derivedIntents), pinless))
 	return store.CompleteMutationResponseTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: m.digest, OperationID: m.operationID, ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
-}
-
-// Observe Git after replay, budget, and approval handling, before the action
-// transaction opens. Admission revalidates the sealed identities with SQL only.
-func (r runtime) prepareWorkflowSubjectContext(ctx context.Context, workID, actionID string) (context.Context, error) {
-	if store.WorkflowActionRequiresSubjectFreshness(actionID) {
-		preparation, err := store.PrepareWorkflowAcceptanceFreshness(ctx, r.Store, store.PrepareWorkflowSubjectRequest{WorkID: workID})
-		if err != nil {
-			return ctx, err
-		}
-		return store.WithWorkflowSubjectPreparation(ctx, preparation), nil
-	}
-	return ctx, nil
-}
-
-// refineProofToolingForAction resolves the Project tooling manifest the
-// refine-exit proof consumes: record_delivery wherever the guard is gated.
-// The resolution reads git outside the store transaction, so the caller runs
-// it before the action's transaction opens; nil reports that the Project
-// declares no manifest on its default ref.
-func (r runtime) refineProofToolingForAction(ctx context.Context, workID, actionID string) (*store.ProjectToolingManifest, error) {
-	required, requiredErr := store.RefineProofManifestRequired(ctx, r.Store, workID, actionID)
-	if requiredErr != nil {
-		return nil, requiredErr
-	}
-	if !required {
-		return nil, nil
-	}
-	return store.ResolveWorkProjectTooling(ctx, r.Store, workID)
 }
 
 func workKindMutationRefusal(kind string, allowed bool, fallback string) (string, bool) {
@@ -1208,18 +1145,6 @@ func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, r
 	if err := r.Store.ValidateCaptureGoverningRequirements(ctx, productIDs, applicable, in.GoverningRequirements); err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
-	// The size reads one Product's knowledge home, so a sized capture names
-	// Projects of exactly one Product.
-	var sizePlan *store.WorkSizePlan
-	if in.SizeInputs != nil {
-		if len(productIDs) != 1 {
-			return coreError(base, "ambiguous_scope", "size_inputs needs the capture's Projects to belong to exactly one Product", "resolve_ambiguity", false), nil, true
-		}
-		var sizeErr error
-		if sizePlan, sizeErr = r.Store.PlanWorkSize(ctx, productIDs[0], *in.SizeInputs); sizeErr != nil {
-			return failureEnvelope(base, sizeErr), nil, true
-		}
-	}
 	for _, product := range productIDs {
 		if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
 			plan.declareInitialDurability(true)
@@ -1237,7 +1162,7 @@ func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, r
 		if err := store.ValidateCaptureGoverningRequirementsTx(ctx, tx, in.ProjectIDs, governingScope); err != nil {
 			return nil, nil, nil, err
 		}
-		return r.applyCaptureTx(verifiedCtx, tx, grant, in, digest, workID, registeredDefinition, sizePlan)
+		return r.applyCaptureTx(verifiedCtx, tx, grant, in, digest, workID, registeredDefinition)
 	}
 	return agentcontract.Envelope{}, nil, false
 }
@@ -1257,7 +1182,7 @@ func captureProductIDs(productsByProject map[string][]string) []string {
 	return productIDs
 }
 
-func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, grant Authority, in captureMutationInput, digest, workID string, registeredDefinition store.RegisteredDefinition, sizePlan *store.WorkSizePlan) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
+func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, grant Authority, in captureMutationInput, digest, workID string, registeredDefinition store.RegisteredDefinition) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 	priority := in.Priority
 	urgency := in.Urgency
 	if urgency == "" {
@@ -1299,14 +1224,6 @@ func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, gran
 		return nil, nil, nil, err
 	}
 	eventIDs := result.EventIDs
-	if sizePlan != nil {
-		sized, err := store.RecordWorkSizeTx(ctx, tx, sizePlan, workID, digest+":sized", grant.PrincipalRef, now)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		eventIDs = append(eventIDs, sized...)
-	}
-	// work.sized does not change the work item's version.
 	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: "4"}}
 	return mutationPayload(changed, nil), eventIDs, changed, nil
 }
@@ -1331,19 +1248,6 @@ func (r runtime) planReviseIntent(ctx context.Context, base agentcontract.Envelo
 			return failureEnvelope(base, definitionErr), nil, true
 		}
 	}
-	var sizePlan *store.WorkSizePlan
-	if in.SizeInputs != nil {
-		productID, sizeErr := r.workProductForSize(ctx, in.WorkID)
-		if sizeErr != nil {
-			return failureEnvelope(base, sizeErr), nil, true
-		}
-		if productID == "" {
-			return coreError(base, "ambiguous_scope", "size_inputs needs the work item's Projects to belong to exactly one Product", "resolve_ambiguity", false), nil, true
-		}
-		if sizePlan, sizeErr = r.Store.PlanWorkSize(ctx, productID, *in.SizeInputs); sizeErr != nil {
-			return failureEnvelope(base, sizeErr), nil, true
-		}
-	}
 	verifiedCtx := ctx
 	if in.WorkflowTypeRef != "" {
 		_, initialized, readErr := r.Store.WorkflowInstanceDefinition(ctx, in.WorkID)
@@ -1359,12 +1263,12 @@ func (r runtime) planReviseIntent(ctx context.Context, base agentcontract.Envelo
 		}
 	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		return r.applyReviseIntentTx(verifiedCtx, tx, grant, in, digest, registeredDefinition, sizePlan, plan)
+		return r.applyReviseIntentTx(verifiedCtx, tx, grant, in, digest, registeredDefinition, plan)
 	}
 	return agentcontract.Envelope{}, nil, false
 }
 
-func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction, grant Authority, in reviseMutationInput, digest string, registeredDefinition store.RegisteredDefinition, sizePlan *store.WorkSizePlan, plan *mutationPlan) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
+func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction, grant Authority, in reviseMutationInput, digest string, registeredDefinition store.RegisteredDefinition, plan *mutationPlan) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 	definition, definitionFound, existingErr := store.WorkflowInstanceDefinitionTx(ctx, tx, in.WorkID)
 	if existingErr != nil {
 		return nil, nil, nil, existingErr
@@ -1401,46 +1305,8 @@ func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction,
 		changedVersion++
 	}
 	eventIDs := result.EventIDs
-	var revision store.WorkSizeRevisionResult
-	if in.SizeInputs != nil {
-		revision, err = store.RerunWorkSizeTx(ctx, tx, store.WorkSizeRerunRequest{Plan: sizePlan, WorkID: in.WorkID, EventID: digest + ":sized", Actor: actor, Now: r.Authority.now()})
-	}
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	eventIDs = append(eventIDs, revision.EventIDs...)
-	if revision.WorkVersion != 0 {
-		changedVersion = revision.WorkVersion
-	}
 	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
 	return mutationPayload(changed, plan.intents), eventIDs, changed, nil
-}
-
-// workProductForSize names the one Product whose knowledge home sizes the
-// work item, or nothing when its Projects span more or fewer Products.
-func (r runtime) workProductForSize(ctx context.Context, workID string) (string, error) {
-	memberships, err := r.Store.ProjectsForWork(ctx, workID)
-	if err != nil {
-		return "", err
-	}
-	projectIDs := make([]string, 0, len(memberships))
-	for _, membership := range memberships {
-		projectIDs = append(projectIDs, membership.ID)
-	}
-	productsByProject, err := r.Store.ProductsForProjectIDs(ctx, projectIDs)
-	if err != nil {
-		return "", err
-	}
-	product := ""
-	for _, ids := range productsByProject {
-		for _, id := range ids {
-			if product != "" && product != id {
-				return "", nil
-			}
-			product = id
-		}
-	}
-	return product, nil
 }
 
 // planLifecycle plans concord_work_transition.lifecycle.
@@ -2556,125 +2422,6 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base agentcontract.Env
 	return agentcontract.Envelope{}, nil, false
 }
 
-// mutateWorktreeVerify plans concord_work_transition.worktree_verify
-// (CD-0096 D3 Verify tier, part 3a of #689). The requested command runs
-// between the lease transaction and its release, so the effect cannot sit
-// inside executeMutation's single transaction: the store owns both lease
-// transactions and the command execution, and this planner owns the budget
-// ceiling, the envelope, and the idempotency record. The worktree derives
-// from the session's Project and the work identity; no path input exists
-// (CD-0096 D2).
-func (r runtime) mutateWorktreeVerify(ctx context.Context, base agentcontract.Envelope, raw []byte, grant Authority, _ agentcontract.ContractOperation) (agentcontract.Envelope, error) {
-	var in worktreeVerifyInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err
-	}
-	// CD-0038 D3: the ceiling is admitted after the idempotency lookup the
-	// Invoke path already ran, so a refused budget records no effect and
-	// never starts the command. The refusal states the supported route, not
-	// only the violated bound: a lane that outlives the ceiling can still run
-	// by omitting requested_budget_seconds, which installs no caller deadline
-	// (CD-0038 D4).
-	if r.Budget.CeilingRefused {
-		return r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d; rerun with a value at or below the supported ceiling, or omit requested_budget_seconds to run without a caller deadline", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds)), nil
-	}
-	project := r.Envelope.AmbientProjectID
-	if project == "" {
-		return coreError(base, "unknown_scope", "worktree tiers resolve through the session's Project; this session holds none", "refresh_context", false), nil
-	}
-	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
-	scope := map[string]any{"work_ids": []string{in.WorkID}}
-	products, err := r.deriveMutationProducts(ctx, scope)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	scope["product_ids"] = products
-	intents := []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "worktree_inspect", QueryID: "CD-0096.R1", ReasonCode: "inspect_verified_worktree", RequiredFields: []string{"work_id", "mode"}}}
-	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey}
-	// Intent equality does not identify a run: a new request must execute even
-	// when its command is unchanged. Bind the lease to the logical request as
-	// well as its intent, while the canonical digest still guards replay.
-	leaseInput, _ := json.Marshal(struct {
-		Key          store.MutationIdempotencyKey
-		IntentDigest string
-	}{key, digest})
-	leaseDigest := sha256Hex(leaseInput)
-	leaseID := leaseDigest + ":worktree-verify:" + in.WorkID
-	result, err := r.Store.VerifyWorktree(ctx, store.WorktreeVerifyRequest{
-		Owner:                  store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef},
-		WorkID:                 in.WorkID,
-		ProjectID:              project,
-		Command:                in.Command,
-		Oracle:                 in.Oracle,
-		LeaseID:                leaseID,
-		PrincipalRef:           grant.PrincipalRef,
-		RequestID:              in.IdempotencyKey,
-		Now:                    r.Authority.now(),
-		SupportedBudgetSeconds: r.Budget.SupportedSeconds,
-		CallerBudgetApplied:    r.Budget.RequestedSeconds > 0,
-	})
-	if err != nil {
-		failure := failureEnvelope(base, err)
-		if result.LeaseID != "" {
-			return worktreeVerifyPostLeaseFailure(failure, []agentcontract.ChangedRef{{EntityKind: "worktree_verify_lease", ID: leaseID, Version: "1"}}), nil
-		}
-		return failure, nil
-	}
-	resultPayload := map[string]any{
-		"work_id": result.WorkID, "project_id": result.ProjectID, "branch": result.Branch, "path": result.Path,
-		"lease_id": result.LeaseID, "operation_ref": result.OperationRef, "command": result.Command, "exit_code": result.ExitCode,
-		"output": result.Output, "output_truncated": result.OutputTruncated, "tracked_files_changed": result.TrackedFilesChanged,
-		"changed_refs":       mutationResultChangedRefs([]agentcontract.ChangedRef{{EntityKind: "worktree_verify_lease", ID: leaseID, Version: "1"}}),
-		"next_valid_intents": mutationResultIntents(intents),
-	}
-	if result.Oracle != nil {
-		// Native producer metadata is already finalized by the store. The
-		// adapter neither derives observations nor copies raw stream bodies.
-		resultPayload["oracle"] = result.Oracle
-	}
-	payload, err := json.Marshal(resultPayload)
-	if err != nil {
-		return worktreeVerifyPostLeaseFailure(failureEnvelope(base, err), []agentcontract.ChangedRef{{EntityKind: "worktree_verify_lease", ID: leaseID, Version: "1"}}), nil
-	}
-	changed := []agentcontract.ChangedRef{{EntityKind: "worktree_verify_lease", ID: leaseID, Version: "1"}}
-	base.ResolvedScope = scopeFromMap(scope)
-	response := r.mutationResult(base, payload, changed, intents)
-	if response.Outcome == agentcontract.OutcomeError {
-		return worktreeVerifyPostLeaseFailure(response, changed), nil
-	}
-	changedJSON, _ := json.Marshal(changed)
-	authorizedScope, _ := json.Marshal(mutationResponseScope(scope, response, nil))
-	if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{
-			Key:                     key,
-			CanonicalDigest:         digest,
-			OperationID:             "mutation-" + leaseDigest[7:31],
-			ResultPayload:           string(payload),
-			ChangedRefs:             string(changedJSON),
-			AuthorizedScopeSnapshot: string(authorizedScope),
-			ObservedAt:              r.Authority.now(),
-		})
-	}); err != nil {
-		return worktreeVerifyPostLeaseFailure(failureEnvelope(base, err), changed), nil
-	}
-	return response, nil
-}
-
-// worktreeVerifyPostLeaseFailure keeps the result truthful after the verify
-// lease and command have crossed their effect boundary. The committed lease
-// reference lets the caller reconcile without rerunning the command blindly.
-func worktreeVerifyPostLeaseFailure(failure agentcontract.Envelope, changed []agentcontract.ChangedRef) agentcontract.Envelope {
-	if failure.Outcome != agentcontract.OutcomeError || failure.Error == nil {
-		return failure
-	}
-	failure.Error.EffectState = agentcontract.EffectPossible
-	refs := append([]agentcontract.ChangedRef(nil), changed...)
-	if len(refs) > 0 {
-		failure.ChangedRefs = &refs
-	}
-	return failure
-}
-
 // planWorkRemoval plans the operator-controlled, per-item removal operation.
 func (r runtime) planWorkRemoval(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in workRemovalMutationInput
@@ -2742,8 +2489,7 @@ func (r runtime) planWorkRemoval(ctx context.Context, base agentcontract.Envelop
 // worktree reclaims through the direct reclaim's own gates, in its own
 // transaction, so one refused row never rolls back another's reclamation.
 // That is why the effect cannot sit inside executeMutation's single
-// transaction, and why this planner takes the shape mutateWorktreeVerify
-// established: the store owns the row transactions, and this planner owns
+// transaction: the store owns the row transactions, and this planner owns
 // the envelope and the idempotency record. A replay under the same key
 // returns the recorded pass and does not run the audit again.
 //
@@ -3274,9 +3020,6 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 	}
 	if op.ID == "concord_work_transition.workflow_action" {
 		return r.mutateWorkflowAction(ctx, base, raw, grant, op)
-	}
-	if op.ID == "concord_work_transition.worktree_verify" {
-		return r.mutateWorktreeVerify(ctx, base, raw, grant, op)
 	}
 	if op.ID == "concord_work_transition.worktree_audit_reclaim" {
 		return r.mutateWorktreeAuditReclaim(ctx, base, raw, grant, op)

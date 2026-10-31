@@ -26,7 +26,7 @@ func assertWorkPinIntentsAdmitted(t *testing.T, s *Store, workID string) int {
 		if err != nil {
 			return err
 		}
-		state, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, registered.Definition, pin.Step, "work_pin", BuiltinWorkflowRegistry())
+		state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, registered.Definition, pin.Step, "work_pin", BuiltinWorkflowRegistry())
 		if err != nil {
 			return err
 		}

@@ -23,8 +23,7 @@ func batchVerdictContractPredicates(workID string) []map[string]any {
 	return predicates
 }
 
-// Criterion proof binds captured VerifyWorktree receipts and a subject-bound
-// Review. A caller verdict or evidence-kind binding cannot substitute for them.
+// Criterion proof binds a report and a subject-bound Review.
 func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion int, beforeProduction ...func(workContextFixture)) (workContextFixture, string, [][]string) {
 	t.Helper()
 	var predicates []map[string]any
@@ -49,24 +48,21 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 		t.Fatal(err)
 	}
 	if !dependencies.ArchitectureNotApplicable {
-		acceptCurrentReviewForTest(t, f, repo, "continue")
+		acceptCurrentReviewForTest(t, f, "continue")
 	}
 	conformanceImplementChange(t, j, "criterion-proof")
+	proof := j.observeRun(t, "criterion-proof")
 	refs := make([][]string, criteria)
 	for i := range refs {
-		for k := 0; k < receiptsPerCriterion; k++ {
-			lease := fmt.Sprintf("sha256:%064x:worktree-verify:%s", i*receiptsPerCriterion+k+1, workID)
-			result, err := f.store.VerifyWorktree(t.Context(), WorktreeVerifyRequest{Owner: SessionWorktreeOwner{ClientRef: f.owner.ClientRef, AgentRef: f.owner.AgentRef, SessionRef: f.owner.SessionRef}, WorkID: workID, ProjectID: "project", LeaseID: lease, PrincipalRef: f.owner.PrincipalRef, RequestID: fmt.Sprintf("request:p:%d:%d", i, k), Now: time.Now().UTC(), Runner: ExecGitRunner{}, Command: []string{"true"}, RunCommand: func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil }})
-			if err != nil || result.ExitCode != 0 || result.TrackedFilesChanged {
-				t.Fatalf("capture criterion %d receipt %d: %+v %v", i, k, result, err)
-			}
-			refs[i] = append(refs[i], verifyOperationRef(lease))
+		for n := 0; n < receiptsPerCriterion; n++ {
+			report := proof
+			report.SubjectRef = fmt.Sprintf("report:%s-%d-%d", workID, i, n)
+			report.Report.RunRef = fmt.Sprintf("run:%s-%d-%d", workID, i, n)
+			j.bindVerification(t, report)
+			refs[i] = append(refs[i], report.SubjectRef)
 		}
 	}
-	pAcceptReceiptReview(t, f, repo, refs)
-	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": refs[0][0], "producer_id": f.owner.PrincipalRef, "producer_run_ref": refs[0][0], "producer_watermark": "request:p:0:0"}), 0, f.owner); err != nil {
-		t.Fatal(err)
-	}
+	pAcceptReceiptReview(t, f, refs)
 	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "commit:" + runTestGit(t, repo, "rev-parse", "HEAD")}), 0, f.owner); err != nil {
 		t.Fatalf("bind the checked candidate artifact: %v", err)
 	}
@@ -77,9 +73,9 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 	return f, repo, refs
 }
 
-func pAcceptReceiptReview(t *testing.T, f workContextFixture, repo string, refs [][]string) {
+func pAcceptReceiptReview(t *testing.T, f workContextFixture, refs [][]string) {
 	t.Helper()
-	completeCurrentReviewForTest(t, f, repo, "ready_for_final_proof", func(report *ReviewBlock) {
+	completeCurrentReviewForTest(t, f, "ready_for_final_proof", func(report *ReviewBlock) {
 		for i, proof := range refs {
 			report.Assessments = append(report.Assessments, ReviewAssessment{PredicateID: fmt.Sprintf("predicate:p%d", i), Assessment: "supported", ReceiptRefs: proof})
 		}
@@ -97,11 +93,6 @@ func pReceiptBatch(refs [][]string, indexes ...int) json.RawMessage {
 func pConfirmReceiptPremise(t *testing.T, f workContextFixture) error {
 	t.Helper()
 	ctx := t.Context()
-	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, f.store, PrepareWorkflowSubjectRequest{WorkID: f.workID})
-	if err != nil {
-		return err
-	}
-	ctx = WithWorkflowSubjectPreparation(ctx, prepared)
 	version := readWorkVersion(t, f.store, f.workID)
 	id := fmt.Sprintf("confirm-%s-%d", f.workID, version)
 	return f.store.Transact(ctx, func(tx *Transaction) error {
@@ -345,9 +336,10 @@ func pAssertReceiptUnion(t *testing.T, criteria, perCriterion int) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	slices.Sort(want)
-	slices.Sort(got)
-	if !slices.Equal(got, want) || len(got) != criteria*perCriterion {
+	gotSet, wantSet := slices.Clone(got), slices.Clone(want)
+	slices.Sort(wantSet)
+	slices.Sort(gotSet)
+	if !slices.Equal(gotSet, wantSet) || len(got) != criteria*perCriterion {
 		t.Fatalf("durable union=%v want %v", got, want)
 	}
 	var digest string

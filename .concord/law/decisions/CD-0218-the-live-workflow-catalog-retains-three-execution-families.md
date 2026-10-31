@@ -60,7 +60,7 @@ claim, timer service, or new authority for external effects.
 
 ### D2. Fewer calls carry the same enforceable facts
 
-The live families are implementation, break-fix, and research, rules derived from change type and risk set the mandatory stages, break-fix keeps diagnosis and regression proof, and no agent waives a mandatory stage or an operator approval ([CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
+The live families are implementation, break-fix, and research, each family's plain definition sets its mandatory stages, break-fix keeps diagnosis and regression proof, and no agent waives a mandatory stage or an operator approval ([CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
 
 ### D3. Authorization and correction keep their owners
 

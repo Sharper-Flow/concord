@@ -8,7 +8,7 @@ import (
 
 func TestRetainedReviewFindingsRemainVisibleAfterRecording(t *testing.T) {
 	for _, blocking := range []bool{false, true} {
-		name := "crucial"
+		name := "nonblocking"
 		if blocking {
 			name = "blocking"
 		}
@@ -21,7 +21,7 @@ func TestRetainedReviewFindingsRemainVisibleAfterRecording(t *testing.T) {
 				InScope: true, Blocking: blocking, Status: "open",
 				EvidenceRefs: []string{"evidence:retained"}, ClosureRefs: []string{},
 			}
-			completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required", func(report *ReviewBlock) {
+			completeCurrentReviewForTest(t, j.fixture, "correction_required", func(report *ReviewBlock) {
 				report.InputCandidate = input
 				report.Findings = []ReviewFinding{finding}
 			})
@@ -29,9 +29,9 @@ func TestRetainedReviewFindingsRemainVisibleAfterRecording(t *testing.T) {
 			if err != nil || len(state.Findings) != 1 || !reflect.DeepEqual(state.Findings[0], finding) {
 				t.Fatalf("retained finding disappeared or changed: %+v, %v", state.Findings, err)
 			}
-			state.Crucial = !blocking
-			if err := workflowAdmitReview(state); !hasFailureKind(err, KindMissingEvidence) || !strings.Contains(err.Error(), finding.FindingID) {
-				t.Fatalf("open retained finding did not block exit: %v", err)
+			err = workflowAdmitReview(state)
+			if !hasFailureKind(err, KindMissingEvidence) || (blocking && !strings.Contains(err.Error(), finding.FindingID)) {
+				t.Fatalf("retained finding or review disposition did not block exit: %v", err)
 			}
 		})
 	}
@@ -64,7 +64,7 @@ func TestRetainedReviewDraftKeepsCandidateBoundary(t *testing.T) {
 func TestRetainedReviewReadyForFinalProofAdmitsExit(t *testing.T) {
 	j, input := retainedReviewFixture(t, "retained-ready-for-proof")
 	head := descendantCommit(t, j, "ordinary-editor")
-	ref, _ := completeCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof", func(report *ReviewBlock) {
+	ref, _ := completeCurrentReviewForTest(t, j.fixture, "ready_for_final_proof", func(report *ReviewBlock) {
 		report.InputCandidate = input
 	})
 	state, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID)

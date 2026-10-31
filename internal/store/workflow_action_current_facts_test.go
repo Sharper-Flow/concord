@@ -101,7 +101,7 @@ func TestWorkflowHeldReviewDoesNotRecordPhaseExit(t *testing.T) {
 	if err := j.s.db.QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='record_review'`, j.workID).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+	completeCurrentReviewForTest(t, j.fixture, "correction_required")
 	assertNoExit := func() {
 		t.Helper()
 		var n int64

@@ -87,8 +87,6 @@ type ContinuitySnapshot struct {
 	LatestCheckpoint       *ContextCheckpoint      `json:"latest_checkpoint"`
 	DesignRecord           *WorkflowDesignRecord   `json:"design_record"`
 	ProposalRecord         *WorkflowProposalRecord `json:"proposal_record"`
-	ReviewInput            *ReviewInput            `json:"review_input,omitempty"`
-	ReviewInputWarning     error                   `json:"-"`
 	Boundaries             []ContextBoundary       `json:"boundaries"`
 	BoundaryCount          int64                   `json:"boundary_count"`
 	NextCursor             *string                 `json:"next_cursor"`
@@ -109,17 +107,13 @@ type ContinuitySnapshot struct {
 	// ObservationsTotal counts the whole population, so a reader knows when
 	// the paged concord_work_trace.observations read holds more. Read-time
 	// visibility: no gate consumes this.
-	Observations        []WorkObservation            `json:"observations"`
-	ObservationsTotal   int64                        `json:"observations_total"`
-	StaleLawRevision    *StaleLawRevision            `json:"stale_law_revision,omitempty"`
-	ChangesProductTruth bool                         `json:"changes_product_truth"`
-	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
-	// ActiveVerifyLeases re-pins the reading session's held verify leases
-	// (CD-0096 D5), newest first, bounded. Empty when the session named no
-	// identity or holds none.
-	CompatibleLawAmendments []CompatibleLawAmendment    `json:"compatible_law_amendments"`
-	ActiveVerifyLeases      []ActiveWorktreeVerifyLease `json:"active_verify_leases,omitempty"`
-	WorkPin                 *WorkPin                    `json:"work_pin,omitempty"`
+	Observations            []WorkObservation            `json:"observations"`
+	ObservationsTotal       int64                        `json:"observations_total"`
+	StaleLawRevision        *StaleLawRevision            `json:"stale_law_revision,omitempty"`
+	ChangesProductTruth     bool                         `json:"changes_product_truth"`
+	ArchitectureBinding     *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+	CompatibleLawAmendments []CompatibleLawAmendment     `json:"compatible_law_amendments"`
+	WorkPin                 *WorkPin                     `json:"work_pin,omitempty"`
 	// PendingProjectHandoff carries the work's newest unconsumed
 	// Project-session handoff (CD-0182 amendment), so a Project-selected
 	// boot renders the bounded job a receiving session must consume before
@@ -148,10 +142,6 @@ type ContinuityRequest struct {
 	Work   string
 	Limit  int
 	Cursor string
-	// Owner names the reading session, so the pinned projection re-pins its
-	// held verify leases (CD-0096 D5). Nil keeps the work-keyed projection
-	// the session-boot path renders.
-	Owner *SessionWorktreeOwner
 }
 
 func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest) (ContinuitySnapshot, error) {
@@ -189,16 +179,6 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err != nil {
 		return out, err
 	}
-	if req.Owner != nil {
-		if err := validateSessionWorktreeOwner(*req.Owner); err != nil {
-			return out, err
-		}
-		leases, err := heldWorktreeVerifyLeasesByOwnerTx(ctx, tx, *req.Owner)
-		if err != nil {
-			return out, err
-		}
-		out.ActiveVerifyLeases = leases
-	}
 	out, err = continuityReadIdentityTx(ctx, tx, req.Work, out)
 	if err != nil {
 		return out, err
@@ -215,16 +195,9 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err := continuityReadManagedHistoryTx(ctx, tx, req, registry, offset, &out); err != nil {
 		return out, err
 	}
-	// Resolve immutable Git content only after the read snapshot closes.
-	// The descriptor grants no action or execution authority.
-	reviewSubject, err := sampleContinuityReviewSubjectTx(ctx, tx, req.Work, &out)
-	if err != nil {
-		return out, err
-	}
 	if err := tx.Rollback(); err != nil {
 		return out, err
 	}
-	observeContinuityReviewSubject(ctx, &out, reviewSubject)
 	return out, nil
 }
 

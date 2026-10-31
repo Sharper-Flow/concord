@@ -2,8 +2,7 @@ package store
 
 // Workflow-family rows for the structural output bound ledger: the
 // workflow_, continuity_, and work_context_ definitions plus work_pin,
-// work_pin_evidence, work_liveness, and
-// work_size_summary. Every finite row cites a real full-string producer
+// work_pin_evidence and work_liveness. Every finite row cites a real full-string producer
 // bound traced to its writer: a store guard constant, a workflowString or
 // workflowList call argument resolved through its fold, an inline
 // comparison guard, an anchored pattern constant, a declared slice literal,
@@ -45,7 +44,6 @@ func init() {
 	boundaryRecordedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowContextBoundaryCrossed", "time.RFC3339Nano")
 	handoffRecordedAt := pkTimeLayoutWidthBound("internal/store/project_handoffs.go", "recordProjectHandoffCore", "time.RFC3339Nano")
 	observationRecordedAt := pkTimeLayoutWidthBound("internal/store/work_observations.go", "foldWorkObservationRecorded", "time.RFC3339Nano")
-	sizeRecordedAt := pkTimeLayoutWidthBound("internal/store/work_size.go", "foldWorkSized", "time.RFC3339Nano")
 	// advanceWorkEffectSeqTx retains the lexical maximum in
 	// work_items.last_progress_at. deriveWorkLivenessQ reads that column;
 	// workLivenessFromCounts copies it to LastProgress without reformatting.
@@ -244,8 +242,6 @@ func init() {
 	registerOutputBound("/$defs/continuity_snapshot/properties/observations/items/properties/tags/items/maxLength", observationTagBound)
 	registerOutputBound("/$defs/continuity_snapshot/properties/observations/items/properties/tags/maxItems", observationTagsCount)
 	registerOutputBound("/$defs/continuity_snapshot/properties/observations/maxItems", observationWindow)
-	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/active_verify_leases/maxItems",
-		workflowSQLLimitItemsBound("internal/store/worktrees.go", "heldWorktreeVerifyLeasesByOwnerTx"))
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/compatible_law_amendments/maxItems",
 		contractSpecMandate) // at most one amendment per mandated law (workflow_law_revision.go:438-462)
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/product_identity/maxItems", productIdentityBound)
@@ -328,7 +324,6 @@ func init() {
 		registerOutputBound("/$defs/"+def+"/properties/domain_groups/maxItems",
 			sumBound(requiredReadingMax, viewFindingsMax)) // one group per distinct Domain across <=32 readings + <=32 finding slots
 		registerOutputBound("/$defs/"+def+"/properties/findings/maxItems", viewFindingsMax)
-		registerOutputBound("/$defs/"+def+"/properties/oracle_preparations/maxItems", nativePreparationCountDerived())
 		registerOutputBound("/$defs/"+def+"/properties/required_reading/maxItems", requiredReadingMax)
 		registerOutputBound("/$defs/"+def+"/properties/subject_commit/maxLength", commitOIDBound)
 	}
@@ -376,9 +371,6 @@ func init() {
 	registerOutputBound("/$defs/work_pin_evidence/properties/evidence_kind/maxLength",
 		workflowContainsLiteralLongestBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "slices.Contains"))
 	registerOutputBound("/$defs/work_pin_evidence/properties/immutable_subject_ref/maxLength", evidenceRefBound)
-
-	// Work size summary.
-	registerOutputBound("/$defs/work_size_summary/properties/recorded_at/maxLength", sizeRecordedAt)
 
 	// Workflow contract: the projection columns carry the admission CHECKs.
 	registerOutputBound("/$defs/workflow_contract/properties/approved_at/maxLength", contractApprovedAt)

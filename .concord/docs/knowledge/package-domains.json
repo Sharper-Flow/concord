@@ -156,10 +156,6 @@
       "owner_domain_id": "workflow-engine",
       "path": "scripts/workflow-action-contracts",
       "role": "domain"
-    },
-    {
-      "path": "testdata",
-      "role": "test_support"
     }
   ],
   "schema_version": "1.1"

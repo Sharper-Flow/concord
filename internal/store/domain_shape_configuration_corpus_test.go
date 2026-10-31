@@ -40,7 +40,7 @@ func TestCommittedConfigurationFacts(t *testing.T) {
 		{"sqlite-backup-retries", "durable-authority", "internal/store/internal/sqlitedb", "internal/store/internal/sqlitedb/snapshot.go", "copyOnlineBackup", "backupRetryLimit / backupRetryBackoff"},
 		{"snapshot-retention-limits", "durable-authority", "cmd/concord", "cmd/concord/snapshot_retention.go", "pruneManagedSnapshots", "managedSnapshotCount / managedSnapshotAge"},
 		{"domain-shape-tooling", "repository-verification", "internal/store", "internal/store/domain_shape_checks.go", "RunDomainShapeCheck", "domain_shape"},
-		{"workflow-declared-checks", "workflow-engine", "internal/store", "internal/store/project_tooling.go", "ProjectToolingInvocationDeclared", "tools[].invocation"},
+		{"workflow-declared-checks", "workflow-engine", "internal/store", "internal/store/project_tooling.go", "ParseProjectToolingManifest", "tools[].invocation"},
 	} {
 		t.Run(test.id, func(t *testing.T) {
 			fact, err := ParseDomainFact(test.id+".json", read(t, knowledgeFactTreeDir+test.id+".json"), refs)

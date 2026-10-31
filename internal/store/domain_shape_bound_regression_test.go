@@ -12,7 +12,7 @@ import (
 func TestCommittedAgentSurfaceAndMixedRootShapeFitBound(t *testing.T) {
 	ctx := context.Background()
 	root := repositoryRootForTest(t)
-	runner := CommittedReadGitRunner{}
+	runner := runGitRunner{}
 	head, err := runner.Run(ctx, root, "rev-parse", "HEAD")
 	if err != nil {
 		t.Fatal(err)

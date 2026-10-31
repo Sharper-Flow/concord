@@ -66,14 +66,14 @@ func TestSupersessionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 	reviewGateStartStep(t, s, workID, "execution", "start_execution", f.owner)
 	run := j.observeRun(t, "successor-proof")
 	j.bindVerification(t, run)
-	qAcceptCriterionReview(t, j.fixture, f.repo, run.OperationRef)
+	qAcceptCriterionReview(t, j.fixture, run.OperationRef)
 	if err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "delivery:successor", "delivery_state": "asserted"}, f.owner); err != nil {
 		t.Fatal(err)
 	}
 	run = j.observeRun(t, "successor-refine")
 	reviewGateStartStep(t, s, workID, "refine", "checkpoint_refine", f.owner)
 	j.bindVerification(t, run)
-	qAcceptCriterionReview(t, j.fixture, f.repo, run.OperationRef)
+	qAcceptCriterionReview(t, j.fixture, run.OperationRef)
 	if err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "delivery:successor", "delivery_state": "asserted"}, f.owner); err != nil {
 		t.Fatal(err)
 	}

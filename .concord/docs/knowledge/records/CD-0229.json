@@ -36,15 +36,14 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e4e060a8e4b265bee764075897c11191cffc934d0278221d9edc676056de2dac",
+  "sha256": "sha256:a0bf4b6cba03f0ece09701e33a045f2927ef2576abe963a6aeb5fea90c92038d",
   "status": "accepted",
-  "summary": "A workflow definition is a composition of versioned parts, and each step is defined in exactly one part; the registry compiles compositions, and no released definition version is retained for history. The decision model sets each work item's size and its minimum steps, proof, and testing; a task that proves bigger than its size reruns the model and continues in the same item. Sized workflows record define start and merge-queue entry.",
+  "summary": "The three live families use plain Go definitions with canonical manifests and generated public projections, without a parts catalog or composition compiler. Common runtime action and payload implementations remain shared. Parts-only tests retire with assembly. Work has no size classification, model, inputs, proofs or size-specific review gate. Live steps, independent review, blocking-finding admission, current-subject proof, snapshot-backed upgrades and retired-size event refusal remain.",
   "tags": [
     "workflow",
     "workflow-engine",
     "definition",
-    "composition",
-    "sizing"
+    "composition"
   ],
-  "title": "Workflows are composed from shared parts, and a decision model sets each work item's size"
+  "title": "Plain workflow definitions without work-item size classification"
 }

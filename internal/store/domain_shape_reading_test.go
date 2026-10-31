@@ -35,12 +35,6 @@ func TestDomainShapeReadingClosedSource(t *testing.T) {
 	if err := validateWorkContextReading(reading); err != nil {
 		t.Fatal(err)
 	}
-	// The closed union belongs to reading entries; oracle recipe sources share
-	// the source type and must keep decoding their retained producer facts.
-	var oracle NativeOracleResult
-	if err := json.Unmarshal([]byte(`{"recipe_source":{"kind":""}}`), &oracle); err != nil {
-		t.Fatalf("reading closure leaked into oracle recipe_source: %v", err)
-	}
 	for _, raw := range []string{
 		strings.Replace(valid, `"selector":{"path":"src"}`, `"selector":null`, 1),
 		strings.Replace(valid, `"selector":{"path":"src"}`, `"selector":{}`, 1),
@@ -362,26 +356,5 @@ func TestDomainShapeReadingExplicitDomainGroup(t *testing.T) {
 	raw, err := json.Marshal(witness.shape)
 	if err != nil || !bytes.Equal(raw, expected) || witness.contentHash != reading.Source.ContentHash {
 		t.Fatalf("explicit Domain selection did not survive the approved root group: %s %v", raw, err)
-	}
-}
-
-// The Domain Shape selector extends the shared source type; the oracle's
-// knowledge and repository arms must still refuse it on replay and admission.
-func TestOracleSourcesRefuseDomainShapeSelector(t *testing.T) {
-	selector := &DomainShapeSelector{Path: "src"}
-	law := WorkContextReadingSource{Kind: WorkContextSourceKnowledge, SourceID: "project-a", LawID: "law-a", ContentHash: "sha256:" + strings.Repeat("b", 64)}
-	recipe := WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project-a", Path: "harness/run.sh", CommitOID: strings.Repeat("a", 40)}
-	if err := validateOracleLawSource(law); err != nil {
-		t.Fatalf("valid law source refused: %v", err)
-	}
-	if err := validateOracleRecipeSource(recipe); err != nil {
-		t.Fatalf("valid recipe source refused: %v", err)
-	}
-	law.Selector, recipe.Selector = selector, selector
-	if err := validateOracleLawSource(law); err == nil {
-		t.Fatal("law binding admitted a domain_shape selector")
-	}
-	if err := validateOracleRecipeSource(recipe); err == nil {
-		t.Fatal("recipe source admitted a domain_shape selector")
 	}
 }

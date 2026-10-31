@@ -19,7 +19,6 @@ import (
 func TestMutationProjectionCorrectionMutations(t *testing.T) {
 	f := newSpineExecutionFixture(t)
 	f.verify(t)
-	f.prepareControl(t)
 	f.implement(t)
 	f.proof = f.verify(t)
 	// HTML escaping expands legal Review and correction text in each required copy

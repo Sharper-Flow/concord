@@ -18,10 +18,8 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	ctx := context.Background()
 	f := newSpineExecutionFixtureForFamily(t, "workflow.break_fix")
 	f.verify(t)
-	f.prepareControl(t)
 	f.implement(t)
 	f.proof = f.verify(t)
-	f.prepareControl(t)
 	s := f.s
 	execActor := store.WorkflowActor{PrincipalRef: f.env.PrincipalRef, ClientRef: f.env.ClientRef, AgentRef: f.env.AgentRef, SessionRef: f.env.SessionRef, ActorClass: store.ActorAgent}
 	currentStep := func() string {

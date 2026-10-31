@@ -1,8 +1,6 @@
 package store
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -20,7 +18,7 @@ func retainedReviewFixture(t *testing.T, id string) (*candidateJourney, ReviewCa
 	gitRunStore(t, dir, "branch", "-m", branch)
 	j := &candidateJourney{fixture: f, s: f.store, workID: id, repo: dir}
 	j.observeRun(t, "baseline")
-	acceptCurrentReviewForTest(t, f, dir, "continue")
+	acceptCurrentReviewForTest(t, f, "continue")
 	state, err := readWorkflowReviewFacts(t.Context(), j.s.db, id)
 	if err != nil || state.Candidate == nil || state.Accepted == nil {
 		t.Fatalf("retained Review baseline: %+v, %v", state, err)
@@ -43,7 +41,7 @@ func TestRetainedEditingReviewRecovery(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(current.Candidate, baseline.Candidate) || !reflect.DeepEqual(current.Accepted, baseline.Accepted) {
 		t.Fatalf("subject observation promoted unreviewed input: %+v, %v", current, err)
 	}
-	ref, _ := completeCurrentReviewForTest(t, j.fixture, j.repo, "continue", func(report *ReviewBlock) {
+	ref, _ := completeCurrentReviewForTest(t, j.fixture, "continue", func(report *ReviewBlock) {
 		report.InputCandidate = input
 	})
 	current, err = readWorkflowReviewFacts(t.Context(), j.s.db, j.workID)
@@ -59,13 +57,13 @@ func TestRetainedEditingReviewRecovery(t *testing.T) {
 func TestRetainedEditingReviewCanRepair(t *testing.T) {
 	j, _ := retainedReviewFixture(t, "retained-repair-output")
 	inputCommit := descendantCommit(t, j, "input-needing-repair")
-	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+	acceptCurrentReviewForTest(t, j.fixture, "correction_required")
 	input := currentReviewBlockForTest(t, j.s, j.workID, "continue").InputCandidate
 	output := descendantCommit(t, j, "fresh-review-repair")
 	if inputCommit == output {
 		t.Fatal("Review did not repair the retained input")
 	}
-	ref, _ := completeCurrentReviewForTest(t, j.fixture, j.repo, "continue", func(report *ReviewBlock) {
+	ref, _ := completeCurrentReviewForTest(t, j.fixture, "continue", func(report *ReviewBlock) {
 		report.InputCandidate = input
 	})
 	current, err := readWorkflowReviewFacts(t.Context(), j.s.db, j.workID)
@@ -75,7 +73,7 @@ func TestRetainedEditingReviewCanRepair(t *testing.T) {
 }
 
 func TestRetainedReviewCandidateBounds(t *testing.T) {
-	for _, shape := range []string{"dirty", "foreign_input", "input_tree", "output_moved", "contract"} {
+	for _, shape := range []string{"foreign_input", "input_tree", "output_moved", "contract"} {
 		t.Run(shape, func(t *testing.T) {
 			j, input := retainedReviewFixture(t, "retained-bound-"+shape)
 			descendantCommit(t, j, "ordinary-editor")
@@ -83,16 +81,15 @@ func TestRetainedReviewCandidateBounds(t *testing.T) {
 			report.InputCandidate = input
 			want := KindStaleRequiresReview
 			switch shape {
-			case "dirty":
-				if err := os.WriteFile(filepath.Join(j.repo, "seed.txt"), []byte("dirty\n"), 0o600); err != nil {
-					t.Fatal(err)
-				}
 			case "foreign_input":
 				report.InputCandidate.Commit = strings.Repeat("f", 40)
 			case "input_tree":
 				report.InputCandidate.Tree = strings.Repeat("e", 40)
 			case "output_moved":
 				descendantCommit(t, j, "later-observed-editor")
+				completeCurrentReviewForTest(t, j.fixture, "continue", func(newReport *ReviewBlock) {
+					newReport.InputCandidate = input
+				})
 			case "contract":
 				payload := pContractSuccessor(t, j.s, j.workID, "The approved outcome needs a corrected approach.")
 				predicates := payload["outcome_predicates"].([]any)

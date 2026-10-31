@@ -104,23 +104,13 @@ func (f *spineFixture) action(t *testing.T, action string, fields map[string]any
 
 func (f *spineFixture) verify(t *testing.T) string {
 	t.Helper()
-	if f.proof != "" && f.proofCommit == gitRun(t, f.path, "rev-parse", "HEAD") {
+	commit := gitRun(t, f.path, "rev-parse", "HEAD")
+	if f.proof != "" && f.proofCommit == commit {
 		return f.proof
 	}
-	response := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
-		"work_id": f.work, "command": []string{"go", "test", "./..."},
-		"idempotency_key": fmt.Sprintf("spine-verify-%d", f.request),
-	}))
-	var result store.WorktreeVerifyResult
-	if err := json.Unmarshal(response.Result, &result); err != nil {
-		t.Fatal(err)
-	}
-	current := f.read(t).Pinned.Pin.WorkContext
-	if result.ExitCode != 0 || result.TrackedFilesChanged || current == nil || current.SubjectCommit != gitRun(t, f.path, "rev-parse", "HEAD") {
-		t.Fatalf("unqualified verify: %+v; status: %s", result, gitRun(t, f.path, "status", "--porcelain=v1", "--untracked-files=all"))
-	}
-	f.proofCommit = current.SubjectCommit
-	return result.OperationRef
+	f.proofCommit = commit
+	f.proof = agentBindVerificationReport(t, f, commit, "pass", fmt.Sprintf("run:spine-%d", f.request))
+	return f.proof
 }
 
 func newSpineFixture(t *testing.T) *spineFixture {
@@ -132,12 +122,9 @@ func newSpineFixtureForFamily(t *testing.T, family string) *spineFixture {
 	t.Helper()
 	f := newSpineExecutionFixtureForFamily(t, family)
 	f.verify(t)
-	f.prepareControl(t)
 	f.implement(t)
 	f.proof = f.verify(t)
-	f.prepareControl(t)
 	f.review(t, "ready_for_final_proof", f.proof)
-	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	return f
 }
 
@@ -166,13 +153,11 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 		t.Fatal(err)
 	}
 	repo := home.RepoPath
-	// The fixture repository is deliberately self-contained: preparation needs
-	// no downloaded modules and executes none of the acceptance test body.
+	// The fixture repository is deliberately self-contained.
 	for name, data := range map[string]string{
 		"go.mod":            "module example.invalid/spine\n\ngo 1.26.0\ntoolchain " + goruntime.Version() + "\n",
 		"pkg/value.go":      "package spine\n\nfunc Value() int { return 7 }\n",
 		"pkg/value_test.go": "package spine\nimport \"testing\"\nfunc TestValue(t *testing.T) { if Value() != 7 { t.Fatal(\"wrong value\") } }\n",
-		"pkg/oracle.json":   `{"kind":"go_top_level_v1","package_cwd":"pkg","test_files":["pkg/value_test.go"],"fixture_files":[],"cases":{"case:spine-value":["TestValue"]}}`,
 	} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(repo, name)), 0o700); err != nil {
 			t.Fatal(err)
@@ -182,7 +167,7 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 		}
 	}
 	gitRun(t, repo, "add", ".")
-	gitRun(t, repo, "commit", "-qm", "fixture oracle")
+	gitRun(t, repo, "commit", "-qm", "fixture source")
 	seedClaimOrigin(t, repo)
 	base := gitRun(t, repo, "rev-parse", "HEAD")
 	scope, _, err := s.ScopeVersion(context.Background(), "project-1")
@@ -245,38 +230,6 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	}
 	spineOK(t, f.action(t, entry, map[string]any{}))
 	return f
-}
-
-func (f *spineFixture) prepareControl(t *testing.T) {
-	t.Helper()
-	state := f.read(t)
-	binding := state.Pinned.Contract.ArchitectureBinding
-	owner := store.OracleOwner{OwnerID: "owner:spine-value", DomainID: binding.HomeDomainID,
-		Mechanism:  store.OracleMechanism{ProjectID: "project-1", Path: "pkg/value.go", EntryPoint: "Value"},
-		Obligation: "The checked value is available.", PredicateIDs: []string{"predicate:primary"}}
-	control := store.OracleControl{ControlID: "control:spine-value", OwnerID: owner.OwnerID, PredicateIDs: owner.PredicateIDs,
-		CaseIDs: []string{"case:spine-value"}, Cwd: "pkg", Argv: []string{"go", "test", "-count=1", "-run", "^(TestValue)$", "."},
-		RecipeSource:   store.WorkContextReadingSource{Kind: store.WorkContextSourceRepositoryFile, ProjectID: "project-1", Path: "pkg/oracle.json", CommitOID: f.base},
-		ExpectedResult: store.OracleExpectedResultPass, RequiredEvidenceRole: store.OracleEvidenceRoleReported}
-	cases := []store.OracleCase{{CaseID: "case:spine-value", OwnerID: owner.OwnerID, EntryPoint: "Value", InputClass: "checked value", ExpectedState: "value is seven", ControlIDs: []string{control.ControlID}}}
-	bundle := store.NativeOracleControlBundle{Owner: owner, Control: control, Cases: cases}
-	var input map[string]any
-	if err := json.Unmarshal(retryJSON(bundle), &input); err != nil {
-		t.Fatal(err)
-	}
-	delete(input["control"].(map[string]any), "readiness_evidence_refs")
-	prepared := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
-		"work_id": f.work, "idempotency_key": fmt.Sprintf("spine-prepare-%d", f.request), "oracle": map[string]any{
-			"phase": "prepare", "expected_contract_version": state.Pinned.Contract.Version, "control_bundle": input,
-		},
-	}))
-	var result store.WorktreeVerifyResult
-	if err := json.Unmarshal(prepared.Result, &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.Oracle == nil || result.Oracle.Qualification != "ready" {
-		t.Fatalf("native preparation not ready: %+v", result)
-	}
 }
 
 func (f *spineFixture) implement(t *testing.T) {

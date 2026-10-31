@@ -48,19 +48,6 @@ func TestDomainFootprintShapeUsesSelectedCoreAndProductHome(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Logf("footprint %s: %d serialized Store result bytes", fixture.product, len(raw))
-		prepared, err := s.prepareDomainFootprint(ctx, req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		tx, err := beginReadTx(ctx, s.db)
-		if err != nil {
-			t.Fatal(err)
-		}
-		complete, err := footprintCompleteTx(ctx, tx, prepared.req, prepared.home, prepared.paths, prepared.behaviorLaws, prepared.behaviorCommit, footprintWithShapes)
-		_ = tx.Rollback()
-		if err != nil || !reflect.DeepEqual(got.Shapes, complete.Shapes) {
-			t.Fatal("complete footprint did not use the same selection", err)
-		}
 		behavior, err := s.QueryDomainFootprint(ctx, DomainFootprintRequest{Product: fixture.product, Behavior: "Synthetic owner"})
 		if err != nil || len(behavior.Shapes) != 0 || behavior.PackageMapContentHash == nil {
 			t.Fatal("behavior-only read injected a shape overview or lost its map identity", behavior, err)

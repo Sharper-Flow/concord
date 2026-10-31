@@ -46,10 +46,6 @@ func recoveryDomainRepository(t *testing.T, s *store.Store) string {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE project_locators SET locator_value=?1, normalized_value=?1 WHERE project_id='project-1' AND kind='canonical_path'; DELETE FROM write_guard`, home.RepoPath); err != nil {
 		t.Fatalf("point the fixture locator at the repository: %v", err)
 	}
-	tooling, err := store.ResolveWorkProjectTooling(ctx, s, "work-1")
-	if err != nil || tooling == nil || !store.ProjectToolingInvocationDeclared(tooling, []string{"go", "vet", "./..."}) {
-		t.Fatalf("resolve the fixture's default-ref tooling: %+v, %v", tooling, err)
-	}
 	return home.RepoPath
 }
 

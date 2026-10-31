@@ -12,7 +12,7 @@ func TestArtifactSupersessionUsesRecordedProofDependencies(t *testing.T) {
 			name = "changed dependency"
 		}
 		t.Run(name, func(t *testing.T) {
-			f, repo, refs := pReceiptFixture(t, "artifact-dependencies", 1, 1)
+			f, _, refs := pReceiptFixture(t, "artifact-dependencies", 1, 1)
 			s := f.store
 			if err := runVerdictActionAs(t, s, f.workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
 				t.Fatal(err)
@@ -28,7 +28,7 @@ func TestArtifactSupersessionUsesRecordedProofDependencies(t *testing.T) {
 			successor := pContractSuccessor(t, s, f.workID, "Reassess the same candidate.")
 			if changed {
 				predicate := successor["outcome_predicates"].([]any)[0].(map[string]any)
-				predicate["outcome_payload"].(map[string]any)["immutable_subject_ref"] = "commit:reassessed"
+				predicate["outcome_payload"].(map[string]any)["check_ref"] = "check:reassessed"
 			}
 			if err := runVerdictActionAs(t, s, f.workID, "supersede_contract", mustJSONValue(successor), 0, f.owner); err != nil {
 				t.Fatal(err)
@@ -45,7 +45,7 @@ func TestArtifactSupersessionUsesRecordedProofDependencies(t *testing.T) {
 				assertRecoveryRefusalWithoutEffect(t, s, f.workID, KindMissingEvidence, func() error {
 					return runVerdictActionAs(t, s, f.workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner)
 				})
-				pAcceptReceiptReview(t, f, repo, refs)
+				pAcceptReceiptReview(t, f, refs)
 				if step := currentStep(t, s, f.workID); step != "acceptance" {
 					t.Fatalf("reassessment Review advanced acceptance to %s", step)
 				}

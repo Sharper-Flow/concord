@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Run the script test suites that a push file set selects.
+"""Run advisory script test suites selected by changed files.
 
-This is the hook-side selector that `lefthook.yml` invokes as
-`python3 scripts/run-script-tests.py -- {push_files}`. Preflight is not
-full-suite proof: it stops an obviously broken push early, while CI stays the
-verification owner for every suite.
+Invoke `python3 scripts/run-script-tests.py -- <changed-files>` for focused
+local feedback, or add `--dry-run` to inspect the selection without running it.
+This selector is not a hook gate; CI remains the verification owner for every
+suite.
 
 The battery and suite universe are derived from `.github/workflows/ci.yml`
 with the real YAML parser (PyYAML), never from a curated copy:
@@ -20,14 +20,14 @@ with the real YAML parser (PyYAML), never from a curated copy:
   the changed file's basename or repository-relative path. Local sibling Python
   imports and literal script references are followed transitively, with cycle
   detection; an unparsable helper widens to the battery. Binding is an advisory
-  candidate choice for partial preflight only, not an exhaustive test mapping.
+  candidate choice for local feedback only, not an exhaustive test mapping.
 - A changed file with no bound suite falls back to the complete tooling
-  battery. A changed battery-defining file (the CI workflow or the hook
-  configuration) also runs the battery, because the selection mapping itself
-  may have drifted. Nothing is ever silently skipped.
+  battery. A changed battery-defining file (the CI workflow) also runs the
+  battery, because the selection mapping itself may have drifted. Nothing is
+  ever silently skipped.
 
-Push files arrive as whole `argv` elements: Lefthook single-quotes expanded
-placeholders, and the forwarded `--` keeps a dash-prefixed path positional.
+Pass changed files as whole `argv` elements; `--` keeps a dash-prefixed path
+positional.
 
 Suites are spawned with the hook-inherited Git namespace cleared
 (scripts/git_environment.py): a suite building its own scratch
@@ -59,9 +59,7 @@ CI_WORKFLOW = ".github/workflows/ci.yml"
 TOOLING_JOB = "verify-tooling"
 TOOLING_STEP_NAME = "Test release and installer tooling"
 
-# Changing either of these files can change how suites are selected, so both
-# always route to the complete tooling battery.
-MAPPING_FILES = frozenset({CI_WORKFLOW, "lefthook.yml"})
+MAPPING_FILES = frozenset({CI_WORKFLOW})
 
 TEST_SUITE_RE = re.compile(r"^scripts/test-[a-z0-9-]+\.py$")
 SUITE_INVOCATION_RE = re.compile(r"(?<![\w-])python3 (scripts/test-[a-z0-9-]+\.py)(?![\w-])")
@@ -213,7 +211,7 @@ class Selection:
 
 
 def select(files: list[str], root: Path = ROOT) -> Selection:
-    """Choose the suite commands for a push file set. Never empty."""
+    """Choose the suite commands for changed files. Never empty."""
     battery = tooling_battery(root)
     battery_commands = [["python3", suite] for suite in battery]
     changed_files = _normalized(files)
@@ -223,7 +221,7 @@ def select(files: list[str], root: Path = ROOT) -> Selection:
                             if TEST_SUITE_RE.fullmatch(path) and (root / path).is_file() and path not in battery)
 
     if not changed_files or any(path in MAPPING_FILES for path in changed_files):
-        return Selection(battery_commands, True, "Empty input or changed CI/hook mapping requires the tooling battery")
+        return Selection(battery_commands, True, "Empty input or changed CI mapping requires the tooling battery")
 
     # CI-referenced suites first (in workflow order), then suites that exist
     # on disk but are not wired into CI yet.
@@ -253,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=ROOT, help="repository root")
     parser.add_argument("--dry-run", action="store_true", help="print the selected commands without running them")
-    parser.add_argument("files", nargs="*", help="push files the selection is derived from")
+    parser.add_argument("files", nargs="*", help="changed files the selection is derived from")
     args = parser.parse_args(argv)
     root = args.root.resolve()
 

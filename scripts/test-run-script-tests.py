@@ -264,12 +264,10 @@ class SelectionTest(unittest.TestCase):
             self.assertTrue(selection.used_battery_fallback)
 
     def test_mapping_file_change_runs_the_battery(self) -> None:
-        for mapping in ("lefthook.yml", ".github/workflows/ci.yml"):
-            with self.subTest(mapping=mapping):
-                with SelectorRoot() as fixture:
-                    selection = self.select(fixture, [mapping])
-                    self.assertTrue(selection.used_battery_fallback)
-                    self.assertEqual(len(selection.commands), 3)
+        with SelectorRoot() as fixture:
+            selection = self.select(fixture, [".github/workflows/ci.yml"])
+            self.assertTrue(selection.used_battery_fallback)
+            self.assertEqual(len(selection.commands), 3)
 
     def test_no_files_runs_the_battery(self) -> None:
         with SelectorRoot() as fixture:
@@ -318,7 +316,7 @@ class SelectionTest(unittest.TestCase):
             selector = load_selector(fixture.root)
             for files in (
                 [],
-                ["lefthook.yml"],
+                [".github/workflows/ci.yml"],
                 ["scripts/check-a.py"],
                 ["scripts/test-delta.py"],
                 ["scripts/check-a.py", "scripts/test-b.py"],
@@ -369,7 +367,7 @@ class RunnerExecutionTest(unittest.TestCase):
 
     def test_runner_failure_stops_the_sequence_and_propagates(self) -> None:
         with SelectorRoot() as fixture:
-            result = self.run_selector(fixture, ["lefthook.yml"], fail_suite="scripts/test-beta.py")
+            result = self.run_selector(fixture, [".github/workflows/ci.yml"], fail_suite="scripts/test-beta.py")
             self.assertEqual(result.returncode, 7, result.stderr)
             self.assertEqual(
                 [call["argv"][1] for call in result.calls],
@@ -386,8 +384,7 @@ class RunnerExecutionTest(unittest.TestCase):
             self.assertIn("python3 scripts/test-delta.py", result.stdout)
 
     def test_separator_keeps_push_files_positional(self) -> None:
-        # The hook forwards `--` before {push_files}; a path that starts with
-        # a dash must arrive as a file, never as a flag.
+        # A path that starts with a dash must arrive as a file, never as a flag.
         with SelectorRoot() as fixture:
             fixture.script("test-delta.py")
             result = self.run_selector(fixture, ["--dry-run", "--", "scripts/test-delta.py"])
@@ -705,7 +702,7 @@ class HookEnvironmentLeakTest(unittest.TestCase):
 
     def _invoke_runner(self, fixture: SelectorRoot, env: dict[str, str], runner: Path = SCRIPT):
         return subprocess.run(
-            [sys.executable, str(runner), "--root", str(fixture.root), "lefthook.yml"],
+            [sys.executable, str(runner), "--root", str(fixture.root), ".github/workflows/ci.yml"],
             env=env,
             text=True,
             capture_output=True,

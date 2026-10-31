@@ -130,7 +130,11 @@ func currentInvestigationDomains(ctx context.Context, q queryer, workID string) 
 		}
 		return nil, wrapFailure(KindStaleRequiresReview, "workflow_confirmation", "the investigation artifact's Domain refs cannot be checked: this read carries no current verification of the Product's committed Domain registry", false, "verify the Product's knowledge home, then confirm the premise or reread the work pin", err)
 	}
-	for _, domain := range snapshot.Registry().Domains {
+	registry, err := snapshot.Registry()
+	if err != nil {
+		return nil, err
+	}
+	for _, domain := range registry.Domains {
 		if domainRegistryStatus(domain.Status) == "current" {
 			current[domain.DomainID] = true
 		}

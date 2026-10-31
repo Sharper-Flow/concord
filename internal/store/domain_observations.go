@@ -69,7 +69,10 @@ func validateCurrentDomain(ctx context.Context, tx *sql.Tx, productID, domainID 
 	if err != nil {
 		return err
 	}
-	registry := snapshot.Registry()
+	registry, err := snapshot.Registry()
+	if err != nil {
+		return err
+	}
 	for _, domain := range registry.Domains {
 		if domain.DomainID != domainID {
 			continue

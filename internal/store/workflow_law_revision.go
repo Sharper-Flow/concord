@@ -775,7 +775,7 @@ func lawContextCriteria(bindings []KnowledgeCriterionBinding, workID string) []W
 
 // listedAsAddition reports whether the contract lists the law in
 // law_additions, the one listing the approved design allows to precede its
-// law_subjects row: an addition is barred from modifying or pinning an
+// committed law file: an addition is barred from modifying or pinning an
 // existing law ID, so its absent subject at continuity read time is the
 // designed pre-publication state. Every other bound role promises a document
 // that already exists.
@@ -799,7 +799,10 @@ func resolveLawContextDomains(ctx context.Context, tx *sql.Tx, productID string,
 	if err != nil {
 		return nil, err
 	}
-	registry := snapshot.Registry()
+	registry, err := snapshot.Registry()
+	if err != nil {
+		return nil, err
+	}
 	ordered := make([]string, 0, 1+len(binding.AffectedDomainIDs))
 	seen := map[string]bool{}
 	for _, domainID := range append([]string{binding.HomeDomainID}, binding.AffectedDomainIDs...) {

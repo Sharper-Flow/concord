@@ -59,6 +59,15 @@ func lawSnapshotMustLoad(t *testing.T, repo, commit string) *lawFolderSnapshot {
 	return snapshot
 }
 
+func lawSnapshotMustRegistry(t *testing.T, snapshot *lawFolderSnapshot) KnowledgeDomainRegistry {
+	t.Helper()
+	registry, err := snapshot.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registry
+}
+
 func TestLawFolderSnapshotIncludesFolderLawWithoutManifest(t *testing.T) {
 	content := lawSnapshotDecisionContent("CD-9101", "")
 	repo, commit := lawSnapshotFixture(t, map[string]string{
@@ -302,18 +311,18 @@ func TestLawFolderSnapshotRegistryReadsOneConsistentCommit(t *testing.T) {
 		".concord/docs/knowledge/domain-registry.json":   lawSnapshotRegistryRootOnlyJSON,
 	})
 	frozen := lawSnapshotMustLoad(t, repo, first)
-	if got := len(frozen.Registry().Domains); got != 1 {
+	if got := len(lawSnapshotMustRegistry(t, frozen).Domains); got != 1 {
 		t.Fatalf("frozen registry domain count changed: %d", got)
 	}
 
 	writeKnowledgeFile(t, repo, ".concord/docs/knowledge/domain-registry.json", lawSnapshotRegistryExtendedJSON)
 	second := commitKnowledgeRepo(t, repo, "registry revision")
 	again := lawSnapshotMustLoad(t, repo, first)
-	if got := len(again.Registry().Domains); got != 1 {
+	if got := len(lawSnapshotMustRegistry(t, again).Domains); got != 1 {
 		t.Fatalf("later registry revision leaked into the frozen snapshot: %d domains", got)
 	}
 	secondSnapshot := lawSnapshotMustLoad(t, repo, second)
-	if got := len(secondSnapshot.Registry().Domains); got != 3 {
+	if got := len(lawSnapshotMustRegistry(t, secondSnapshot).Domains); got != 3 {
 		t.Fatalf("second revision registry not read at its own commit: %d domains", got)
 	}
 	if _, ok := secondSnapshot.Law("CD-9140"); !ok {
@@ -667,9 +676,21 @@ func TestLawFolderSnapshotEmptyWithoutLawFolder(t *testing.T) {
 	if _, ok := snapshot.Law("CD-9101"); ok {
 		t.Fatalf("absent law resolved from an empty folder")
 	}
-	if len(snapshot.Registry().Domains) != 2 {
+	if len(lawSnapshotMustRegistry(t, snapshot).Domains) != 2 {
 		t.Fatalf("registry not carried beside the empty inventory")
 	}
+}
+
+// A home that commits neither law nor a Domain registry holds no law: the
+// inventory is empty, and only a Domain read refuses, typed.
+func TestLawFolderSnapshotEmptyWithoutLawOrRegistry(t *testing.T) {
+	repo, commit := lawSnapshotFixture(t, map[string]string{"README.md": "# not a law home\n"})
+	snapshot := lawSnapshotMustLoad(t, repo, commit)
+	if ids := snapshot.LawIDs(); len(ids) != 0 {
+		t.Fatalf("a home with no law folder holds law: %v", ids)
+	}
+	_, err := snapshot.Registry()
+	requireFailureKind(t, err, KindDomainRegistryAbsent, "registry read on a home that committed none")
 }
 
 func TestLawFolderSnapshotReturnsImmutableCopies(t *testing.T) {
@@ -707,10 +728,10 @@ func TestLawFolderSnapshotReturnsImmutableCopies(t *testing.T) {
 		t.Fatalf("snapshot mutable through returned ID slice: %v", freshIDs)
 	}
 
-	registry := snapshot.Registry()
+	registry := lawSnapshotMustRegistry(t, snapshot)
 	registry.Domains[1].Name = "mutated"
 	registry.Domains[1].ArchitectureRelations = append(registry.Domains[1].ArchitectureRelations, KnowledgeArchitectureRelation{Kind: "depends_on", TargetDomainID: "product:reviews", GoverningLawIDs: []string{"CD-9125"}})
-	freshRegistry := snapshot.Registry()
+	freshRegistry := lawSnapshotMustRegistry(t, snapshot)
 	if freshRegistry.Domains[1].Name != "Reviews" {
 		t.Fatalf("snapshot mutable through returned registry domains: %s", freshRegistry.Domains[1].Name)
 	}

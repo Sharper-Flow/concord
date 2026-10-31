@@ -154,6 +154,11 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 // An unreachable or invalid law home refuses: a registry boundary has no
 // degraded form.
 func (s *Store) prepareWorkflowActionRegistryProof(ctx context.Context, actionID, workID string) (context.Context, error) {
+	// A caller that already verified the sources before the boundary passes
+	// that proof on; the transaction revalidates it against the live heads.
+	if knowledgeSourceSetProofFrom(ctx) != nil {
+		return ctx, nil
+	}
 	switch actionID {
 	case "record_work_context", "confirm_premise":
 		return s.EstablishKnowledgeSourceSetProof(ctx, workID)

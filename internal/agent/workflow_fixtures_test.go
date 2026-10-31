@@ -53,13 +53,27 @@ func agentWorkflowSourceProof(t *testing.T, ctx context.Context, s *store.Store,
 // shared store never double-seed the law locator.
 func seedCurrentWorkflowDomainOnce(t *testing.T, s *store.Store) {
 	t.Helper()
-	var registries int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_registries WHERE product_id='product-1'`).Scan(&registries); err != nil {
+	var homes int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM product_knowledge_homes WHERE product_id='product-1'`).Scan(&homes); err != nil {
 		t.Fatal(err)
 	}
-	if registries == 0 {
+	if homes == 0 {
 		seedCurrentWorkflowDomainFixture(t, s)
 	}
+}
+
+// committedProductRegistry reads product-1's committed Domain registry
+// through the production Domain read.
+func committedProductRegistry(t *testing.T, s *store.Store) store.DomainRegistryView {
+	t.Helper()
+	list, err := s.QueryDomainList(context.Background(), store.DomainListRequest{Product: "product-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list.Registry == nil {
+		t.Fatal("product-1 has no committed Domain registry")
+	}
+	return *list.Registry
 }
 
 func workflowArchitectureBindingFixture() map[string]any {
@@ -78,10 +92,7 @@ func workflowArchitectureBindingFixture() map[string]any {
 // registry the store validates against.
 func workflowArchitectureBindingForSeededRegistry(t *testing.T, s *store.Store) map[string]any {
 	t.Helper()
-	var root string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&root); err != nil {
-		t.Fatal(err)
-	}
+	root := committedProductRegistry(t, s).RootDomainID
 	binding := workflowArchitectureBindingFixture()
 	binding["home_domain_id"] = root
 	binding["affected_domain_ids"] = []string{root}

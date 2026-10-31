@@ -38,24 +38,36 @@ func workflowLawRegistryEntryHash(fields []string) string {
 // pre-transaction proof's law-folder snapshot: the same committed registry the
 // Domain reads and the law loader answer from, at the same frozen commit. A
 // home the proof does not carry refuses; a Product whose law home is not a
-// designated Product home keeps its nil-registry answer.
+// designated Product home, or whose home committed no registry, keeps its
+// nil-registry answer.
 func readWorkflowLawRegistrySnapshot(ctx context.Context, q queryer, workID string) (*workflowLawRegistrySnapshot, error) {
 	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, q, workID)
 	if err != nil {
 		return nil, err
 	}
-	if _, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID}); err != nil {
+	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
+	if err != nil {
 		var f *Failure
 		if failureAs(err, &f) && f.Kind == KindUnknownScope {
 			return nil, nil
 		}
 		return nil, err
 	}
+	if productID == "" {
+		return nil, nil
+	}
 	snapshot, err := lawSnapshotForSource(ctx, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID}, "workflow_law_change")
 	if err != nil {
 		return nil, err
 	}
-	registry := snapshot.Registry()
+	registry, err := snapshot.Registry()
+	if err != nil {
+		var f *Failure
+		if failureAs(err, &f) && f.Kind == KindDomainRegistryAbsent {
+			return nil, nil
+		}
+		return nil, err
+	}
 	result := &workflowLawRegistrySnapshot{RootDomainID: registry.RootDomainID, Entries: []workflowLawRegistryPin{}}
 	for _, domain := range registry.Domains {
 		result.Entries = append(result.Entries, workflowLawRegistryPin{

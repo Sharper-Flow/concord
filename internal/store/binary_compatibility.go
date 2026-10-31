@@ -24,10 +24,6 @@ func (s *Store) checkBinaryCompatibility(ctx context.Context) error {
 }
 
 func checkBinaryCompatibility(ctx context.Context, q queryer) error {
-	// The retired knowledge projection carried its own downgrade guard, the
-	// knowledge_index_watermark version row. No runtime writes that watermark
-	// anymore, so a stamped row binds nothing this binary reads; the owning
-	// migration retires the table.
 	return checkWorkflowBinaryCompatibility(ctx, q)
 }
 

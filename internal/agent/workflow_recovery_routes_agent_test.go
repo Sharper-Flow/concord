@@ -13,10 +13,8 @@ import (
 
 func recoveryRegistry(t *testing.T, s *store.Store) (hash, root string) {
 	t.Helper()
-	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash,root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&hash, &root); err != nil {
-		t.Fatal(err)
-	}
-	return hash, root
+	registry := committedProductRegistry(t, s)
+	return registry.ContentHash, registry.RootDomainID
 }
 
 func recoveryDomainRepository(t *testing.T, s *store.Store) string {

@@ -212,6 +212,11 @@ func lawSnapshotForSource(ctx context.Context, home KnowledgeHome, op string) (*
 	}
 	snapshot, ok := proof.snapshots[knowledgeSourceProofKey(home)]
 	if !ok {
+		// A standalone verification records its failure for the consumer
+		// that demands the snapshot; that cause outranks the bare absence.
+		if proof.refreshErr != nil {
+			return nil, proof.refreshErr
+		}
 		return nil, newFailure(KindInvalidOperation, op, "the knowledge home was not verified before this transaction", false, "verify the Product's knowledge home before the consequential transaction opens")
 	}
 	return snapshot, nil

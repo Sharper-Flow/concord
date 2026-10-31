@@ -370,7 +370,10 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err != nil {
 		return err
 	}
-	registry := snapshot.Registry()
+	registry, err := snapshot.Registry()
+	if err != nil {
+		return err
+	}
 	if err := validateArchitectureBindingDomainsTx(registry, affected); err != nil {
 		return err
 	}
@@ -622,7 +625,11 @@ func persistWorkflowArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workI
 	// The stored registry hash records which committed registry approval
 	// validated the binding against. Nothing reads it back as a pin
 	// (CD-0222 D7).
-	registryHash := domainRegistryContentHash(snapshot.Registry())
+	registry, err := snapshot.Registry()
+	if err != nil {
+		return err
+	}
+	registryHash := domainRegistryContentHash(registry)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,?,?,?,?,?)`, workID, contractVersion, productID, registryHash, binding.HomeDomainID, architectureBindingProjectionHash(binding)); err != nil {
 		return workflowProjectionError(err, "cannot record workflow architecture binding")
 	}

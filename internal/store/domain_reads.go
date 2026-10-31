@@ -120,18 +120,25 @@ func sliceOrEmpty[T any](values []T) []T {
 // committed law folder and Domain registry at its explicit head commit. It
 // must run before any transaction opens: both steps are git subprocesses the
 // pool lock must never hold (CD-0195 D2).
-func loadDomainSnapshot(ctx context.Context, q queryer, productID, op string) (*lawFolderSnapshot, error) {
+func loadDomainSnapshot(ctx context.Context, q queryer, productID, op string) (*lawFolderSnapshot, KnowledgeDomainRegistry, error) {
 	home, err := resolveKnowledgeQueryHome(ctx, q, productID, "", KnowledgeHome{}, op)
 	if err != nil {
-		return nil, err
+		return nil, KnowledgeDomainRegistry{}, err
 	}
-	return loadLawFolderSnapshotAtHome(ctx, home)
+	snapshot, err := loadLawFolderSnapshotAtHome(ctx, home)
+	if err != nil {
+		return nil, KnowledgeDomainRegistry{}, err
+	}
+	registry, err := snapshot.Registry()
+	if err != nil {
+		return nil, KnowledgeDomainRegistry{}, err
+	}
+	return snapshot, registry, nil
 }
 
 // domainRegistryView projects the snapshot's committed registry into the
 // authority watermark the Domain reads carry.
-func domainRegistryView(snapshot *lawFolderSnapshot, productID string) *DomainRegistryView {
-	registry := snapshot.Registry()
+func domainRegistryView(snapshot *lawFolderSnapshot, registry KnowledgeDomainRegistry, productID string) *DomainRegistryView {
 	return &DomainRegistryView{
 		ProductID:     productID,
 		ProductKey:    registry.ProductKey,
@@ -172,11 +179,11 @@ func (s *Store) QueryDomainList(ctx context.Context, req DomainListRequest) (Dom
 
 func queryDomainList(ctx context.Context, q queryer, req DomainListRequest) (DomainListResult, error) {
 	var out DomainListResult
-	snapshot, err := loadDomainSnapshot(ctx, q, req.Product, "C22.DomainList")
+	snapshot, committed, err := loadDomainSnapshot(ctx, q, req.Product, "C22.DomainList")
 	if err != nil {
 		return out, err
 	}
-	registry := domainRegistryView(snapshot, req.Product)
+	registry := domainRegistryView(snapshot, committed, req.Product)
 	limit := req.Limit
 	if limit == 0 {
 		limit = domainListDefaultLimit
@@ -188,7 +195,7 @@ func queryDomainList(ctx context.Context, q queryer, req DomainListRequest) (Dom
 	if err != nil {
 		return out, err
 	}
-	current := currentSnapshotDomains(snapshot)
+	current := currentSnapshotDomains(committed)
 	sort.Slice(current, func(i, j int) bool {
 		if current[i].Name != current[j].Name {
 			return current[i].Name < current[j].Name
@@ -217,10 +224,9 @@ func queryDomainList(ctx context.Context, q queryer, req DomainListRequest) (Dom
 	return out, nil
 }
 
-// currentSnapshotDomains lists the snapshot registry's current Domains in
+// currentSnapshotDomains lists the committed registry's current Domains in
 // registry order with the projected status default applied.
-func currentSnapshotDomains(snapshot *lawFolderSnapshot) []DomainSummary {
-	registry := snapshot.Registry()
+func currentSnapshotDomains(registry KnowledgeDomainRegistry) []DomainSummary {
 	out := make([]DomainSummary, 0, len(registry.Domains))
 	for _, domain := range registry.Domains {
 		status := domainRegistryStatus(domain.Status)
@@ -264,12 +270,12 @@ func (s *Store) QueryDomainDetail(ctx context.Context, req DomainDetailRequest) 
 
 func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) (DomainDetailResult, error) {
 	var out DomainDetailResult
-	snapshot, err := loadDomainSnapshot(ctx, q, req.Product, "C22.DomainDetail")
+	snapshot, committed, err := loadDomainSnapshot(ctx, q, req.Product, "C22.DomainDetail")
 	if err != nil {
 		return out, err
 	}
-	registry := domainRegistryView(snapshot, req.Product)
-	summary, err := domainExistsCurrent(snapshot, req.Domain)
+	registry := domainRegistryView(snapshot, committed, req.Product)
+	summary, err := domainExistsCurrent(committed, req.Domain)
 	if err != nil {
 		return out, err
 	}
@@ -295,7 +301,7 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) 
 	}
 
 	seenRelation := map[string]bool{}
-	for _, domain := range snapshot.Registry().Domains {
+	for _, domain := range committed.Domains {
 		for _, relation := range domain.ArchitectureRelations {
 			if domain.DomainID != req.Domain && relation.TargetDomainID != req.Domain {
 				continue
@@ -359,9 +365,9 @@ func snapshotOrderedList(snapshot *lawFolderSnapshot) []KnowledgeRecord {
 // domainExistsCurrent resolves one current Domain from the committed
 // registry. A deprecated or unknown Domain refuses typed, exactly as the
 // projected read did.
-func domainExistsCurrent(snapshot *lawFolderSnapshot, domain string) (DomainSummary, error) {
+func domainExistsCurrent(registry KnowledgeDomainRegistry, domain string) (DomainSummary, error) {
 	var summary DomainSummary
-	for _, entry := range snapshot.Registry().Domains {
+	for _, entry := range registry.Domains {
 		if entry.DomainID != domain {
 			continue
 		}

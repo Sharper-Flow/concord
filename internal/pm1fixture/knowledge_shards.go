@@ -33,8 +33,7 @@ func WriteKnowledgeShards(repo string, registry store.KnowledgeDomainRegistry) e
 // CommittedRegistryContentHash is the fingerprint the architecture binding
 // records for one committed registry: the normalized registry's canonical
 // JSON SHA-256, the same derivation the store applies to the snapshot's
-// registry. Fixture bindings record it from committed registry metadata; the
-// retired SQL Domain projection is never read or populated.
+// registry. Fixture bindings record it from committed registry metadata.
 func CommittedRegistryContentHash(registry store.KnowledgeDomainRegistry) string {
 	normalized := store.KnowledgeDomainRegistry{
 		SchemaVersion: registry.SchemaVersion,

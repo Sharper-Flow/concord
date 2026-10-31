@@ -433,17 +433,17 @@ func validateWorkContextDomain(ctx context.Context, tx queryer, workID, domainID
 	if !validateWorkContextRationale(productWideRationale) {
 		return workContextFailure(KindInvalidPayload, "work_context_domain", "product_wide_rationale exceeds 512 bytes", "bound the product-wide rationale")
 	}
-	// The Domain registry is the committed one: the pre-transaction
-	// establishment binds the law-folder snapshot whose registry section is
-	// the independent registry at the verified commit, and the validator
-	// reads it from the proof — never from the retired SQL Domain projection,
-	// whose registry and domain staleness are structurally impossible beside
-	// one same-commit snapshot.
+	// The pre-transaction establishment binds the law-folder snapshot whose
+	// registry is the independent registry at the verified commit; the
+	// validator reads it from that proof.
 	snapshot, err := lawSnapshotForWork(ctx, tx, workID, "work_context_domain")
 	if err != nil {
 		return err
 	}
-	registry := snapshot.Registry()
+	registry, err := snapshot.Registry()
+	if err != nil {
+		return err
+	}
 	var declared *KnowledgeDomain
 	for index := range registry.Domains {
 		if registry.Domains[index].DomainID == domainID {

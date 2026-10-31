@@ -751,13 +751,14 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base agentco
 
 // knowledgeSourceProofForAction prepares the knowledge home proof the
 // approval, supersession, and completion gates verify inside their
-// transaction (CD-0200), and for completion the Git proof of which changed
-// laws the reviewed candidate never edited. It runs after replay and approval
-// admission, with no transaction open (CD-0195 D2). A non-nil envelope
-// carries the refusal.
+// transaction (CD-0200), the committed Domain registry the work-context and
+// premise-confirmation actions validate against, and for completion the Git
+// proof of which changed laws the reviewed candidate never edited. It runs
+// after replay and approval admission, with no transaction open (CD-0195 D2).
+// A non-nil envelope carries the refusal.
 func (r runtime) knowledgeSourceProofForAction(ctx context.Context, base agentcontract.Envelope, actionID, workID string) (context.Context, *agentcontract.Envelope) {
 	switch actionID {
-	case "approve_contract", "supersede_contract", "complete":
+	case "approve_contract", "supersede_contract", "complete", "record_work_context", "confirm_premise":
 		verifiedCtx, proofErr := r.Store.EstablishKnowledgeSourceSetProof(ctx, workID)
 		if proofErr != nil {
 			refusal := failureEnvelope(base, proofErr)

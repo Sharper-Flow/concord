@@ -67,15 +67,18 @@ func lawFolderFrontMatterKey(key string) bool {
 // slices are private; every accessor returns a value or a defensive copy.
 type lawFolderSnapshot struct {
 	commitOID string
-	registry  KnowledgeDomainRegistry
-	laws      map[string]KnowledgeRecord
-	order     []string
+	// registry is nil when the commit carries neither a Domain registry nor
+	// any law: such a home holds no law, and every Domain read refuses.
+	registry *KnowledgeDomainRegistry
+	laws     map[string]KnowledgeRecord
+	order    []string
 }
 
 // loadLawFolderSnapshot reads the committed law folder and the independent
 // Domain registry at one explicit resolved commit; it never resolves a ref and
 // never reads working-tree bytes. A commit with no law folder is a lawful
-// empty inventory; a missing or malformed registry refuses.
+// empty inventory. Law needs its Domain homes, so law without a registry
+// refuses, as does a malformed registry; a home with neither holds no law.
 func loadLawFolderSnapshot(ctx context.Context, repo, commitOID string) (*lawFolderSnapshot, error) {
 	if err := validateCommitOID(commitOID); err != nil {
 		return nil, err
@@ -92,12 +95,18 @@ func loadLawFolderSnapshot(ctx context.Context, repo, commitOID string) (*lawFol
 	if err != nil {
 		return nil, err
 	}
+	if registry == nil {
+		if len(placements) > 0 {
+			return nil, domainRegistryAbsent()
+		}
+		return &lawFolderSnapshot{commitOID: commitOID, laws: map[string]KnowledgeRecord{}, order: []string{}}, nil
+	}
 	laws := make(map[string]KnowledgeRecord, len(placements))
 	records := make([]KnowledgeRecord, 0, len(placements))
 	order := make([]string, 0, len(placements))
 	firstPath := map[string]string{}
 	for _, placement := range placements {
-		record, err := loadLawFolderRecord(ctx, runner, repo, commitOID, registry, placement)
+		record, err := loadLawFolderRecord(ctx, runner, repo, commitOID, *registry, placement)
 		if err != nil {
 			return nil, err
 		}
@@ -122,7 +131,7 @@ func loadLawFolderSnapshot(ctx context.Context, repo, commitOID string) (*lawFol
 		return nil, newFailure(KindCycleDetected, lawSnapshotOp,
 			"law folder relations contain a cycle", false, "remove the cycle from the authored law graph")
 	}
-	if err := validateKnowledgeDomainLawReferences(registry, records); err != nil {
+	if err := validateKnowledgeDomainLawReferences(*registry, records); err != nil {
 		return nil, err
 	}
 	return &lawFolderSnapshot{commitOID: commitOID, registry: registry, laws: laws, order: order}, nil
@@ -172,9 +181,19 @@ func (s *lawFolderSnapshot) Law(lawID string) (KnowledgeRecord, bool) {
 }
 
 // Registry returns a defensive copy of the independent Domain registry read at
-// the same frozen commit.
-func (s *lawFolderSnapshot) Registry() KnowledgeDomainRegistry {
-	return copyLawFolderRegistry(s.registry)
+// the same frozen commit. A commit that committed no registry refuses: an
+// empty Domain answer is never invented.
+func (s *lawFolderSnapshot) Registry() (KnowledgeDomainRegistry, error) {
+	if s.registry == nil {
+		return KnowledgeDomainRegistry{}, domainRegistryAbsent()
+	}
+	return copyLawFolderRegistry(*s.registry), nil
+}
+
+func domainRegistryAbsent() error {
+	return newFailure(KindDomainRegistryAbsent, lawSnapshotOp,
+		"the committed home carries no Domain registry at "+knowledgeRegistryPath,
+		false, "commit the independent domain-registry.json before reading law")
 }
 
 func copyLawFolderRecord(record KnowledgeRecord) KnowledgeRecord {
@@ -205,41 +224,38 @@ func copyLawFolderSlice[T any](values []T) []T {
 }
 
 // loadLawFolderRegistry reads and validates the independent registry at the
-// frozen commit. Absence keeps the retained Domain refusal: an empty Domain
-// answer is never invented for a home that committed no registry.
-func loadLawFolderRegistry(ctx context.Context, runner GitRunner, repo, commitOID string) (KnowledgeDomainRegistry, error) {
+// frozen commit. It returns nil when the commit carries no registry file.
+func loadLawFolderRegistry(ctx context.Context, runner GitRunner, repo, commitOID string) (*KnowledgeDomainRegistry, error) {
 	out, err := runner.Run(ctx, repo, "ls-tree", "-z", commitOID, "--", knowledgeRegistryPath)
 	if err != nil {
-		return KnowledgeDomainRegistry{}, wrapFailure(KindGitUnreachable, lawSnapshotOp,
+		return nil, wrapFailure(KindGitUnreachable, lawSnapshotOp,
 			"cannot inspect the committed Domain registry", true, "confirm the git home and commit are reachable", err)
 	}
 	entries, err := parseTreeEntries(out)
 	if err != nil {
-		return KnowledgeDomainRegistry{}, wrapFailure(KindInvalidNoteProof, lawSnapshotOp,
+		return nil, wrapFailure(KindInvalidNoteProof, lawSnapshotOp,
 			"committed Domain registry tree entry is malformed", false, "repair the committed registry file", err)
 	}
 	if len(entries) == 0 {
-		return KnowledgeDomainRegistry{}, newFailure(KindDomainRegistryAbsent, lawSnapshotOp,
-			"the committed home carries no Domain registry at "+knowledgeRegistryPath,
-			false, "commit the independent domain-registry.json before reading law")
+		return nil, nil
 	}
 	_, content, err := committedRegularBlobBytes(ctx, runner, repo, commitOID, knowledgeRegistryPath)
 	if err != nil {
-		return KnowledgeDomainRegistry{}, err
+		return nil, err
 	}
 	if err := payloadschema.ValidateUniqueJSON(content); err != nil {
-		return KnowledgeDomainRegistry{}, wrapFailure(KindInvalidNoteProof, lawSnapshotOp,
+		return nil, wrapFailure(KindInvalidNoteProof, lawSnapshotOp,
 			"Domain registry contains duplicate JSON keys", false, "author each registry key once", err)
 	}
 	var registry KnowledgeDomainRegistry
 	if err := json.Unmarshal(content, &registry); err != nil {
-		return KnowledgeDomainRegistry{}, wrapFailure(KindInvalidNoteProof, lawSnapshotOp,
+		return nil, wrapFailure(KindInvalidNoteProof, lawSnapshotOp,
 			"Domain registry is not valid registry JSON", false, "repair "+knowledgeRegistryPath, err)
 	}
 	if err := validateKnowledgeDomainRegistry(registry); err != nil {
-		return KnowledgeDomainRegistry{}, err
+		return nil, err
 	}
-	return registry, nil
+	return &registry, nil
 }
 
 // lawFolderPlacement is one admitted law file: its committed path and the kind

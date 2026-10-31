@@ -396,7 +396,12 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 // answer rows instead of empty collections.
 func (fx readPopulationFixture) seedPopulationDomainRows(t *testing.T) {
 	t.Helper()
-	ctx := context.Background()
+	// The recording route verifies the committed registry before its
+	// transaction opens; the fold reads the Domain from that proof.
+	ctx, err := fx.store.EstablishDomainRegistryProof(context.Background(), readPopulationProduct)
+	if err != nil {
+		t.Fatalf("verify population Domain registry: %v", err)
+	}
 	if err := store.ApplyOperation(ctx, fx.store, store.Operation{Events: []store.Event{{
 		EventID: "population-domain-observation", Kind: "domain.observation_recorded",
 		SubjectType: store.SubjectProduct, SubjectID: readPopulationProduct, Actor: "agent",

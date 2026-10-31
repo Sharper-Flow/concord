@@ -5154,7 +5154,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "retained_workflow_law_context": {
       "additionalProperties": false,
-      "description": "The approved contract's binding law and Domains, resolved at continuity read time from the law_subjects and domains projections. Absent when the contract binds no law and no Domain.",
+      "description": "The approved contract's binding law and Domains, resolved at continuity read time from the committed law folder and Domain registry. Absent when the contract binds no law and no Domain.",
       "properties": {
         "domains": {
           "items": {
@@ -5195,7 +5195,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "kind": {
-          "description": "The law_subjects record kind. Constitution records are law-bearing and project into law_subjects, so a contract can mandate them.",
+          "description": "The law kind its law-folder tier supplies. Constitution records are law, so a contract can mandate them.",
           "enum": [
             "constitution",
             "decision",
@@ -16506,7 +16506,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "workflow_law_context": {
       "additionalProperties": false,
-      "description": "The approved contract's binding law and Domains, resolved at continuity read time from the law_subjects and domains projections. Absent when the contract binds no law and no Domain.",
+      "description": "The approved contract's binding law and Domains, resolved at continuity read time from the committed law folder and Domain registry. Absent when the contract binds no law and no Domain.",
       "properties": {
         "domains": {
           "items": {
@@ -16590,7 +16590,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "kind": {
-          "description": "The law_subjects record kind. Constitution records are law-bearing and project into law_subjects, so a contract can mandate them.",
+          "description": "The law kind its law-folder tier supplies. Constitution records are law, so a contract can mandate them.",
           "enum": [
             "constitution",
             "decision",

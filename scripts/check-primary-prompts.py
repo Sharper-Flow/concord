@@ -98,6 +98,7 @@ PLANNER_TASK_PROBES = (
     ("concord-implement", "deny"),
     ("concord-review", "deny"),
     ("concord-research", "deny"),
+    ("concord-design", "deny"),
     ("general", "deny"),
     ("build", "deny"),
 )

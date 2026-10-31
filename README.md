@@ -179,6 +179,10 @@ portable skills ready for OpenCode out of the box.
 - **Native research helper**: `concord-research` investigates a framed question
   across repository and external sources within the caller's budget, returning
   cited findings, uncertainty and gaps without editing files.
+- **Native design helper**: `concord-design` makes a bounded visual UI or UX change
+  in assigned files and returns uncommitted changes, checks and a versioned preview
+  URL or screenshots. UI/UX approval stays with the operator; Product browser
+  tooling is optional and host-provided.
 
 The host's native Task tool owns delegation. Concord neither launches subagents
 nor wraps their prompts or results.

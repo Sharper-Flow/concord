@@ -318,6 +318,15 @@ driving session records the conclusion. It shares the verifier's editing-tool
 denials and the other helpers' workflow, host safety and no-bypass boundaries;
 read-only diagnostics are allowed, but command-text restrictions are not a sandbox.
 
+The native `concord-design` helper makes one bounded visual UI or UX change in
+assigned files in the caller's worktree. It has the implementer's edit-capable
+permissions, Concord reads, explore/lookup-only delegation and no-bypass boundaries.
+It returns uncommitted changes, checks and inspectable preview material: a live
+URL or screenshots identifying the exact version shown. Missing scope or required
+approval returns needs-decision. The caller presents the material and obtains
+operator-owned UI/UX approval; a Task result never supplies it. Product browser
+tooling may be used when exposed by the host, but the profile adds no provider.
+
 Hosts that enable helper-to-utility delegation must set OpenCode's
 [`subagent_depth`](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/web/src/content/docs/config.mdx)
 to `2`. Its default `1` admits the helper but stops nested Tasks; the profile's

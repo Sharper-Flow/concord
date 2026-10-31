@@ -108,6 +108,7 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   expect(projectedBytes("concord-verify")).toEqual(projectedBytes("Concord-Planner"))
   expect(projectedBytes("concord-implement")).toEqual(projectedBytes("Concord-Planner"))
   expect(projectedBytes("concord-research")).toEqual(projectedBytes("Concord-Planner"))
+  expect(projectedBytes("concord-design")).toEqual(projectedBytes("Concord-Planner"))
   for (const role of UTILITY_AGENTS) {
     expect(projectedBytes(role), role).toEqual(EMPTY_BUDGET)
   }

@@ -28,7 +28,7 @@ func TestInheritedUpgradeKeepsInstallerMaintenanceUntilTheWholeCommandEnds(t *te
 		t.Fatal(err)
 	}
 	core := buildCoreFrom(t, repository, "v30.0.99-inherited")
-	driver := `import importlib.util, json, os, pathlib, subprocess, sys
+	driver := `import fcntl, importlib.util, json, os, pathlib, subprocess, sys, time
 spec = importlib.util.spec_from_file_location("installer", sys.argv[1])
 installer = importlib.util.module_from_spec(spec)
 sys.modules["installer"] = installer
@@ -38,8 +38,35 @@ environment = os.environ.copy()
 environment.pop("CONCORD_DB_PATH", None)
 environment["XDG_DATA_HOME"] = str(paths.data_home)
 with installer.maintenance_lock(paths) as descriptor:
-    upgrade = subprocess.run([sys.argv[3], "upgrade"], input=json.dumps({"maintenance_fd":descriptor,"require_no_sessions":True}), text=True, capture_output=True, env=environment, pass_fds=(descriptor,))
-    assert upgrade.returncode == 0, (upgrade.stdout, upgrade.stderr)
+    request = json.dumps({"maintenance_fd":descriptor,"require_no_sessions":True})
+    with (paths.data_root / "admission.lock").open("w+") as admission:
+        fcntl.flock(admission, fcntl.LOCK_EX)
+        with subprocess.Popen([sys.argv[3], "upgrade"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment, pass_fds=(descriptor,)) as first:
+            first.stdin.write(request)
+            first.stdin.close()
+            first.stdin = None
+            try:
+                deadline = time.monotonic() + 5
+                while True:
+                    guard = paths.data_root / "native-upgrade.lock"
+                    if guard.exists():
+                        with guard.open("r+") as probe:
+                            try:
+                                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            except BlockingIOError:
+                                break
+                            fcntl.flock(probe, fcntl.LOCK_UN)
+                    assert time.monotonic() < deadline, "first upgrade never held its native child guard"
+                    time.sleep(0.01)
+                second = subprocess.run([sys.argv[3], "upgrade"], input=request, text=True, capture_output=True, env=environment, pass_fds=(descriptor,), timeout=2)
+                assert second.returncode == 1 and "another maintenance command is in progress" in second.stderr, (second.stdout, second.stderr)
+                fcntl.flock(admission, fcntl.LOCK_UN)
+                out, err = first.communicate(timeout=10)
+                assert first.returncode == 0, (out, err)
+            finally:
+                if first.poll() is None:
+                    first.kill()
+                    first.communicate()
     for command in ([sys.argv[3], "upgrade"], [sys.executable, sys.argv[1], "status", "--root", sys.argv[2]]):
         refused = subprocess.run(command, input="{}", text=True, capture_output=True, env=environment)
         assert refused.returncode == 1 and "another maintenance command is in progress" in refused.stderr, (refused.stdout, refused.stderr)

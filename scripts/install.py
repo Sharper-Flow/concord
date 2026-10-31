@@ -930,11 +930,7 @@ def print_prepared_release(record: dict[str, object]) -> None:
     print("The launcher, the current root, the tools, and the agents keep the active release.")
     for blocker in record["blockers"]:  # type: ignore[union-attr]
         print(f"Blocker: {blocker}")
-    if record.get("cutover_command"):
-        print(f"Run the prepared cutover from an ordinary shell when the maintenance window opens: {record['cutover_command']}")
-    else:
-        print(f"Run the migration command when the maintenance window opens: {record['migration_command']}")
-        print(f"Then run the activation command: {record['activation_command']}")
+    print(f"Run the prepared cutover from an ordinary shell when the maintenance window opens: {record['cutover_command']}")
 
 
 def retained_release_records(manifest: dict[str, object] | None) -> dict[str, dict[str, str]]:

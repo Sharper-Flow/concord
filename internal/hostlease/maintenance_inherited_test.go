@@ -3,9 +3,33 @@ package hostlease
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"syscall"
 	"testing"
 )
+
+func TestInheritedMaintenanceRefusesSymlinkedChildGuard(t *testing.T) {
+	root := t.TempDir()
+	parent, err := acquireMaintenanceLock(root, openMaintenanceDirectory, syscall.Flock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = parent.Close() }()
+	target := filepath.Join(t.TempDir(), "operator-file")
+	if err := os.WriteFile(target, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "native-upgrade.lock")); err != nil {
+		t.Fatal(err)
+	}
+	if release, err := AcquireMaintenanceInherited(root, int(parent.Fd())); err == nil {
+		release()
+		t.Fatal("a symlinked child guard admitted an inherited upgrade")
+	}
+	if content, err := os.ReadFile(target); err != nil || string(content) != "unchanged" {
+		t.Fatalf("the guard changed an operator file: %q %v", content, err)
+	}
+}
 
 func TestInheritedMaintenanceKeepsTheParentLockUntilItsDescriptorCloses(t *testing.T) {
 	root := t.TempDir()
@@ -17,6 +41,13 @@ func TestInheritedMaintenanceKeepsTheParentLockUntilItsDescriptorCloses(t *testi
 	release, err := AcquireMaintenanceInherited(root, int(parent.Fd()))
 	if err != nil {
 		t.Fatal(err)
+	}
+	t.Cleanup(release)
+	if duplicate, err := AcquireMaintenanceInherited(root, int(parent.Fd())); !errors.Is(err, ErrMaintenanceBusy) {
+		if duplicate != nil {
+			duplicate()
+		}
+		t.Fatalf("a second child sharing the same description must refuse: %v", err)
 	}
 	release()
 	if unexpected, err := AcquireMaintenance(root); !errors.Is(err, ErrMaintenanceBusy) {

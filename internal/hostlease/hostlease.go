@@ -410,7 +410,7 @@ func AcquireMaintenanceInherited(dataRoot string, descriptor int) (func(), error
 		}
 		syscall.CloseOnExec(duplicate)
 		file := os.NewFile(uintptr(duplicate), "inherited maintenance lock")
-		current, pathErr := os.Lstat(path)
+		current, pathErr := os.Lstat(path) //nolint:gosec // path is the operator's data root; lstat checks identity without following symlinks.
 		held, statErr := file.Stat()
 		if pathErr != nil || statErr != nil || !current.IsDir() || !sameFile(held, current) {
 			_ = file.Close()
@@ -421,7 +421,40 @@ func AcquireMaintenanceInherited(dataRoot string, descriptor int) (func(), error
 	if err != nil {
 		return nil, err
 	}
-	return func() { _ = file.Close() }, nil
+	child, err := acquireUpgradeChildLock(dataRoot)
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return func() {
+		_ = child.Close()
+		_ = file.Close()
+	}, nil
+}
+
+// A duplicated root descriptor proves ownership but cannot exclude another
+// child sharing that description. Each child opens this stable guard separately;
+// it is never unlinked, so all inherited upgrades contend on one inode.
+func acquireUpgradeChildLock(dataRoot string) (*os.File, error) {
+	path := filepath.Join(dataRoot, "native-upgrade.lock")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600) //nolint:gosec // A fixed name inside the validated data root; O_NOFOLLOW rejects symlinked guards.
+	if err != nil {
+		return nil, fmt.Errorf("hostlease: cannot open native upgrade lock: %w", err)
+	}
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = file.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, fmt.Errorf("%w: native upgrade lock: %v", ErrMaintenanceBusy, err)
+		}
+		return nil, fmt.Errorf("hostlease: cannot lock native upgrade: %w", err)
+	}
+	current, pathErr := os.Lstat(path) //nolint:gosec // The owned guard's identity is checked without following symlinks.
+	held, statErr := file.Stat()
+	if pathErr != nil || statErr != nil || !current.Mode().IsRegular() || !sameFile(held, current) {
+		_ = file.Close()
+		return nil, fmt.Errorf("hostlease: native upgrade lock identity changed")
+	}
+	return file, nil
 }
 
 // openMaintenanceDirectory opens the data root for flocking: read-only, a

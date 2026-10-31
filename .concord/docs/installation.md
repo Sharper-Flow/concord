@@ -274,6 +274,8 @@ maintenance command is in progress`; re-run it after the first ends.
 Cutover holds that lock for the whole command. Its upgrade child inherits the
 same open directory descriptor and validates it through the native lock owner.
 The child closes only its duplicate, without unlocking the parent's descriptor.
+Each upgrade child also holds the retained `native-upgrade.lock` through a
+separate open descriptor, so two children sharing a parent cannot migrate together.
 Every recovery, migration, activation and verification stays inside this one
 exclusion; another install cannot substitute a different prepared release.
 While the boundary is open, an install whose own activation is blocked or unknown

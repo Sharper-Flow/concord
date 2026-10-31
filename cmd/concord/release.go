@@ -709,7 +709,7 @@ func decodeReleaseInput(args []string, in io.Reader, errOut io.Writer, command s
 	if command == "upgrade" {
 		if file, ok := in.(*os.File); ok {
 			var terminal syscall.Termios
-			_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), syscall.TCGETS, uintptr(unsafe.Pointer(&terminal)))
+			_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), syscall.TCGETS, uintptr(unsafe.Pointer(&terminal))) //nolint:gosec // TCGETS writes to a correctly sized Termios buffer; no request data enters the ioctl.
 			if errno == 0 {
 				writeOperatorDiagnostic(errOut, command, `upgrade requires JSON on stdin; pipe '{}' for defaults or '{"plan":true}' for a read-only plan`)
 				return 1

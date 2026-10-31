@@ -274,9 +274,12 @@ maintenance command is in progress`; re-run it after the first ends.
 Cutover releases that lock between its validation, native upgrade and activation
 phases so each owner can acquire it. Every recovery and mutation stays under the
 shared lock; a committed breaking migration keeps its admission fence between
-phases. While the boundary
-is open, an install whose own activation is blocked or unknown refuses and
-keeps the prepared record. Re-run the recorded cutover command to complete it.
+phases. Native upgrade checks the exact prepared-record digest and candidate
+version under that lock before any effect, so another install cannot substitute
+a different prepared release between validation and migration.
+While the boundary is open, an install whose own activation is blocked or unknown
+refuses and keeps the prepared record. Re-run the recorded cutover command to
+complete it.
 
 The separate migration and `activate` routes remain available for diagnosis.
 `concord upgrade` refuses terminal stdin immediately with the required input;

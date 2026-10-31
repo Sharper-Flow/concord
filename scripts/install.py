@@ -3733,10 +3733,14 @@ def cutover(args: argparse.Namespace) -> int:
         recover_pending_project_links(paths)
         plan = read_upgrade_plan(paths, version)
         needs_upgrade = bool(plan.get("pending")) or plan["activation_blocked"]
+        if needs_upgrade and load_prepared_release(paths) is None:
+            raise InstallerError("a migration requires a prepared release record; run install first")
+        prepared_digest = "sha256:" + sha256(prepared_release_path(paths)) if needs_upgrade else None
     if needs_upgrade:
         environment = {key: value for key, value in os.environ.items() if key != "CONCORD_DB_PATH"}
         environment["XDG_DATA_HOME"] = str(paths.data_home)
         request = {"require_no_sessions": True,
+                   "prepared_release_digest": prepared_digest,
                    "confirm_sessions_stopped": args.confirm_sessions_stopped,
                    "cancel_cutover_pinned_work": args.cancel_cutover_pinned_work}
         print(f"Running the snapshot-backed upgrade for {version}.", flush=True)

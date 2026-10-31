@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +16,49 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
 )
+
+func TestPreparedUpgradeRejectsMissingChangedOrWrongVersionRecord(t *testing.T) {
+	previous := version.Value
+	version.Value = "v30.0.99"
+	t.Cleanup(func() { version.Value = previous })
+	path, root := cliStoreRoot(t)
+	pendingBreakingStore(t, path, true)
+	for _, fixture := range []struct {
+		name string
+		raw  string
+	}{
+		{"missing", ""},
+		{"changed", `{"version":"v30.0.99"}`},
+		{"wrong-version", `{"version":"v31.0.0"}`},
+		{"malformed", `{`},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			if fixture.raw != "" {
+				if err := os.WriteFile(preparedReleasePath(root), []byte(fixture.raw), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(fixture.raw)))
+			if fixture.name == "changed" {
+				digest = "sha256:" + strings.Repeat("0", 64)
+			}
+			code, out, errOut := runUpgradeStdin(t, fmt.Sprintf(`{"require_no_sessions":true,"prepared_release_digest":%q}`, digest))
+			if code != 1 || !strings.Contains(errOut, "prepared release changed before upgrade") {
+				t.Fatalf("record must refuse before effects: code=%d out=%s err=%s", code, out, errOut)
+			}
+		})
+	}
+	if _, err := os.Stat(filepath.Join(root, "backups")); !os.IsNotExist(err) {
+		t.Fatalf("a rejected record must take no snapshot: %v", err)
+	}
+	if fence, err := hostlease.ReadFence(root); err != nil || fence != nil {
+		t.Fatalf("a rejected record must open no fence: %+v %v", fence, err)
+	}
+	plan, err := store.PlanUpgradeReadiness(t.Context(), path)
+	if err != nil || plan.SchemaVersion != 110 {
+		t.Fatalf("a rejected record must apply nothing: %+v %v", plan, err)
+	}
+}
 
 func TestPreparedUpgradeRefusesEvenACurrentSchemaLeaseBeforeSnapshot(t *testing.T) {
 	previous := version.Value
@@ -63,6 +108,8 @@ sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / "scripts"))
 spec = importlib.util.spec_from_file_location("fixture", pathlib.Path(sys.argv[1]) / "scripts/test-installer.py")
 fixture = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixture)
+from types import SimpleNamespace
+from unittest import mock
 case = fixture.InstallerTests()
 case.setUp()
 try:
@@ -95,6 +142,34 @@ try:
     record = json.loads(record_bytes)
     command = shlex.split(record["cutover_command"])
     candidate = case.data_root / version / "bin/concord"
+    original_run = subprocess.run
+    superseded = False
+    def supersede_before_upgrade(argv, *args, **kwargs):
+        global superseded
+        if argv == [str(candidate), "upgrade"] and b'"require_no_sessions": true' in kwargs.get("input", b"") and not superseded:
+            superseded = True
+            replacement = case.install_release("v31.0.0", env=case.plan_env(blocked=True))
+            assert replacement.returncode == 0, (replacement.stdout, replacement.stderr)
+        return original_run(argv, *args, **kwargs)
+    with mock.patch.object(subprocess, "run", side_effect=supersede_before_upgrade), mock.patch.dict(os.environ, case.env, clear=True):
+        try:
+            fixture.installer.cutover(SimpleNamespace(root=root, version=version, confirm_sessions_stopped=False, cancel_cutover_pinned_work=False))
+        except fixture.installer.InstallerError:
+            pass
+        else:
+            raise AssertionError("a superseded prepared candidate was accepted")
+    assert superseded
+    with sqlite3.connect(case.data_root / "concord.db") as db:
+        assert db.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 110, "superseded candidate committed a migration"
+    assert not case.fence_path.exists() and not (case.data_root / "backups").exists()
+    case.assert_active_release("v1.0.0", "v1.0.0")
+    assert json.loads(case.prepared_path.read_text())["version"] == "v31.0.0"
+    shutil.rmtree(case.data_root / version)
+    restored = case.run_installer("install", "--version", version, "--artifact-dir", str(case.artifacts))
+    assert restored.returncode == 0, (restored.stdout, restored.stderr)
+    record_bytes = case.prepared_path.read_bytes()
+    record = json.loads(record_bytes)
+    command = shlex.split(record["cutover_command"])
     environment = case.env.copy()
     environment.pop("CONCORD_DB_PATH")
     environment["XDG_DATA_HOME"] = str(root / "data")

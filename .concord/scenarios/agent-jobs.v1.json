@@ -752,13 +752,13 @@
     ],
     "invariants": [
      "ordered_cross_authority",
-      "honest_recovery",
-      "canonical_authority"
-     ]
-    }
-   },
-   {
-    "id": "AJ8-health-failure-rollback",
+     "honest_recovery",
+     "canonical_authority"
+    ]
+   }
+  },
+  {
+   "id": "AJ8-health-failure-rollback",
    "job_id": "AJ8",
    "instruction": "The retired ops-runbook authoring refuses: the archived family's nonterminal instance rejects every public workflow action with zero effects.",
    "initial_state": {

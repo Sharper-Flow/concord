@@ -29,9 +29,9 @@ type WorkflowActionPreflightRequest struct {
 	DecisionContextDigest string
 	Payload               json.RawMessage
 	Actor                 WorkflowActor
-	// SessionWorktree is the host worktree boundary. It is checked only for
-	// dispatch_worker, whose worker must run in the active claimed worktree.
-	SessionWorktree string
+	// SessionProjectID is the Project the acting session's authenticated
+	// directory resolves. Project-handoff admission binds to it.
+	SessionProjectID string
 }
 
 func VerifyWorkflowDefinitionPin(registry DefinitionRegistry, pin WorkflowDefinitionPin) (RegisteredDefinition, error) {
@@ -208,7 +208,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 		// frontier executes no managed external effect until a session of
 		// that Project consumes the addressed handoff under the active
 		// contract. A work with no handoffs is unaffected.
-		if err := RefuseUnconsumedProjectHandoffTx(ctx, tx.Tx, request.WorkID, request.Actor.SessionRef); err != nil {
+		if err := RefuseUnconsumedProjectHandoffTx(ctx, tx.Tx, request.WorkID, request.SessionProjectID, request.Actor.SessionRef); err != nil {
 			return err
 		}
 	}

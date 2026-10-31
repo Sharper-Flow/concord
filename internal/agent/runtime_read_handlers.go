@@ -605,8 +605,9 @@ func (r runtime) readTraceRelations(ctx context.Context, base agentcontract.Enve
 // readTraceProjectRetirement answers concord_work_trace.project_retirement
 // (CD-0182.R1). The retirement identities come from the authenticated call
 // context, never from the input: the ambient Project is the session's own,
-// and the envelope session reference is the acting session. The derivation
-// is read-only and writes nothing.
+// the envelope session reference is the acting session, and the preservation
+// probe runs in the session's host-reported worktree. The derivation is
+// read-only and writes nothing.
 func (r runtime) readTraceProjectRetirement(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in workIDInput
 	if err := decodeOperationInput(input, &in); err != nil {
@@ -614,10 +615,10 @@ func (r runtime) readTraceProjectRetirement(ctx context.Context, base agentcontr
 	}
 	project := r.Envelope.AmbientProjectID
 	session := r.Envelope.SessionRef
-	if project == "" || session == "" {
-		return coreError(base, "unknown_scope", "project retirement requires a resolved Project and an authenticated session", "refresh_context", false), nil
+	if project == "" || session == "" || r.Envelope.Worktree == "" {
+		return coreError(base, "unknown_scope", "project retirement requires a resolved Project, an authenticated session, and the session's worktree", "refresh_context", false), nil
 	}
-	retirement, err := store.EvaluateProjectSessionRetirement(ctx, r.Store, in.WorkID, project, session)
+	retirement, err := store.EvaluateProjectSessionRetirement(ctx, r.Store, in.WorkID, project, session, r.Envelope.Worktree)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}

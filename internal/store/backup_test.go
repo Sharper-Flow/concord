@@ -394,7 +394,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if err := os.MkdirAll(landedDirectory, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	bindSessionToProjectWorktree(t, s, landedDirectory, "ses-evidence")
+	seedSessionLandingRows(t, s, landedDirectory, "ses-evidence")
 	// This trusted state fixture tests byte preservation, not native execution.
 	report := reviewBlockFixture()
 	report.InputCandidate.ProjectID, report.OutputCandidate.ProjectID = "project", "project"

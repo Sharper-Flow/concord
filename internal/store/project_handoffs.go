@@ -209,9 +209,9 @@ func foldProjectHandoffConsumed(ctx context.Context, tx *sql.Tx, event Event) er
 // WorkID is validated against the event subject at append and fold time.
 
 // RecordProjectHandoffRequest carries one source session's outgoing handoff.
-// The artifact-preservation probe runs against SourceWorktree before the
-// mutation transaction opens; the probe is a git/filesystem fact, never a
-// caller assertion.
+// The caller runs the artifact-preservation probe against the session's
+// host-reported worktree before the mutation transaction opens; the probe is
+// a git/filesystem fact, never a caller assertion.
 type RecordProjectHandoffRequest struct {
 	WorkID           string
 	SourceProjectID  string
@@ -223,7 +223,6 @@ type RecordProjectHandoffRequest struct {
 	ArtifactRefs     []string
 	Blockers         []string
 	NextAction       string
-	SourceWorktree   string
 	Now              time.Time
 }
 
@@ -307,23 +306,6 @@ func recordProjectHandoffCore(ctx context.Context, tx *sql.Tx, req RecordProject
 	if err := preflightProjectHandoffTx(ctx, tx, req); err != nil {
 		return out, err
 	}
-	// The preservation probe proved a git/filesystem fact about one
-	// worktree before this transaction opened; this bind proves the probed
-	// path is the shared work's OWN claimed source worktree, so a clean
-	// unrelated linked worktree can never stand in for a claimed source
-	// that carries unpreserved changes. Read and compare inside the same
-	// transaction that records, so a claim moved between the probe and the
-	// record refuses here.
-	claimed, err := sessionClaimedWorktreeTx(ctx, tx, req.WorkID, req.SourceProjectID)
-	if err != nil {
-		return out, err
-	}
-	if claimed == "" {
-		return out, newFailure(KindInvalidOperation, "project_handoff", "the source Project holds no claimed worktree on the work, so the handoff cannot bind artifact preservation to the shared work's own source claim", false, "claim the source worktree before recording the handoff")
-	}
-	if filepath.Clean(claimed) != filepath.Clean(req.SourceWorktree) {
-		return out, newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("the recorded source worktree is not the work's claimed source worktree %s", claimed), false, "record from the session linked to the claimed source worktree")
-	}
 	contractVersion, err := activeWorkflowContractVersionInTx(ctx, tx, req.WorkID)
 	if err != nil {
 		return out, err
@@ -393,7 +375,7 @@ func preflightProjectHandoffTx(ctx context.Context, tx *sql.Tx, req RecordProjec
 
 // readFileBounded reads one artifact file with a bounded size, so a
 // mis-referenced path cannot pull unbounded bytes into the digest check. The
-// read opens through an os.Root on the claimed worktree, so a symlink swapped
+// read opens through an os.Root on the source worktree, so a symlink swapped
 // in after the caller's containment check still cannot reach outside it.
 func readFileBounded(worktree, relative string) (content []byte, err error) {
 	root, err := os.OpenRoot(worktree)
@@ -424,12 +406,12 @@ func readFileBounded(worktree, relative string) (content []byte, err error) {
 	return content, nil
 }
 
-// verifyArtifactPreservation probes the actual claimed source worktree with
-// git before any mutation transaction. A dirty or untracked worktree refuses
+// verifyArtifactPreservation probes the session's source worktree with git
+// before any mutation transaction. A dirty or untracked worktree refuses
 // with the unpreserved paths named: closing the session would lose them, and
 // the core never auto-commits, stashes, or hides them. Each immutable
 // artifact reference is verified as durable committed content, never as a
-// hash-only claim: the path must be canonical and resolve inside the claimed
+// hash-only claim: the path must be canonical and resolve inside the source
 // worktree with no escaping symlink, the recorded digest must equal the
 // sha256 of the file's bytes, AND the same bytes must be committed at the
 // worktree's HEAD — `git status --porcelain` never lists ignored files, so
@@ -438,14 +420,14 @@ func readFileBounded(worktree, relative string) (content []byte, err error) {
 // refuses.
 func verifyArtifactPreservation(ctx context.Context, sourceWorktree string, artifactRefs []string) error {
 	if sourceWorktree == "" {
-		return newFailure(KindInvalidOperation, "project_handoff", "artifact preservation requires the actual claimed source worktree", false, "supply the source worktree directory the session claimed")
+		return newFailure(KindInvalidOperation, "project_handoff", "artifact preservation requires the session's source worktree", false, "record from the session's host-reported worktree")
 	}
 	if !filepath.IsAbs(sourceWorktree) {
-		return newFailure(KindInvalidOperation, "project_handoff", "the source worktree path is not absolute", false, "supply the absolute claimed worktree path")
+		return newFailure(KindInvalidOperation, "project_handoff", "the source worktree path is not absolute", false, "record from the session's absolute host-reported worktree")
 	}
 	status, err := ExecGitRunner{}.Run(ctx, sourceWorktree, "status", "--porcelain")
 	if err != nil {
-		return wrapFailure(KindUnavailable, "project_handoff", "cannot probe the source worktree with git", true, "retry once the claimed worktree is readable", err)
+		return wrapFailure(KindUnavailable, "project_handoff", "cannot probe the source worktree with git", true, "retry once the source worktree is readable", err)
 	}
 	dirty := []string{}
 	for _, line := range strings.Split(string(status), "\n") {
@@ -463,7 +445,7 @@ func verifyArtifactPreservation(ctx context.Context, sourceWorktree string, arti
 	}
 	resolvedTree, resolveErr := filepath.EvalSymlinks(sourceWorktree)
 	if resolveErr != nil {
-		return newFailure(KindProjectionNotFound, "project_handoff", "the claimed source worktree does not resolve on this machine", false, "probe the claimed source worktree the session verified")
+		return newFailure(KindProjectionNotFound, "project_handoff", "the source worktree does not resolve on this machine", false, "record from a session whose worktree exists on this machine")
 	}
 	treePrefix := resolvedTree + string(filepath.Separator)
 	for _, ref := range artifactRefs {
@@ -473,24 +455,24 @@ func verifyArtifactPreservation(ctx context.Context, sourceWorktree string, arti
 		}
 		claimed, path := parts[1], parts[2]
 		// Canonicalize before any file access: a traversal or a symlink that
-		// escapes the claimed worktree refuses before its bytes are read.
+		// escapes the source worktree refuses before its bytes are read.
 		if filepath.Clean(path) != path || !filepath.IsAbs(path) {
-			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s does not name a canonical absolute path", ref), false, "reference artifacts by their canonical absolute path inside the claimed source worktree")
+			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s does not name a canonical absolute path", ref), false, "reference artifacts by their canonical absolute path inside the source worktree")
 		}
 		if !strings.HasPrefix(path, sourceWorktree+string(filepath.Separator)) {
-			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s names a path outside the claimed source worktree", ref), false, "reference artifacts inside the claimed source worktree")
+			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s names a path outside the source worktree", ref), false, "reference artifacts inside the source worktree")
 		}
 		resolvedPath, resolveErr := filepath.EvalSymlinks(path)
 		if resolveErr != nil {
-			return newFailure(KindProjectionNotFound, "project_handoff", fmt.Sprintf("artifact reference %s names no readable file under the claimed source worktree", ref), false, "reference committed artifacts that exist in the worktree")
+			return newFailure(KindProjectionNotFound, "project_handoff", fmt.Sprintf("artifact reference %s names no readable file under the source worktree", ref), false, "reference committed artifacts that exist in the worktree")
 		}
 		if !strings.HasPrefix(resolvedPath, treePrefix) {
-			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s resolves through a symlink outside the claimed source worktree", ref), false, "reference artifacts that live inside the claimed source worktree")
+			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s resolves through a symlink outside the source worktree", ref), false, "reference artifacts that live inside the source worktree")
 		}
 		relative := strings.TrimPrefix(path, sourceWorktree+string(filepath.Separator))
 		content, readErr := readFileBounded(sourceWorktree, relative)
 		if readErr != nil {
-			return newFailure(KindProjectionNotFound, "project_handoff", fmt.Sprintf("artifact reference %s names no readable file under the claimed source worktree", ref), false, "reference committed artifacts that exist in the worktree")
+			return newFailure(KindProjectionNotFound, "project_handoff", fmt.Sprintf("artifact reference %s names no readable file under the source worktree", ref), false, "reference committed artifacts that exist in the worktree")
 		}
 		digest := fmt.Sprintf("%x", sha256.Sum256(content))
 		if digest != claimed {
@@ -532,12 +514,11 @@ type ProjectHandoffConsumptionResult struct {
 // contract (CD-0182 D5 amendment): any session of the receiving Project may
 // bind it, the standing bind resolves for every later session of that
 // Project, and a second coordinator session needs no fresh handoff of its
-// own. The verified receiver placement gates the bind and the replay alike:
-// only a session whose verified landing records it in the receiving Project
-// resolves the shared bind. A missing, wrong-target, or stale handoff
+// own. The consumer Project is the calling session's resolved Project, and it
+// must be a member of the work. A missing, wrong-target, or stale handoff
 // refuses with no event, so managed-execution admission can fail closed on
-// the recorded state. A replay by any placed session of the receiving
-// Project resolves as AlreadyConsumed with no event.
+// the recorded state. A replay by any session of the receiving Project
+// resolves as AlreadyConsumed with no event.
 func ConsumeProjectHandoffTx(ctx context.Context, transaction *Transaction, req ConsumeProjectHandoffRequest) (ProjectHandoffConsumptionResult, error) {
 	var out ProjectHandoffConsumptionResult
 	tx, err := transactionSQL(transaction, "project_handoff")
@@ -565,9 +546,9 @@ func consumeProjectHandoffCore(ctx context.Context, tx *sql.Tx, req ConsumeProje
 		}
 		// The addressed resolution reads the newest handoff addressed to the
 		// consumer's Project in any state, so a standing bind replays as
-		// AlreadyConsumed after placement and contract validation. The
+		// AlreadyConsumed after membership and contract validation. The
 		// recorded-event ordering matches the admission gate, the
-		// boot frontier, the continuity read, and the retirement facts, so
+		// continuity read, and the retirement facts, so
 		// every read of "the current handoff" agrees on one durable order.
 		var id string
 		idErr := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, req.WorkID, req.ConsumerProjectID).Scan(&id)
@@ -586,28 +567,17 @@ func consumeProjectHandoffCore(ctx context.Context, tx *sql.Tx, req ConsumeProje
 	if handoff.TargetProjectID != req.ConsumerProjectID {
 		return out, newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("the handoff addresses Project %s, not %s", handoff.TargetProjectID, req.ConsumerProjectID), false, "consume the handoff addressed to the session's Project")
 	}
-	// The verified receiver placement gates the bind and the shared-bind
-	// replay alike (CD-0182 D5 amendment): the consuming session must hold
-	// the occupancy row a recorded claim landing established on this work
-	// for the addressed Project (CD-0178 D3), before any consume — a fresh
-	// bind or a replay of the standing one — resolves. Claim admission
-	// records an occupancy row without a landing, so occupancy alone is not
-	// placement, and no consume can precede the verified landing.
-	placedProject, placeErr := verifiedSessionPlacementTx(ctx, tx, req.WorkID, req.ConsumerSessionRef)
-	if placeErr != nil {
-		return out, placeErr
-	}
-	if placedProject == "" {
-		return out, newFailure(KindInvalidOperation, "project_handoff", "the receiving session holds no verified placement on this work for the addressed Project; the consume binds only after a verified claim landing records this session's occupancy", false, "replay work_start so the verified landing records this session's placement, then consume")
-	}
-	if placedProject != req.ConsumerProjectID {
-		return out, newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("the receiving session's verified placement names Project %s, not %s", placedProject, req.ConsumerProjectID), false, "consume from the session's own landed Project context")
+	// The consumer Project gates the bind and the shared-bind replay
+	// alike: it must be a member of the work before any consume — a fresh
+	// bind or a replay of the standing one — resolves.
+	if err := requireWorkProjectMemberTx(ctx, tx, req.WorkID, req.ConsumerProjectID); err != nil {
+		return out, err
 	}
 	if handoff.State == ProjectHandoffConsumed {
 		// The bind names the work-and-Project pair (CD-0182 D5
-		// amendment): every placed session of the receiving Project
-		// resolves the standing bind — the session that recorded the
-		// consume and a later landed session alike — so a second
+		// amendment): every session of the receiving Project resolves the
+		// standing bind — the session that recorded the consume and a
+		// later session alike — so a second
 		// coordinator session never needs a fresh addressed handoff of
 		// its own. The replay is still a bind check, not a bypass: a
 		// bind authorizes execution only under the contract it was made
@@ -682,34 +652,21 @@ func readProjectHandoffTx(ctx context.Context, q queryer, workID, handoffID stri
 	return h, nil
 }
 
-// verifiedSessionPlacementTx resolves the Project of the session's verified
-// placement on one work: an occupancy row a recorded claim landing
-// established (CD-0178 D3) for the session's current claim generation, and
-// that still stands. Claim admission records an occupancy row without a
-// landing, and a vacate landing releases the row, so neither state alone
-// proves the session was placed and has not left. The landing must name the
-// claim the occupancy row stands on: a landing recorded for a superseded
-// claim — after a reclaim, or a vacate plus re-claim — proves nothing about
-// the current claim. It returns an empty Project when no verified placement
-// stands.
-func verifiedSessionPlacementTx(ctx context.Context, q queryer, workID, sessionRef string) (string, error) {
-	var projectID string
-	err := q.QueryRowContext(ctx, `SELECT c.project_id
-		FROM worktree_occupancy o
-		JOIN worktree_entries e ON e.set_id || ':' || e.project_id || ':' || e.claim_op_id = o.worktree_id AND e.state='active'
-		JOIN worktree_claims c ON c.op_id=e.claim_op_id
-		WHERE o.session_ref=? AND c.work_id=?
-		  AND EXISTS (SELECT 1 FROM session_claim_landings l
-		              WHERE l.work_id=c.work_id AND l.session_ref=o.session_ref
-		                AND l.project_id=c.project_id AND l.claim_op_id=e.claim_op_id)`,
-		sessionRef, workID).Scan(&projectID)
-	if err == sql.ErrNoRows {
-		return "", nil
+// requireWorkProjectMemberTx refuses a Project that is empty or not a member
+// of the work. The Project comes from the calling session's authenticated
+// directory, never from model input.
+func requireWorkProjectMemberTx(ctx context.Context, q queryer, workID, projectID string) error {
+	if projectID == "" {
+		return newFailure(KindInvalidOperation, "project_handoff", "the calling session resolves no Project, so it cannot act on an addressed Project handoff", false, "act from a session whose directory resolves a member Project of the work")
 	}
-	if err != nil {
-		return "", wrapFailure(KindUnavailable, "project_handoff", "cannot read the session's verified placement", true, "retry once the database is readable", err)
+	var member bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?)`, workID, projectID).Scan(&member); err != nil {
+		return wrapFailure(KindUnavailable, "project_handoff", "cannot read the work's Project memberships", true, "retry once the database is readable", err)
 	}
-	return projectID, nil
+	if !member {
+		return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("the calling session's Project %s is not a member of the work", projectID), false, "act from a session whose directory resolves a member Project of the work")
+	}
+	return nil
 }
 
 // RefuseUnconsumedProjectHandoffTx is the core managed-execution admission
@@ -719,20 +676,20 @@ func verifiedSessionPlacementTx(ctx context.Context, q queryer, workID, sessionR
 // Project consumes it — and a frontier recorded under a superseded contract
 // cannot be consumed, so the source session records a fresh addressed
 // handoff whose recording supersedes the stale one. A consumed frontier
-// admits every session with a verified placement in the receiving Project,
-// and only under the contract the bind was made under (CD-0182 D5
-// amendment): the bind names the work-and-Project pair, not one receiving
-// session, so a second landed coordinator session dispatches without a
-// fresh handoff or a new session, and after a contract replacement the
-// stale bind refuses closed equally for the consuming session and a later
-// session of the Project. A session whose Project placement cannot resolve
-// on a handoff-bearing work refuses: the gate cannot bind an addressed
-// handoff to a Project it cannot prove. A work with no handoffs is
-// unaffected. It runs inside the caller's transaction so the read observes
-// the caller's own uncommitted events.
-func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) error {
+// admits every session of the receiving Project, and only under the
+// contract the bind was made under (CD-0182 D5 amendment): the bind names
+// the work-and-Project pair, not one receiving session, so a second
+// coordinator session dispatches without a fresh handoff or a new session,
+// and after a contract replacement the stale bind refuses closed equally for
+// the consuming session and a later session of the Project. The acting
+// Project is the calling session's resolved Project; on a handoff-bearing
+// work an empty or non-member Project refuses, because the gate cannot bind
+// an addressed handoff to a Project it cannot prove. A work with no handoffs
+// is unaffected. It runs inside the caller's transaction so the read
+// observes the caller's own uncommitted events.
+func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, projectID, sessionRef string) error {
 	// Ordinary handoff-free work stays admitted whatever the caller's
-	// identities or placement.
+	// identities or Project.
 	var total int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM project_handoffs WHERE work_id=?`, workID).Scan(&total); err != nil {
 		return wrapFailure(KindUnavailable, "project_handoff", "cannot read the work's handoff records", true, "retry once the database is readable", err)
@@ -740,20 +697,11 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, s
 	if total == 0 {
 		return nil
 	}
-	// The acting session's Project resolves from the core's own placement
-	// evidence: the occupancy row a recorded claim landing established
-	// (CD-0178 D3) joined to the claimed worktree. A caller-supplied Project
-	// never decides admission, and claim occupancy without its landing is
-	// not placement. On a handoff-bearing work an unresolvable placement
+	// On a handoff-bearing work an unresolved or non-member Project
 	// refuses: the session could be the addressed receiver skipping its
-	// consume, so admission fails closed until a verified landing records
-	// its occupancy.
-	projectID, placeErr := verifiedSessionPlacementTx(ctx, tx, workID, sessionRef)
-	if placeErr != nil {
-		return placeErr
-	}
-	if projectID == "" {
-		return newFailure(KindInvalidOperation, "project_handoff", "the work carries Project handoffs, but this session holds no verified placement on it; managed execution refuses until a verified landing records this session's occupancy", false, "replay work_start so the verified landing records this session's placement")
+	// consume.
+	if err := requireWorkProjectMemberTx(ctx, tx, workID, projectID); err != nil {
+		return err
 	}
 	var frontierID, frontierSource string
 	var frontierVersion int64
@@ -772,8 +720,8 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, s
 	if frontierState != ProjectHandoffRecorded {
 		// The frontier's bind names the work-and-Project pair (CD-0182 D5
 		// amendment): consumed by ANY session of this Project, it admits
-		// every session holding a verified placement in it — the acting
-		// session's placement resolved above — so no remedy prescribes a
+		// every session of it — the acting session's Project checked
+		// above — so no remedy prescribes a
 		// fresh handoff for a second session or a new session. A bind
 		// still authorizes managed execution only under the contract it
 		// was made under, so a contract replacement refuses the stale bind
@@ -799,7 +747,7 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, s
 	if contractErr == nil && version != frontierVersion {
 		return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("handoff %s recorded by %s stands unconsumed under contract version %d, but the active contract is version %d; a stale handoff cannot be consumed, so the source session must record a fresh addressed handoff that supersedes it", frontierID, frontierSource, frontierVersion, version), false, "have the source session record a fresh addressed handoff under the active contract, then consume it")
 	}
-	return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("handoff %s recorded by %s stands unconsumed; managed execution refuses until a verified session of the receiving Project consumes the addressed handoff", frontierID, frontierSource), false, "consume the addressed Project handoff before managed execution")
+	return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("handoff %s recorded by %s stands unconsumed; managed execution refuses until a session of the receiving Project consumes the addressed handoff", frontierID, frontierSource), false, "consume the addressed Project handoff before managed execution")
 }
 
 // ProjectSessionRetirement is the derived, read-only readiness result. State
@@ -812,7 +760,6 @@ type ProjectSessionRetirement struct {
 	State              string   `json:"state"`
 	RecordedHandoff    bool     `json:"recorded_handoff"`
 	ArtifactsPreserved bool     `json:"artifacts_preserved"`
-	ActionsStopped     bool     `json:"actions_stopped"`
 	Blockers           []string `json:"blockers"`
 }
 
@@ -830,17 +777,17 @@ const (
 // writes no event, completes no work, cancels nothing, removes no worktree,
 // and terminates no process.
 //
-// The git/filesystem preservation probe must run outside any SQL
+// The preservation probe runs in sourceWorktree, the calling session's
+// host-reported worktree. The git/filesystem probe must run outside any SQL
 // transaction, so the derivation reads in two snapshots: the phase-one
 // handoff facts, then the probe, then the final read snapshot. The final
 // read snapshot revalidates the phase-one snapshot against the committed
 // state — the active contract version, the selected handoff identity and
-// frontier, the preserved artifact references, and the claimed source
-// worktree — because the probe proved a fact about THAT selection and THAT
-// claim only. A contract replacement, a newer handoff, or a source-claim
-// change between the phases leaves the snapshot obsolete, and readiness
+// frontier, and the preserved artifact references — because the probe
+// proved a fact about THAT selection only. A contract replacement or a newer
+// handoff between the phases leaves the snapshot obsolete, and readiness
 // fails closed on the drift instead of emitting stale facts.
-func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, projectID, sessionRef string) (ProjectSessionRetirement, error) {
+func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, projectID, sessionRef, sourceWorktree string) (ProjectSessionRetirement, error) {
 	out := ProjectSessionRetirement{WorkID: workID, ProjectID: projectID, SessionRef: sessionRef, State: RetirementPending, Blockers: []string{}}
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "project_retirement", "store is not open", false, "open the authority database")
@@ -848,8 +795,7 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 	if workID == "" || projectID == "" || sessionRef == "" {
 		return out, newFailure(KindInvalidOperation, "project_retirement", "the retirement read requires the work, Project, and session identities", false, "read the retirement state with the session's authenticated identities")
 	}
-	// Phase one: the read snapshot gathers the recorded facts, including
-	// the claimed source worktree path the preservation probe needs.
+	// Phase one: the read snapshot gathers the recorded facts.
 	var handoffFacts projectRetirementHandoffFacts
 	err := s.readSnapshot(ctx, func(q queryer) error {
 		return readRetirementHandoffFactsTx(ctx, q, workID, projectID, sessionRef, &handoffFacts)
@@ -865,17 +811,11 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 			out.Blockers = append(out.Blockers, "record the addressed Project handoff before retirement")
 		}
 	}
-	artifactRefs := handoffFacts.artifactRefs
-	sourceWorktree := handoffFacts.sourceWorktree
 	// Phase two: git/filesystem probes run OUTSIDE the SQL transaction.
-	if sourceWorktree != "" {
-		if probeErr := verifyArtifactPreservation(ctx, sourceWorktree, artifactRefs); probeErr != nil {
-			out.Blockers = append(out.Blockers, preservationBlocker(probeErr))
-		} else {
-			out.ArtifactsPreserved = true
-		}
+	if probeErr := verifyArtifactPreservation(ctx, sourceWorktree, handoffFacts.artifactRefs); probeErr != nil {
+		out.Blockers = append(out.Blockers, preservationBlocker(probeErr))
 	} else {
-		out.Blockers = append(out.Blockers, "the session holds no active claimed worktree to verify artifact preservation against")
+		out.ArtifactsPreserved = true
 	}
 	if s.retireProbeInterleave != nil {
 		s.retireProbeInterleave()
@@ -893,7 +833,6 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 	if drift := retirementHandoffSnapshotDrift(handoffFacts, recheck); drift != "" {
 		out.Blockers = append(out.Blockers, drift+"; re-run the retirement read")
 	}
-	out.ActionsStopped = execution.actionsStopped
 	if !execution.actionsStopped {
 		out.Blockers = append(out.Blockers, "the session's unfinished workflow actions must settle before readiness")
 	}
@@ -908,9 +847,8 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 // transaction read, and names the identity that moved. An equal snapshot
 // names no drift. Every compared field is one the probe's validity binds to:
 // the active contract version and the selected handoff identity decide
-// whether the evaluated record still stands eligible, the artifact
-// references are the digests the probe verified, and the claimed source
-// worktree is the tree the probe ran in.
+// whether the evaluated record still stands eligible, and the artifact
+// references are the digests the probe verified.
 func retirementHandoffSnapshotDrift(snapshot, current projectRetirementHandoffFacts) string {
 	if snapshot.contractVersion != current.contractVersion {
 		return fmt.Sprintf("the work's active workflow contract moved from version %d to %d while the retirement was evaluated", snapshot.contractVersion, current.contractVersion)
@@ -923,9 +861,6 @@ func retirementHandoffSnapshotDrift(snapshot, current projectRetirementHandoffFa
 	}
 	if !slices.Equal(snapshot.artifactRefs, current.artifactRefs) {
 		return "the evaluated handoff's preserved artifact references changed while the retirement was evaluated"
-	}
-	if snapshot.sourceWorktree != current.sourceWorktree {
-		return "the claimed source worktree changed while the retirement was evaluated"
 	}
 	return ""
 }
@@ -945,18 +880,16 @@ func preservationBlocker(err error) string {
 // projectRetirementHandoffFacts carries the phase-one read: whether the
 // session recorded an addressed handoff on the work under the ACTIVE
 // contract, the active contract version the read resolved, the newest
-// eligible record's handoff id and immutable artifact references, the
-// claimed source worktree path the preservation probe needs, and the
+// eligible record's handoff id and immutable artifact references, and the
 // stale-contract blocker text when the session's records all predate the
 // active contract. Every field except the blocker is snapshot identity: the
 // final transaction revalidates them, because the preservation probe proved
-// a fact about exactly this selection and this claimed source.
+// a fact about exactly this selection.
 type projectRetirementHandoffFacts struct {
 	recorded        bool
 	contractVersion int64
 	handoffID       string
 	artifactRefs    []string
-	sourceWorktree  string
 	contractBlocker string
 }
 
@@ -1009,9 +942,7 @@ func readRetirementHandoffFactsTx(ctx context.Context, q queryer, workID, projec
 			}
 		}
 	}
-	var err error
-	facts.sourceWorktree, err = sessionClaimedWorktreeTx(ctx, q, workID, projectID)
-	return err
+	return nil
 }
 
 // readRetirementFinalFactsTx is the queryer-taking read the transaction scope
@@ -1038,44 +969,6 @@ func readRetirementExecutionFactsTx(ctx context.Context, q queryer, workID, sess
 		return err
 	}
 	return err
-}
-
-// sessionClaimedWorktreeTx resolves the active claimed worktree path of one
-// work and Project, or an empty string when none is active.
-func sessionClaimedWorktreeTx(ctx context.Context, q queryer, workID, projectID string) (string, error) {
-	var path string
-	err := q.QueryRowContext(ctx, `SELECT e.path FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id
-		WHERE c.work_id=? AND c.project_id=? AND e.state='active' AND c.state IN ('pending','verified') ORDER BY e.path LIMIT 1`, workID, projectID).Scan(&path)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", wrapFailure(KindUnavailable, "project_retirement", "cannot read the claimed worktree", true, "retry once the database is readable", err)
-	}
-	return path, nil
-}
-
-// ReadSessionClaimedWorktree resolves the active claimed worktree path of
-// one work and Project outside any mutation transaction: the handoff record
-// planner reads it before the git/filesystem probe opens, and an empty path
-// means the Project holds no claim the probe could bind to. The record
-// transaction re-checks the same binding tx-scoped, so a claim that moves
-// between this read and the record refuses there.
-func ReadSessionClaimedWorktree(ctx context.Context, s *Store, workID, projectID string) (string, error) {
-	var path string
-	err := s.readSnapshot(ctx, func(q queryer) error {
-		return readSessionClaimedWorktreeTx(ctx, q, workID, projectID, &path)
-	})
-	if err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-func readSessionClaimedWorktreeTx(ctx context.Context, q queryer, workID, projectID string, out *string) error {
-	var readErr error
-	*out, readErr = sessionClaimedWorktreeTx(ctx, q, workID, projectID)
-	return readErr
 }
 
 // An empty session selects all current starts. Missing actor attribution
@@ -1111,87 +1004,4 @@ func PendingProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID string) (*P
 		return nil, err
 	}
 	return &handoff, nil
-}
-
-// PendingProjectHandoffForProjectTx reads the boot/resume frontier: the
-// newest handoff on the work addressed to one Project under the ACTIVE
-// contract version, whatever its state. A frontier that still stands
-// recorded renders as the bounded repository job the receiving session must
-// consume before managed execution. A consumed frontier renders to every
-// session whose verified placement names the receiving Project (CD-0182 D5
-// amendment): the bind names the work-and-Project pair, so the session that
-// recorded the consume and a later landed session of the Project both read
-// the bounded job and context — a replay after a lost consume response
-// recovers it, and a second coordinator session reads the job it dispatches
-// under. A consumed bind read without a resolvable placement, or by a
-// session of another Project, renders nothing; a bind under a superseded
-// contract never reaches this read because the frontier
-// query filters on the active contract. An older recorded handoff behind
-// the frontier is superseded by recorded event order — the boot never
-// resurrects it, and
-// a handoff recorded under a superseded contract can never be consumed, so
-// resume renders nothing for it. Visibility here never consumes or
-// authorizes.
-func PendingProjectHandoffForProjectTx(ctx context.Context, q queryer, workID, projectID, sessionRef string) (*ProjectHandoff, error) {
-	version, contractErr := activeWorkflowContractVersion(ctx, q, workID, "project_handoff")
-	if contractErr == sql.ErrNoRows {
-		// No active workflow contract: no handoff can bind, so the boot
-		// renders no bounded job.
-		return nil, nil
-	}
-	if contractErr != nil {
-		return nil, contractErr
-	}
-	var id string
-	err := q.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? AND contract_version=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, version).Scan(&id)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "project_handoff", "cannot read the addressed handoff", true, "retry once the database is readable", err)
-	}
-	handoff, err := readProjectHandoffTx(ctx, q, workID, id)
-	if err != nil {
-		return nil, err
-	}
-	if handoff.State == ProjectHandoffRecorded {
-		return &handoff, nil
-	}
-	if handoff.State == ProjectHandoffConsumed && sessionRef != "" {
-		// The consumed frontier renders to every session whose verified
-		// placement names the receiving Project — the same admission the
-		// managed-execution gate grants — not only the session whose
-		// consume event the bind recorded. An unplaced session and a
-		// session of another Project render nothing.
-		placed, placeErr := verifiedSessionPlacementTx(ctx, q, workID, sessionRef)
-		if placeErr != nil {
-			return nil, placeErr
-		}
-		if placed == projectID {
-			return &handoff, nil
-		}
-	}
-	return nil, nil
-}
-
-// ReadPendingProjectHandoffForProject opens a deferred read snapshot for the
-// boot/resume flow to read the addressed bounded job. The session
-// reference is the authenticated receiving session the resume carries; it
-// decides whose consumed bind renders again, and an empty reference renders
-// recorded handoffs only.
-func ReadPendingProjectHandoffForProject(ctx context.Context, s *Store, workID, projectID, sessionRef string) (*ProjectHandoff, error) {
-	var handoff *ProjectHandoff
-	err := s.readSnapshot(ctx, func(q queryer) error {
-		return readPendingProjectHandoffForProjectTx(ctx, q, workID, projectID, sessionRef, &handoff)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return handoff, nil
-}
-
-func readPendingProjectHandoffForProjectTx(ctx context.Context, q queryer, workID, projectID, sessionRef string, out **ProjectHandoff) error {
-	var err error
-	*out, err = PendingProjectHandoffForProjectTx(ctx, q, workID, projectID, sessionRef)
-	return err
 }

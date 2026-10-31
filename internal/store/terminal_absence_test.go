@@ -75,7 +75,7 @@ func assertPublishedExecutionAbsenceReaders(t *testing.T, s *Store, home Knowled
 			return err
 		},
 		"retirement": func() error {
-			_, err := EvaluateProjectSessionRetirement(ctx, s, "work-published", "proj-web", "session-reader")
+			_, err := EvaluateProjectSessionRetirement(ctx, s, "work-published", "proj-web", "session-reader", t.TempDir())
 			return err
 		},
 		"worktree": func() error {
@@ -111,7 +111,7 @@ func TestPublishedExecutionAbsenceProjectGuards(t *testing.T) {
 			return err
 		},
 		"retirement": func() error {
-			_, err := EvaluateProjectSessionRetirement(ctx, s, "work-published", "proj-other", "session-reader")
+			_, err := EvaluateProjectSessionRetirement(ctx, s, "work-published", "proj-other", "session-reader", t.TempDir())
 			return err
 		},
 		"scope Product": func() error {

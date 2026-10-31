@@ -414,3 +414,24 @@ func setWorktreeOccupant(t *testing.T, s *Store, workID, sessionRef string) {
 		t.Fatal(err)
 	}
 }
+
+// seedSessionLandingRows writes retained occupancy, with a process
+// identity, and landing rows for an active entry, for tests of how stored rows survive backup and migration.
+func seedSessionLandingRows(t *testing.T, s *Store, tree, sessionRef string) {
+	t.Helper()
+	if err := s.Transact(t.Context(), func(tr *Transaction) error {
+		scope, err := beginWrite(t.Context(), tr.tx)
+		if err != nil {
+			return err
+		}
+		if _, err := tr.tx.ExecContext(t.Context(), `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,host_pid,host_pid_start,has_process_identity) SELECT set_id||':'||project_id||':'||claim_op_id,?,'2026-10-01T00:00:00Z',4242,987654,1 FROM worktree_entries WHERE path=? AND state='active'`, sessionRef, tree); err != nil {
+			return err
+		}
+		if _, err := tr.tx.ExecContext(t.Context(), `INSERT OR IGNORE INTO session_claim_landings(work_id,session_ref,project_id,claim_op_id) SELECT c.work_id,?,e.project_id,e.claim_op_id FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE e.path=? AND e.state='active'`, sessionRef, tree); err != nil {
+			return err
+		}
+		return scope.close(t.Context())
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

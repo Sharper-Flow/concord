@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -17,46 +16,6 @@ func inRelocationTx(t *testing.T, s *Store, fn func(*Transaction, *sql.Tx) error
 		}
 		return fn(transaction, tx)
 	})
-}
-
-func TestSessionClaimLandingReadersIgnoreTheLog(t *testing.T) {
-	t.Parallel()
-	f := setupProjectHandoffFixture(t)
-	bindSessionToProjectWorktree(t, f.store, f.targetTree, f.targetSession)
-	var firstClaim string
-	if err := f.store.db.QueryRow(`SELECT claim_op_id FROM worktree_entries WHERE path=? AND state='active'`, filepath.Clean(f.targetTree)).Scan(&firstClaim); err != nil {
-		t.Fatal(err)
-	}
-	terminalCleanupSQL(t, f.store, `DELETE FROM worktree_occupancy`)
-	replaceHostWorktreeGeneration(t, f.store, f.targetTree, "relocation-op-2")
-	assertEventLogAbsent(t, f.store)
-	if err := inRelocationTx(t, f.store, func(_ *Transaction, tx *sql.Tx) error {
-		placement, err := verifiedSessionPlacementTx(t.Context(), tx, f.workID, f.targetSession)
-		if err != nil || placement != "" {
-			t.Fatalf("placement=%q err=%v, want no placement before the new landing", placement, err)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	bindSessionToProjectWorktree(t, f.store, f.targetTree, f.targetSession)
-	assertEventLogAbsent(t, f.store)
-	if err := inRelocationTx(t, f.store, func(_ *Transaction, tx *sql.Tx) error {
-		placement, err := verifiedSessionPlacementTx(t.Context(), tx, f.workID, f.targetSession)
-		if err != nil || placement != f.targetProject {
-			t.Fatalf("placement=%q err=%v, want %s", placement, err, f.targetProject)
-		}
-		for _, claim := range []string{firstClaim, "relocation-op-2"} {
-			var count int
-			err := tx.QueryRowContext(t.Context(), `SELECT count(*) FROM session_claim_landings WHERE work_id=? AND session_ref=? AND claim_op_id=?`, f.workID, f.targetSession, claim).Scan(&count)
-			if err != nil || count != 1 {
-				t.Fatalf("claim %s landing rows=%d err=%v", claim, count, err)
-			}
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func relocationFactRows(t *testing.T, s *Store) []string {

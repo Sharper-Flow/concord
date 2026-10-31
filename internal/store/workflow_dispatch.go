@@ -26,9 +26,8 @@ type WorkflowActionExecutionRequest struct {
 	// events, one per kind; an empty entry takes the payload's evidence_kind
 	// default. It stays aligned to the submitted array, not to the merged set
 	// the dispatch writes back into EvidenceRefs.
-	EvidenceKinds   []string
-	Actor           WorkflowActor
-	SessionWorktree string
+	EvidenceKinds []string
+	Actor         WorkflowActor
 	// ExpectedTakeover pins the boundary read of the held epoch and holder.
 	// It is never decoded from request input.
 	ExpectedTakeover     *WorkflowStartTakeover

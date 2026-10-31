@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -574,7 +573,7 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 		DecisionContextDigest: in.DecisionContextDigest,
 		Payload:               payload,
 		Actor:                 store.WorkflowActor{PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, ActorClass: store.ActorAgent},
-		SessionWorktree:       env.Worktree,
+		SessionProjectID:      env.AmbientProjectID,
 	})
 	if preflightErr == nil {
 		return nil
@@ -880,7 +879,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base agentcontract.En
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	operationID := "workflow-" + digest[7:31]
 	scope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "work_ids": []string{in.WorkID}, "scope_version": r.Envelope.ScopeVersion}
-	preflight := store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree}
+	preflight := store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionProjectID: r.Envelope.AmbientProjectID}
 	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
 		if replayErr != nil {
 			return failureEnvelope(base, replayErr), nil
@@ -937,7 +936,7 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 		return failureEnvelope(base, hostErr), nil
 	}
 	scopeJSON, _ := json.Marshal(scope)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, ExpectedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: agentcontract.ManifestDigest, Now: r.Authority.now()}
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, ExpectedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: agentcontract.ManifestDigest, Now: r.Authority.now()}
 	// CD-0192: the refine-exit proof guard reads the Project's declared
 	// tooling from its default ref, so the manifest resolves here, outside
 	// the action's transaction, and rides the request into the guard. Git
@@ -1965,16 +1964,12 @@ type projectHandoffConsumeInput struct {
 // handoff. The artifact-preservation probe runs here, in the plan phase,
 // BEFORE the mutation transaction opens: it is a git/filesystem fact, and
 // the single-connection store cannot observe a subprocess parked inside a
-// transaction. The probe binds to the shared work's OWN claimed source
-// worktree — the store's claim resolution, never an input, and never just
-// the session's linked worktree — so a clean unrelated linked worktree
-// cannot stand in for a claimed source that carries unpreserved changes.
-// The record transaction re-checks the binding inside its own transaction,
-// so a claim that moves between this read and the record refuses there.
-// Content drift inside the probed tree in that same window is not
-// re-probeable inside a transaction; the retirement read re-proves
-// preservation from the recorded references against the claimed source
-// before any readiness, so a stale preservation never reaches retirement.
+// transaction. The probe runs in the session's host-reported worktree, the
+// tree whose changes the session's departure could lose; the authority
+// already refused the call unless that worktree resolves the ambient Project
+// and is not the main checkout. Content drift inside the probed tree after
+// the probe is not re-probeable inside a transaction; the retirement read
+// re-proves preservation from the recorded references before any readiness.
 func (r runtime) planProjectHandoffRecord(ctx context.Context, base agentcontract.Envelope, raw []byte, _ string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in projectHandoffRecordInput
 	if err := decodeOperationInput(raw, &in); err != nil {
@@ -1990,26 +1985,16 @@ func (r runtime) planProjectHandoffRecord(ctx context.Context, base agentcontrac
 	if r.Store == nil {
 		return coreError(base, "unreachable", "project handoff record requires the store authority", "contact_operator", true), nil, true
 	}
-	claimed, err := store.ReadSessionClaimedWorktree(ctx, r.Store, in.WorkID, project)
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	if claimed == "" {
-		return coreError(base, "invalid_input", "the work holds no claimed source worktree for this Project, so the handoff cannot bind artifact preservation to the shared work's own source claim", "reread_entities", false), nil, true
-	}
-	if filepath.Clean(claimed) != filepath.Clean(grant.Worktree) {
-		return coreError(base, "invalid_input", fmt.Sprintf("the session's linked worktree is not the work's claimed source worktree %s; the preservation probe verifies the claimed source only", claimed), "reread_entities", false), nil, true
-	}
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["project_ids"] = []string{project, in.TargetProjectID}
 	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "project_retirement", QueryID: "CD-0182.R1", ReasonCode: "verify_handoff_recorded", RequiredFields: []string{"work_id"}}}
 	req := store.RecordProjectHandoffRequest{
 		WorkID: in.WorkID, SourceProjectID: project, TargetProjectID: in.TargetProjectID, SourceSessionRef: grant.SessionRef,
 		BoundedJob: in.BoundedJob, Changes: in.Changes, Verification: in.Verification, ArtifactRefs: in.ArtifactRefs,
-		Blockers: in.Blockers, NextAction: in.NextAction, SourceWorktree: claimed,
+		Blockers: in.Blockers, NextAction: in.NextAction,
 	}
 	// Outside any transaction: the probe reads git and the artifact files.
-	if err := store.VerifyProjectHandoffArtifactPreservation(ctx, claimed, in.ArtifactRefs); err != nil {
+	if err := store.VerifyProjectHandoffArtifactPreservation(ctx, grant.Worktree, in.ArtifactRefs); err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {

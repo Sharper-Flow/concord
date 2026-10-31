@@ -136,7 +136,7 @@ func TestReadyReviewCannotBypassMandate(t *testing.T) {
 					t.Fatal(err)
 				}
 				preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-					WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_review", Actor: j.fixture.owner, Payload: mustJSONValue(payload), SessionWorktree: j.repo,
+					WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_review", Actor: j.fixture.owner, Payload: mustJSONValue(payload),
 				})
 				if after := j.effects(t); after != before {
 					t.Fatal("mandate preflight changed durable state")

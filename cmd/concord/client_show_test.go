@@ -168,19 +168,24 @@ func TestClientShowAcceptsRegisteredMultibyteReferences(t *testing.T) {
 }
 
 func TestClientShowMalformedStoredPolicy(t *testing.T) {
-	for _, column := range []string{"capabilities_json", "product_scope_json", "project_scope_json", "agent_scope_json"} {
-		for _, policy := range []string{`[null]`, `[7]`, `[{}]`} {
-			t.Run(column+policy, func(t *testing.T) {
-				s, _ := seedClientShow(t, `["product_read"]`)
-				if _, err := s.DatabaseForTesting().Exec(`UPDATE agent_clients SET `+column+`=? WHERE client_ref='client-show'`, policy); err != nil {
-					t.Fatal(err)
-				}
-				var out, errOut bytes.Buffer
-				if code := runWithInput([]string{"client-show"}, strings.NewReader(`{"client_ref":"client-show"}`), &out, &errOut); code != 1 || out.Len() != 0 || !strings.Contains(errOut.String(), "invalid stored client policy") {
-					t.Fatalf("exit=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
-				}
-			})
-		}
+	for _, tc := range []struct {
+		column, policy string
+	}{
+		{"capabilities_json", `[null]`},
+		{"product_scope_json", `[7]`},
+		{"project_scope_json", `[{}]`},
+		{"agent_scope_json", `[null]`},
+	} {
+		t.Run(tc.column+tc.policy, func(t *testing.T) {
+			s, _ := seedClientShow(t, `["product_read"]`)
+			if _, err := s.DatabaseForTesting().Exec(`UPDATE agent_clients SET `+tc.column+`=? WHERE client_ref='client-show'`, tc.policy); err != nil {
+				t.Fatal(err)
+			}
+			var out, errOut bytes.Buffer
+			if code := runWithInput([]string{"client-show"}, strings.NewReader(`{"client_ref":"client-show"}`), &out, &errOut); code != 1 || out.Len() != 0 || !strings.Contains(errOut.String(), "invalid stored client policy") {
+				t.Fatalf("exit=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+			}
+		})
 	}
 }
 

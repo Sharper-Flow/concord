@@ -260,7 +260,7 @@ func resolveWorkProjectTooling(ctx context.Context, s *Store, workID string, run
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "project_tooling", "cannot read the Project's repository locator", true, "retry once the database is readable", err)
 	}
-	defaultRef, err := worktreeAuditDefaultRef(ctx, runner, repoRoot, "")
+	defaultRef, err := originDefaultRef(ctx, runner, repoRoot, "")
 	if err != nil {
 		return nil, retitleFailure(err, "project_tooling")
 	}

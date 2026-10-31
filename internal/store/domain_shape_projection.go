@@ -140,7 +140,7 @@ func domainShapeRootTreeIdentity(ctx context.Context, home KnowledgeHome, commit
 // Required check declarations come from the pinned default revision, never the
 // candidate's working tree or an anchor copied from a fact.
 func domainShapeDefaultTooling(ctx context.Context, home KnowledgeHome) (string, string, []string, error) {
-	ref, err := worktreeAuditDefaultRef(ctx, runGitRunner{}, home.RepoPath, "")
+	ref, err := originDefaultRef(ctx, runGitRunner{}, home.RepoPath, "")
 	if err != nil {
 		return "", "", nil, err
 	}

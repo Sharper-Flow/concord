@@ -336,7 +336,7 @@ concord --help
 ```
 
 Once bootstrapped, launch agent sessions through your host environment.
-[Host tools own branch and worktree placement](.concord/docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md#d1-host-tools-own-worktree-isolation).
+[Host tools own branch and worktree placement](.concord/law/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md#d1-host-tools-own-worktree-isolation).
 Inside a session, use the published capture and workflow operations for Concord
 state. Session preparation and continuity retain their identity and state checks;
 host placement grants no workflow authority.

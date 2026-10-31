@@ -225,8 +225,9 @@ class ProfileTests(unittest.TestCase):
         self.assertNotIn("\nmodel:", text)
         normalized = " ".join(text.split())
         for clause in ("within the assigned files", "named check", "explicit scope to prepare an unapproved preview",
-                       "If scope or a required approval is missing, return needs-decision", "outside that assignment",
-                       "fails for the reported behavior before the fix and passes after", "Product's browser verification tooling when exposed",
+                       "If any of these, including a required approval, is missing, return needs-decision", "outside that assignment",
+                       "fails for the reported behavior before the fix and passes after", "If it does not fail before the fix, stop and report the gap",
+                       "Product's browser verification tooling when exposed",
                        "do not assume a particular provider or install one", "a live preview URL or screenshots",
                        "exact version shown", "uncommitted diff identity", "Missing or inaccessible preview material is a gap",
                        "UI/UX approval belongs to the operator", "caller presents the material", "Leave changes uncommitted",

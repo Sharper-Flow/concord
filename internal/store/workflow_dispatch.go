@@ -47,13 +47,6 @@ type WorkflowActionExecutionRequest struct {
 	// standalone binding operation, because reliance declared outside the
 	// boundary that consumes it is unproven reliance.
 	ResearchBindings []ResearchBindingDeclaration
-	// ProjectTooling carries the tooling manifest resolved from the work
-	// item's primary Project default ref before this action's transaction
-	// opened (CD-0192). The refine-exit proof guard compares the bound
-	// worktree-verify run's argv against it; nil reports that the Project
-	// declares no tooling manifest on its default ref. It is never decoded
-	// from request input.
-	ProjectTooling *ProjectToolingManifest
 }
 
 type WorkflowActionExecutionResult struct {
@@ -180,7 +173,7 @@ func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx queryer, regis
 		}
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
 	}
-	state, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, currentStep, "workflow_action", registry)
+	state, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, currentStep, "workflow_action", registry)
 	if stateErr != nil {
 		return stateErr
 	}
@@ -307,7 +300,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 // defer to their owning guards.
 func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 	request := g.request
-	admission, proofRuns, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
+	admission, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
 	if err != nil {
 		return err
 	}
@@ -320,7 +313,6 @@ func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 	}
 	g.admissionState = &admission
 	g.admissionDecision = &decision
-	g.deliveryProofRuns = proofRuns
 	g.correctionRequestRecovery = admission.CorrectionRequestRecovery
 	g.correctionRequestMissing = admission.CorrectionRequestMissing
 	return nil
@@ -623,7 +615,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "record_review":
 		return workflowRecordedReviewEvents(request, actor, eventID, expected)
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
-		return workflowEvidenceBindingEvents(ctx, tx, request, actor, fields, eventID, expected)
+		return workflowEvidenceBindingEvents(request, actor, fields, eventID, expected)
 	case "record_verdict":
 		events, err := workflowRecordVerdictEvents(ctx, tx, request, actor, fields, eventID, expected)
 		if err != nil {

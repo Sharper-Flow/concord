@@ -29,7 +29,7 @@ type workflowVerificationRun struct {
 	Failure      error
 }
 
-func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string) (workflowDeliveryAdmission, []workflowVerificationRun, error) {
+func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string) (workflowDeliveryAdmission, error) {
 	state := workflowDeliveryAdmission{ProofRequired: workflowRefineProofGateActive(definition, currentStep)}
 	startStep := currentStep
 	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
@@ -42,15 +42,15 @@ func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string
 	}
 	_, _, found, err := latestWorkflowActionStart(ctx, q, workID, startStep)
 	if err != nil {
-		return state, nil, err
+		return state, err
 	}
 	state.Started = found
 	if !state.ProofRequired || !found {
-		return state, nil, nil
+		return state, nil
 	}
 	refs, err := workflowCandidateVerificationRefs(ctx, q, workID)
 	if err != nil {
-		return state, nil, err
+		return state, err
 	}
 	var runs []workflowVerificationRun
 	for _, ref := range refs {
@@ -58,7 +58,7 @@ func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string
 		if err != nil {
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
-				return state, nil, err
+				return state, err
 			}
 		}
 		runs = append(runs, workflowVerificationRun{Disqualifier: why, Failure: err})
@@ -67,7 +67,7 @@ func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string
 	if err != nil {
 		state.ProofFailure = workflowFailureOf(err)
 	}
-	return state, runs, nil
+	return state, nil
 }
 
 func workflowVerificationProof(runs []workflowVerificationRun) (bool, string, error) {

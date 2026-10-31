@@ -1018,7 +1018,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	journey.bindVerification(t, proof)
 	retained := []WorkContextFinding{{Kind: "observation", Statement: workerMarker, SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
 	seedContextFactTerminal(t, fixture, "worker.completed", map[string]any{"context_findings": retained})
-	completeCurrentReviewForTest(t, fixture, repo, "ready_for_final_proof", func(report *ReviewBlock) {
+	completeCurrentReviewForTest(t, fixture, "ready_for_final_proof", func(report *ReviewBlock) {
 		report.Assessments = []ReviewAssessment{{PredicateID: "predicate:work-context", Assessment: "supported", ReceiptRefs: []string{proof.OperationRef}}}
 	})
 	// The compaction-draft-adjacent boundary: a durable checkpoint and a

@@ -390,7 +390,7 @@ func workflowRecordedReviewEvents(request WorkflowActionExecutionRequest, actor,
 // kind. Every candidate subject satisfies the same reference rule the
 // declared payload fields already enforce, so an array-derived subject cannot
 // mint evidence that no verdict or completion can name.
-func workflowEvidenceBindingEvents(ctx context.Context, q queryer, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
+func workflowEvidenceBindingEvents(request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	producerID := workflowFieldStringDefault(fields, "producer_id", request.PrincipalRef)
 	producerRunRef := workflowFieldStringDefault(fields, "producer_run_ref", request.OperationID)
 	producerWatermark := workflowFieldStringDefault(fields, "producer_watermark", request.RequestID)

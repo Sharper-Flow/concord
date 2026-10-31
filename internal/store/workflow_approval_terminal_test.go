@@ -104,7 +104,7 @@ func foldedApprovalAdmission(t *testing.T, s *Store, registry DefinitionRegistry
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	state, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_approval_terminal_test", registry)
+	state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_approval_terminal_test", registry)
 	if err != nil {
 		t.Fatalf("fold admission state: %v", err)
 	}

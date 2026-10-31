@@ -19,7 +19,7 @@ func loadedAdmissionForTest(t *testing.T, s *Store, workID string, pin WorkPin) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, pin.Step, "admission_test", BuiltinWorkflowRegistry())
+	state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, pin.Step, "admission_test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 				WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_delivery", Actor: reviewGateAcceptor(workID),
 				Payload: json.RawMessage(`{"delivery_artifact":"artifact:agreement","delivery_state":"asserted"}`),
 			})
-			executionErr := refineProofDelivery(t, fixture.store, workID, nil)
+			executionErr := refineProofDelivery(t, fixture.store, workID)
 			advertised := workPinContainsAction(pin.NextValidIntents, "record_delivery")
 			if stage == "green-proof" {
 				if !decision.Admitted || !advertised || preflightErr != nil || executionErr != nil {
@@ -166,13 +166,13 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, runs, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, "refine", "workflow_action", BuiltinWorkflowRegistry())
+	state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, "refine", "workflow_action", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
 	decision := workflowAdmit(entry.Definition, state, "record_delivery")
-	if !state.Delivery.ProofReady || len(runs) != 1 || !decision.Admitted {
-		t.Fatalf("proof snapshot: state=%+v, runs=%+v, decision=%+v", state.Delivery, runs, decision)
+	if !state.Delivery.ProofReady || !decision.Admitted {
+		t.Fatalf("proof snapshot: state=%+v, decision=%+v", state.Delivery, decision)
 	}
 	for _, cached := range []bool{false, true} {
 		g := workflowActionGuardContext{
@@ -180,14 +180,13 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 			request: WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_delivery"},
 		}
 		if cached {
-			g.admissionState, g.admissionDecision, g.deliveryProofRuns = &state, &decision, runs
+			g.admissionState, g.admissionDecision = &state, &decision
 		}
-		g.request.ProjectTooling = refineProofTooling(ProjectDeclaredTool{ID: "go-test", Invocation: "go test ./..."})
 		if err := guardDeliveryAdmission(&g); err != nil {
-			t.Fatalf("cached=%v: report refused with unrelated tooling: %v", cached, err)
+			t.Fatalf("cached=%v: report refused: %v", cached, err)
 		}
 		if g.admissionState.Delivery != state.Delivery {
-			t.Fatalf("cached=%v: tooling check changed the abstract proof classification", cached)
+			t.Fatalf("cached=%v: the guard changed the abstract proof classification", cached)
 		}
 	}
 }

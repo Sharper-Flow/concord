@@ -144,10 +144,6 @@ type ContinuityRequest struct {
 	Work   string
 	Limit  int
 	Cursor string
-	// Owner names the reading session, so the pinned projection re-pins its
-	// held verify leases (CD-0096 D5). Nil keeps the work-keyed projection
-	// the session-boot path renders.
-	Owner *SessionWorktreeOwner
 }
 
 func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest) (ContinuitySnapshot, error) {
@@ -184,11 +180,6 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	out.SourceVersionWatermark, err = storeRevision(ctx, tx)
 	if err != nil {
 		return out, err
-	}
-	if req.Owner != nil {
-		if err := validateSessionWorktreeOwner(*req.Owner); err != nil {
-			return out, err
-		}
 	}
 	out, err = continuityReadIdentityTx(ctx, tx, req.Work, out)
 	if err != nil {

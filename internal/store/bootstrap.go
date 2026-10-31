@@ -113,9 +113,8 @@ type ExistingBootstrapRequest struct {
 	SessionRef string `json:"-"`
 }
 
-// ValidateBootstrapOrigin validates a clean Concord worktree with no
-// active verify lease. It runs before bootstrap records new
-// work, so every refusal has no effect.
+// ValidateBootstrapOrigin validates a clean Concord worktree. It runs before
+// bootstrap records new work, so every refusal has no effect.
 func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path string, runner GitRunner) (BootstrapOrigin, error) {
 	var origin BootstrapOrigin
 	if s == nil || s.db == nil {

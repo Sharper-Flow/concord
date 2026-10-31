@@ -52,14 +52,6 @@ func TestWorkflowVerificationReport(t *testing.T) {
 }
 
 func TestVerificationReportBindingAttributesSubmittingOperation(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.Exec(`CREATE TABLE workflow_contracts(work_id TEXT, contract_version INTEGER, superseded_by INTEGER); INSERT INTO workflow_contracts VALUES('work:one',1,NULL)`); err != nil {
-		t.Fatal(err)
-	}
 	commit := strings.Repeat("a", 40)
 	ref := "commit:" + commit
 	report := VerificationReport{Source: "local", Commit: commit, Result: "pass", RunRef: "run:one"}
@@ -75,7 +67,7 @@ func TestVerificationReportBindingAttributesSubmittingOperation(t *testing.T) {
 		"producer_watermark":    json.RawMessage(`"spoofed"`),
 	}
 	request := WorkflowActionExecutionRequest{WorkID: "work:one", ActionID: "bind_evidence", EvidenceRefs: []string{ref}, PrincipalRef: "principal:one", OperationID: "operation:one", RequestID: "request:one", Now: time.Unix(1, 0)}
-	events, err := workflowEvidenceBindingEvents(context.Background(), db, request, "actor:one", fields, "event:one", 1)
+	events, err := workflowEvidenceBindingEvents(request, "actor:one", fields, "event:one", 1)
 	if err != nil || len(events) != 1 {
 		t.Fatalf("report binding events = %+v, %v", events, err)
 	}
@@ -96,12 +88,12 @@ func TestVerificationReportBindingAttributesSubmittingOperation(t *testing.T) {
 	for _, distinct := range []string{"report:one", "report:two"} {
 		request.EvidenceRefs = []string{distinct}
 		fields["immutable_subject_ref"] = json.RawMessage(`"` + distinct + `"`)
-		if _, err := workflowEvidenceBindingEvents(context.Background(), db, request, "actor:one", fields, "event:one", 1); err != nil {
+		if _, err := workflowEvidenceBindingEvents(request, "actor:one", fields, "event:one", 1); err != nil {
 			t.Fatalf("independent report %q refused: %v", distinct, err)
 		}
 	}
 	fields["verification_report"] = json.RawMessage(`{"source":"local","commit":"` + commit + `","result":"pass","run_ref":"run:one","project_id":"project:old"}`)
-	if _, err := workflowEvidenceBindingEvents(context.Background(), db, request, "actor:one", fields, "event:one", 1); err == nil {
+	if _, err := workflowEvidenceBindingEvents(request, "actor:one", fields, "event:one", 1); err == nil {
 		t.Fatal("retired report fields must be rejected")
 	}
 }

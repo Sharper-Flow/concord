@@ -277,7 +277,7 @@ func TestCurrentReviewKeepsContractCorrectionAfterProductiveAccept(t *testing.T)
 		t.Fatal(err)
 	}
 	reviewGateStartStep(t, j.s, id, "refine", "start_refine", j.fixture.owner)
-	completeCurrentReviewForTest(t, j.fixture, j.repo, "revision_required")
+	completeCurrentReviewForTest(t, j.fixture, "revision_required")
 	successor := pContractSuccessor(t, j.s, id, "corrected premise after accepted Review")
 	if err := runVerdictActionAs(t, j.s, id, "supersede_contract", mustJSONValue(successor), 0, j.fixture.owner); err != nil {
 		t.Fatalf("supersede after productive acceptance: %v", err)

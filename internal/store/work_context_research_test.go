@@ -1354,8 +1354,7 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 // open Review finding retains a source identity and its declared Domain.
 func seedMandatoryNativeEvidence(t *testing.T, f workContextFixture, blockers int) {
 	t.Helper()
-	repo, _ := reviewSubjectClaim(t, f.store, f.workID)
-	qualifyReviewSubjectForTest(t, f.store, f.workID, repo)
+	reviewSubjectClaim(t, f.store, f.workID)
 	state := WorkflowReviewState{Findings: []ReviewFinding{}, findingSources: map[string]reviewFindingSource{}}
 	for i := 0; i < blockers; i++ {
 		refs := make([]string, 0, 16)

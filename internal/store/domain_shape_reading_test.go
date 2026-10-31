@@ -358,24 +358,3 @@ func TestDomainShapeReadingExplicitDomainGroup(t *testing.T) {
 		t.Fatalf("explicit Domain selection did not survive the approved root group: %s %v", raw, err)
 	}
 }
-
-// The Domain Shape selector extends the shared source type; the oracle's
-// knowledge and repository arms must still refuse it on replay and admission.
-func TestOracleSourcesRefuseDomainShapeSelector(t *testing.T) {
-	selector := &DomainShapeSelector{Path: "src"}
-	law := WorkContextReadingSource{Kind: WorkContextSourceKnowledge, SourceID: "project-a", LawID: "law-a", ContentHash: "sha256:" + strings.Repeat("b", 64)}
-	recipe := WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project-a", Path: "harness/run.sh", CommitOID: strings.Repeat("a", 40)}
-	if err := validateOracleLawSource(law); err != nil {
-		t.Fatalf("valid law source refused: %v", err)
-	}
-	if err := validateOracleRecipeSource(recipe); err != nil {
-		t.Fatalf("valid recipe source refused: %v", err)
-	}
-	law.Selector, recipe.Selector = selector, selector
-	if err := validateOracleLawSource(law); err == nil {
-		t.Fatal("law binding admitted a domain_shape selector")
-	}
-	if err := validateOracleRecipeSource(recipe); err == nil {
-		t.Fatal("recipe source admitted a domain_shape selector")
-	}
-}

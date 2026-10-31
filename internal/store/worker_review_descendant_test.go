@@ -11,7 +11,7 @@ func descendantReviewFixture(t *testing.T, id string) (*candidateJourney, string
 	f := seedWorkContextFixture(t, id)
 	t.Cleanup(func() { f.store.Close() })
 	dir, head := reviewSubjectClaim(t, f.store, id)
-	acceptCurrentReviewForTest(t, f, dir, "continue")
+	acceptCurrentReviewForTest(t, f, "continue")
 	j := &candidateJourney{fixture: f, s: f.store, workID: id, repo: dir}
 	return j, head
 }
@@ -32,7 +32,7 @@ func TestReviewDescendantNonDescendantRefuses(t *testing.T) {
 			descendantCommit(t, j, "older-unaccepted")
 			old := currentReviewBlockForTest(t, j.s, j.workID, "continue").InputCandidate
 			descendantCommit(t, j, "anchor-new")
-			acceptCurrentReviewForTest(t, j.fixture, j.repo, "continue")
+			acceptCurrentReviewForTest(t, j.fixture, "continue")
 			gitRunStore(t, j.repo, "reset", "--hard", root)
 			if shape == "sibling" {
 				descendantCommit(t, j, "sibling")
@@ -58,7 +58,7 @@ func TestReviewDescendantLaterCorrectiveAnchor(t *testing.T) {
 			j, _ := descendantReviewFixture(t, "descendant-corrective-"+disposition)
 			descendantCommit(t, j, "b")
 			c := descendantCommit(t, j, "corrected")
-			acceptCurrentReviewForTest(t, j.fixture, j.repo, disposition)
+			acceptCurrentReviewForTest(t, j.fixture, disposition)
 			state, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID)
 			if err != nil || state.Candidate == nil || state.Candidate.Commit != c {
 				t.Fatalf("recorded candidate = %+v err=%v, want correction %s", state.Candidate, err, c)

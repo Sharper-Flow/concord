@@ -36,7 +36,7 @@ func TestBlockingReviewDispositionRecordsWithoutAdvancing(t *testing.T) {
 			if workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "record_review") || !workPinContainsAction(pin.NextValidIntents, recovery) {
 				t.Fatalf("corrective Review lost its hold or engineering recovery: %+v", pin.NextValidIntents)
 			}
-			acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
+			acceptCurrentReviewForTest(t, j.fixture, "ready_for_final_proof")
 			reviewGateStartStep(t, j.s, j.workID, step, "start_execution", j.fixture.owner)
 			verification := j.observeRun(t, "review-ready-delivery")
 			j.bindVerification(t, verification)

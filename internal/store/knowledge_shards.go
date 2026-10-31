@@ -147,9 +147,8 @@ func composeKnowledgeManifest(shards knowledgeShards) (KnowledgeManifest, error)
 }
 
 // readKnowledgeShardsAtCommitRunner reads the shard tree at one commit
-// through a single git archive call on the caller's runner, so a
-// committed-read policy runner or an injected test runner executes the
-// extraction. The second result is false when the commit carries no head
+// through a single git archive call on the caller's runner, so an injected
+// test runner can execute the extraction. The second result is false when the commit carries no head
 // shard in any layout, which is the shape a commit that predates the shards
 // has. The newest layout the commit carries wins (CD-0194 D5).
 func readKnowledgeShardsAtCommitRunner(ctx context.Context, runner GitRunner, repo, commit string) (knowledgeShards, bool, error) {

@@ -18,14 +18,13 @@ func reviewBlockFixture() *ReviewBlock {
 	}
 }
 
-func acceptCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string) {
+func acceptCurrentReviewForTest(t *testing.T, f workContextFixture, disposition string) {
 	t.Helper()
-	completeCurrentReviewForTest(t, f, repo, disposition)
+	completeCurrentReviewForTest(t, f, disposition)
 }
 
-func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string, mutations ...func(*ReviewBlock)) (string, int64) {
+func completeCurrentReviewForTest(t *testing.T, f workContextFixture, disposition string, mutations ...func(*ReviewBlock)) (string, int64) {
 	t.Helper()
-	qualifyReviewSubjectForTest(t, f.store, f.workID, repo)
 	report := currentReviewBlockForTest(t, f.store, f.workID, disposition)
 	for _, mutate := range mutations {
 		mutate(report)
@@ -56,13 +55,6 @@ func recordReviewForTest(t *testing.T, s *Store, workID string, actor WorkflowAc
 		})
 		return err
 	})
-}
-
-func qualifyReviewSubjectForTest(t *testing.T, s *Store, workID, repo string) {
-	t.Helper()
-	if head := runTestGit(t, repo, "rev-parse", "HEAD"); !worktreeSHAPattern.MatchString(head) {
-		t.Fatalf("invalid fixture commit %q", head)
-	}
 }
 
 func reviewObservedTree(t *testing.T, repo, commit string) string {

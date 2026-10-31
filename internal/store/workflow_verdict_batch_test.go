@@ -48,7 +48,7 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 		t.Fatal(err)
 	}
 	if !dependencies.ArchitectureNotApplicable {
-		acceptCurrentReviewForTest(t, f, repo, "continue")
+		acceptCurrentReviewForTest(t, f, "continue")
 	}
 	conformanceImplementChange(t, j, "criterion-proof")
 	proof := j.observeRun(t, "criterion-proof")
@@ -62,7 +62,7 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 			refs[i] = append(refs[i], report.SubjectRef)
 		}
 	}
-	pAcceptReceiptReview(t, f, repo, refs)
+	pAcceptReceiptReview(t, f, refs)
 	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "commit:" + runTestGit(t, repo, "rev-parse", "HEAD")}), 0, f.owner); err != nil {
 		t.Fatalf("bind the checked candidate artifact: %v", err)
 	}
@@ -73,9 +73,9 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 	return f, repo, refs
 }
 
-func pAcceptReceiptReview(t *testing.T, f workContextFixture, repo string, refs [][]string) {
+func pAcceptReceiptReview(t *testing.T, f workContextFixture, refs [][]string) {
 	t.Helper()
-	completeCurrentReviewForTest(t, f, repo, "ready_for_final_proof", func(report *ReviewBlock) {
+	completeCurrentReviewForTest(t, f, "ready_for_final_proof", func(report *ReviewBlock) {
 		for i, proof := range refs {
 			report.Assessments = append(report.Assessments, ReviewAssessment{PredicateID: fmt.Sprintf("predicate:p%d", i), Assessment: "supported", ReceiptRefs: proof})
 		}

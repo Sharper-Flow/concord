@@ -117,7 +117,15 @@ func oAgentReview(t *testing.T, f *oAgentFixtureState, disposition string, prove
 	spineOK(t, oAgentAction(t, f, "record_review", map[string]any{"review": report}))
 }
 
+// oAgentReport binds a passing verification report for the claimed HEAD.
+// It binds through oAgentAction because O fixtures hold work_transition
+// only, while the spine helper reads continuity under product_read.
 func oAgentReport(t *testing.T, f *oAgentFixtureState) string {
 	t.Helper()
-	return agentBindVerificationReport(t, f.spineFixture, gitRun(t, f.path, "rev-parse", "HEAD"), "pass", fmt.Sprintf("run:o-%d", f.request))
+	commit := gitRun(t, f.path, "rev-parse", "HEAD")
+	oAgentAction(t, f, "bind_evidence", map[string]any{
+		"evidence_kind": "verification", "immutable_subject_ref": "commit:" + commit,
+		"verification_report": map[string]any{"source": "local", "commit": commit, "result": "pass", "run_ref": fmt.Sprintf("run:o-%d", f.request)},
+	})
+	return "commit:" + commit
 }

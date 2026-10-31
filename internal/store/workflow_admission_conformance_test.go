@@ -87,7 +87,7 @@ func conformanceFold(t *testing.T, s *Store, registry DefinitionRegistry, workID
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	loaded, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_admission_conformance_test", registry)
+	loaded, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_admission_conformance_test", registry)
 	if err != nil {
 		t.Fatalf("%s: load: %v", label, err)
 	}

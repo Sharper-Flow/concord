@@ -38,9 +38,10 @@ only at the refinement step.
 
 ### D2. The proof is a bound passing verification report
 
-The guard admits the advance only when the current work and contract have a
-bound passing verification report for the recorded candidate commit under
-CD-0242 D8. Failed, unresolved or mixed-candidate reports do not qualify.
+The guard admits the advance only when the work item has a bound passing
+verification report for the recorded candidate commit under CD-0242 D8. A
+contract revision alone does not discard it (CD-0242 D7). Failed, unresolved or
+mixed-candidate reports do not qualify.
 Concord does not execute the check or establish the report by live Git reads.
 
 ### D3. Review judges the checks

@@ -252,7 +252,8 @@ func nativeProbeFirstCommandProof(probe *ast.FuncDecl) error {
 	return fmt.Errorf("bound: the probe no longer runs git rev-parse")
 }
 
-func nativePathRouteProof(fn *ast.FuncDecl, op string) error {
+func nativePathRouteProof(fn *ast.FuncDecl) error {
+	const op = "worktree_inspect"
 	gate, err := nativeProbeGatePos(fn, op)
 	if err != nil {
 		return err
@@ -331,7 +332,7 @@ func nativePathSuccessfulSyscallWidth(rt *ledgerRuntime) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if err := nativePathRouteProof(inspect, "worktree_inspect"); err != nil {
+	if err := nativePathRouteProof(inspect); err != nil {
 		return 0, err
 	}
 	return pathMax - 1, nil
@@ -484,9 +485,9 @@ func inspectWitness(ctx context.Context, runner GitRunner, req WorktreeInspectRe
 		{"runner swallowing error", "Run", runner, "return stdout, err", "return stdout, nil", nativeExecGitChdirProof},
 		{"probe fixed directory", "probeWorktreeReachable", probe, "runner.Run(ctx, entry.Path", `runner.Run(ctx, "."`, nativeProbeFirstCommandProof},
 		{"probe other command", "probeWorktreeReachable", probe, `"rev-parse"`, `"status"`, nativeProbeFirstCommandProof},
-		{"route swallowing error", "inspectWitness", route, "return WorktreeInspectResult{}, err", "_ = err", func(fn *ast.FuncDecl) error { return nativePathRouteProof(fn, "worktree_inspect") }},
-		{"route projects before gate", "inspectWitness", route, "if err := probeWorktreeReachable", "result := WorktreeInspectResult{Path: entry.Path}; if err := probeWorktreeReachable", func(fn *ast.FuncDecl) error { return nativePathRouteProof(fn, "worktree_inspect") }},
-		{"route omits path", "inspectWitness", route, "WorkID: req.WorkID, Path: entry.Path", "WorkID: req.WorkID", func(fn *ast.FuncDecl) error { return nativePathRouteProof(fn, "worktree_inspect") }},
+		{"route swallowing error", "inspectWitness", route, "return WorktreeInspectResult{}, err", "_ = err", nativePathRouteProof},
+		{"route projects before gate", "inspectWitness", route, "if err := probeWorktreeReachable", "result := WorktreeInspectResult{Path: entry.Path}; if err := probeWorktreeReachable", nativePathRouteProof},
+		{"route omits path", "inspectWitness", route, "WorkID: req.WorkID, Path: entry.Path", "WorkID: req.WorkID", nativePathRouteProof},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

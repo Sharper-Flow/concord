@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -4853,22 +4852,6 @@ func currentWorkVersion(ctx context.Context, q queryer, workID string) (int64, e
 	return version, nil
 }
 
-// SessionWorktreeOwner identifies the client, agent, and session tuple.
-type SessionWorktreeOwner struct {
-	ClientRef  string `json:"client_ref"`
-	AgentRef   string `json:"agent_ref"`
-	SessionRef string `json:"session_ref"`
-}
-
-func validateSessionWorktreeOwner(owner SessionWorktreeOwner) error {
-	for label, value := range map[string]string{"client ref": owner.ClientRef, "agent ref": owner.AgentRef, "session ref": owner.SessionRef} {
-		if len(value) < 2 || len(value) > 128 {
-			return newFailure(KindInvalidOperation, "C19.Continuity", "session identity is missing a bounded "+label, false, "supply the client, agent, and session identity of the calling session")
-		}
-	}
-	return nil
-}
-
 // Cross-worktree tiers (CD-0096 D3): Inspect and Destroy. Each tier
 // resolves its subject through the calling session's Project and the work
 // item's folded worktree entry — never through a caller path (CD-0096 D2) —
@@ -5048,38 +5031,4 @@ func readBoundedFile(path string, maxBytes int) (string, error) {
 		return "", wrapFailure(KindUnavailable, "worktree_inspect", "cannot read the selected file", true, "retry once the worktree is readable", err)
 	}
 	return string(buffer[:read]), nil
-}
-
-// cappedOutput drains a command stream while recording at most limit bytes.
-type cappedOutput struct {
-	buffer    bytes.Buffer
-	limit     int
-	truncated bool
-}
-
-func (w *cappedOutput) Write(p []byte) (int, error) {
-	if w.buffer.Len() >= w.limit {
-		w.truncated = true
-		return len(p), nil
-	}
-	room := w.limit - w.buffer.Len()
-	if len(p) > room {
-		w.buffer.Write(p[:room])
-		w.truncated = true
-	} else {
-		w.buffer.Write(p)
-	}
-	return len(p), nil
-}
-
-// retitleFailure rebrands a typed failure from another operation label so a
-// reused validator reports the operation the caller invoked.
-func retitleFailure(err error, op string) error {
-	var failure *Failure
-	if errors.As(err, &failure) {
-		branded := *failure
-		branded.Op = op
-		return &branded
-	}
-	return err
 }

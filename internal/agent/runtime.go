@@ -1082,12 +1082,6 @@ func mapFailureKind(kind store.FailureKind) string {
 		// the same refusal; the core envelope carries it as the authority
 		// refusal it is, never as an internal fault.
 		return "unauthorized"
-	case store.KindWorktreeLeaseHeld:
-		// CD-0096 D3 Verify: exclusivity is coordination, not authority. The
-		// message names the holding session; the refusal recorded nothing,
-		// so the retry is safe. operation_conflict would couple this to
-		// reconcile_operation, and there is nothing to reconcile.
-		return "resource_busy"
 	case store.KindProjectionConflict:
 		// A projection identity another row already holds (a second active
 		// worktree claim, a locator-drifted worktree) is a coordination
@@ -1901,8 +1895,7 @@ func continuityProjectionHeaderOf(snapshot store.ContinuitySnapshot) continuityP
 // cursor the document was captured under, the complete document's digest,
 // and the next byte offset. It travels only inside the existing signed
 // envelope cursor, so there is no second signature scheme; the digest alone
-// binds the snapshot, because a different session's held verify leases
-// change the document even when the event watermark does not (CD-0096 D5).
+// binds the snapshot.
 // Offsets are the document's own byte positions — no unrelated boundary-row
 // cap bounds them.
 type continuityProjectionCursor struct {

@@ -2,12 +2,20 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 )
+
+// nativeDigest is the sha256-prefixed digest of recorded bytes.
+func nativeDigest(b []byte) string {
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
 
 type WorkflowAcceptedReview struct {
 	ReportRef    string      `json:"report_ref"`
@@ -187,6 +195,15 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, work string) (Workf
 		if len(deps.Criteria) > 0 {
 			state.Dependencies = &deps
 			state.DependenciesCurrent = state.Accepted != nil && sameReviewDependencies(state.Accepted.Report.Dependencies, deps)
+		}
+	}
+	if state.Accepted != nil {
+		moved, err := verificationReportMovedCandidate(ctx, q, work, *state.Accepted)
+		if err != nil {
+			return state, err
+		}
+		if moved {
+			state.DependenciesCurrent = false
 		}
 	}
 	size, sized, err := readEffectiveWorkSize(ctx, q, work)

@@ -271,11 +271,22 @@ transaction. Contract rows retain the exact definition pin that authorized each
 approval, so a contract from another definition is never treated as compatible
 ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-`workflow.evidence_bound` records attributed verification reports for the
-same work and active contract. Reports are claims, not producer attestations.
-Consumers compare recorded commits and refuse failed, unresolved or mixed
-candidates. No Git or GitHub read validates a report or establishes live
-candidate freshness. Independent Review judges evidence adequacy.
+`workflow.evidence_bound` does not create a second evidence authority. Its
+`producer_run_ref` must identify an existing `durable_operations` row with
+`work_id` equal to the recorded subject, `principal_ref` equal to `producer_id`,
+`request_id` equal to `producer_watermark`, and a completed result whose
+authoritative `evidence_refs` contains the same immutable subject. Completion
+reads these bindings from current rows and therefore cannot pass on
+workflow-only metadata or an operation from another work item
+([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+
+A verification report's producer is the `bind_evidence` operation that
+submits it. A report stays bound to its work item across contract
+supersession, so unchanged dependencies reuse it (CD-0242 D7). Reports are
+claims, not producer attestations. Consumers compare recorded commits and
+refuse failed, unresolved or mixed candidates. No Git or GitHub read validates
+a report or establishes live candidate freshness. Independent Review judges
+evidence adequacy.
 
 Concord runs no repository checks and retains no runner, materializer,
 preparation, isolation, verification lease, output stream or native receipt.

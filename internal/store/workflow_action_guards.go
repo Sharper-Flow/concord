@@ -45,7 +45,6 @@ type workflowActionGuardContext struct {
 	// conditions per site.
 	admissionState    *WorkflowAdmissionState
 	admissionDecision *WorkflowAdmissionDecision
-	deliveryProofRuns []workflowVerificationRun
 	actorRef          string
 	eventActor        string
 	actorRecordPrefix *workflowActorRecordPrefix
@@ -567,8 +566,7 @@ func guardNoRestartDispatch(g *workflowActionGuardContext) error {
 	return nil
 }
 
-// guardDeliveryAdmission consumes the shared decision and binds the proof
-// to the request's external tool declaration.
+// guardDeliveryAdmission consumes the shared admission decision.
 func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 	decision, err := g.foldedAdmissionDecision()
 	if err != nil {
@@ -626,12 +624,11 @@ func (g *workflowActionGuardContext) foldedAdmissionState() (*WorkflowAdmissionS
 	if g.admissionState != nil {
 		return g.admissionState, nil
 	}
-	state, proofRuns, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
+	state, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
 	if err != nil {
 		return nil, err
 	}
 	g.admissionState = &state
-	g.deliveryProofRuns = proofRuns
 	return &state, nil
 }
 

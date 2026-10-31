@@ -82,21 +82,6 @@ func TestCapacityWalkerWireTruth(t *testing.T) {
 	}
 }
 
-// The shared repository-source schema leaves commit_oid to its consumer.
-// Oracle capacity uses the combined writer bound; the recipe's own scalar
-// guard must still refuse values outside the declared Git identity domain.
-func TestOracleRecipeCommitOIDCapacityOwner(t *testing.T) {
-	for _, length := range []int{39, 40, 64, 65} {
-		source := WorkContextReadingSource{
-			Kind: WorkContextSourceRepositoryFile, ProjectID: "project-fixture",
-			Path: "scripts/oracle.json", CommitOID: strings.Repeat("a", length),
-		}
-		if err := validateOracleRecipeSource(source); (err == nil) != (length >= 40 && length <= 64) {
-			t.Fatalf("recipe commit length %d: %v", length, err)
-		}
-	}
-}
-
 func TestWorkflowCurrentActionWriterBounds(t *testing.T) {
 	if WorkContextActionFindingsMax != 16 {
 		t.Fatalf("WorkContextActionFindingsMax = %d, want 16; the finding-reference derivation rests on it", WorkContextActionFindingsMax)

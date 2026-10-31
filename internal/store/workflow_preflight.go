@@ -264,7 +264,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	// pure workflowAdmit decides. The recovery flags and the
 	// supersede classification below read the same folded state instead of
 	// re-deriving the conditions per site.
-	admission, _, admissionErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", registry)
+	admission, admissionErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", registry)
 	if admissionErr != nil {
 		return RegisteredDefinition{}, admissionErr
 	}

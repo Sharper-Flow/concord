@@ -1038,22 +1038,6 @@ func (m *workflowActionMutation) applyTx(ctx context.Context, tx *store.Transact
 	return store.CompleteMutationResponseTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: m.digest, OperationID: m.operationID, ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
 }
 
-// refineProofToolingForAction resolves the Project tooling manifest the
-// refine-exit proof consumes: record_delivery wherever the guard is gated.
-// The resolution reads git outside the store transaction, so the caller runs
-// it before the action's transaction opens; nil reports that the Project
-// declares no manifest on its default ref.
-func (r runtime) refineProofToolingForAction(ctx context.Context, workID, actionID string) (*store.ProjectToolingManifest, error) {
-	required, requiredErr := store.RefineProofManifestRequired(ctx, r.Store, workID, actionID)
-	if requiredErr != nil {
-		return nil, requiredErr
-	}
-	if !required {
-		return nil, nil
-	}
-	return store.ResolveWorkProjectTooling(ctx, r.Store, workID)
-}
-
 func workKindMutationRefusal(kind string, allowed bool, fallback string) (string, bool) {
 	if allowed {
 		return "", false

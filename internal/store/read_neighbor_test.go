@@ -509,26 +509,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ResolveWorkProjectTooling", run: func() error {
-			tooling, err := ResolveWorkProjectTooling(ctx, s, "blocker")
-			if err != nil {
-				return err
-			}
-			if tooling == nil || len(tooling.Declared) != 1 {
-				return fmt.Errorf("tooling=%+v", tooling)
-			}
-			return nil
-		}},
-		{name: "RefineProofManifestRequired", run: func() error {
-			required, err := RefineProofManifestRequired(ctx, s, "neighbor-work", "record_delivery")
-			if err != nil {
-				return err
-			}
-			if required {
-				return fmt.Errorf("refine proof gate active at the proposal step")
-			}
-			return nil
-		}},
 		{name: "ScopeVersion", run: func() error {
 			digest, _, err := s.ScopeVersion(ctx, "proj")
 			if err != nil {

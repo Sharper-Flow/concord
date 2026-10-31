@@ -1075,11 +1075,14 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.DatabaseForTesting().Exec(`UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() {
-			_, _ = s.DatabaseForTesting().Exec(`UPDATE workflow_instances SET current_step=? WHERE work_id='work-1'`, step)
+			db := s.DatabaseForTesting()
+			_, _ = db.Exec(`INSERT INTO write_guard(active) VALUES(1)`)
+			_, _ = db.Exec(`UPDATE workflow_instances SET current_step=? WHERE work_id='work-1'`, step)
+			_, _ = db.Exec(`DELETE FROM write_guard`)
 		})
 		continued := request()
 		continued["page"] = map[string]any{"cursor": *first.NextCursor}

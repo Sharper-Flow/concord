@@ -163,7 +163,7 @@ func TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB(t *testing.T) {
 
 func TestManagedCandidateSubjectCorrectiveReviewOnB(t *testing.T) {
 	c := acceptDeliveryCandidateAt(t, "candidate-corrective-report", "workflow.break_fix", "verify", false)
-	acceptCurrentReviewForTest(t, c.f, c.j.repo, "correction_required")
+	acceptCurrentReviewForTest(t, c.f, "correction_required")
 	run := c.j.observeRun(t, "correction")
 	c.j.bindVerification(t, run)
 	const diagnosis = "The candidate needs a bounded corrective pass"
@@ -178,7 +178,7 @@ func TestManagedCandidateSubjectCorrectiveReviewOnB(t *testing.T) {
 	if err != nil || correction == nil || correction.Diagnosis != diagnosis || correction.Strategy != strategy || len(correction.EvidenceRefs) != 1 || correction.EvidenceRefs[0] != run.OperationRef {
 		t.Fatalf("correction context = %+v, %v", correction, err)
 	}
-	acceptCurrentReviewForTest(t, c.f, c.j.repo, "ready_for_final_proof")
+	acceptCurrentReviewForTest(t, c.f, "ready_for_final_proof")
 	if remaining, err := readWorkflowCorrectionContext(t.Context(), c.f.store.db, c.f.workID); err != nil || remaining != nil {
 		t.Fatalf("corrective Review left direction %+v, %v", remaining, err)
 	}

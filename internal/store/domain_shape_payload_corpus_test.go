@@ -79,7 +79,7 @@ func assertCommittedDomainFactFitsBound(t *testing.T, domainID, owningRoot, fact
 	var law map[string]bool
 	ctx := context.Background()
 	root := repositoryRootForTest(t)
-	runner := CommittedReadGitRunner{}
+	runner := runGitRunner{}
 	head, err := runner.Run(ctx, root, "rev-parse", "HEAD")
 	if err != nil {
 		t.Fatal(err)

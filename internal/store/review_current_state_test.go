@@ -70,7 +70,7 @@ func TestReviewCurrentPlanRevisionCannotRestoreReadiness(t *testing.T) {
 			j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
 			j.observeRun(t, "plan-basis")
 			if accepted {
-				acceptCurrentReviewForTest(t, f, repo, "ready_for_final_proof")
+				acceptCurrentReviewForTest(t, f, "ready_for_final_proof")
 			}
 			before, err := ReadWorkPin(t.Context(), f.store, f.workID)
 			if err != nil || before.Review == nil || before.Review.Dependencies == nil {
@@ -168,7 +168,7 @@ func TestReviewCurrentAdmissionNegativeCases(t *testing.T) {
 func TestReviewCurrentCandidateChangesOnlyOnRecordedReview(t *testing.T) {
 	j, input := retainedReviewFixture(t, "review-current-candidate")
 	finding := reviewBlockFixture().Findings[0]
-	completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required", func(report *ReviewBlock) { report.Findings = []ReviewFinding{finding} })
+	completeCurrentReviewForTest(t, j.fixture, "correction_required", func(report *ReviewBlock) { report.Findings = []ReviewFinding{finding} })
 	read := func() WorkflowReviewState {
 		t.Helper()
 		state, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID)
@@ -215,8 +215,8 @@ func TestReviewCurrentCandidateChangesOnlyOnRecordedReview(t *testing.T) {
 		t.Fatalf("refused late Review changed current authority: %+v", after)
 	}
 	finding.Status, finding.ClosureRefs = "open", []string{}
-	completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required", func(report *ReviewBlock) { report.Findings = []ReviewFinding{finding} })
-	completeCurrentReviewForTest(t, j.fixture, j.repo, "continue")
+	completeCurrentReviewForTest(t, j.fixture, "correction_required", func(report *ReviewBlock) { report.Findings = []ReviewFinding{finding} })
+	completeCurrentReviewForTest(t, j.fixture, "continue")
 	state = read()
 	if state.blocker() != finding.FindingID {
 		t.Fatal("omitting a current blocking finding closed it")

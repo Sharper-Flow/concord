@@ -368,13 +368,7 @@ func (r runtime) readTraceContinuity(ctx context.Context, base agentcontract.Env
 		}
 		return response, nil
 	}
-	// CD-0096 D5: a session that signs its identity re-pins its held
-	// verify leases in the pinned projection. Envelopes without a session
-	// identity keep the work-keyed snapshot the session-boot path renders.
 	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: limit, Cursor: inner}
-	if r.Envelope.ClientRef != "" && r.Envelope.AgentRef != "" && r.Envelope.SessionRef != "" {
-		continuityReq.Owner = &store.SessionWorktreeOwner{ClientRef: r.Envelope.ClientRef, AgentRef: r.Envelope.AgentRef, SessionRef: r.Envelope.SessionRef}
-	}
 	snapshot, err := store.ReadWorkflowContinuity(ctx, r.Store, continuityReq)
 	if err != nil {
 		return failureEnvelope(base, err), nil
@@ -529,11 +523,7 @@ func (r runtime) continuityProjectionSnapshot(ctx context.Context, limit int, cu
 	if captured != nil {
 		return *captured, nil
 	}
-	req := store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor}
-	if r.Envelope.ClientRef != "" && r.Envelope.AgentRef != "" && r.Envelope.SessionRef != "" {
-		req.Owner = &store.SessionWorktreeOwner{ClientRef: r.Envelope.ClientRef, AgentRef: r.Envelope.AgentRef, SessionRef: r.Envelope.SessionRef}
-	}
-	return store.ReadWorkflowContinuity(ctx, r.Store, req)
+	return store.ReadWorkflowContinuity(ctx, r.Store, store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor})
 }
 
 // researchPackReadV2 is the version 2 pack read result: the full pack when no

@@ -36,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4e41b514047c718f868ce14576db674b167404664745a01ff44b7b57eb54ba41",
+  "sha256": "sha256:84589d1facac73e8a321462b2bdc7fb5e97ad3b297c7163c118a6eab67440b28",
   "status": "accepted",
   "summary": "Defines current-state workflow authority, evaluation and atomic completion. The coordinator records typed Review and attributed four-field verification reports. Consumers compare recorded commits without live Git; independent Review judges adequacy. Concord retains no repository-check execution, lease, stream or native receipt. Required CI remains external.",
   "tags": [

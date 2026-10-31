@@ -74,7 +74,7 @@ func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, ca
 	j := &candidateJourney{fixture: fixture, s: s, workID: id, repo: repo, acceptor: lawChangeConstructorActor}
 	run := j.observeRun(t, "attribution-"+id)
 	j.bindVerification(t, run)
-	qAcceptCriterionReview(t, fixture, repo, run.OperationRef)
+	qAcceptCriterionReview(t, fixture, run.OperationRef)
 	owner := ownerRefForTest(t, lawChangeConstructorActor)
 	if err := advanceWorkflowTestInstanceToStep(t.Context(), s, id, "acceptance", owner); err != nil {
 		t.Fatal(err)

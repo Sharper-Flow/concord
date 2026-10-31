@@ -71,7 +71,7 @@ func reviewGateRefineFixture(t *testing.T, workID, family string) *candidateJour
 
 func reviewGateCompleteReview(t *testing.T, j *candidateJourney, disposition string) (string, int64) {
 	t.Helper()
-	return completeCurrentReviewForTest(t, j.fixture, j.repo, disposition)
+	return completeCurrentReviewForTest(t, j.fixture, disposition)
 }
 
 func reviewGateDeliveryRefusal(t *testing.T, j *candidateJourney) {
@@ -223,7 +223,7 @@ func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
 		j := reviewGateRefineFixture(t, "review-gate-corrective-output", "workflow.break_fix")
 		input := currentReviewBlockForTest(t, j.s, j.workID, "continue").InputCandidate
 		output := descendantCommit(t, j, "correct-the-candidate")
-		completeCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof", func(report *ReviewBlock) { report.InputCandidate = input })
+		completeCurrentReviewForTest(t, j.fixture, "ready_for_final_proof", func(report *ReviewBlock) { report.InputCandidate = input })
 		pin := issue1013Pin(t, j.s, j.workID)
 		if pin.Review.Candidate.Commit != output || pin.Review.Accepted.Report.OutputCandidate.Commit != output || !pin.Review.DependenciesCurrent {
 			t.Fatalf("corrective Review did not bind its output: %+v", pin.Review)

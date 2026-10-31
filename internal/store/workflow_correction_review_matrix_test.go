@@ -117,11 +117,11 @@ func TestCoordinatorReviewAtEveryVerdictStepHolds(t *testing.T) {
 			work := "verdict-review-" + tc.step
 			seed := seedWorkflowReturnRouteFixtureWithDefinition(t, work, mustBuiltinDefinition(t, tc.family), tc.step, []string{}, []string{})
 			f := workContextFixture{store: seed.store, workID: work, owner: seed.owner, operator: seed.operator}
-			repo, _ := reviewSubjectClaim(t, f.store, work)
+			reviewSubjectClaim(t, f.store, work)
 			for _, disposition := range []string{"continue", "correction_required", "revision_required", "ready_for_final_proof"} {
 				t.Run(disposition, func(t *testing.T) {
 					before := readWorkVersion(t, f.store, work)
-					ref, _ := completeCurrentReviewForTest(t, f, repo, disposition)
+					ref, _ := completeCurrentReviewForTest(t, f, disposition)
 					if got := currentStep(t, f.store, work); got != tc.step {
 						t.Fatalf("recording %s Review advanced %s to %s", disposition, tc.step, got)
 					}

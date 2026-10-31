@@ -68,9 +68,8 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 	setWorkflowStepForOperatorVerdictTest(t, s, workID, "refine")
 	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 	c.j.bindVerification(t, c.early)
-	acceptCurrentReviewForTest(t, c.f, c.j.repo, "continue")
+	acceptCurrentReviewForTest(t, c.f, "continue")
 	pReturnProduce(t, c.j, "unreviewed-repair")
-	qualifyReviewSubjectForTest(t, s, workID, c.j.repo)
 	// A changed recorded criterion makes the accepted Review inapplicable.
 	setWorkflowStepForOperatorVerdictTest(t, s, workID, "delivery")
 	reviewGateChangeRecordedCriterion(t, c.j)
@@ -165,8 +164,8 @@ func TestDeliveryGateCorrectionNeedsOutstandingReview(t *testing.T) {
 	s := fixture.store
 	refineProofStartRefine(t, fixture, workID)
 	refineProofAcceptReadyReview(t, fixture, workID)
-	refineProofCandidateRun(t, s, workID, "gate", refineProofCandidate(t, s, workID), []string{"go", "vet", "./..."})
-	if err := refineProofDelivery(t, s, workID, nil); err != nil {
+	refineProofCandidateRun(t, s, workID, "gate", refineProofCandidate(t, s, workID))
+	if err := refineProofDelivery(t, s, workID); err != nil {
 		t.Fatalf("record_delivery with the reviewed candidate: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")

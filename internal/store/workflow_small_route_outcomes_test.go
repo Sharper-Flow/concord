@@ -30,7 +30,6 @@ func smallImplementationAtRelease(t *testing.T) acceptDeliveryCandidate {
 		t.Fatalf("shallow preparation lost its accepted Review: %+v, %v", review, err)
 	}
 
-	tooling := refineProofTooling(ProjectDeclaredTool{ID: "candidate-head", Invocation: "git rev-parse --verify HEAD^{commit}"})
 	reviewGateStartStep(t, c.f.store, c.f.workID, "execution", "start_execution", c.f.owner)
 	acceptDeliveryBindFresh(t, c, "small-delivery")
 	delivery := json.RawMessage(`{"delivery_artifact":"artifact:small-route","delivery_state":"asserted"}`)
@@ -41,7 +40,7 @@ func smallImplementationAtRelease(t *testing.T) acceptDeliveryCandidate {
 				t.Fatal(err)
 			}
 		}
-		if err := runDeliveryAdmissionAction(t, c.f.store, c.f.workID, delivery, tooling, c.f.owner); err != nil {
+		if err := runDeliveryAdmissionAction(t, c.f.store, c.f.workID, delivery, c.f.owner); err != nil {
 			t.Fatalf("%s delivery: %v", step, err)
 		}
 	}

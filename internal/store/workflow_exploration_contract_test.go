@@ -295,7 +295,7 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 						journey.acceptor = livenessActor()
 						run := journey.observeRun(t, "delivery-proof")
 						journey.bindVerification(t, run)
-						qAcceptCriterionReview(t, journey.fixture, journey.repo, run.OperationRef)
+						qAcceptCriterionReview(t, journey.fixture, run.OperationRef)
 						proofRef = run.OperationRef
 					}
 				}

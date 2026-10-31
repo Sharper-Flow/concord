@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"strings"
 )
@@ -49,6 +50,33 @@ func readVerificationReports(ctx context.Context, q queryer, workID, ref string)
 		reports = append(reports, *binding.VerificationReport)
 	}
 	return reports, rows.Err()
+}
+
+// verificationReportMovedCandidate reports whether the newest report bound
+// after the accepted Review names a commit outside that Review's input and
+// output. The Review then covers a mixed candidate: the report record, not
+// live Git, shows the candidate moved. A report on the Review's input is old
+// evidence, which proof admission already refuses.
+func verificationReportMovedCandidate(ctx context.Context, q queryer, workID string, review WorkflowAcceptedReview) (bool, error) {
+	reviewRef := review.ReportRef
+	// A Review without a retained receipt has no position, so every report
+	// counts as newer and any other commit stales it.
+	reviewSeq, err := workflowReviewReportSequence(ctx, q, workID, reviewRef)
+	if err == sql.ErrNoRows {
+		reviewSeq, err = 0, nil
+	}
+	if err != nil {
+		return false, workflowProjectionError(err, "cannot read the accepted Review sequence")
+	}
+	var commit string
+	err = q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.verification_report.commit') FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq>? AND json_extract(payload,'$.evidence_kind')='verification' AND json_type(payload,'$.verification_report')='object' ORDER BY binding_seq DESC LIMIT 1`, workID, reviewSeq).Scan(&commit)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, workflowProjectionError(err, "cannot read the newest verification report")
+	}
+	return commit != review.Report.OutputCandidate.Commit && commit != review.Report.InputCandidate.Commit, nil
 }
 
 func reportCovers(report VerificationReport, candidate *ReviewCandidate) bool {

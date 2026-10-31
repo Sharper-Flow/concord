@@ -1012,7 +1012,7 @@ jobs:
   # Race detector on store tests that coordinate concurrent Go callers.
   # SQLite lock-wait tests coordinate through database locks and channels rather
   # than unsynchronized mutable Go state. The ordinary suite covers them without
-  # multiplying fixed lock delays. The full tree races in the nightly workflow.
+  # multiplying fixed lock delays.
   verify-race:
     name: verify-race
     runs-on: ubuntu-24.04

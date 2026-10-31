@@ -43,7 +43,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import knowledge_index  # noqa: E402
 
 CD_ID_RE = re.compile(r"^CD-[0-9]{4}$")
-DECISIONS = Path(".concord/docs/decisions")
+# Document lookup and occupancy must agree across the admitted homes.
+DECISION_TREES = (Path(".concord/law/decisions"), Path(".concord/docs/decisions"))
 RECORDS = Path(".concord/docs/knowledge/records")
 
 # Regenerated rather than edited, in dependency order. Each entry is the argv
@@ -163,12 +164,16 @@ def merge_base(root: Path, ref: str) -> str | None:
 
 
 def find_document(root: Path, identifier: str, findings: list[str]) -> Path | None:
-    matches = sorted((root / DECISIONS).glob(f"{identifier}-*.md"))
+    matches: list[Path] = []
+    for tree in DECISION_TREES:
+        matches.extend((root / tree).glob(f"{identifier}-*.md"))
+    matches = sorted(matches)
     if not matches:
-        findings.append(f"no decision document matches {DECISIONS}/{identifier}-*.md")
+        trees = " or ".join(str(tree) for tree in DECISION_TREES)
+        findings.append(f"no decision document matches {trees}/{identifier}-*.md")
         return None
     if len(matches) > 1:
-        names = ", ".join(match.name for match in matches)
+        names = ", ".join(match.relative_to(root).as_posix() for match in matches)
         findings.append(f"{identifier} matches more than one decision document: {names}")
         return None
     return matches[0].relative_to(root)
@@ -228,12 +233,14 @@ def plan(
     if not (root / record).is_file():
         findings.append(f"{record}: shard is missing; {old} is not a complete record")
 
-    # The target must be entirely free. A partially occupied number produces a
-    # manifest that still validates while pointing at the wrong document.
+    # The target must be entirely free, in every decisions tree and in the
+    # shard tree. A partially occupied number produces a manifest that still
+    # validates while pointing at the wrong document.
     if (root / RECORDS / f"{new}.json").exists():
         findings.append(f"{new} already has a shard; choose a free number")
-    if sorted((root / DECISIONS).glob(f"{new}-*.md")):
-        findings.append(f"{new} already has a decision document; choose a free number")
+    for tree in DECISION_TREES:
+        if sorted((root / tree).glob(f"{new}-*.md")):
+            findings.append(f"{new} already has a decision document in {tree}; choose a free number")
 
     if findings:
         return findings, None
@@ -264,10 +271,12 @@ def plan(
     if findings:
         return findings, None
 
+    # The renamed document stays in the tree that holds it: a docs-tier
+    # branch-local CD does not migrate trees as a side effect of renumbering.
     return [], Plan(
         old=old,
         new=new,
-        document=(document, DECISIONS / document.name.replace(old, new, 1)),
+        document=(document, document.parent / document.name.replace(old, new, 1)),
         record=(record, RECORDS / f"{new}.json"),
         edits=edits,
     )

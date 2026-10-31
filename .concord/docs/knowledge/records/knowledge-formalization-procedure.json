@@ -6,7 +6,7 @@
   "home_domain_id": "product-memory",
   "id": "knowledge-formalization-procedure",
   "kind": "constitution",
-  "path": ".concord/docs/knowledge-formalization-procedure.md",
+  "path": ".concord/law/constitution/knowledge-formalization-procedure.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -14,7 +14,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:07ead6233e4a958583fbe6c1c89982b432a084dc04e6b2bda3aef676128f9682",
+  "sha256": "sha256:0fc4d0ae0f145187e2bff71e840473db3839376eb16477c00b39d0b67b67f90c",
   "status": "accepted",
   "summary": "Defines how a document becomes accepted Product law, becomes registered non-law, or is dispositioned. Declares the three knowledge states, the three destinations for an unprocessed document, the two-tier kind taxonomy, the ordered kind-selection path, the acceptance-criteria rule, and the atomicity requirement binding a document edit to its recorded hash.",
   "tags": [

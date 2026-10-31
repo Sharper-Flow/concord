@@ -9,7 +9,7 @@
 > concurrent work.
 > **Origin:** User direction, 2026-07-25.
 
-[CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+[CD-0243 D7](../law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, evidence, and historical-pin
 requirements remain required.
@@ -24,7 +24,7 @@ missing. Agents never silently cut scope. Concurrent Product-changing
 work also declares its Domain footprint and exact law revisions, so two cleanly
 merging changes cannot silently enact contradictory Product truth. **The
 approval boundary follows the six classes, not seriousness, size, or Domain
-count ([CD-0243](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md) D2-D4).**
+count ([CD-0243](../law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md) D2-D4).**
 
 ---
 
@@ -52,7 +52,7 @@ or the agent.
   triggers. Outside those classes, the agent changes law within scope and records
   why. A revision enacted without operator approval has the `derived` authority
   tier, including when the prior revision was operator-approved
-  ([CD-0230](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md) D4).
+  ([CD-0230](../law/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md) D4).
 - **A law conflict requires an explicit resolution.** Ask the operator when a
   class applies or needed information is missing; otherwise decide and record
   the reason. Never silently cut governed scope to avoid the conflict.
@@ -107,7 +107,7 @@ CD-0006 fixes the workflow policy:
 - present one planning checkpoint, then ask the human one decision at a time;
 - apply the six approval classes to law changes, record the reason for agent-owned
   amendments, and retain operator approval for governed scope reductions
-  ([CD-0230](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md) D4; CD-0243 D2-D7);
+  ([CD-0230](../law/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md) D4; CD-0243 D2-D7);
 - route newly discovered execution conflicts back to planning; and
 - block completion while any law conflict remains unresolved.
 
@@ -194,9 +194,9 @@ not claim those runtime outcomes are complete.
 | Doc | Link |
 |---|---|
 | [`specs-as-laws.md`](./specs-as-laws.md) §2 | The guiding principle: specs are laws; law-change authority follows CD-0230 D4. |
-| [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | **Accepted CD-0012** — the counterpart direction. This document governs scope **contraction** under spec-law pressure; CD-0012 governs outcome **substitution and dilution**, reusing this document's three-option flow and audit shape. Nothing in this document is altered by it. |
-| [`decisions/CD-0036-breaking-law-cutovers.md`](./decisions/CD-0036-breaking-law-cutovers.md) | **Accepted CD-0036** — exact revision pins, compatible same-ID amendments, and digest-based staleness on law supersession (CD-0242 D7). |
-| [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | **Accepted CD-0222** — Domain-owned law, architecture-bound work contracts, Git reconciliation of concurrent changes, and retained SQLite execution authority. CD-0213 places business grouping in Linear. |
+| [`../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | **Accepted CD-0012** — the counterpart direction. This document governs scope **contraction** under spec-law pressure; CD-0012 governs outcome **substitution and dilution**, reusing this document's three-option flow and audit shape. Nothing in this document is altered by it. |
+| [`../law/decisions/CD-0036-breaking-law-cutovers.md`](../law/decisions/CD-0036-breaking-law-cutovers.md) | **Accepted CD-0036** — exact revision pins, compatible same-ID amendments, and digest-based staleness on law supersession (CD-0242 D7). |
+| [`../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | **Accepted CD-0222** — Domain-owned law, architecture-bound work contracts, Git reconciliation of concurrent changes, and retained SQLite execution authority. CD-0213 places business grouping in Linear. |
 
 ---
 

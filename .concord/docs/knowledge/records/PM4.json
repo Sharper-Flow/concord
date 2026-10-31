@@ -36,7 +36,7 @@
   "home_domain_id": "work-coordination",
   "id": "PM4",
   "kind": "spec",
-  "path": ".concord/docs/product-memory-lifecycle-relations.md",
+  "path": ".concord/law/specs/product-memory-lifecycle-relations.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -44,7 +44,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c14fe439747adb31256cc810f27722117aff71b646bd32169e15ed09f53586d2",
+  "sha256": "sha256:432ed2811f8b77bd41bfff358cccdc0112a01961f2140273f44866e874c427a3",
   "status": "accepted",
   "summary": "Defines the five-state work lifecycle, its closed transition table, and the typed relations derived from it.",
   "tags": [

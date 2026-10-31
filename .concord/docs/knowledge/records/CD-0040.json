@@ -14,14 +14,14 @@
   },
   "date": "2026-08-17T00:00:00Z",
   "evidence": [
-    ".concord/docs/decisions/CD-0008-concord-mechanism-hardening.md",
+    ".concord/law/decisions/CD-0008-concord-mechanism-hardening.md",
     "internal/store/work_observations.go",
-    ".concord/docs/decisions/CD-0039-attributed-native-run-outcomes.md"
+    ".concord/law/decisions/CD-0039-attributed-native-run-outcomes.md"
   ],
   "home_domain_id": "product-root:concord",
   "id": "CD-0040",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0040-verifiable-external-observations.md",
+  "path": ".concord/law/decisions/CD-0040-verifiable-external-observations.md",
   "product_wide_rationale": "Defines shared provenance and verification across Git state, worktrees, native runs, and recovery artifacts. Its own D1 states that provenance is shared while domain truth stays local, so the shared half has no single child owner.",
   "scopes": {
     "domain_ids": [],
@@ -30,7 +30,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d35bd6f64c0a3684283cf52c94a0316fe7c14a017d9e533b28d07e260d73fc84",
+  "sha256": "sha256:807fd697d35e0970920e719a9b3aef1fbba16bf04b5bf03509afd5ad471e3c2e",
   "status": "accepted",
   "summary": "External observations share typed provenance and recorded verification; presence is broad, while absence and consequential use require pinned completeness and current proof.",
   "tags": [

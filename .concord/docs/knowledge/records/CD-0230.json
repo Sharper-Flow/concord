@@ -32,7 +32,7 @@
       "target_id": "CD-0222"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md",
+  "path": ".concord/law/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md",
   "product_wide_rationale": "It carries the priorities.md Appendix A conflict rules and the authority to change Product law, which bind every child Domain and every law record, so no single child Domain can own it.",
   "scopes": {
     "domain_ids": [],
@@ -41,7 +41,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4c2136602d7980b08e48aa284fe61dba5b21255645671f986814a96c649d5682",
+  "sha256": "sha256:839922b8229aae0cf45bf4520bb3de90b1d5364a85222d023982894e40c86206",
   "status": "accepted",
   "summary": "priorities.md Appendix A is the only copy of the conflict rules; each rule names its enforcing mechanism or a gap, and applying a rule leaves a finding or work-record entry. Law changes and operator consent follow CD-0243's six classes; changes to the approval boundary require exact-text operator approval. Seriousness, Domain count, crucial size, and a missing classification do not independently require approval. The RTE coordinates dependencies, and operator decisions go directly to the operator. Operator-free law revisions remain derived. Recovery and permanent loss follow CD-0243 D5. Follow-up items carry a rule label in Linear.",
   "tags": [

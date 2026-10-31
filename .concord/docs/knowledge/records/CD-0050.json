@@ -15,7 +15,7 @@
   "home_domain_id": "durable-authority",
   "id": "CD-0050",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0050-durable-acknowledgement.md",
+  "path": ".concord/law/decisions/CD-0050-durable-acknowledgement.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:98107d7517cfbf1bc701f53b0c9b8e70fd47b96e2702fcf8c97feb110c77434b",
+  "sha256": "sha256:2096dc19b47c96220544fc3f71b48194443c479d041b6f49cfb2cb4c52dbc32f",
   "status": "accepted",
   "summary": "Acknowledged consequential operations survive power loss and operating-system crash; ordinary writes stay synchronous=NORMAL and are durable through the last consequential acknowledgement; schema migrations remain excluded. CD-0207 owns the durable transaction mechanism, consequential-family enumeration, and public fence placement.",
   "tags": [

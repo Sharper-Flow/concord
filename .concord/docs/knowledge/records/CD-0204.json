@@ -27,7 +27,7 @@
       "target_id": "CD-0203"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0204-the-acceptance-gate-is-one-admission-condition-and-a-missing-verdict-records-late.md",
+  "path": ".concord/law/decisions/CD-0204-the-acceptance-gate-is-one-admission-condition-and-a-missing-verdict-records-late.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

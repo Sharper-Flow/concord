@@ -71,7 +71,7 @@ type VerifiedNote struct {
 //
 // Verification is a separately ordered step owned by the caller. The accepted
 // cross-authority order is publish, then verify, then record the SQLite locator
-// (.concord/docs/agent-mutation-tool-contract.md). Returning an unverified proof here
+// (.concord/law/specs/agent-mutation-tool-contract.md). Returning an unverified proof here
 // keeps that boundary visible: a caller holding a CommittedNote has written to
 // git and has not yet earned the right to record a locator.
 type CommittedNote struct {
@@ -509,12 +509,15 @@ const knowledgeWorkNoteTree = ".concord/docs/work/"
 const legacyKnowledgeWorkNoteTree = "docs/work/"
 
 // knowledgeNoteDirs are the markdown directories a verifiable note may live
-// in: the canonical homes, then the pre-migration homes (CD-0194 D5). A proof
-// recorded against an old revision names the path that revision used, so the
-// verifier admits both tiers. Publishing is not affected: the only write path
+// in: the current homes, then the pre-migration homes (CD-0194 D5). A proof recorded
+// against an old revision names the path that revision used, so the
+// verifier admits every tier a recorded proof can name. Decision notes are
+// law, so their law home admits them; work and lesson notes are not law and
+// keep their docs homes. Publishing is not affected: the only write path
 // constructs its path from knowledgeWorkNoteTree alone.
 var knowledgeNoteDirs = []string{
 	".concord/docs/work/", ".concord/docs/lessons/", ".concord/docs/decisions/",
+	".concord/law/decisions/",
 	"docs/work/", "docs/lessons/", "docs/decisions/",
 }
 
@@ -680,7 +683,7 @@ func validateNotePath(notePath string) error {
 		}
 	}
 	if !strings.HasSuffix(notePath, ".md") || !hasEligibleNoteDir(notePath) {
-		return newFailure(KindInvalidNoteProof, "verify_note", "note path is outside the canonical markdown directories", false, "use .concord/docs/work, lessons, or decisions markdown, or the pre-migration docs home a recorded proof names")
+		return newFailure(KindInvalidNoteProof, "verify_note", "note path is outside the canonical markdown directories", false, "use .concord/docs/work, lessons, or decisions markdown, .concord/law/decisions markdown, or the pre-migration docs home a recorded proof names")
 	}
 	return nil
 }

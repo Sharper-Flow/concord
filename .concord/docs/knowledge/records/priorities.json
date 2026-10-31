@@ -8,7 +8,7 @@
   "home_domain_id": "product-root:concord",
   "id": "priorities",
   "kind": "constitution",
-  "path": ".concord/docs/priorities.md",
+  "path": ".concord/law/constitution/priorities.md",
   "product_wide_rationale": "The sole canonical source of the operating envelope, the constraints, and the conflict rules, and the standing law that serves Concord's goals. Every Domain defers to it.",
   "scopes": {
     "domain_ids": [],
@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1f818fb5fe09e33d9683af472f13f3ed5a9c8ffd4203576fc3846f17e9e27ddc",
+  "sha256": "sha256:cd67754e7ee6edf3449ec04fb68ec1239ab3a1fcc3cd9dd20e6eb804c1307df8",
   "status": "accepted",
   "summary": "Ranked-first constitution and sole canonical source for the one-operator operating envelope, the constraints, the conflict rules (Appendix A), the open conflicts with current Concord text (Appendix B), the route for Concord's own development, and the standing law that serves the operator's goals in goals.md, which is guidance, not law. A cited decision record stays the authority for what it decides. Where a companion document contradicts this file, this file wins.",
   "tags": [

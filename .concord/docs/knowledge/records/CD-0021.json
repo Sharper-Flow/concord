@@ -14,7 +14,7 @@
   "home_domain_id": "operator-surface",
   "id": "CD-0021",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0021-floor-condition-1-scope.md",
+  "path": ".concord/law/decisions/CD-0021-floor-condition-1-scope.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:590d32f406d31df95e90f31c169b7ff4ead7bcc13d0421ffce5d54263c92265e",
+  "sha256": "sha256:a8e9a5897d50f2e9aa1cf78828ef2064de6cab84f595ccf967cfaae2edd2709c",
   "status": "accepted",
   "summary": "Floor condition 1 is claimable without an operator authoring surface: planning happens through an agent session, and full Product scope means every Product is reachable from the operator's session and the agent read surface rather than a result set spanning Products.",
   "tags": [

@@ -206,7 +206,7 @@ func TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead(t *testing.T) {
 	repo := initKnowledgeRepo(t)
 	workPath := ".concord/docs/work/2026-08-03-auth-release.md"
 	lessonPath := ".concord/docs/lessons/2026-08-04-state-authority.md"
-	decisionPath := ".concord/docs/decisions/CD-0002-state-authority.md"
+	decisionPath := ".concord/law/decisions/CD-0002-state-authority.md"
 	writeKnowledgeFile(t, repo, workPath, canonicalWorkNote("work-done", "2026-08-03T12:00:00Z"))
 	writeKnowledgeFile(t, repo, lessonPath, canonicalKnowledgeNote("knowledge-lesson", "lesson", "2026-08-04T12:00:00Z", []string{"state-authority", "sqlite"}))
 	writeKnowledgeFile(t, repo, decisionPath, canonicalKnowledgeNote("knowledge-decision", "decision", "2026-08-05T12:00:00Z", []string{"sqlite"}))

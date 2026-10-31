@@ -1,7 +1,7 @@
 # Concord Design Constraints
 
-> **Status:** Aligned v3 under CD-0006 and CD-0222. Companion to [`priorities.md`](./priorities.md).
-> **Purpose:** Capture the non-functional requirements, hard constraints, and design directives that shape *how* Concord is built. [`goals.md`](./goals.md) records the unranked goals as guidance; [`priorities.md`](./priorities.md) owns the operating envelope, constraints, conflict rules, and standing law.
+> **Status:** Aligned v3 under CD-0006 and CD-0222. Companion to [`../law/constitution/priorities.md`](../law/constitution/priorities.md).
+> **Purpose:** Capture the non-functional requirements, hard constraints, and design directives that shape *how* Concord is built. [`goals.md`](./goals.md) records the unranked goals as guidance; [`../law/constitution/priorities.md`](../law/constitution/priorities.md) owns the operating envelope, constraints, conflict rules, and standing law.
 
 ---
 
@@ -25,7 +25,7 @@ non-blocking for reads and serialize writes without retry storms. Writer-admissi
 wait, commit duration, and escaped busy failure are distinct quantities, measured
 and reported separately against a named population per CD-0045.
 
-**Direction.** Product-scoped partitioning; single-writer-per-entity writes to current rows, with no event log or replay ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Reads are always lock-free. Storage is **resolved** — SQLite sole authority (CD-0002, 2026-08-05); see [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) §2b for the concurrency model (library-in-process — no daemon).
+**Direction.** Product-scoped partitioning; single-writer-per-entity writes to current rows, with no event log or replay ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Reads are always lock-free. Storage is **resolved** — SQLite sole authority (CD-0002, 2026-08-05); see [`../law/decisions/CD-0002-concord-state-authority.md`](../law/decisions/CD-0002-concord-state-authority.md) §2b for the concurrency model (library-in-process — no daemon).
 
 ---
 ## 2. Structural Product-law impact, architecture overlap, and freshness
@@ -49,25 +49,25 @@ authority are forbidden.
 ## 3. Workflow evolution and full coordination
 
 **Requirement.** Workflow and schema changes must be safe for in-flight work, per
-[`priorities.md` — Data safety](./priorities.md#data-safety-constraint).
+[`priorities.md` — Data safety](../law/constitution/priorities.md#data-safety-constraint).
 
 **Implication.** Current definitions and the cutover follow
-[CD-0242 D13–D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot),
+[CD-0242 D13–D14](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot),
 not retained historical definitions.
 
 **Direction.** [`workflows.md`](./workflows.md) owns the current family and
-composition model. [CD-0218 D1](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
+composition model. [CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
 owns the live family boundary; CD-0242 D14 owns generated definitions.
 
 ---
 
 ## 4. Bounded writer admission, no history repair
 
-**Requirement.** Concord-owned writes queue behind one writer and are admitted within the accepted bound, never surfacing an escaped `SQLITE_BUSY`, a lost effect, an unexpected duplicate, or an invariant violation. Reads are lock-free. Acknowledged consequential operations are durable across power loss and OS crash under [CD-0050 D2](./decisions/CD-0050-durable-acknowledgement.md#d2-acknowledged-consequential-operations-are-durable-ordinary-writes-are-durable-through-the-last-boundary), using the durable transactions defined by [CD-0207](./decisions/CD-0207-a-durable-commit-replaces-the-checkpoint-barrier.md); ordinary writes are durable through the last consequential boundary. The store keeps current state and finite snapshots, not history, so there is no history to repair ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+**Requirement.** Concord-owned writes queue behind one writer and are admitted within the accepted bound, never surfacing an escaped `SQLITE_BUSY`, a lost effect, an unexpected duplicate, or an invariant violation. Reads are lock-free. Acknowledged consequential operations are durable across power loss and OS crash under [CD-0050 D2](../law/decisions/CD-0050-durable-acknowledgement.md#d2-acknowledged-consequential-operations-are-durable-ordinary-writes-are-durable-through-the-last-boundary), using the durable transactions defined by [CD-0207](../law/decisions/CD-0207-a-durable-commit-replaces-the-checkpoint-barrier.md); ordinary writes are durable through the last consequential boundary. The store keeps current state and finite snapshots, not history, so there is no history to repair ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 **Implication.** This is a constraint on **Concord's own state model**, not a mandate to rewrite any existing system. It is the storage-model constraint.
 
-**Direction.** **Resolved by [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md), PM2, and PM3 (2026-08-05):** one global local SQLite authority writing current rows in one transaction, `synchronous=NORMAL`, WAL, one writer at a time; no event log, fold, upcaster, or replay exists ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). State authority is SQLite sole authority per CD-0002 (invariants I1–I6).
+**Direction.** **Resolved by [`../law/decisions/CD-0002-concord-state-authority.md`](../law/decisions/CD-0002-concord-state-authority.md), PM2, and PM3 (2026-08-05):** one global local SQLite authority writing current rows in one transaction, `synchronous=NORMAL`, WAL, one writer at a time; no event log, fold, upcaster, or replay exists ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). State authority is SQLite sole authority per CD-0002 (invariants I1–I6).
 
 ---
 
@@ -132,13 +132,13 @@ and [`product-data-model.md`](./product-data-model.md).
 
 ## 10. Quality governance by evidence, not by gate count
 
-**Requirement.** Concord's quality governance follows [`priorities.md` — Quality (goal E)](./priorities.md#quality-goal-e).
+**Requirement.** Concord's quality governance follows [`priorities.md` — Quality (goal E)](../law/constitution/priorities.md#quality-goal-e).
 
 **Implication.** Quality is **not** achieved by mandating Advance's seven-gate lifecycle for every work kind. Different workflow types may use different gates or none at all; the common denominator is the linked quality attributes.
 
 **Direction.** Every workflow type declares its own artifacts, steps, and completion criteria. Independent review is required where the risk or consequence warrants it.
 
-Accepted CD-0012 additionally requires completion criteria to include an **outcome contract**: the premise, the required end-state as falsifiable postconditions, and the candidate set those postconditions range over. The contract is approved at planning and verified at completion, and a delivered end-state weaker than the approved one fails. This is what makes *intent fidelity* and *no silent drift* enforceable rather than aspirational. Binding form: [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
+Accepted CD-0012 additionally requires completion criteria to include an **outcome contract**: the premise, the required end-state as falsifiable postconditions, and the candidate set those postconditions range over. The contract is approved at planning and verified at completion, and a delivered end-state weaker than the approved one fails. This is what makes *intent fidelity* and *no silent drift* enforceable rather than aspirational. Binding form: [`../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
 
 ---
 
@@ -184,11 +184,11 @@ the public lessons in
 
 ## 14. Single derivation — no parallel authority
 
-**Requirement.** All Concord-owned current state derives from exactly one authoritative store, with no event log, fold, upcaster, or replay ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). No subsystem may hold a second writable authority for the same entity, and two readers must not be *able* to return different answers to the same question.
+**Requirement.** All Concord-owned current state derives from exactly one authoritative store, with no event log, fold, upcaster, or replay ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). No subsystem may hold a second writable authority for the same entity, and two readers must not be *able* to return different answers to the same question.
 
 **Implication.** This is stricter than §4, and it is the constraint §4 does not supply. A single authoritative store does not prevent this failure if a separate writable projection is also maintained — divergence then has no owner.
 
-**Direction.** CD-0002 and PM3 resolve one serialized writer whose accepted mutations write current rows in one transaction; derived read models are never a second write target ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+**Direction.** CD-0002 and PM3 resolve one serialized writer whose accepted mutations write current rows in one transaction; derived read models are never a second write target ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
@@ -248,7 +248,7 @@ Derived from the public predecessor lessons (see [`advance-postmortem.md`](./adv
 
 **Implication.** Recovery proportionality is a first-class design property, not an operational afterthought. If the only remedy for a bookkeeping inconsistency is a destructive operation, operators are forced to choose between an incorrect record and losing valid history — and will reasonably choose to leave the system broken, which is what accumulates.
 
-**Direction.** Recovery paths are designed alongside the states that need them, and graded to the severity of the problem: reconcile current rows, restore a verified snapshot, and reconcile against Git, worktrees, artifacts, and external effects before destructive operations ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Refusal prechecks on a recovery tool must not shadow the very condition that tool exists to handle.
+**Direction.** Recovery paths are designed alongside the states that need them, and graded to the severity of the problem: reconcile current rows, restore a verified snapshot, and reconcile against Git, worktrees, artifacts, and external effects before destructive operations ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Refusal prechecks on a recovery tool must not shadow the very condition that tool exists to handle.
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
@@ -262,24 +262,24 @@ The cited decisions govern implementation conformance.
 2. **Workflow evolution semantics** (§3). [`workflows.md`](./workflows.md) owns the current family and composition model under CD-0218 and CD-0242 D13–D14.
 3. **Read-path implementation language** (§5, §7). Resolved — Go; see [`core-architecture.md`](./core-architecture.md).
 4. **Ambient Product context propagation** (§13). **Resolved by TS5/CD-0005:** trusted hidden call envelope, core re-resolution, explicit cross-scope intent, and inherited Product/workspace context.
-5. **Recovery-path taxonomy** (§19). [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+5. **Recovery-path taxonomy** (§19). [CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
    owns current-row reconciliation and finite verified snapshots.
-   [D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)
+   [D6](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)
    leaves subagent lifecycle ownership with the host, not Concord;
-   [D11–D12](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d11-a-fresh-session-resumes-from-current-state)
+   [D11–D12](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d11-a-fresh-session-resumes-from-current-state)
    own resumption and admitted recovery actions. PM10 owns backup/restore, and
    CD-0008 D3 owns dependency-aware unreadable isolation.
-6. **Evidence-resolution completeness** (#325). **Resolved by CD-0008 D2 (2026-08-06):** verification, review, approval, commit, native-run, and durable-knowledge evidence binds to an immutable subject and an attributable producer record. The producer remains verdict authority. Concord atomically records the typed binding, and returns typed missing, unreachable, or degraded results when re-resolution cannot complete. Source record: [`advance-postmortem.md`](./advance-postmortem.md) §Evidence resolution; accepted mechanism: [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D2.
-7. **Validation-failure isolation** (#349). **Resolved by CD-0008 D3 (2026-08-06):** unreadable records contribute unknown, and independently provable positive reads may return typed degraded omissions. Negative and safety conclusions fail closed only when the unreadable record lies within the bounded closure needed for that conclusion. The unreadable set is explicit and unrelated operations are not globally blocked. Source record: [`advance-postmortem.md`](./advance-postmortem.md) §Write-path truthfulness; accepted mechanism: [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D3.
-8. **State-authority engine for a single-operator local orchestrator** (operator decision D1, 2026-08-05). **✅ Resolved-by-CD-0002 + PM2–PM5** — SQLite is the sole authority per [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md). Four records refine it:
-   - **one global local authority** per [`product-memory-authority-scope.md`](./product-memory-authority-scope.md);
-   - one authoritative current-state store per [`product-memory-domain-schema.md`](./product-memory-domain-schema.md);
-   - lifecycle and relation invariants per [`product-memory-lifecycle-relations.md`](./product-memory-lifecycle-relations.md);
-   - canonical membership and scope per [`product-memory-membership.md`](./product-memory-membership.md).
+6. **Evidence-resolution completeness** (#325). **Resolved by CD-0008 D2 (2026-08-06):** verification, review, approval, commit, native-run, and durable-knowledge evidence binds to an immutable subject and an attributable producer record. The producer remains verdict authority. Concord atomically records the typed binding, and returns typed missing, unreachable, or degraded results when re-resolution cannot complete. Source record: [`advance-postmortem.md`](./advance-postmortem.md) §Evidence resolution; accepted mechanism: [`../law/decisions/CD-0008-concord-mechanism-hardening.md`](../law/decisions/CD-0008-concord-mechanism-hardening.md) §D2.
+7. **Validation-failure isolation** (#349). **Resolved by CD-0008 D3 (2026-08-06):** unreadable records contribute unknown, and independently provable positive reads may return typed degraded omissions. Negative and safety conclusions fail closed only when the unreadable record lies within the bounded closure needed for that conclusion. The unreadable set is explicit and unrelated operations are not globally blocked. Source record: [`advance-postmortem.md`](./advance-postmortem.md) §Write-path truthfulness; accepted mechanism: [`../law/decisions/CD-0008-concord-mechanism-hardening.md`](../law/decisions/CD-0008-concord-mechanism-hardening.md) §D3.
+8. **State-authority engine for a single-operator local orchestrator** (operator decision D1, 2026-08-05). **✅ Resolved-by-CD-0002 + PM2–PM5** — SQLite is the sole authority per [`../law/decisions/CD-0002-concord-state-authority.md`](../law/decisions/CD-0002-concord-state-authority.md). Four records refine it:
+   - **one global local authority** per [`../law/specs/product-memory-authority-scope.md`](../law/specs/product-memory-authority-scope.md);
+   - one authoritative current-state store per [`../law/specs/product-memory-domain-schema.md`](../law/specs/product-memory-domain-schema.md);
+   - lifecycle and relation invariants per [`../law/specs/product-memory-lifecycle-relations.md`](../law/specs/product-memory-lifecycle-relations.md);
+   - canonical membership and scope per [`../law/specs/product-memory-membership.md`](../law/specs/product-memory-membership.md).
 
    Together they give transactional current state, finite verified snapshots,
    `synchronous=NORMAL`, WAL, and invariants I1–I6, with no event log or replay
-   ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Ranked engine alternatives remain in CD-0002 §2.
+   ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Ranked engine alternatives remain in CD-0002 §2.
 
 ---
 
@@ -288,13 +288,13 @@ The cited decisions govern implementation conformance.
 | Constraint | Companion doc |
 |---|---|
 | §1 concurrency | [`product-data-model.md`](./product-data-model.md) |
-| §2 law/architecture impact | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) |
+| §2 law/architecture impact | [`../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) |
 | §3 workflow evolution | [`workflows.md`](./workflows.md) |
 | §4 bounded writer admission / no history repair | [`clarifications.md`](./clarifications.md) C2 |
 | §5 fast read-path | [`rollout-plan.md`](./rollout-plan.md) |
-| §6 lightweight interface | [`priorities.md`](./priorities.md) |
+| §6 lightweight interface | [`../law/constitution/priorities.md`](../law/constitution/priorities.md) |
 | §7 language choice | [`core-architecture.md`](./core-architecture.md) |
-| §8 client portability | [`priorities.md`](./priorities.md) |
+| §8 client portability | [`../law/constitution/priorities.md`](../law/constitution/priorities.md) |
 | §9 self-documentation | [`self-documentation.md`](./self-documentation.md) |
 | §10 quality governance | [`workflows.md`](./workflows.md) |
 | §11 declarative ownership | [`product-data-model.md`](./product-data-model.md) |

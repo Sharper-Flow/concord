@@ -6,12 +6,12 @@
   },
   "date": "2026-08-22T00:00:00Z",
   "evidence": [
-    ".concord/docs/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md"
+    ".concord/law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md"
   ],
   "home_domain_id": "agent-adapter",
   "id": "CD-0058",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0058-no-model-routing.md",
+  "path": ".concord/law/decisions/CD-0058-no-model-routing.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

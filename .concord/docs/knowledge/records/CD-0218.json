@@ -13,7 +13,7 @@
   "id": "CD-0218",
   "kind": "decision",
   "law_relations": [],
-  "path": ".concord/docs/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md",
+  "path": ".concord/law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

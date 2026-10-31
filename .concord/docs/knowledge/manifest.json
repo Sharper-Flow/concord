@@ -14,7 +14,8 @@
     "research"
   ],
   "knowledge_roots": [
-    ".concord/docs/"
+    ".concord/docs/",
+    ".concord/law/"
   ],
   "operator_overrides": [],
   "schema_version": "1.3",

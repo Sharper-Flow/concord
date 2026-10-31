@@ -8,7 +8,7 @@
   "home_domain_id": "agent-call-boundary",
   "id": "CD-0095",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0095-terminal-work-main-checkout-reclaim.md",
+  "path": ".concord/law/decisions/CD-0095-terminal-work-main-checkout-reclaim.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

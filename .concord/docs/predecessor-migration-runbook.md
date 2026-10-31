@@ -2,7 +2,7 @@
 
 > **Status:** Operational procedure for the delivered importer. Guidance for a
 > correct operation, not a gate: migration stays demand-driven under
-> [CD-0082](./decisions/CD-0082-migration-is-demand-driven.md), and nothing in
+> [CD-0082](../law/decisions/CD-0082-migration-is-demand-driven.md), and nothing in
 > this document is a mandated checklist, shadow requirement, or migration
 > record.
 > **Authority:** [`rollout-plan.md`](./rollout-plan.md) §4 owns the policy;
@@ -168,8 +168,8 @@ predecessor stays writable and keeps the live authority until cutover.
 | Surface | Role |
 |---|---|
 | [`rollout-plan.md`](./rollout-plan.md) §4 | Migration policy (demand-driven, CD-0082). |
-| [`decisions/CD-0097-bounded-parallel-predecessor-migration.md`](./decisions/CD-0097-bounded-parallel-predecessor-migration.md) | The bounded parallel migration mode that exempts a declared Product from the freeze. |
+| [`../law/decisions/CD-0097-bounded-parallel-predecessor-migration.md`](../law/decisions/CD-0097-bounded-parallel-predecessor-migration.md) | The bounded parallel migration mode that exempts a declared Product from the freeze. |
 | [`contracts/predecessor-snapshot.schema.json`](../../contracts/predecessor-snapshot.schema.json) | The fail-closed snapshot contract. |
 | `concord predecessor inventory` | Snapshot validation and enumeration. |
 | `concord predecessor import` | The import verb with delivered safeguards. |
-| [`knowledge-formalization-procedure.md`](./knowledge-formalization-procedure.md) | Wisdom curation into `lesson` records. |
+| [`../law/constitution/knowledge-formalization-procedure.md`](../law/constitution/knowledge-formalization-procedure.md) | Wisdom curation into `lesson` records. |

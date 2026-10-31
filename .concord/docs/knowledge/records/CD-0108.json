@@ -12,7 +12,7 @@
   "home_domain_id": "operator-surface",
   "id": "CD-0108",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md",
+  "path": ".concord/law/decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

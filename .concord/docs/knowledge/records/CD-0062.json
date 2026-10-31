@@ -17,7 +17,7 @@
   "home_domain_id": "product-memory",
   "id": "CD-0062",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0062-root-home-states-its-claim.md",
+  "path": ".concord/law/decisions/CD-0062-root-home-states-its-claim.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

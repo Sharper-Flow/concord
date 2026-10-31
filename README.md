@@ -216,7 +216,7 @@ Concord separates responsibilities across three focused layers:
   - *Why*: Keeps external tracker state from polluting local runtime invariants while allowing operators to manage milestones in their tool of choice.
   - *How*: Agents read and write Linear through the Linear MCP server. Concord records at most one issue key and URL per work item; the binary makes no Linear API call and holds no Linear credential.
 
-The trust boundary is the local workstation: the operating system user account, the OpenCode process, and the adapter. Concord does not defend against arbitrary code already running under that account. See the [transport contract](.concord/docs/agent-adapter-transport-contract.md), [core architecture](.concord/docs/core-architecture.md), and [managed development authority](.concord/docs/managed-development-authority.md).
+The trust boundary is the local workstation: the operating system user account, the OpenCode process, and the adapter. Concord does not defend against arbitrary code already running under that account. See the [transport contract](.concord/law/specs/agent-adapter-transport-contract.md), [core architecture](.concord/docs/core-architecture.md), and [managed development authority](.concord/law/specs/managed-development-authority.md).
 
 ### Specialized graphs over monolithic DAGs
 
@@ -357,7 +357,7 @@ through the Linear MCP server.
 
 - [Installation guide](.concord/docs/installation.md)
 - [OpenCode adapter guide](adapter/opencode/README.md)
-- [Managed development authority](.concord/docs/managed-development-authority.md)
+- [Managed development authority](.concord/law/specs/managed-development-authority.md)
 - [Documentation index](.concord/docs/README.md)
 
 ## Contributing

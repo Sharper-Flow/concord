@@ -20,7 +20,7 @@
   "home_domain_id": "operator-surface",
   "id": "CD-0111",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0111-a-release-never-requires-a-session-restart.md",
+  "path": ".concord/law/decisions/CD-0111-a-release-never-requires-a-session-restart.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

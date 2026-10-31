@@ -9,19 +9,19 @@ Linux amd64 is the only release platform.
 ## Authority
 
 - Linear owns planning; read and write it only through the Linear MCP server under
-  [`.concord/docs/managed-development-authority.md`](.concord/docs/managed-development-authority.md). Pull requests
+  [`.concord/law/specs/managed-development-authority.md`](.concord/law/specs/managed-development-authority.md). Pull requests
   plus required checks own review and merge evidence.
-- [`.concord/docs/decisions/`](.concord/docs/decisions/) (CD-NNNN records), specifications, and
+- [`.concord/law/decisions`](.concord/law/decisions) (CD-NNNN records), specifications, and
   constitutional documents own Product law. Ordinary prose cannot acquire that
   authority — including this file, which is host instruction, not law.
 - Surface conflicts with accepted decisions. Never silently narrow a contract.
 - One branch and worktree per change. Never implement directly on `main`, and
-  never hand-make a worktree ([`CD-0088`](.concord/docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md)).
+  never hand-make a worktree ([`CD-0088`](.concord/law/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md)).
 - For new Concord development, use Concord agents and the workflow route in
-  [`priorities.md`](.concord/docs/priorities.md#how-concords-own-development-runs-during-the-rebuild).
+  [`priorities.md`](.concord/law/constitution/priorities.md#how-concords-own-development-runs-during-the-rebuild).
   Work already underway outside the workflow and authorized workflow-defect
   repair follow that section and
-  [CD-0122](.concord/docs/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md).
+  [CD-0122](.concord/law/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md).
   Asked to fix a Concord defect that the Concord workflow would hit or obstruct,
   tell the operator and recommend the general build agent, not a Concord agent.
 - Advance is public predecessor evidence only. Do not create or dual-write
@@ -90,6 +90,6 @@ inference. Conventional Commit titles are load-bearing for release semver.
 | Which files are generated, from which inputs | [`scripts/generate-agent-contracts.py`](scripts/generate-agent-contracts.py); [`scripts/generate-agent-profiles.py`](scripts/generate-agent-profiles.py) |
 | PR title grammar and its semver effect | [`scripts/check-commit-title.py`](scripts/check-commit-title.py); [`scripts/release.py`](scripts/release.py) |
 | How a release is built and published | [`.github/workflows/release.yml`](.github/workflows/release.yml) |
-| What is proved versus merely present | Each decision's Verification section and [`.concord/docs/decisions/CD-0249-decisions-carry-no-coverage-records.md`](.concord/docs/decisions/CD-0249-decisions-carry-no-coverage-records.md); [`.concord/docs/reachability-exceptions.v1.json`](.concord/docs/reachability-exceptions.v1.json) |
-| Product law, priorities, documentation rules, and release currency before capture | [`.concord/docs/README.md`](.concord/docs/README.md); [`.concord/docs/priorities.md`](.concord/docs/priorities.md); [`CD-0165`](.concord/docs/decisions/CD-0165-an-agent-begins-a-work-item-only-on-the-current-concord-release.md) |
+| What is proved versus merely present | Each decision's Verification section and [`.concord/law/decisions/CD-0249-decisions-carry-no-coverage-records.md`](.concord/law/decisions/CD-0249-decisions-carry-no-coverage-records.md); [`.concord/docs/reachability-exceptions.v1.json`](.concord/docs/reachability-exceptions.v1.json) |
+| Product law, priorities, documentation rules, and release currency before capture | [`.concord/docs/README.md`](.concord/docs/README.md); [`.concord/law/constitution/priorities.md`](.concord/law/constitution/priorities.md); [`CD-0165`](.concord/law/decisions/CD-0165-an-agent-begins-a-work-item-only-on-the-current-concord-release.md) |
 | Package and seam ownership | [`.concord/docs/core-architecture.md`](.concord/docs/core-architecture.md) §4 (entry points by responsibility) |

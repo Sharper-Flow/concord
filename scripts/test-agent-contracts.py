@@ -1026,7 +1026,7 @@ class Ts2BudgetTests(unittest.TestCase):
 
     def test_document_budget_matches_manifest(self):
         manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
-        document = (ROOT / ".concord/docs/agent-tool-surface-budget.md").read_text()
+        document = (ROOT / ".concord/law/specs/agent-tool-surface-budget.md").read_text()
         matches = re.findall(r"always_visible_tools: (\d+)", document)
         self.assertEqual(len(matches), 1, "TS2 must state the budget exactly once")
         declared = int(matches[0])

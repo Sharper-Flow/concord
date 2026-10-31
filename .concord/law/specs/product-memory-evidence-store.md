@@ -1,0 +1,252 @@
+# Concord WIP Evidence and Blob Scope (PM8)
+
+> **Status:** **Accepted — binding until superseded.**
+> **Accepted by operator:** 2026-08-06.
+> **Decision:** PM8; binding CD-0002 §2d amendment.
+> **Binding inputs:** PM1, accepted PM2–PM6, compaction-retention-policy, CD-0002 I1–I6, and the
+> one-operator/one-machine envelope.
+> **Operator decision:** WIP needs no durable byte-level proof. Do not introduce
+> hashing or a content-addressed blob store without a named user job. Screenshots are
+> not required generic evidence.
+> **Related accepted boundary:** PM9 rejects a separate process-exhaust receipt.
+> **Does not decide:** PM10 backup/restore/GC,
+> TS1–TS9, artifact encryption, or external-system retention.
+
+## Context
+
+CD-0002 proposed external evidence files with hash and path, and the
+operator decided WIP needs no durable byte-level proof. The binding inputs
+are PM1, the accepted PM2 through PM6 and compaction-retention-policy, CD-0002 invariants, and the
+one-operator one-machine envelope. This record rejects a content-addressed
+blob store for v1: process exhaust stays producer-owned, no generic rule may
+require a screenshot, and CD-0215 research-pack text stays
+SQLite only.
+## Contract
+
+The binding contract is sections 1 through 4: the no-store decision and its
+synchronization across retired blob assumptions, the named value and the
+structural boundary, the normal-flow and failure-handling table, and the
+absence of migration, retention, and recovery obligations. Sections 5 through
+10 record invariants, acceptance scenarios, rejected alternatives,
+deferrals, reopen criteria, and research basis, and carry no obligation.
+## 1. Decision
+
+Concord v1 has **no general evidence/blob content-addressed store**. Except for section 1.1, it does not hash, ingest,
+deduplicate, retain, back up, or garbage-collect WIP logs, traces, screenshots, test
+output, recordings, or arbitrary binary files.
+
+WIP output is process exhaust owned by its producing tool or environment. It must not
+become a Concord typed record, durable evidence reference, external-file path record,
+or a backup obligation merely because it exists. A failed task may still record a
+bounded outcome/error classification in normal Product-memory state; raw output is not
+required for that state to be valid.
+
+No generic Concord task, workflow, acceptance, or compaction rule may require a
+screenshot. A product-specific contract may require direct human visual inspection, but
+PM8 does not turn that into screenshot capture, upload, retention, or hashing.
+
+Small, structured Concord artifacts remain SQLite text under
+the existing decision; durable markdown knowledge remains PM6 and compaction-retention-policy git content. Neither
+is a general binary-evidence store.
+
+CD-0215 narrows one structured-artifact case further: research-pack text lives
+only in SQLite pack tables until explicit retirement. It never enters Git as a
+research pack and is
+deleted after proof-backed archive. Selected durable decisions/specs/lessons/reasoning
+are promoted to their existing PM6/CD-0006 homes before deletion; that promotion is
+not pack retention.
+
+### 1.1 Native oracle producer streams
+
+Only `worktree_verify_leases.stdout_blob` and `worktree_verify_leases.stderr_blob`
+may retain native oracle command streams, at most 2 MiB each.
+The streams are deleted with the lease or work.
+A reviewer reads a failed control after worktree reclamation through
+`worktree_inspect` mode `oracle_output`.
+
+These bytes are native producer observations, not knowledge, acceptance
+authority, or a durable evidence reference.
+They create no CAS, deduplication, external byte path, or backup promise beyond
+the store itself. This exception permits no other byte column.
+All other PM8 prohibitions remain.
+
+The frequency/value measurement under section 9 criterion 4 is not done.
+That measurement remains deferred; this exception claims no measured result.
+
+### Accepted synchronization
+
+PM3 `external_refs` for PRs, commits, upstream systems, and URLs are ordinary
+locators, not retained WIP-byte paths.
+
+## 2. Named value and boundary
+
+The selected value is **less development-flow friction and fewer false retention
+promises**:
+
+- developers and agents keep using their normal test runner, CI, editor, artifact, and
+  screenshot facilities without an extra upload/hash/attach protocol;
+- a work item can progress or compact without proving long-lived access to transient
+  bytes;
+- Concord avoids a second filesystem durability, corruption, recovery, backup, and
+  deletion subsystem whose value is not currently named;
+- the store keeps current state and PM6 keeps concise reviewed knowledge
+  ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)),
+  which are the current post-hoc needs—not exact WIP byte replay.
+
+Except for section 1.1, the boundary is structural: Concord's v1 schema and typed record set contain no
+blob descriptor, evidence-reference, file-path, digest, content-addressed-store, or
+blob-lifecycle record. A workflow cannot accidentally make WIP output durable by adding
+an optional metadata field.
+
+## 3. Normal flow and failure handling
+
+| Situation | Concord behavior | Not a Concord responsibility |
+|---|---|---|
+| generic test/build/log output | producer/CI retains or discards it under its own policy; section 1.1 alone owns native oracle streams | ingestion, hashing, mirroring, or backup beyond section 1.1 |
+| task fails | record only the bounded state/outcome needed by its owning Product-memory record | storing full command output as evidence |
+| terminal compaction | PM6 note distills outcome, decision, lesson, and normal links | copying raw WIP files into git/SQLite |
+| compaction-retention-policy projection pruning | retains authoritative current rows and durable note/index behavior (CD-0242 D2) | preserving raw WIP bytes |
+| producer output disappears | surface only an external-link failure if a user tries to follow a normal link | recovery/substitution of a Concord-held blob |
+
+No operation may report an unavailable WIP blob as an integrity incident, because
+Concord never claimed to hold that blob. Likewise, failed output capture must not block
+a domain operation unless that operation's independently accepted contract requires a
+bounded result field that cannot be produced.
+
+## 4. Migration, backfill, retention, and recovery
+
+Section 1.1 governs only native lease storage. There is no general evidence-store migration or backfill. Existing WIP paths, attachments, and
+large outputs are not scanned, hashed, copied, or enrolled into Product memory.
+
+Outside the lease/work deletion rule in section 1.1, there is no Concord blob retention period, refcount, quarantine, backup inventory, or
+garbage collector. PM10 therefore backs up the accepted SQLite/git authority only; it
+does not inherit a CAS subtree from PM8. Accepted PM9 keeps process findings in concise
+durable knowledge when material and rejects a separate process-exhaust receipt—closure's
+one completion receipt answers
+([CD-0242 D9](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)),
+not automatic retention of raw WIP bytes.
+
+## 5. Structural invariants
+
+1. **No undeclared byte authority:** no Concord table, event, or durable note is a
+   canonical store for arbitrary WIP bytes.
+2. **No hidden retention:** apart from section 1.1, paths, digests, payload copies, and serialized command
+   output cannot enter generic metadata as a workaround for the omitted store.
+3. **Bounded state only:** task/work outcomes retain only fields accepted by their
+   owning domain contract; raw output remains outside that contract.
+4. **No implied recovery promise:** Concord restores only its accepted authorities, not
+   data held by a test runner, CI provider, operating system, or user workspace.
+5. **Explicit promotion only:** if future work needs a durable artifact, it must first
+   name its reader, decision/recovery job, authority, retention duration, and restore
+   guarantee in a new accepted decision.
+6. **Research retires:** CD-0215 pack rows are not WIP-byte evidence or durable
+   knowledge; publication may retain selected reasoning in normal outputs, and only
+   explicit retirement deletes the complete pack, with no tombstone or hidden history.
+
+## 6. Required implementation-acceptance scenarios
+
+1. A large WIP test log and screenshot complete without any Concord blob table, digest,
+   file-path metadata, or backup entry being created.
+2. A failed task stores a bounded failure classification/state while raw tool output
+   remains with the producing environment.
+3. PM6 compaction creates a concise note with outcome/lesson/ordinary links and no raw
+   output copy or generated evidence attachment.
+4. compaction-retention-policy prunes an eligible work projection while current state and the note/index
+   remain valid without requiring any external blob.
+5. Schema and record validation reject attempts to introduce blob descriptors,
+   content hashes, arbitrary filesystem paths, or raw output payloads through generic
+   metadata.
+6. PM10 clean-machine restore succeeds with SQLite and canonical git authorities alone;
+   no absent CAS root is reported as degraded or missing.
+
+## 7. Alternatives rejected
+
+### Content-addressed CAS now
+
+Rejected. It solves exact-byte identity, deduplication, corruption detection, and
+restore only when someone must later retrieve the same large evidence bytes. Concord
+has no accepted job requiring that guarantee. Adding it now would burden normal WIP
+flow and create an unearned backup/GC surface.
+
+### Hash every WIP output “just in case”
+
+Rejected. Hashing alone creates identity-looking metadata without a reader, retention
+promise, or recovery value. It is observability noise, not product memory.
+
+### Generic raw output in SQLite or git notes
+
+Rejected outside section 1.1. It recreates the process-exhaust dump that CD-0002
+explicitly rejects, increases authority/backup weight, and does not name a future-reader
+benefit.
+
+### Store caller-selected external file paths
+
+Rejected. Paths are mutable environment references, not durable identity. Recording
+them would imply a recovery contract Concord cannot satisfy.
+
+## 8. Explicit deferrals
+
+- **PM10:** backs up/restores only accepted Concord authorities; no CAS or blob GC is
+  introduced here.
+- **TS1–TS9:** no command, tool, agent schema, permission, or transport surface.
+- external CI/artifact provider retention, encryption, artifact signing, remote blob
+  storage, chunking, media processing, and binary provenance.
+
+## 9. Reopen criteria
+
+Reopen PM8 only when evidence demonstrates a concrete recurring job that needs all of:
+
+1. a named reader who must retrieve exact large bytes after the producing WIP context
+   is gone;
+2. a decision, audit, incident, or recovery outcome that cannot use bounded state,
+   canonical git knowledge, ordinary external links, or the producer's own retention;
+3. an explicit authority and retention/restore promise; and
+4. measured frequency/value sufficient to justify ingestion, integrity, backup, and
+   eventual deletion complexity.
+
+Any future proposal must name the job before selecting CAS, hashes, an external provider, or
+any other storage mechanism.
+
+## 10. Research basis
+
+PM8 reviewed the previous CAS option against official SQLite external-blob guidance,
+SQLite atomic-commit behavior, NIST SHA-256, OCI content descriptors, and Linux
+install/durability primitives. Those sources validate how a CAS *could* work; they do
+not establish a Concord user need. The accepted PM1–PM6, compaction-retention-policy contracts and operator
+direction control this decision.
+
+## Acceptance criteria
+
+- Given any generic WIP test log, trace, or screenshot outside section 1.1
+  When work completes or compacts
+  Then no blob table, digest, file-path metadata, or backup entry is created.
+
+- Given a failed task
+  When its outcome is recorded
+  Then only the bounded failure classification enters Product memory while
+  raw output stays with the producing environment.
+
+- Given any attempt to introduce blob descriptors, content hashes, or raw
+  payloads through generic metadata
+  When the schema validates
+  Then the attempt is rejected structurally.
+
+## Verification
+
+No corpus scenario can exercise the absence of a store, so every criterion
+carries a typed exemption naming the structural proof.
+
+- Criterion 1 is proved by
+  `TestPM8AndPM9DeclareNoEvidenceOrReceiptStore`
+  (`internal/store/pm8_pm9_absence_test.go`), whose exhaustive binary large
+  object (BLOB) column allow-list admits fixed-size authority material and only
+  the two native stream columns in section 1.1.
+- Criterion 2 is proved by the same absence test's record-kind
+  sweep, which admits no exhaust-retention record, together with
+  `TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence`
+  (`internal/agent/agent_defects_regression_test.go`), which fixes the
+  bounded terminal classification.
+- Criterion 3 is proved by the schema-manifest boundary of
+  `TestOpenAppliesSchemaManifest` (`internal/store/schema_test.go`) and the
+  allow-list above; a new BLOB column or exhaust field fails there. Section 9
+  records the reopen criteria for each guarantee.

@@ -76,7 +76,7 @@
       "target_id": "CD-0230"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
+  "path": ".concord/law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
   "product_wide_rationale": "Role ownership and the operator's approval boundary govern every agent and every Product Domain; no individual implementation Domain owns that authority.",
   "scopes": {
     "domain_ids": [],

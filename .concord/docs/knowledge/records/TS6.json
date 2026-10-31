@@ -39,7 +39,7 @@
   "home_domain_id": "agent-adapter",
   "id": "TS6",
   "kind": "spec",
-  "path": ".concord/docs/agent-adapter-transport-contract.md",
+  "path": ".concord/law/specs/agent-adapter-transport-contract.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -47,7 +47,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c0e3724ffab2c2bfd1c80add6dd661c50f642a717b9b096b06741314cf18b0f3",
+  "sha256": "sha256:af2a9e95fbc744930c0c13078ee3afc1925bf5789f1f4ef39df561cdfccccf8b",
   "status": "accepted",
   "summary": "Binds the OpenCode adapter to generated tool registration through a plugin entry and short-lived Go CLI transport; domain authority remains in the Go core.",
   "tags": [

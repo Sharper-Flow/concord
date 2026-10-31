@@ -14,7 +14,7 @@
   "home_domain_id": "agent-surface",
   "id": "CD-0005",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0005-concord-agent-tool-surface.md",
+  "path": ".concord/law/decisions/CD-0005-concord-agent-tool-surface.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d39b9eb2eff0934e35356eb2d955a653ba51e9e19163274d33e4d7e3a12b62da",
+  "sha256": "sha256:2fec44c4aea2d88bbbf804111b22a2114a3d00c2011e9e82f2fb584a9de2fc4d",
   "status": "accepted",
   "summary": "Consolidates the generated current agent surface, exact manifest-digest identity, core authority boundary, and deterministic pre-go-live evidence as amended by CD-0042.",
   "tags": [

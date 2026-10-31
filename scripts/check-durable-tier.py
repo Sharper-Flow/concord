@@ -21,11 +21,13 @@ Scope, per CD-0069:
   baseline exists. An allowance is permission for one named note to exceed
   the byte bound while an issue tracks it, never permission to be non-markdown
   or to embed a state dump.
-- .concord/docs/decisions/: decision records are a different artifact class (CD-0013
-  is accepted law at 34.5 KB), so no byte bound applies. The markdown-only
-  rule is enforced as a declared inventory: every non-markdown artifact is
-  enumerated with a reason, and any new one fails until acknowledged. Drift
-  becomes a reviewable manifest diff instead of silent accretion.
+- The decisions trees, .concord/docs/decisions/ and the law decisions home the
+  corpus relocates into, .concord/law/decisions/: decision records
+  are a different artifact class (CD-0013 is accepted law at 34.5 KB), so no
+  byte bound applies. The markdown-only rule is enforced as a declared
+  inventory: every non-markdown artifact is enumerated with a reason, and any
+  new one fails until acknowledged. Drift becomes a reviewable manifest diff
+  instead of silent accretion.
 """
 
 from __future__ import annotations
@@ -39,6 +41,12 @@ ROOT = Path(__file__).resolve().parents[1]
 BUDGET = ROOT / ".concord/docs/durable-tier-budget.v1.json"
 MAX_FINDINGS = 200
 FENCE_RE = re.compile(r"^```[ \t]*([A-Za-z0-9_-]*)[ \t]*$")
+
+# The decisions trees the inventory declares: the docs tier and the law
+# decisions home. Both are scanned and
+# both accept inventory entries, so a straggler in either refuses.
+DECISION_TREES = (".concord/docs/decisions", ".concord/law/decisions")
+DECISION_TREE_PREFIXES = tuple(tree + "/" for tree in DECISION_TREES)
 
 
 def load_budget(findings: list[str]) -> dict | None:
@@ -82,14 +90,15 @@ def load_budget(findings: list[str]) -> dict | None:
     if not isinstance(inventory, list) or not all(
         isinstance(entry, dict)
         and isinstance(entry.get("path"), str)
-        and entry.get("path").startswith(".concord/docs/decisions/")
+        and entry.get("path").startswith(DECISION_TREE_PREFIXES)
         and not entry.get("path").endswith(".md")
         and isinstance(entry.get("reason"), str)
         and len(entry["reason"]) >= 12
         for entry in inventory
     ):
         findings.append(
-            "budget: non_markdown_inventory entries need a .concord/docs/decisions/ non-markdown path and a reason"
+            "budget: non_markdown_inventory entries need a .concord/docs/decisions/ or "
+            ".concord/law/decisions/ non-markdown path and a reason"
         )
         return None
     return budget
@@ -163,12 +172,14 @@ def main() -> int:
             )
 
     inventoried = {entry["path"] for entry in budget["non_markdown_inventory"]}
-    for path in iter_non_markdown(ROOT / ".concord/docs/decisions"):
-        rel = path.relative_to(ROOT).as_posix()
-        if rel not in inventoried:
-            findings.append(
-                f"{rel}: non-markdown artifact in .concord/docs/decisions is not in the budget inventory; acknowledge it with a reason or remove it"
-            )
+    for tree in DECISION_TREES:
+        for path in iter_non_markdown(ROOT / tree):
+            rel = path.relative_to(ROOT).as_posix()
+            if rel not in inventoried:
+                findings.append(
+                    f"{rel}: non-markdown artifact in a decisions tree is not in the budget inventory; "
+                    "acknowledge it with a reason or remove it"
+                )
     declared_missing = sorted(
         path for path in inventoried if not (ROOT / path).is_file()
     )

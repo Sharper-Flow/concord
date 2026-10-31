@@ -218,6 +218,29 @@ def test_class_exclusions_remain_in_the_schema_alternation() -> None:
         assert member in pattern, member
 
 
+def test_law_tree_is_declared_in_the_default_tree_rule() -> None:
+    """The default-tree rule covers both
+    .concord/docs/ and .concord/law/, with the docs tree preserved."""
+    pattern = default_path_clause(SCHEMA)["then"]["properties"]["path"]["pattern"]
+    assert ".concord/docs/" in pattern, pattern
+    assert ".concord/law/" in pattern, pattern
+
+
+def test_law_tree_is_absent_from_the_external_branch() -> None:
+    """A law-tree path is a default-tree path, so the external override
+    clause must not fire for it: its discriminator excludes both trees."""
+    clauses = SCHEMA["$defs"]["record"]["allOf"]
+    for clause in clauses:
+        paths = clause.get("if", {}).get("properties", {}).get("path", {})
+        negated = paths.get("not") or {}
+        if isinstance(negated, dict) and negated.get("pattern"):
+            pattern = negated["pattern"]
+            assert ".concord/docs/" in pattern, pattern
+            assert ".concord/law/" in pattern, pattern
+            return
+    raise AssertionError("schema declares no external record path clause")
+
+
 def test_law_kind_divergence_is_reported() -> None:
     schema = copy.deepcopy(SCHEMA)
     schema["$defs"]["lawRelation"]["properties"]["kind"]["enum"] = ["refines"]

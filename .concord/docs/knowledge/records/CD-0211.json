@@ -38,7 +38,7 @@
       "target_id": "CD-0198"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0211-defect-intake-classifies-recurrence-before-fix.md",
+  "path": ".concord/law/decisions/CD-0211-defect-intake-classifies-recurrence-before-fix.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -46,7 +46,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e1bebc9a5d3e2bc717243795161686a43d80d8f18a6f2b1aabba67f633c7eaad",
+  "sha256": "sha256:d0374326115a6c34f9d431e2f0eda6a3488a3e9aff0fb0ba3c30306ff580c8b9",
   "status": "accepted",
   "summary": "Every new public bug capture carries a defect_intake record with a canonical failure shape, a reproduction, a declared earlier-defect search, and explicit historical siblings. One transaction-scoped Product-membership owner computes the complete sorted sibling snapshot inside the capture transaction and rolls back before any durable or worktree effect. One earlier matching bug makes the report recurrent, and recurrence hard-blocks bug capture until completed same-Product same-shape research in workflow.research covers every current sibling; research capture needs no prerequisite and must omit root_cause_work_id. Classification is immutable across revision, kind conversion refuses, and recorded captures read back as recorded (CD-0242 D2). CD-0149 D2's explore body is amended to a facts-only packet.",
   "tags": [

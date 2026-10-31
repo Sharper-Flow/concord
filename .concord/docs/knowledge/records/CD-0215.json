@@ -14,7 +14,7 @@
   "home_domain_id": "product-memory",
   "id": "CD-0215",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0215-retained-research-context.md",
+  "path": ".concord/law/decisions/CD-0215-retained-research-context.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a0c293daf1b2cc751a05fb40d85a169b3db9927a3d935de05b532a1bcd7a8f49",
+  "sha256": "sha256:1b28f51a2b7da32c90b6c0b3db27fc900992e95f4daf0eef5b436e1fa534e7ea",
   "status": "accepted",
   "summary": "Replaces research context law with read-only reusable terminal-owner content, independent publication, protection by every active required or optional pin, and explicit bounded idempotent retirement without calendar expiration. Preserves direct-table authority, revisions, provenance, freshness, durable promotion, and CD-0222 Initiative obligations. Offline acceptance supplies no live consumer cutover or legislative workflow provenance.",
   "tags": [

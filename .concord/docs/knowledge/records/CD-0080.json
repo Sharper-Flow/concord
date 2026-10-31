@@ -13,7 +13,7 @@
   "home_domain_id": "agent-call-boundary",
   "id": "CD-0080",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0080-capability-scoping-replaces-the-grant-token.md",
+  "path": ".concord/law/decisions/CD-0080-capability-scoping-replaces-the-grant-token.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

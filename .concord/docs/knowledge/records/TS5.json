@@ -37,7 +37,7 @@
   "home_domain_id": "agent-call-boundary",
   "id": "TS5",
   "kind": "spec",
-  "path": ".concord/docs/agent-call-context-contract.md",
+  "path": ".concord/law/specs/agent-call-context-contract.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -45,7 +45,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ce7d8b7cac9347d0289779eedd00be49d97019a45cc111687d9ec90b394bc41c",
+  "sha256": "sha256:add3d540df3b5614562b501888d67b9a8904cb2649412b77afc0b7f370dff58f",
   "status": "accepted",
   "summary": "Defines the typed call envelope and its re-validation by the Go core on every short-lived invocation.",
   "tags": [

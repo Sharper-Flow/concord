@@ -21,7 +21,7 @@ workflow type declares. These surfaces are **first-class read targets with
 optimal IO/storage/memory** — not opaque files on disk. The default view is
 minimal: active gates and problems first; history is one click down.
 
-The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
+The canonical Concord priorities are maintained in [`../law/constitution/priorities.md`](../law/constitution/priorities.md); this document
 follows them without restating the ranked list.
 
 ---
@@ -36,7 +36,7 @@ follows them without restating the ranked list.
 - Public predecessor evidence proved the value of bounded spec list/show/search;
   Concord redesigns that outcome as a Domain-bound, browsable surface rather than
   calling or mirroring predecessor runtime state.
-- The primary operator surface follows [`priorities.md`](./priorities.md).
+- The primary operator surface follows [`../law/constitution/priorities.md`](../law/constitution/priorities.md).
   Any grid/table view is an optional projection.
 - Connects to [`specs-as-laws.md`](./specs-as-laws.md): the laws are **visible**,
   not hidden. A legislator can't govern what they can't read.
@@ -124,8 +124,8 @@ CD-0213 and supplies no execution authority.
 1. **Browse UX** — tool-based queries? optional admin panel? both?
 2. **Memory-bounding strategy** — lazy loading, cursor pagination, streaming?
 
-[CD-0242 D1–D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d1-each-kind-of-state-has-one-owner)
-owns Git knowledge and current-state storage; [D7](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)
+[CD-0242 D1–D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d1-each-kind-of-state-has-one-owner)
+owns Git knowledge and current-state storage; [D7](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)
 owns digest-bound invalidation.
 
 ---

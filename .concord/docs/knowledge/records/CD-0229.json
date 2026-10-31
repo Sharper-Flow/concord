@@ -28,7 +28,7 @@
       "target_id": "CD-0218"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md",
+  "path": ".concord/law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -36,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fec9bb2f873c773bbc8f79b3e809bea05adfbe4f67df8712a63ab90405d6f37f",
+  "sha256": "sha256:e4e060a8e4b265bee764075897c11191cffc934d0278221d9edc676056de2dac",
   "status": "accepted",
   "summary": "A workflow definition is a composition of versioned parts, and each step is defined in exactly one part; the registry compiles compositions, and no released definition version is retained for history. The decision model sets each work item's size and its minimum steps, proof, and testing; a task that proves bigger than its size reruns the model and continues in the same item. Sized workflows record define start and merge-queue entry.",
   "tags": [

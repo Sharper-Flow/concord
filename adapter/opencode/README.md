@@ -28,7 +28,7 @@ issue key, UUID, and URL with `concord_work_define.issue_link_record`.
 Concord stores that reported identity without remote confirmation. One issue
 identity belongs to one work unit; a second claim refuses. Resume reports the
 recorded key and URL. Read current issue state through Linear MCP.
-See [CD-0213](../../.concord/docs/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).
+See [CD-0213](../../.concord/law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).
 
 `concord upgrade` takes a verified snapshot before any breaking migration applies.
 The [upgrade note](../../README.md#planning-retirement-upgrade) describes the
@@ -110,7 +110,7 @@ revisions with the installation evidence. On a fresh installation, register
 the intended names in the client's `agent_scope` before starting managed work.
 
 The additive command preserves existing grants under
-[CD-0097 D6](../../.concord/docs/decisions/CD-0097-bounded-parallel-predecessor-migration.md#d6-trusted-client-policy-grows-by-an-additive-operator-command).
+[CD-0097 D6](../../.concord/law/decisions/CD-0097-bounded-parallel-predecessor-migration.md#d6-trusted-client-policy-grows-by-an-additive-operator-command).
 Removing retired names is a separate operator decision through the
 full-statement `client-policy-update` command; it is not part of this expansion.
 The installer does not modify trusted-client policy. This is an operator

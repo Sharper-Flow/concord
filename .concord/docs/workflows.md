@@ -1,20 +1,20 @@
 # Concord Workflows
 
 > **Authority:**
-> [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
+> [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
 > and
-> [CD-0229](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md).
-> [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D6, D13, and D14 govern generated definitions, current state, and finite snapshots.
+> [CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md).
+> [CD-0242](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D6, D13, and D14 govern generated definitions, current state, and finite snapshots.
 > Companion to [`README.md`](./README.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
 > [`product-data-model.md`](./product-data-model.md).
 > **Purpose:** New execution selects one of three retained workflow families
 > (CD-0218 D1); §4 lists them. A workflow definition is composed from shared
 > parts, and a decision model sets each work item's size (§7; CD-0229).
-> **Primary surface:** Defined by [`priorities.md`](./priorities.md); an admin
+> **Primary surface:** Defined by [`../law/constitution/priorities.md`](../law/constitution/priorities.md); an admin
 > panel or web UI is optional and secondary.
 
-**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+**Approval amendment:** [CD-0243 D7](../law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies current outcome-contract consent and revision authority. Definitions
 derive from one canonical source with no released definition version retained
 for history (CD-0242 D14). The operator-owned release cutover retains its
@@ -35,14 +35,14 @@ operator starts each session, and agents enter managed work through
 `concord_work_start`. Optional grid/table views are projections, not the
 primary interface.
 
-The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
+The canonical Concord priorities are maintained in [`../law/constitution/priorities.md`](../law/constitution/priorities.md); this document
 follows them without restating them.
 
 ---
 
 ## 0. Audience and primary surface (resolved)
 
-- **Primary operator surface:** follows [`priorities.md`](./priorities.md).
+- **Primary operator surface:** follows [`../law/constitution/priorities.md`](../law/constitution/priorities.md).
   The host starts each session; the session enters named work through
   `concord_work_start`.
 - **Entry responsibility:** narrow start/resume actions. Substantive
@@ -91,7 +91,7 @@ catalog retains exactly three families (CD-0218 D1). What a definition fixes:
 | **Completion criteria** | How it's "done" (a contract satisfied? a report submitted? a signal fired?). |
 | **Value statement** | One sentence stating the work value: what it delivers and why it matters. |
 | **Outcome contract** | The premise, required end-state, and candidate set the family requires at approval. See §2.1a. |
-| **Product-truth effect** | Closed `changes_product_truth` classification; architecture bindings and permitted law revisions follow [CD-0222 D5](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md), as amended by [CD-0230 D4](./decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md). |
+| **Product-truth effect** | Closed `changes_product_truth` classification; architecture bindings and permitted law revisions follow [CD-0222 D5](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md), as amended by [CD-0230 D4](../law/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md). |
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
 | **Active visibility** | Which gates/problems are surfaced by default vs. hidden behind history. |
 
@@ -136,9 +136,9 @@ substitutes.
 Every workflow carries an outcome contract. Research may record `no_change`
 when its approved outcome predicate allows it. The retained families' outcome
 tokens and predicate forms are fixed in
-[CD-0218 D1](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md).
+[CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md).
 Binding form and per-type verbs:
-[`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
+[`../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
 
 ### 2.2 Factored lifecycle truth
 
@@ -209,12 +209,12 @@ matures into a break-fix workflow, which may become an implementation change.
 |---|---|---|
 | **`workflow.implementation`** | Tasks default here | Composes shared parts at the size the decision model sets: `small` walks define, implement, review, and ship; `larger` adds research, architect, and refine; `crucial` adds repeated implement steps and repeats review and refine (CD-0229 D5; CD-0242 D4). The outcome contract, review acceptance, and closure hold at every size. |
 | **`workflow.break_fix`** | Bugs default here | One typed diagnosis with required reproduction, backlog-search, and root-cause sections, then repair, the mandatory refine pass, and verification (CD-0242 D4; CD-0138 D1). |
-| **`workflow.research`** | Research defaults here | Records findings, conclusions, and recommendations; may conclude `no_change`; outcome predicates only (CD-0218 D1). [CD-0215](./decisions/CD-0215-retained-research-context.md) owns the research-pack capability. |
+| **`workflow.research`** | Research defaults here | Records findings, conclusions, and recommendations; may conclude `no_change`; outcome predicates only (CD-0218 D1). [CD-0215](../law/decisions/CD-0215-retained-research-context.md) owns the research-pack capability. |
 
 The retired families — `architecture_spike`, `ops_runbook`, `static_analysis`,
 `generic_one_off` — select no new execution, and no alias maps a retired
 family to a retained one (CD-0218 D1).
-[CD-0215 D2](./decisions/CD-0215-retained-research-context.md) requires
+[CD-0215 D2](../law/decisions/CD-0215-retained-research-context.md) requires
 an architecture spike to resolve through a separate reviewed and accepted
 decision; CD-0218 assigns that obligation to the cutover owner's approved
 successor set. Research reports do not enact legislation (CD-0218 D1).
@@ -234,14 +234,14 @@ the external run's scope, report, and evidence in the steps its composition
 declares; that output is advisory input, not a verdict (CD-0138 D3).
 Break-fix keeps the mandatory `refine` step (CD-0138 D1), and implementation
 includes it at the sizes CD-0229 D5 names. The refine proof rule is
-[CD-0192](./decisions/CD-0192-the-refine-pass-proves-a-declared-analysis-ran.md),
+[CD-0192](../law/decisions/CD-0192-the-refine-pass-proves-a-declared-analysis-ran.md),
 which amends
-[CD-0138 D3](./decisions/CD-0138-mandatory-refinement-pass.md).
+[CD-0138 D3](../law/decisions/CD-0138-mandatory-refinement-pass.md).
 Host-owned methodology selects the tool and analysis procedure. This boundary
 follows
 [`predecessor-operational-coverage.md` §3](./predecessor-operational-coverage.md#3-implementation-changes),
-[CD-0043 D1](./decisions/CD-0043-host-owned-lane-methodology.md#d1-methodology-is-not-durable-coordination-state),
-and [CD-0055 D4](./decisions/CD-0055-repository-check-authority.md#d4-heuristic-judgment-warns-it-never-blocks).
+[CD-0043 D1](../law/decisions/CD-0043-host-owned-lane-methodology.md#d1-methodology-is-not-durable-coordination-state),
+and [CD-0055 D4](../law/decisions/CD-0055-repository-check-authority.md#d4-heuristic-judgment-warns-it-never-blocks).
 
 ---
 
@@ -255,7 +255,7 @@ and [CD-0055 D4](./decisions/CD-0055-repository-check-authority.md#d4-heuristic-
 
 ## 7. Composition and size
 
-[CD-0229](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
+[CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
 is accepted law. This section states its model, not the current implementation
 status.
 
@@ -288,8 +288,8 @@ status.
 | `product-data-model.md` §6 | Product → Domain navigation. |
 | `specs-as-laws.md` | Workflow evolution couples to spec evolution. |
 | `design-constraints.md` §3 | Workflow evolution constraints; a composition change is a new part version compiled from the one canonical source (§7; CD-0229 D2; CD-0242 D14). |
-| [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) | The three retained execution families (CD-0218 D1); the store keeps current state, and the cutover is one documented migration (CD-0242 D2, D13). |
-| [CD-0229](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) | Shared-part composition and the size decision model. |
+| [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) | The three retained execution families (CD-0218 D1); the store keeps current state, and the cutover is one documented migration (CD-0242 D2, D13). |
+| [CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) | Shared-part composition and the size decision model. |
 
 ---
 

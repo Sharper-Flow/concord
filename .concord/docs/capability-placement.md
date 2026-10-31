@@ -1,7 +1,7 @@
 # Concord Capability Placement: The Shape Rubric
 
 > **Status:** Draft v2. Companion to [`README.md`](./README.md),
-> [`priorities.md`](./priorities.md),
+> [`../law/constitution/priorities.md`](../law/constitution/priorities.md),
 > [`design-constraints.md`](./design-constraints.md).
 > **Purpose:** Every command/tool/policy goes in **exactly the right place** by
 > shape. This doc is the rubric for deciding *where* a capability lives (plugin /

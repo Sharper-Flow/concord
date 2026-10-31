@@ -114,6 +114,48 @@ class DefaultPlacementTest(unittest.TestCase):
         self.assertIn("unapproved external knowledge placement", out)
 
 
+class LawHomeTest(unittest.TestCase):
+    """A manifest that declares the law tree requires the law home
+    to be a real directory. A docs-only manifest needs no law home, so a
+    pre-relocation repository keeps passing."""
+
+    def law_document(self) -> dict:
+        document = manifest_document(knowledge_roots=[".concord/docs/", ".concord/law/"])
+        document["records"][0]["path"] = ".concord/law/decisions/CD-0001-example.md"
+        return document
+
+    def test_a_declared_law_home_that_is_missing_refuses(self) -> None:
+        root = build_sandbox()
+        (root / ".concord/docs/decisions").mkdir(parents=True)
+        (root / ".concord/docs/decisions/CD-0001-example.md").write_text("law\n", encoding="utf-8")
+        code, out, _ = run_with_sandbox(root, self.law_document())
+        self.assertEqual(code, 1)
+        self.assertIn("declared law home is not a real directory: .concord/law", out)
+
+    def test_a_symlinked_law_home_refuses(self) -> None:
+        root = build_sandbox()
+        real = root / "elsewhere"
+        (real / "law").mkdir(parents=True)
+        (root / ".concord/law").symlink_to("../elsewhere/law", target_is_directory=True)
+        code, out, _ = run_with_sandbox(root, self.law_document())
+        self.assertEqual(code, 1)
+        self.assertIn("declared law home is not a real directory: .concord/law", out)
+
+    def test_a_real_law_home_passes(self) -> None:
+        root = build_sandbox()
+        (root / ".concord/law/decisions").mkdir(parents=True)
+        (root / ".concord/law/decisions/CD-0001-example.md").write_text("law\n", encoding="utf-8")
+        code, out, _ = run_with_sandbox(root, self.law_document())
+        self.assertEqual(code, 0, out)
+
+    def test_a_docs_only_manifest_needs_no_law_home(self) -> None:
+        root = build_sandbox()
+        (root / ".concord/docs/decisions").mkdir(parents=True)
+        (root / ".concord/docs/decisions/CD-0001-example.md").write_text("law\n", encoding="utf-8")
+        code, out, _ = run_with_sandbox(root, manifest_document())
+        self.assertEqual(code, 0, out)
+
+
 class RetiredRootTreeTest(unittest.TestCase):
     def test_a_retired_root_directory_refuses(self) -> None:
         root = build_sandbox()

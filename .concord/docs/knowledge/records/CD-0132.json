@@ -19,7 +19,7 @@
   "id": "CD-0132",
   "kind": "decision",
   "law_relations": [],
-  "path": ".concord/docs/decisions/CD-0132-the-envelope-law-is-the-same-at-producer-and-adapter.md",
+  "path": ".concord/law/decisions/CD-0132-the-envelope-law-is-the-same-at-producer-and-adapter.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

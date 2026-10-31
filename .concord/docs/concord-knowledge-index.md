@@ -13,8 +13,8 @@ is the closed JSON Schema contract.
 ## Contract
 
 Derived law projections are rebuilt from Git in one transaction; no event log,
-fold, or replay exists ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-Operator consent follows [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+fold, or replay exists ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+Operator consent follows [CD-0243 D7](../law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 throughout this record, including tables and acceptance criteria.
 Other admission, safety, evidence, and historical-pin requirements remain required.
 
@@ -84,7 +84,7 @@ updates hashes only; it never authors inclusion, metadata, or status.
 
 ## Domain facts
 
-[CD-0244 D4–D8](decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d4-domain-facts-are-typed-small-and-owned-by-one-domain)
+[CD-0244 D4–D8](../law/decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d4-domain-facts-are-typed-small-and-owned-by-one-domain)
 governs the typed facts in every Product knowledge home. Each fact is a JSON
 shard with exactly one `owner_domain_id` and no body document. The four kinds
 are `invariant`, `data_object`, `state_authority`, and `config_coupling`.

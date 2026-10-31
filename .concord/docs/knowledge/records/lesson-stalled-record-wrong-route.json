@@ -4,7 +4,7 @@
   },
   "date": "2026-09-29T00:00:00Z",
   "evidence": [
-    ".concord/docs/managed-development-authority.md",
+    ".concord/law/specs/managed-development-authority.md",
     "internal/store/workflow_action_guards.go",
     "internal/store/workflow_completion.go",
     "internal/store/workflow_operator.go"

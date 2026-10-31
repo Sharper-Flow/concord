@@ -372,7 +372,7 @@
             "properties": {
               "path": {
                 "type": "string",
-                "pattern": "^\\.concord/docs/.*\\.md$"
+                "pattern": "^(?:\\.concord/docs/|\\.concord/law/).*\\.md$"
               }
             },
             "required": [
@@ -382,8 +382,8 @@
           "then": {
             "properties": {
               "path": {
-                "description": "CD-0194 D2: inside the default tree the authored path rule applies: the tier's work, research, and generated content exclusions hold. The Go model cannot compile the lookahead (RE2), so knowledge_vocabulary_test.go decomposes this pattern; keep its text in the '^.concord/docs/(?!<alternation>).*\\.md$' shape.",
-                "pattern": "^.concord/docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\\.md$"
+                "description": "CD-0194 D2: inside a default tree (.concord/docs/ or .concord/law/) the authored path rule applies: the tree's work, research, and generated content exclusions hold. The Go model cannot compile the lookahead (RE2), so knowledge_vocabulary_test.go decomposes this pattern; keep its text in the '^(?:.concord/docs/|.concord/law/)(?!<alternation>).*\\.md$' shape.",
+                "pattern": "^(?:.concord/docs/|.concord/law/)(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\\.md$"
               }
             }
           }
@@ -452,7 +452,7 @@
           "then": {
             "properties": {
               "path": {
-                "pattern": "^.concord/docs/decisions/CD-[0-9]{4}(-.*)?\\.md$"
+                "pattern": "^(?:.concord/docs/|.concord/law/)decisions/CD-[0-9]{4}(-.*)?\\.md$"
               }
             }
           }
@@ -508,7 +508,7 @@
               "path": {
                 "type": "string",
                 "not": {
-                  "pattern": "^\\.concord/docs/.*\\.md$"
+                  "pattern": "^(?:\\.concord/docs/|\\.concord/law/).*\\.md$"
                 }
               }
             },
@@ -520,7 +520,7 @@
             "properties": {
               "path": {
                 "type": "string",
-                "description": "CD-0194 D2: a record path outside the default tree is admitted only when the manifest head carries an explicit operator override that covers it. The pattern declares the closed external shape; the override itself, and the accepted decision that anchors it, are proven by the composer, the checkers, and the store parser. The generated-substring exclusion and the dot-segment refusals apply in every tree.",
+                "description": "CD-0194 D2: a record path outside both default trees is admitted only when the manifest head carries an explicit operator override that covers it. The pattern declares the closed external shape; the override itself, and the accepted decision that anchors it, are proven by the composer, the checkers, and the store parser. The generated-substring exclusion and the dot-segment refusals apply in every tree.",
                 "pattern": "^(?!.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd])(?!(?:.*/)?\\.\\.(?:/|$))(?!(?:.*/)?\\.(?:/|$))[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*\\.md$",
                 "maxLength": 512
               }

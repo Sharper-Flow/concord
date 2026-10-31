@@ -21,7 +21,7 @@
       "target_id": "CD-0114"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0194-product-knowledge-lives-under-concord.md",
+  "path": ".concord/law/decisions/CD-0194-product-knowledge-lives-under-concord.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -29,9 +29,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:210a9e3a35d827341c3fb3c4d866173ef09eeddb922a0891a68ccacf64681fa7",
+  "sha256": "sha256:0492c1adc7bd4d8d8a56e02c6a533490f0855bf45b955814c36b10ddd860a22e",
   "status": "accepted",
-  "summary": "All repository-authored Product knowledge lives under .concord/docs, .concord/instructions, and .concord/scenarios, with one canonical copy per artifact and the manifest shards still the composed authority. A knowledge location outside .concord/ is valid only through an explicit operator override recorded in the manifest head, tied to one Product, and validated by the knowledge placement check. This repository carries no root docs, instructions, or scenarios directory and no compatibility symlink. Installed conduct stays a derived projection of .concord/instructions, and history reads in the layout each revision carries.",
+  "summary": "All repository-authored Product knowledge lives under .concord/law, .concord/docs, .concord/instructions, and .concord/scenarios, with one canonical copy per artifact and the manifest shards still the composed authority. A knowledge location outside .concord/ is valid only through an explicit operator override recorded in the manifest head, tied to one Product, and validated by the knowledge placement check. This repository carries no root docs, instructions, or scenarios directory and no compatibility symlink. Installed conduct stays a derived projection of .concord/instructions, and history reads in the layout each revision carries.",
   "tags": [
     "knowledge",
     "placement",

@@ -17,7 +17,7 @@
   "home_domain_id": "workflow-engine",
   "id": "CD-0077",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0077-storage-vocabularies-have-one-authority.md",
+  "path": ".concord/law/decisions/CD-0077-storage-vocabularies-have-one-authority.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

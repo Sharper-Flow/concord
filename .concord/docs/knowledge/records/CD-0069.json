@@ -14,7 +14,7 @@
   "home_domain_id": "agent-contract",
   "id": "CD-0069",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0069-durable-tier-enforcement.md",
+  "path": ".concord/law/decisions/CD-0069-durable-tier-enforcement.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d717e862ebfb46fce6f9d04654def74d67c1743e283cd3286d7e87f7591bd618",
+  "sha256": "sha256:97784306663beca89050c98aa7e94883fca9d951915a0ca4d099e1a6db42ec36",
   "status": "accepted",
   "summary": "D1 lands the detective layer now: check-durable-tier.py fails in CI on non-markdown artifacts under the note roots, notes over the budget byte bound, fenced JSON blocks over the dump threshold, and uninventoried non-markdown artifacts under .concord/docs/decisions, with all bounds single-sourced from .concord/docs/durable-tier-budget.v1.json and zero tolerance with no ratchet; D2 sets the bound at 16384 bytes over the compaction-note roots docs/work and .concord/docs/lessons, keeps decision records out of the byte bound as a different artifact class, and enforces markdown-only for them through a declared inventory with reasons; D3 records the producer-side strict typed parse as the contract the future compaction pipeline must satisfy, reading the same budget; D4 extends AJ6-compact-terminal-work to assert the compaction path emits an in-budget note; D5 states why three layers: the detective binds every writer at the merge chokepoint, the producer parse catches violations cheapest at write time, and the scenario observes pipeline behavior over time.",
   "tags": [

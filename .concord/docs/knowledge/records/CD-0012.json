@@ -8,7 +8,7 @@
   "home_domain_id": "workflow-engine",
   "id": "CD-0012",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
+  "path": ".concord/law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -16,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1ab4f8158463634d22bc87108a12692fc548e4bdb9379ba95c51d8466017b802",
+  "sha256": "sha256:b1576d4fe5d4ccb827c4766fc941458a884a5215e74fcb3b90c9984e3a2d76e4",
   "status": "accepted",
   "summary": "Defines the three-part outcome contract and strengthen-only delivery comparison.",
   "tags": [

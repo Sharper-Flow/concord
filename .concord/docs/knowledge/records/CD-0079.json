@@ -14,7 +14,7 @@
   "home_domain_id": "operator-surface",
   "id": "CD-0079",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0079-directory-to-project-resolution-is-an-operator-read.md",
+  "path": ".concord/law/decisions/CD-0079-directory-to-project-resolution-is-an-operator-read.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

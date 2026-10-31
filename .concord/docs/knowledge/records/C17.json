@@ -16,7 +16,7 @@
   "home_domain_id": "operator-surface",
   "id": "C17",
   "kind": "spec",
-  "path": ".concord/docs/product-coordination-view.md",
+  "path": ".concord/law/specs/product-coordination-view.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:56742f7a735ae8e56ca6b0557fe09e2f52b81c5cffaa39dd443e0b477eb152d6",
+  "sha256": "sha256:acc3ccf91376a15a1957bcf8fc6ea902086c6c0e0fe4dbba37f150746109646e",
   "status": "accepted",
   "summary": "Defines the Product coordination drill-down: a structural relation tree and a ranked work table under typed truncation.",
   "tags": [

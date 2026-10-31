@@ -34,7 +34,7 @@
   "home_domain_id": "agent-contract",
   "id": "TS3",
   "kind": "spec",
-  "path": ".concord/docs/agent-read-tool-contract.md",
+  "path": ".concord/law/specs/agent-read-tool-contract.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -42,7 +42,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:45ad7e6afe865c54ebf704483a8a2be77795f1a221eca8db3cf0df6d92310488",
+  "sha256": "sha256:f48bbda2c76b64822e688094bc2a88786c935258297e189210638642029a4f75",
   "status": "accepted",
   "summary": "Defines bounded read tools including the durable knowledge surface.",
   "tags": [

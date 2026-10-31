@@ -112,7 +112,7 @@
       "target_id": "CD-0217"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md",
+  "path": ".concord/law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md",
   "product_wide_rationale": "Knowledge-first workflows replace the event-sourced state authority, the stage-exit and execution-loop rules, evidence binding, resumption, recovery, and the cutover path for every Domain, so the change reaches the whole Product rather than one child Domain.",
   "scopes": {
     "domain_ids": [],

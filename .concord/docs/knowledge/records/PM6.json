@@ -36,7 +36,7 @@
   "home_domain_id": "product-memory",
   "id": "PM6",
   "kind": "spec",
-  "path": ".concord/docs/canonical-git-note-placement.md",
+  "path": ".concord/law/specs/canonical-git-note-placement.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -44,7 +44,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a9bfced45621dd7030a3fbb5ee9c80cbd54147bf35de026bd79e66c358efa00f",
+  "sha256": "sha256:c2fc36c0cf682b0141cc8c3e26b8c520f90a7be1841a39a60f3499a1251e6557",
   "status": "accepted",
   "summary": "Verifies canonical Git note identity and publication recovery; canonical discovery is independent of settled linkage and does not itself authorize terminal cleanup.",
   "tags": [

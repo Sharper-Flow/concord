@@ -39,7 +39,7 @@
   "home_domain_id": "product-memory",
   "id": "PM10",
   "kind": "spec",
-  "path": ".concord/docs/product-memory-recovery.md",
+  "path": ".concord/law/specs/product-memory-recovery.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -47,7 +47,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e4beb19e0e6c553a00cbe169f41e99f42982e085c895a5a3f03370e983b7be7f",
+  "sha256": "sha256:2b40194e48d8d06588fc63347fdf57a3b4c610b904385f4f5c4c826dce38f111",
   "status": "accepted",
   "summary": "Defines backup and restore through the SQLite online backup interface with integrity, foreign-key, and quick verification.",
   "tags": [

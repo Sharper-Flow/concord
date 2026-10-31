@@ -253,19 +253,20 @@ func TestKnowledgeManifestVocabularyMatchesSchema(t *testing.T) {
 }
 
 // schemaRecordPathShape matches the one form of the default-tree record path
-// rule the Go decomposition can be read out of: a negative lookahead over
-// `|`-separated ineligibility members, applied to everything below
-// .concord/docs/.
-var schemaRecordPathShape = regexp.MustCompile(`^\^.concord/docs/\(\?!(.+)\)\.\*\\\.md\$$`)
+// rule the Go decomposition can be read out of: both admitted tree roots
+// followed by a negative lookahead over `|`-separated ineligibility members,
+// applied to everything below either tree.
+var schemaRecordPathShape = regexp.MustCompile(`^\^\(\?:.concord/docs/\|.concord/law/\)\(\?!(.+)\)\.\*\\\.md\$$`)
 
 // schemaIneligibleRE reads the default-tree path pattern out of
-// $defs.record.allOf (CD-0194 D2) and converts its negative lookahead into an
-// RE2 predicate over the path remainder below .concord/docs/. RE2 cannot
-// express the lookahead itself, but the alternation inside it is ordinary
-// regex, so "ineligible" is exactly "some member matches at the start of the
-// remainder". The clause is an implication: the if-clause selects every
-// default-tree markdown path and the then-clause carries the authored rule, so
-// a restructure fails loudly instead of silently matching nothing.
+// $defs.record.allOf (CD-0194 D2) and converts its negative
+// lookahead into an RE2 predicate over the path remainder below whichever
+// admitted tree root the path sits in. RE2 cannot express the lookahead
+// itself, but the alternation inside it is ordinary regex, so "ineligible"
+// is exactly "some member matches at the start of the remainder". The clause
+// is an implication: the if-clause selects every default-tree markdown path
+// and the then-clause carries the authored rule, so a restructure fails
+// loudly instead of silently matching nothing.
 func schemaIneligibleRE(t *testing.T, record json.RawMessage) *regexp.Regexp {
 	t.Helper()
 	var holder struct {
@@ -289,7 +290,7 @@ func schemaIneligibleRE(t *testing.T, record json.RawMessage) *regexp.Regexp {
 	if err := json.Unmarshal(record, &holder); err != nil {
 		t.Fatalf("parse $defs.record.allOf: %v", err)
 	}
-	const defaultTreeCondition = `^\.concord/docs/.*\.md$`
+	const defaultTreeCondition = `^(?:\.concord/docs/|\.concord/law/).*\.md$`
 	pattern := ""
 	for _, clause := range holder.AllOf {
 		if clause.If.Properties.Path.Pattern == defaultTreeCondition && clause.Then.Properties.Path.Pattern != "" {
@@ -345,6 +346,16 @@ func TestKnowledgeManifestIneligiblePathsMatchSchema(t *testing.T) {
 		".concord/docs/generation-policy.md",
 		".concord/docs/workflows.md",
 		".concord/docs/researcher-guide.md",
+		// The law tree carries the same authored
+		// rule: eligible law placements, its own class exclusions, and the
+		// same substring near misses.
+		".concord/law/decisions/CD-0300-synthetic.md",
+		".concord/law/constitution/founding.md",
+		".concord/law/work/scratch.md",
+		".concord/law/research/R1-probe.md",
+		".concord/law/generated-law.md",
+		".concord/law/GENERATED.md",
+		".concord/law/generation-policy.md",
 	}
 	// Every authored markdown blob in the repository is a probe too: a
 	// synthetic corpus cannot notice a rule that only bites a real file.
@@ -356,7 +367,7 @@ func TestKnowledgeManifestIneligiblePathsMatchSchema(t *testing.T) {
 			continue
 		}
 		seen[probe] = true
-		schemaSaysIneligible := ineligible.MatchString(strings.TrimPrefix(probe, ".concord/docs/"))
+		schemaSaysIneligible := ineligible.MatchString(remainderBelowAdmittedTree(probe))
 		_, goSaysIneligible := manifestPathIneligible(probe)
 		if schemaSaysIneligible != goSaysIneligible {
 			t.Errorf("%s: schema ineligible=%v, Go ineligible=%v", probe, schemaSaysIneligible, goSaysIneligible)
@@ -370,24 +381,38 @@ func TestKnowledgeManifestIneligiblePathsMatchSchema(t *testing.T) {
 	}
 }
 
-// repositoryDocsPaths lists every markdown blob below .concord/docs/, so the binding is
-// exercised against the real corpus and not only against chosen probes.
+// remainderBelowAdmittedTree strips whichever default tree the probe sits
+// in, so the schema alternation is compared against the remainder the Go
+// rules apply it to. Every current-tree probe the parity binding uses must
+// sit below one of these two roots.
+func remainderBelowAdmittedTree(probe string) string {
+	for _, tree := range []string{".concord/docs/", ".concord/law/"} {
+		if rest, found := strings.CutPrefix(probe, tree); found {
+			return rest
+		}
+	}
+	return probe
+}
+
+// repositoryDocsPaths includes law and nonlaw bodies in the live corpus.
 func repositoryDocsPaths(t *testing.T) []string {
 	t.Helper()
 	var out []string
-	root := "../../.concord/docs"
-	err := filepath.WalkDir(root, func(name string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() || !strings.HasSuffix(name, ".md") {
+	for _, tree := range []string{".concord/docs", ".concord/law"} {
+		root := "../../" + tree
+		err := filepath.WalkDir(root, func(name string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() || !strings.HasSuffix(name, ".md") {
+				return nil
+			}
+			out = append(out, tree+"/"+filepath.ToSlash(strings.TrimPrefix(name, root+string(filepath.Separator))))
 			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", tree, err)
 		}
-		out = append(out, ".concord/docs/"+filepath.ToSlash(strings.TrimPrefix(name, root+string(filepath.Separator))))
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walk docs: %v", err)
 	}
 	if len(out) == 0 {
 		t.Fatal(".concord/docs/ yielded no markdown blobs")

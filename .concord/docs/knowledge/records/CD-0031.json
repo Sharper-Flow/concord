@@ -19,7 +19,7 @@
   "home_domain_id": "operator-surface",
   "id": "CD-0031",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0031-core-derived-session-boot.md",
+  "path": ".concord/law/decisions/CD-0031-core-derived-session-boot.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

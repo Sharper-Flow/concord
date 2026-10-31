@@ -20,7 +20,7 @@
   "home_domain_id": "durable-authority",
   "id": "CD-0008",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0008-concord-mechanism-hardening.md",
+  "path": ".concord/law/decisions/CD-0008-concord-mechanism-hardening.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

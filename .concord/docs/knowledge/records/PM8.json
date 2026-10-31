@@ -25,7 +25,7 @@
   "home_domain_id": "product-memory",
   "id": "PM8",
   "kind": "spec",
-  "path": ".concord/docs/product-memory-evidence-store.md",
+  "path": ".concord/law/specs/product-memory-evidence-store.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -33,7 +33,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5138e2b6df479bc8f2edbd9e81299785769dcb4bd269605a30ea8344c4a3aa17",
+  "sha256": "sha256:d68084f4c78223c63e8a44900586f1111d6460801109a495365561a6a38f8e44",
   "status": "accepted",
   "summary": "Declares no content-addressed evidence or blob store in v1; work-in-progress output stays process exhaust.",
   "tags": [

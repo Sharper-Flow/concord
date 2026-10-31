@@ -10,13 +10,13 @@
   "date": "2026-08-21T00:00:00Z",
   "evidence": [
     "cmd/concord/session.go",
-    ".concord/docs/decisions/CD-0016-context-continuity.md",
+    ".concord/law/decisions/CD-0016-context-continuity.md",
     "internal/agent/authority.go"
   ],
   "home_domain_id": "operator-surface",
   "id": "CD-0049",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0049-agent-delivery-and-identity-assertion.md",
+  "path": ".concord/law/decisions/CD-0049-agent-delivery-and-identity-assertion.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:850a7bf8676b4d4e794bb88851dd60d650addebc480c5451d51d2dd34bcf732e",
+  "sha256": "sha256:96177846a4301d6f3ecc93b758c37fd7014a487b2403acd109101bcd054a8feb",
   "status": "accepted",
   "summary": "Managed session preparation verifies required agent identity without recording an identity assertion or trusting a host fallback. Missing identity refuses start. Trusted client policy bounds the agent names a caller may present and an empty scope authorizes none. These checks attest no native Task producer identity.",
   "tags": [

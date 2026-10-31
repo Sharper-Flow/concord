@@ -273,6 +273,8 @@ jobs:
         run: python3 -m unittest discover -s adapter/opencode/evals/coordinator -p 'test_*.py'
       - name: Validate documentation links
         run: python3 scripts/check-doc-links.py
+      - name: Test reproducible law relocation
+        run: python3 scripts/test-relocate-law.py
       - name: Validate knowledge placement
         run: python3 scripts/check-knowledge-placement.py
       - name: Validate the frozen legislative default census

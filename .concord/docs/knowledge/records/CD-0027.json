@@ -15,7 +15,7 @@
   "home_domain_id": "agent-call-boundary",
   "id": "CD-0027",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0027-typed-restart-excluded.md",
+  "path": ".concord/law/decisions/CD-0027-typed-restart-excluded.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

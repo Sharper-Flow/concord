@@ -12,7 +12,7 @@
   "home_domain_id": "product-root:concord",
   "id": "CD-0019",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0019-predecessor-strength-preservation.md",
+  "path": ".concord/law/decisions/CD-0019-predecessor-strength-preservation.md",
   "product_wide_rationale": "Mandates that six predecessor capabilities be carried forward and binds the method for deciding their shapes. The mandate spans product-memory, work-coordination, and durable-authority at once, and its D4 authorizes no implementation in any of them.",
   "scopes": {
     "domain_ids": [],
@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:32924b17ede0c5382bba76cbffb7fe89b4f09292dea5adcf4e724cd9dc2103f5",
+  "sha256": "sha256:5fc87f3e808b1ad5b0c27b54f67c6fa625deac540ad56fcb24f736ddfacc31f9",
   "status": "accepted",
   "summary": "Six predecessor strengths (specs, narrative artifacts, knowledge index, conformance, triage, reflection) are preservation-mandated, each research-informed in its Concord shape rather than inherited.",
   "tags": [

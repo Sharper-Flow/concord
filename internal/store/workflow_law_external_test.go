@@ -387,7 +387,15 @@ func TestLawAttributionExternalInventoryChangeDoesNotBlock(t *testing.T) {
 	}
 }
 
+// Another item's law removal, imported by rebase or by a later merge of main,
+// does not block an item that changed only its own declared law.
 func TestLawAttributionExternalRemovalWithOwnLawEdit(t *testing.T) {
+	for _, shape := range []string{historyRebased, historyMergeSynced} {
+		t.Run(shape, func(t *testing.T) { externalRemovalWithOwnLawEdit(t, shape) })
+	}
+}
+
+func externalRemovalWithOwnLawEdit(t *testing.T, shape string) {
 	s := seedLawChangeFixture(t, "inventory-seed")
 	seedExternalLaw(t, s, "law-removed")
 	seedExternalLaw(t, s, "law-own")
@@ -403,7 +411,13 @@ func TestLawAttributionExternalRemovalWithOwnLawEdit(t *testing.T) {
 	}
 	removed := map[string]string{externalRecordPath("law-removed"): "", ".concord/docs/decisions/law-removed.md": ""}
 	event := attributionCompletionWith(t, s, "removal-with-own-edit", func(repo string) {
-		shardHistory(t, s, start, removed, historyRebased)(repo)
+		// The merge shape keeps main's removal off the item's branch until a
+		// merge whose other parent still holds the removed record.
+		imported := historyRebased
+		if shape == historyMergeSynced {
+			imported = historyKept
+		}
+		shardHistory(t, s, start, removed, imported)(repo)
 		editOwn := func() {
 			for path, text := range map[string]string{
 				externalRecordPath("law-own"):        `{"id":"law-own","path":".concord/docs/decisions/law-own.md","sha256":"` + externalLawHash(externalLawOwnText) + `"}` + "\n",
@@ -420,6 +434,9 @@ func TestLawAttributionExternalRemovalWithOwnLawEdit(t *testing.T) {
 		gitRunStore(t, repo, "checkout", "-q", "main-line")
 		editOwn()
 		gitRunStore(t, repo, "checkout", "-q", "-")
+		if shape == historyMergeSynced {
+			gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", "main-line")
+		}
 		scanMain(t, s, repo)
 	})
 	previous := workflowLawExternalGit
@@ -434,11 +451,14 @@ func TestLawAttributionExternalRemovalWithOwnLawEdit(t *testing.T) {
 		t.Fatal("completion changed the owning-start baseline")
 	}
 	proof, recorded := externalLawEnactment(t, s, "removal-with-own-edit")
+	if !recorded {
+		t.Fatal("the item's own declared edit recorded no enactment")
+	}
 	var enactment workflowLawEnactment
 	if err := json.Unmarshal([]byte(proof), &enactment); err != nil {
 		t.Fatal(err)
 	}
-	if !recorded || !slices.Equal(workflowLawInventoryDifferences(&enactment.Before, &enactment.After), []string{"project/law-own"}) {
+	if !slices.Equal(workflowLawInventoryDifferences(&enactment.Before, &enactment.After), []string{"project/law-own"}) {
 		t.Fatalf("enactment must record only the item's own edit: %s", proof)
 	}
 }

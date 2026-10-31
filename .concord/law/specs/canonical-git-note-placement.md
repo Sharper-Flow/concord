@@ -202,11 +202,12 @@ A canonical note in Git does not prove that the publication operation settled or
 SQLite never records a canonical locator before verifying its Git proof.
 
 Work-note reconstruction rebuilds the derived `archived_work` linkage and its
-frozen scope populations from Git. It runs only on the existing publication and
-reconciliation seam or during verified PM10 recovery, never as a public search,
-a replacement catalog, or a law-index rebuild. It is proof-preserving and scopes
-work-note metadata only; it builds no registry over law, reference, or lesson
-documents. Two valid notes claiming one work ID are typed
+frozen scope populations from Git. It runs on publication and reconciliation,
+during verified PM10 recovery, or to refresh historical-work coverage required
+by [compaction-retention-policy §4](compaction-retention-policy.md#4-one-query-population-across-tiers).
+It exposes no public search or rebuild operation and creates no law catalog.
+It is proof-preserving and scopes work-note metadata only; it builds no
+registry over law, reference, or lesson documents. Two valid notes claiming one work ID are typed
 `ambiguous`; neither is silently selected. A locator whose object/hash cannot be
 verified is `missing` or `degraded`, never authoritative.
 
@@ -268,6 +269,7 @@ historical note.
 | Authority | Meaning |
 |---|---|
 | `authoritative` | every applicable canonical git authority/head needed for the answer is covered by the resolved commit's read |
+| `degraded` | required work-note coverage is reachable but incomplete or lagging; the result names its omissions and proves no absence |
 | `unreachable` | an applicable canonical git authority cannot currently be contacted/opened |
 
 Absence is proven only when every applicable canonical git authority was read
@@ -285,8 +287,9 @@ at one resolved commit.
 5. **No copies/stubs:** all memberships resolve the same locator.
 6. **Work-note reconstruction:** bounded work-note front matter plus git
    tree/path/commit is sufficient to reconstruct the derived `archived_work`
-   linkage and detect duplicate claims during publication, reconciliation, or
-   verified PM10 recovery — never as a public search or a law-index rebuild.
+   linkage and detect duplicate claims during publication, reconciliation,
+   verified PM10 recovery, or historical-work coverage refresh — never as a
+   public search or a law-index rebuild.
 7. **Typed uncertainty:** missing/degraded/unreachable/ambiguous are distinct from
    authoritative empty or success.
 8. **No destructive recovery:** orphan notes are verified/re-indexed or surfaced;

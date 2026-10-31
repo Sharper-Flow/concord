@@ -56,10 +56,9 @@ by Concord. No Q-number implies a separate tool.
 | **AJ4** | **Transition work with evidence.** Move work through its accepted lifecycle, including completion, while satisfying evidence and version requirements. | One atomic domain transition occurs, evidence and actor are attributable, invalid or stale transitions fail structurally, and a retry cannot duplicate the effect. |
 | **AJ5** | **Relate and scope work.** Add or remove Project membership; create typed relations; and resolve concurrent Product-changing Domain overlap. | Graph and membership invariants hold; cycles and duplicate authority are rejected; supersession is atomic; overlap authority is operator-approved and pinned to both current contract versions. |
 | **AJ6** | **Compact and reconcile terminal work.** Publish the one canonical durable note required for terminal work and reconcile its Product-memory locator. | Git publication is proven before the SQLite locator is recorded; an interruption leaves an explicit, recoverable partial outcome; retries do not create duplicate notes or competing authority. |
-| **AJ7** | **Locate terminal-work notes.** Obtain the canonical completed-work note for terminal work through the work item's retained reads and PM6 linkage. | The canonical locator (home, path, commit, content hash) travels with the work record; `not_compacted`, `ambiguous`, and `missing` remain distinct typed outcomes. Degraded or unreachable proof coverage never establishes absence. |
 | **AJ8** | **Execute operational work with consequence controls.** Carry an ops item through plan, budgeted execution, health verification, rollback when needed, and cleanup—including ground-truth reclamation of derived resources. | Native authority executes the operation; Concord preserves intent, status, and evidence. A refused budget blocks consequences, health failure triggers the declared recovery path, cleanup uses native facts rather than stale bookkeeping, and partial completion is explicit. |
 
-These eight jobs are intentionally broader than storage queries and narrower than
+These seven jobs are intentionally broader than storage queries and narrower than
 "do anything." They are the evidenced intent families repeatedly present in
 Concord's Product model, live workflows, first-usable floor, and PM1 contract.
 They do not prescribe one tool per row.

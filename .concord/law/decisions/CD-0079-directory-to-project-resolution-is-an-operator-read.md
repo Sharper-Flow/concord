@@ -65,8 +65,8 @@ duplicate database access or double-hop through this verb anyway.
 
 ### D2. The verb does not authenticate its caller
 
-No operator verb authenticates the operator. `worktree-locate` and
-`predecessor-inventory` are unauthenticated reads. Concord's trust
+No operator verb authenticates the operator. `worktree-locate` is an
+unauthenticated read. Concord's trust
 boundary for the operator surface is filesystem access to the authority
 database.
 

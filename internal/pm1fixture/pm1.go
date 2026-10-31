@@ -258,11 +258,11 @@ func seedProductsAndProjects(ctx context.Context, s *store.Store, c Corpus) erro
 	events := []store.Event{}
 	expected := map[store.SubjectRef]int64{}
 	for _, p := range c.Fixtures.Products {
-		events = append(events, fixtureEvent("create-"+p.ID, "product.created", store.SubjectProduct, p.ID, "operator", "2026-08-01T00:00:00Z", map[string]any{"display_name": p.Name, "stage_maturity": p.Stage, "stage_audience_commitment": "operator_only"}))
+		events = append(events, fixtureEvent("create-"+p.ID, "product.created", 1, store.SubjectProduct, p.ID, "operator", "2026-08-01T00:00:00Z", map[string]any{"display_name": p.Name, "stage_maturity": p.Stage, "stage_audience_commitment": "operator_only"}))
 		expected[store.VersionRef(store.SubjectProduct, p.ID)] = 0
 	}
 	for _, p := range c.Fixtures.Projects {
-		events = append(events, fixtureEvent("create-"+p.ID, "project.created", store.SubjectProject, p.ID, "operator", "2026-08-01T00:00:00Z", map[string]any{"display_name": p.Name}))
+		events = append(events, fixtureEvent("create-"+p.ID, "project.created", 2, store.SubjectProject, p.ID, "operator", "2026-08-01T00:00:00Z", map[string]any{"display_name": p.Name}))
 		expected[store.VersionRef(store.SubjectProject, p.ID)] = 0
 	}
 	for _, p := range c.Fixtures.Products {
@@ -276,7 +276,7 @@ func seedProductsAndProjects(ctx context.Context, s *store.Store, c Corpus) erro
 				if version == 1 {
 					role = "primary"
 				}
-				events = append(events, fixtureEvent(fmt.Sprintf("membership-%s-%s", p.ID, project.ID), "product_project.added", store.SubjectProduct, p.ID, "operator", "2026-08-01T00:00:00Z", map[string]any{"product_id": p.ID, "project_id": project.ID, "role": role, "reason": "fixture adapter", "expected_version": version, "resulting_version": version + 1}))
+				events = append(events, fixtureEvent(fmt.Sprintf("membership-%s-%s", p.ID, project.ID), "product_project.added", 1, store.SubjectProduct, p.ID, "operator", "2026-08-01T00:00:00Z", map[string]any{"product_id": p.ID, "project_id": project.ID, "role": role, "reason": "fixture adapter", "expected_version": version, "resulting_version": version + 1}))
 				version++
 			}
 		}
@@ -299,7 +299,7 @@ func seedWorkItems(ctx context.Context, s *store.Store, c Corpus, versions map[s
 		if created.To != nil {
 			to = *created.To
 		}
-		workEvents := []store.Event{fixtureEvent("create-"+w.ID, "work.created", store.SubjectWorkItem, w.ID, actor, w.CreatedAt, map[string]any{"work_kind": "task", "title": w.ID, "priority": w.Priority, "from": created.From, "to": to})}
+		workEvents := []store.Event{fixtureEvent("create-"+w.ID, "work.created", 4, store.SubjectWorkItem, w.ID, actor, w.CreatedAt, map[string]any{"work_kind": "task", "title": w.ID, "priority": w.Priority, "from": created.From, "to": to})}
 		// Membership is written the way the capture path writes it: one
 		// work.memberships_replaced carrying the whole set, not one
 		// work_project.added per Project. Both are legal, and they consume a
@@ -312,7 +312,7 @@ func seedWorkItems(ctx context.Context, s *store.Store, c Corpus, versions map[s
 			for i, p := range w.Projects {
 				memberships[i] = map[string]any{"project_id": p.ID, "role": p.Role}
 			}
-			workEvents = append(workEvents, fixtureEvent("membership-"+w.ID, "work.memberships_replaced", store.SubjectWorkItem, w.ID, "operator", w.CreatedAt, map[string]any{"memberships": memberships, "expected_version": int64(1), "resulting_version": int64(2)}))
+			workEvents = append(workEvents, fixtureEvent("membership-"+w.ID, "work.memberships_replaced", 1, store.SubjectWorkItem, w.ID, "operator", w.CreatedAt, map[string]any{"memberships": memberships, "expected_version": int64(1), "resulting_version": int64(2)}))
 			versions[w.ID] = 2
 		}
 		if err := store.ApplyOperation(ctx, s, store.Operation{Events: workEvents, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, w.ID): 0}}); err != nil {
@@ -342,7 +342,7 @@ func seedWorkTransitions(ctx context.Context, s *store.Store, c Corpus, versions
 		if w.ID == "work-cross" || w.ID == "work-done" {
 			started := c.eventFor(w.ID, 2)
 			from, to := fixtureTransitionStates(started, "needed", "in_progress")
-			events = append(events, fixtureEvent("event-"+w.ID+"-started", "work.transitioned", store.SubjectWorkItem, w.ID, started.Actor, "2026-08-02T09:00:00Z", map[string]any{"from": from, "to": to, "reason": "fixture started", "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
+			events = append(events, fixtureEvent("event-"+w.ID+"-started", "work.transitioned", 1, store.SubjectWorkItem, w.ID, started.Actor, "2026-08-02T09:00:00Z", map[string]any{"from": from, "to": to, "reason": "fixture started", "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
 			versions[w.ID]++
 			if w.ID == "work-cross" {
 				continue
@@ -353,15 +353,15 @@ func seedWorkTransitions(ctx context.Context, s *store.Store, c Corpus, versions
 			if evidence == nil {
 				evidence = []string{}
 			}
-			events = append(events, fixtureEvent("event-work-done-completed", "work.transitioned", store.SubjectWorkItem, w.ID, completed.Actor, w.TerminalAt, map[string]any{"from": from, "to": to, "reason": "fixture completed", "evidence_refs": evidence, "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
+			events = append(events, fixtureEvent("event-work-done-completed", "work.transitioned", 1, store.SubjectWorkItem, w.ID, completed.Actor, w.TerminalAt, map[string]any{"from": from, "to": to, "reason": "fixture completed", "evidence_refs": evidence, "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
 			versions[w.ID]++
 			continue
 		}
 		if w.Lifecycle == "in_progress" {
-			events = append(events, fixtureEvent("transition-"+w.ID, "work.transitioned", store.SubjectWorkItem, w.ID, "operator", "2026-08-02T09:00:00Z", map[string]any{"from": "needed", "to": "in_progress", "reason": "fixture lifecycle", "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
+			events = append(events, fixtureEvent("transition-"+w.ID, "work.transitioned", 1, store.SubjectWorkItem, w.ID, "operator", "2026-08-02T09:00:00Z", map[string]any{"from": "needed", "to": "in_progress", "reason": "fixture lifecycle", "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
 			versions[w.ID]++
 		} else if w.Lifecycle == "cancelled" {
-			events = append(events, fixtureEvent("transition-"+w.ID, "work.transitioned", store.SubjectWorkItem, w.ID, "operator", w.TerminalAt, map[string]any{"from": "needed", "to": "cancelled", "reason": "fixture lifecycle", "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
+			events = append(events, fixtureEvent("transition-"+w.ID, "work.transitioned", 1, store.SubjectWorkItem, w.ID, "operator", w.TerminalAt, map[string]any{"from": "needed", "to": "cancelled", "reason": "fixture lifecycle", "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
 			versions[w.ID]++
 		}
 	}
@@ -387,13 +387,13 @@ func seedWorkRelations(ctx context.Context, s *store.Store, c Corpus, versions m
 	for _, r := range c.Fixtures.Relations {
 		switch r.Kind {
 		case "depends_on":
-			event := fixtureEvent("relation-depends", "relation.added", store.SubjectWorkItem, r.Target, "operator", "2026-08-06T00:00:00Z", map[string]any{"from": r.Target, "to": r.Source, "kind": "blocks", "reason": "fixture dependency", "expected_version": versions[r.Target], "resulting_version": versions[r.Target] + 1})
+			event := fixtureEvent("relation-depends", "relation.added", 1, store.SubjectWorkItem, r.Target, "operator", "2026-08-06T00:00:00Z", map[string]any{"from": r.Target, "to": r.Source, "kind": "blocks", "reason": "fixture dependency", "expected_version": versions[r.Target], "resulting_version": versions[r.Target] + 1})
 			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{event}}); err != nil {
 				return fmt.Errorf("pm1fixture: seed depends_on relation %s->%s: %w", r.Source, r.Target, err)
 			}
 			versions[r.Target]++
 		case "supersedes":
-			event := fixtureEvent("relation-supersedes", "work.superseded", store.SubjectWorkItem, r.Target, "operator", "2026-08-06T00:00:00Z", map[string]any{"successor": r.Source, "superseded": r.Target, "reason": "fixture supersession", "expected_version": versions[r.Target], "resulting_version": versions[r.Target] + 1})
+			event := fixtureEvent("relation-supersedes", "work.superseded", 1, store.SubjectWorkItem, r.Target, "operator", "2026-08-06T00:00:00Z", map[string]any{"successor": r.Source, "superseded": r.Target, "reason": "fixture supersession", "expected_version": versions[r.Target], "resulting_version": versions[r.Target] + 1})
 			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{event}}); err != nil {
 				return fmt.Errorf("pm1fixture: seed supersedes relation %s->%s: %w", r.Source, r.Target, err)
 			}
@@ -528,6 +528,7 @@ func SeedGoverningRequirement(ctx context.Context, s *store.Store, projectID, re
 	event := fixtureEvent(
 		"governing-requirement-"+projectID+"-"+requirementRef,
 		"project.governing_requirement_declared",
+		1,
 		store.SubjectProject,
 		projectID,
 		"operator",
@@ -546,7 +547,7 @@ func SeedGoverningRequirement(ctx context.Context, s *store.Store, projectID, re
 	return nil
 }
 
-func fixtureEvent(id, kind string, subject store.SubjectType, subjectID, actor, occurred string, payload map[string]any) store.Event {
+func fixtureEvent(id, kind string, payloadVersion int, subject store.SubjectType, subjectID, actor, occurred string, payload map[string]any) store.Event {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		panic(err)
@@ -555,7 +556,7 @@ func fixtureEvent(id, kind string, subject store.SubjectType, subjectID, actor, 
 	if err != nil {
 		when = time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	}
-	return store.Event{EventID: id, Kind: kind, SubjectType: subject, SubjectID: subjectID, Actor: actor, OccurredAt: when, PayloadVersion: store.CurrentEventPayloadVersion(kind), Payload: raw}
+	return store.Event{EventID: id, Kind: kind, SubjectType: subject, SubjectID: subjectID, Actor: actor, OccurredAt: when, PayloadVersion: payloadVersion, Payload: raw}
 }
 
 func initKnowledgeRepo(dir string) (string, error) {

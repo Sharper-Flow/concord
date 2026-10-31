@@ -70,11 +70,6 @@
     },
     {
       "owner_domain_id": "operator-surface",
-      "path": "internal/predecessor",
-      "role": "domain"
-    },
-    {
-      "owner_domain_id": "operator-surface",
       "path": "internal/receipt",
       "role": "domain"
     },

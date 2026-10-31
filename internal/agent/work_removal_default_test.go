@@ -42,7 +42,7 @@ func defaultRemovalGenerationsFixture(t *testing.T, generations int, retain bool
 	}
 	version := workVersion(t, s, "work-1")
 	payload, _ := json.Marshal(map[string]any{"from": "needed", "to": "cancelled", "reason": "preserve planning goal", "expected_version": version, "resulting_version": version + 1})
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{EventID: "shelving-cancel", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.transitioned"), Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-1"): version}}); err != nil {
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{EventID: "shelving-cancel", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-1"): version}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.ReclaimWorktree(ctx, store.WorktreeReclaimRequest{WorkID: "work-1", ProjectID: "project-1", ExpectedVersion: version + 1, PrincipalRef: "human-1", RequestID: "shelving-reclaim", Now: fixedTime(), DefaultRef: "main"}); err != nil {

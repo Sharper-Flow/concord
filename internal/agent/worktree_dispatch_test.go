@@ -50,7 +50,7 @@ func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, s
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	events := append(agentFixtureProductEvents("wt-dispatch", "product-1", "project-1", "WT Dispatch", "WT Project", "worktree dispatch fixture"),
-		store.Event{EventID: "wt-dispatch-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Worktree Dispatch","priority":1}`)},
+		store.Event{EventID: "wt-dispatch-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Worktree Dispatch","priority":1}`)},
 		store.Event{EventID: "wt-dispatch-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	)
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0}}); err != nil {
@@ -181,7 +181,7 @@ func TestWorktreeClaimRefusesWhenSessionOccupiesAnotherWorktree(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, _, baseSHA := worktreeDispatchFixture(t)
 	seed := []store.Event{
-		{EventID: "wt-dispatch-transfer-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Occupancy Refusal","priority":1}`)},
+		{EventID: "wt-dispatch-transfer-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Occupancy Refusal","priority":1}`)},
 		{EventID: "wt-dispatch-transfer-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: seed, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -238,7 +238,7 @@ func seedSecondProjectFixture(t *testing.T, s *store.Store) string {
 	ctx := context.Background()
 	events := []store.Event{
 		{EventID: "wt-scope-product-2", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"WT Scope Two","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "wt-scope-project-2", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"WT Project Two"}`)},
+		{EventID: "wt-scope-project-2", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"display_name":"WT Project Two"}`)},
 		{EventID: "wt-scope-membership-2", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-2","project_id":"project-2","role":"primary","reason":"cross scope fixture","expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-2"): 0, store.VersionRef(store.SubjectProject, "project-2"): 0}}); err != nil {
@@ -260,7 +260,7 @@ func seedSiblingProjectFixture(t *testing.T, s *store.Store) string {
 	t.Helper()
 	ctx := context.Background()
 	events := []store.Event{
-		{EventID: "wt-sibling-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1b", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"WT Project One B"}`)},
+		{EventID: "wt-sibling-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1b", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"display_name":"WT Project One B"}`)},
 		{EventID: "wt-sibling-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1b","role":"secondary","reason":"sibling project fixture","expected_version":2,"resulting_version":3}`)},
 		{EventID: "wt-sibling-work-memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-1b","role":"secondary"}],"expected_version":2,"resulting_version":3}`)},
 	}
@@ -813,7 +813,7 @@ func TestSessionVacateReplayOfCompletedRequestRefusesLaterClaimRows(t *testing.T
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/vacate", "claim-vacate")
 	secondWork := []store.Event{
-		{EventID: "wt-completed-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Later Claim","priority":1}`)},
+		{EventID: "wt-completed-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Later Claim","priority":1}`)},
 		{EventID: "wt-completed-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: secondWork, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -947,7 +947,7 @@ func TestSecondSessionVacateRecordsItsOwnEvent(t *testing.T) {
 
 	// A second work item gives the second session its own linked worktree.
 	seed := []store.Event{
-		{EventID: "wt-dispatch-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Second Vacate","priority":1}`)},
+		{EventID: "wt-dispatch-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Second Vacate","priority":1}`)},
 		{EventID: "wt-dispatch-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: seed, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -1034,7 +1034,7 @@ func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
 	crossRepo := t.TempDir()
 	seedFixtureRepo(t, crossRepo, "# fixture cross repository\n", "fixture base cross")
 	events := []store.Event{
-		{EventID: "wt-cross-repo-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1x", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"WT Cross Repo"}`)},
+		{EventID: "wt-cross-repo-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1x", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"display_name":"WT Cross Repo"}`)},
 		{EventID: "wt-cross-repo-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1x","role":"secondary","reason":"cross repository fixture","expected_version":2,"resulting_version":3}`)},
 		{EventID: "wt-cross-repo-work-memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-1x","role":"secondary"}],"expected_version":2,"resulting_version":3}`)},
 	}
@@ -1120,7 +1120,7 @@ func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
 		t.Fatal(err)
 	}
 	sameEvents := []store.Event{
-		{EventID: "wt-same-repo-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1s", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"WT Same Repo"}`)},
+		{EventID: "wt-same-repo-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1s", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"display_name":"WT Same Repo"}`)},
 		{EventID: "wt-same-repo-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1s","role":"secondary","reason":"same repository fixture","expected_version":3,"resulting_version":4}`)},
 		{EventID: "wt-same-repo-work-memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-1s","role":"secondary"}],"expected_version":3,"resulting_version":4}`)},
 	}

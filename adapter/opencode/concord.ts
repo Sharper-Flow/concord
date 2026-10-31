@@ -1081,15 +1081,6 @@ type WorkStartCaptureArgs = {
   }
   governing_requirements?: string[]
   ref?: string
-  // What the change will touch, for the work-size model; it carries no size.
-  size_inputs?: {
-    paths?: string[]
-    behavior?: string
-    security: boolean
-    user_visible: boolean
-    blast_radius: string
-    estimated_production_lines: number
-  }
 }
 
 // Resume carries exactly one selector and no capture fields or Project override.

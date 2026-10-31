@@ -11,7 +11,7 @@ import (
 func verificationRetirementFixture(t *testing.T) (*sql.DB, string) {
 	t.Helper()
 	db, path := retirementUpgradeFixture(t)
-	advanceHistoricalPrefix(t, db, 169)
+	advanceHistoricalPrefix(t, db, 170)
 	digest := "sha256:" + strings.Repeat("d", 64)
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
 	retirementUpgradeExec(t, db, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,resume_cursor,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES('verify:retire',1,'work-upgrade-from','worktree.verify',?,'verify','internal_sqlite',?,'{}','completed','{}','["verify:retire"]','[]','','operator-upgrade','request:retire',?,?,?)`, digest, digest, retirementUpgradeTime, retirementUpgradeTime, digest)
@@ -36,7 +36,7 @@ func TestVerificationRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if verified, err := VerifyBackup(t.Context(), snapshot); err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 169 {
+	if verified, err := VerifyBackup(t.Context(), snapshot); err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 170 {
 		t.Fatalf("predecessor snapshot = %+v, %v", verified, err)
 	}
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {

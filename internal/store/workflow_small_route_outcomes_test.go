@@ -6,25 +6,13 @@ import (
 	"testing"
 )
 
-// CD-0229 D5 retains mandatory outcomes at small size. This fixture omits
+// This fixture omits
 // optional architecture depth but uses the current shared implementation
 // definition, recorded verification reports, and Main's accepted Review assessment.
 // It does not claim a generic footprint-anchor execution mapping.
 func smallImplementationAtRelease(t *testing.T) acceptDeliveryCandidate {
 	t.Helper()
 	c := acceptDeliveryCandidateAt(t, "small-route-outcomes", "workflow.implementation", "execution", false)
-	inputs := workSizeInputsFixture()
-	size, err := DecideWorkSize(WorkSizeModelVersion, inputs, nil)
-	if err != nil || size != WorkSizeSmall {
-		t.Fatalf("small fixture model = %q, %v", size, err)
-	}
-	if err := applyWorkEvent(t, c.f.store, workSizedEvent("small-route-size", c.f.workID, WorkSizeModelVersion, size, inputs), nil); err != nil {
-		t.Fatal(err)
-	}
-	recorded, ok, err := readWorkSize(t.Context(), c.f.store.db, c.f.workID)
-	if err != nil || !ok || recorded.Size != WorkSizeSmall {
-		t.Fatalf("recorded size = %+v, present=%v, err=%v", recorded, ok, err)
-	}
 	review, err := loadWorkflowReviewState(t.Context(), c.f.store.db, c.f.workID)
 	if err != nil || review.Dependencies == nil || !review.Dependencies.ArchitectureNotApplicable || review.Accepted == nil || review.Accepted.Report.Disposition != "ready_for_final_proof" {
 		t.Fatalf("shallow preparation lost its accepted Review: %+v, %v", review, err)

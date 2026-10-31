@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -179,26 +178,6 @@ func TestCoordinatorCorrectionDoesNotRequireWorkerFindingAuthoring(t *testing.T)
 	}
 }
 
-func TestCoordinatorReviewSecondPassRetainsSizeProof(t *testing.T) {
-	state := workSizeProofFacts{}
-	for _, event := range []struct{ action, id string }{{"record_review", "review:first"}, {"checkpoint_refine", "refine:one"}, {"record_review", "review:second"}} {
-		if err := advanceWorkSizeProofWindow(&state, WorkflowActionCompleted, event.action, event.id, event.action == "record_review", func() (bool, error) { return true, nil }); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if len(state.Proofs) != 1 || state.Proofs[0] != "review:second" {
-		t.Fatalf("recorded Review lost second-pass proof: %+v", state)
-	}
-	completed := workflowActionCompletedPayload{ActionID: "record_review", Review: &ReviewBlock{Disposition: "correction_required", Findings: []ReviewFinding{{Severity: "P1"}}}}
-	raw, err := json.Marshal(completed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if qualifies, err := workSizeReviewFindsInScope(string(raw), 10); err != nil || !qualifies {
-		t.Fatalf("coordinator Review size proof=%v err=%v", qualifies, err)
-	}
-}
-
 func TestCoordinatorCorrectionFactsHaveNoWorkerConsumer(t *testing.T) {
 	request := Event{Kind: WorkflowActionCompleted, EventID: "correction:one", Seq: 10, Payload: []byte(`{"action_id":"request_correction","correction_diagnosis":"reported failure","correction_strategy":"correct the candidate","correction_predicate_ids":["predicate:one"],"correction_evidence_refs":["verify:one"]}`)}
 	state, changed, err := correctionStateForEvent(request)
@@ -321,9 +300,7 @@ func TestCoordinatorReviewReadinessPreservesSubjectAndFindingGates(t *testing.T)
 			s.Accepted.Report.RemainingObligations = []ReviewObligation{{ObligationID: "obligation:one"}}
 		}, KindMissingEvidence},
 		{"open-blocker", func(s *WorkflowReviewState) { s.Findings[0].Blocking = true }, KindMissingEvidence},
-		{"crucial-medium-finding", func(s *WorkflowReviewState) { s.Crucial = true }, KindMissingEvidence},
-		{"closed-crucial-finding", func(s *WorkflowReviewState) { s.Crucial = true; s.Findings[0].Status = "closed" }, ""},
-		{"out-of-scope-crucial-finding", func(s *WorkflowReviewState) { s.Crucial = true; s.Findings[0].InScope = false }, ""},
+		{"nonblocking-medium-finding", func(*WorkflowReviewState) {}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			candidate := ReviewCandidate{ProjectID: "project-a", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}

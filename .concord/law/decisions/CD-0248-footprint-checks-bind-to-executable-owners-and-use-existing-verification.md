@@ -11,7 +11,7 @@
 
 Scope: Declared-tool and scenario bindings; applicable-check evidence in existing verification and Review.
 
-This decision refines CD-0074, CD-0090 and CD-0229 D5. Verification reports
+This decision refines CD-0074 and CD-0090. Verification reports
 follow the workflow engine contract and CD-0242 D8.
 
 ## Decision

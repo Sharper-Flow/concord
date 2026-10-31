@@ -84,7 +84,8 @@ D9's preview and early visual-design approvals are ordinary questions Main asks
 the operator and records in the existing work record. They are not
 machine-enforced stage exits.
 
-Rules derived from change type and risk set each execution's mandatory stages.
+Each live family's definition sets its mandatory stages without a work-item
+size classification.
 Main may add research, architecture, or planning depth. No agent may waive a
 mandatory stage or an operator approval. Current validated knowledge may
 satisfy a requirement without a new document. Break-fix keeps diagnosis and

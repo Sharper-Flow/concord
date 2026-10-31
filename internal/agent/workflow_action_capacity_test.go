@@ -40,8 +40,7 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	// Criterion: 770+428 string bytes + 35 syntax bytes = 1233;
 	// criteria: 8*1233 + 2 brackets + 7 commas = 9873.
 	// Dependencies: 9873+428+5 value bytes + 67 syntax bytes = 10373.
-	// Work size: 2*9 enum + 20 version + 386 time + 55 syntax bytes = 479.
-	// Descriptor: candidate + dependencies + size + 44 syntax bytes.
+	// Descriptor: 1575 candidate + 10373 dependencies + 36 syntax bytes = 11984.
 	dependencies := defs["lane_report_review_dependencies"].(map[string]any)["properties"].(map[string]any)
 	criteria := dependencies["criteria"].(map[string]any)
 	for _, row := range []struct {
@@ -53,8 +52,7 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 		{"criterion", criteria["items"], 1233},
 		{"criteria", criteria, 9873},
 		{"dependencies", defs["lane_report_review_dependencies"], 10373},
-		{"work size", defs["work_size_summary"], 479},
-		{"descriptor", defs["continuity_review_input"], 12471},
+		{"descriptor", defs["continuity_review_input"], 11984},
 	} {
 		got, err := schemawire.Max(row.node, row.name, schemawire.Options{Defs: defs})
 		if err != nil {

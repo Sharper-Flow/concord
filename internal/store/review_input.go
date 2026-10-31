@@ -9,17 +9,12 @@ import (
 type ReviewInput struct {
 	InputCandidate ReviewCandidate    `json:"input_candidate"`
 	Dependencies   ReviewDependencies `json:"dependencies"`
-	Size           *WorkSizeSummary   `json:"size,omitempty"`
 }
 
 func populateContinuityReviewInput(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
 	if out.WorkPin == nil || out.WorkPin.Review == nil || out.WorkPin.Review.Dependencies == nil || out.WorkPin.Review.Candidate == nil {
 		return nil
 	}
-	size, err := readWorkSizeSummary(ctx, tx, work)
-	if err != nil {
-		return err
-	}
-	out.ReviewInput = &ReviewInput{InputCandidate: *out.WorkPin.Review.Candidate, Dependencies: *out.WorkPin.Review.Dependencies, Size: size}
+	out.ReviewInput = &ReviewInput{InputCandidate: *out.WorkPin.Review.Candidate, Dependencies: *out.WorkPin.Review.Dependencies}
 	return nil
 }

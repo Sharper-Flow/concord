@@ -10,7 +10,7 @@ import (
 // Exact identities are compared by the typed Review conformance test.
 type admissionReviewView struct {
 	Present, Candidate, CandidateMatches, Dependencies, Current bool
-	Blocked, PublicationOutstanding, Crucial                    bool
+	Blocked, PublicationOutstanding                             bool
 	Disposition                                                 string
 }
 
@@ -19,7 +19,7 @@ func admissionReviewViewOf(state *WorkflowReviewState) admissionReviewView {
 		return admissionReviewView{}
 	}
 	view := admissionReviewView{Present: true, Candidate: state.Candidate != nil, Dependencies: state.Dependencies != nil,
-		Current: state.DependenciesCurrent, Blocked: state.blocker() != "", PublicationOutstanding: state.PublicationOutstanding, Crucial: state.Crucial}
+		Current: state.DependenciesCurrent, Blocked: state.blocker() != "", PublicationOutstanding: state.PublicationOutstanding}
 	if state.Accepted != nil {
 		view.Disposition = state.Accepted.Report.Disposition
 		view.CandidateMatches = state.Candidate != nil && *state.Candidate == state.Accepted.Report.OutputCandidate

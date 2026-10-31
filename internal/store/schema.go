@@ -121,7 +121,7 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 		if _, err := q.ExecContext(ctx, `INSERT OR IGNORE INTO fold_guard(active) VALUES(1)`); err != nil {
 			return err
 		}
-		for _, backfill := range []func(context.Context, migrationRunner) error{backfillWorkContextFacts, backfillWorkflowReviewFacts, backfillWorkSizeProofFacts} {
+		for _, backfill := range []func(context.Context, migrationRunner) error{backfillWorkContextFacts, backfillWorkflowReviewFacts} {
 			if err := backfill(ctx, q); err != nil {
 				return err
 			}
@@ -8331,6 +8331,18 @@ CREATE TRIGGER workflow_checkpoints_guard_delete BEFORE DELETE ON workflow_check
 	},
 	{
 		Version:  170,
+		Name:     "retire_work_size",
+		Breaking: true,
+		SQL: `
+DROP TABLE work_size_proof_facts;
+DROP TABLE work_size_assessments;
+INSERT INTO write_guard(active) VALUES(1);
+DELETE FROM effect_receipts WHERE kind='work.sized';
+DELETE FROM write_guard;
+`,
+	},
+	{
+		Version:  171,
 		Name:     "repository_verification_retirement",
 		Breaking: true,
 		SQL: `

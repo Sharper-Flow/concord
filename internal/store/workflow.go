@@ -1044,7 +1044,6 @@ func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Ev
 		if err := refreshWorkflowHealthySequence(ctx, tx, event.SubjectID, p.ContractVersion, true); err != nil {
 			return err
 		}
-		return advanceWorkSizeProofFactsTx(ctx, tx, event)
 	}
 	return nil
 }
@@ -1246,9 +1245,6 @@ func finishWorkflowContractSupersessionTx(ctx context.Context, tx *sql.Tx, event
 		if err := resetWorkflowInstanceToContractStepTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID); err != nil {
 			return err
 		}
-	}
-	if err := advanceWorkSizeProofFactsTx(ctx, tx, event); err != nil {
-		return err
 	}
 	return nil
 }
@@ -2202,9 +2198,6 @@ func persistWorkflowActionCompletionTx(ctx context.Context, tx *sql.Tx, event Ev
 		return err
 	}
 	if err := advanceWorkflowRecordedReviewTx(ctx, tx, event, p); err != nil {
-		return err
-	}
-	if err := advanceWorkSizeProofFactsTx(ctx, tx, event); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_step_completions(work_id,step_id,completion_seq) VALUES(?,?,?) ON CONFLICT(work_id,step_id) DO UPDATE SET completion_seq=excluded.completion_seq`, event.SubjectID, p.StepID, event.Seq); err != nil {

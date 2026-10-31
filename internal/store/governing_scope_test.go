@@ -134,7 +134,7 @@ func TestGoverningBootstrapCreationRecordsGenuineDeclaration(t *testing.T) {
 				if err := validateBootstrapScopeTx(ctx, tx.tx, req.ProductID, req.ProjectID, req.GoverningRequirements); err != nil {
 					return err
 				}
-				return createBootstrapWorkTx(ctx, tx, req, "governed-bootstrap", "governed-bootstrap-work", nil, time.Unix(5, 0).UTC())
+				return createBootstrapWorkTx(ctx, tx, req, "governed-bootstrap", "governed-bootstrap-work", time.Unix(5, 0).UTC())
 			})
 			if err != nil {
 				t.Fatal(err)

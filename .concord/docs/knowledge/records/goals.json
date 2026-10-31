@@ -13,9 +13,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8f2de789671d375ccdf6a25ccbf4278b5fcb05f43dfaaa94e95c90ad9ce38c87",
+  "sha256": "sha256:055b9391fd22a634debb4c289d9d6be529a67f399de1edeb58ea9d95b7f05e34",
   "status": "published",
-  "summary": "The operator's goals for Concord, as guidance, not law: purpose, six equal goals with measures, non-goals, and open questions. The constraints, the conflict rules, and the route for Concord's own development are law in priorities.md.",
+  "summary": "Concord goals, as guidance rather than law: purpose, six equal goals, measures and non-goals. Live workflows retain their mandatory steps without programmed size classification. The constraints, conflict rules and development route are law in priorities.md.",
   "tags": [
     "goals",
     "direction",

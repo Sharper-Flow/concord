@@ -44,11 +44,10 @@ the case ([`../law/constitution/priorities.md`](../law/constitution/priorities.m
 ### A. Formal product law and domain architecture
 - Formal, retrievable stores of product law and of domain architecture. All agents follow them, or change them
   so that all agents follow the change.
-- Every change keeps a footprint record, at every size, and a tool fills it. The design keeps modularity in mind:
+- Every change keeps a footprint record, and a tool fills it. The design keeps modularity in mind:
   - The agent names the files or behavior it will change. The tool returns the governing domains, the current
     law versions, and the checks that apply.
   - The agent adds only what a tool cannot know: the acceptance criteria, and whether it means to change a law.
-  - Size changes what follows the record, not whether the record exists.
   - A declared, checked map from each code package to its domain feeds the tool.
   - The record tool and the map are reusable parts (goal C).
 - Measure: one tool call returns the laws and the domain that govern a given file or behavior. Spot
@@ -58,30 +57,17 @@ the case ([`../law/constitution/priorities.md`](../law/constitution/priorities.m
 - Deliver fast, with "right-sizing the amount of ceremony based on the subject/sensitivity/etc".
 - Ceremony covers all three: "less steps, less proof, less testing" for small work. No change ships with zero
   proof: a small change runs the checks the footprint tool names, plus one review.
-- Workflows are "dynamically different sizes". The operator's examples:
-  - very small task: Define -> implement -> review -> ship
-  - larger or more important single change: Define -> research -> architect -> implement -> review -> refine ->
-    ship
-  - crucial or larger: Define -> research -> architect -> implement -> implement -> implement -> review ->
-    refine -> ship
 - "If its something thats just a few lines of code, we probably dont need a refine step. If its something that
   delivers a complete refactor, we may need multiple review and refine steps."
-- Who picks the size: A defined decision model sets the minimum steps. The agent may add steps, never
-  remove one.
-  - Inputs: subject, sensitivity, "blast radius, security, relatize size, span, etc."
-  - "Span" means how many domains, packages, or repositories a change touches.
-  - An agent may only ask for the model to run again.
-- Measure, small changes: "a small change should go from start to merge queue in 1 hour or less". "Start" is
-  the agent's first action on a defined item, the Define step included.
-- Measure, larger and crucial changes: the operator is "not sure". Measure current start-to-merge-queue times
-  first, then set the targets.
+- Each live workflow retains its mandatory steps. Main chooses assignment
+  complexity and may add depth; no programmed size classification selects steps.
 
 ### C. Composable workflows ("legos")
 - "We need to better define those kinds of work and workflow combos. Each one should not require full
   definition, but rather take existing parts/pieces."
 - "like having legos for different parts needed for a workflow, we snap them together in different
   combinations for different workflows, not define each separately. Modality is crucial."
-- Measure: a new workflow size or kind is made by combining existing parts, with no new step code.
+- Measure: a new workflow kind is made by combining existing parts, with no new step code.
   Each step is defined in exactly one part.
 
 ### D. Programmed tools over prose instructions
@@ -99,10 +85,10 @@ the case ([`../law/constitution/priorities.md`](../law/constitution/priorities.m
 - Measure: at merge, review finds no high or medium problem. Spot checks of merged changes find no
   slop. Follow-up tech-debt items get closed, not only filed.
 
-### F. The conflict rules and the sizing model are built into Concord
+### F. The conflict rules are built into Concord
 - "we need to architect and build something in to concord to handle this. Then we can in the future do spot
   checks to see if we are following".
-- "This" covers both the conflict rules ([`../law/constitution/priorities.md`](../law/constitution/priorities.md) Appendix A) and the sizing decision model (goal B). They
+- The conflict rules ([`../law/constitution/priorities.md`](../law/constitution/priorities.md) Appendix A)
   become a mechanism inside Concord, not prose.
 - Measure: the operator's spot checks show that agents follow the rules.
 
@@ -114,7 +100,3 @@ the case ([`../law/constitution/priorities.md`](../law/constitution/priorities.m
 
 ## 4. Constraints that must hold
 The constraints are law in [`../law/constitution/priorities.md`](../law/constitution/priorities.md#constraints).
-
-## 5. Open questions
-- Time targets from start to merge queue for larger and crucial changes. Set them after current times are
-  measured.

@@ -625,7 +625,7 @@
       ]
     },
     "lifecycle_transition_target": {
-      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation through operator-approved resolve_overlap. Size revisions update the same work item without supersession. The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is defense-in-depth behind this structural control.",
+      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation through operator-approved resolve_overlap. The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is defense-in-depth behind this structural control.",
       "type": "string",
       "enum": [
         "needed",
@@ -1802,9 +1802,6 @@
         },
         "defect_intake": {
           "$ref": "#/$defs/defect_classification"
-        },
-        "size": {
-          "$ref": "#/$defs/work_size_summary"
         }
       }
     },
@@ -5701,101 +5698,6 @@
         ]
       }
     },
-    "work_size_inputs": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "What this change will touch, for the work-item size model (CD-0229 D4). Name the files, a behavior phrase, or both. The tool derives kind, stage, audience, Domains, packages, and repositories; the model decides the size. There is no size field: a proposed size is refused.",
-      "required": [
-        "security",
-        "user_visible",
-        "blast_radius",
-        "estimated_production_lines"
-      ],
-      "properties": {
-        "paths": {
-          "description": "Repository-relative files or directories the change will edit. Bounds: <=64 items inclusive",
-          "type": "array",
-          "maxItems": 64,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512,
-            "description": "Bounds: 1..512 code points inclusive"
-          }
-        },
-        "behavior": {
-          "description": "A phrase for the behavior the change will alter, when the files are not known yet. Bounds: 1..256 code points inclusive",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "security": {
-          "description": "True when the change touches authentication, authorization, secrets, or data safety.",
-          "type": "boolean"
-        },
-        "user_visible": {
-          "description": "True when the change removes or reverses behavior users see, or changes UI or UX.",
-          "type": "boolean"
-        },
-        "blast_radius": {
-          "description": "The widest thing a defect could break: one function, one package, several packages, or a public surface (CLI, tool, schema, wire format).",
-          "type": "string",
-          "enum": [
-            "contained",
-            "package",
-            "cross_package",
-            "external"
-          ]
-        },
-        "estimated_production_lines": {
-          "description": "Production lines you expect to add or change, tests excluded; a relative-size estimate, not a delivered-code measurement or assignment cap. Bounds: 1..100000 value inclusive",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 100000
-        }
-      }
-    },
-    "work_size_class": {
-      "type": "string",
-      "enum": [
-        "small",
-        "larger",
-        "crucial"
-      ]
-    },
-    "work_size_summary": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "The work item's current effective size, model decision, optional operator override, model version, and recording time. Absent when work has never been sized.",
-      "required": [
-        "size",
-        "model_version",
-        "recorded_at"
-      ],
-      "properties": {
-        "size": {
-          "type": "string",
-          "enum": [
-            "small",
-            "larger",
-            "crucial"
-          ]
-        },
-        "model_size": {
-          "$ref": "#/$defs/work_size_class"
-        },
-        "model_version": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "recorded_at": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64
-        }
-      }
-    },
     "work_define_capture_input": {
       "type": "object",
       "additionalProperties": false,
@@ -5887,9 +5789,6 @@
         "defect_intake": {
           "$ref": "#/$defs/defect_intake",
           "description": "Capture admission record (defect intake). Required for kind bug, optional for kind research, refused for every other kind; the core enforces the kind rules and the admission decision."
-        },
-        "size_inputs": {
-          "$ref": "#/$defs/work_size_inputs"
         }
       }
     },
@@ -5906,10 +5805,6 @@
         "idempotency_key"
       ],
       "properties": {
-        "size_inputs": {
-          "$ref": "#/$defs/work_size_inputs",
-          "description": "Reruns the model on fresh declared inputs; reason explains why. The core re-derives every other input and updates the size in place without a successor."
-        },
         "work_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -17877,10 +17772,6 @@
         },
         "dependencies": {
           "$ref": "#/$defs/lane_report_review_dependencies"
-        },
-        "size": {
-          "description": "The recorded work size and its model/operator provenance. Omitted when unsized; never inferred.",
-          "$ref": "#/$defs/work_size_summary"
         }
       }
     },

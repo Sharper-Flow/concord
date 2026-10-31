@@ -803,7 +803,7 @@ def remove_maintenance_fence(paths: Paths, fence_id: str) -> None:
 
 
 def upgrade_plan_command(paths: Paths, version: str) -> list[str]:
-    return [str(paths.data_root / version / "bin" / "concord"), "upgrade"]
+    return [str((paths.data_root / version / "bin" / "concord").resolve()), "upgrade"]
 
 
 def read_upgrade_plan(paths: Paths, version: str, *, staged_binary: Path | None = None) -> dict[str, object]:
@@ -864,8 +864,9 @@ def plan_migration_command(paths: Paths, version: str) -> str:
     containing spaces intact, the same argument-safe rule as
     activation_command_for.
     """
-    return shlex.join(
-        ["env", "-u", "CONCORD_DB_PATH", f"XDG_DATA_HOME={paths.data_home}", *upgrade_plan_command(paths, version)]
+    data_home = paths.data_home.resolve()
+    return "printf '%s' '{}' | " + shlex.join(
+        ["env", "-u", "CONCORD_DB_PATH", f"XDG_DATA_HOME={data_home}", *upgrade_plan_command(paths, version)]
     )
 
 
@@ -942,7 +943,9 @@ def print_prepared_release(record: dict[str, object]) -> None:
     for blocker in record["blockers"]:  # type: ignore[union-attr]
         print(f"Blocker: {blocker}")
     print(f"If the candidate declares prepared-cutover protocol 1, run from an ordinary shell when the maintenance window opens: {record['cutover_command']}")
-    print("Otherwise follow the candidate release's separate migration, activation and recovery instructions.")
+    print("For optional separate recovery, follow the candidate release's migration and activation instructions:")
+    print(f"Migration: {record['migration_command']}")
+    print(f"Activation: {record['activation_command']}")
 
 
 def retained_release_records(manifest: dict[str, object] | None) -> dict[str, dict[str, str]]:

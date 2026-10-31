@@ -10,6 +10,7 @@ import hashlib
 import io
 import json
 import os
+import pty
 import select
 import shlex
 import shutil
@@ -4110,6 +4111,10 @@ esac''',
         self.assertEqual(
             shlex.split(command),
             [
+                "printf",
+                "%s",
+                "{}",
+                "|",
                 "env",
                 "-u",
                 "CONCORD_DB_PATH",
@@ -4118,6 +4123,50 @@ esac''',
                 "upgrade",
             ],
         )
+        with mock.patch.dict(os.environ, {"XDG_DATA_HOME": "relative data home"}):
+            relative = installer.paths_for(None)
+            words = shlex.split(installer.plan_migration_command(relative, "v1.1.0"))
+        absolute = relative.data_home.resolve()
+        self.assertIn(f"XDG_DATA_HOME={absolute}", words)
+        self.assertEqual(words[-2], str(absolute / "concord/v1.1.0/bin/concord"))
+
+    def test_printed_migration_recovery_runs_on_older_json_reader_with_terminal(self) -> None:
+        spaced = self.root / "root with spaces"
+        spaced.mkdir()
+        for name in ("bin", "published", "config"):
+            (self.root / name).rename(spaced / name)
+        self.root = spaced
+        self.commands = spaced / "bin"
+        self.artifacts = spaced / "published"
+        self.env["PATH"] = str(self.commands) + os.pathsep + os.defpath
+        self.assertEqual(self.install_release("v1.0.0").returncode, 0)
+        prepared = self.install_release("v1.1.0", env=self.plan_env(blocked=True))
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        record = json.loads(self.prepared_path.read_text())
+        lines = [line for line in prepared.stdout.splitlines() if record["migration_command"] in line]
+        command = lines[0].split(": ", 1)[1] if len(lines) == 1 else record["migration_command"]
+        binary = self.data_root / "v1.1.0/bin/concord"
+        binary.write_text(f"#!{sys.executable}\nimport json, os, sys\nrequest = json.load(sys.stdin)\nprint(json.dumps([request, os.getenv('CONCORD_DB_PATH'), os.getenv('XDG_DATA_HOME')]))\n")
+        binary.chmod(0o755)
+        ambient = dict(self.env, CONCORD_DB_PATH=str(self.root / "other.db"), XDG_DATA_HOME=str(self.root / "other"))
+        master, slave = pty.openpty()
+        try:
+            with subprocess.Popen(["sh", "-c", command], stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, env=ambient, start_new_session=True) as child:
+                try:
+                    out, err = child.communicate(timeout=3)
+                except subprocess.TimeoutExpired:
+                    os.killpg(child.pid, signal.SIGKILL)
+                    child.communicate()
+                    self.fail("printed migration command waits for terminal input")
+            self.assertEqual(child.returncode, 0, err)
+            self.assertEqual(json.loads(out), [{}, None, str(installer.paths_for(self.root).data_home)])
+            self.assertEqual(len(lines), 1, prepared.stdout)
+            self.assertEqual(command, record["migration_command"])
+            self.assertIn(record["activation_command"], prepared.stdout)
+        finally:
+            os.close(slave)
+            os.close(master)
 
     def test_the_recorded_migration_command_ignores_the_operator_shell_store(self) -> None:
         """An operator shell that names another store must not redirect the
@@ -4129,9 +4178,9 @@ esac''',
         probe.chmod(0o755)
         argv = shlex.split(record["migration_command"])
         self.assertEqual(argv[-2:], [str(self.data_root / "v1.1.0" / "bin" / "concord"), "upgrade"])
-        argv[-2:] = [str(probe)]
+        command = record["migration_command"].replace(shlex.quote(argv[-2]) + " upgrade", shlex.quote(str(probe)))
         ambient = dict(os.environ, CONCORD_DB_PATH=str(self.root / "other" / "concord.db"), XDG_DATA_HOME=str(self.root / "other"))
-        result = subprocess.run(argv, capture_output=True, text=True, env=ambient, check=True)
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, env=ambient, check=True)
         self.assertEqual(result.stdout, f"unset|{installer.paths_for(self.root).data_home}")
 
     def test_the_fence_serializes_with_session_admission(self) -> None:

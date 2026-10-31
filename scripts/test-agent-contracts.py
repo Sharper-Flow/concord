@@ -264,8 +264,8 @@ class UnidentifiedFindingReadbackProjectionTests(unittest.TestCase):
                 generator.schema_validate({**finding, key: value}, view, payload)
 
 
-class IndependentPartIntegrationTests(unittest.TestCase):
-    """Exercise composition identity and real regeneration on disposable source bytes."""
+class IndependentDefinitionIntegrationTests(unittest.TestCase):
+    """Exercise canonical definition identity and regeneration on disposable source bytes."""
 
     PROBE = r'''
 package main
@@ -332,21 +332,8 @@ func main() {
         self.assertEqual(result.returncode, 0, f"command failed: {argv}")
         return result.stdout
 
-    def _assert_no_content_counters(self, root):
-        for filename, names in (
-            ("workflow_parts.go", ("WorkflowPart", "WorkflowPartUse")),
-            ("workflow_composition.go", ("WorkflowComposition",)),
-        ):
-            source = (root / "internal/store" / filename).read_text()
-            for name in names:
-                body = re.search(rf"type {name} struct \{{(.*?)\n\}}", source, re.S)
-                self.assertIsNotNone(body, f"missing {name} declaration")
-                self.assertNotRegex(body[1], r"(?m)^\s*Version\s+", f"retained {name}.Version content counter")
-            self.assertNotIn("ActionCatalogVersion", source, "retained action catalog content counter")
-
-    def test_independent_part_edits_merge_and_regenerate_without_version_edits(self):
-        self._assert_no_content_counters(ROOT)
-        with tempfile.TemporaryDirectory(prefix="concord-part-integration-") as temporary:
+    def test_independent_definition_edits_merge_and_regenerate_without_version_edits(self):
+        with tempfile.TemporaryDirectory(prefix="concord-definition-integration-") as temporary:
             scratch = Path(temporary)
             root = scratch / "source"
             root.mkdir()
@@ -364,9 +351,9 @@ func main() {
                 shutil.copy2(source, target)
             self.assertFalse((root / ".git").exists())
 
-            parts = root / "internal/store/workflow_parts.go"
-            base = parts.read_text()
-            # Reorder existing actions in distant, disjoint parts, not shared counters.
+            definitions = root / "internal/store/workflow_definitions.go"
+            base = definitions.read_text()
+            # Reorder existing actions in distant, disjoint definitions, not shared counters.
             edits = (
                 ('"record_alignment", "record_work_context"', '"record_work_context", "record_alignment"'),
                 ('"record_report", "link_successor"', '"link_successor", "record_report"'),
@@ -385,15 +372,14 @@ func main() {
                 self.assertNotIn(old, merged)
                 self.assertEqual(merged.count(new), 1)
 
-            probe = root / "scripts/part-integration-probe/main.go"
+            probe = root / "scripts/definition-integration-probe/main.go"
             probe.parent.mkdir()
             probe.write_text(self.PROBE)
             states = {}
             previous = {}
             for name, source in (("base", base), ("left", copies[1].read_text()), ("right", copies[2].read_text()), ("merged", merged)):
-                parts.write_text(source)
-                self._assert_no_content_counters(root)
-                states[name] = json.loads(self._run(root, "go", "run", "./scripts/part-integration-probe", input=json.dumps(previous), show=False))
+                definitions.write_text(source)
+                states[name] = json.loads(self._run(root, "go", "run", "./scripts/definition-integration-probe", input=json.dumps(previous), show=False))
                 self.assertEqual(set(states[name]), {"workflow.implementation", "workflow.break_fix", "workflow.research"})
                 for ref, row in states[name].items():
                     self.assertRegex(row["digest"], r"^sha256:[0-9a-f]{64}$")
@@ -439,8 +425,7 @@ func main() {
             self._run(root, sys.executable, "scripts/generate-agent-profiles.py", "--check")
             self._run(root, "go", "test", "-timeout=4m", "./internal/store", "-run",
                       "^Test(WorkflowDefinitionCanonicalEncodingMatchesPublicFixture|WorkflowCapabilityVocabularyMatchesPublicSchema|WorkflowDefinitionCanonicalDigestAndDriftProtection)$", "-count=1", "-v")
-            self.assertEqual(parts.read_text(), merged)
-            self._assert_no_content_counters(root)
+            self.assertEqual(definitions.read_text(), merged)
 
 
 class CurrentScenarioCarrierTests(unittest.TestCase):
@@ -1347,7 +1332,7 @@ class BuiltinWorkflowDefinitionSchemaTests(unittest.TestCase):
         cls.schema = json.loads((ROOT / "contracts/workflow-definition.schema.json").read_text())
         with tempfile.TemporaryDirectory(prefix="manifest-schema-", dir=ROOT / "scripts") as temporary:
             probe = Path(temporary) / "main.go"
-            probe.write_text(IndependentPartIntegrationTests.PROBE)
+            probe.write_text(IndependentDefinitionIntegrationTests.PROBE)
             result = subprocess.run(
                 ["go", "run", str(probe)], cwd=ROOT, input="{}", text=True,
                 capture_output=True, timeout=240,

@@ -264,8 +264,7 @@ type WorkflowDefinition struct {
 	Ref                 string   `json:"ref"`
 	WorkKind            WorkKind `json:"work_kind"`
 	ChangesProductTruth *bool    `json:"changes_product_truth,omitempty"`
-	// Capabilities is the canonical sorted union of the behaviors the
-	// definition's parts enable. It is digest-covered manifest content.
+	// Capabilities is the canonical sorted set of behaviors the definition enables.
 	Capabilities          []WorkflowCapability          `json:"capabilities"`
 	StepGraph             WorkflowStepGraph             `json:"step_graph"`
 	AvailableActions      []string                      `json:"available_actions"`
@@ -633,16 +632,6 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 		}
 	}
 	return definition
-}
-
-// BuiltinWorkflowDefinitions compiles the one current definition per live family.
-func BuiltinWorkflowDefinitions() []WorkflowDefinition {
-	compositions := builtinWorkflowCompositions()
-	definitions := make([]WorkflowDefinition, 0, len(compositions))
-	for _, composition := range compositions {
-		definitions = append(definitions, mustCompileWorkflowComposition(composition))
-	}
-	return definitions
 }
 
 func NewBuiltinWorkflowRegistry() DefinitionRegistry {

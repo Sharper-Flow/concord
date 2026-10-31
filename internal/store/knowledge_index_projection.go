@@ -470,7 +470,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if err != nil {
 		return err
 	}
-	manifest, _, manifestMissing, err := readKnowledgeManifestShardsRunner(ctx, runGitRunner{}, home.RepoPath, commit)
+	manifest, manifestMissing, err := readKnowledgeManifestRunner(ctx, runGitRunner{}, home.RepoPath, commit)
 	if err != nil {
 		return err
 	}

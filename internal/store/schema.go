@@ -8737,7 +8737,10 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 	}
 
 	if scope == migrateForUpgrade {
-		// Last-locator refusal must precede even manifest and schema writes.
+		// Authored-state refusals precede even manifest and schema writes.
+		if err := preflightDomainShapeReadingUpgrade(ctx, tx); err != nil {
+			return rollback(err)
+		}
 		if err := preflightRemoteLocatorUpgrade(ctx, tx); err != nil {
 			return rollback(err)
 		}
@@ -8776,6 +8779,37 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		return upgradeRequired(*stopped)
 	}
 	return nil
+}
+
+func preflightDomainShapeReadingUpgrade(ctx context.Context, q queryer) error {
+	var present bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='work_context_state')`).Scan(&present); err != nil {
+		return wrapFailure(KindUnavailable, "migrate", "cannot inspect persisted work context before Domain Shape retirement", true, "confirm the database is readable and retry upgrade", err)
+	}
+	if !present {
+		return nil
+	}
+	// Inspect the stored source tag without decoding the retired source arm.
+	// Migration must neither rewrite authored readings nor bypass terminal cleanup.
+	var workID, lifecycle string
+	err := q.QueryRowContext(ctx, `SELECT state.work_id,work.lifecycle FROM work_context_state AS state
+JOIN work_items AS work ON work.id=state.work_id
+WHERE EXISTS(SELECT 1 FROM json_each(state.declaration_payload,'$.required_reading') AS reading
+ WHERE json_extract(reading.value,'$.source.kind')='domain_shape')
+ORDER BY state.work_id LIMIT 1`).Scan(&workID, &lifecycle)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, "migrate", "cannot inspect persisted required readings before Domain Shape retirement", true, "confirm the database is readable and retry upgrade", err)
+	}
+	recovery := fmt.Sprintf("use a pre-retirement binary that still supports domain_shape (schema 170); for live work %q, use the admitted record_work_context workflow action to replace or remove only obsolete readings while preserving the rest of the declaration, then retry concord upgrade", workID)
+	if lifecycle == "completed" || lifecycle == "cancelled" || lifecycle == "superseded" {
+		recovery = fmt.Sprintf("use a pre-retirement binary that still supports domain_shape (schema 170); terminal work %q is immutable: do not replace or rewrite its declaration; use concord_work_compact.publish with the exact reviewed closure bytes and canonical home, or concord_work_compact.reconcile for an existing publication, and settle publication plus terminal cleanup under all existing gates; resolve every reported cleanup blocker, then retry concord upgrade; if the reviewed closure or required cleanup evidence cannot be supplied, no supported upgrade recovery is available for this work: retain the schema-170 store and seek maintainer follow-up", workID)
+	}
+	return newFailure(KindUpgradeBlocked, "migrate",
+		fmt.Sprintf("work %q still has a domain_shape required reading; no migration was applied", workID), true,
+		recovery)
 }
 
 func inspectUnstampedManifest(ctx context.Context, tx *sql.Tx) (bool, error) {

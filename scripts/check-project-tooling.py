@@ -154,8 +154,8 @@ def check(*, root: Path = ROOT) -> list[str]:
     if not isinstance(tools, list):
         findings.append(f"{MANIFEST}: tools must be an array")
         return findings
-    if len(tools) > MAX_TOOLS:
-        findings.append(f"{MANIFEST}: tools must hold at most {MAX_TOOLS} entries")
+    if not 1 <= len(tools) <= MAX_TOOLS:
+        findings.append(f"{MANIFEST}: tools must hold 1..{MAX_TOOLS} entries")
 
     seen_ids: set[str] = set()
     for index, tool in enumerate(tools):

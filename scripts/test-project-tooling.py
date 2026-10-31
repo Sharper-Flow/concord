@@ -259,7 +259,7 @@ class ProjectToolingTests(unittest.TestCase):
         self.assertEqual(root_properties["schema_version"]["const"], checker.SCHEMA_VERSION)
         self.assertEqual(root_properties["project"]["pattern"], checker.IDENTIFIER_PATTERN)
         self.assertEqual(root_properties["tools"]["maxItems"], checker.MAX_TOOLS)
-        self.assertEqual(root_properties["tools"]["minItems"], 0)
+        self.assertEqual(root_properties["tools"]["minItems"], 1)
         self.assertEqual(set(properties), checker.TOOL_FIELDS)
         self.assertEqual(set(tool_schema["required"]), checker.REQUIRED_TOOL_FIELDS)
         self.assertEqual(properties["id"]["pattern"], checker.IDENTIFIER_PATTERN)
@@ -278,9 +278,9 @@ class ProjectToolingTests(unittest.TestCase):
         invocation_patterns = properties["invocation"]["allOf"]
         self.assertIn({"pattern": checker.PLAIN_ARGV_PATTERN}, invocation_patterns)
 
-    def test_empty_declared_tools_are_valid(self) -> None:
+    def test_empty_declared_tools_are_rejected(self) -> None:
         self.manifest([])
-        self.assertEqual(checker.check(root=self.root), [])
+        self.assertTrue(any("tools must hold 1..64 entries" in finding for finding in checker.check(root=self.root)))
 
     def test_dogfood_carries_no_selection_policy(self) -> None:
         repository = Path(__file__).resolve().parents[1]

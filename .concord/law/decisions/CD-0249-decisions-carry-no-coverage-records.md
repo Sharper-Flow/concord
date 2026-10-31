@@ -138,9 +138,11 @@ excuse new dead material.
 ## Verification
 
 - `internal/store.TestMigrateV165ToV166RetiresLawCoverageStorageAndPreservesCurrentState`
-  proves migration 166 drops the coverage table and its guard triggers
-  while current knowledge, law, package-map, and work rows are
-  preserved unchanged (D1).
+  proves an upgrade from v165 drops the coverage table and its guard triggers
+  while current knowledge, law and work rows are preserved unchanged (D1).
+- `internal/store.TestMigration166PreservesPreShapeRetirementRows` proves
+  migration 166 alone preserves the package-map and law-evidence rows alongside
+  current knowledge, law and work rows (D1).
 - `internal/store.TestMigrateV165ToV166FailedStepRollsBack` proves a failed
   drop leaves the pre-upgrade catalog and rows unchanged and the upgrade
   completes once the blocker is gone (D1).

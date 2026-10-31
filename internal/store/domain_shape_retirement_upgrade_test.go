@@ -3,7 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -109,5 +112,70 @@ INSERT INTO shape_drop_blocker VALUES('shape-project','shape-locator','CD-0001',
 	var violations int
 	if err := db.QueryRow(`SELECT count(*) FROM pragma_foreign_key_check`).Scan(&violations); err != nil || violations != 0 {
 		t.Fatalf("foreign_key_check rows=%d err=%v", violations, err)
+	}
+}
+
+func TestMigrateDomainShapeReadingRefusesBeforeRetirement(t *testing.T) {
+	t.Parallel()
+	for _, lifecycle := range []string{"needed", "completed", "cancelled", "superseded"} {
+		t.Run(lifecycle, func(t *testing.T) {
+			db := seedV170DomainShapeDatabase(t, filepath.Join(t.TempDir(), "legacy-reading.db"))
+			payload := `{"required_reading":[{"domain_id":"shape-child","reason":"Required reading","source":{"kind":"domain_shape","source_id":"shape-project","selector":{"path":"internal/store"}}},{"domain_id":"shape-child","reason":"Retained reading","source":{"kind":"knowledge","source_id":"concord_knowledge","law_id":"CD-0001","content_hash":"sha256:` + repeatA64() + `"}}],"finding_refs":[],"context_findings":[]}`
+			if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+UPDATE work_items SET lifecycle='` + lifecycle + `' WHERE id='shape-work';
+INSERT INTO work_context_state(work_id,source_frontier,declaration_seq,declaration_id,declaration_payload) VALUES('shape-work',1,1,'legacy-declaration','` + payload + `');
+DELETE FROM write_guard`); err != nil {
+				t.Fatal(err)
+			}
+			tables := append([]string{"sqlite_schema", "schema_migrations", "store_revision", "write_guard", "work_context_state"}, domainShapeRetiredTables...)
+			tables = append(tables, domainShapePreservedTables...)
+			before := catalogUpgradeRows(t, db, tables...)
+			err := Migrate(context.Background(), db)
+			if err == nil {
+				t.Fatal("upgrade admitted a persisted domain_shape required reading; retirement strands work-context decoding")
+			}
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Kind != KindUpgradeBlocked || !failure.RetrySafe {
+				t.Fatalf("upgrade refusal = %v, want retry-safe upgrade_blocked", err)
+			}
+			fragments := []string{"domain_shape", "shape-work", "pre-retirement binary", "schema 170", "retry"}
+			if lifecycle == "needed" {
+				fragments = append(fragments, "record_work_context", "replace or remove only obsolete readings", "preserving the rest of the declaration")
+			} else {
+				fragments = append(fragments, "immutable", "do not replace or rewrite", "concord_work_compact.publish", "concord_work_compact.reconcile", "exact reviewed closure bytes", "all existing gates", "no supported upgrade recovery")
+			}
+			for _, fragment := range fragments {
+				if !strings.Contains(failure.Detail+" "+failure.RecoveryAction, fragment) {
+					t.Errorf("upgrade refusal %+v lacks actionable recovery fragment %q", failure, fragment)
+				}
+			}
+			if after := catalogUpgradeRows(t, db, tables...); !reflect.DeepEqual(after, before) {
+				t.Fatalf("refused upgrade changed schema, manifest, revision, or rows:\nbefore: %v\nafter: %v", before, after)
+			}
+			if lifecycle != "needed" {
+				return
+			}
+
+			// Model only the live declaration's persisted replacement. Terminal
+			// declarations cannot be rewritten and require published cleanup.
+			if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+UPDATE work_context_state SET declaration_seq=2,declaration_id='replacement-declaration',source_frontier=2,declaration_payload=json_remove(declaration_payload,'$.required_reading[0]') WHERE work_id='shape-work';
+DELETE FROM write_guard`); err != nil {
+				t.Fatal(err)
+			}
+			remediated := catalogUpgradeRows(t, db, "work_context_state")
+			retained := catalogUpgradeRows(t, db, domainShapePreservedTables...)
+			if err := Migrate(context.Background(), db); err != nil {
+				t.Fatalf("upgrade after modeled live reading removal: %v", err)
+			}
+			if after := catalogUpgradeRows(t, db, "work_context_state"); !reflect.DeepEqual(after, remediated) {
+				t.Fatalf("upgrade rewrote the remediated authored declaration: %v", after)
+			}
+			assertRetirementUpgrade(t, db, domainShapeRetiredObjects(), domainShapePreservedTables, retained)
+			view, err := readWorkContextView(context.Background(), db, "shape-work")
+			if err != nil || view == nil || len(view.RequiredReading) != 1 || view.RequiredReading[0].Reason != "Retained reading" || view.RequiredReading[0].Source.Kind != WorkContextSourceKnowledge {
+				t.Fatalf("remediated context remains unreadable: view=%+v err=%v", view, err)
+			}
+		})
 	}
 }

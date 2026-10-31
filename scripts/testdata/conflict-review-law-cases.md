@@ -25,14 +25,14 @@ The source retains these records in order:
 3. The agent moves the law to records, preserving its obligation and recording
    the reason and derived authority. The implementation remains unchanged.
 
-## owner-map-change
+## implementation-owner-change
 
 The source retains these records in order:
 1. The accepted Domain contract and law assign record encoding to records, but
-   the implementation and package map place that mechanism under transport.
+    the implementation and its callers place that mechanism under transport.
 2. An attributed architecture decision, within the change's approved scope,
    confirms the records responsibility and validates the proposed correction.
-3. The candidate corrects the implementation ownership and map to records. The
+3. The candidate moves the implementation and its callers to records. The
    law stays in records with its original obligation. Source and caller review
    establish that the corrected mechanism performs the governed behavior.
 

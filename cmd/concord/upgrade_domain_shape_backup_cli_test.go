@@ -218,3 +218,84 @@ INSERT INTO shape_drop_blocker VALUES('shape-project','shape-locator','CD-0001',
 		t.Fatalf("failed migration changed live pre-migration state:\nbefore: %v\nafter: %v", liveBefore, after)
 	}
 }
+
+func TestUpgradeDomainShapeReadingReportsPreviousBinaryRecovery(t *testing.T) {
+	path, _ := seedV170ShapeCLIStore(t)
+	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+INSERT INTO work_context_state(work_id,source_frontier,declaration_seq,declaration_id,declaration_payload) VALUES('shape-work',1,1,'legacy-declaration','{"required_reading":[{"domain_id":"shape-child","reason":"Required reading","source":{"kind":"domain_shape","source_id":"shape-project","selector":{"path":"internal/store"}}},{"domain_id":"shape-child","reason":"Retained reading","source":{"kind":"knowledge","source_id":"concord_knowledge","law_id":"CD-0001","content_hash":"sha256:` + repeatCLI64() + `"}}],"finding_refs":[],"context_findings":[]}');
+DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	tables := []string{"sqlite_schema", "schema_migrations", "store_revision", "write_guard", "work_context_state"}
+	before := shapeCLIState(t, path, true)
+	for _, table := range tables {
+		before[table] = lawCoverageFixtureRows(t, db, table)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errOut := runUpgradeStdin(t, `{}`)
+	if code != 1 {
+		t.Fatalf("upgrade admitted an obsolete reading: code=%d diagnostic=%s", code, errOut)
+	}
+	for _, fragment := range []string{"domain_shape", "shape-work", "pre-retirement binary", "schema 170", "record_work_context", "replace", "remove", "preserving the rest of the declaration", "retry"} {
+		if !strings.Contains(errOut, fragment) {
+			t.Errorf("upgrade diagnostic %q lacks actionable recovery fragment %q", errOut, fragment)
+		}
+	}
+	after := shapeCLIState(t, path, true)
+	db = openRawSQLite(t, path)
+	defer db.Close()
+	for _, table := range tables {
+		after[table] = lawCoverageFixtureRows(t, db, table)
+	}
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("refused upgrade changed the live store:\nbefore: %v\nafter: %v", before, after)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = sql.Open("sqlite", store.SQLiteFileURI(path)+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Model the live declaration's replacement, not a terminal-work mutation.
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+UPDATE work_context_state SET declaration_seq=2,declaration_id='replacement-declaration',source_frontier=2,declaration_payload=json_remove(declaration_payload,'$.required_reading[0]') WHERE work_id='shape-work';
+DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	remediated := lawCoverageFixtureRows(t, db, "work_context_state")
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := runUpgradeStdin(t, `{}`)
+	if code != 0 {
+		t.Fatalf("upgrade after modeled live removal: code=%d diagnostic=%s", code, errOut)
+	}
+	var report struct {
+		Applied []int  `json:"applied"`
+		Backup  string `json:"backup"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil || !reflect.DeepEqual(report.Applied, []int{171}) {
+		t.Fatalf("remediated upgrade report=%s err=%v", out, err)
+	}
+	manifest, err := store.VerifyBackup(context.Background(), report.Backup)
+	if err != nil || manifest.SchemaVersion != 170 {
+		t.Fatalf("remediated upgrade snapshot schema=%d err=%v", manifest.SchemaVersion, err)
+	}
+	for _, source := range []string{report.Backup, path} {
+		db = openRawSQLite(t, source)
+		if rows := lawCoverageFixtureRows(t, db, "work_context_state"); !reflect.DeepEqual(rows, remediated) {
+			t.Fatalf("upgrade changed the remediated declaration in %s: %v", source, rows)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

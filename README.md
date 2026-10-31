@@ -136,14 +136,6 @@ Inspect the [transaction owner](internal/store/durable.go) and
 [ten-process conformance harness](internal/store/conformance_test.go) exercises
 concurrent access to the local store.
 
-### Domain Shape and architectural boundaries
-
-Products declare explicit package roles (`domain`, `mixed`, `composition`,
-`test_support`) and track typed architectural facts. Boundary checks validate
-import edges against declared `depends_on` dependencies, while an enforceable
-ratchet prevents architectural drift. Inspect the
-[domain read engine](internal/store/domain_reads.go).
-
 ### Recoverable installation and automated releases
 
 The release workflow builds Linux amd64 binaries, generates an SPDX software
@@ -188,8 +180,6 @@ nor wraps their prompts or results.
 The installer registers on-demand skills in OpenCode without adding runtime
 overhead:
 
-- **`concord-domain-shape-stewardship`**: Initialize, migrate, refine, and audit
-  Domain boundaries and typed architectural facts.
 - **`concord-law-writing`**: Draft, amend, or prune Product specifications and
   decisions without altering obligations or approval boundaries.
 - **Engineering methods**: Portable skills for diagnosis, codebase design,
@@ -285,8 +275,6 @@ compromising local verification:
 
 - **Release compatibility.** Expand release gates to exercise snapshot restoration
   across earlier released binaries and candidate releases.
-- **Domain Shape migration tooling.** Deepen automated boundary validation and
-  migration workflows across mixed multi-domain codebases.
 
 ## Install and setup
 

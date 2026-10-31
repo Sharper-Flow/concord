@@ -163,10 +163,6 @@ func seedProjectHandoffLaw(t *testing.T, s *Store, productID, projectID string) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err = domainShapeKnowledgeDigest(t.Context(), home, commit, digest, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES(?,?,'HEAD',?,?,'test',1,?); DELETE FROM write_guard`, projectID, "ph-law-locator", commit, digest, knowledgeProjectionVersion); err != nil {
 		t.Fatal(err)
 	}

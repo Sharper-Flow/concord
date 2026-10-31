@@ -82,24 +82,6 @@ rejects dangling or generated/candidate entries, and proves every `CD-*.md`
 decision is included. `python3 scripts/check-knowledge-index.py --update` still
 updates hashes only; it never authors inclusion, metadata, or status.
 
-## Domain facts
-
-[CD-0244 D4–D8](../law/decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d4-domain-facts-are-typed-small-and-owned-by-one-domain)
-governs the typed facts in every Product knowledge home. Each fact is a JSON
-shard with exactly one `owner_domain_id` and no body document. The four kinds
-are `invariant`, `data_object`, `state_authority`, and `config_coupling`.
-The Markdown-path requirement above applies to document records, not facts.
-
-Fact shards use their own
-[`domain-fact.v1.schema.json`](../../contracts/domain-fact.v1.schema.json)
-contract, not the schema `1.3` document-record vocabulary. The store validates,
-projects, and serves them through the bounded Domain Shape read, and
-knowledge-home setup establishes their directory. Products declare shape checks
-in [`.concord/tooling.v1.json`](../tooling.v1.json); a declaration is not proof
-that a check ran. Without an extractor, data-object and configuration facts
-remain unverified under CD-0244 D5. Concord declares no boundary checker or
-extractors.
-
 ## Authoring
 
 A new CD takes the next number above every record under

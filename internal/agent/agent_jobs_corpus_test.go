@@ -1343,7 +1343,6 @@ func init() {
 	jobBindings["AJ4-stale-version"] = bindAJ4StaleVersion
 	jobBindings["AJ4-history-of-a-superseded-contract"] = bindAJ4HistoryOfASupersededContract
 	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap
-	jobBindings["AJ5-footprint-of-a-change"] = bindAJ5FootprintOfAChange
 	jobBindings["AJ8-budget-refused"] = bindAJ8BudgetRefused
 	jobBindings["AJ8-health-failure-rollback"] = bindAJ8HealthFailureRollback
 }

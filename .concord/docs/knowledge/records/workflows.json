@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f8a1edbdf10c419f52eaafea3f35e60efd428d3a38f1da6ba1ccf17dcd508573",
+  "sha256": "sha256:0409274da21eafa0b46e1291dfbce1bc84e99473fabe53d517241705c85696f7",
   "status": "published",
   "summary": "Describes the three retained execution families, plain Go definitions and forward-linked successor composition without size classification. Public projections derive from the definitions under CD-0218, CD-0229 and CD-0242; mandatory stages and review protections remain.",
   "tags": [

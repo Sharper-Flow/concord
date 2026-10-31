@@ -2476,7 +2476,6 @@ esac''',
         skill_names = [
             "concord-codebase-design",
             "concord-diagnosis",
-            "concord-domain-shape-stewardship",
             "concord-instruction-writing",
             "concord-law-writing",
             "concord-retrospective",
@@ -2504,7 +2503,7 @@ esac''',
 
         project = self.root / "synthetic-product"
         user_files = {
-            project / ".concord" / "docs" / "decisions" / "CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md": b"Synthetic Product lookalike is not the shipped canonical reference.\n",
+            project / ".concord" / "docs" / "decisions" / "CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md": b"Synthetic Product lookalike is not the shipped canonical reference.\n",
             project / ".opencode" / "skills" / "user-note" / "SKILL.md": b"---\nname: user-note\ndescription: User-owned local skill.\n---\nKeep these bytes.\r\n",
             project / ".concord" / "docs" / "managed-development-authority.md": b"Synthetic Product planning uses a different tracker.\n",
             project / ".concord" / "docs" / "decisions" / "CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md": b"Synthetic Product permits edits outside the assigned scope.\n",

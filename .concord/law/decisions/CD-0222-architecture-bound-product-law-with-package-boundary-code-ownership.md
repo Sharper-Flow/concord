@@ -1,10 +1,10 @@
-# CD-0222: Architecture-bound Product law with package-boundary code ownership
+# CD-0222: Architecture-bound Product law
 
 - **Status:** Accepted
 - **Date:** 2026-10-10
 - **Scope:** Product priorities, architectural identity, law placement,
   concurrent-work contradiction control, storage boundary, global navigation
-  retirement, registry participation, and code-ownership guidance.
+  retirement and registry participation.
 - **Approval:** Operator-delegated approval A4 for [Concord (CON) issue
   899](https://linear.app/sharper-flow/issue/CON-899).
 - **Related:** [CD-0060](CD-0060-domain-registry-enactment.md),
@@ -16,7 +16,7 @@
   surviving store query bounds and authority over exact Domain-detail reads;
   `applies_to_domain_ids` as optional.
 [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-governs D1, D4, and D5: law mandates and enactment require approval only under its six classes. It also governs the approval rule for work relations that `resolve_overlap` records. Law homes, applicability, footprint, and architecture checks remain required.
+governs D1, D4, and D5: law mandates and enactment require approval only under its six classes. It also governs the approval rule for work relations that `resolve_overlap` records. Law homes, applicability, and architecture checks remain required.
 
 ## Context
 
@@ -83,11 +83,9 @@ checks pass.
 ### D2. Domain is the canonical Product-internal architectural identity
 
 A **Domain** is the stable Product-internal unit that owns behavior, invariants,
-architectural contracts, and the code that implements them under
-[CD-0244 D1](CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d1-a-domain-exclusively-owns-its-code).
-It is not a cross-cutting concern. Its identity comes only from the registry.
-Code-root roles and ownership are declared in the package map below, never
-inferred from paths, tags, repository names, or initiative membership.
+architectural contracts, and the code that implements them. It is not a
+cross-cutting concern. Its identity comes only from the registry, never from
+paths, tags, repository names, or initiative membership.
 
 Each Product knowledge home contains a Git-authored Domain registry. A Domain
 record contains:
@@ -112,8 +110,8 @@ SQLite separately owns a Domain stage override. It does not create or rename
 a Domain, author law, or define architecture dependencies. A Project never
 becomes Domain identity. Domains never cross a Product boundary.
 
-A cross-cutting rule belongs to the Domain that enforces it under
-[CD-0244 D6](CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d6-a-cross-cutting-rule-belongs-to-the-domain-that-enforces-it).
+A cross-cutting rule belongs to the Domain that enforces it. Law applicability
+names the other Domains the rule binds; it creates no additional owner.
 The root Domain is not a catch-all: work whose behavior fits
 a child Domain homes there, and `affected_domain_ids` names only Domains whose
 law or assumptions the work can actually affect.
@@ -128,7 +126,7 @@ as an ordinary description, but it cannot identify a second grouping entity or
 own links. The canonical browse path is:
 
 ```text
-Product -> active work, then Domain -> current law, evidence, decisions, typed facts
+Product -> active work, then Domain -> current law, evidence, decisions
 ```
 
 Selecting a Product lands on its Product-scoped, non-terminal work list. That
@@ -140,22 +138,6 @@ runs through the Domain hierarchy.
 Business grouping is an optional overlay that lives in Linear under CD-0213,
 never a replacement for that path.
 
-Code ownership follows executable package and module boundaries. Each Product
-knowledge home carries a Git-authored package map beside the Domain registry.
-[CD-0244 D2](CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d2-code-roots-are-declared-at-package-or-module-grain)
-defines its code-root roles and exclusive ownership; CD-0244 D3 governs allowed imports
-and the ratchet for existing violations and `mixed` roots. Every code file
-resolves to one package entry, and every named Domain is current.
-The map is architecture data, not law:
-an ordinary change edits it, and it names no files or globs, creates no
-Domain, places no law, and grants no workflow authority. It has its own
-content hash, so a map change leaves the registry content hash that
-architecture bindings pin unchanged.
-
-The footprint read consumes
-[CD-0244 D7's bounded Domain-fact read](CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d7-one-bounded-read-answers-a-domain-question)
-and joins the map with the law index. Given files or a behavior, it returns the
-governing Domains and the current law revisions.
 The Product registry remains the authority for Domain identity and law placement.
 
 ### D3. Every accepted law record has one architectural home
@@ -416,12 +398,7 @@ and TS8/TS9 evidence for the current manifest.
 No global file inventory, path-glob registry, fingerprint collection, generated
 card set, catalog binding, or relationship visualization is required. The
 navigation corpus, its generator, and its validators are deleted with their
-consumers. Code ownership follows executable package and module boundaries,
-declared in D2's package map. That map is package-grained, hand-authored, and
-consumed by the footprint read, so it is not a navigation corpus.
-[CD-0244 D4–D7](CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d4-domain-facts-are-typed-small-and-owned-by-one-domain)
-places invariants, entry points, and verification commands in typed facts rather
-than small owner notes. Small owner notes explain responsibilities
+consumers. Small owner notes explain responsibilities
 where code does not. A note need not name a Domain. A claim that names a Domain
 still passes the existing scope boundary.
 
@@ -429,9 +406,7 @@ A Domain participates in no graph by requirement. A relation records governed
 architecture. `scripts/check-domain-registry.py` retains checks for law
 ownership, Domain hierarchy, applicability, relation endpoints, and current
 governing laws. It has no navigation companion, unresolved-path ratchet,
-participation advisory, or participation strict-mode gate. D2's package map
-has its own validator. It requires every code file to resolve to one package
-entry. No Domain is required to appear in the map.
+participation advisory, or participation strict-mode gate.
 `applies_to_domain_ids` stays optional and cannot create another law home.
 
 The launcher display clauses have no subject under CD-0219. The surviving
@@ -511,8 +486,7 @@ graph. Product law approval does not authorize live-state cutover.
 
 - The navigation corpus, generated cards, catalogs, joins, and their
   generators are deleted. No graph, glob map, or owner-note generator replaces
-  them. D2's hand-authored package map is the one declared code-to-Domain
-  join, and the footprint read consumes it.
+  them.
 
 ## Amendment map
 
@@ -529,9 +503,6 @@ graph. Product law approval does not authorize live-state cutover.
 - **CD-0002/CD-0011:** SQLite is the sole local live-state
   authority under the existing falsifiers.
 
-The anchors below cover the carried obligations; they do not prove
-CD-0244's added Domain-shape requirements.
-
 ## Verification
 
 - `python3 scripts/check-knowledge-index.py` proves record identity, placement, and the relation graph.
@@ -542,6 +513,4 @@ CD-0244's added Domain-shape requirements.
 - `internal/store.TestValidateWorkContextDomainTxRefusals` proves declared context, scope, and rationale bounds without an inventory.
 - `internal/store.TestReadWorkContextOverflowRefusesReadNotRetention` proves context bounds refuse instead of truncate.
 - `go test ./internal/store -run 'TestDispatchAdmitsPacketConsumingLatestCheckpoint'` and its companion witness selectors prove coordination without global navigation artifacts.
-- `python3 scripts/test-check-package-domains.py` proves package-grain coverage and Domain reference checks, not CD-0244's code-root roles or fact ownership. The existing validator still enforces the replaced multi-Domain listing rule until that implementation changes.
 - `internal/store.TestAuthorizedFailedRetrySurvivesRegistryChange` proves a Domain registry change leaves in-progress work admitted (D7).
-- `internal/store.TestDomainFootprintJoinsPackageMapLawEvidence` proves the footprint join and its order.

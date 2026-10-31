@@ -33,10 +33,9 @@ not acceptance. A missing record is not permission to invent one. If a required
 source is unavailable, stop the dependent claim and name the missing evidence.
 
 Read the owning clause and its references before drafting. State what fails,
-who is affected, and the end state the change must make decidable. Use
-`concord_domain.footprint` for affected ownership and law, not permission to
-expand scope. Classify a compatible amendment or breaking replacement under the
-linked law.
+who is affected, and the end state the change must make decidable. Domain and law
+reads establish ownership, not permission to expand scope. Classify a compatible
+amendment or breaking replacement under the linked law.
 
 ## Draft the rule
 

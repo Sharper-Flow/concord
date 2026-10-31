@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b782dd1857bbf6a41fc792b3d28ce9c8cb74b2e120febd60f1e4672a04471cb8",
+  "sha256": "sha256:b054f12f267261b97863d1b8e998462d9009a6b481f0ab58dd7980982d09ea84",
   "status": "accepted",
   "summary": "Decisions carry no coverage records, states, or anchors: a decision Verification section alone names its tests, and per-law coverage schema, shards, scripts, CI enforcement, storage, and read output are retired through the breaking migration with a verified snapshot before the table drop. Reachability stays computed with only exceptions declared, the declaring planes share one state vocabulary whose outstanding pointers must name live issues, typed anchors keep the closed kinds with resolution and required-check wiring, and dead or superseded material is removed in the change that replaces it.",
   "tags": [

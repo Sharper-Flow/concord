@@ -41,16 +41,6 @@ _primary_prompts = importlib.util.module_from_spec(_primary_spec)
 _primary_spec.loader.exec_module(_primary_prompts)
 
 SKILL_REFERENCES = {
-    "concord-domain-shape-stewardship": {
-        "shape": ".concord/docs/decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md",
-        "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
-        "authority": ".concord/docs/managed-development-authority.md",
-        "publication": ".concord/docs/concord-knowledge-index.md",
-        "facts": "contracts/domain-fact.v1.schema.json",
-        "roots": "contracts/package-domains.v1.schema.json",
-        "tooling": "contracts/project-tooling.v1.schema.json",
-        "protocol": "contracts/domain-shape-check.v1.schema.json",
-    },
     "concord-law-writing": {
         "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
         "formalization": ".concord/docs/knowledge-formalization-procedure.md",

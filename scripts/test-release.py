@@ -413,12 +413,6 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}")
         self.assertIn("carries every installer-required file", result.stdout)
 
-    def test_release_workflow_rejects_archive_missing_nested_stewardship_skill(self) -> None:
-        omitted = "skills/concord-domain-shape-stewardship/SKILL.md"
-        result = self.run_archive_verification(omitted)
-        self.assertNotEqual(result.returncode, 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}")
-        self.assertIn(f"omits files the installer requires: {omitted}", result.stderr)
-
     def test_release_workflow_rejects_archive_missing_writing_skill_or_its_license(self) -> None:
         for omitted in (
             "skills/concord-law-writing/SKILL.md", "skills/concord-law-writing/LICENSE",

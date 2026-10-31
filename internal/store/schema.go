@@ -8353,6 +8353,18 @@ DROP TABLE worktree_verify_leases;
 DELETE FROM write_guard;
 `,
 	},
+	{
+		Version:  172,
+		Name:     "retire_domain_shape",
+		Breaking: true,
+		SQL: `
+DROP TABLE knowledge_domain_facts;
+DROP TABLE knowledge_domain_roots;
+DROP TABLE knowledge_domain_shapes;
+DROP TABLE knowledge_package_domains;
+DROP TABLE law_evidence_paths;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

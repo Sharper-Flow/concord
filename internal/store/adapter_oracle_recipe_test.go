@@ -43,6 +43,58 @@ func TestAdapterNativeRecipeGenerated(t *testing.T) {
 	}
 }
 
+func TestNativeHelperRecipeSelectors(t *testing.T) {
+	for _, tt := range []struct {
+		name, materializer, cwd, caseID string
+		witnesses                       []string
+		checks                          [][]string
+	}{
+		{
+			name: "adapter", materializer: "bun", cwd: "adapter/opencode", caseID: "case:adapter-native-helper",
+			witnesses: []string{"adapter-native-helper"},
+			checks:    [][]string{{"python3", "acceptance.py", "session-scope.test.ts", "primary-role.test.ts", "role-publication.test.ts"}},
+		},
+		{
+			name: "agents", materializer: "none", cwd: ".", caseID: "case:primary-native-helper",
+			witnesses: []string{"primary-helper-installer-collision", "primary-helper-installer-inventory", "primary-profile-parity", "primary-profile-tests"},
+			checks: [][]string{
+				{"python3", "scripts/test-installer.py", "InstallerTests.test_native_researcher_upgrade_preserves_an_unmanaged_definition"},
+				{"python3", "scripts/test-installer.py", "InstallerTests.test_agent_files_equal_every_generated_definition"},
+				{"python3", "scripts/generate-agent-profiles.py", "--check"},
+				{"python3", "scripts/test-generate-agent-profiles.py"},
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join("..", "..", ".concord", "oracles", tt.name, "native-helper.v1.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := decodeNativeTargetManifest(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			control := OracleControl{Argv: append([]string{"check"}, tt.witnesses...), Cwd: tt.cwd, CaseIDs: []string{tt.caseID}}
+			if err := validateNativeTargetManifest(manifest, control); err != nil {
+				t.Fatal(err)
+			}
+			witnesses, err := nativeTargetSelector(manifest, control)
+			if err != nil || !slices.Equal(witnesses, tt.witnesses) {
+				t.Fatalf("helper recipe control does not name its exact closed selector: %v, %v", witnesses, err)
+			}
+			if manifest.Materializer != tt.materializer || manifest.Runner != "check" || len(manifest.Checks) != len(tt.checks) {
+				t.Fatalf("helper recipe changed its family or check inventory: %+v", manifest)
+			}
+			for i, witness := range witnesses {
+				check, err := nativeTargetCheckFor(manifest, witness)
+				if err != nil || !slices.Equal(check.Argv, tt.checks[i]) {
+					t.Fatalf("helper witness %s changed its exact command: %v, %v", witness, check.Argv, err)
+				}
+			}
+		})
+	}
+}
+
 func TestAdapterNativeRecipeRecordsReady(t *testing.T) {
 	ctx := context.Background()
 	const recipePath = ".concord/oracles/adapter/native-acceptance.v1.json"

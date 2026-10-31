@@ -52,12 +52,6 @@ presented as equivalent. An operator wanting trunk protection at the file
 level must configure it host-side; Concord records the boundary honestly
 instead.
 
-### D3. The coverage record separates the halves
-
-The worktree-isolation outcome row splits its enforced evidence from this
-exclusion and cites this record, so the table stops overstating what is
-enforced.
-
 ## Invariants
 
 1. Concord does not intercept ordinary file writes by their target or checkout.

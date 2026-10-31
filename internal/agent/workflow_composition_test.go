@@ -24,7 +24,7 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 	successorID := captureCompositionWork(t, ctx, s, service, env, "Composition successor", "task", "workflow.research", "composition-successor")
 	// A capture always pins a workflow instance now (#650), so the
 	// instance-less successor this refusal guards is created the way real
-	// instance-less work arises: raw events, as predecessor import leaves.
+	// instance-less work arises: raw events, as previously imported work carries.
 	missingInstanceID := "work-composition-missing-instance"
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
 		{EventID: "composition-missing:create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: missingInstanceID, Actor: "operator", OccurredAt: s.Now().UTC(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: []byte(`{"work_kind":"research","title":"Composition missing instance","priority":0}`)},

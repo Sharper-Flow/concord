@@ -124,8 +124,7 @@ not change.
   reader does not fail a durable commit.
 - `internal/store.TestDurableTransactFailureSurfaces` proves a durable
   transaction failure reaches the caller.
-- `internal/agent.TestWorkflowReplayCommitsDurablyUnderPinnedReader` and
-  `cmd/concord.TestPredecessorImportAcknowledgesUnderPinnedReader` prove the
+- `internal/agent.TestWorkflowReplayCommitsDurablyUnderPinnedReader` proves the
   acknowledgement succeeds while another connection holds a WAL read mark.
 - `python3 scripts/check-knowledge-index.py` proves this record registers
   with a current content hash.

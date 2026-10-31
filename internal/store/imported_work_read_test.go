@@ -30,7 +30,7 @@ func seedImportedWork(t *testing.T, s *Store, changeID, actor string) {
 	})
 	created.Actor = actor
 	membership := operationEvent("import-advance-work-membership-"+workID, "work.memberships_replaced", SubjectWorkItem, workID, map[string]any{
-		"memberships": []map[string]any{{"project_id": "project", "role": "primary"}},
+		"memberships":      []map[string]any{{"project_id": "project", "role": "primary"}},
 		"expected_version": 1, "resulting_version": 2,
 	})
 	membership.Actor = actor

@@ -190,8 +190,6 @@ this correction. Promotion still requires D2. The D5 cohort stays closed.
   commitment still costs one.
 - An agent cannot promote its own law. Outside the closed D5 cohort,
   only a named operator-approved contract that meets D2 sets `legislated`.
-- A Product migrated from the predecessor gains a usable law surface without a
-  hand review of every requirement.
 - CD-0006 forbids a silent scope cut.
 
 ## Verification

@@ -785,10 +785,6 @@ test("oversized mutation envelopes reconcile the request work ID", async () => {
 const contextResponse = (main_worktree = true, product_ids = ["product-1"]) => ({ project_id: "project-1", product_ids, scope_version: "1", main_worktree })
 const contextFor = (ask: (...args: unknown[]) => unknown = () => {}, controller = new AbortController(), directory = "/worktree", worktree = directory): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree, directory, abort: controller.signal, ask })
 // The envelope is the first line of the tool output. Failed best-effort side
-// effects append warning lines after it, so a test that owns a warning parses
-// this line alone and asserts on the raw output around it.
-const envelopeLine = (output: string) => JSON.parse(output.slice(0, output.indexOf("\n") === -1 ? output.length : output.indexOf("\n")))
-// The envelope is the first line of the tool output. Failed best-effort side
 // effects append warning lines after it, so the JSON parse reads the first
 // line alone and a test that owns a warning asserts on the raw output.
 const rawHostResult = async (result: Promise<string | { output: string }>) => {
@@ -1677,4 +1673,3 @@ test("CON-913 defect propagation: a defect thrown by a mutation invoke escapes u
   }
   expect(caught).toBe(defect)
 })
-

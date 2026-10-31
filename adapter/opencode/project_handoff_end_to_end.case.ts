@@ -252,7 +252,7 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   }
   const capture = await invoke("concord_work_define", "capture", captureInput, contextFor(SOURCE_SESSION, repoSource))
   expect(capture.outcome, JSON.stringify(capture)).toBe("ok")
-  const workID = capture.changed_refs.find((ref: JSONRecord) => ref.entity_kind === "work_item").id as string
+  const workID = (capture.changed_refs as JSONRecord[]).find((ref) => ref.entity_kind === "work_item")?.id as string
   expect(workID).toBeTruthy()
   const replay = await invoke("concord_work_define", "capture", captureInput, contextFor(SOURCE_SESSION, repoSource))
   expect(replay.outcome, JSON.stringify(replay)).toBe("ok")
@@ -329,9 +329,10 @@ async function readAddressedHandoff(fixture: HandoffFixture, sessionID: string):
   expect(directory).toBe(fixture.receiveWorktree)
   const continuity = await invokeConcordOperation("concord_work_trace", { operation: "continuity", input: { work_id: fixture.workID } } as any, contextFor(sessionID, directory!))
   expect(continuity.outcome, JSON.stringify(continuity)).toBe("ok")
-  expect(continuity.result.work_id).toBe(fixture.workID)
-  expect(continuity.result.pinned.work_pin.work_id).toBe(fixture.workID)
-  const handoff = continuity.result.pinned.pending_project_handoff
+  const result = continuity.result as JSONRecord
+  expect(result.work_id).toBe(fixture.workID)
+  expect(result.pinned.work_pin.work_id).toBe(fixture.workID)
+  const handoff = result.pinned.pending_project_handoff
   expect(handoff, JSON.stringify(continuity)).toMatchObject({ handoff_id: fixture.handoffID, target_project_id: RECEIVE_PROJECT })
   return handoff
 }
@@ -377,8 +378,8 @@ routeDeclaration("host-started session receives real core context without out-of
   }
   const core = realCoreRunner(binary, dbPath, childEnv, captured, host)
   const calls: string[] = []
-  const runner: CoreRunner = {
-    async run(argv, input, signal, options?: { cwd?: string }) {
+  const runner = {
+    async run(argv: string[], input: string, signal: AbortSignal, options?: { cwd?: string }) {
       const before = snapshot()
       const result = await core.run(argv, input, signal, options)
       expect(result.exitCode, `${argv[1]}: ${result.stderr}`).toBe(0)
@@ -387,7 +388,7 @@ routeDeclaration("host-started session receives real core context without out-of
       expect(after, `${argv[1]} must not write to the database`).toEqual(before)
       return result
     },
-  }
+  } satisfies CoreRunner
   configureCoreBinary(binary)
   await fakeHostControlPlane([[SOURCE_SESSION, sourceWorktree]], runner, host)
   expect(host.sessions[SOURCE_SESSION].metadata).toEqual({})
@@ -420,7 +421,7 @@ routeDeclaration("prepares, consumes, and retires through the real core routes",
     expect(dbValue(dbPath, `SELECT state FROM project_handoffs WHERE handoff_id='${handoffID}'`).state).toBe("recorded")
     const foreign = await invoke("concord_work_transition", "project_handoff_consume", { work_id: workID, handoff_id: handoffID, idempotency_key: "handoff-foreign-project" }, contextFor(SOURCE_SESSION, sourceWorktree))
     expect(foreign.outcome, JSON.stringify(foreign)).toBe("error")
-    expect(foreign.error.effect_state).toBe("none")
+    expect((foreign.error as JSONRecord).effect_state).toBe("none")
     expect(dbValue(dbPath, `SELECT state FROM project_handoffs WHERE handoff_id='${handoffID}'`).state).toBe("recorded")
     const receiveContext = contextFor(RECEIVE_SESSION, receiveWorktree)
     const rendered = await readAddressedHandoff(fixture, RECEIVE_SESSION)
@@ -499,9 +500,10 @@ routeDeclaration("prepares, consumes, and retires through the real core routes",
       await Bun.write(fixture.artifactPath, "tampered handoff artifact\n")
       const damaged = await invoke("concord_work_trace", "project_retirement", { work_id: workID }, contextFor(SOURCE_SESSION, sourceWorktree))
       expect(damaged.outcome, JSON.stringify(damaged)).toBe("ok")
-      expect(damaged.result.state).toBe("pending")
-      expect(damaged.result.artifacts_preserved).toBe(false)
-      expect(damaged.result.blockers.length).toBeGreaterThan(0)
+      const damagedReadiness = damaged.result as JSONRecord
+      expect(damagedReadiness.state).toBe("pending")
+      expect(damagedReadiness.artifacts_preserved).toBe(false)
+      expect(damagedReadiness.blockers.length).toBeGreaterThan(0)
     } finally {
       await Bun.write(fixture.artifactPath, artifact)
     }

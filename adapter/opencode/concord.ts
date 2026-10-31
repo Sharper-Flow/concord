@@ -7,7 +7,7 @@ import { AdapterContractDefect } from "./adapter-contract-defect"
 // it by class without importing the shared owner.
 export { AdapterContractDefect }
 import { hostControlPlane } from "./move-session"
-import { concordBinaryPath, CoreBinaryUnavailable, validateAgainstSchema } from "./core-runtime"
+import { concordBinaryPath, CoreBinaryUnavailable } from "./core-runtime"
 import { createWorkStateReporter } from "./workflow-status"
 import { hostLeaseFault, releaseStaleness, type ReleaseStaleness } from "./host-lease"
 import { reconstructMutationResult } from "./mutation-result"

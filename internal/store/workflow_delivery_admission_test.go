@@ -19,7 +19,7 @@ func loadedAdmissionForTest(t *testing.T, s *Store, workID string, pin WorkPin) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, pin.Step, "admission_test", BuiltinWorkflowRegistry())
+	state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, pin.Step, "admission_test", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,8 +57,6 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 				started: stage != "before-start", proof: stage == "green-proof",
 			}
 			want := admissionConformanceViewOf(admissionWorkflowState(definition, model))
-			// The unobserved fixture has no criterion assessment or association.
-			want.AcceptanceDeliverablesMissing = stage == "missing-epoch-proof"
 			if got := admissionConformanceViewOf(state); got != want {
 				t.Fatalf("%s: loaded admission %+v != expected %+v", stage, got, want)
 			}
@@ -67,7 +65,7 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 				WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_delivery", Actor: reviewGateAcceptor(workID),
 				Payload: json.RawMessage(`{"delivery_artifact":"artifact:agreement","delivery_state":"asserted"}`),
 			})
-			executionErr := refineProofDelivery(t, fixture.store, workID, nil)
+			executionErr := refineProofDelivery(t, fixture.store, workID)
 			advertised := workPinContainsAction(pin.NextValidIntents, "record_delivery")
 			if stage == "green-proof" {
 				if !decision.Admitted || !advertised || preflightErr != nil || executionErr != nil {
@@ -88,28 +86,26 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 	}
 }
 
-func TestDeliveryProofPreservesBindingOrderAndTooling(t *testing.T) {
-	malformed := newFailure(KindInvariantViolation, "workflow_action", "malformed verify operation", false, "rebuild projections")
-	good := workflowVerificationRun{Command: []string{"go", "vet", "./..."}}
-	other := workflowVerificationRun{Command: []string{"go", "test", "./..."}}
-	bad := workflowVerificationRun{Disqualifier: "the bound verify lease did not record exit code 0"}
-	declared := refineProofTooling(ProjectDeclaredTool{ID: "go-vet", Invocation: "go vet ./..."})
+func TestDeliveryProofPreservesBindingOrderWithoutToolingGate(t *testing.T) {
+	malformed := newFailure(KindInvariantViolation, "workflow_action", "malformed verification report", false, "rebuild projections")
+	good := workflowVerificationRun{}
+	other := workflowVerificationRun{}
+	bad := workflowVerificationRun{Disqualifier: "the report recorded a failure"}
 	for _, test := range []struct {
 		name    string
 		runs    []workflowVerificationRun
-		tooling *ProjectToolingManifest
 		ready   bool
 		failure bool
 	}{
-		{"green-before-malformed", []workflowVerificationRun{good, {Failure: malformed}}, nil, true, false},
-		{"malformed-before-green", []workflowVerificationRun{{Failure: malformed}, good}, nil, false, true},
-		{"non-green-before-green", []workflowVerificationRun{bad, good}, nil, true, false},
-		{"later-declared-command", []workflowVerificationRun{other, good}, declared, true, false},
-		{"undeclared-before-malformed", []workflowVerificationRun{other, {Failure: malformed}}, declared, false, true},
-		{"only-undeclared-command", []workflowVerificationRun{other}, declared, false, false},
+		{"green-before-malformed", []workflowVerificationRun{good, {Failure: malformed}}, true, false},
+		{"malformed-before-green", []workflowVerificationRun{{Failure: malformed}, good}, false, true},
+		{"non-green-before-green", []workflowVerificationRun{bad, good}, true, false},
+		{"later-declared-command", []workflowVerificationRun{other, good}, true, false},
+		{"report-before-malformed", []workflowVerificationRun{other, {Failure: malformed}}, true, false},
+		{"tooling-does-not-disqualify", []workflowVerificationRun{other}, true, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			ready, why, err := workflowVerificationProof(test.runs, test.tooling)
+			ready, why, err := workflowVerificationProof(test.runs)
 			if ready != test.ready || (err != nil) != test.failure || (!ready && err == nil && why == "") {
 				t.Fatalf("proof = %v, %q, %v", ready, why, err)
 			}
@@ -170,14 +166,13 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, runs, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, "refine", "workflow_action", BuiltinWorkflowRegistry())
+	state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, "refine", "workflow_action", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
 	decision := workflowAdmit(entry.Definition, state, "record_delivery")
-	// Binding, claim, early verification, and Review qualification cover the candidate.
-	if !state.Delivery.ProofReady || len(runs) != 4 || !decision.Admitted {
-		t.Fatalf("proof snapshot: state=%+v, runs=%+v, decision=%+v", state.Delivery, runs, decision)
+	if !state.Delivery.ProofReady || !decision.Admitted {
+		t.Fatalf("proof snapshot: state=%+v, decision=%+v", state.Delivery, decision)
 	}
 	for _, cached := range []bool{false, true} {
 		g := workflowActionGuardContext{
@@ -185,19 +180,13 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 			request: WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_delivery"},
 		}
 		if cached {
-			g.admissionState, g.admissionDecision, g.deliveryProofRuns = &state, &decision, runs
+			g.admissionState, g.admissionDecision = &state, &decision
 		}
-		g.request.ProjectTooling = refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: "git rev-parse --verify HEAD^{commit}"})
 		if err := guardDeliveryAdmission(&g); err != nil {
-			t.Fatalf("cached=%v: declared proof refused: %v", cached, err)
-		}
-		g.request.ProjectTooling = refineProofTooling(ProjectDeclaredTool{ID: "go-test", Invocation: "go test ./..."})
-		var failure *Failure
-		if err := guardDeliveryAdmission(&g); !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "not a tool the Project declares") {
-			t.Fatalf("cached=%v: undeclared proof = %v", cached, err)
+			t.Fatalf("cached=%v: report refused: %v", cached, err)
 		}
 		if g.admissionState.Delivery != state.Delivery {
-			t.Fatalf("cached=%v: tooling check changed the abstract proof classification", cached)
+			t.Fatalf("cached=%v: the guard changed the abstract proof classification", cached)
 		}
 	}
 }

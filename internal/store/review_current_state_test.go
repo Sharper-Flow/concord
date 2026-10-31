@@ -62,15 +62,10 @@ func TestReviewCurrentPlanRevisionCannotRestoreReadiness(t *testing.T) {
 			f := seedWorkContextFixture(t, "review-plan-revision")
 			t.Cleanup(func() { _ = f.store.Close() })
 			repo, _ := reviewSubjectClaim(t, f.store, f.workID)
-			var branch string
-			if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(f.workID)).Scan(&branch); err != nil {
-				t.Fatal(err)
-			}
-			gitRunStore(t, repo, "branch", "-m", branch)
 			j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
 			j.observeRun(t, "plan-basis")
 			if accepted {
-				acceptCurrentReviewForTest(t, f, repo, "ready_for_final_proof")
+				acceptCurrentReviewForTest(t, f, "ready_for_final_proof")
 			}
 			before, err := ReadWorkPin(t.Context(), f.store, f.workID)
 			if err != nil || before.Review == nil || before.Review.Dependencies == nil {
@@ -168,7 +163,7 @@ func TestReviewCurrentAdmissionNegativeCases(t *testing.T) {
 func TestReviewCurrentCandidateChangesOnlyOnRecordedReview(t *testing.T) {
 	j, input := retainedReviewFixture(t, "review-current-candidate")
 	finding := reviewBlockFixture().Findings[0]
-	completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required", func(report *ReviewBlock) { report.Findings = []ReviewFinding{finding} })
+	completeCurrentReviewForTest(t, j.fixture, "correction_required", func(report *ReviewBlock) { report.Findings = []ReviewFinding{finding} })
 	read := func() WorkflowReviewState {
 		t.Helper()
 		state, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID)
@@ -187,13 +182,9 @@ func TestReviewCurrentCandidateChangesOnlyOnRecordedReview(t *testing.T) {
 	if before := read(); !reflect.DeepEqual(before.Accepted, baseline.Accepted) || !reflect.DeepEqual(before.Candidate, baseline.Candidate) || before.blocker() == "" {
 		t.Fatalf("draft repair changed authority or closed its finding: %+v", before)
 	}
-	prepared, err := PrepareWorkflowAcceptanceFreshness(t.Context(), j.s, PrepareWorkflowSubjectRequest{WorkID: j.workID})
-	if err != nil {
-		t.Fatal(err)
-	}
 	beforeEffects := j.effects(t)
 	beforeValidation := read()
-	if err := validateRecordedReview(WithWorkflowSubjectPreparation(t.Context(), prepared), j.s.db, j.workID, repair); err != nil {
+	if err := validateRecordedReview(t.Context(), j.s.db, j.workID, repair); err != nil {
 		t.Fatal(err)
 	}
 	if after := read(); !reflect.DeepEqual(after, beforeValidation) || j.effects(t) != beforeEffects {
@@ -210,7 +201,7 @@ func TestReviewCurrentCandidateChangesOnlyOnRecordedReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	late := reviewBlockFixture()
-	late.InputCandidate, late.OutputCandidate, late.Dependencies = input, input, repair.Dependencies
+	late.InputCandidate, late.OutputCandidate, late.Dependencies = input, repair.OutputCandidate, repair.Dependencies
 	beforeEffects = j.effects(t)
 	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, late); !hasFailureKind(err, KindStaleRequiresReview) {
 		t.Fatalf("late old-subject Review=%v, want stale refusal", err)
@@ -219,8 +210,8 @@ func TestReviewCurrentCandidateChangesOnlyOnRecordedReview(t *testing.T) {
 		t.Fatalf("refused late Review changed current authority: %+v", after)
 	}
 	finding.Status, finding.ClosureRefs = "open", []string{}
-	completeCurrentReviewForTest(t, j.fixture, j.repo, "correction_required", func(report *ReviewBlock) { report.Findings = []ReviewFinding{finding} })
-	completeCurrentReviewForTest(t, j.fixture, j.repo, "continue")
+	completeCurrentReviewForTest(t, j.fixture, "correction_required", func(report *ReviewBlock) { report.Findings = []ReviewFinding{finding} })
+	completeCurrentReviewForTest(t, j.fixture, "continue")
 	state = read()
 	if state.blocker() != finding.FindingID {
 		t.Fatal("omitting a current blocking finding closed it")
@@ -318,60 +309,5 @@ func TestReviewCurrentProofAssociationHasNoCallerVerdict(t *testing.T) {
 	}
 	if err := payloadschema.Validate("workflow_verdict_batch_entry", []byte(`{"predicate_id":"predicate:primary","receipt_refs":["worktree_verify:captured"]}`)); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestCrucialReviewExitRefusesHighOrMediumFinding(t *testing.T) {
-	for _, tc := range []struct {
-		name, severity, status     string
-		crucial, inScope, admitted bool
-	}{
-		{"crucial open in-scope P0", "P0", "open", true, true, false},
-		{"crucial open in-scope P1", "P1", "open", true, true, false},
-		{"crucial open in-scope P2", "P2", "open", true, true, false},
-		{"crucial open in-scope P3", "P3", "open", true, true, true},
-		{"crucial out-of-scope P1", "P1", "open", true, false, true},
-		{"crucial closed P1", "P1", "closed", true, true, true},
-		{"larger open in-scope P1", "P1", "open", false, true, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			report := reviewBlockFixture()
-			report.Disposition, report.RemainingObligations = "ready_for_final_proof", []ReviewObligation{}
-			state := WorkflowReviewState{Candidate: &report.OutputCandidate, Accepted: &WorkflowAcceptedReview{Report: *report}, DependenciesCurrent: true,
-				Findings: []ReviewFinding{{FindingID: "finding:" + tc.severity, Severity: tc.severity, InScope: tc.inScope, Status: tc.status}}, Crucial: tc.crucial}
-			err := workflowAdmitReview(state)
-			if (err == nil) != tc.admitted {
-				t.Fatalf("admitted=%v, want %v: %v", err == nil, tc.admitted, err)
-			}
-			if err != nil && (!strings.Contains(err.Error(), "Crucial") || !strings.Contains(err.Error(), tc.severity)) {
-				t.Fatalf("refusal does not identify the Crucial severity rule: %v", err)
-			}
-		})
-	}
-}
-
-func TestReviewStateReadsCrucialFromEffectiveSize(t *testing.T) {
-	s := openTemp(t)
-	defer s.Close()
-	const workID = "review-effective-size"
-	seedWork(t, s, workID)
-	read := func() bool {
-		t.Helper()
-		state, err := loadWorkflowReviewState(t.Context(), s.db, workID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return state.Crucial
-	}
-	if read() {
-		t.Fatal("an unsized item is crucial")
-	}
-	inputs := workSizeInputsFixture()
-	inputs.Declared.Security = true
-	if err := applyWorkEvent(t, s, workSizedEvent("review-effective-size:sized", workID, WorkSizeModelVersion, WorkSizeCrucial, inputs), nil); err != nil {
-		t.Fatal(err)
-	}
-	if !read() {
-		t.Fatal("a crucial model size is not crucial")
 	}
 }

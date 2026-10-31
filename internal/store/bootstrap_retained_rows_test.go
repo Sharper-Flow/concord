@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -43,9 +44,7 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 			t.Fatalf("seed v58 fixture rows: %v\n%s", err, seed)
 		}
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, db, 59)
 	var id, state string
 	if err := db.QueryRowContext(ctx, `SELECT operation_id,state FROM bootstrap_operations WHERE work_id='work-bootstrap'`).Scan(&id, &state); err != nil {
 		t.Fatal(err)
@@ -53,14 +52,20 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 	if id != "fixture-operation" || state != "completed" {
 		t.Fatalf("operation=%s state=%s", id, state)
 	}
+	work := retirementUpgradeRows(t, db, `SELECT id,kind,title,lifecycle,priority,version,created_at,updated_at FROM work_items ORDER BY id`)
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	assertWorktreeTablesAbsent(t, db)
+	if got := retirementUpgradeRows(t, db, `SELECT id,kind,title,lifecycle,priority,version,created_at,updated_at FROM work_items ORDER BY id`); !reflect.DeepEqual(got, work) {
+		t.Fatalf("bootstrap retirement changed ordinary work: got %v, want %v", got, work)
+	}
 }
 
 func TestClaimNativeFenceMigration154(t *testing.T) {
 	db := openMigratedTo(t, filepath.Join(t.TempDir(), "native-fence.db"), 153)
 	assertFailureKind(t, migrateAtOpen(t.Context(), db), KindUpgradeRequired)
-	if err := Migrate(t.Context(), db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, db, 154)
 	var floor int
 	if err := db.QueryRow(`SELECT max(version) FROM schema_migrations WHERE breaking=1 AND version<=154`).Scan(&floor); err != nil || floor != 154 {
 		t.Fatalf("native fence compatibility floor=%d error=%v", floor, err)
@@ -81,4 +86,8 @@ func TestClaimNativeFenceMigration154(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO worktree_claim_native_fences VALUES('path','','/synthetic/path','wts:other',2)`); err == nil {
 		t.Fatal("migration admitted two generation owners for one native path")
 	}
+	if err := Migrate(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
+	assertWorktreeTablesAbsent(t, db)
 }

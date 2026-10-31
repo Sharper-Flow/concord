@@ -28,6 +28,31 @@ test("the plugin registration set equals the complete host tool catalog", async 
   expect(Object.keys(plugin.tool).sort()).toEqual(catalog)
 })
 
+test("the system transform keeps agent-switch notices without reading host continuity", async () => {
+  let reads = 0
+  const raw = {
+    get: async () => {
+      reads += 1
+      return { data: { directory: "/session/project" }, response: new Response(null, { status: 200 }) }
+    },
+    post: async () => ({ response: new Response(null, { status: 204 }) }),
+  }
+  const plugin = await ConcordAdapterPlugin({ client: { _client: raw } as never })
+  const input = { sessionID: "session-system-transform" }
+  const transform = plugin["experimental.chat.system.transform"]
+  const unchanged = { system: ["system prefix"] }
+  await transform(input, unchanged)
+  expect(unchanged.system).toEqual(["system prefix"])
+
+  await plugin["chat.message"]({ ...input, agent: "agent-first" })
+  await plugin["chat.message"]({ ...input, agent: "agent-second" })
+  const switched = { system: ["system prefix"] }
+  await transform(input, switched)
+  expect(switched.system[0]).toContain("The active agent changed from `agent-first` to `agent-second`.")
+  expect(switched.system[0]).not.toContain("<!-- concord:continuity:v1 -->")
+  expect(reads).toBe(0)
+})
+
 // The text-part channel. The work-state reporter queues operator-facing
 // blocks per session, and this hook drains them into the assistant's own
 // message as the text part completes, so the transcript holds them without a

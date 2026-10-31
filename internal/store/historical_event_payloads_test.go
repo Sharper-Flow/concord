@@ -94,7 +94,7 @@ func currentEffectRows(t *testing.T, s *Store) []currentEffectRow {
 
 func TestLiveWriteRoutesRefuseRecordedOldShapesAndCommitNothing(t *testing.T) {
 	t.Parallel()
-	s, _, _ := worktreeFixture(t)
+	s := worktreeFixture(t)
 	ctx := context.Background()
 	before := outsideRepairDatabaseSnapshot(t, s)
 	version := readWorkVersion(t, s, "work-w")

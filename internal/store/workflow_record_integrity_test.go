@@ -36,8 +36,12 @@ func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
 	if got, _ := payload["premise_confirmed"].(bool); !got {
 		t.Error("premise_confirmed is false while the log holds an operator premise confirmation for this contract")
 	}
-	if got, _ := payload["evidence_count"].(float64); got != 6 {
-		t.Errorf("evidence_count = %v, want six bindings (three required kinds, captured receipt, spec, and reviewed closure)", got)
+	var bindings int
+	if err := tx.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id='record-integrity'`).Scan(&bindings); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := payload["evidence_count"].(float64); got != float64(bindings) || bindings != 7 {
+		t.Errorf("evidence_count = %v, want the seven recorded bindings (got %d)", got, bindings)
 	}
 	if got, _ := payload["final_verdict_kind"].(string); got != "ok" {
 		t.Errorf("final_verdict_kind = %q, want the recorded verdict kind %q", got, "ok")

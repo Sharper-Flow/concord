@@ -4,9 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
@@ -42,23 +40,12 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?)`, store.WorktreeSetID("work-1"), "project-1", "claim:gate-recovery", "gate-recovery", strings.Repeat("a", 40), worktree, "repo:gate-recovery", fixedTime().Format(time.RFC3339Nano)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	fixture := oAgentFixture(t, s, service, env, "work-1")
-	oAgentControlRepository(t, fixture)
 	env = fixture.env
 	invoke := func(input map[string]any) agentcontract.Envelope {
 		t.Helper()
@@ -79,16 +66,19 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	version := func() int64 { return workVersion(t, s, "work-1") }
 	changeCandidate := func(label string) {
 		t.Helper()
+		if err := os.MkdirAll(filepath.Join(fixture.path, "o_fixture"), 0o700); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(fixture.path, "o_fixture/value.go"), []byte("package fixture\n// "+label+"\nfunc Value() int { return 3 + 4 }\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		gitRun(t, fixture.path, "add", "o_fixture/value.go")
 		gitRun(t, fixture.path, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", label)
-		oAgentVerify(t, fixture, []string{"go", "vet", "./..."})
+		oAgentReport(t, fixture)
 	}
 	recordFinding := func(status, disposition string) {
 		t.Helper()
-		proof := oAgentVerify(t, fixture, []string{"go", "vet", "./..."})
+		proof := oAgentReport(t, fixture)
 		pin, err := store.ReadWorkPin(ctx, s, "work-1")
 		if err != nil || pin.Review == nil || pin.Review.Dependencies == nil {
 			t.Fatalf("gate Review dependencies: %v", err)
@@ -123,7 +113,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("gate recovery bind_evidence: %+v", response.Error)
 	}
 	changeCandidate("execution")
-	integrationRef := oAgentVerify(t, fixture, []string{"go", "vet", "./..."})
+	integrationRef := oAgentReport(t, fixture)
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "verification", "evidence_ref": integrationRef}, "idempotency_key": "gate-execution-integration"}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("gate recovery integration bind: %+v", response.Error)
 	}
@@ -236,13 +226,4 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	if definitionDigest != currentDefinition.Digest {
 		t.Fatalf("definition after recovery = %s, want the current definition %s", definitionDigest, currentDefinition.Digest)
 	}
-}
-
-func agentWorkerDirectory(t *testing.T, s *store.Store, workID string) string {
-	t.Helper()
-	var directory string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' ORDER BY project_id LIMIT 1`, store.WorktreeSetID(workID)).Scan(&directory); err != nil {
-		t.Fatal(err)
-	}
-	return directory
 }

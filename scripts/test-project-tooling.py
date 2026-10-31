@@ -406,14 +406,6 @@ class ProjectToolingTests(unittest.TestCase):
         self.assertTrue(anchors.invocation_reaches(self.root, "python3 scripts/check-outer.py", owner))
         self.assertFalse(anchors.invocation_reaches(self.root, "echo scripts/check-inner.py", owner))
 
-    def test_continuity_inventory_cannot_drop_an_unmentioned_scenario(self) -> None:
-        entry = self.coverage_fixture()
-        (self.root / ".concord/scenarios/adapter-continuity.v1.json").write_text(json.dumps({
-            "scenarios": [{"id": "unclaimed-proof"}],
-        }))
-        self.manifest([entry])
-        self.assertTrue(any("no consuming-test owner: unclaimed-proof" in f for f in checker.check(root=self.root)))
-
     def test_binding_rejects_nested_duplicate_and_deferred_scenarios(self) -> None:
         entry = self.coverage_fixture()
         self.manifest([entry])

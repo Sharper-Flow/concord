@@ -27,9 +27,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b357fbc83f9673942fb74e3e80535b7004c415affad3eafa11ecf34c4e767c38",
+  "sha256": "sha256:18a1d70f44f32b99b39d567fa0e1e25545339f5f0ecd9af2fbc36cb2b1fbd38f",
   "status": "accepted",
-  "summary": "A consequential operation commits in a durable write transaction: the store pins its connection, sets synchronous=FULL before BEGIN, verifies level 2, and restores NORMAL or discards the connection after commit or rollback. No post-commit checkpoint is needed. The public fence entry points commit durably; the conformance harness still measures ordinary commits. A WAL size backstop remains an open measured follow-up.",
+  "summary": "A consequential operation commits in a durable write transaction: the store pins its connection, sets synchronous=FULL before BEGIN, verifies level 2, and restores NORMAL or discards the connection after commit or rollback. No post-commit checkpoint is needed. The public fence entry points commit durably; the conformance harness checks ordinary-write correctness. A WAL size backstop remains an open measured follow-up.",
   "tags": [
     "durability",
     "sqlite",

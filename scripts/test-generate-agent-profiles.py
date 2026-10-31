@@ -122,11 +122,8 @@ class ProfileTests(unittest.TestCase):
         profile = next(profile for profile in self.profiles["profiles"] if profile["id"] == "Concord")
         source = (ROOT / profile["role_source"]).read_text()
         text = " ".join(generator.primary_projection(profile, source).split())
-        for clause in ("Use native Task to delegate implementation and design under host permissions",
-                       "Obtain independent review through native Task against the exact current subject",
-                       "You are the only participant that advances workflow state",
-                       "Keep qualifying captured native verification receipts",
-                       "a Task answer alone is not verification proof"):
+        for clause in (*checks.DELEGATION_ANCHOR_MARKERS,
+                       "You are the only participant that advances workflow state"):
             self.assertIn(clause, text)
 
     def test_authored_roles_do_not_require_retired_launcher(self):
@@ -187,7 +184,7 @@ class ProfileTests(unittest.TestCase):
         host = [("*", "allow"), ("ps *", "deny"), ("kill *", "deny"), ("pkill *", "deny")]
         for command in ("ps aux", "kill 123", "sudo true", "git commit -m fix", "git push origin HEAD", "gh pr create", "gh release create v1", "herdr-notify --to peer", "concord invoke", "/synthetic/bin/concord invoke", "env concord invoke", "go run ./cmd/concord invoke", "bash -c 'concord invoke' gh pr view 1"):
             self.assertEqual(checks.evaluate(host + bash, command), "deny", command)
-        for command in ("git diff", "bin/oc-test targeted -- python3 scripts/test-generate-agent-profiles.py", "concord --help", "concord --version", "concord continuity-block", "concord client show"):
+        for command in ("git diff", "bin/oc-test targeted -- python3 scripts/test-generate-agent-profiles.py", "concord --help", "concord --version", "concord client show"):
             self.assertEqual(checks.evaluate(host + bash, command), "allow", command)
         task = checks.permission_rules(frontmatter, "task")
         for agent in ("concord-explore", "concord-lookup"):
@@ -208,7 +205,7 @@ class ProfileTests(unittest.TestCase):
         for clause in ("explicit execution budget", "`TESTING.md` and `bin/oc-test`", "Do not edit files",
                        "Read its status first", "if it is not completed", "Never\nwatch, poll or wait",
                        "matches a linked record", "explicitly unknown", "exit codes", "unexpected changed paths",
-                       "not captured native verification\nproof"):
+                       "A Task result is not a bound verification report\nor a Concord verdict"):
             self.assertIn(clause, text)
 
     def test_verifier_effective_permissions_preserve_host_denies_and_caller_owned_waits(self):
@@ -225,7 +222,7 @@ class ProfileTests(unittest.TestCase):
         for command in ("bin/oc-test targeted -- python3 scripts/test-generate-agent-profiles.py", "go test ./cmd/concord",
                         "gh run view 1 --repo org/repo --json status,jobs", "gh run view 1 --job 2 --log-failed",
                         "gh run list --repo org/repo", "git status", "git diff", "concord --help", "concord --version",
-                        "concord continuity-block", "concord client show"):
+                        "concord client show"):
             self.assertEqual(checks.evaluate(host + bash, command), "allow", command)
         tasks = checks.permission_rules(frontmatter, "task")
         for agent in ("concord-explore", "concord-lookup"):
@@ -274,13 +271,13 @@ class ProfileTests(unittest.TestCase):
             with self.subTest(profile=profile["id"]):
                 bash = checks.permission_rules(checks.split_frontmatter(generator.primary_projection(profile, "Role\n")), "bash")
                 for binary in ("concord", "/synthetic/bin/concord", "bin/concord", "./concord", "env concord", "env CONCORD_DB=x concord", "xargs concord", "go run ./cmd/concord"):
-                    for arguments in ("invoke --agent-ref Concord", "work-capture", "work-action", "client register", "client show-extra", "--db state.db invoke", "--help invoke"):
+                    for arguments in ("invoke --agent-ref Concord", "work-capture", "work-action", "client register", "client show-extra", "continuity-block", "--db state.db invoke", "--help invoke"):
                         command = f"{binary} {arguments}"
                         self.assertEqual(checks.evaluate(bash, command), "deny", command)
                 for command in ("bash -c 'concord invoke'", 'sh -c "cd repo && concord work-action"', "sh -c 'cd repo;concord invoke'", 'eval "concord invoke"',
                                  "bash -c 'concord invoke' /synthetic/bin/concord --help", "env herdr-notify --to peer", "bash -c 'herdr agent prompt peer hi'"):
                     self.assertEqual(checks.evaluate(bash, command), "deny", command)
-                for arguments in ("--help", "--version", "continuity-block", "client show"):
+                for arguments in ("--help", "--version", "client show"):
                     self.assertEqual(checks.evaluate(bash, f"concord {arguments}"), "allow", arguments)
 
     @unittest.skipUnless(os.environ.get("CONCORD_HOST_MERGE_PROBE"), "set CONCORD_HOST_MERGE_PROBE for isolated real-host resolution")

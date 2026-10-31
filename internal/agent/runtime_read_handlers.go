@@ -234,29 +234,6 @@ func (r runtime) readWorkMessages(ctx context.Context, base agentcontract.Envelo
 	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"messages": messages})
 }
 
-func (r runtime) readWorktreeInspect(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in worktreeInspectInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	// CD-0096 D3 Inspect: both active-tree inspection and retained output
-	// resolve through the work and ambient Project. The store owns their
-	// separate lookup rules; this read takes no lease or idempotency record.
-	project := r.Envelope.AmbientProjectID
-	if project == "" {
-		return coreError(base, "unknown_scope", "worktree tiers resolve through the session's Project; this session holds none", "refresh_context", false), nil
-	}
-	inspect, err := r.Store.InspectWorktree(ctx, store.WorktreeInspectRequest{
-		WorkID: in.WorkID, ProjectID: project, Mode: in.Mode, Path: in.Path,
-		RunRef: in.RunRef, Stream: in.Stream, Offset: in.Offset, Length: in.Length,
-	})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	meta := store.ResultMeta{QueryID: "CD-0096.R1", ContractVersion: "CD-0096/1.0", ResolvedScope: store.ResolvedScope{ProductID: r.Envelope.SelectedProductID, ProjectID: project, WorkID: in.WorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"mode"}}
-	return r.resultEnvelope(base, meta, r.scope(meta), inspect)
-}
-
 func (r runtime) readTraceHistory(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in historyInput
 	if err := decodeOperationInput(input, &in); err != nil {
@@ -336,13 +313,7 @@ func (r runtime) readTraceContinuity(ctx context.Context, base agentcontract.Env
 		}
 		return response, nil
 	}
-	// CD-0096 D5: a session that signs its identity re-pins its held
-	// verify leases in the pinned projection. Envelopes without a session
-	// identity keep the work-keyed snapshot the session-boot path renders.
-	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: limit, Cursor: inner, ProjectID: r.Envelope.AmbientProjectID}
-	if r.Envelope.ClientRef != "" && r.Envelope.AgentRef != "" && r.Envelope.SessionRef != "" {
-		continuityReq.Owner = &store.SessionWorktreeOwner{ClientRef: r.Envelope.ClientRef, AgentRef: r.Envelope.AgentRef, SessionRef: r.Envelope.SessionRef}
-	}
+	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: limit, Cursor: inner}
 	snapshot, err := store.ReadWorkflowContinuity(ctx, r.Store, continuityReq)
 	if err != nil {
 		return failureEnvelope(base, err), nil
@@ -497,11 +468,7 @@ func (r runtime) continuityProjectionSnapshot(ctx context.Context, limit int, cu
 	if captured != nil {
 		return *captured, nil
 	}
-	req := store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor, ProjectID: r.Envelope.AmbientProjectID}
-	if r.Envelope.ClientRef != "" && r.Envelope.AgentRef != "" && r.Envelope.SessionRef != "" {
-		req.Owner = &store.SessionWorktreeOwner{ClientRef: r.Envelope.ClientRef, AgentRef: r.Envelope.AgentRef, SessionRef: r.Envelope.SessionRef}
-	}
-	return store.ReadWorkflowContinuity(ctx, r.Store, req)
+	return store.ReadWorkflowContinuity(ctx, r.Store, store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor})
 }
 
 // researchPackReadV2 is the version 2 pack read result: the full pack when no

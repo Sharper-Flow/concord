@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-20T00:00:00Z",
   "evidence": [
@@ -31,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3c655679783d3a0d084a2965cef7097b8e0afb19c9539d2e8971b3be32046c0e",
+  "sha256": "sha256:35f3677de454e186c87c53f51ef7f3944144004a28c6772e13d37fe76be466c4",
   "status": "accepted",
   "summary": "No Concord component creates, names, splits, focuses, or destroys a tab, pane, window, or session. The host starts and resumes sessions and owns terminal and worktree placement. Workflow position comes from canonical continuity, not a terminal session identifier.",
   "tags": [

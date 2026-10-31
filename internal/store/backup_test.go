@@ -272,7 +272,7 @@ func captureEvidenceRows(t *testing.T, db *sql.DB, query string) []string {
 }
 
 // TestBackupRestorePreservesLivingEvidence checks workflow and law pins,
-// research selections, issue identity, occupancy, and retained reports through
+// research selections, issue identity, and retained reports through
 // snapshot and restore. Retiring research must leave its selection typed missing.
 func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	t.Parallel()
@@ -379,22 +379,6 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	execResearchFixture("evidence-f2", `INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode) VALUES(?,2,'f2','conclusion','newer revision conclusion','high','current','active','home')`, pack.PackID)
 	execResearchFixture("evidence-f2-link", `INSERT INTO active_research_finding_sources(pack_id,revision,finding_id,source_id) VALUES(?,2,'f2','s2')`, pack.PackID)
 
-	// One claim with a live session landing in a disposable worktree root.
-	repoRoot := t.TempDir()
-	var projectVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id='project'`).Scan(&projectVersion); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.AddProjectLocator(ctx, "project", ProjectLocator{ID: "path-evidence", Kind: LocatorCanonicalPath, Value: repoRoot}, projectVersion); err != nil {
-		t.Fatal(err)
-	}
-	git := newFakeWorktreeGit(repoRoot)
-	recordHostWorktree(t, s, git, workID, "project", "wt-op-evidence")
-	landedDirectory := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project", workID)
-	if err := os.MkdirAll(landedDirectory, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	seedSessionLandingRows(t, s, landedDirectory, "ses-evidence")
 	// This trusted state fixture tests byte preservation, not native execution.
 	report := reviewBlockFixture()
 	report.InputCandidate.ProjectID, report.OutputCandidate.ProjectID = "project", "project"
@@ -569,8 +553,6 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		{"law_pins", `SELECT work_id,contract_version,law_id,content_hash FROM workflow_contract_law_revisions ORDER BY work_id,law_id`},
 		{"workflow_review_state", `SELECT work_id,state FROM workflow_review_state ORDER BY work_id`},
 		{"linear_issue_links", `SELECT work_id,remote_issue_uuid,human_key,url,created_at,updated_at FROM linear_issue_links ORDER BY work_id`},
-		{"worktree_entries", `SELECT set_id,project_id,claim_op_id,state FROM worktree_entries ORDER BY set_id,project_id,claim_op_id`},
-		{"worktree_occupancy", `SELECT worktree_id,session_ref,recorded_at,has_process_identity FROM worktree_occupancy ORDER BY session_ref`},
 		{"research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at FROM active_research_packs ORDER BY pack_id`},
 		{"research_revisions", `SELECT pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness FROM active_research_revisions ORDER BY pack_id,revision`},
 		{"research_findings", `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode FROM active_research_findings ORDER BY pack_id,revision,finding_id`},
@@ -610,12 +592,6 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	}
 	if len(want["linear_issue_links"]) != 1 || !strings.HasPrefix(want["linear_issue_links"][0], workID+"\x1fuuid-evidence-1\x1fCON-9001\x1fhttps://linear.app/example/issue/CON-9001\x1f") {
 		t.Fatalf("linear identities = %v, want the recorded CON-9001 identity", want["linear_issue_links"])
-	}
-	if len(want["worktree_entries"]) != 1 || len(want["worktree_occupancy"]) != 1 {
-		t.Fatalf("claim population = %d entries, %d occupancy rows, want one claim with one live session", len(want["worktree_entries"]), len(want["worktree_occupancy"]))
-	}
-	if occupancy := want["worktree_occupancy"][0]; !strings.Contains(occupancy, "\x1fses-evidence\x1f") || !strings.HasSuffix(occupancy, "\x1f1") {
-		t.Fatalf("occupancy = %q, want the evidence session with a recorded process identity", occupancy)
 	}
 	compareFingerprints := func(stage string, db *sql.DB) {
 		t.Helper()

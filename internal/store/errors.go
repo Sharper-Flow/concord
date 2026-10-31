@@ -128,20 +128,6 @@ const (
 	KindResearchConsumerBlocked     FailureKind = "research_consumer_blocked"
 	// KindOutsideRepairActive refuses managed moves on operator-held work.
 	KindOutsideRepairActive FailureKind = "outside_repair_active"
-	// KindWorktreeLeaseHeld marks a verify lease the worktree already holds
-	// (CD-0096 D3 Verify tier). Exclusivity is coordination, not authority:
-	// the refusal names the holding session and the retry route.
-	KindWorktreeLeaseHeld FailureKind = "worktree_lease_held"
-	// KindWorktreeVerifyMutated marks a verify lease whose tracked files
-	// changed while the command ran (CD-0096 D3 Verify tier). A verifier
-	// that edits its subject verifies nothing, so completion refuses typed.
-	KindWorktreeVerifyMutated FailureKind = "worktree_verify_mutated"
-	// KindWorktreeUnpublishedLesson marks a worktree reclaim whose branch
-	// carries a lesson record the default branch does not hold. The reclaim
-	// deletes the branch, and a pushed-then-abandoned branch holding a
-	// prepared lesson otherwise reclaims with no signal. The refusal names
-	// the records and the merge-or-supersede recovery.
-	KindWorktreeUnpublishedLesson FailureKind = "worktree_unpublished_lesson"
 	// KindDomainRegistryAbsent marks a Domain read against a Product whose Git
 	// knowledge home has not projected a Domain registry. Absent is a refusal,
 	// never an empty page: authoritative-empty requires a registry watermark.

@@ -401,12 +401,7 @@ func TestProjectHandoffRecordProbesTheSessionWorktree(t *testing.T) {
 	t.Parallel()
 	s, sourceService, _, sourceEnv, _, repoSource, _ := handoffDispatchFixture(t)
 	ctx := context.Background()
-	for _, table := range []string{"worktree_claims", "worktree_entries", "worktree_occupancy", "session_claim_landings"} {
-		var count int
-		if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil || count != 0 {
-			t.Fatalf("%s rows=%d err=%v, want zero", table, count, err)
-		}
-	}
+	assertNoWorktreeOwnershipSchema(t, s)
 	// The source session's worktree carries unpreserved changes.
 	if err := osWrite(sourceEnv.Worktree, "tracked.txt", "unpreserved source\n"); err != nil {
 		t.Fatal(err)
@@ -450,6 +445,7 @@ func TestProjectHandoffRecordProbesTheSessionWorktree(t *testing.T) {
 	if honestClean.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("honest clean record failed: %+v", honestClean.Error)
 	}
+	assertNoWorktreeOwnershipSchema(t, s)
 }
 
 // The adapter derives the automatic consume idempotency key from the complete

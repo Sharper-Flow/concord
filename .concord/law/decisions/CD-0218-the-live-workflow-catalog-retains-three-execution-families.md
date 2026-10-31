@@ -60,7 +60,7 @@ claim, timer service, or new authority for external effects.
 
 ### D2. Fewer calls carry the same enforceable facts
 
-The live families are implementation, break-fix, and research, rules derived from change type and risk set the mandatory stages, break-fix keeps diagnosis and regression proof, and no agent waives a mandatory stage or an operator approval ([CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
+The live families are implementation, break-fix, and research, each family's plain definition sets its mandatory stages, break-fix keeps diagnosis and regression proof, and no agent waives a mandatory stage or an operator approval ([CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
 
 ### D3. Authorization and correction keep their owners
 
@@ -86,7 +86,8 @@ correction route, not ordinary stale recovery. Preserve both independently; an
 ordinary re-pin does not manufacture a producer return or evade the correction
 gate. Cancellation does not replace an existing admitted re-pin exit.
 
-Exact shared-write conflicts, exclusive claims, session/worktree placement,
+Exact shared-write conflicts, exclusive step claims, host-owned session/worktree
+placement under CD-0088 D1,
 cross-repository handoff, uncertain-effect recovery, typed shared context,
 research-pack provenance and consumers, and GitHub delivery receipts remain.
 Shared affected-Domain membership alone grants no effect authority and creates

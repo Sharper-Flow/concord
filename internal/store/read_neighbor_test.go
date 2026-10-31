@@ -233,16 +233,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "WorktreeEntries", run: func() error {
-			entries, err := s.WorktreeEntries(ctx, "blocker")
-			if err != nil {
-				return err
-			}
-			if len(entries) != 0 {
-				return fmt.Errorf("entries=%+v, want none", entries)
-			}
-			return nil
-		}},
 		{name: "LawAdditionReservations", run: func() error {
 			reservations, err := s.LawAdditionReservations(ctx, "prod")
 			if err != nil {
@@ -250,16 +240,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if len(reservations) != 0 {
 				return fmt.Errorf("reservations=%+v, want none", reservations)
-			}
-			return nil
-		}},
-		{name: "WorktreeOwnerWorkID", run: func() error {
-			workID, err := s.WorktreeOwnerWorkID(ctx, "proj", toolRepo)
-			if err != nil {
-				return err
-			}
-			if workID != "" {
-				return fmt.Errorf("owner=%q, want empty", workID)
 			}
 			return nil
 		}},
@@ -495,26 +475,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ResolveWorkProjectTooling", run: func() error {
-			tooling, err := ResolveWorkProjectTooling(ctx, s, "blocker")
-			if err != nil {
-				return err
-			}
-			if tooling == nil || len(tooling.Declared) != 1 {
-				return fmt.Errorf("tooling=%+v", tooling)
-			}
-			return nil
-		}},
-		{name: "RefineProofManifestRequired", run: func() error {
-			required, err := RefineProofManifestRequired(ctx, s, "neighbor-work", "record_delivery")
-			if err != nil {
-				return err
-			}
-			if required {
-				return fmt.Errorf("refine proof gate active at the proposal step")
-			}
-			return nil
-		}},
 		{name: "ScopeVersion", run: func() error {
 			digest, _, err := s.ScopeVersion(ctx, "proj")
 			if err != nil {
@@ -564,16 +524,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if len(messages) != 0 {
 				return fmt.Errorf("messages=%+v, want none", messages)
-			}
-			return nil
-		}},
-		{name: "ResolveContinuityWorkByDirectory", run: func() error {
-			resolution, err := s.ResolveContinuityWorkByDirectory(ctx, filepath.Join(toolRepo, "no-such-dir"))
-			if err != nil {
-				return err
-			}
-			if resolution.WorkID != "" || resolution.ProjectID != "" {
-				return fmt.Errorf("resolution=%+v, want empty", resolution)
 			}
 			return nil
 		}},
@@ -654,27 +604,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if mode == neighbor.Writer && time.Since(started) >= neighbor.WriterHold {
 				t.Fatal("supersede_contract discovery waited for writer release")
-			}
-		})
-	}
-	// Inspection prepares its own store per mode beside the same neighbors.
-	for _, mode := range []neighbor.Mode{neighbor.Reader, neighbor.Writer} {
-		t.Run(string(mode)+"/InspectWorktree", func(t *testing.T) {
-			s, git, _ := worktreeFixture(t)
-			claim := recordHostWorktree(t, s, git, "work-w", "project-w", "wt-op-1")
-			if _, err := s.db.Exec("PRAGMA busy_timeout=50"); err != nil {
-				t.Fatal(err)
-			}
-			neighbor.Start(t, s.Path(), mode)
-			// The claimed worktree backs the worktree-tier read surface: the
-			// inspection is a read over the claim's entry plus the fake git's
-			// porcelain answer, never a lease.
-			status, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-w", ProjectID: "project-w", Mode: WorktreeInspectModeStatus, Runner: git})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if status.Path != claim.Path {
-				t.Fatalf("status=%+v", status)
 			}
 		})
 	}

@@ -950,7 +950,7 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 	})
 	t.Run("typeless_anyOf_selects_first_non_null_arm", func(t *testing.T) {
 		union := map[string]any{"anyOf": []any{
-			map[string]any{"$ref": "#/$defs/work_size_summary"},
+			map[string]any{"$ref": "#/$defs/work_pin"},
 			map[string]any{"type": "null"},
 		}}
 		arm := schemaFixtureValue(t, union, defs, 0)
@@ -958,8 +958,8 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := payloadschema.Validate("work_size_summary", data); err != nil {
-			t.Fatalf("typeless anyOf fixture does not satisfy the first arm work_size_summary: %v", err)
+		if err := payloadschema.Validate("work_pin", data); err != nil {
+			t.Fatalf("typeless anyOf fixture does not satisfy the first arm work_pin: %v", err)
 		}
 	})
 	t.Run("typeless_anyOf_sibling_constraints_bind_the_arm", func(t *testing.T) {
@@ -1022,7 +1022,6 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_work_browse.ready":                `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.scope":                `{"product_id":"prod-alpha","work_id":"` + fx.workID + `"}`,
 		"concord_work_browse.messages":             `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
-		"concord_work_browse.worktree_inspect":     `{"work_id":"` + fx.workID + `","mode":"status"}`,
 		"concord_work_trace.history":               `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
 		"concord_work_trace.observations":          `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
 		"concord_work_trace.external_observations": `{"work_id":"` + fx.workID + `","limit":20}`,
@@ -1123,7 +1122,6 @@ var readPopulationRows = map[string][]string{
 // states the probed input cannot reach.
 var readPopulationRowExemptions = map[string]string{
 	"concord_work_trace.mutation_result":    "one exact retained document answers a scalar JSON fragment; its content and digest are checked by the witness",
-	"concord_work_browse.worktree_inspect":  "the probed status mode answers a scalar status summary and carries no row collection",
 	"concord_knowledge.resolve_note":        "an unambiguous resolution answers one located note; candidates populate only when resolution is ambiguous",
 	"concord_knowledge.observe_publication": "one designated home answers a scalar provenance record, not a row collection",
 }
@@ -1221,15 +1219,9 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 
 // enrichmentChangedRefs names the changed refs each operation's real effect
 // returns. Every generic-tail mutation returns work-item refs, so enrichment
-// stamps its pin onto the result; worktree_verify answers with a lease ref,
-// which does not pass the work-item filter.
-func enrichmentChangedRefs(workID string, version int64, opID string) []agentcontract.ChangedRef {
-	switch opID {
-	case "concord_work_transition.worktree_verify":
-		return []agentcontract.ChangedRef{{EntityKind: "worktree_verify_lease", ID: "lease-1", Version: "1"}}
-	default:
-		return []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
-	}
+// stamps its pin onto the result.
+func enrichmentChangedRefs(workID string, version int64, _ string) []agentcontract.ChangedRef {
+	return []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
 }
 
 // TestClosedMutationResultPayloadsSurviveEnrichment runs every mutation

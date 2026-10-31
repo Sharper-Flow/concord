@@ -20,9 +20,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6f24be998451a3c399e3e0bc4bfc7e38115cd5461989160003e53ccdd6fb5687",
+  "sha256": "sha256:c3f0f9c92cd818e9ca490747fe9f0520c32c43ba32c424c0aeb32ee52bd30945",
   "status": "accepted",
-  "summary": "The escaped SQLITE_BUSY occurrences on record through 2026-09-30 are Concord application defects, not storage-engine limits: the open-path key write is repaired by PR #1462, and write transactions spanning subprocesses are repaired under CON-752. No write transaction stays open across a subprocess, network call, or large filesystem operation, and the acceptance workload gains worktree claim and reclaim concurrency. CD-0011's escaped-busy reopen condition stands unchanged for later escapes, with the single-writer comparison first. Refines CD-0011.",
+  "summary": "The escaped SQLITE_BUSY occurrences on record through 2026-09-30 are application defects, not storage-engine limits. No write transaction spans a subprocess, network call or large filesystem operation. Ten-process conformance retains exact effects and zero escaped busy without retired ownership operations. CD-0011's reopen conditions remain for later escapes, with the single-writer comparison first.",
   "tags": [
     "sqlite",
     "concurrency",

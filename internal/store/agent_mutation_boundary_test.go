@@ -74,7 +74,6 @@ func TestReplayNamespacesRemainPartitioned(t *testing.T) {
 		{PrincipalRef: "principal-1", Tool: "direct-research", OperationKind: "create", IdempotencyKey: "shared-key"},
 		{PrincipalRef: "principal-1", Tool: "concord_work_transition", OperationKind: "session_vacate", IdempotencyKey: "shared-key"},
 		{PrincipalRef: "principal-1", Tool: "concord_work_transition", OperationKind: "project_handoff_consume", IdempotencyKey: "shared-key"},
-		{PrincipalRef: "principal-1", Tool: "concord_work_transition", OperationKind: "worktree_verify", IdempotencyKey: "shared-key"},
 	}
 	records := make([]MutationIdempotencyInsert, len(identities))
 	for i, key := range identities {

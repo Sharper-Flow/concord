@@ -285,16 +285,7 @@ func runConsumeProjectHandoffTx(f projectHandoffFixture, req ConsumeProjectHando
 
 func TestProjectHandoffConsumeAdmissionAndRetirementWithoutOwnershipRows(t *testing.T) {
 	f := setupProjectHandoffFixture(t)
-	assertNoOwnership := func() {
-		t.Helper()
-		for _, table := range []string{"worktree_claims", "worktree_entries", "worktree_occupancy", "session_claim_landings"} {
-			var count int
-			if err := f.store.db.QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil || count != 0 {
-				t.Fatalf("%s rows=%d err=%v, want zero", table, count, err)
-			}
-		}
-	}
-	assertNoOwnership()
+	assertWorktreeTablesAbsent(t, f.store.db)
 	recorded := recordHandoff(t, f, f.sourceTree)
 	consumeHandoff(t, f, recorded.HandoffID)
 	if err := f.store.Transact(t.Context(), func(tx *Transaction) error {
@@ -306,7 +297,7 @@ func TestProjectHandoffConsumeAdmissionAndRetirementWithoutOwnershipRows(t *test
 	if err != nil || retirement.State != RetirementReady || !retirement.ArtifactsPreserved {
 		t.Fatalf("retirement=%+v err=%v, want ready with preserved artifacts", retirement, err)
 	}
-	assertNoOwnership()
+	assertWorktreeTablesAbsent(t, f.store.db)
 }
 
 func TestProjectHandoffRecordsAndConsumesAcrossTwoProjectWorktrees(t *testing.T) {
@@ -836,16 +827,7 @@ func TestRetirementReadinessRequiresEveryVerifiedFact(t *testing.T) {
 	if retirement.State != RetirementReady || !retirement.RecordedHandoff || !retirement.ArtifactsPreserved || len(retirement.Blockers) != 0 {
 		t.Fatalf("retirement=%+v, want readiness without a Concord vacate request", retirement)
 	}
-	var requests, occupied int
-	if err := f.store.db.QueryRow(`SELECT count(*) FROM session_vacate_requests WHERE work_id=? AND session_ref=?`, f.workID, f.sourceSession).Scan(&requests); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.store.db.QueryRow(`SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, f.sourceSession).Scan(&occupied); err != nil {
-		t.Fatal(err)
-	}
-	if requests != 0 || occupied != 0 {
-		t.Fatalf("requests=%d occupied=%d, want readiness to write no occupancy and no vacate request", requests, occupied)
-	}
+	assertWorktreeTablesAbsent(t, f.store.db)
 	raw, err := json.Marshal(retirement)
 	if err != nil {
 		t.Fatal(err)

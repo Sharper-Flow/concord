@@ -213,8 +213,8 @@ a bounded ten-process **SQLite conformance/load test** to verify the selected
 implementation under realistic short transactions; this is implementation evidence,
 not an engine-selection bake-off. Correctness is weighted above throughput.
 
-Only if the SQLite run reproduces escaped `SQLITE_BUSY`, P99 above the accepted local
-target, unacceptable queueing, lost/duplicate effects, or an invariant violation does
+Only if the SQLite run reproduces escaped `SQLITE_BUSY`, queueing that materially
+blocks ordinary operator work, lost/duplicate effects, or an invariant violation does
 the storage decision reopen. That falsifier triggers comparison of a single-writer IPC
 boundary, Dolt server, and Postgres/DBOS; Dolt receives no automatic preference.
 CD-0002 §2e remains the complete falsifier table, including deployment-scope triggers

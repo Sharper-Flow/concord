@@ -351,7 +351,7 @@ func copyFixtureDataToPrefix(t *testing.T, source *Store, db *sql.DB, tables []s
 }
 
 func TestCopyFixtureDataToPrefixSkipsLaterTables(t *testing.T) {
-	s, _, _ := worktreeFixture(t)
+	s := worktreeFixture(t)
 	// These are source-only fixture data, not reconstructed historical DDL.
 	if _, err := s.db.Exec(`CREATE TABLE fixture_future_table(id TEXT); INSERT INTO fixture_future_table VALUES('future-only')`); err != nil {
 		t.Fatal(err)

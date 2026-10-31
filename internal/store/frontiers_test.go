@@ -101,28 +101,6 @@ INSERT INTO work_version_actions VALUES('work',3,'second','session',20),('work',
 	}
 }
 
-func TestFrontierSizeFactsLogBlind(t *testing.T) {
-	s := effectReceiptReadFixture(t)
-	_, err := s.db.Exec(`CREATE TABLE work_size_assessments(event_id TEXT,work_id TEXT,effect_seq INTEGER,review_basis TEXT);
-INSERT INTO work_size_assessments VALUES('size-one','work',8,'["proof:a","proof:b"]'),('size-two','work',12,'["proof:b"]');`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	hideEffectLog(t, s)
-	t.Run("frontier", func(t *testing.T) {
-		seq, err := workSizeAssessmentFrontierTx(t.Context(), s.db, "work")
-		if err != nil || seq != 12 {
-			t.Fatalf("size frontier = %d, %v; want 12", seq, err)
-		}
-	})
-	t.Run("review-basis", func(t *testing.T) {
-		basis, err := workSizeRecordedBasisTx(t.Context(), s.db, "work")
-		if err != nil || !reflect.DeepEqual(basis, []string{"proof:a", "proof:b"}) {
-			t.Fatalf("basis = %v, %v", basis, err)
-		}
-	})
-}
-
 // CD-0242 D2 retires raw-log writes from the current schema, not migration
 // 146's historical trigger or the live sequence allocation guarantee.
 func TestFrontierHistoricalRawLogInsertAdvancesEffectSequence(t *testing.T) {
@@ -323,14 +301,24 @@ DELETE FROM fold_guard`); err != nil {
 	} else {
 		advanceHistoricalPrefix(t, db, 146)
 	}
+	retired := false
 	assertParity := func() {
 		t.Helper()
-		assertHistoricalReceipts(t, db, corpus)
+		var retained []histEventRow
+		for _, row := range corpus {
+			if !retired || row.Kind != "work.sized" {
+				retained = append(retained, row)
+			}
+		}
+		assertHistoricalReceipts(t, db, retained)
 		var effect, relation, floorA, floorB, actions int64
 		if err := db.QueryRow(`SELECT (SELECT last FROM store_sequences WHERE name='effect'),(SELECT last FROM store_sequences WHERE name='relation'),(SELECT version_actions_floor FROM work_items WHERE id='a'),(SELECT version_actions_floor FROM work_items WHERE id='b'),(SELECT count(*) FROM work_version_actions)`).Scan(&effect, &relation, &floorA, &floorB, &actions); err != nil || effect != 1000 || relation != 6 || floorA != 44 || floorB != 0 || actions != 3 {
 			t.Fatalf("146 selection: effect/relation/floors/actions=%d/%d/%d/%d/%d, %v; want 1000/6/44/0/3", effect, relation, floorA, floorB, actions, err)
 		}
 		for i, row := range corpus {
+			if retired && row.Kind == "work.sized" {
+				continue
+			}
 			var got sql.NullInt64
 			if err := db.QueryRow(`SELECT relation_seq FROM effect_receipts WHERE event_id=?`, row.EventID).Scan(&got); err != nil || got.Valid != (i < 6) || (got.Valid && got.Int64 != int64(i+1)) {
 				t.Fatalf("146 relation %s = %v, %v", row.EventID, got, err)
@@ -346,14 +334,16 @@ DELETE FROM fold_guard`); err != nil {
 				t.Fatalf("146 action %s = %s/%d, %v", want.id, session, seq, err)
 			}
 		}
-		for _, want := range []struct {
-			id, basis string
-			seq       int64
-		}{{"size-default", "[]", 23}, {"size-empty", "[]", 24}, {"basis-size", `["proof:one","proof:two"]`, 25}, {"other-size", `["proof:other"]`, 26}} {
-			var seq int64
-			var basis string
-			if err := db.QueryRow(`SELECT effect_seq,review_basis FROM work_size_assessments WHERE event_id=?`, want.id).Scan(&seq, &basis); err != nil || seq != want.seq || basis != want.basis {
-				t.Fatalf("146 size %s = %d/%s, %v", want.id, seq, basis, err)
+		if !retired {
+			for _, want := range []struct {
+				id, basis string
+				seq       int64
+			}{{"size-default", "[]", 23}, {"size-empty", "[]", 24}, {"basis-size", `["proof:one","proof:two"]`, 25}, {"other-size", `["proof:other"]`, 26}} {
+				var seq int64
+				var basis string
+				if err := db.QueryRow(`SELECT effect_seq,review_basis FROM work_size_assessments WHERE event_id=?`, want.id).Scan(&seq, &basis); err != nil || seq != want.seq || basis != want.basis {
+					t.Fatalf("146 size %s = %d/%s, %v", want.id, seq, basis, err)
+				}
 			}
 		}
 		got, err := interveningWorkflowActions(t.Context(), db, SubjectWorkItem, "a", 44, 300)
@@ -362,12 +352,6 @@ DELETE FROM fold_guard`); err != nil {
 		}
 		_, err = interveningWorkflowActions(t.Context(), db, SubjectWorkItem, "a", 43, 300)
 		assertFailureKind(t, err, KindLimitExceeded)
-		if seq, err := workSizeAssessmentFrontierTx(t.Context(), db, "a"); err != nil || seq != 25 {
-			t.Fatalf("size reader frontier = %d, %v", seq, err)
-		}
-		if basis, err := workSizeRecordedBasisTx(t.Context(), db, "a"); err != nil || !reflect.DeepEqual(basis, []string{"proof:one", "proof:two"}) {
-			t.Fatalf("size reader basis = %v, %v", basis, err)
-		}
 	}
 	assertParity()
 	if got := histEventRows(t, &Store{db: db}); !reflect.DeepEqual(got, corpus) {
@@ -377,6 +361,7 @@ DELETE FROM fold_guard`); err != nil {
 		if err := Migrate(t.Context(), db); err != nil {
 			t.Fatal(err)
 		}
+		retired = true
 		assertParity()
 		hideEffectLog(t, &Store{db: db})
 	}
@@ -489,20 +474,6 @@ DELETE FROM write_guard`, frontierActor); err != nil {
 				t.Fatalf("live/backfill actions for %s = %v, %v; want %v", work, got, err, want)
 			}
 		}
-	}
-	sized := workSizedEvent("live-sized", "b", WorkSizeModelVersion, WorkSizeSmall, workSizeInputsFixture())
-	if err := applyWorkEvent(t, fresh, sized, nil); err != nil {
-		t.Fatal(err)
-	}
-	var sizeReceiptSeq int64
-	if err := fresh.db.QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id='live-sized'`).Scan(&sizeReceiptSeq); err != nil {
-		t.Fatal(err)
-	}
-	if seq, err := workSizeAssessmentFrontierTx(t.Context(), fresh.db, "b"); err != nil || seq != sizeReceiptSeq {
-		t.Fatalf("live size frontier = %d, %v; want receipt %d", seq, err, sizeReceiptSeq)
-	}
-	if basis, err := workSizeRecordedBasisTx(t.Context(), fresh.db, "b"); err != nil || len(basis) != 0 {
-		t.Fatalf("live default basis = %v, %v; want the historical empty-basis result", basis, err)
 	}
 	hideEffectLog(t, fresh)
 }

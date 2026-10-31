@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-03T00:00:00Z",
   "home_domain_id": "agent-adapter",
@@ -16,9 +14,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:cb543419a0e469685524e0c1cba39e5050173e7acdcfe60163ef079f23dca31c",
+  "sha256": "sha256:ee90e3ef271bdac5f9475accf29016e7d5fff7893ccd76d9ad7807ea2e1f63e5",
   "status": "accepted",
-  "summary": "A session's worktree is the directory the host reports per call; Concord sets no effective target, and session preparation records no placement. Retained metadata supports verification and inspection without ownership writers. Verify leases exclude concurrent commands, continuity re-pins held leases, and retryable transient exclusion is resource_busy with retry_same_request.",
+  "summary": "A session's worktree is the directory the host reports per call; each authenticated call resolves its Project there, while explicit work IDs select context. Concord sets no effective target and session preparation records nothing. Concord retains no worktree entry or claim metadata, inspection operation, locator service or verification lease. Host tools own lifecycle; verified snapshots precede table removal. Retryable transient exclusion is resource_busy with retry_same_request.",
   "tags": [
     "authority",
     "worktree-isolation",

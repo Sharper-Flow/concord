@@ -449,6 +449,16 @@ class TierRoutingTest(unittest.TestCase):
         ])
         self.assertEqual(result.calls[0]["conformance_long"], "1")
 
+    def test_ci_retains_required_correctness_population_and_signal(self):
+        workflow = (REPOSITORY / ".github/workflows/ci.yml").read_text()
+        name = "Run ten-process correctness acceptance conformance"
+        self.assertEqual(shlex.split(workflow_step_run(workflow, name)), [
+            "go", "test", "-count=1", "-run", "^TestTenProcessAcceptanceConformance$", "-v", "./internal/store",
+        ])
+        block = workflow.split(f"- name: {name}\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn('CONCORD_CONFORMANCE_LONG: "1"', block)
+        self.assertIn('CONCORD_ACCEPTANCE_RUNNER: "1"', block)
+
     def test_preflight_uses_the_installed_lefthook_binary(self):
         result = self.run_wrapper("preflight")
         self.assertEqual(result.returncode, 0, result.stderr)

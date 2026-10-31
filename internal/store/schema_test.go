@@ -44,10 +44,8 @@ func TestMigrateV103ToV104BackfillsWorktreeOccupancy(t *testing.T) {
 		('set-work-b','project-b','claim-b','work/b','b1','/wt/b','/repo','active','2026-09-24T11:00:00Z',NULL,'{}','')`); err != nil {
 		t.Fatalf("seed v103 worktree entries: %v", err)
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+	advanceHistoricalPrefix(t, db, 104)
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	var count int
@@ -70,9 +68,11 @@ func TestMigrateV103ToV104BackfillsWorktreeOccupancy(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('worktree_entries') WHERE name='occupant_session_ref'`).Scan(&column); err != nil || column != 0 {
 		t.Fatalf("occupant_session_ref column count=%d err=%v, want the column dropped", column, err)
 	}
-	// The table is write-seam-only: a direct INSERT is refused with the guard off.
+	// The historical table is fold-only: a direct INSERT needs the guard.
 	if _, err := db.ExecContext(ctx, `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) VALUES('set-work-x:project-x:claim-x','ses-direct','2026-09-25T00:00:00Z',0)`); err == nil {
-		t.Fatal("direct INSERT bypassed the write guard on worktree_occupancy")
+		t.Fatal("direct INSERT bypassed the fold guard on worktree_occupancy")
+	} else if !strings.Contains(err.Error(), "worktree_occupancy is fold-only") {
+		t.Fatalf("direct INSERT refused outside the fold guard: %v", err)
 	}
 }
 
@@ -112,10 +112,8 @@ func TestMigrateV103ToV104AcceptsRealCompositeWorktreeIDs(t *testing.T) {
 		WorktreeSetID("work-5eecfb31a0e343e67a1bbcc4"), "pokeedge-backend", claimOpID, "work/work-5eecfb31a0e343e67a1bbcc4", "a1", "/wt/a", "/repo"); err != nil {
 		t.Fatalf("seed v103 worktree entry with a real claim id: %v", err)
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatalf("migration 104 rejected a real composite worktree_id (%d bytes): %v", len(composite), err)
-	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+	advanceHistoricalPrefix(t, db, 104)
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	var count int

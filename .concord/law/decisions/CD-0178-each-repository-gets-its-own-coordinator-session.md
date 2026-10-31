@@ -17,7 +17,7 @@
 - **Related:** CD-0088, CD-0092, CD-0103, CD-0111, CD-0152,
   CD-0154, CD-0176, CD-0213
 - **P12:** Serious: the named primary agent and its permission boundary change.
-- **Preserves:** CD-0103 and CD-0104 D3 to D5
+- **Preserves:** CD-0103 and CD-0104 D1, D2, D4, and D5
 
 ## Context
 
@@ -83,8 +83,9 @@ and control procedures belong to the host's instructions, not the RTE profile.
 
 Concord records no new worktree occupancy or claim landing and provides no
 vacate, reclaim, or destroy operation. Host tools own placement and removal
-under CD-0088 D1. Retained worker directory checks, Project handoff placement
-reads, and native verification leases do not become ownership writers.
+under CD-0088 D1. Project handoff placement reads retain directory-resolved
+Project authority without worktree metadata or an inspection service.
+Repository verification follows CD-0242 D8.
 
 ## Alternatives considered
 

@@ -2,9 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-03
-- **Scope:** Per-call host directory, transient exclusion, and verification leases
-- **Related:** CD-0088, CD-0092, CD-0093, CD-0096, CD-0103
-- **Preserves:** CD-0096 D2, D3 Inspect and Verify, and D4
+- **Scope:** Per-call host directory and transient exclusion
+- **Related:** CD-0088, CD-0092, CD-0093, CD-0103
+- **Preserves:** CD-0088 D3's rule that host placement grants no Product authority
 
 ## Context
 
@@ -20,35 +20,37 @@ read per call from the host's tool context. No Concord operation sets an
 effective session target ahead of the host. `session-prepare` performs
 verification and boot-packet derivation and records nothing.
 
+Each authenticated call resolves its Project from that host-reported directory.
+An explicit work ID selects work context; directory resolution never supplies
+one from worktree ownership. CD-0016 governs explicit continuity reads.
+
 ### D2. Concord stores what Concord owns
 
-Work items and command verification leases remain Concord facts. Retained
-entry and claim metadata supports native verification, inspection, continuity,
-and Review reads; it does not authorize a new ownership writer. CD-0088 D1
-assigns worktree creation, placement, recovery, and removal to host tools.
-This decision drops no table or persisted row.
+Work items remain Concord facts. Concord retains no worktree entry or claim
+metadata and provides no worktree inspection operation. CD-0088 D1 assigns
+worktree creation, placement, recovery, and removal to host tools; its D2
+requires verified snapshots before table removal. Session preparation,
+continuity, and Review do not acquire a replacement worktree locator service.
+The host-reported directory still resolves ordinary Project authority.
+Concord holds no repository-check execution lease and continuity carries none.
 
 ### D4. Transient exclusion is `resource_busy`
 
 A refusal that recorded nothing and that a retry may clear is
-`resource_busy`, coupled to `retry_same_request`. The verify-lease refusal maps
-to it. `operation_conflict` stays coupled to `reconcile_operation` and keeps
+`resource_busy`, coupled to `retry_same_request`. `operation_conflict` stays coupled to `reconcile_operation` and keeps
 its meaning: an operation may have taken effect and its outcome must be
 established.
 
 ### D5. One-session-per-worktree is not a stored guarantee
 
-Two sessions may run in one worktree. The verify lease refuses two commands
-on one tree, and nothing refuses two editors, which is the guarantee a shell
-gives. The continuity projection re-pins held verify leases only.
+Two sessions may run in one worktree. Concord provides no verification-command
+lease or editor exclusion.
 
 ## Verification
 
-- `internal/agent.TestRetrySafeStoreKindsNeverCoupleToReconcile` proves no
-  store kind proposing `retry_same_request` maps to a public kind coupled to
-  `reconcile_operation`.
-- `internal/agent.TestWorktreeVerifyConcurrentLeaseRefusesTyped` asserts the
-  lease-held refusal is `resource_busy` with `retry_same_request`.
-- `internal/store.TestContinuityRePinsHeldLease` and
-  `internal/agent.TestContinuityDispatchRePinsHeldLease` assert the continuity
-  projection re-pins held leases and carries no target.
+- `internal/agent.TestEveryLiteralRefusalPairsAContractualRecovery` checks
+  literal refusal sites against the public recovery coupling.
+- Session preparation records no placement; continuity carries no verification
+  lease or effective target.
+- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
+  `python3 scripts/check-knowledge-index.py` pass on this record.

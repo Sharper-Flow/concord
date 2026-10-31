@@ -28,11 +28,11 @@ pane, window, or session, exactly as CD-0078 D1 states. The host starts and
 resumes operator sessions and places their surfaces. Host tools own worktree
 placement too (CD-0088 D1).
 
-### D2. Retired: resume and prompt pass-through
+### D2. Workflow position comes from explicit continuity
 
 Resumption of workflow position is the CD-0016 canonical projection,
-delivered by session preparation and re-asserted by the per-turn hook
-(CD-0031, CD-0090), never a terminal session identifier.
+delivered by session preparation and explicit Concord reads (CD-0031), never
+a terminal session identifier.
 
 ## Consequences
 

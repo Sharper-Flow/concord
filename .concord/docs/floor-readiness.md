@@ -16,7 +16,7 @@ Concord's current direction is in [`goals.md`](./goals.md) and
 2. Agents can read, write, and execute within that Product and Domain context through tools.
 3. Every supported workflow family (implementation, break-fix, research) has a defined workflow type and completion evidence.
 4. Required authority/freshness is explicit and CD-0006 R3's accepted cross-workflow impact policy is enforced.
-5. Concord-owned data and workflow boundaries preserve data safety (bounded writer admission, no hand-repair, safe evolution).
+5. Concord-owned data and workflow boundaries preserve data safety ([concurrent-writer correctness](../law/decisions/CD-0045-writer-admission-invariant.md), no hand-repair, safe evolution).
 6. The Advance surfaces that Concord consumes are stable enough to serve as evidence, and Concord can replace them without losing operational coverage.
 
 ## What this is not

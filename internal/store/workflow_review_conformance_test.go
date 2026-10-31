@@ -15,14 +15,9 @@ func TestDeliveryGateCorrectionAdmitsInapplicableReview(t *testing.T) {
 	f := seedWorkContextFixture(t, "gate-correction-inapplicable-review")
 	t.Cleanup(func() { _ = f.store.Close() })
 	repo, _ := reviewSubjectClaim(t, f.store, f.workID)
-	var branch string
-	if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(f.workID)).Scan(&branch); err != nil {
-		t.Fatal(err)
-	}
-	gitRunStore(t, repo, "branch", "-m", branch)
 	journey := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
 	conformanceImplementChange(t, journey, "gate-correction")
-	completeCurrentReviewForTest(t, f, repo, "ready_for_final_proof")
+	completeCurrentReviewForTest(t, f, "ready_for_final_proof")
 	ctx := t.Context()
 	loaded, err := loadWorkflowReviewState(ctx, f.store.db, f.workID)
 	if err != nil {
@@ -75,11 +70,6 @@ func TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition(t *testing.T)
 			f := seedWorkContextFixture(t, "review-conformance-"+disposition)
 			t.Cleanup(func() { _ = f.store.Close() })
 			repo, _ := reviewSubjectClaim(t, f.store, f.workID)
-			var branch string
-			if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(f.workID)).Scan(&branch); err != nil {
-				t.Fatal(err)
-			}
-			gitRunStore(t, repo, "branch", "-m", branch)
 			journey := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
 			conformanceImplementChange(t, journey, "ordinary-implementation")
 			head := journey.head(t)
@@ -122,7 +112,7 @@ func TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			ref, _ := completeCurrentReviewForTest(t, f, repo, disposition)
+			ref, _ := completeCurrentReviewForTest(t, f, disposition)
 			model.Candidate = &candidate
 			model.Accepted = &WorkflowAcceptedReview{ReportRef: ref, ReportDigest: reviewDigest(report), ActorRef: actor, Report: *report}
 			model.DependenciesCurrent = true

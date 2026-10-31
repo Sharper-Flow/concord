@@ -63,8 +63,8 @@ terminal session identifier.
 
 Resumption of workflow position is not a terminal fact. Under CD-0031 the
 core derives the bounded context packet from the canonical CD-0016 continuity
-projection; session preparation renders and validates it, and the CD-0090
-per-turn hook re-asserts it after context boundaries. Managed position comes
+projection; session preparation renders and validates it, and agents explicitly
+read current continuity when they need it. Managed position comes
 from that projection, never from a terminal identifier.
 
 A host remains free to resume its own sessions by identifier outside Concord.

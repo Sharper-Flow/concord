@@ -31,7 +31,7 @@ absence of migration, retention, and recovery obligations. Sections 5 through
 deferrals, reopen criteria, and research basis, and carry no obligation.
 ## 1. Decision
 
-Concord v1 has **no general evidence/blob content-addressed store**. Except for section 1.1, it does not hash, ingest,
+Concord v1 has **no general evidence/blob content-addressed store**. It does not hash, ingest,
 deduplicate, retain, back up, or garbage-collect WIP logs, traces, screenshots, test
 output, recordings, or arbitrary binary files.
 
@@ -56,22 +56,11 @@ deleted after proof-backed archive. Selected durable decisions/specs/lessons/rea
 are promoted to their existing PM6/CD-0006 homes before deletion; that promotion is
 not pack retention.
 
-### 1.1 Native oracle producer streams
+### 1.1 Repository check output
 
-Only `worktree_verify_leases.stdout_blob` and `worktree_verify_leases.stderr_blob`
-may retain native oracle command streams, at most 2 MiB each.
-The streams are deleted with the lease or work.
-A reviewer reads a failed control after worktree reclamation through
-`worktree_inspect` mode `oracle_output`.
-
-These bytes are native producer observations, not knowledge, acceptance
-authority, or a durable evidence reference.
-They create no CAS, deduplication, external byte path, or backup promise beyond
-the store itself. This exception permits no other byte column.
-All other PM8 prohibitions remain.
-
-The frequency/value measurement under section 9 criterion 4 is not done.
-That measurement remains deferred; this exception claims no measured result.
+Concord retains no repository-check stdout or stderr streams and exposes no
+oracle-output reader. The verified-snapshot upgrade precedes removal of stored
+streams. Test runners and CI own their own output and retention.
 
 ### Accepted synchronization
 
@@ -93,7 +82,7 @@ promises**:
   ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)),
   which are the current post-hoc needs—not exact WIP byte replay.
 
-Except for section 1.1, the boundary is structural: Concord's v1 schema and typed record set contain no
+The boundary is structural: Concord's v1 schema and typed record set contain no
 blob descriptor, evidence-reference, file-path, digest, content-addressed-store, or
 blob-lifecycle record. A workflow cannot accidentally make WIP output durable by adding
 an optional metadata field.
@@ -102,7 +91,7 @@ an optional metadata field.
 
 | Situation | Concord behavior | Not a Concord responsibility |
 |---|---|---|
-| generic test/build/log output | producer/CI retains or discards it under its own policy; section 1.1 alone owns native oracle streams | ingestion, hashing, mirroring, or backup beyond section 1.1 |
+| generic test/build/log output | producer/CI retains or discards it under its own policy | ingestion, hashing, mirroring, or backup |
 | task fails | record only the bounded state/outcome needed by its owning Product-memory record | storing full command output as evidence |
 | terminal compaction | PM6 note distills outcome, decision, lesson, and normal links | copying raw WIP files into git/SQLite |
 | compaction-retention-policy projection pruning | retains authoritative current rows and durable note/index behavior (CD-0242 D2) | preserving raw WIP bytes |
@@ -115,10 +104,10 @@ bounded result field that cannot be produced.
 
 ## 4. Migration, backfill, retention, and recovery
 
-Section 1.1 governs only native lease storage. There is no general evidence-store migration or backfill. Existing WIP paths, attachments, and
+There is no general evidence-store migration or backfill. Existing WIP paths, attachments, and
 large outputs are not scanned, hashed, copied, or enrolled into Product memory.
 
-Outside the lease/work deletion rule in section 1.1, there is no Concord blob retention period, refcount, quarantine, backup inventory, or
+There is no Concord blob retention period, refcount, quarantine, backup inventory, or
 garbage collector. PM10 therefore backs up the accepted SQLite/git authority only; it
 does not inherit a CAS subtree from PM8. Accepted PM9 keeps process findings in concise
 durable knowledge when material and rejects a separate process-exhaust receipt—closure's
@@ -130,7 +119,7 @@ not automatic retention of raw WIP bytes.
 
 1. **No undeclared byte authority:** no Concord table, event, or durable note is a
    canonical store for arbitrary WIP bytes.
-2. **No hidden retention:** apart from section 1.1, paths, digests, payload copies, and serialized command
+2. **No hidden retention:** paths, digests, payload copies, and serialized command
    output cannot enter generic metadata as a workaround for the omitted store.
 3. **Bounded state only:** task/work outcomes retain only fields accepted by their
    owning domain contract; raw output remains outside that contract.
@@ -175,7 +164,7 @@ promise, or recovery value. It is observability noise, not product memory.
 
 ### Generic raw output in SQLite or git notes
 
-Rejected outside section 1.1. It recreates the process-exhaust dump that CD-0002
+Rejected. It recreates the process-exhaust dump that CD-0002
 explicitly rejects, increases authority/backup weight, and does not name a future-reader
 benefit.
 
@@ -217,7 +206,7 @@ direction control this decision.
 
 ## Acceptance criteria
 
-- Given any generic WIP test log, trace, or screenshot outside section 1.1
+- Given any generic WIP test log, trace, or screenshot
   When work completes or compacts
   Then no blob table, digest, file-path metadata, or backup entry is created.
 
@@ -239,8 +228,8 @@ carries a typed exemption naming the structural proof.
 - Criterion 1 is proved by
   `TestPM8AndPM9DeclareNoEvidenceOrReceiptStore`
   (`internal/store/pm8_pm9_absence_test.go`), whose exhaustive binary large
-  object (BLOB) column allow-list admits fixed-size authority material and only
-  the two native stream columns in section 1.1.
+  object (BLOB) column allow-list admits fixed-size authority material and no
+  repository-check stream columns.
 - Criterion 2 is proved by the same absence test's record-kind
   sweep, which admits no exhaust-retention record, together with
   `TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence`

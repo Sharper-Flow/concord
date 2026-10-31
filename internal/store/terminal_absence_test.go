@@ -78,14 +78,6 @@ func assertPublishedExecutionAbsenceReaders(t *testing.T, s *Store, home Knowled
 			_, err := EvaluateProjectSessionRetirement(ctx, s, "work-published", "proj-web", "session-reader", t.TempDir())
 			return err
 		},
-		"worktree": func() error {
-			_, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-published", ProjectID: "proj-web", Mode: "status"})
-			return err
-		},
-		"oracle output": func() error {
-			_, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-published", ProjectID: "proj-web", Mode: "oracle_output", RunRef: "native:old", Stream: "stdout", Length: 20})
-			return err
-		},
 		"summary":   func() error { _, err := s.ReadWorkItemSummary(ctx, "work-published"); return err },
 		"history":   func() error { _, err := s.QueryQ7(ctx, Q7Request{Work: "work-published"}); return err },
 		"relations": func() error { _, err := s.QueryQ8(ctx, Q8Request{Work: "work-published"}); return err },
@@ -102,14 +94,6 @@ func TestPublishedExecutionAbsenceProjectGuards(t *testing.T) {
 	s, _, _, _ := publishedAbsenceFixture(t)
 	ctx := t.Context()
 	for name, read := range map[string]func() error{
-		"inspect": func() error {
-			_, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-published", ProjectID: "proj-other", Mode: "status"})
-			return err
-		},
-		"oracle": func() error {
-			_, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-published", ProjectID: "proj-other", Mode: "oracle_output", RunRef: "native:old", Stream: "stdout", Length: 20})
-			return err
-		},
 		"retirement": func() error {
 			_, err := EvaluateProjectSessionRetirement(ctx, s, "work-published", "proj-other", "session-reader", t.TempDir())
 			return err

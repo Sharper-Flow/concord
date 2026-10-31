@@ -1033,15 +1033,16 @@ for (const tampered of [false, true]) {
 }
 
 for (const blockedVerb of ["project-resolve", "invoke"] as const) {
-    test(`native verification cancellation during ${blockedVerb} preserves its effect boundary`, async () => {
+    test(`mutation cancellation during ${blockedVerb} preserves its effect boundary`, async () => {
       const controller = new AbortController()
       const calls: string[] = []
       const signals: AbortSignal[] = []
       let abortedAt: number | null = null
-      adapter.configureConcordAdapter({ runner: { async run(argv, _input, signal) {
+      adapter.configureConcordAdapter({ runner: { async run(argv, input, signal) {
         calls.push(argv[1])
         signals.push(signal)
         if (signal.aborted) throw signal.reason
+        if (argv[1] === "invoke") expect(JSON.parse(input).input.requested_budget_seconds).toBe(1)
         if (argv[1] !== blockedVerb) return { exitCode: 0, stdout: JSON.stringify(contextResponse(false)), stderr: "" }
         return await new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve, reject) => {
           const abort = () => {
@@ -1059,8 +1060,8 @@ for (const blockedVerb of ["project-resolve", "invoke"] as const) {
       } } })
       const started = performance.now()
       try {
-        const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worktree_verify", {
-          work_id: "work-1", command: ["true"],
+        const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
+          work_id: "work-1", expected_version: 2, target: "in_progress", reason: "Start work",
           idempotency_key: "recover-interruption", requested_budget_seconds: 1,
         }), contextFor(() => {}, controller)))
         assertAdapterEnvelope(result)
@@ -1092,7 +1093,7 @@ for (const blockedVerb of ["project-resolve", "invoke"] as const) {
     })
 }
 
-    test("native verification cancellation during live directory resolution preserves its cause", async () => {
+    test("mutation cancellation during live directory resolution preserves its cause", async () => {
       const controller = new AbortController()
       const signals: AbortSignal[] = []
       const calls: string[] = []
@@ -1119,8 +1120,8 @@ for (const blockedVerb of ["project-resolve", "invoke"] as const) {
       } } })
       const started = performance.now()
       try {
-        const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worktree_verify", {
-          work_id: "work-1", command: ["true"],
+        const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
+          work_id: "work-1", expected_version: 2, target: "in_progress", reason: "Start work",
           idempotency_key: "recover-context-read", requested_budget_seconds: 1,
         }), contextFor(() => {}, controller)))
         assertAdapterEnvelope(result)
@@ -1137,7 +1138,7 @@ for (const blockedVerb of ["project-resolve", "invoke"] as const) {
       }
     })
 
-test("native verification cancellation kills the default runner's context child", async () => {
+test("mutation cancellation kills the default runner's context child", async () => {
   const root = await mkdtemp(join(tmpdir(), "concord-context-deadline-"))
   const binary = join(root, "synthetic-core")
   await Bun.write(binary, "#!/usr/bin/env bun\nawait new Promise(resolve => setTimeout(resolve, 2_000))\n")
@@ -1148,8 +1149,8 @@ test("native verification cancellation kills the default runner's context child"
   const timer = setTimeout(() => controller.abort(), 100)
   const started = performance.now()
   try {
-    const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worktree_verify", {
-      work_id: "work-1", command: ["true"],
+    const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
+      work_id: "work-1", expected_version: 2, target: "in_progress", reason: "Start work",
       idempotency_key: "recover-default-runner", requested_budget_seconds: 1,
     }), contextFor(() => {}, controller)))
     assertAdapterEnvelope(result)

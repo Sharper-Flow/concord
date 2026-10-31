@@ -6,9 +6,11 @@
 
 ## Decision
 
-CD-0031 supplies core-derived continuity to operator sessions through
-`session-prepare`. CD-0090 requires a bounded per-turn host plugin hook that re-asserts
-the pinned projection after context boundaries. This surface holds no authority.
+Agents obtain current work context through explicit Concord reads, including
+`concord_work_trace.continuity` with a work ID. Concord injects no automatic
+per-turn context and derives no work identity from worktree ownership or a
+directory-to-work locator. CD-0031 supplies core-derived continuity for explicitly
+selected work through store-write-free `session-prepare`.
 The store keeps current rows; no event log, fold, or replay exists
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
@@ -18,6 +20,11 @@ Concord derives a pinned projection from durable state containing Product/work
 identity, the current workflow step, the approved contract, the complete
 explicit `spec_mandate` law set, the latest
 durable checkpoint, and any unresolved typed failure.
+
+The continuity projection carries the current workflow step's `step_actions`
+from its verified definition as state, not methodology. Existing holds still
+suppress managed step actions; no workflow in flight yields an empty set.
+`ManifestDigest` identifies the generated agent-tool contract for skew checks.
 
 The preferred boundary is a clean restart, but restart dispatch remains
 structurally unavailable until the registered/versioned Concord-owned typed
@@ -67,6 +74,11 @@ a completed page sequence is one projection. A consumer joins every page before
 it uses the projection's authority. The required content and pre-write reading
 obligations remain unchanged.
 
+The read returns the inline payload whenever the complete result fits the
+51,200-byte envelope limit. Otherwise each page carries the largest whole UTF-8
+fragment that fits that limit with its metadata and signed envelope. Every page
+carries at least one code point, so reconstruction always advances.
+
 ## Work context
 
 The next version of each built-in definition adds the closed, unapproved
@@ -95,8 +107,7 @@ into another record.
 A declaration refuses without effects if its resulting shared view exceeds the bounds. The
 check runs once in the live action transaction that records the declaration. A
 declaration that restores a bounded view remains admissible.
-Recorded Review outcomes, blockers, retained receipts,
-acceptance and native verification evidence remain retained even
+Recorded Review outcomes, blockers, acceptance and bound verification reports remain retained even
 when the resulting view exceeds its read bound.
 
 When the shared reader refuses with `limit_exceeded`, the work pin and continuity
@@ -140,5 +151,5 @@ read never trims a finding into a different claim.
 
 Context continuity is held in current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) and does not add a
 mutable daemon or a second agent identity authority. Session
-preparation and the bounded per-turn hook supply continuity to operator sessions;
-no generic host hook or `agent_definitions` table exists.
+preparation and explicit work-context reads supply continuity to operator
+sessions; no generic host hook or `agent_definitions` table exists.

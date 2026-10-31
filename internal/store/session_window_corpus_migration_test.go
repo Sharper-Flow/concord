@@ -85,9 +85,7 @@ func assertSessionWindowCorpus144(t *testing.T) {
 		{`["wts:session-corpus","project-corpus","claim-corpus",0,"work/settlementXcount",2]`, `["wts:session-corpus","project-corpus","claim-corpus",0,"work/settlement_count",2]`, `["wts:session-corpus","project-corpus","claim-corpus",1,"work/settlementXcount",3]`, `["wts:session-corpus","project-corpus","claim-corpus",1,"work/settlement_count",3]`},
 		{`["handoff:0","2028-01-01T00:00:00Z",33]`, `["handoff:1","2026-01-01T00:00:00Z",34]`},
 	}
-	if err := Migrate(t.Context(), old.db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, old.db, 144)
 	if got := workerFactsQueryRows(t, old, queries); !reflect.DeepEqual(got, want) {
 		t.Fatalf("144 migrated corpus=%v; expected recorded facts=%v", got, want)
 	}
@@ -99,4 +97,14 @@ func assertSessionWindowCorpus144(t *testing.T) {
 		t.Fatalf("144 selected handoff order=%d/%d settlement=%d; want increasing/3", a, b, count)
 	}
 	assertCorpusSelectionRed(t, c, 144, "AND COALESCE(json_extract(e.payload,'$.claim_incarnation'),0)=o.claim_incarnation", "", queries, want)
+	before := histEventRows(t, old)
+	if err := Migrate(t.Context(), old.db); err != nil {
+		t.Fatal(err)
+	}
+	assertWorktreeTablesAbsent(t, old.db)
+	assertHistoricalReceipts(t, old.db, before)
+	assertEventLogAbsent(t, old)
+	if got := workerFactsQueryRows(t, old, queries[2:]); !reflect.DeepEqual(got, want[2:]) {
+		t.Fatalf("current handoff recording order=%v, want %v", got, want[2:])
+	}
 }

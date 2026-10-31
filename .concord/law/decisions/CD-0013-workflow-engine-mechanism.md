@@ -14,7 +14,7 @@ CD-0008 D2 (evidence), D4 (checkpoints), D6 (schema evolution);
 CD-0215 D2/D6 (research ownership); CD-0012 D1–D11 (outcome contract).
 **Amended:** 2026-10-18. These 2026-10-17 records amend this one:
 [CD-0229](CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
-amends this record's D1 (workflows composed from shared parts);
+amends this record's D1 (plain Go workflow definitions);
 [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
 amends D9 (law-change approval follows CD-0243 D2);
 [CD-0235](CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md)

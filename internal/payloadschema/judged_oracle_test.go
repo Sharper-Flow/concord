@@ -12,20 +12,19 @@ func TestOracleCaseJudgeUnion(t *testing.T) {
 		"input_class": "valid input", "expected_state": "accepted",
 	}
 	for _, tc := range []struct {
-		name       string
-		fields     map[string]any
-		valid      bool
-		executable bool
+		name   string
+		fields map[string]any
+		valid  bool
 	}{
-		{"executable", map[string]any{"control_ids": []string{"control:one"}}, true, true},
-		{"judged", map[string]any{"judge": "review"}, true, false},
-		{"both", map[string]any{"judge": "review", "control_ids": []string{"control:one"}}, false, false},
-		{"empty controls with judge", map[string]any{"judge": "review", "control_ids": []string{}}, false, false},
-		{"neither", nil, false, false},
-		{"empty executable", map[string]any{"control_ids": []string{}}, false, false},
-		{"unknown judge", map[string]any{"judge": "implement"}, false, false},
-		{"null judge", map[string]any{"judge": nil}, false, false},
-		{"unknown field", map[string]any{"judge": "review", "citation": "source/main.go"}, false, false},
+		{"executable", map[string]any{"control_ids": []string{"control:one"}}, true},
+		{"judged", map[string]any{"judge": "review"}, true},
+		{"both", map[string]any{"judge": "review", "control_ids": []string{"control:one"}}, false},
+		{"empty controls with judge", map[string]any{"judge": "review", "control_ids": []string{}}, false},
+		{"neither", nil, false},
+		{"empty executable", map[string]any{"control_ids": []string{}}, false},
+		{"unknown judge", map[string]any{"judge": "implement"}, false},
+		{"null judge", map[string]any{"judge": nil}, false},
+		{"unknown field", map[string]any{"judge": "review", "citation": "source/main.go"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			value := corpusCopy(base).(map[string]any)
@@ -36,13 +35,8 @@ func TestOracleCaseJudgeUnion(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, schema := range []struct {
-				name  string
-				valid bool
-			}{{"worker_oracle_case", tc.valid}, {"native_oracle_executable_case", tc.executable}} {
-				if err := Validate(schema.name, raw); (err == nil) != schema.valid {
-					t.Errorf("%s valid=%v want %v: %v", schema.name, err == nil, schema.valid, err)
-				}
+			if err := Validate("worker_oracle_case", raw); (err == nil) != tc.valid {
+				t.Errorf("worker_oracle_case valid=%v want %v: %v", err == nil, tc.valid, err)
 			}
 		})
 	}

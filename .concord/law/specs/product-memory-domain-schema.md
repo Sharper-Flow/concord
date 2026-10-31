@@ -90,11 +90,12 @@ Only explicit eligible research_retire deletes a pack aggregate under CD-0216 an
 Releasing a consumer pin never deletes its pack.
 Product/work state and retention follow CD-0242 D2; no other fact type inherits research-pack retention by analogy.
 
-### 3.1b Retained worktree metadata
+### 3.1b Worktree state belongs to the host
 
-Retained worktree rows support native verification, inspection, continuity,
-and Review. Host tools own worktree recovery and lifetime; snapshot restore
-does not authorize an ownership writer or native checkout restoration
+Concord retains no worktree lifecycle or inspection metadata. The mandatory
+verified-snapshot upgrade precedes table removal under CD-0088 D2. Host tools
+own checkout inspection, recovery, and lifetime; snapshot restore does not
+reintroduce a worktree ownership writer, inspection service, or locator registry
 ([CD-0088 D1–D2](../decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md#d1-host-tools-own-worktree-isolation)).
 
 ### 3.2 No typed-log explosion

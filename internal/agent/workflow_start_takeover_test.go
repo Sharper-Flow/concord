@@ -99,22 +99,24 @@ func TestStartExecutionTakeoverFencesHeldAttemptChangeInsideTransaction(t *testi
 	f.service.ProjectHostProber = func(ctx context.Context, directory, worktree string) (store.ResolvedProjectHost, error) {
 		probes++
 		// The third host probe falls between the boundary takeover read and
-		// the action transaction. A vacate injected earlier or later lets the
-		// start succeed, so a changed probe order fails this test.
+		// the action transaction. Change the held workflow epoch without
+		// changing the work version, so only the takeover fence can refuse it.
 		if probes == 3 {
-			seedRecordedHolderDeparture(t, f.s, f.ownerGrant.SessionRef, "/repo-wt")
+			execProjection(t, f.s, []string{
+				`UPDATE workflow_step_epochs SET attempt_epoch=2,latest_start_payload=json_set(latest_start_payload,'$.attempt_epoch',2) WHERE work_id='work-1' AND step_id='execution'`,
+			}, [][]any{nil})
 		}
 		return originalProbe(ctx, directory, worktree)
 	}
 	response := invokeWorkflowBoundary(t, f.s, f.service, f.other, input, store.BuiltinWorkflowRegistry())
 	f.service.ProjectHostProber = originalProbe
 	if probes < 3 {
-		t.Fatalf("the mutation probed the host %d times, want the third probe to inject the vacate", probes)
+		t.Fatalf("the mutation probed the host %d times, want the third probe to change the held epoch", probes)
 	}
 	if response.Error == nil || response.Error.Kind != "operation_conflict" || !strings.Contains(response.Error.Message, "held attempt changed") {
 		t.Fatalf("takeover after the holder changed mid-flight = outcome %s error %+v, want the held-attempt fence", response.Outcome, response.Error)
 	}
-	if epoch, actor := latestExecutionStart(t, f.s); epoch != 1 || actor != actorRefOf(f.ownerGrant) {
+	if epoch, actor := latestExecutionStart(t, f.s); epoch != 2 || actor != actorRefOf(f.ownerGrant) {
 		t.Fatalf("fenced takeover moved the attempt: epoch %d actor %s", epoch, actor)
 	}
 }
@@ -133,18 +135,19 @@ func TestStartExecutionHolderRestartNeedsNoApproval(t *testing.T) {
 	}
 }
 
-// A retained departure fact releases the old holder without new takeover consent.
-func TestStartExecutionAfterHolderVacatesNeedsNoApproval(t *testing.T) {
+func TestStartExecutionTakeoverAfterHolderRestartNeedsNoApproval(t *testing.T) {
 	t.Parallel()
 	f := newTakeoverFixture(t)
 	if first := f.action(t, f.owner, "start_execution", "owner-start"); first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("owner start_execution: %+v", first.Error)
 	}
-	seedRecordedHolderDeparture(t, f.s, f.ownerGrant.SessionRef, "/repo-wt")
-	if handoff := f.action(t, f.other, "start_execution", "other-start"); handoff.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("start after the holder vacated = %+v, want ok without approval", handoff.Error)
+	if restart := f.action(t, f.owner, "start_execution", "owner-restart"); restart.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("holder restart: %+v", restart.Error)
 	}
-	if epoch, actor := latestExecutionStart(t, f.s); epoch != 2 || actor != actorRefOf(f.otherGrant) {
-		t.Fatalf("handoff epoch %d actor %s, want epoch 2 held by the next session", epoch, actor)
+	if handoff := f.action(t, f.other, "start_execution", "other-start"); handoff.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("takeover after the holder restarted = %+v, want ok without approval", handoff.Error)
+	}
+	if epoch, actor := latestExecutionStart(t, f.s); epoch != 3 || actor != actorRefOf(f.otherGrant) {
+		t.Fatalf("handoff epoch %d actor %s, want epoch 3 held by the next session", epoch, actor)
 	}
 }

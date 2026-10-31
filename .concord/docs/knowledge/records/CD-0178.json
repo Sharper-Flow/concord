@@ -9,10 +9,6 @@
   "law_relations": [
     {
       "kind": "refines",
-      "target_id": "CD-0096"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0104"
     }
   ],
@@ -24,9 +20,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a111f07f97175e6c016df8429be203f532d8d37b6ea6403c583c8804ffccb820",
+  "sha256": "sha256:ed4792b4d809f8f89f833733d385f55a0ed2378ffd97d785c227cfbbd2fd376d",
   "status": "accepted",
-  "summary": "Native Task execution belongs to the host, without child-directory or producer attestation. Cross-repository work has one coordinator session per repository, with Project membership and handoff evidence. Host tools own worktree placement and removal; Concord records no new occupancy or claim landing and provides no vacate, reclaim, or destroy operation.",
+  "summary": "Native Task execution belongs to the host, without child-directory or producer attestation. Cross-repository work has one coordinator session per repository, with Project membership and authenticated handoff evidence. Host tools own checkout inspection and lifecycle. Concord retains no worktree metadata or locator service; directory-resolved Project authority remains.",
   "tags": [
     "worktrees",
     "host",

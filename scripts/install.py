@@ -122,7 +122,6 @@ ADAPTER_FILES = (
     "agent-switch-hook.ts",
     "concord-plugin.ts",
     "concord.ts",
-    "continuity-hook.ts",
     "core-runtime.ts",
     "credentials.ts",
     "generated-contract-tests.ts",
@@ -148,6 +147,7 @@ ADAPTER_FILES = (
 # traversing key still cannot reach a delete. Append on retirement; never
 # remove an entry while an installation that records it may still exist.
 RETIRED_ADAPTER_FILES = (
+    "continuity-hook.ts",
     "native-subtask-refusal.ts", "ci-watch.ts", "claimed-worktree.ts", "dispatch-window.ts", "dispatch.ts", "generated-agent-lanes.ts", "move-notice.ts",
     "generated-lane-step-dispatch.ts", "lane_capabilities.ts", "lane_completion.ts", "lane_dispatch.ts",
     "oracle-readiness.ts", "packet.ts", "task-result.ts", "worker-report-protocol.js", "worker_control.ts",

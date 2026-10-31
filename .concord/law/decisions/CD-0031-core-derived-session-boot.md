@@ -16,8 +16,7 @@ Session preparation reads one boundary record, renders the
 same `ContinuityPayload` returned by `concord_work_trace.continuity` through
 the retained packet renderer, and validates the packet before the session
 takes a managed action. A derivation or validation failure stops before
-managed action. The per-turn hook re-renders the same bytes through
-`sessionboot.Build` (CD-0090).
+managed action.
 
 ## Contract
 
@@ -36,6 +35,11 @@ budgets are different populations and move independently. Session boot reads
 one boundary record, not the full history. The packet is authoritative
 at its watermark; consequential work still rereads continuity because CD-0016
 requires current state on every call.
+
+When the complete packet would exceed its bound, preparation carries a
+deterministic projection reference instead. The reference names the exact work,
+projection digest, length, and canonical continuity read. It claims no complete
+contract, question, intent set, or evidence and changes no reading obligation.
 
 A workflow may exist before contract approval. In that state `contract` is
 `null`; premise and required end-state appear once the operator approves the
@@ -58,7 +62,7 @@ C18 remains unchanged in substance:
 - the host start carries identity only;
 - session preparation adds no durable write, workflow action, or second
   state derivation;
-- preparation and the per-turn hook use the same typed projection and
+- preparation uses the same typed projection and
   watermark as the agent read;
 - a stale prepared packet is harmless because managed action rereads current
   state.
@@ -67,7 +71,6 @@ C18 remains unchanged in substance:
 
 The top-level operator session has a stronger context boundary than prose
 instructions: it receives durable intent before its first managed action.
-CD-0090 registers the per-turn runtime continuity hook in the adapter plugin entry.
 A host-started session with
 no selected work stays identity-only and derives no workflow packet.
 

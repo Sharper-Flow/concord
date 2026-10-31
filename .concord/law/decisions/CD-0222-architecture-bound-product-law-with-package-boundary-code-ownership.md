@@ -293,7 +293,7 @@ owns each authoritative workflow mutation. They apply at:
 - contract approval and revision;
 - execution claim or dispatch;
 - checkpoint and evidence binding;
-- subject-bound stage results and native receipts;
+- recorded candidate results and attributed verification reports;
 - verdict and premise confirmation;
 - any Concord-authorized merge/ship decision or acceptance of its result; and
 - completion and compaction.
@@ -384,8 +384,6 @@ generic repository layer, or second authority is introduced. CD-0011's reopening
 triggers remain exact:
 
 - an escaped `SQLITE_BUSY`, lost/duplicate effect, or invariant violation;
-- sustained user-visible write latency above the accepted target on the
-  repeatable acceptance population;
 - queueing that materially blocks ordinary operator work;
 - deployment scope that stops being one local operator installation; or
 - failed backup, restore, rebuild, or upgrade evidence.

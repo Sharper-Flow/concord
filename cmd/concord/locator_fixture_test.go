@@ -69,19 +69,23 @@ func seedProductProject(t *testing.T, s *store.Store, productID, projectID, disp
 	}
 }
 
+type cliHostCheckout struct {
+	Path string
+}
+
 type cliWorktreeFixture struct {
 	WorkID      string
 	WorkVersion int64
-	Entry       store.WorktreeEntry
+	Entry       cliHostCheckout
 }
 
-func seedCLIHostWorktree(t *testing.T, repo, workID, projectID string) store.WorktreeEntry {
+func seedCLIHostWorktree(t *testing.T, repo, workID, _ string) cliHostCheckout {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "checkout")
 	branch := "fixture/" + workID
 	base := strings.TrimSpace(gitOutput(t, repo, "rev-parse", "HEAD"))
 	gitOutput(t, repo, "worktree", "add", "-b", branch, path, base)
-	return store.WorktreeEntry{Path: path, Branch: branch, BaseSHA: base, State: "active", ProjectID: projectID}
+	return cliHostCheckout{Path: path}
 }
 
 func seedCLISessionWorktree(t *testing.T, s *store.Store, repo string) cliWorktreeFixture {
@@ -111,38 +115,6 @@ func seedCLISessionWorktree(t *testing.T, s *store.Store, repo string) cliWorktr
 		t.Fatal(err)
 	}
 	return cliWorktreeFixture{WorkID: "work-wl", WorkVersion: version, Entry: seedCLIHostWorktree(t, repo, "work-wl", "project-wl")}
-}
-
-// recordCLIWorktreeLocator seeds the retained locator rows native verification
-// reads from upgraded stores; it never calls a production ownership route.
-func recordCLIWorktreeLocator(t *testing.T, s *store.Store, workID, repo string, entry store.WorktreeEntry) {
-	t.Helper()
-	stamp := time.Unix(6, 0).UTC().Format(time.RFC3339Nano)
-	op := "fixture:" + entry.ProjectID + ":" + workID
-	tx, err := s.DatabaseForTesting().BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	for _, step := range []struct {
-		query string
-		args  []any
-	}{
-		{`INSERT INTO write_guard(active) VALUES(1)`, nil},
-		{`INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at,repository_id) VALUES(?,?,?,?,?,?,?,'verified','principal/fixture',?,?,?,?)`,
-			[]any{op, workID, entry.ProjectID, store.WorktreeSetID(workID), entry.Branch, entry.BaseSHA, entry.Path, op, stamp, stamp, repo}},
-		{`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?)`,
-			[]any{store.WorktreeSetID(workID), entry.ProjectID, op, entry.Branch, entry.BaseSHA, entry.Path, repo, stamp}},
-		{`UPDATE work_items SET version=version+1 WHERE id=?`, []any{workID}},
-		{`DELETE FROM write_guard`, nil},
-	} {
-		if _, err := tx.ExecContext(t.Context(), step.query, step.args...); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func gitOutput(t *testing.T, repo string, args ...string) string {

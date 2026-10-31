@@ -191,30 +191,3 @@ func TestMandateRecoveryPropagatesQueryFailures(t *testing.T) {
 		t.Fatalf("kind=%q detail=%q, want the propagated unavailable failure", failure.Kind, failure.Detail)
 	}
 }
-
-// The checkout-owner read the cd-reservations verb serves: a directory
-// inside a claimed worktree names the owning work, including a nested
-// directory; a directory outside every claimed worktree names none. The
-// reservation listing itself is exercised end-to-end by the verb's test.
-func TestWorktreeOwnerWorkIDRead(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	db := s.DatabaseForTesting()
-	digest := strings.Repeat("a", 40)
-	if _, err := db.Exec(`INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES
-			('op-a','work-a','project','set-a','work/work-a',?,?,'verified','principal','request','now','now')`, digest, "/data/worktrees/project/work-a"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES
-			('set-a','project','op-a','work/work-a',?,?,'repo','active','now')`, digest, "/data/worktrees/project/work-a"); err != nil {
-		t.Fatal(err)
-	}
-	owner, err := s.WorktreeOwnerWorkID(context.Background(), "project", "/data/worktrees/project/work-a/nested/dir")
-	if err != nil || owner != "work-a" {
-		t.Fatalf("owner=%q err=%v, want work-a under the claimed path", owner, err)
-	}
-	owner, err = s.WorktreeOwnerWorkID(context.Background(), "project", "/data/elsewhere")
-	if err != nil || owner != "" {
-		t.Fatalf("owner=%q err=%v, want no owner outside the claimed worktrees", owner, err)
-	}
-}

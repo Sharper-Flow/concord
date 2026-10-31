@@ -145,7 +145,7 @@ func TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _, err := loadWorkflowAdmissionStateTxForRegistry(context.Background(), tx, work, definition.Definition, "proposal", "test", BuiltinWorkflowRegistry())
+	state, err := loadWorkflowAdmissionStateTxForRegistry(context.Background(), tx, work, definition.Definition, "proposal", "test", BuiltinWorkflowRegistry())
 	_ = tx.Rollback()
 	if err != nil {
 		t.Fatal(err)

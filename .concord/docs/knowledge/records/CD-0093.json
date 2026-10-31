@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-01T00:00:00Z",
   "home_domain_id": "agent-adapter",
@@ -16,12 +14,12 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:31555edb47a4981ec1a645a13115239fc8c836d1dffc424cbf6471aa3e6369ad",
+  "sha256": "sha256:b9cf5325b25158c3fd7f7130cafb58c50dc4a3b7ef77bdd8baa1412485508fc8",
   "status": "accepted",
-  "summary": "Session preparation resolves the host-placed worktree to a registered Project and verifies work and Product scope without a claim. The same directory governs agent resolution, one bounded calling-host registry probe, and context; invalid scope, main checkout, or failed identity and registry checks refuse before managed action.",
+  "summary": "Store-write-free session preparation resolves the host-placed worktree to a registered Project and verifies explicitly named work and Product scope, without ownership-derived work identity. The same directory governs agent resolution, one bounded calling-host registry probe, and context; invalid scope, main checkout, or failed identity and registry checks refuse before managed action.",
   "tags": [
     "session-prepare",
     "session-boot"
   ],
-  "title": "Session context resolves in the claimed work directory"
+  "title": "Session context resolves in the host-placed work directory"
 }

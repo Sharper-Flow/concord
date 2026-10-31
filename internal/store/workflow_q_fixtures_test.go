@@ -37,7 +37,7 @@ func qBuildAcceptancePredicates(t *testing.T, workID, artifact string, associate
 
 // qAssociateCurrentProof keeps the seeded store and contract. The item must
 // declare the current Review and criterion-association routes. It adds a
-// managed claim and clean candidate before capturing the command receipt.
+// clean candidate repository before capturing the command receipt.
 // Investigation is seeded by default; pass false to leave that gate unmet.
 func qAssociateCurrentProof(t *testing.T, f workContextFixture, artifact string, associate bool, investigation ...bool) acceptanceRecoveryFixture {
 	t.Helper()
@@ -50,22 +50,15 @@ func qAssociateCurrentProofAt(t *testing.T, f workContextFixture, verdictStep, a
 	t.Helper()
 	workID := f.workID
 	repo, _ := reviewSubjectClaim(t, f.store, workID)
-	var branch string
-	if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(workID)).Scan(&branch); err != nil {
-		t.Fatal(err)
-	}
-	gitRunStore(t, repo, "branch", "-m", branch)
 	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo, acceptor: f.owner}
 	if artifact != "" {
 		if err := j.action(t, "start_execution", map[string]any{}, f.owner); err != nil {
 			t.Fatalf("start candidate production: %v", err)
 		}
 	}
-	run, err := f.store.VerifyWorktree(t.Context(), j.request("q-proof", nil))
-	if err != nil || run.ExitCode != 0 {
-		t.Fatalf("capture candidate command receipt: %+v, %v", run, err)
-	}
-	qAcceptCriterionReview(t, f, repo, run.OperationRef)
+	run := j.observeRun(t, "q-proof")
+	j.bindVerification(t, run)
+	qAcceptCriterionReview(t, f, run.OperationRef)
 	if artifact != "" {
 		j.bindVerification(t, j.observeRun(t, "q-delivery"))
 		if err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": artifact, "delivery_state": "asserted"}, f.owner); err != nil {
@@ -110,9 +103,9 @@ func qAssociationPayload(t *testing.T, f acceptanceRecoveryFixture) json.RawMess
 	return criterionAssociationPayload(f.receipt, ids...)
 }
 
-func qAcceptCriterionReview(t *testing.T, f workContextFixture, repo, receipt string) {
+func qAcceptCriterionReview(t *testing.T, f workContextFixture, receipt string) {
 	t.Helper()
-	completeCurrentReviewForTest(t, f, repo, "ready_for_final_proof", func(report *ReviewBlock) {
+	completeCurrentReviewForTest(t, f, "ready_for_final_proof", func(report *ReviewBlock) {
 		for _, criterion := range report.Dependencies.Criteria {
 			report.Assessments = append(report.Assessments, ReviewAssessment{PredicateID: criterion.PredicateID, Assessment: "supported", ReceiptRefs: []string{receipt}})
 		}

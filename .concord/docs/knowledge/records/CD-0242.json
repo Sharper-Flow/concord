@@ -117,9 +117,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9319e92094f5b078cb618de6195a32b2aed4f1af26e43fe68aa36b30c440c7c6",
+  "sha256": "sha256:0ab1151a6819b5cb8b0e46d9c49706fa1eca807d410107e82bd8bd222de816d5",
   "status": "accepted",
-  "summary": "Product knowledge and completion receipts hold durable outcomes; shared current rows support resumption with expected-version and idempotency checks. Main obtains independent native Task Review and records typed subject-bound outcomes. Concord has no subagent launcher, execution lifecycle or producer-identity attestation. Verify retains native receipts, exact preparation bundles and subject/environment checks. Stage exits, dependency invalidation, proof, approvals, delivery, publication and required CI remain. Verified-snapshot retirement preserves active work and truthful historical absence. Generated contracts have one source.",
+  "summary": "Knowledge and completion receipts hold durable outcomes. Main obtains independent Review and binds attributed four-field verification reports. Concord does not execute repository tests, retain native receipts or inspect live Git for workflow freshness. Recorded commits must agree; required CI, approvals and verified-snapshot retirement remain.",
   "tags": [
     "state",
     "workflow",

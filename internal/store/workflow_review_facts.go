@@ -106,9 +106,6 @@ func advanceWorkflowRecordedReviewTx(ctx context.Context, tx *sql.Tx, event Even
 	if err := validateRecordedReview(ctx, tx, event.SubjectID, action.Review); err != nil {
 		return err
 	}
-	if err := validateRecordedReviewObservation(ctx, event.SubjectID, action.Review); err != nil {
-		return err
-	}
 	state, err := readWorkflowReviewFacts(ctx, tx, event.SubjectID)
 	if err != nil {
 		return err

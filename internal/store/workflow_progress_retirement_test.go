@@ -27,7 +27,6 @@ func TestProgressCreditMetadataAbsentFromDefinitions(t *testing.T) {
 	}{
 		{reflect.TypeOf(WorkflowDefinition{}), "ProgressPolicy"},
 		{reflect.TypeOf(WorkflowActionDefinition{}), "SatisfactionKind"},
-		{reflect.TypeOf(WorkflowComposition{}), "ProgressPolicy"},
 	} {
 		if _, exists := target.typ.FieldByName(target.field); exists {
 			t.Errorf("%s still carries %s", target.typ.Name(), target.field)

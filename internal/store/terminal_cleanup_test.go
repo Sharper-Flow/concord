@@ -30,14 +30,12 @@ func terminalCleanupSQL(t *testing.T, s *Store, queries ...string) {
 
 func TestTerminalCleanupDefersUnreleasedOwners(t *testing.T) {
 	const other = `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('other-work','task','Other','needed',0,1,'now','now')`
-	const lease = `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('lease-fixture','work-done','proj-web','/synthetic/work','held','client-fixture','agent-fixture','session-fixture','operator','[]','now','running')`
 	for _, tc := range []struct {
 		name    string
 		kind    FailureKind
 		queries []string
 	}{
 		{"live_relation", KindOperationConflict, []string{other, `INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('other-work','work-done','blocks','now')`}},
-		{"held_verify_lease", KindResourceBusy, []string{lease}},
 		{"outside_repair", KindOutsideRepairActive, []string{`INSERT INTO outside_repair_dispositions VALUES('work-done','active','repair','{}','now')`}},
 		{"pending_durable_effect", KindOperationConflict, []string{`INSERT INTO durable_operations SELECT 'other-operation',attempt_epoch,work_id,workflow_type_ref,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,'pending',result_payload,evidence_refs,changed_refs,resume_cursor,principal_ref,request_id,observed_at,completed_at,contract_digest,workflow_type_digest FROM durable_operations WHERE op_id='publication'`}},
 		{"pending_removal", KindOperationConflict, []string{`INSERT INTO work_removal_operations(operation_id,idempotency_key,work_id,expected_version,reason,actor,handoff_json,handoff_digest,state,created_at,updated_at) VALUES('remove-fixture','remove-key','work-done',3,'shelved','operator','{}','sha256:1111111111111111111111111111111111111111111111111111111111111111','prepared','now','now')`}},
@@ -190,26 +188,6 @@ func TestTerminalCleanupPreservesReferencedResearch(t *testing.T) {
 				t.Fatalf("terminal execution remaining=%d, owned research=%t", remaining, owned)
 			}
 		})
-	}
-}
-
-func TestTerminalCleanupCollectsReleasedLeaseStreamsAfterReleaseVersion(t *testing.T) {
-	t.Parallel()
-	s, _ := terminalCleanupFixture(t)
-	terminalCleanupSQL(t, s,
-		`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome,stdout_blob,stderr_blob) VALUES('lease-fixture','work-done','proj-web','/synthetic/work','held','client-fixture','agent-fixture','session-fixture','operator','[]','now','running',X'616263',X'646566')`,
-	)
-	assertFailureKind(t, s.CleanupPublishedTerminalWork(t.Context(), "work-done"), KindResourceBusy)
-	terminalCleanupSQL(t, s,
-		`UPDATE worktree_verify_leases SET state='released',outcome='completed' WHERE lease_id='lease-fixture'`,
-		`UPDATE work_items SET version=version+1 WHERE id='work-done'`,
-	)
-	if err := s.CleanupPublishedTerminalWork(t.Context(), "work-done"); err != nil {
-		t.Fatal(err)
-	}
-	var count int
-	if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM worktree_verify_leases WHERE lease_id='lease-fixture'`).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("released stream bytes remain: count=%d err=%v", count, err)
 	}
 }
 
@@ -426,12 +404,7 @@ func lawCleanupProducer(t *testing.T, s *Store, enacting bool) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_law_baselines WHERE work_id='cleanup-producer' AND enactment_json IS NOT NULL`).Scan(&proofs); err != nil || (proofs == 1) != enacting {
 		t.Fatalf("material enactment count=%d, enacting=%t: %v", proofs, enacting, err)
 	}
-	// Release mutable native owners only; the real completion receipt and
-	// immutable attribution remain untouched until the cleanup owner runs.
-	terminalCleanupSQL(t, s,
-		`UPDATE worktree_entries SET state='reclaimed' WHERE set_id='wts:cleanup-producer'`,
-		`UPDATE worktree_claims SET state='reclaimed' WHERE work_id='cleanup-producer'`,
-	)
+	assertWorktreeTablesAbsent(t, s.db)
 	publishLawCleanupNote(t, s, "cleanup-producer", content, true)
 }
 

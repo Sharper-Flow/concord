@@ -154,37 +154,7 @@ class BunNativeTests(unittest.TestCase):
                 self.assertEqual(acceptance.main(), 0)
                 spawn.assert_not_called()
 
-    def test_current_continuity_exact_names_actually_pass(self):
-        document = json.loads((ROOT / ".concord/scenarios/adapter-continuity.v1.json").read_text())
-        expected = [scenario["id"] for scenario in document["scenarios"]]
-        arguments = [argument for identity in expected for argument in ("--expect", identity)]
-        run = subprocess.run(["python3", str(SOURCE), "continuity_hook.test.ts", *arguments],
-                             cwd=ROOT, capture_output=True, text=True, timeout=60)
-        print(run.stdout, end="", flush=True)
-        print(run.stderr, end="", file=sys.stderr, flush=True)
-        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        observed = json.loads(run.stdout.splitlines()[-1])["observed"]
-        for identity in expected:
-            self.assertIn({"file": "continuity_hook.test.ts", "name": identity, "outcome": "pass"}, observed)
-
-    def test_existing_dispatch_checks_keep_their_file_selection(self):
-        spec = importlib.util.spec_from_file_location("adapter_generator", ROOT / "scripts/generate-adapter-oracle.py")
-        generator = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(generator)
-        for files in generator.CHECKS.values():
-            with self.subTest(files=files):
-                run = subprocess.run(["python3", str(SOURCE), *files], cwd=ROOT,
-                                     capture_output=True, text=True, timeout=60)
-                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-                observed = json.loads(run.stdout.splitlines()[-1])["observed"]
-                self.assertEqual({case["file"] for case in observed}, set(files))
-                for file in files:
-                    self.assertTrue(any(case["file"] == file and case["outcome"] == "pass" for case in observed))
-
-    def test_pinned_bun_real_outcomes_and_legacy_invocation(self):
-        pin = json.loads((ROOT / ".concord/oracles/adapter/native-acceptance.v1.json").read_text())["pin"]["bun"]
-        self.assertEqual(subprocess.run(["bun", "--version"], capture_output=True, text=True,
-                                        timeout=10).stdout.strip(), pin)
+    def test_bun_real_outcomes_and_legacy_invocation(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             shutil.copyfile(SOURCE, root / "acceptance.py")

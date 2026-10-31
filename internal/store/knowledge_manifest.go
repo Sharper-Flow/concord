@@ -1507,9 +1507,7 @@ func readKnowledgeManifest(ctx context.Context, repo, commit string) (KnowledgeM
 }
 
 // readKnowledgeManifestRunner reads the manifest at a commit through the
-// caller's runner, so the dispatch reading resolution proves the committed
-// manifest under its committed-read policy runner and tests can inject a
-// deterministic runner.
+// caller's runner, so tests can inject a deterministic runner.
 func readKnowledgeManifestRunner(ctx context.Context, runner GitRunner, repo, commit string) (KnowledgeManifest, bool, error) {
 	manifest, _, missing, err := readKnowledgeManifestShardsRunner(ctx, runner, repo, commit)
 	return manifest, missing, err

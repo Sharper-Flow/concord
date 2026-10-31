@@ -13,7 +13,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:16080c465f2abd4c7ade3af228bd3b9bd52cb9eaaad29108d19e9bfaa02d6bf4",
+  "sha256": "sha256:c5092ab2e125b0eb14544387c9a71646fe4f0f95b8b10b28fbf1dadfb6a1ee2f",
   "status": "published",
   "summary": "Defines the six first-usable floor conditions; rollout-plan.md holds the release-evidence bar.",
   "tags": [

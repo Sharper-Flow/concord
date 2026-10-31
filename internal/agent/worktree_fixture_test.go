@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
@@ -119,15 +118,6 @@ func seedWorkTransition(t *testing.T, s *store.Store, workID, from, to string, e
 	}
 }
 
-func seedHostSessionPlacement(t *testing.T, s *store.Store, workID, sessionRef, path string) {
-	t.Helper()
-	execProjection(t, s, []string{
-		`DELETE FROM worktree_occupancy WHERE session_ref=?`,
-		`INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) SELECT set_id||':'||project_id||':'||claim_op_id,?,'2026-10-01T00:00:00Z',0 FROM worktree_entries WHERE path=? AND state='active'`,
-		`INSERT OR IGNORE INTO session_claim_landings(work_id,session_ref,project_id,claim_op_id) SELECT ?,?,project_id,claim_op_id FROM worktree_entries WHERE path=? AND state='active'`,
-	}, [][]any{{sessionRef}, {sessionRef, path}, {workID, sessionRef, path}})
-}
-
 // Takeover still consumes departure facts retained by upgraded stores.
 func seedRecordedHolderDeparture(t *testing.T, s *store.Store, sessionRef, source string) {
 	t.Helper()
@@ -137,8 +127,7 @@ func seedRecordedHolderDeparture(t *testing.T, s *store.Store, sessionRef, sourc
 	}, [][]any{{sessionRef, source}, nil})
 }
 
-// Native verification and Review still read entries from upgraded stores.
-// The fixture creates its checkout with Git and seeds only that read model.
+// seedHostWorktree creates a checkout with Git, without recording ownership.
 func seedHostWorktree(t *testing.T, s *store.Store, repoRoot, workID, projectID, baseSHA string) string {
 	t.Helper()
 	path := filepath.Join(filepath.Dir(s.Path()), "worktrees", projectID, workID)
@@ -147,16 +136,5 @@ func seedHostWorktree(t *testing.T, s *store.Store, repoRoot, workID, projectID,
 		t.Fatal(err)
 	}
 	gitRun(t, repoRoot, "worktree", "add", "-b", branch, path, baseSHA)
-	stamp := fixedTime().UTC().Format(time.RFC3339Nano)
-	op := "fixture:" + projectID + ":" + workID
-	execProjection(t, s, []string{
-		`INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at,repository_id) VALUES(?,?,?,?,?,?,?,'verified','principal/fixture',?,?,?,?)`,
-		`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?)`,
-		`UPDATE work_items SET version=version+1 WHERE id=?`,
-	}, [][]any{
-		{op, workID, projectID, store.WorktreeSetID(workID), branch, baseSHA, path, op, stamp, stamp, repoRoot},
-		{store.WorktreeSetID(workID), projectID, op, branch, baseSHA, path, repoRoot, stamp},
-		{workID},
-	})
 	return path
 }

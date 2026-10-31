@@ -206,9 +206,9 @@ func testWorkflowReturnRoute(t *testing.T, id, family, verdictStep, effect strin
 		}
 		reviewGateRequireStep(t, j.s, id, effect)
 		pReturnProduce(t, j, fmt.Sprintf("correction-%d", i))
-		acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+		acceptCurrentReviewForTest(t, j.fixture, "correction_required")
 	}
-	acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
+	acceptCurrentReviewForTest(t, j.fixture, "ready_for_final_proof")
 	pin := issue1013Pin(t, j.s, id)
 	if pin.Review == nil || workflowAdmitReview(*pin.Review) != nil {
 		t.Fatal("fresh accepted readiness did not settle the Review boundary")
@@ -285,7 +285,7 @@ func TestVerdictCorrectionRequiresRecordedReview(t *testing.T) {
 	if j.effects(t) != before {
 		t.Fatal("refused correction changed durable state")
 	}
-	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+	acceptCurrentReviewForTest(t, j.fixture, "correction_required")
 	if err := issue1013Preflight(t, j.s, j.workID, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 		t.Fatalf("accepted current Review did not authorize correction: %v", err)
 	}
@@ -410,7 +410,7 @@ func acceptReturnRouteWorkerLabeled(t *testing.T, f workflowReturnRouteFixture, 
 	t.Helper()
 	j := pReturnClaim(t, f, id)
 	pReturnProduce(t, j, "producer"+label)
-	acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
+	acceptCurrentReviewForTest(t, j.fixture, "ready_for_final_proof")
 	return f.owner
 }
 
@@ -425,7 +425,7 @@ func countWorkflowCompletionEvents(t *testing.T, s *Store, id string) int {
 
 func TestVerdictCorrectionAdmitsReviewEvidenceAccept(t *testing.T) {
 	j := pReturnReviewFixture(t, "return-route-review-evidence-correction", "workflow.break_fix", "")
-	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+	acceptCurrentReviewForTest(t, j.fixture, "correction_required")
 	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 		t.Fatalf("correction after exact Review acceptance: %v", err)
 	}

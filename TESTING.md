@@ -80,7 +80,7 @@ initialization/TestMain and is not a non-executing planning operation.
 | One Go behavior | Anchored named regression plus existing owner and direct-caller tests in explicit packages | A caller, runtime input or test dependency cannot be bounded |
 | Store fixture, transaction or connection handling | Owner tests plus transaction/rollback/connection-invariant consumers; private database per test | Shared setup changes affect the package; admit the package or use required CI |
 | Migration or current-state recovery | Relevant pre/post-migration and recovery tests, including failure/rollback paths | Migration ordering or shared registry changes affect all store opens |
-| Native Go/Bun/uv integration | Relevant native-control cases with CI's pinned tools and prepared offline caches | Preparation or toolchain changes affect every native consumer |
+| Reported verification | Report binding and same-commit Review/acceptance consumers | Evidence identity or shared workflow setup changes |
 | Adapter | Explicit changed test files and caller files, with Product selection cleared | Shared adapter contract, setup or native host behavior changes |
 | Python tooling | One affected `scripts/test-*.py`; inspect imported helpers and callers | Unknown/transitive mapping or aggregate script changes need the tooling battery |
 | Documentation | Link and public-content validators | Law/knowledge inputs change: run their owning validators too |
@@ -130,13 +130,19 @@ CI remains the executable inventory. Do not maintain a second test catalog.
 * Store behavior, transactions, migrations and recovery stay in `internal/store`.
   Required store shard jobs cover their current discovered names; migrations and
   shared fixtures are not a reason to share writable databases or blanket-parallelize.
-* Native-tool integration remains with its owning store/agent mechanisms. Use
-  CI's Go/Bun/uv versions and offline preparation. Do not remove preparation from a
-  shard without evidence that none of its tests needs it.
+* Repository checks run through the host wrapper or external CI. Concord records
+  attributed reports; it does not run checks or prepare their dependencies.
 * `internal/agent` and `cmd/concord` have separate required shards. Unsharded
   Go packages use the `verify-tests-rest` job. Adapter jobs own Bun test files
   and existing timing artifacts; `verify-tooling` owns the Python battery.
-* `bin/oc-test conformance` explicitly enables the long ten-process harness.
+* `bin/oc-test conformance` enables all fifteen base ten-process correctness
+  scenarios plus one unpaced 1000-write population with exact-effect and replay
+  checks. `CONCORD_CONFORMANCE_LONG=1` selects that additional population and
+  enables the acceptance entry point; it does not select a timing profile.
+  Required CI sets `CONCORD_ACCEPTANCE_RUNNER=1` on the acceptance entry point
+  to bind the zero-escaped-busy policy. The diagnostic entry point cannot grant
+  itself accepted authority. Reports contain correctness and invocation
+  provenance only; there is no latency target, timing summary or pacing control.
   Smoke excludes every sharded Go package, but includes the adapter suite and
   JSON/law validation. It is not a cheap substitute for a named regression.
 

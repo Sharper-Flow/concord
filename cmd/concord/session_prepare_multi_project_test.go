@@ -73,7 +73,7 @@ func TestSessionPrepareMultiProject(t *testing.T) {
 	}
 	for _, worktree := range []struct {
 		name  string
-		entry store.WorktreeEntry
+		entry cliHostCheckout
 	}{
 		{"project-wl", result.Entry},
 		{"project-wl-b", second},

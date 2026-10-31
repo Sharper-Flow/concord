@@ -87,7 +87,7 @@ func TestRetiredPlanningOperationsRefuseBeforeEffects(t *testing.T) {
 	snapshot := func() [9]int64 {
 		t.Helper()
 		var counts [9]int64
-		for i, table := range []string{"effect_receipts", "work_items", "workflow_instances", "workflow_contracts", "worktree_verify_leases", "relations", "domain_observations", "durable_operations"} {
+		for i, table := range []string{"effect_receipts", "work_items", "workflow_instances", "workflow_contracts", "relations", "domain_observations", "durable_operations"} {
 			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM ` + table).Scan(&counts[i]); err != nil {
 				t.Fatal(err)
 			}

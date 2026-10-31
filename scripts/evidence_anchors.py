@@ -14,8 +14,7 @@ What an anchor is:
   test is declared in that package and its body, or a same-package helper it
   calls, reaches a testing failure call. `go test ./...` is a required CI step.
 - `scenario`: a unique direct corpus entry under `.concord/scenarios/` that
-  nothing in `internal/` defers. Continuity entries also require an executable
-  consuming-test binding in tooling. This is structural reachability only;
+  nothing in `internal/` defers. This is structural reachability only;
   native results and Review establish execution and assertion adequacy.
 - `validator`: a Python checker or harness identified by `scripts/<prefix>-<name>.py`;
   resolves when the script exists and either the required CI workflow invokes
@@ -596,17 +595,6 @@ def coverage_bindings(root: Path, tools: list[object]) -> tuple[list[str], dict[
                     findings.append(f"{prefix}: generated parity owner does not reference the artifact: {anchor['value']}")
             elif anchor != owner:
                 findings.append(f"{prefix}: executable anchor must equal its owner; invocation selection is derived")
-    continuity = root / ".concord/scenarios/adapter-continuity.v1.json"
-    if continuity.is_file():
-        try:
-            corpus = json.loads(continuity.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            findings.append("continuity corpus cannot be read")
-        else:
-            entries = corpus.get("scenarios", []) if isinstance(corpus, dict) else []
-            for entry in entries:
-                if isinstance(entry, dict) and isinstance(entry.get("id"), str) and ("scenario", entry["id"]) not in bindings:
-                    findings.append(f"continuity scenario has no consuming-test owner: {entry['id']}")
     return findings, bindings
 
 
@@ -617,20 +605,6 @@ def validator_references(root: Path, script: str, artifact: str) -> bool:
     except (OSError, ValueError, SyntaxError):
         return False
     return tree is not None and any(isinstance(node, ast.Constant) and node.value == artifact for node in ast.walk(tree))
-
-
-def scenario_binding_findings(root: Path, scenario: str) -> list[str]:
-    try:
-        manifest = json.loads((root / ".concord/tooling.v1.json").read_text(encoding="utf-8"))
-        tools = manifest.get("tools") if isinstance(manifest, dict) else None
-    except (OSError, ValueError):
-        tools = None
-    if not isinstance(tools, list):
-        return ["scenario consumer requires tooling coverage metadata"]
-    findings, bindings = coverage_bindings(root, tools)
-    if ("scenario", scenario) not in bindings:
-        findings.append(f"scenario has no consuming-test owner: {scenario}")
-    return findings
 
 
 def validator_runs_in_ci(script: str) -> bool:
@@ -725,8 +699,6 @@ def check_anchor(anchor: object, prefix: str, findings: list[str]) -> None:
     elif kind == "scenario":
         if not scenario_exists(value):
             findings.append(f"{prefix}: scenario anchor is in no unique non-deferred corpus entry under .concord/scenarios/: {value!r}")
-        elif any(path.name == "adapter-continuity.v1.json" for path in scenario_entries(ROOT, value)):
-            findings.extend(f"{prefix}: {finding}" for finding in scenario_binding_findings(ROOT, value))
     elif kind == "validator":
         if not VALIDATOR_ANCHOR.fullmatch(value):
             findings.append(

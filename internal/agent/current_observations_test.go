@@ -83,6 +83,7 @@ func agentRowsSnapshot(t *testing.T, s *store.Store, query string, args ...any) 
 
 func agentCurrentEffects(t *testing.T, s *store.Store) string {
 	t.Helper()
+	assertNoWorktreeOwnershipSchema(t, s)
 	state := make(map[string]string)
 	for _, table := range []string{
 		"store_sequences", "effect_receipts", "work_items", "work_projects",
@@ -90,7 +91,7 @@ func agentCurrentEffects(t *testing.T, s *store.Store) string {
 		"workflow_actors", "workflow_step_epochs",
 		"workflow_step_completions", "workflow_evidence_bindings", "workflow_delivery_state",
 		"workflow_overlap_resolutions", "work_context_state", "domain_observations",
-		"workflow_review_state", "worktree_verify_leases", "worktree_entries", "worktree_claims",
+		"workflow_review_state",
 	} {
 		state[table] = agentRowsSnapshot(t, s, `SELECT * FROM `+table)
 	}
@@ -99,4 +100,18 @@ func agentCurrentEffects(t *testing.T, s *store.Store) string {
 		t.Fatal(err)
 	}
 	return string(raw)
+}
+
+func assertNoWorktreeOwnershipSchema(t *testing.T, s *store.Store) {
+	t.Helper()
+	for _, table := range []string{
+		"bootstrap_operations", "worktree_claim_native_fences", "worktree_claims",
+		"worktree_entries", "worktree_occupancy", "worktree_ref_outcomes",
+		"session_vacate_requests", "session_claim_landings", "session_relocation_counts",
+	} {
+		var count int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("retired ownership schema for %s: count=%d err=%v, want absent", table, count, err)
+		}
+	}
 }

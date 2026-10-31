@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:357904e39546d6955b3b107f4e77039ed00c336b6078e38a79f9ff82714bac69`
-Payload schema digest: `sha256:3d66a02e904e20bf90f75b71b4dda2bfe56e94fed95344d360826220e165063a`
+Manifest digest: `sha256:11b52163c1519dad299b4d29f61af57d36c0ec81de2f3314306449ce45b21601`
+Payload schema digest: `sha256:34bc3fba8c40ad6a87339a56c403f4926a3ba7e65978718f7da82d7bc79a3322`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -13,7 +13,6 @@ Envelope schema: `1.0`
 | `concord_work_browse.ready` | `read` | `PM1.Q5` | `product_read` | `read` | `always` |
 | `concord_work_browse.scope` | `read` | `PM1.Q6` | `product_read` | `read` | `always` |
 | `concord_work_browse.messages` | `read` | `PM1.Q14` | `product_read` | `read` | `always` |
-| `concord_work_browse.worktree_inspect` | `read` | `CD-0096.R1` | `product_read` | `read` | `always` |
 | `concord_work_trace.history` | `read` | `PM1.Q7` | `product_read` | `read` | `always` |
 | `concord_work_trace.observations` | `read` | `CD-0030.R1` | `product_read` | `read` | `always` |
 | `concord_work_trace.external_observations` | `read` | `CD-0040.R1` | `product_read` | `read` | `always` |
@@ -40,7 +39,6 @@ Envelope schema: `1.0`
 | `concord_work_transition.workflow_action` | `mutation` | `—` | `work_transition` | `workflow_action` | `workflow_definition` |
 | `concord_work_transition.project_handoff_record` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.project_handoff_consume` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
-| `concord_work_transition.worktree_verify` | `mutation` | `—` | `work_transition` | `claim` | `always` |
 | `concord_work_relate.set_memberships` | `mutation` | `—` | `work_relate` | `scope` | `always` |
 | `concord_work_relate.resolve_overlap` | `mutation` | `—` | `work_relate` | `relation` | `always` |
 | `concord_work_relate.message_send` | `mutation` | `—` | `work_relate` | `relation` | `always` |

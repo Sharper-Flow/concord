@@ -53,7 +53,6 @@ func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 		"concord_work_transition.project_handoff_record":   projectHandoffRecordInput{},
 		"concord_work_transition.project_handoff_consume":  projectHandoffConsumeInput{},
 		"concord_work_transition.workflow_action":          actionMutationInput{},
-		"concord_work_transition.worktree_verify":          worktreeVerifyInput{},
 	}
 	for _, entry := range agentcontract.ContractOperations {
 		if entry.Kind != agentcontract.OperationKind("mutation") {

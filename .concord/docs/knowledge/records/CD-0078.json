@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-26T00:00:00Z",
   "evidence": [
@@ -20,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1b4904f0b0d0ae19093ef9d9195a5fccc77edf6c28658560f3c98f052e9d6418",
+  "sha256": "sha256:9cad04189345ed901e728490eb6f37a2509ae9675da2980c208cdb48a5b7a4bf",
   "status": "accepted",
   "summary": "Terminal and worktree placement and operator session start and resume belong to the host. Concord neither manages terminal surfaces nor starts or resumes operator sessions. Continuity comes from the canonical projection (CD-0031), never from a terminal session identifier.",
   "tags": [

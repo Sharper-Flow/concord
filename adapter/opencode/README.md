@@ -174,11 +174,9 @@ which subagent produced the review; the coordinator owns that independence claim
 The [payload schema](../../contracts/agent-tool-surface-payloads.schema.json)
 owns the typed report.
 
-Native `worktree_verify` preparation retains its control bundle, subject, and
-environment. Execution selects only `phase: execute` and the exact
-`preparation_run_ref`. Captured producer receipts remain separate from the
-coordinator's `record_verdict`; neither a Task summary nor a claimed verdict
-replaces required verification evidence or CI.
+The coordinator binds a verification report with its source, commit, result,
+and run reference. Independent Review judges whether the evidence is adequate;
+required CI remains external and mandatory.
 
 ### Session scope
 

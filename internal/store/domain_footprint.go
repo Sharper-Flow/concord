@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"path"
 	"sort"
 	"strconv"
@@ -275,11 +274,6 @@ func (p preparedDomainFootprint) queryTx(ctx context.Context, q queryer, limit i
 	return queryDomainFootprintTx(ctx, q, p.req, p.home, p.paths, p.behaviorLaws, p.behaviorCommit, limit)
 }
 
-// Sizing records ownership and laws, not facts or their model-owned references.
-func (p preparedDomainFootprint) ownershipTx(ctx context.Context, q queryer) (DomainFootprintResult, error) {
-	return footprintCompleteTx(ctx, q, p.req, p.home, p.paths, p.behaviorLaws, p.behaviorCommit, footprintOwnershipOnly)
-}
-
 // footprintBehaviorLaws runs Q9 over the designated home's indexed law kinds
 // and returns the matched law IDs and the watermark they were read at. It
 // takes the store, not a transaction, because Q9 probes git.
@@ -322,15 +316,8 @@ type footprintSelection struct {
 	ordered []FootprintLaw
 }
 
-type footprintSelectionMode uint8
-
-const (
-	footprintWithShapes footprintSelectionMode = iota
-	footprintOwnershipOnly
-)
-
 func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintRequest, home KnowledgeHome, paths, behaviorLaws []string, behaviorCommit string, limit int) (DomainFootprintResult, error) {
-	selection, err := footprintSelectTx(ctx, q, req, home, paths, behaviorLaws, behaviorCommit, footprintWithShapes)
+	selection, err := footprintSelectTx(ctx, q, req, home, paths, behaviorLaws, behaviorCommit)
 	if err != nil {
 		return DomainFootprintResult{}, err
 	}
@@ -353,19 +340,7 @@ func queryDomainFootprintTx(ctx context.Context, q queryer, req DomainFootprintR
 	return out, nil
 }
 
-// footprintCompleteTx reads every reached law in one snapshot.
-// The private selection mode determines whether the consumer also needs facts.
-func footprintCompleteTx(ctx context.Context, q queryer, req DomainFootprintRequest, home KnowledgeHome, paths, behaviorLaws []string, behaviorCommit string, mode footprintSelectionMode) (DomainFootprintResult, error) {
-	selection, err := footprintSelectTx(ctx, q, req, home, paths, behaviorLaws, behaviorCommit, mode)
-	if err != nil {
-		return DomainFootprintResult{}, err
-	}
-	out := selection.result
-	out.Laws = selection.ordered
-	return out, nil
-}
-
-func footprintSelectTx(ctx context.Context, q queryer, req DomainFootprintRequest, home KnowledgeHome, paths, behaviorLaws []string, behaviorCommit string, mode footprintSelectionMode) (footprintSelection, error) {
+func footprintSelectTx(ctx context.Context, q queryer, req DomainFootprintRequest, home KnowledgeHome, paths, behaviorLaws []string, behaviorCommit string) (footprintSelection, error) {
 	var out DomainFootprintResult
 	var none footprintSelection
 	registry, err := readDomainRegistry(ctx, q, req.Product)
@@ -382,11 +357,7 @@ func footprintSelectTx(ctx context.Context, q queryer, req DomainFootprintReques
 		return none, newFailure(KindStaleContext, footprintQueryID, "the knowledge commit moved between the behavior match and the join", true, "retry the footprint read")
 	}
 
-	selectPaths := footprintSelectPathsTx
-	if mode == footprintOwnershipOnly {
-		selectPaths = footprintSelectOwnershipPathsTx
-	}
-	selected, err := selectPaths(ctx, q, home, req.Product, paths)
+	selected, err := footprintSelectPathsTx(ctx, q, home, req.Product, paths)
 	if err != nil {
 		return none, err
 	}
@@ -498,89 +469,6 @@ func (out *footprintSelectedPaths) addPath(entry FootprintPath, documents []stri
 	}
 	entry.Unmapped = entry.Package == "" && len(documents) == 0
 	out.paths = append(out.paths, entry)
-}
-
-func footprintSelectOwnershipPathsTx(ctx context.Context, q queryer, home KnowledgeHome, _ string, paths []string) (footprintSelectedPaths, error) {
-	out := footprintSelectedPaths{paths: []FootprintPath{}, reached: map[string]bool{}, packageChecks: map[string]bool{}, candidates: map[string]*footprintCandidate{}}
-	roots, hash, err := footprintOwnershipRootsTx(ctx, q, home)
-	if err != nil {
-		return out, err
-	}
-	out.mapHash = hash
-	byPath := map[string]DomainShapeRoot{}
-	for _, root := range roots {
-		byPath[root.Path] = root
-	}
-	pair := []any{home.HomeProjectID, home.HomeLocatorID}
-	for _, filePath := range paths {
-		documents, err := footprintPathCandidatesTx(ctx, q, pair, filePath, out.candidates)
-		if err != nil {
-			return out, err
-		}
-		owner := domainShapeOwningRoot(roots, filePath)
-		out.addPath(FootprintPath{Path: filePath, Package: owner, DomainIDs: domainShapeRootDomains(byPath[owner])}, documents)
-	}
-	return out, nil
-}
-
-// Both tables project the committed package map. Explicit root rows preserve
-// ownerless roles and nested boundaries; historical maps have only package/Domain
-// joins. Neither read needs a fact snapshot, tooling, or a shape projection version.
-func footprintOwnershipRootsTx(ctx context.Context, q queryer, home KnowledgeHome) ([]DomainShapeRoot, *string, error) {
-	args := []any{home.HomeProjectID, home.HomeLocatorID, home.HeadRef}
-	rows, err := q.QueryContext(ctx, `WITH roots AS (
-		SELECT r.root_path,r.root_json FROM knowledge_domain_roots r
-		JOIN knowledge_index_watermark w USING(home_project_id,home_locator_id,scanned_commit_oid)
-		WHERE w.home_project_id=? AND w.home_locator_id=? AND w.head_ref=?
-	), packages AS (
-		SELECT p.package_path,p.domain_id FROM knowledge_package_domains p
-		JOIN knowledge_index_watermark w USING(home_project_id,home_locator_id,scanned_commit_oid)
-		WHERE w.home_project_id=? AND w.home_locator_id=? AND w.head_ref=? ORDER BY p.package_path,p.domain_id
-	) SELECT root_json FROM roots UNION ALL
-	SELECT json_object('path',p.package_path,'role','mixed','domain_ids',json_group_array(p.domain_id))
-	FROM packages p WHERE NOT EXISTS (SELECT 1 FROM roots r WHERE r.root_path=p.package_path)
-	GROUP BY p.package_path`, append(args, args...)...)
-	if err != nil {
-		return nil, nil, err
-	}
-	roots := []DomainShapeRoot{}
-	for rows.Next() {
-		var raw string
-		var root DomainShapeRoot
-		if err := rows.Scan(&raw); err != nil {
-			_ = rows.Close()
-			return nil, nil, err
-		}
-		if err := json.Unmarshal([]byte(raw), &root); err != nil {
-			_ = rows.Close()
-			return nil, nil, err
-		}
-		roots = append(roots, root)
-	}
-	err = rows.Err()
-	_ = rows.Close()
-	if err != nil {
-		return nil, nil, err
-	}
-	hash, err := footprintOwnershipMapHashTx(ctx, q, home)
-	return roots, hash, err
-}
-
-func footprintOwnershipMapHashTx(ctx context.Context, q queryer, home KnowledgeHome) (*string, error) {
-	args := []any{home.HomeProjectID, home.HomeLocatorID, home.HeadRef}
-	var hash sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT max(map_content_hash) FROM (
-		SELECT s.map_content_hash FROM knowledge_domain_shapes s
-		JOIN knowledge_index_watermark w USING(home_project_id,home_locator_id,scanned_commit_oid)
-		WHERE w.home_project_id=? AND w.home_locator_id=? AND w.head_ref=? AND s.map_content_hash<>''
-		UNION ALL SELECT p.map_content_hash FROM knowledge_package_domains p
-		JOIN knowledge_index_watermark w USING(home_project_id,home_locator_id,scanned_commit_oid)
-		WHERE w.home_project_id=? AND w.home_locator_id=? AND w.head_ref=?
-	)`, append(args, args...)...).Scan(&hash)
-	if err != nil || !hash.Valid {
-		return nil, err
-	}
-	return &hash.String, nil
 }
 
 func footprintPathCandidatesTx(ctx context.Context, q queryer, pair []any, filePath string, candidates map[string]*footprintCandidate) ([]string, error) {

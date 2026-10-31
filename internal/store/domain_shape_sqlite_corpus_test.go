@@ -69,7 +69,7 @@ func TestCommittedSQLiteMechanismShapeFitsBound(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	root := repositoryRootForTest(t)
-	runner := CommittedReadGitRunner{}
+	runner := runGitRunner{}
 	head, err := runner.Run(ctx, root, "rev-parse", "HEAD")
 	if err != nil {
 		t.Fatal(err)

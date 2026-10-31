@@ -28,7 +28,6 @@ import {
   takeWorkNotices,
 } from "./concord"
 import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
-import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { hostControlPlane } from "./move-session"
 import { claimHostLease } from "./host-lease"
@@ -68,7 +67,6 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
   // than run unprotected. The lease names the session's directory and
   // worktree so a breaking-migration refusal points at the exact terminal.
   await claimHostLease(process.pid, { directory: input?.directory, worktree: input?.worktree })
-  const continuityTransform = createContinuityTransform()
   const agentSwitch = createAgentSwitchNotice()
   const tools = guardPrimaryRoles({
     concord_product_view: product_view,
@@ -128,11 +126,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
         // A display can never damage an assistant message.
       }
     },
-    // The transform input is the host's typed `{ sessionID?, model }`; only
-    // the session identity matters here, and its absence (the
-    // Agent.generate path) renders no continuity block.
     "experimental.chat.system.transform": async (input: { sessionID?: string }, output: { system: string[] }) => {
-      await continuityTransform(input, output)
       await agentSwitch.transform(input, output)
     },
     "experimental.session.compacting": pushSessionGoalTitle,

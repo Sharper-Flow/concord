@@ -19,13 +19,12 @@ unchanged: failed resolution refuses with a typed diagnostic before managed
 action. Preparation does not create a worktree, move the session, or write a
 landing.
 
-The existing continuity read still binds the session directory through
-retained worktree metadata. Missing or unresolvable metadata does not permit
-a fallback directory or a replacement ownership writer.
+Explicit Concord reads select work context by work ID under CD-0016. The
+session directory resolves Project authority, not work through retained worktree
+metadata or a replacement locator registry. Absent context permits neither a
+fallback directory nor an inferred work identity.
 
 ## Verification
 
-- `internal/store.TestResolveContinuityWorkByDirectory` proves the surviving
-  directory binding.
 - `cmd/concord.TestSessionPrepare` cases prove the directory, identity, and
   registry checks under CD-0093.

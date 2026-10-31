@@ -18,14 +18,13 @@ func reviewBlockFixture() *ReviewBlock {
 	}
 }
 
-func acceptCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string) {
+func acceptCurrentReviewForTest(t *testing.T, f workContextFixture, disposition string) {
 	t.Helper()
-	completeCurrentReviewForTest(t, f, repo, disposition)
+	completeCurrentReviewForTest(t, f, disposition)
 }
 
-func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string, mutations ...func(*ReviewBlock)) (string, int64) {
+func completeCurrentReviewForTest(t *testing.T, f workContextFixture, disposition string, mutations ...func(*ReviewBlock)) (string, int64) {
 	t.Helper()
-	qualifyReviewSubjectForTest(t, f.store, f.workID, repo)
 	report := currentReviewBlockForTest(t, f.store, f.workID, disposition)
 	for _, mutate := range mutations {
 		mutate(report)
@@ -58,21 +57,9 @@ func recordReviewForTest(t *testing.T, s *Store, workID string, actor WorkflowAc
 	})
 }
 
-func qualifyReviewSubjectForTest(t *testing.T, s *Store, workID, repo string) {
+func reviewObservedTree(t *testing.T, repo, commit string) string {
 	t.Helper()
-	var project string
-	if err := s.db.QueryRow(`SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
-		t.Fatal(err)
-	}
-	key := fmt.Sprintf("fixture-subject-%s-%d-%s", workID, readWorkVersion(t, s, workID), runTestGit(t, repo, "rev-parse", "HEAD"))
-	result, err := s.VerifyWorktree(t.Context(), WorktreeVerifyRequest{
-		WorkID: workID, ProjectID: project, LeaseID: key, RequestID: key, PrincipalRef: "principal/operator",
-		Owner:   SessionWorktreeOwner{ClientRef: "client/concord-1", AgentRef: "agent/review-fixture", SessionRef: "session/review-fixture"},
-		Command: []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}, Runner: ExecGitRunner{}, SupportedBudgetSeconds: 30,
-	})
-	if err != nil || result.ExitCode != 0 || result.TrackedFilesChanged || result.SubjectRef == "" {
-		t.Fatalf("qualify fixture candidate: %+v, %v", result, err)
-	}
+	return runTestGit(t, repo, "rev-parse", commit+"^{tree}")
 }
 
 func currentReviewBlockForTest(t *testing.T, s *Store, workID, disposition string) *ReviewBlock {
@@ -101,7 +88,7 @@ func currentReviewBlockForTest(t *testing.T, s *Store, workID, disposition strin
 func reviewFixtureDirectory(t *testing.T, s *Store, workID string) string {
 	t.Helper()
 	var path string
-	if err := s.db.QueryRow(`SELECT e.path FROM worktree_entries e JOIN work_projects p ON p.work_id=? AND p.project_id=e.project_id AND p.role='primary' WHERE e.set_id=? AND e.state='active'`, workID, WorktreeSetID(workID)).Scan(&path); err != nil {
+	if err := s.db.QueryRow(`SELECT l.locator_value FROM project_locators l JOIN work_projects p ON p.project_id=l.project_id WHERE p.work_id=? AND p.role='primary' AND l.locator_id=? AND l.kind='canonical_path'`, workID, "review-repo-"+workID).Scan(&path); err != nil {
 		t.Fatal(err)
 	}
 	return path

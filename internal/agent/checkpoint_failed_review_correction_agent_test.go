@@ -60,10 +60,8 @@ func TestFailedReviewCorrectionContextFitsTheClosedSchemas(t *testing.T) {
 func TestFailedReviewCorrectionBoundaryRequiresAcceptedCurrentReview(t *testing.T) {
 	f := newSpineExecutionFixture(t)
 	f.verify(t)
-	f.prepareControl(t)
 	f.implement(t)
 	f.proof = f.verify(t)
-	f.prepareControl(t)
 	fields := map[string]any{
 		"diagnosis":     "The review failed before producing an accepted correction disposition.",
 		"strategy":      "Obtain current Review before requesting implementation correction.",
@@ -82,7 +80,6 @@ func TestFailedReviewCorrectionBoundaryRequiresAcceptedCurrentReview(t *testing.
 	}
 	// Current Review, not a caller-authored non-ok verdict or operator
 	// substitution, owns the correction prerequisite.
-	f.prepareControl(t)
 	f.review(t, "correction_required", "")
 	accepted := f.read(t)
 	if accepted.Pinned.Pin.Review == nil || accepted.Pinned.Pin.Review.Accepted == nil || accepted.Pinned.Pin.Review.Accepted.Report.Disposition != "correction_required" {
@@ -132,7 +129,6 @@ func TestFailedReviewCorrectionBoundaryRequiresAcceptedCurrentReview(t *testing.
 	if replay := spineOK(t, f.call(t, "concord_work_transition", "workflow_action", input)); !replay.Replayed || !reflect.DeepEqual(before, premiseConsentSnapshot(t, f.s)) {
 		t.Fatal("correction replay changed authority")
 	}
-	f.prepareControl(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	// A ready Review closes the correction prerequisite: the superseded
 	// disposition cannot reopen the return.

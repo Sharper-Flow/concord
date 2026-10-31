@@ -34,7 +34,15 @@ func TestWorkContextCloseGit(t *testing.T) {
 	gitRunStore(t, repository, "fetch", "origin")
 	gitRunStore(t, repository, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	base := strings.TrimSpace(closeGitOutput(t, repository, "rev-parse", "HEAD"))
-	claimed := createHostWorktreeFixture(t, s, workID, "project", "close-git-claim", base)
+	checkout := filepath.Join(t.TempDir(), "checkout")
+	gitRunStore(t, repository, "worktree", "add", checkout, "-b", "work/"+workID, base)
+	var projectVersion int64
+	if err := s.db.QueryRow(`SELECT version FROM projects WHERE id='project'`).Scan(&projectVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddProjectLocator(ctx, "project", ProjectLocator{ID: "review-repo-" + workID, Kind: LocatorCanonicalPath, Value: checkout}, projectVersion); err != nil {
+		t.Fatal(err)
+	}
 	seedIssue31DomainRegistry(t, s)
 	execInFold(t, s, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','child-alpha','Context','Implementation context','root','current','sha256:`+strings.Repeat("b", 64)+`','test')`)
 
@@ -106,7 +114,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, kind := range evidenceKinds {
-		if seen[kind] {
+		if seen[kind] || kind == "verification" {
 			continue
 		}
 		seen[kind] = true
@@ -118,23 +126,23 @@ func TestWorkContextCloseGit(t *testing.T) {
 			"producer_run_ref": run, "producer_watermark": "request/" + kind, "observed_at": "2026-10-10T00:00:00Z",
 		})
 	}
-	verified, err := s.VerifyWorktree(ctx, WorktreeVerifyRequest{
-		Owner:  SessionWorktreeOwner{ClientRef: owner.ClientRef, AgentRef: owner.AgentRef, SessionRef: owner.SessionRef},
-		WorkID: workID, ProjectID: "project", LeaseID: "close-git-proof", PrincipalRef: owner.PrincipalRef,
-		RequestID: "request:close-git-proof", Command: []string{"git", "diff", "--exit-code"},
-	})
-	if err != nil || verified.ExitCode != 0 || verified.SubjectRef != "commit:"+base {
-		t.Fatalf("capture passing command receipt on the close candidate: %+v err=%v", verified, err)
+	commitRef := "commit:" + base
+	if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{
+		"evidence_kind": "verification", "immutable_subject_ref": commitRef,
+		"verification_report": VerificationReport{Source: "local", Commit: base, Result: "pass", RunRef: "run:context-close"},
+	}), 0, owner); err != nil {
+		t.Fatalf("bind verification report on the close candidate: %v", err)
 	}
+	seen["verification"] = true
 	report := currentReviewBlockForTest(t, s, workID, "ready_for_final_proof")
-	report.Assessments = []ReviewAssessment{{PredicateID: "predicate:context-close", Assessment: "supported", ReceiptRefs: []string{verified.OperationRef}}}
+	report.Assessments = []ReviewAssessment{{PredicateID: "predicate:context-close", Assessment: "supported", ReceiptRefs: []string{commitRef}}}
 	if err := recordReviewForTest(t, s, workID, owner, report); err != nil {
 		t.Fatalf("record close Review: %v", err)
 	}
 	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "acceptance", ownerRef); err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", mustJSONValue(map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:context-close", "receipt_refs": []string{verified.OperationRef}}}}), 0, owner); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", mustJSONValue(map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:context-close", "receipt_refs": []string{commitRef}}}}), 0, owner); err != nil {
 		t.Fatalf("associate close criterion receipt: %v", err)
 	}
 	closeGitWorkflowEvent(t, s, ownerRef, WorkflowPremiseConfirmed, map[string]any{
@@ -152,7 +160,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	})
 	completion.PayloadVersion = 2
 	beforeHome := snapshotCloseGit(t, repository)
-	beforeWorktree := snapshotCloseGit(t, claimed.Path)
+	beforeWorktree := snapshotCloseGit(t, checkout)
 	if beforeHome.Status != "" || beforeWorktree.Status != "" {
 		t.Fatal("close witness must start with clean repositories")
 	}
@@ -162,7 +170,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	for _, probe := range []struct {
 		name, path string
 		before     closeGitSnapshot
-	}{{"law home", repository, beforeHome}, {"claimed worktree", claimed.Path, beforeWorktree}} {
+	}{{"law home", repository, beforeHome}, {"host worktree", checkout, beforeWorktree}} {
 		if after := snapshotCloseGit(t, probe.path); !reflect.DeepEqual(probe.before, after) {
 			t.Errorf("completion changed %s Git/content state: before=%+v after=%+v", probe.name, probe.before, after)
 		}

@@ -68,11 +68,7 @@ jobs:
 
   verify-history:
     name: verify-history
-    needs: [verify-upstream-compatibility]
     runs-on: ubuntu-24.04
-    env:
-      OC_NATIVE_ISOLATION_REQUIRED: "1"
-      CONCORD_UPSTREAM_BWRAP_SHA256: ${{ needs.verify-upstream-compatibility.outputs.bwrap-sha256 }}
     timeout-minutes: 15
     steps:
       - name: Check out repository and historical baseline
@@ -89,58 +85,8 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
-      - name: Set up native Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: 24.15.0
-          architecture: x64
-          check-latest: false
-          package-manager-cache: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
-        with:
-          version: 0.11.26
-          enable-cache: "false"
-      - name: Initialize native scratch paths
-        run: |
-          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Provision fixed native isolation on this disposable runner
-        env:
-          CONCORD_DISPOSABLE_CI_PROVISION: "1"
-        run: bash scripts/ci-provision-native-isolation.sh
-      - name: Retain installed isolation and compatibility digest evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/native-isolation-evidence
-          if-no-files-found: error
-          retention-days: 90
-      - name: Warm every public native fixture npm archive
-        run: bun scripts/ci-warm-native-npm.ts
-      - name: Warm the uv fixture cache from the committed lock
-        # The only networked uv step. Both commands refuse a lock that no
-        # longer matches its project, and the sync checks every wheel
-        # against the lock's hashes. The store tests copy this cache into
-        # private scratch and run uv offline, so the cache is made read-only.
-        env:
-          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
-          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
-          UV_PYTHON_DOWNLOADS: never
-        run: |
-          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
-          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
-          chmod -R a-w "$UV_CACHE_DIR"
       - name: Replay historical failures and current regressions
-        env:
-          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
-          UV_OFFLINE: "1"
-          UV_PYTHON_DOWNLOADS: never
         run: python3 scripts/test-workflow-history.py --output-dir "$RUNNER_TEMP/workflow-history"
-      - name: Restore write access to the uv fixture cache
-        if: always()
-        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
       - name: Retain baseline and current execution evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -217,16 +163,6 @@ jobs:
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
         run: bun test adapter/opencode/ --timings="$RUNNER_TEMP/adapter-test-timings.json" --update-timings --reporter=junit --reporter-outfile="$RUNNER_TEMP/adapter-test-results.xml"
-      - name: Require the six adapter continuity witnesses in native results
-        run: |
-          python3 adapter/opencode/acceptance.py continuity_hook.test.ts \
-            --read-report "$RUNNER_TEMP/adapter-test-results.xml" --process-exit-code 0 \
-            --expect adapter-continuity-byte-stable-across-turns \
-            --expect adapter-continuity-state-change-replaces-block \
-            --expect adapter-continuity-failure-is-absence \
-            --expect adapter-continuity-ttl-gates-spawn \
-            --expect adapter-continuity-lane-leak-absent \
-            --expect adapter-continuity-post-boundary-re-pin
       - name: Retain adapter file durations
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -299,9 +235,9 @@ jobs:
       - name: Test migration compatibility classifier
         run: python3 scripts/test-migration-compatibility.py
       - name: Check vocabulary generators
-        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-work-sizes.py --check && python3 scripts/generate-relation-vocabulary.py --check && python3 scripts/generate-durable-tier-budget.py --check
-      - name: Validate native-run and work-size vocabularies
-        run: python3 scripts/check-native-run-statuses.py && python3 scripts/check-work-sizes.py
+        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-relation-vocabulary.py --check && python3 scripts/generate-durable-tier-budget.py --check
+      - name: Validate native-run vocabulary
+        run: python3 scripts/check-native-run-statuses.py
       - name: Test native Go result artifacts
         run: python3 scripts/test-go-test-results.py
       - name: Test verification phase reporting
@@ -309,11 +245,7 @@ jobs:
 
   verify-tooling:
     name: verify-tooling
-    needs: [verify-upstream-compatibility]
     runs-on: ubuntu-24.04
-    env:
-      OC_NATIVE_ISOLATION_REQUIRED: "1"
-      CONCORD_UPSTREAM_BWRAP_SHA256: ${{ needs.verify-upstream-compatibility.outputs.bwrap-sha256 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -342,51 +274,8 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
-      - name: Test disposable native CI provisioning and cache warming
+      - name: Test upstream compatibility provisioning
         run: python3 scripts/test-ci-native-provision.py
-      - name: Set up native Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: 24.15.0
-          architecture: x64
-          check-latest: false
-          package-manager-cache: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
-        with:
-          version: 0.11.26
-          enable-cache: "false"
-      - name: Initialize native scratch paths
-        run: |
-          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Provision fixed native isolation on this disposable runner
-        env:
-          CONCORD_DISPOSABLE_CI_PROVISION: "1"
-        run: bash scripts/ci-provision-native-isolation.sh
-      - name: Retain installed isolation and compatibility digest evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/native-isolation-evidence
-          if-no-files-found: error
-          retention-days: 90
-      - name: Warm every public native fixture npm archive
-        run: bun scripts/ci-warm-native-npm.ts
-      - name: Warm the uv fixture cache from the committed lock
-        # The only networked uv step. Both commands refuse a lock that no
-        # longer matches its project, and the sync checks every wheel
-        # against the lock's hashes. The store tests copy this cache into
-        # private scratch and run uv offline, so the cache is made read-only.
-        env:
-          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
-          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
-          UV_PYTHON_DOWNLOADS: never
-        run: |
-          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
-          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
-          chmod -R a-w "$UV_CACHE_DIR"
       - name: Validate the package-to-Domain map
         run: python3 scripts/check-package-domains.py
       - name: Test named adapter result consumption
@@ -396,15 +285,7 @@ jobs:
       - name: Test isolated rapid integration
         run: python3 scripts/test-rapid-integration.py
       - name: Test release and installer tooling
-        env:
-          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
-          UV_OFFLINE: "1"
-          UV_PYTHON_DOWNLOADS: never
-        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-check-package-domains.py && python3 scripts/test-generate-agent-profiles.py && python3 scripts/test-shard-format.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py && python3 scripts/test-work-sizes.py
-
-      - name: Restore write access to the uv fixture cache
-        if: always()
-        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
+        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-check-package-domains.py && python3 scripts/test-generate-agent-profiles.py && python3 scripts/test-shard-format.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py
 
   # Go static analysis: build hygiene, lint, and the callgraph/complexity
   # planes. Cached module and build caches keep the pinned analysis tools
@@ -559,11 +440,7 @@ jobs:
 
   verify-tests-store-1:
     name: verify-tests-store-1
-    needs: [verify-upstream-compatibility]
     runs-on: ubuntu-24.04
-    env:
-      OC_NATIVE_ISOLATION_REQUIRED: "1"
-      CONCORD_UPSTREAM_BWRAP_SHA256: ${{ needs.verify-upstream-compatibility.outputs.bwrap-sha256 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -584,59 +461,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Set up native Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: 24.15.0
-          architecture: x64
-          check-latest: false
-          package-manager-cache: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
-        with:
-          version: 0.11.26
-          enable-cache: "false"
-      - name: Provision the committed adapter recipe Python
-        # Any store shard can own the recipe test after sorted inventory changes.
-        # Install its existing exact pin before the offline test phase.
-        run: |
-          version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/native-acceptance.v1.json"))["pin"]["python"])')"
-          uv python install --no-bin "$version"
-          python_path="$(uv python find --managed-python "$version")"
-          python_dir="$(dirname "$python_path")"
-          test "$("$python_dir/python3" --version)" = "Python $version"
-          printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
-      - name: Initialize native scratch paths
-        run: |
-          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Provision fixed native isolation on this disposable runner
-        env:
-          CONCORD_DISPOSABLE_CI_PROVISION: "1"
-        run: bash scripts/ci-provision-native-isolation.sh
-      - name: Retain installed isolation and compatibility digest evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/native-isolation-evidence
-          if-no-files-found: error
-          retention-days: 90
-      - name: Warm every public native fixture npm archive
-        run: bun scripts/ci-warm-native-npm.ts
-      - name: Warm the uv fixture cache from the committed lock
-        # The package-network step. Both commands refuse a lock that no
-        # longer matches its project, and the sync checks every wheel
-        # against the lock's hashes. The store tests copy this cache into
-        # private scratch and run uv offline, so the cache is made read-only.
-        env:
-          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
-          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
-          UV_PYTHON_DOWNLOADS: never
-        run: |
-          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
-          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
-          chmod -R a-w "$UV_CACHE_DIR"
       - name: Test shard 1 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -650,9 +474,6 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
-          UV_OFFLINE: "1"
-          UV_PYTHON_DOWNLOADS: never
         run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 7)" ./internal/store
       - name: Retain native Go results
         if: always()
@@ -662,17 +483,10 @@ jobs:
           path: ${{ runner.temp }}/go-test-results
           if-no-files-found: error
           retention-days: 90
-      - name: Restore write access to the uv fixture cache
-        if: always()
-        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
 
   verify-tests-store-2:
     name: verify-tests-store-2
-    needs: [verify-upstream-compatibility]
     runs-on: ubuntu-24.04
-    env:
-      OC_NATIVE_ISOLATION_REQUIRED: "1"
-      CONCORD_UPSTREAM_BWRAP_SHA256: ${{ needs.verify-upstream-compatibility.outputs.bwrap-sha256 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -693,59 +507,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Set up native Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: 24.15.0
-          architecture: x64
-          check-latest: false
-          package-manager-cache: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
-        with:
-          version: 0.11.26
-          enable-cache: "false"
-      - name: Provision the committed adapter recipe Python
-        # Any store shard can own the recipe test after sorted inventory changes.
-        # Install its existing exact pin before the offline test phase.
-        run: |
-          version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/native-acceptance.v1.json"))["pin"]["python"])')"
-          uv python install --no-bin "$version"
-          python_path="$(uv python find --managed-python "$version")"
-          python_dir="$(dirname "$python_path")"
-          test "$("$python_dir/python3" --version)" = "Python $version"
-          printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
-      - name: Initialize native scratch paths
-        run: |
-          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Provision fixed native isolation on this disposable runner
-        env:
-          CONCORD_DISPOSABLE_CI_PROVISION: "1"
-        run: bash scripts/ci-provision-native-isolation.sh
-      - name: Retain installed isolation and compatibility digest evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/native-isolation-evidence
-          if-no-files-found: error
-          retention-days: 90
-      - name: Warm every public native fixture npm archive
-        run: bun scripts/ci-warm-native-npm.ts
-      - name: Warm the uv fixture cache from the committed lock
-        # The package-network step. Both commands refuse a lock that no
-        # longer matches its project, and the sync checks every wheel
-        # against the lock's hashes. The store tests copy this cache into
-        # private scratch and run uv offline, so the cache is made read-only.
-        env:
-          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
-          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
-          UV_PYTHON_DOWNLOADS: never
-        run: |
-          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
-          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
-          chmod -R a-w "$UV_CACHE_DIR"
       - name: Test shard 2 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -759,9 +520,6 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
-          UV_OFFLINE: "1"
-          UV_PYTHON_DOWNLOADS: never
         run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 2 7)" ./internal/store
       - name: Retain native Go results
         if: always()
@@ -771,17 +529,10 @@ jobs:
           path: ${{ runner.temp }}/go-test-results
           if-no-files-found: error
           retention-days: 90
-      - name: Restore write access to the uv fixture cache
-        if: always()
-        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
 
   verify-tests-store-3:
     name: verify-tests-store-3
-    needs: [verify-upstream-compatibility]
     runs-on: ubuntu-24.04
-    env:
-      OC_NATIVE_ISOLATION_REQUIRED: "1"
-      CONCORD_UPSTREAM_BWRAP_SHA256: ${{ needs.verify-upstream-compatibility.outputs.bwrap-sha256 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -802,59 +553,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Set up native Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: 24.15.0
-          architecture: x64
-          check-latest: false
-          package-manager-cache: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
-        with:
-          version: 0.11.26
-          enable-cache: "false"
-      - name: Provision the committed adapter recipe Python
-        # Any store shard can own the recipe test after sorted inventory changes.
-        # Install its existing exact pin before the offline test phase.
-        run: |
-          version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/native-acceptance.v1.json"))["pin"]["python"])')"
-          uv python install --no-bin "$version"
-          python_path="$(uv python find --managed-python "$version")"
-          python_dir="$(dirname "$python_path")"
-          test "$("$python_dir/python3" --version)" = "Python $version"
-          printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
-      - name: Initialize native scratch paths
-        run: |
-          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Provision fixed native isolation on this disposable runner
-        env:
-          CONCORD_DISPOSABLE_CI_PROVISION: "1"
-        run: bash scripts/ci-provision-native-isolation.sh
-      - name: Retain installed isolation and compatibility digest evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/native-isolation-evidence
-          if-no-files-found: error
-          retention-days: 90
-      - name: Warm every public native fixture npm archive
-        run: bun scripts/ci-warm-native-npm.ts
-      - name: Warm the uv fixture cache from the committed lock
-        # The package-network step. Both commands refuse a lock that no
-        # longer matches its project, and the sync checks every wheel
-        # against the lock's hashes. The store tests copy this cache into
-        # private scratch and run uv offline, so the cache is made read-only.
-        env:
-          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
-          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
-          UV_PYTHON_DOWNLOADS: never
-        run: |
-          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
-          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
-          chmod -R a-w "$UV_CACHE_DIR"
       - name: Test shard 3 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -868,9 +566,6 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
-          UV_OFFLINE: "1"
-          UV_PYTHON_DOWNLOADS: never
         run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 3 7)" ./internal/store
       - name: Retain native Go results
         if: always()
@@ -880,17 +575,10 @@ jobs:
           path: ${{ runner.temp }}/go-test-results
           if-no-files-found: error
           retention-days: 90
-      - name: Restore write access to the uv fixture cache
-        if: always()
-        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
 
   verify-tests-store-4:
     name: verify-tests-store-4
-    needs: [verify-upstream-compatibility]
     runs-on: ubuntu-24.04
-    env:
-      OC_NATIVE_ISOLATION_REQUIRED: "1"
-      CONCORD_UPSTREAM_BWRAP_SHA256: ${{ needs.verify-upstream-compatibility.outputs.bwrap-sha256 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -911,59 +599,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Set up native Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: 24.15.0
-          architecture: x64
-          check-latest: false
-          package-manager-cache: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
-        with:
-          version: 0.11.26
-          enable-cache: "false"
-      - name: Provision the committed adapter recipe Python
-        # Any store shard can own the recipe test after sorted inventory changes.
-        # Install its existing exact pin before the offline test phase.
-        run: |
-          version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/native-acceptance.v1.json"))["pin"]["python"])')"
-          uv python install --no-bin "$version"
-          python_path="$(uv python find --managed-python "$version")"
-          python_dir="$(dirname "$python_path")"
-          test "$("$python_dir/python3" --version)" = "Python $version"
-          printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
-      - name: Initialize native scratch paths
-        run: |
-          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Provision fixed native isolation on this disposable runner
-        env:
-          CONCORD_DISPOSABLE_CI_PROVISION: "1"
-        run: bash scripts/ci-provision-native-isolation.sh
-      - name: Retain installed isolation and compatibility digest evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/native-isolation-evidence
-          if-no-files-found: error
-          retention-days: 90
-      - name: Warm every public native fixture npm archive
-        run: bun scripts/ci-warm-native-npm.ts
-      - name: Warm the uv fixture cache from the committed lock
-        # The package-network step. Both commands refuse a lock that no
-        # longer matches its project, and the sync checks every wheel
-        # against the lock's hashes. The store tests copy this cache into
-        # private scratch and run uv offline, so the cache is made read-only.
-        env:
-          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
-          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
-          UV_PYTHON_DOWNLOADS: never
-        run: |
-          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
-          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
-          chmod -R a-w "$UV_CACHE_DIR"
       - name: Test shard 4 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -977,9 +612,6 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
-          UV_OFFLINE: "1"
-          UV_PYTHON_DOWNLOADS: never
         run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 4 7)" ./internal/store
       - name: Retain native Go results
         if: always()
@@ -989,17 +621,10 @@ jobs:
           path: ${{ runner.temp }}/go-test-results
           if-no-files-found: error
           retention-days: 90
-      - name: Restore write access to the uv fixture cache
-        if: always()
-        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
 
   verify-tests-store-5:
     name: verify-tests-store-5
-    needs: [verify-upstream-compatibility]
     runs-on: ubuntu-24.04
-    env:
-      OC_NATIVE_ISOLATION_REQUIRED: "1"
-      CONCORD_UPSTREAM_BWRAP_SHA256: ${{ needs.verify-upstream-compatibility.outputs.bwrap-sha256 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1020,59 +645,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Set up native Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: 24.15.0
-          architecture: x64
-          check-latest: false
-          package-manager-cache: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
-        with:
-          version: 0.11.26
-          enable-cache: "false"
-      - name: Provision the committed adapter recipe Python
-        # Any store shard can own the recipe test after sorted inventory changes.
-        # Install its existing exact pin before the offline test phase.
-        run: |
-          version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/native-acceptance.v1.json"))["pin"]["python"])')"
-          uv python install --no-bin "$version"
-          python_path="$(uv python find --managed-python "$version")"
-          python_dir="$(dirname "$python_path")"
-          test "$("$python_dir/python3" --version)" = "Python $version"
-          printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
-      - name: Initialize native scratch paths
-        run: |
-          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Provision fixed native isolation on this disposable runner
-        env:
-          CONCORD_DISPOSABLE_CI_PROVISION: "1"
-        run: bash scripts/ci-provision-native-isolation.sh
-      - name: Retain installed isolation and compatibility digest evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/native-isolation-evidence
-          if-no-files-found: error
-          retention-days: 90
-      - name: Warm every public native fixture npm archive
-        run: bun scripts/ci-warm-native-npm.ts
-      - name: Warm the uv fixture cache from the committed lock
-        # The package-network step. Both commands refuse a lock that no
-        # longer matches its project, and the sync checks every wheel
-        # against the lock's hashes. The store tests copy this cache into
-        # private scratch and run uv offline, so the cache is made read-only.
-        env:
-          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
-          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
-          UV_PYTHON_DOWNLOADS: never
-        run: |
-          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
-          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
-          chmod -R a-w "$UV_CACHE_DIR"
       - name: Test shard 5 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -1086,9 +658,6 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
-          UV_OFFLINE: "1"
-          UV_PYTHON_DOWNLOADS: never
         run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 5 7)" ./internal/store
       - name: Retain native Go results
         if: always()
@@ -1098,17 +667,10 @@ jobs:
           path: ${{ runner.temp }}/go-test-results
           if-no-files-found: error
           retention-days: 90
-      - name: Restore write access to the uv fixture cache
-        if: always()
-        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
 
   verify-tests-store-6:
     name: verify-tests-store-6
-    needs: [verify-upstream-compatibility]
     runs-on: ubuntu-24.04
-    env:
-      OC_NATIVE_ISOLATION_REQUIRED: "1"
-      CONCORD_UPSTREAM_BWRAP_SHA256: ${{ needs.verify-upstream-compatibility.outputs.bwrap-sha256 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1129,59 +691,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Set up native Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: 24.15.0
-          architecture: x64
-          check-latest: false
-          package-manager-cache: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
-        with:
-          version: 0.11.26
-          enable-cache: "false"
-      - name: Provision the committed adapter recipe Python
-        # Any store shard can own the recipe test after sorted inventory changes.
-        # Install its existing exact pin before the offline test phase.
-        run: |
-          version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/native-acceptance.v1.json"))["pin"]["python"])')"
-          uv python install --no-bin "$version"
-          python_path="$(uv python find --managed-python "$version")"
-          python_dir="$(dirname "$python_path")"
-          test "$("$python_dir/python3" --version)" = "Python $version"
-          printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
-      - name: Initialize native scratch paths
-        run: |
-          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Provision fixed native isolation on this disposable runner
-        env:
-          CONCORD_DISPOSABLE_CI_PROVISION: "1"
-        run: bash scripts/ci-provision-native-isolation.sh
-      - name: Retain installed isolation and compatibility digest evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/native-isolation-evidence
-          if-no-files-found: error
-          retention-days: 90
-      - name: Warm every public native fixture npm archive
-        run: bun scripts/ci-warm-native-npm.ts
-      - name: Warm the uv fixture cache from the committed lock
-        # The package-network step. Both commands refuse a lock that no
-        # longer matches its project, and the sync checks every wheel
-        # against the lock's hashes. The store tests copy this cache into
-        # private scratch and run uv offline, so the cache is made read-only.
-        env:
-          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
-          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
-          UV_PYTHON_DOWNLOADS: never
-        run: |
-          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
-          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
-          chmod -R a-w "$UV_CACHE_DIR"
       - name: Test shard 6 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -1195,9 +704,6 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
-          UV_OFFLINE: "1"
-          UV_PYTHON_DOWNLOADS: never
         run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 6 7)" ./internal/store
       - name: Retain native Go results
         if: always()
@@ -1207,17 +713,10 @@ jobs:
           path: ${{ runner.temp }}/go-test-results
           if-no-files-found: error
           retention-days: 90
-      - name: Restore write access to the uv fixture cache
-        if: always()
-        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
 
   verify-tests-store-7:
     name: verify-tests-store-7
-    needs: [verify-upstream-compatibility]
     runs-on: ubuntu-24.04
-    env:
-      OC_NATIVE_ISOLATION_REQUIRED: "1"
-      CONCORD_UPSTREAM_BWRAP_SHA256: ${{ needs.verify-upstream-compatibility.outputs.bwrap-sha256 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1238,59 +737,6 @@ jobs:
         # others import. txBeginExports runs `go list -deps -export -json ./...`
         # and parses its combined output, which a "go: downloading" line breaks.
         run: go mod download
-      - name: Set up native Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: 24.15.0
-          architecture: x64
-          check-latest: false
-          package-manager-cache: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
-        with:
-          version: 0.11.26
-          enable-cache: "false"
-      - name: Provision the committed adapter recipe Python
-        # Any store shard can own the recipe test after sorted inventory changes.
-        # Install its existing exact pin before the offline test phase.
-        run: |
-          version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/native-acceptance.v1.json"))["pin"]["python"])')"
-          uv python install --no-bin "$version"
-          python_path="$(uv python find --managed-python "$version")"
-          python_dir="$(dirname "$python_path")"
-          test "$("$python_dir/python3" --version)" = "Python $version"
-          printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
-      - name: Initialize native scratch paths
-        run: |
-          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Provision fixed native isolation on this disposable runner
-        env:
-          CONCORD_DISPOSABLE_CI_PROVISION: "1"
-        run: bash scripts/ci-provision-native-isolation.sh
-      - name: Retain installed isolation and compatibility digest evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/native-isolation-evidence
-          if-no-files-found: error
-          retention-days: 90
-      - name: Warm every public native fixture npm archive
-        run: bun scripts/ci-warm-native-npm.ts
-      - name: Warm the uv fixture cache from the committed lock
-        # The package-network step. Both commands refuse a lock that no
-        # longer matches its project, and the sync checks every wheel
-        # against the lock's hashes. The store tests copy this cache into
-        # private scratch and run uv offline, so the cache is made read-only.
-        env:
-          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
-          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
-          UV_PYTHON_DOWNLOADS: never
-        run: |
-          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
-          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
-          chmod -R a-w "$UV_CACHE_DIR"
       - name: Test shard 7 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -1304,9 +750,6 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
-          UV_OFFLINE: "1"
-          UV_PYTHON_DOWNLOADS: never
         run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 7 7)" ./internal/store
       - name: Retain native Go results
         if: always()
@@ -1316,9 +759,6 @@ jobs:
           path: ${{ runner.temp }}/go-test-results
           if-no-files-found: error
           retention-days: 90
-      - name: Restore write access to the uv fixture cache
-        if: always()
-        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
 
   verify-tests-cli-1:
     name: verify-tests-cli-1
@@ -1564,11 +1004,7 @@ jobs:
   # multiplying fixed lock delays. The full tree races in the nightly workflow.
   verify-race:
     name: verify-race
-    needs: [verify-upstream-compatibility]
     runs-on: ubuntu-24.04
-    env:
-      OC_NATIVE_ISOLATION_REQUIRED: "1"
-      CONCORD_UPSTREAM_BWRAP_SHA256: ${{ needs.verify-upstream-compatibility.outputs.bwrap-sha256 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1584,49 +1020,6 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
-      - name: Set up native Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: 24.15.0
-          architecture: x64
-          check-latest: false
-          package-manager-cache: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
-        with:
-          version: 0.11.26
-          enable-cache: "false"
-      - name: Initialize native scratch paths
-        run: |
-          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Provision fixed native isolation on this disposable runner
-        env:
-          CONCORD_DISPOSABLE_CI_PROVISION: "1"
-        run: bash scripts/ci-provision-native-isolation.sh
-      - name: Retain installed isolation and compatibility digest evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/native-isolation-evidence
-          if-no-files-found: error
-          retention-days: 90
-      - name: Warm every public native fixture npm archive
-        run: bun scripts/ci-warm-native-npm.ts
-      - name: Warm the uv fixture cache from the committed lock
-        # The only networked uv step. Both commands refuse a lock that no
-        # longer matches its project, and the sync checks every wheel
-        # against the lock's hashes. The store tests copy this cache into
-        # private scratch and run uv offline, so the cache is made read-only.
-        env:
-          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
-          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
-          UV_PYTHON_DOWNLOADS: never
-        run: |
-          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
-          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
-          chmod -R a-w "$UV_CACHE_DIR"
       - name: Test concurrent store access under the race detector
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -1640,9 +1033,6 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
-          UV_OFFLINE: "1"
-          UV_PYTHON_DOWNLOADS: never
         run: >-
           python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -race -timeout=15m -run
           '^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter|TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance)$'
@@ -1655,19 +1045,12 @@ jobs:
           path: ${{ runner.temp }}/go-test-results
           if-no-files-found: error
           retention-days: 90
-      - name: Restore write access to the uv fixture cache
-        if: always()
-        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
 
-  # Production-like acceptance: the ten-process conformance run and the
+  # Correctness acceptance: the ten-process conformance run and the
   # packaged black-box suite.
   verify-acceptance:
     name: verify-acceptance
-    needs: [verify-upstream-compatibility]
     runs-on: ubuntu-24.04
-    env:
-      OC_NATIVE_ISOLATION_REQUIRED: "1"
-      CONCORD_UPSTREAM_BWRAP_SHA256: ${{ needs.verify-upstream-compatibility.outputs.bwrap-sha256 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1683,56 +1066,10 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
-      - name: Set up native Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: 24.15.0
-          architecture: x64
-          check-latest: false
-          package-manager-cache: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
-        with:
-          version: 0.11.26
-          enable-cache: "false"
-      - name: Initialize native scratch paths
-        run: |
-          printf 'OC_NATIVE_NPM_CACHE=%s/native-target-npm-cache\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-          printf 'OC_NATIVE_ISOLATION_EVIDENCE=%s/native-isolation-evidence\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Provision fixed native isolation on this disposable runner
-        env:
-          CONCORD_DISPOSABLE_CI_PROVISION: "1"
-        run: bash scripts/ci-provision-native-isolation.sh
-      - name: Retain installed isolation and compatibility digest evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: native-isolation-${{ github.job }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/native-isolation-evidence
-          if-no-files-found: error
-          retention-days: 90
-      - name: Warm every public native fixture npm archive
-        run: bun scripts/ci-warm-native-npm.ts
-      - name: Warm the uv fixture cache from the committed lock
-        # The only networked uv step. Both commands refuse a lock that no
-        # longer matches its project, and the sync checks every wheel
-        # against the lock's hashes. The store tests copy this cache into
-        # private scratch and run uv offline, so the cache is made read-only.
-        env:
-          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
-          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
-          UV_PYTHON_DOWNLOADS: never
-        run: |
-          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
-          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
-          chmod -R a-w "$UV_CACHE_DIR"
-      - name: Run production-like ten-process acceptance conformance
+      - name: Run ten-process correctness acceptance conformance
         env:
           CONCORD_CONFORMANCE_LONG: "1"
           CONCORD_ACCEPTANCE_RUNNER: "1"
-          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
-          UV_OFFLINE: "1"
-          UV_PYTHON_DOWNLOADS: never
         run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -count=1 -run '^TestTenProcessAcceptanceConformance$' -v ./internal/store
       - name: Retain native Go results
         if: always()
@@ -1742,8 +1079,5 @@ jobs:
           path: ${{ runner.temp }}/go-test-results
           if-no-files-found: error
           retention-days: 90
-      - name: Restore write access to the uv fixture cache
-        if: always()
-        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
       - name: Run packaged black-box acceptance
         run: python3 scripts/test-blackbox-acceptance.py

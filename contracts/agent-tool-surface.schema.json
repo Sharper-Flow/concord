@@ -113,7 +113,7 @@
     },
     "operations": {
       "type": "array",
-      "minItems": 48,
+      "minItems": 46,
       "maxItems": 96,
       "items": {
         "type": "object",
@@ -157,7 +157,7 @@
               "string",
               "null"
             ],
-            "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Overlaps|Footprint|Shape))$"
+            "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Overlaps|Footprint|Shape))$"
           },
           "input_schema": {
             "type": "string",
@@ -199,10 +199,10 @@
             "$ref": "#/$defs/metadata"
           },
           "supported_budget_seconds": {
-            "description": "CD-0038 D2: the seconds-denominated budget ceiling this operation supports. Uniform across the surface except where accepted scenario evidence fixes a different value; the manifest digest covers it. Values change only with accepted scenario or TS9 measurement evidence. The surface maximum is the evidence-fixed worktree_verify ceiling (1800).",
+            "description": "CD-0038 D2: the seconds-denominated budget ceiling this operation supports. Uniform across the surface except where accepted scenario evidence fixes a different value; the manifest digest covers it. Values change only with accepted scenario or TS9 measurement evidence.",
             "type": "integer",
             "minimum": 1,
-            "maximum": 1800
+            "maximum": 300
           }
         }
       }

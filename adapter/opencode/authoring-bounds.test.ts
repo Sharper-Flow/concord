@@ -428,9 +428,13 @@ test("capture keeps its closed surface and source-free research inputs validate"
   const input = { title: "Research", value_statement: "Findings without source changes", kind: "research", task: "Investigate only", project_ids: ["project-1"], idempotency_key: "research" }
   expect(validateAgainstSchema(capture, input, [])).toBe(true)
   expect(validateGeneratedPayload("work_define_capture_input", input)).toBe(true)
-  const size_inputs = { behavior: "investigate", security: false, user_visible: false, blast_radius: "contained" }
+  const size_inputs = { behavior: "investigate", security: false, user_visible: false, blast_radius: "contained", estimated_production_lines: 20 }
   expect(validateAgainstSchema(capture, { ...input, size_inputs }, [])).toBe(false)
   expect(validateGeneratedPayload("work_define_capture_input", { ...input, size_inputs })).toBe(false)
+  const revise = { work_id: "work-1", expected_version: 1, title: "Research", value_statement: "Findings", kind: "research", reason: "Update", idempotency_key: "revise" }
+  expect(validateGeneratedPayload("work_define_revise_input", revise)).toBe(true)
+  expect(validateGeneratedPayload("work_define_revise_input", { ...revise, size_inputs })).toBe(false)
+  expect((payloadSchemas as SchemaTable).work_summary.properties).not.toHaveProperty("size")
 })
 
 test("observation publication retains code-point bounds after reference expansion", async () => {

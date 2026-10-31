@@ -26,9 +26,7 @@ func TestBugCaptureRequiresDefectIntakePreEffect(t *testing.T) {
 	if count := bootstrapWorkItems(t, s, "defect-first"); count != 0 {
 		t.Fatalf("refused capture left %d work rows", count)
 	}
-	if count := countRows(t, s, "worktree_claims"); count != 0 {
-		t.Fatalf("refused capture left %d claims", count)
-	}
+	assertWorktreeTablesAbsent(t, s.db)
 }
 
 func TestBugCaptureRecurrenceRoute(t *testing.T) {

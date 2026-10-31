@@ -43,8 +43,10 @@ The binary holds no Linear credential and makes no Linear API call. See
 **Current binding direction (finalized 2026-08-06):** Concord's core is written in
 **Go**. The TypeScript adapter exposes custom tools through the
 `concord-plugin.ts` entry module, which also registers accepted host runtime hooks. The
-`concord.ts` transport module owns no domain logic; [CD-0090 D1](../law/decisions/CD-0090-per-turn-continuity-re-pin-hook.md#d1-runtime-hooks-and-authority-hooks-are-different-classes)
-keeps authority hooks in the core.
+`concord.ts` transport module owns no domain logic;
+[TS6](../law/specs/agent-adapter-transport-contract.md#1-decision) keeps domain
+authority in the core. Agents read work context explicitly under
+[CD-0016](../law/decisions/CD-0016-context-continuity.md).
 
 This is a **clean rewrite**, not a port of Advance's TypeScript plugin or its tool
 catalog. Go-core is greenfield Concord code.
@@ -123,7 +125,7 @@ is stated once; companion documents reference this section rather than restating
 | 5 | **Ground-truth reclamation** | postmortem C4 | Resource reclamation keys off the resource's own facts, not a derived status field. Status disagreements are reconcilable, not silently vetoed. |
 | 6 | **Honest partial completion** | postmortem C3 | Sub-step failures degrade the verdict. `Result` has a distinct `Partial` state, not an error buried in an errors array. No advisory-only error beside unqualified success. |
 | 7 | **Per-item budgets** | postmortem C5 | APIs accept per-item budgets. A budget is honored or refused (`BudgetRefused`), never silently clamped. Operations scale with data, not with a fixed ceiling. Main sizes each assignment by complexity and relatedness, and scope, prerequisite, ownership, and safety checks remain; no attempt count, production-line cap, size measurement, or mandatory split exists ([CD-0242 D6](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)). |
-| 8 | **Bounded writer admission** | [Data safety](../law/constitution/priorities.md#data-safety-constraint) | Many concurrent agents write to the same local state with zero escaped busy failures, zero lost or duplicated effects, and writer-admission wait bounded by the accepted target on the named acceptance population. Admission wait, commit duration, and escaped busy failure are measured and reported separately. Reads stay lock-free. Per-entity serialization, not a global mutex. See CD-0045 and CD-0011. |
+| 8 | **Concurrent-writer correctness** | [Data safety](../law/constitution/priorities.md#data-safety-constraint) | Many concurrent agents write to the same local state with zero escaped busy failures on the accepted population and zero lost or duplicated effects or invariant violations. [CD-0045](../law/decisions/CD-0045-writer-admission-invariant.md) requires ten-process correctness proof without a write-latency percentile target. Reads stay lock-free. Per-entity serialization, not a global mutex. CD-0011 owns storage-authority reopen conditions. |
 | 9 | **Bounded authoritative reads** | [Visibility and continuity](../law/constitution/priorities.md#visibility-and-continuity) | Reads are lock-free, bounded by Product scope, and paginated/streamed. Authority/freshness is typed and never guessed; related-work blocking follows CD-0006 R3 and CD-0222's architecture-overlap policy. |
 | 10 | **Typed degradation** | [Visibility and continuity](../law/constitution/priorities.md#visibility-and-continuity) | Every read carries an authority tag (`authoritative` / `degraded` / `unreachable`). Silent non-authoritative substitution is forbidden. |
 | 11 | **Single-source definitions** | [Data safety](../law/constitution/priorities.md#data-safety-constraint), [Composable workflows](../law/constitution/priorities.md#composable-workflows-goal-c) | Workflow and schema changes are safe for in-flight work. Workflow definitions and derived schemas are generated from one canonical source; no released workflow-definition version is retained for history and no hand-maintained version, pin, or catalog duplicates it ([CD-0242 D14](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)). |
@@ -166,9 +168,9 @@ details; this table does not duplicate them.
 | Adapter transport and host context | `adapter/opencode/concord.ts`, `adapter/opencode/concord-plugin.ts` | Adjacent adapter tests |
 | SQLite connection and admission mechanism | `internal/store/internal/sqlitedb/connection.go`, `internal/store/internal/sqlitedb/read.go`, `internal/store/internal/sqlitedb/write.go` | One pooled connection and durable commit; adjacent tests, `internal/store/txbegin_guard_test.go` |
 | SQLite current-state and effect-receipt authority | `internal/store/doc.go`, `internal/store/store.go`, `internal/store/transaction.go`, `internal/store/events.go` | Transaction-scoped access; `txscope_test.go`, `tx_subprocess_guard_test.go` |
-| Work context and evidence | `internal/store/work_context.go`, `internal/store/workflow_review.go`, `internal/store/worktree_verify_oracle.go` | Declared sources, exact subject, Review outcomes and producer receipts; adjacent tests |
+| Work context and evidence | `internal/store/work_context.go`, `internal/store/workflow_review.go`, `internal/store/workflow_verification_report.go` | Declared sources, recorded subject, Review outcomes and verification reports; adjacent tests |
 | Workflow action and protected writes | `internal/store/workflow_dispatch.go`, `internal/store/workflow_preflight.go`, `internal/store/workflow_domain_overlap.go` | Approved scope, law revision, and work-relation resolution |
-| Worktree reads, verification, handoff | `internal/store/worktree_reads.go`, `internal/store/worktree_verify.go`, `internal/store/project_handoffs.go` | Retained same-Project metadata, exclusive verification, per-repository handoff provenance; host tools own worktree lifecycle |
+| Project handoff | `internal/store/project_handoffs.go` | Directory-resolved receiving Project and authenticated handoff provenance; host tools own checkout inspection and lifecycle; Concord retains no worktree locator metadata |
 | Research and knowledge law | `internal/store/research_types.go`, `internal/store/research_reads.go`, `internal/store/research_mutations.go`, `internal/store/law_boundary.go` | Version and source identity, consumer pins, staleness, accepted-law lookup |
 | Repository verification | `.github/workflows/ci.yml`, `scripts/check-json.py`, `bin/oc-test` | Required checks and targeted verification routing |
 
@@ -185,7 +187,7 @@ details; this table does not duplicate them.
 | [`rollout-plan.md`](./rollout-plan.md) | Entry conditions | Go-core direction is not an entry condition. |
 | [`advance-postmortem.md`](./advance-postmortem.md) | Failure evidence | Public predecessor lessons source the resilience invariants in §2. |
 | [`capability-placement.md`](./capability-placement.md) | Placement rubric | Places capabilities under CD-0005; TS6 selects the plugin-entry adapter and rejects MCP v1. |
-| [`workflows.md`](./workflows.md) | Workflow families | Three retained execution families (§4), composed from shared parts at the size the decision model sets (§7). |
+| [`workflows.md`](./workflows.md) | Workflow families | Three retained execution families (§4), authored as plain Go definitions (§7). |
 
 ---
 

@@ -42,16 +42,17 @@ func retainedCaptureOperation() Operation {
 	}, ExpectedVersions: workVersion("capture-new", 0)}
 }
 
-func retainedCaptureSnapshot(t *testing.T, s *Store) [11]int64 {
+func retainedCaptureSnapshot(t *testing.T, s *Store) [8]int64 {
 	t.Helper()
-	var snapshot [11]int64
-	for i, table := range []string{"work_items", "relations", "work_projects", "effect_receipts", "bootstrap_operations", "worktree_claims", "worktree_entries", "workflow_instances", "idempotency_records"} {
+	assertWorktreeTablesAbsent(t, s.db)
+	var snapshot [8]int64
+	for i, table := range []string{"work_items", "relations", "work_projects", "effect_receipts", "workflow_instances", "idempotency_records"} {
 		if err := s.db.QueryRow("SELECT count(*) FROM " + table).Scan(&snapshot[i]); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for i, name := range []string{"effect", "relation"} {
-		if err := s.db.QueryRow(`SELECT last FROM store_sequences WHERE name=?`, name).Scan(&snapshot[9+i]); err != nil {
+		if err := s.db.QueryRow(`SELECT last FROM store_sequences WHERE name=?`, name).Scan(&snapshot[6+i]); err != nil {
 			t.Fatal(err)
 		}
 	}

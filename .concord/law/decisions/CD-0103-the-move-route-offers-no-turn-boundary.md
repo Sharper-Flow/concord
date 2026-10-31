@@ -5,7 +5,7 @@
 - **Scope:** Observable host move timing; issue #710
 - **Approval:** The operator approved this amendment in-session on 2026-09-02
   and directed that it land with the move-session transport repair.
-- **Related:** CD-0088, CD-0096, issues #710, #714, #724
+- **Related:** CD-0088, issues #710, #714, #724
 - **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 966](https://linear.app/sharper-flow/issue/CON-966).
 

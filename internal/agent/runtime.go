@@ -170,18 +170,6 @@ type messagesInput struct {
 	Limit     int       `json:"limit,omitempty"`
 }
 
-type worktreeInspectInput struct {
-	WorkID string `json:"work_id"`
-	Mode   string `json:"mode"`
-	// Path is the relative file selector for file mode. It selects inside
-	// the identity-derived worktree (CD-0096 D2), never a worktree path.
-	Path   string `json:"path"`
-	RunRef string `json:"run_ref"`
-	Stream string `json:"stream"`
-	Offset int64  `json:"offset"`
-	Length int64  `json:"length"`
-}
-
 type researchReadInput struct {
 	ProductID string    `json:"product_id"`
 	PackID    string    `json:"pack_id"`
@@ -1072,16 +1060,6 @@ func mapFailureKind(kind store.FailureKind) string {
 		// the same refusal; the core envelope carries it as the authority
 		// refusal it is, never as an internal fault.
 		return "unauthorized"
-	case store.KindWorktreeLeaseHeld:
-		// CD-0096 D3 Verify: exclusivity is coordination, not authority. The
-		// message names the holding session; the refusal recorded nothing,
-		// so the retry is safe. operation_conflict would couple this to
-		// reconcile_operation, and there is nothing to reconcile.
-		return "resource_busy"
-	case store.KindWorktreeVerifyMutated:
-		// CD-0096 D3 Verify: a verifier that edited its subject verifies
-		// nothing. The lease is already released; completion refuses typed.
-		return "operation_conflict"
 	case store.KindProjectionConflict:
 		// A projection identity another row already holds (a second active
 		// worktree claim, a locator-drifted worktree) is a coordination
@@ -1206,8 +1184,6 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readWorkScope(ctx, base, input)
 	case "concord_work_browse.messages":
 		return r.readWorkMessages(ctx, base, input)
-	case "concord_work_browse.worktree_inspect":
-		return r.readWorktreeInspect(ctx, base, input)
 	case "concord_work_trace.history":
 		return r.readTraceHistory(ctx, base, input)
 	case "concord_work_trace.observations":
@@ -1439,7 +1415,6 @@ type workSummary struct {
 	Tags            []string                    `json:"tags,omitzero"`
 	WorkflowTypeRef string                      `json:"workflow_type_ref,omitempty"`
 	DefectIntake    *store.DefectClassification `json:"defect_intake,omitempty"`
-	Size            *store.WorkSizeSummary      `json:"size,omitempty"`
 	Urgency         string                      `json:"urgency"`
 	Lifecycle       string                      `json:"lifecycle"`
 	Version         int64                       `json:"version"`
@@ -1465,7 +1440,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, DefectIntake: w.DefectIntake, Size: w.Size, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, CreatedAt: w.CreatedAt, WorkPin: w.WorkPin}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, DefectIntake: w.DefectIntake, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, CreatedAt: w.CreatedAt, WorkPin: w.WorkPin}
 }
 func (r runtime) q1(base agentcontract.Envelope, q store.Q1Result) (agentcontract.Envelope, error) {
 	projects := []map[string]any{}
@@ -1675,9 +1650,6 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if snapshot.WorkPin != nil {
 		pinned["work_pin"] = snapshot.WorkPin
 	}
-	if snapshot.ReviewInput != nil {
-		pinned["review_input"] = snapshot.ReviewInput
-	}
 	// Empty peer signals stay out of the prompt. This keeps the unchanged
 	// projection's bytes stable while non-empty signals remain visible.
 	if len(snapshot.CompatibleLawAmendments) > 0 {
@@ -1685,12 +1657,6 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	}
 	if snapshot.StaleLawRevision != nil {
 		pinned["stale_law_revision"] = snapshot.StaleLawRevision
-	}
-	// CD-0096 D5: the pinned projection carries the reading session's held
-	// verify leases. The absent field keeps the work-keyed boot bytes
-	// byte-stable (CD-0090 D3).
-	if len(snapshot.ActiveVerifyLeases) > 0 {
-		pinned["active_verify_leases"] = snapshot.ActiveVerifyLeases
 	}
 	// The contract's resolved law and Domain references, and the recorded
 	// proposal, ride the pinned projection when present. The absent fields
@@ -1855,18 +1821,7 @@ func continuityResultMeta(snapshot store.ContinuitySnapshot, next *string) store
 // strand the emit at one byte over the cap.
 func continuityResultMetaObservedAt(snapshot store.ContinuitySnapshot, next *string, observedAt string) store.ResultMeta {
 	watermark := snapshot.SourceVersionWatermark
-	warnings := []string{}
-	if snapshot.ReviewInputWarning != nil {
-		kind := store.KindUnavailable
-		var failure *store.Failure
-		if errors.As(snapshot.ReviewInputWarning, &failure) {
-			kind = failure.Kind
-		}
-		// Stable notice: review_input_candidate_tree:<typed failure kind>.
-		// Raw paths and Git output stay on the non-JSON snapshot error only.
-		warnings = append(warnings, "review_input_candidate_tree:"+string(kind))
-	}
-	return store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: observedAt}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: next, Omissions: []string{}, Warnings: warnings}
+	return store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: observedAt}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: next, Omissions: []string{}, Warnings: []string{}}
 }
 
 // continuityProjectionHeader is the small closed identity header every page
@@ -1899,8 +1854,7 @@ func continuityProjectionHeaderOf(snapshot store.ContinuitySnapshot) continuityP
 // cursor the document was captured under, the complete document's digest,
 // and the next byte offset. It travels only inside the existing signed
 // envelope cursor, so there is no second signature scheme; the digest alone
-// binds the snapshot, because a different session's held verify leases
-// change the document even when the event watermark does not (CD-0096 D5).
+// binds the snapshot.
 // Offsets are the document's own byte positions — no unrelated boundary-row
 // cap bounds them.
 type continuityProjectionCursor struct {

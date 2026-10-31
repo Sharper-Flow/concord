@@ -730,8 +730,6 @@ var cutoverEvidenceQueries = []cutoverEvidenceQuery{
 	{"active_research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version FROM active_research_packs ORDER BY pack_id`},
 	{"active_research_revisions", `SELECT pack_id,revision,question,method,freshness FROM active_research_revisions ORDER BY pack_id,revision`},
 	{"active_research_consumers", `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers ORDER BY pack_id,consumer_work_id`},
-	{"worktree_entries", `SELECT set_id,project_id,claim_op_id,branch,base_sha,state FROM worktree_entries ORDER BY set_id,project_id`},
-	{"worktree_occupancy", `SELECT worktree_id,session_ref,host_pid,has_process_identity FROM worktree_occupancy ORDER BY session_ref`},
 	{"durable_knowledge", `SELECT id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version FROM archived_work ORDER BY home_project_id,home_locator_id,id`},
 	{"durable_knowledge_products", `SELECT home_project_id,home_locator_id,work_id,product_id FROM archived_work_products ORDER BY home_project_id,home_locator_id,work_id,product_id`},
 	{"durable_knowledge_projects", `SELECT home_project_id,home_locator_id,work_id,project_id FROM archived_work_projects ORDER BY home_project_id,home_locator_id,work_id,project_id`},
@@ -796,6 +794,8 @@ func captureBaselineCutoverEvidence(t *testing.T, db *sql.DB) map[string][]strin
 	t.Helper()
 	queries := append([]cutoverEvidenceQuery{
 		{"worker_attempts", `SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at FROM worker_attempts ORDER BY attempt_id`},
+		{"worktree_entries", `SELECT set_id,project_id,claim_op_id,branch,base_sha,state FROM worktree_entries ORDER BY set_id,project_id`},
+		{"worktree_occupancy", `SELECT worktree_id,session_ref,host_pid,has_process_identity FROM worktree_occupancy ORDER BY session_ref`},
 	}, cutoverEvidenceQueries...)
 	captured := captureCutoverEvidence(t, db, queries)
 	rows, err := db.Query(`SELECT seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload FROM domain_events ORDER BY seq`)
@@ -1101,7 +1101,7 @@ DELETE FROM fold_guard;`); err != nil {
 	}
 	postCutoverWant := make(map[string][]string, len(want))
 	for name, population := range want {
-		if name != "worker_attempts" && name != "worker_payloads" {
+		if name != "worker_attempts" && name != "worker_payloads" && name != "worktree_entries" && name != "worktree_occupancy" {
 			postCutoverWant[name] = population
 		}
 	}
@@ -1252,6 +1252,9 @@ DELETE FROM fold_guard;`); err != nil {
 	}
 	if !cutoverTablesAbsent(t, path, "workflow_worker_actors", "worker_oracle_finding_facts", "worker_attempt_dispositions", "worker_authorizations", "worker_attempts", "worker_job_revisions") {
 		t.Fatal("the retired worker tables must be absent after the migration")
+	}
+	if !cutoverTablesAbsent(t, path, "bootstrap_operations", "worktree_claim_native_fences", "worktree_claims", "worktree_entries", "worktree_occupancy", "worktree_ref_outcomes", "session_vacate_requests", "session_claim_landings", "session_relocation_counts") {
+		t.Fatal("the retired ownership tables must be absent after the migration")
 	}
 	assertPreserved(t, captureCurrentCutoverEvidence(t, mustOpenCutoverStore(t, path)), postCutoverWant)
 

@@ -46,13 +46,6 @@ type WorkflowActionExecutionRequest struct {
 	// standalone binding operation, because reliance declared outside the
 	// boundary that consumes it is unproven reliance.
 	ResearchBindings []ResearchBindingDeclaration
-	// ProjectTooling carries the tooling manifest resolved from the work
-	// item's primary Project default ref before this action's transaction
-	// opened (CD-0192). The refine-exit proof guard compares the bound
-	// worktree-verify run's argv against it; nil reports that the Project
-	// declares no tooling manifest on its default ref. It is never decoded
-	// from request input.
-	ProjectTooling *ProjectToolingManifest
 }
 
 type WorkflowActionExecutionResult struct {
@@ -179,7 +172,7 @@ func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx queryer, regis
 		}
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
 	}
-	state, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, currentStep, "workflow_action", registry)
+	state, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, currentStep, "workflow_action", registry)
 	if stateErr != nil {
 		return stateErr
 	}
@@ -231,11 +224,6 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 		return result, err
 	}
 	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep, instanceState: state, registry: registry}
-	if WorkflowActionRequiresSubjectFreshness(request.ActionID) {
-		if err := validateWorkflowAcceptanceFreshness(ctx, tx, request.WorkID); err != nil {
-			return result, err
-		}
-	}
 	if err := prepareWorkflowExecutionAdmission(guards); err != nil {
 		return result, err
 	}
@@ -311,20 +299,19 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 // defer to their owning guards.
 func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 	request := g.request
-	admission, proofRuns, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
+	admission, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
 	if err != nil {
 		return err
 	}
 	decision := workflowAdmit(g.entry.Definition, admission, request.ActionID)
 	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld {
-		return workflowExecutionAdmissionFailure(decision, request.ProjectTooling)
+		return decision.Failure
 	}
 	if err := validateWorkflowReviewRequest(g.ctx, g.tx, request.WorkID, request.ActionID, request.Payload); err != nil {
 		return err
 	}
 	g.admissionState = &admission
 	g.admissionDecision = &decision
-	g.deliveryProofRuns = proofRuns
 	g.correctionRequestRecovery = admission.CorrectionRequestRecovery
 	g.correctionRequestMissing = admission.CorrectionRequestMissing
 	return nil

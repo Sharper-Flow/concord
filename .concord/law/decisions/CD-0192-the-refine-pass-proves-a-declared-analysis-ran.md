@@ -1,4 +1,4 @@
-# CD-0192: The refine pass proves a declared analysis ran
+# CD-0192: The refine pass uses a verification report
 
 - **Status:** Accepted
 - **Date:** 2026-09-29
@@ -6,9 +6,9 @@
   `workflow.break_fix`, the Project tooling manifest, and the argv equality
   the guard enforces
 - **Preserves:** CD-0138 D1, D2, and D4, the agent-judgment rule of CD-0138 D3,
-  CD-0055 D4, CD-0096 D3, and the digests derived from the one canonical
+  CD-0055 D4 and the digests derived from the one canonical
   source ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
-- **Related:** CD-0013, CD-0055, CD-0096, CD-0138, CD-0156
+- **Related:** CD-0013, CD-0055, CD-0138, CD-0156
 - **Approval:** The operator approved the work item contract that carries this
   record on 2026-09-29.
 
@@ -36,35 +36,24 @@ break-fix families runs a
 guard registered next to the delivery admission guards. The guard is active
 only at the refinement step.
 
-### D2. The proof is a green worktree_verify run bound in the epoch
+### D2. The proof is a bound passing verification report
 
-The guard admits the advance only when a verification evidence binding names a
-completed `worktree.verify` durable operation for this work item. The named
-run's lease must record outcome `completed`, exit code 0, and no tracked-file
-change, and the lease acquire time must fall after the current refine start.
-A replayed lease keeps its original acquire time, so a run from an earlier
-refine epoch cannot prove this one. A binding that names a workflow operation
-id, an attempt id, or any other string proves nothing.
+The guard admits the advance only when the work item has a bound passing
+verification report for the recorded candidate commit under CD-0242 D8. A
+contract revision alone does not discard it (CD-0242 D7). Failed, unresolved or
+mixed-candidate reports do not qualify.
+Concord does not execute the check or establish the report by live Git reads.
 
-### D3. The declared checks come from the default ref
+### D3. Review judges the checks
 
-When the work item's Project declares `.concord/tooling.v1.json` on its
-default ref, the run's argv must equal the whitespace-split invocation of at
-least one declared tool. The manifest is read with git from the default ref,
-never from the working tree, and the read happens outside the store
-transaction before the action's transaction opens. The tooling schema and
-`scripts/check-project-tooling.py` forbid shell quoting and shell operators in
-an invocation, so the whitespace split is the exact argv. A Project that
-declares no manifest passes on any green run, and the refusal states that the
-Project declares none. A Project that declares tools gets a refusal naming the
-declared tool ids and invocations.
+Independent Review judges whether the checks and evidence are adequate for the
+change. The refine guard does not compare commands to a default-ref tooling
+manifest. Required CI remains an external delivery requirement.
 
-### D4. One declared check proves the pass
+### D4. The report does not prove adequacy
 
-At least one declared check must match. Requiring every declared tool would
-force a slow tier onto every small change, and a per-tier minimum needs its
-own decision. The gate proves an analysis ran; strength grows as each Project
-declares its checks.
+The attributed report is a claim about a result, not independent attestation
+that a check ran or that its assertions are sufficient. Review decides adequacy.
 
 ## Alternatives considered
 
@@ -72,45 +61,16 @@ declares its checks.
   whether refine is proved, because no route knows which binding is the final
   proof.
 - Accept any verification reference. Rejected: that is the present gap.
-- Require the run to name the current commit. Rejected: the lease row records
-  no commit today, and adding one widens the change.
-- Read the manifest from the working tree. Rejected: the change under refine
-  could declare its own passing check.
-- Add a separate argv array to the manifest schema. Rejected: two
-  representations of one command drift.
-- Refuse the refine exit until the Project adds a manifest. Rejected: only one
-  Project declares a manifest today, so the gate would stall every new code
-  change elsewhere.
-- Skip the gate without a manifest. Rejected: it keeps the present gap.
 
 ## Consequences
 
-Every code change on the current implementation and break-fix definitions
-runs a green worktree_verify command inside the refine epoch and binds its
-operation ref as verification evidence before the step exits. A Project
-declares its checks once on the default ref, and every later change proves
-itself against that declaration. Projects without a manifest still run a real
-green check.
-
-The gate reads the manifest outside the store transaction, so a slow git read
-never holds the store's single connection. A missing manifest at the default
-ref and a Project without a registered repository both read as no
-declaration. An unreachable repository refuses the exit until the read
-succeeds.
+Refinement uses recorded reports and Review's judgment rather than a Concord
+runner, lease, epoch-timed acquisition or exact-argv gate.
 
 ## Verification
 
-- `go test ./internal/store/ -run TestRefineExitRefuses` proves the unbound
-  exit refuses, a binding that names no verify run proves nothing, a run
-  acquired before the refine start stays stale, and a green run in the epoch
-  admits the exit on both families.
-- `go test ./internal/store/ -run 'TestDeclaredToolInvocation|TestProjectWithoutManifest'`
-  proves the declared split admits the exit, an undeclared argv refuses with
-  the declared checks named, and a Project without a manifest passes on any
-  green run and refuses without one.
-- `go test ./internal/store/ -run TestRefineToolingResolution` proves the
-  resolution reads the default ref only and reads an absent manifest as no
-  declaration.
+- Refine tests cover bound passing reports and refusal of failed, unresolved or
+  mixed-candidate evidence.
 - `python3 scripts/test-project-tooling.py` proves the checker and the schema
   refuse shell quoting and shell operators in an invocation.
 - `python3 scripts/check-knowledge-index.py` proves this record registers

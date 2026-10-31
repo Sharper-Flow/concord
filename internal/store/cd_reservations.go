@@ -1,10 +1,6 @@
 package store
 
-import (
-	"context"
-	"path/filepath"
-	"strings"
-)
+import "context"
 
 // LawAdditionReservation is one folded reservation of a law id: the earliest
 // approved contract that added the id holds it for its Product until the
@@ -36,28 +32,4 @@ func (s *Store) LawAdditionReservations(ctx context.Context, productID string) (
 		out = append(out, reservation)
 	}
 	return out, rows.Err()
-}
-
-// WorktreeOwnerWorkID names the work item whose active claimed worktree holds
-// the directory, or "" when the directory is a main checkout or an unclaimed
-// worktree. The claimed path is authority data, so the answer never guesses
-// from the path's basename.
-func (s *Store) WorktreeOwnerWorkID(ctx context.Context, projectID, directory string) (string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT e.path,c.work_id FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE e.project_id=? AND e.state='active' ORDER BY e.path`, projectID)
-	if err != nil {
-		return "", wrapFailure(KindUnavailable, "cd_reservations", "cannot read the claimed worktrees", true, "retry once the worktree projection is readable", err)
-	}
-	defer rows.Close()
-	target := filepath.Clean(directory)
-	for rows.Next() {
-		var path, workID string
-		if err := rows.Scan(&path, &workID); err != nil {
-			return "", wrapFailure(KindUnavailable, "cd_reservations", "cannot decode a claimed worktree", true, "retry once the worktree projection is readable", err)
-		}
-		clean := filepath.Clean(path)
-		if clean == target || strings.HasPrefix(target, clean+string(filepath.Separator)) {
-			return workID, rows.Err()
-		}
-	}
-	return "", rows.Err()
 }

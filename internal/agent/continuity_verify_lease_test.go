@@ -3,9 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
@@ -51,35 +49,5 @@ func seedContinuityWorkflow(t *testing.T, s *store.Store, workID string) {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestContinuityDispatchRePinsHeldLease(t *testing.T) {
-	t.Parallel()
-	s, service, grant, _, _, _ := tiersFixture(t)
-	seedContinuityWorkflow(t, s, "work-1")
-	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
-	commandJSON, _ := json.Marshal([]string{"go", "test", "./..."})
-	stamp := fixedTime().UTC().Format(time.RFC3339Nano)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('own-lease','work-1','project-1',?, 'held',?,?,?,?,?,?, 'running')`,
-		worktreePath, grant.ClientRef, grant.AgentRef, grant.SessionRef, grant.PrincipalRef, string(commandJSON), stamp); err != nil {
-		t.Fatal(err)
-	}
-	response := authorityInvoke(t, s, service, grant, "concord_work_trace", "continuity", map[string]any{
-		"work_id": "work-1", "page": map[string]any{"limit": 5, "cursor": nil},
-	})
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("continuity response=%+v err=%+v", response, response.Error)
-	}
-	var payload struct {
-		Pinned struct {
-			ActiveVerifyLeases []store.ActiveWorktreeVerifyLease `json:"active_verify_leases"`
-		} `json:"pinned"`
-	}
-	if err := json.Unmarshal(response.Result, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if len(payload.Pinned.ActiveVerifyLeases) != 1 || payload.Pinned.ActiveVerifyLeases[0].LeaseID != "own-lease" {
-		t.Fatalf("pinned.active_verify_leases=%+v, want the session's held lease re-pinned", payload.Pinned.ActiveVerifyLeases)
 	}
 }

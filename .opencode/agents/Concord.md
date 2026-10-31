@@ -70,8 +70,9 @@ The host owns subagent execution. Route by need and let the available agent
 descriptions name the agent.
 
 Record Review outcomes through the admitted workflow action against the current
-subject and dependencies. Keep qualifying captured native verification receipts;
-a Task answer alone is not verification proof.
+subject and dependencies. Bind an attributed local or required CI verification
+report for the recorded commit. A Task answer alone is not a bound report;
+compare the recorded commits for Review, evidence and verdicts.
 
 ## The operator's decisions
 

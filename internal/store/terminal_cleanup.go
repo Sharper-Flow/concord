@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"strings"
 )
 
 // refusePublishedWorkTx fences a work identity whose canonical outcome note is
@@ -143,7 +142,6 @@ func terminalCleanupBlockersQ(ctx context.Context, q queryer, workID string) err
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM workflow_backlog_alignment WHERE related_work_id=?1 AND work_id<>?1 AND work_id IN ` + terminalCleanupConsumers + `)`, "another execution retains backlog alignment"},
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM workflow_contract_law_additions WHERE reservation_owner_work_id=?1 AND work_id<>?1)`, "another contract consumes a law reservation"},
 		{KindResearchConsumerBlocked, `SELECT EXISTS(SELECT 1 FROM active_research_packs WHERE owner_work_id=?1)`, "owned research packs must be retired through research_retire"},
-		{KindResourceBusy, `SELECT EXISTS(SELECT 1 FROM worktree_verify_leases WHERE work_id=?1 AND (state='held' OR outcome='running'))`, "native verification is held or unsettled"},
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM project_handoffs WHERE work_id=?1 AND state='recorded')`, "Project handoff has not been consumed"},
 		{KindOutsideRepairActive, `SELECT EXISTS(SELECT 1 FROM outside_repair_dispositions WHERE work_id=?1 AND state='active')`, "outside repair has not reconciled"},
 		{KindOperationConflict, `SELECT EXISTS(SELECT 1 FROM durable_operations WHERE work_id=?1 AND (result_kind IS NULL OR result_kind IN ('pending','partial')))`, "durable effect has not reconciled"},
@@ -226,31 +224,16 @@ func deleteTerminalExecutionTx(ctx context.Context, tx *sql.Tx, workID string) e
 		`DELETE FROM work_version_actions WHERE work_id=?1`,
 		`DELETE FROM work_context_findings WHERE work_id=?1`,
 		`DELETE FROM work_context_state WHERE work_id=?1`,
-		`DELETE FROM work_size_proof_facts WHERE work_id=?1`,
 		`DELETE FROM work_observations WHERE work_id=?1`,
-		`DELETE FROM work_size_assessments WHERE work_id=?1`,
 		`DELETE FROM project_handoffs WHERE work_id=?1`,
 		`DELETE FROM outside_repair_reconciliations WHERE work_id=?1`,
 		`DELETE FROM outside_repair_dispositions WHERE work_id=?1`,
-		`DELETE FROM bootstrap_operations WHERE work_id=?1`,
-		`DELETE FROM worktree_verify_leases WHERE work_id=?1`,
-		`DELETE FROM session_claim_landings WHERE work_id=?1`,
-		`DELETE FROM session_vacate_requests WHERE work_id=?1`,
-		`DELETE FROM session_relocation_counts WHERE work_id=?1`,
-		`DELETE FROM worktree_ref_outcomes WHERE set_id=?2`,
-		`DELETE FROM worktree_entries WHERE set_id=?2`,
-		`DELETE FROM worktree_claims WHERE work_id=?1`,
-		`DELETE FROM worktree_claim_native_fences WHERE set_id=?2`,
 		`DELETE FROM durable_operations WHERE work_id=?1`,
 		`DELETE FROM work_projects WHERE work_id=?1 AND NOT EXISTS(SELECT 1 FROM work_items w WHERE w.id=?1 AND ` + retainedDefectClassificationSQL + `)`,
 		`DELETE FROM work_items AS w WHERE id=?1 AND NOT ` + retainedDefectClassificationSQL,
 		`DELETE FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?1`,
 	} {
-		args := []any{workID}
-		if strings.Contains(query, "?2") {
-			args = append(args, WorktreeSetID(workID))
-		}
-		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, query, workID); err != nil {
 			return wrapFailure(KindUnavailable, "terminal_cleanup", "cannot delete released execution rows", true, "reconcile the remaining execution owners before retrying cleanup", err)
 		}
 	}

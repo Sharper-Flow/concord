@@ -84,7 +84,8 @@ D9's preview and early visual-design approvals are ordinary questions Main asks
 the operator and records in the existing work record. They are not
 machine-enforced stage exits.
 
-Rules derived from change type and risk set each execution's mandatory stages.
+Each live family's definition sets its mandatory stages without a work-item
+size classification.
 Main may add research, architecture, or planning depth. No agent may waive a
 mandatory stage or an operator approval. Current validated knowledge may
 satisfy a requirement without a new document. Break-fix keeps diagnosis and
@@ -101,7 +102,7 @@ strategy and details only the next assignment.
 
 Main owns the plan and every progression. Each implementation assignment
 carries one focused outcome. Main may run independent assignments concurrently
-when their interfaces and worktree ownership are settled; dependent assignments
+when their interfaces and host worktree placement are settled; dependent assignments
 run in sequence. Implement builds and verifies. Main integrates the results
 into one candidate and obtains independent Review through the host's native
 Task. Review inspects the accumulated solution, may commit corrective changes,
@@ -161,27 +162,25 @@ its approval. A revision never erases an unresolved finding.
 
 ### D8. Evidence is captured by its producer and bound to its subject
 
-A verification receipt records what ran, the subject commit and tree, the
-relevant inputs and environment, the outcome, the producer, and the artifact
-location and digest. The tool captures these facts; agents do not re-enter
-them. Consumers reference one receipt. A new session reuses applicable
-receipts. An agent's statement that a check passed is not a receipt.
+The coordinator binds a verification report through `bind_evidence`. The report
+contains only `source` (`local` or `required_ci`), full `commit`, `result`
+(`pass` or `fail`), and `run_ref` (1–512 bytes). The authenticated binding
+operation supplies attribution. `immutable_subject_ref` is the evidence
+reference; the report's `commit` names the recorded candidate. No Git or
+GitHub read validates the report. It is an attributed claim, not attestation
+that a test ran.
 
-Verify uses the existing `worktree_verify` producer receipts and
-`record_verdict`; it has no parallel subagent-report authority. Native
-preparation retains its declared bundle, subject, recipe and environment.
-Execution selects its exact `preparation_run_ref` and retains the producer's
-runner, clean-subject, environment, isolation and captured-result checks.
-Neither preparation nor execution requires a worker attempt, packet, epoch,
-lane or job. Criterion proof resolves through the retained preparation and
-bundle, never an inferred subagent identity.
-
-Failure and unknown outcomes are recorded as such. A receipt never claims a
-fact that was not captured.
+Consumers compare recorded commits. Failed or unresolved reports and mixed
+recorded candidates cannot qualify. Independent Review judges whether the
+evidence and checks are adequate. Required CI remains external and mandatory.
+Concord does not run, isolate, lease, or retain output of repository tests,
+issue native verification receipts, or establish Review or acceptance freshness
+by live Git observation. The verified snapshot route remains mandatory before
+retiring stored execution data; no old receipt becomes a report by conversion.
 
 ### D9. Completion needs proof, approvals, delivery, and publication
 
-Completion requires a passing receipt for every accepted criterion on the
+Completion requires passing bound verification evidence for every accepted criterion on the
 final candidate, the accepted ready disposition on that candidate, no open
 in-scope blocking finding, every applicable approval, and delivery evidence.
 
@@ -217,9 +216,10 @@ one, and its reason.
 
 ### D11. A fresh session resumes from current state
 
-Given a Linear issue key, a session resolves the work item, its Project, its
-active execution, and its worktree. It reports committed and uncommitted
-changes, completed exits, remaining obligations, unresolved findings, evidence
+Given a Linear issue key, a session resolves the work item, its Project, and its
+active execution. Host shell and Git tools inspect the current checkout;
+Concord stores no worktree locator or inspection metadata. The session reports
+committed and uncommitted changes, completed exits, remaining obligations, unresolved findings, evidence
 locations, and the next admitted actions. It needs neither the predecessor
 conversation nor any historical record.
 
@@ -260,9 +260,8 @@ cutover needs a verified recovery snapshot and the operator's approval of its
 destructive operation. Tooling explains missing or incompatible data and its
 migration route.
 
-Launcher retirement uses the verified-snapshot migration to remove worker
-state while preserving active work, knowledge, research, native receipts and
-worktrees. Supported historical reads report truthful absence; migration
+The verified-snapshot migration preserves active work, knowledge, research and
+worktrees while removing retired execution state. Supported historical reads report truthful absence; migration
 invents no successful outcome or subagent provenance.
 
 ### D14. Generated contracts derive from one source

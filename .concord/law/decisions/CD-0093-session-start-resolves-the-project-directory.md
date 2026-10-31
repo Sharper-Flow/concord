@@ -43,6 +43,10 @@ scope. It requires a host-created worktree, not the main checkout. No Concord
 claim or occupancy row is required. Host tools own placement; preparation neither
 selects another directory nor creates a checkout.
 
+The caller supplies the work identity explicitly; the directory establishes
+Project scope, not worktree ownership or a directory-derived work identity.
+Preparation reads and verifies existing state without recording a write.
+
 ### D2. One work directory governs identity, verification, and context
 
 The current worktree directory is the only directory `session-prepare` uses.

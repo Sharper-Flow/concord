@@ -44,9 +44,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0bf8b3f1e1a3a17b619274798dd893712b88f239da76f0b47978f5f9cd3ea3cb",
+  "sha256": "sha256:a0485386778ae764de80c883acd2a192ed9ae053dc0e849eadd902a16978117d",
   "status": "accepted",
-  "summary": "The interactive terminal launcher TUI, its verbs, bare-invocation route, implementation, rendering modules, contracts, and portfolio scenario are retired; TUI-specific obligations are vacated. Surviving session preparation, continuity, terminal-placement, verification, and placement-read obligations retain their owners. Host tools own worktree lifecycle.",
+  "summary": "The interactive terminal launcher TUI, its verbs, bare-invocation route, implementation, rendering modules, contracts, and portfolio scenario are retired; TUI-specific obligations are vacated. Store-write-free session preparation, explicit work-context reads, host placement and identity proofs retain their owners. Host tools own worktree lifecycle; authenticated per-call Project resolution uses the host-reported directory, not an ownership lookup.",
   "tags": [
     "launcher",
     "retirement",

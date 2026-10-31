@@ -158,7 +158,6 @@
         {"pattern": "go run *cmd/concord*", "action": "deny"},
         {"pattern": "concord --help", "action": "allow"},
         {"pattern": "concord --version", "action": "allow"},
-        {"pattern": "concord continuity-block", "action": "allow"},
         {"pattern": "concord client show", "action": "allow"},
         {"pattern": "gh pr view *", "action": "allow"},
         {"pattern": "gh pr diff *", "action": "allow"},
@@ -226,7 +225,6 @@
         {"pattern": "go run *cmd/concord*", "action": "deny"},
         {"pattern": "concord --help", "action": "allow"},
         {"pattern": "concord --version", "action": "allow"},
-        {"pattern": "concord continuity-block", "action": "allow"},
         {"pattern": "concord client show", "action": "allow"},
         {"pattern": "gh run view *", "action": "allow"},
         {"pattern": "gh run list *", "action": "allow"}
@@ -288,7 +286,6 @@
         {"pattern": "go run *cmd/concord*", "action": "deny"},
         {"pattern": "concord --help", "action": "allow"},
         {"pattern": "concord --version", "action": "allow"},
-        {"pattern": "concord continuity-block", "action": "allow"},
         {"pattern": "concord client show", "action": "allow"},
         {"pattern": "gh pr view *", "action": "allow"},
         {"pattern": "gh pr diff *", "action": "allow"},

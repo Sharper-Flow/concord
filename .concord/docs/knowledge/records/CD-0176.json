@@ -20,12 +20,12 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4ab07c33a00d1160f27a6b04b3e723164d0260978aed5628e3c8b191f412e108",
+  "sha256": "sha256:97c2ccc021f9cd70d4dba1088854eebbc9ace90e2c7187820bfe42c9578525a3",
   "status": "accepted",
-  "summary": "Host tools place the session; its active work directory governs agent resolution, the calling-host registry probe, and context. Session preparation fails closed and neither creates a worktree nor records a landing. Continuity uses retained worktree metadata without a fallback directory or ownership writer.",
+  "summary": "Host tools place the session; its active work directory governs agent resolution, the calling-host registry probe, and context. Session preparation fails closed and neither creates a worktree nor records a landing. Explicit Concord reads select work context by work ID; the directory resolves Project authority without retained worktree metadata, a replacement locator registry, fallback directory or inferred work identity.",
   "tags": [
     "session-boot",
     "worktrees"
   ],
-  "title": "The claimed worktree is the managed session directory"
+  "title": "The active work directory governs managed session preparation"
 }

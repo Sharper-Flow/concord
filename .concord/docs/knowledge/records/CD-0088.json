@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-30T00:00:00Z",
   "evidence": [
@@ -21,9 +19,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e6ec5058ef5a0a7a84241c7daede4da405c46df8ba402720c5f8e8a13f7a35df",
+  "sha256": "sha256:09014ef9dbea37d00b647465c92e382757255b2d83362c770c444780eb0fade5",
   "status": "accepted",
-  "summary": "Host tools own worktree creation, placement, recovery, and removal; Concord does not own worktree lifecycle. Product-state cleanup needs no ownership proof, and host placement grants no Concord authority. Session preparation retains its verification duties. Concord self-hosting requires proven replacement readiness and a later accepted authority change.",
+  "summary": "Host tools own worktree lifecycle and checkout inspection. Concord provides no worktree inspection or locator service and retains no worktree metadata; mandatory verified snapshots precede table removal. Ordinary directory-resolved Project authority, session identity, no-write preparation, handoffs and artifacts remain. Product-state cleanup needs no ownership proof. Self-hosting still requires proven readiness and an accepted authority change.",
   "tags": [
     "agent-surface",
     "worktree",
@@ -31,5 +29,5 @@
     "idempotency",
     "development-process"
   ],
-  "title": "Host-owned work bootstrap preserves pre-readiness authority"
+  "title": "Host tools own worktree isolation; capability does not establish self-host readiness"
 }

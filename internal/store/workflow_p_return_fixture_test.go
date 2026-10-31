@@ -17,7 +17,7 @@ func pReturnReviewFixture(t *testing.T, id, family, disposition string) *candida
 	j := pReturnClaim(t, f, id)
 	pReturnProduce(t, j, "initial")
 	if disposition != "" {
-		acceptCurrentReviewForTest(t, j.fixture, j.repo, disposition)
+		acceptCurrentReviewForTest(t, j.fixture, disposition)
 	}
 	return j
 }
@@ -25,11 +25,6 @@ func pReturnReviewFixture(t *testing.T, id, family, disposition string) *candida
 func pReturnClaim(t *testing.T, f workflowReturnRouteFixture, id string) *candidateJourney {
 	t.Helper()
 	repo, _ := reviewSubjectClaim(t, f.store, id)
-	var branch string
-	if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(id)).Scan(&branch); err != nil {
-		t.Fatal(err)
-	}
-	gitRunStore(t, repo, "branch", "-m", branch)
 	wf := workContextFixture{store: f.store, workID: id, owner: f.owner, operator: f.operator}
 	return &candidateJourney{fixture: wf, s: f.store, workID: id, repo: repo}
 }

@@ -35,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0493555639f169abd45eeb7bf893a89c7f5908ff5bbbf49812d82f291a47e523",
+  "sha256": "sha256:0a18f0ea1e4a34fb40a804f81b68741129c0b6c9e032722e143b43659ee73d34",
   "status": "accepted",
   "summary": "The liveness, well-formed-exit, and conformance checks derive every condition workflowAdmit reads over the registered definitions. An advancing action with no active contract refuses at the contract step except approve_contract. Complete-step correction admits one or more active contracts so a duplicated projection recovers through the same shared gate. Active-contract confirmation records the authenticated coordinator, retaining investigation and verdict prerequisites.",
   "tags": [

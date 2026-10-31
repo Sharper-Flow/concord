@@ -7,9 +7,7 @@
     "workflow-engine"
   ],
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-05T00:00:00Z",
   "evidence": [
@@ -26,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a0cc0af67951f55c5ac77a221f110d32d30a1ba659b2adc8eb977c34131b12f6",
+  "sha256": "sha256:294266837b05e4a60940450c376c0b3cf4a72292de2d2c33268400ec5a72b350",
   "status": "accepted",
   "summary": "Defines unreadable-record isolation and durable evidence hardening.",
   "tags": [

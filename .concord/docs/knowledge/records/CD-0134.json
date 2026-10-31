@@ -6,9 +6,7 @@
     "agent-evolution"
   ],
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-12T00:00:00Z",
   "evidence": [
@@ -55,7 +53,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2d1e4df3d5f66378de34068f48550a7034b71b33b2426044d95125b957acba1c",
+  "sha256": "sha256:93ce621bede88369c94ab01fda177e598e4030a3cc0025c00f9196a066debdb8",
   "status": "accepted",
   "summary": "Splits the agent-surface Domain into five child boundaries earned by stable ownership and material authority or recovery distinctions, while preserving one generated callable surface and requiring a later registry and law-home migration.",
   "tags": [

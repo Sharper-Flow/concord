@@ -27,11 +27,17 @@ occupancy, native retirement, restoration debt, or Git deletion proof. Cleanup
 does not remove a host worktree or branch. Existing non-ownership eligibility,
 scope, version, evidence, handoff, and receipt requirements remain.
 
-Retained worktree metadata supports the existing native verification,
-inspection, session preparation, continuity, and Review reads. This decision
-does not drop tables or change live data. Native verification leases and
-read-only inspection retain CD-0096's obligations. Project handoff and other
-non-ownership rules are not retired by this clause.
+Concord provides no worktree inspection operation and retains no worktree
+claim, occupancy, entry, reclaim, or restore tables or metadata. Host shell and
+Git tools own checkout inspection as well as lifecycle. No replacement locator
+registry or compatibility bridge preserves the retired inspection service.
+
+A mandatory verified-snapshot upgrade removes the retired tables and rows only
+after their consumers are retired. It preserves active work, knowledge,
+research, Project membership and handoff records, and artifacts. Ordinary
+directory-resolved Project authority, session identity, no-write preparation,
+continuity for verified work context, and Review retain their non-worktree
+requirements. Repository-check execution and evidence follow CD-0242 D8.
 
 ### D3. Host placement grants no Concord authority
 
@@ -64,10 +70,12 @@ establish workflow readiness or remove current verification and review duties.
 
 ## Verification
 
-- Ownership tools and CLI entry routes are absent from their authored manifests.
+- Ownership and worktree inspection tools and CLI entry routes are absent from
+  their authored manifests.
 - Work removal and terminal cleanup retain non-ownership refusals while ignoring
   retained ownership rows.
-- Session preparation, native verification, inspection, continuity, and Review
-  keep their existing checks.
+- The verified-snapshot upgrade removes worktree metadata without dropping
+  active work, knowledge, research, Project handoffs, or artifacts.
+- Session preparation, continuity, and Review keep their non-worktree checks.
 - Knowledge, law coverage, documentation links, and generated projections agree
   with this boundary.

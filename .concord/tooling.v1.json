@@ -67,39 +67,6 @@
       "notes": "Every push uses the installed shared hook; CONTRIBUTING.md owns clone setup and failure recovery. This invocation diagnoses the same gates manually, not a full verify or an exhaustive test mapping; CI stays the verification owner. The pinned upstream release is v2.1.14."
     },
     {
-      "id": "adapter-continuity",
-      "purpose": "Exercise the adapter continuity corpus assertions.",
-      "invocation": "bun test adapter/opencode/continuity_hook.test.ts",
-      "tier": "standard",
-      "automation_path": ".github/workflows/ci.yml",
-      "coverage": [
-        {
-          "anchor": {"kind": "scenario", "value": "adapter-continuity-byte-stable-across-turns"},
-          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-byte-stable-across-turns"}
-        },
-        {
-          "anchor": {"kind": "scenario", "value": "adapter-continuity-state-change-replaces-block"},
-          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-state-change-replaces-block"}
-        },
-        {
-          "anchor": {"kind": "scenario", "value": "adapter-continuity-failure-is-absence"},
-          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-failure-is-absence"}
-        },
-        {
-          "anchor": {"kind": "scenario", "value": "adapter-continuity-ttl-gates-spawn"},
-          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-ttl-gates-spawn"}
-        },
-        {
-          "anchor": {"kind": "scenario", "value": "adapter-continuity-lane-leak-absent"},
-          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-lane-leak-absent"}
-        },
-        {
-          "anchor": {"kind": "scenario", "value": "adapter-continuity-post-boundary-re-pin"},
-          "owner": {"kind": "adapter_test", "value": "adapter/opencode/continuity_hook.test.ts#adapter-continuity-post-boundary-re-pin"}
-        }
-      ]
-    },
-    {
       "id": "repo-validators",
       "purpose": "Repository contract drift checks; check-json.py chains the validator suite.",
       "invocation": "python3 scripts/check-json.py",

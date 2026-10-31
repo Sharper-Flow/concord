@@ -72,14 +72,12 @@ func TestSessionRelocationBackfillPreservesRecordedFacts(t *testing.T) {
 	if got := histEventRows(t, s); !reflect.DeepEqual(got, before) {
 		t.Fatal("migration changed historical source bytes or coordinates")
 	}
+	queries := []string{`SELECT json_array(work_id,session_ref,project_id,source_directory,destination_directory,landed) FROM session_vacate_requests ORDER BY work_id,session_ref,project_id,source_directory`, `SELECT json_array(work_id,session_ref,project_id,claim_op_id) FROM session_claim_landings ORDER BY work_id,session_ref,project_id,claim_op_id`}
+	assertCorpusSelectionRed(t, c, 141, "SELECT max(o.seq)", "SELECT min(o.seq)", queries, workerFactsQueryRows(t, s, queries))
 	if err := Migrate(context.Background(), s.db); err != nil {
 		t.Fatal(err)
 	}
 	assertHistoricalReceipts(t, s.db, before)
 	assertEventLogAbsent(t, s)
-	if got := relocationFactRows(t, s); !reflect.DeepEqual(got, want) {
-		t.Fatalf("retained facts=%v, want %v", got, want)
-	}
-	queries := []string{`SELECT json_array(work_id,session_ref,project_id,source_directory,destination_directory,landed) FROM session_vacate_requests ORDER BY work_id,session_ref,project_id,source_directory`, `SELECT json_array(work_id,session_ref,project_id,claim_op_id) FROM session_claim_landings ORDER BY work_id,session_ref,project_id,claim_op_id`}
-	assertCorpusSelectionRed(t, c, 141, "SELECT max(o.seq)", "SELECT min(o.seq)", queries, workerFactsQueryRows(t, s, queries))
+	assertWorktreeTablesAbsent(t, s.db)
 }

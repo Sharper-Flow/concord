@@ -78,7 +78,7 @@ func TestReviewRouteGuidanceAcceptance(t *testing.T) {
 		name, detail, recovery string
 		change                 func(*ReviewBlock)
 	}{
-		{"replaced input", "corrective Review input is not the retained candidate", "record the exact retained input and qualified output", func(r *ReviewBlock) { r.InputCandidate.Commit = strings.Repeat("f", 40) }},
+		{"replaced input", "corrective Review input is not the retained candidate", "record the retained input and the reviewed output", func(r *ReviewBlock) { r.InputCandidate.Commit = strings.Repeat("f", 40) }},
 		{"changed criteria", "Review judged different criterion or architecture content", "review the current criterion and architecture digests", func(r *ReviewBlock) {
 			r.Dependencies.Criteria = []ReviewCriterion{{PredicateID: "predicate:changed", ContentDigest: nativeDigest([]byte("changed"))}}
 		}},
@@ -101,7 +101,7 @@ func TestReviewRouteGuidanceAcceptance(t *testing.T) {
 		t.Fatalf("candidate missing: %v", err)
 	}
 	failure := reviewRouteFailure(t, workflowReviewedCommandReceipt(t.Context(), j.s.db, j.workID, "predicate:missing", "receipt:command", state.Candidate.Commit, state.Candidate.ProjectID))
-	if failure.Kind != KindMissingEvidence || failure.Detail != "command receipt receipt:command has no current Review assessment of criterion predicate:missing" || failure.RecoveryAction != "record a Review assessing that criterion and captured receipt on the final candidate" {
+	if failure.Kind != KindMissingEvidence || failure.Detail != "report receipt:command has no current Review assessment of criterion predicate:missing" || failure.RecoveryAction != "record a Review assessing that criterion and report on the final candidate" {
 		t.Fatalf("criterion assessment guidance = %+v", failure)
 	}
 }

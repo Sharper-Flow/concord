@@ -310,6 +310,14 @@ commands, exits and gaps. It shares the reviewer's read access, explore/lookup-o
 delegation, host safety and no-bypass boundaries; the caller owns workflow state
 and delivery.
 
+The native `concord-research` helper investigates a framed question within the
+caller's scope and budget, using exploration and external lookup for bounded
+follow-up questions. It resolves law through `concord_knowledge`, edits no files
+and returns claim-level citations, uncertainty, gaps and caller decisions. The
+driving session records the conclusion. It shares the verifier's editing-tool
+denials and the other helpers' workflow, host safety and no-bypass boundaries;
+read-only diagnostics are allowed, but command-text restrictions are not a sandbox.
+
 Hosts that enable helper-to-utility delegation must set OpenCode's
 [`subagent_depth`](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/web/src/content/docs/config.mdx)
 to `2`. Its default `1` admits the helper but stops nested Tasks; the profile's

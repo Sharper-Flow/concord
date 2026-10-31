@@ -135,32 +135,25 @@ func StepTx(ctx context.Context, transaction *Transaction, opID string) (FenceRe
 // identity.
 func ClaimStepAuthorized(ctx context.Context, s *Store, req ClaimRequest, authorize func(*Transaction) error) (FenceResult, error) {
 	if authorize == nil {
-		return claimStepObservedAuthorized(ctx, s, req, true, nil, nil)
+		return claimStepAuthorizedWithRegistry(ctx, s, req, true, nil, nil)
 	}
-	return claimStepObservedAuthorized(ctx, s, req, true, nil, func(tx *sql.Tx) error {
+	return claimStepAuthorizedWithRegistry(ctx, s, req, true, func(tx *sql.Tx) error {
 		return authorize(&Transaction{tx: tx})
-	})
+	}, nil)
 }
 
-// claimStepObservedAuthorized keeps the builtin choice for existing callers;
-// the caller-selected registry rides the registry-carrying core.
-func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest, durable bool, observer *operationObserver, authorize func(*sql.Tx) error) (FenceResult, error) {
-	return claimStepObservedAuthorizedWithRegistry(ctx, s, req, durable, observer, authorize, nil)
-}
-
-// claimStepObservedAuthorizedWithRegistry is the claim core. The caller's
+// claimStepAuthorizedWithRegistry is the claim core. The caller's
 // definition registry is explicit authority carried to the claim preflight's
 // verifier, never a waiver of it. The public entry points commit durably; the
-// conformance harness passes durable=false because it measures the ordinary
-// commit path (CD-0050 D4).
-func claimStepObservedAuthorizedWithRegistry(ctx context.Context, s *Store, req ClaimRequest, durable bool, observer *operationObserver, authorize func(*sql.Tx) error, registry DefinitionRegistry) (_ FenceResult, retErr error) {
+// conformance harness also exercises ordinary commits with durable=false.
+func claimStepAuthorizedWithRegistry(ctx context.Context, s *Store, req ClaimRequest, durable bool, authorize func(*sql.Tx) error, registry DefinitionRegistry) (_ FenceResult, retErr error) {
 	if err := validateClaim(req); err != nil {
 		return FenceResult{}, err
 	}
 	if s == nil || s.db == nil {
 		return FenceResult{}, newFailure(KindUnavailable, "claim_step", "store is not open", false, "open a store before claiming a step")
 	}
-	tx, err := beginObservedTx(ctx, s, durable, observer)
+	tx, err := s.beginStoreWriteTx(ctx, durable)
 	if err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot begin claim", true, "retry once the database is writable", err)
 	}
@@ -182,7 +175,7 @@ func claimStepObservedAuthorizedWithRegistry(ctx context.Context, s *Store, req 
 		if err := touchIdempotency(ctx, tx.Tx, prior, req.ObservedAt); err != nil {
 			return FenceResult{}, err
 		}
-		if err := commitObservedTx(tx, observer); err != nil {
+		if err := tx.Commit(); err != nil {
 			return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot commit idempotent replay", true, "retry once the database is writable", err)
 		}
 		result.Replayed = true
@@ -215,7 +208,7 @@ func claimStepObservedAuthorizedWithRegistry(ctx context.Context, s *Store, req 
 	if _, err := tx.ExecContext(ctx, `UPDATE idempotency_records SET authorized_scope_snapshot=? WHERE principal_ref=? AND tool=? AND operation_kind='claim' AND idempotency_key=?`, req.AcceptedScopeSnapshot, req.PrincipalRef, req.Tool, req.IdempotencyKey); err != nil {
 		return FenceResult{}, err
 	}
-	if err := commitObservedTx(tx, observer); err != nil {
+	if err := tx.Commit(); err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot commit claim", true, "retry once the database is writable", err)
 	}
 	return FenceResult{OpID: req.OpID, AttemptEpoch: epoch}, nil
@@ -225,26 +218,20 @@ func claimStepObservedAuthorizedWithRegistry(ctx context.Context, s *Store, req 
 // completion commits durably (CD-0050 D3), together with every earlier commit
 // of the step.
 func CompleteStep(ctx context.Context, s *Store, req CompleteRequest) (FenceResult, error) {
-	return completeStep(ctx, s, req, true, nil)
-}
-
-// completeStep keeps the builtin choice for existing callers; the
-// caller-selected registry rides the registry-carrying core.
-func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bool, observer *operationObserver) (FenceResult, error) {
-	return completeStepWithRegistry(ctx, s, req, durable, observer, nil)
+	return completeStepWithRegistry(ctx, s, req, true, nil)
 }
 
 // completeStepWithRegistry is the completion core; the caller's definition
 // registry is explicit authority carried to the operation preflight's
 // verifier. Durable follows the claim core's rule.
-func completeStepWithRegistry(ctx context.Context, s *Store, req CompleteRequest, durable bool, observer *operationObserver, registry DefinitionRegistry) (_ FenceResult, retErr error) {
+func completeStepWithRegistry(ctx context.Context, s *Store, req CompleteRequest, durable bool, registry DefinitionRegistry) (_ FenceResult, retErr error) {
 	if err := validateComplete(req); err != nil {
 		return FenceResult{}, err
 	}
 	if s == nil || s.db == nil {
 		return FenceResult{}, newFailure(KindUnavailable, "complete_step", "store is not open", false, "open a store before completing a step")
 	}
-	tx, err := beginObservedTx(ctx, s, durable, observer)
+	tx, err := s.beginStoreWriteTx(ctx, durable)
 	if err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "complete_step", "cannot begin completion", true, "retry once the database is writable", err)
 	}
@@ -271,7 +258,7 @@ func completeStepWithRegistry(ctx context.Context, s *Store, req CompleteRequest
 		if err := touchIdempotency(ctx, tx.Tx, prior, req.ObservedAt); err != nil {
 			return FenceResult{}, err
 		}
-		if err := commitObservedTx(tx, observer); err != nil {
+		if err := tx.Commit(); err != nil {
 			return FenceResult{}, wrapFailure(KindUnavailable, "complete_step", "cannot commit idempotent replay", true, "retry once the database is writable", err)
 		}
 		result.Replayed = true
@@ -285,7 +272,7 @@ func completeStepWithRegistry(ctx context.Context, s *Store, req CompleteRequest
 		if err := insertIdempotency(ctx, tx.Tx, req.PrincipalRef, req.Tool, "complete", req.IdempotencyKey, digest, req.OpID, []string{staleMarker}, req.ObservedAt); err != nil {
 			return FenceResult{}, err
 		}
-		if err := commitObservedTx(tx, observer); err != nil {
+		if err := tx.Commit(); err != nil {
 			return FenceResult{}, wrapFailure(KindUnavailable, "complete_step", "cannot persist stale completion", true, "retry once the database is writable", err)
 		}
 		return FenceResult{}, staleAttempt(req.OpID, req.AttemptEpoch)
@@ -306,7 +293,7 @@ func completeStepWithRegistry(ctx context.Context, s *Store, req CompleteRequest
 	if err := insertIdempotency(ctx, tx.Tx, req.PrincipalRef, req.Tool, "complete", req.IdempotencyKey, digest, req.OpID, req.ResultEventIDs, req.ObservedAt); err != nil {
 		return FenceResult{}, err
 	}
-	if err := commitObservedTx(tx, observer); err != nil {
+	if err := tx.Commit(); err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "complete_step", "cannot commit completion", true, "retry once the database is writable", err)
 	}
 	return FenceResult{OpID: req.OpID, AttemptEpoch: req.AttemptEpoch, ResultKind: req.ResultKind, ResultPayload: req.ResultPayload,

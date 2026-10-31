@@ -634,17 +634,17 @@ func runWorkerScenario(ctx context.Context, s *Store, worker int, scenario strin
 		claim.PrincipalRef = fmt.Sprintf("agent-%d", worker)
 		claim.RequestID = fmt.Sprintf("fence-request-%d", worker)
 		var fence FenceResult
-		fence, err = claimStepObservedAuthorized(ctx, s, claim, false, nil, nil)
+		fence, err = claimStepAuthorizedWithRegistry(ctx, s, claim, false, nil, nil)
 		result.OperationIDs = []string{fence.OpID}
 	case "stale_completion":
 		req := completionRequest("conformance-stale", 1, fmt.Sprintf("stale-key-%d", worker), `{"stale":true}`)
 		var fence FenceResult
-		fence, err = completeStep(ctx, s, req, false, nil)
+		fence, err = completeStepWithRegistry(ctx, s, req, false, nil)
 		result.OperationIDs = []string{fence.OpID}
 	case "idempotent":
 		req := completionRequest("conformance-idempotent", 1, "same-result", `{"accepted":true}`)
 		var fence FenceResult
-		fence, err = completeStep(ctx, s, req, false, nil)
+		fence, err = completeStepWithRegistry(ctx, s, req, false, nil)
 		result.OperationIDs = []string{fence.OpID}
 		if fence.Replayed {
 			result.Outcome = outcomeDuplicate
@@ -652,7 +652,7 @@ func runWorkerScenario(ctx context.Context, s *Store, worker int, scenario strin
 	case "idempotency_conflict":
 		req := completionRequest("conformance-idempotency-conflict", 1, "same-conflict", fmt.Sprintf(`{"worker":%d}`, worker))
 		var fence FenceResult
-		fence, err = completeStep(ctx, s, req, false, nil)
+		fence, err = completeStepWithRegistry(ctx, s, req, false, nil)
 		result.OperationIDs = []string{fence.OpID}
 	case "step_read":
 		_, err = Step(ctx, s, "conformance-fence")
@@ -681,11 +681,11 @@ func runWorkerScenario(ctx context.Context, s *Store, worker int, scenario strin
 		result.EventIDs = applied.EventIDs
 	case "kill":
 		op := conformanceCreationOperation("kill-conformance", "kill-membership")
-		_, err = applyOperationObserved(ctx, s, op, func() error {
+		_, err = applyOperationWithResult(ctx, s, op, func() error {
 			_, _ = fmt.Fprintln(os.Stdout, "AT_COMMIT_GATE")
 			_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 			return nil
-		}, nil)
+		})
 	case "worktree_claim_reclaim":
 		if err := runWorktreeClaimReclaimScenario(ctx, s, worker); err != nil {
 			result.FailureKind = failureKind(err)
@@ -725,6 +725,10 @@ func runLoadScenario(ctx context.Context, s *Store, worker int, scenario string)
 		_, err := ApplyOperationWithResult(ctx, s, conformanceCreationOperation(id, id+"-membership"))
 		sample := WorkerSample{Outcome: classifyOutcome(failureKind(err), err, outcomeAccepted), FailureKind: failureKind(err)}
 		result.Samples = append(result.Samples, sample)
+		if scenario == "backup_load" {
+			// Spread the writes across the concurrent online backup interval.
+			time.Sleep(time.Millisecond)
+		}
 	}
 	return result
 }
@@ -792,7 +796,7 @@ func runDurableMixedScenario(ctx context.Context, s *Store, worker int) WorkerRe
 		}
 		switch iteration {
 		case 0:
-			fence, err := claimStepObservedAuthorized(ctx, s, claim, true, nil, nil)
+			fence, err := ClaimStepAuthorized(ctx, s, claim, nil)
 			if !appendMixedSample(&result, mixedSampleProfileDurable, err) {
 				return result
 			}
@@ -800,7 +804,7 @@ func runDurableMixedScenario(ctx context.Context, s *Store, worker int) WorkerRe
 				return invariant()
 			}
 		case durableMixedIterations - 1:
-			fence, err := completeStep(ctx, s, completion, true, nil)
+			fence, err := CompleteStep(ctx, s, completion)
 			if !appendMixedSample(&result, mixedSampleProfileDurable, err) {
 				return result
 			}

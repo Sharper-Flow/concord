@@ -49,7 +49,7 @@ func approvalRouteDefinition(t *testing.T) WorkflowDefinition {
 // assert it.
 func runCoordinatorActionTx(t *testing.T, s *Store, registry DefinitionRegistry, workID, actionID string, actor WorkflowActor, payload string) error {
 	t.Helper()
-	ctx, err := s.prepareWorkflowActionRegistryProof(context.Background(), actionID, workID)
+	ctx, err := s.PrepareWorkflowActionProof(context.Background(), actionID, workID)
 	if err != nil {
 		return err
 	}

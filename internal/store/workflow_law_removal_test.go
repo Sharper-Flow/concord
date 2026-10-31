@@ -143,7 +143,7 @@ func TestLawRemovalClassifiedCurrentSuccessor(t *testing.T) {
 		v := readWorkVersion(t, s, id)
 		// The owning boundary prepares the confirmation's proof before its
 		// transaction opens; this raw event builder needs the same proof.
-		ctx, err := s.prepareWorkflowActionRegistryProof(t.Context(), "confirm_premise", id)
+		ctx, err := s.PrepareWorkflowActionProof(t.Context(), "confirm_premise", id)
 		if err != nil {
 			return err
 		}

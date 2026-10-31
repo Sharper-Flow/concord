@@ -21,7 +21,7 @@ func issue31WorkflowAction(t *testing.T, s *Store, workID string, version int64,
 func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, version int64, actionID, operationID string, actor WorkflowActor, payload json.RawMessage) int64 {
 	t.Helper()
 	payload = testApprovalPayload(t, s, workID, actionID, payload)
-	ctx, err := s.prepareWorkflowActionRegistryProof(context.Background(), actionID, workID)
+	ctx, err := s.PrepareWorkflowActionProof(context.Background(), actionID, workID)
 	if err != nil {
 		t.Fatal(err)
 	}

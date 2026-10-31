@@ -89,7 +89,7 @@ func (f acceptanceRecoveryFixture) actors() (WorkflowActor, WorkflowActor) {
 func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label string, version int64, payload json.RawMessage, evidenceRefs []string) error {
 	// The owning boundary prepares the knowledge-source proof before its
 	// transaction opens; this raw action transaction does the same.
-	ctx, err := f.store.prepareWorkflowActionRegistryProof(ctx, actionID, f.workID)
+	ctx, err := f.store.PrepareWorkflowActionProof(ctx, actionID, f.workID)
 	if err != nil {
 		return err
 	}

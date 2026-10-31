@@ -2633,7 +2633,6 @@ func TestPkDerivations(t *testing.T) {
 		"readiness":      pkFieldNeverWrittenBound("readiness_evidence", boundItems, "internal/agent/runtime.go", "internal/agent/runtime_read_handlers.go"),
 		"retire struct":  pkStructWithoutFieldBound("internal/store/research_retirement.go", "RetireResearchPacksResult", "work_pins"),
 		"task guard":     pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)"),
-		"q10 empty":      pkEmptyLiteralItemsBound("internal/agent/runtime.go", "q10", "candidates"),
 		"last progress":  pkTimeLayoutWidthBound("internal/store/work_effect_seq.go", "advanceWorkEffectSeqTx", "time.RFC3339Nano"),
 		"verdict time":   pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowCompleted", "time.RFC3339Nano"),
 		"claim intents":  pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),

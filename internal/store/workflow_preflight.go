@@ -128,7 +128,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
-	ctx, err := s.prepareWorkflowActionRegistryProof(ctx, request.ActionID, request.WorkID)
+	ctx, err := s.PrepareWorkflowActionProof(ctx, request.ActionID, request.WorkID)
 	if err != nil {
 		return err
 	}
@@ -144,21 +144,24 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	return err
 }
 
-// prepareWorkflowActionRegistryProof establishes, before the preflight's read
-// snapshot or the owning transaction opens, the knowledge-source proof the
-// action reads inside it: record_work_context validates declared Domains,
-// and every other action follows the work's own demand (PrepareWorkLawProof).
-// Git runs only here, outside the pool (CD-0195 D2). The preflight and the
-// owning boundary share this one preparation, so the preflight never refuses
-// for a missing proof the owning action would hold. An unreachable or invalid
-// law home refuses: a law or registry boundary has no degraded form.
-func (s *Store) prepareWorkflowActionRegistryProof(ctx context.Context, actionID, workID string) (context.Context, error) {
-	// A caller that already verified the sources before the boundary passes
-	// that proof on; the transaction revalidates it against the live heads.
+// PrepareWorkflowActionProof establishes, before any transaction for the
+// action opens, the knowledge-source proof the action reads inside it.
+// Approval, supersession, and completion verify the law and Domains the
+// contract binds, including a proposed contract that is not active yet;
+// record_work_context and confirm_premise validate Domain refs against the
+// committed registry; every other action follows the work's own demand
+// (PrepareWorkLawProof). Git runs only here, outside the pool (CD-0195 D2).
+// The agent boundary, the preflight, and the owning transaction share this one
+// rule, so none refuses for a missing proof another would hold. An
+// unreachable or invalid law home refuses: a law or registry boundary has no
+// degraded form. A context that already carries a proof passes through; the
+// transaction revalidates it against the live heads.
+func (s *Store) PrepareWorkflowActionProof(ctx context.Context, actionID, workID string) (context.Context, error) {
 	if knowledgeSourceSetProofFrom(ctx) != nil {
 		return ctx, nil
 	}
-	if actionID == "record_work_context" || actionID == "confirm_premise" {
+	switch actionID {
+	case "approve_contract", "supersede_contract", "complete", "record_work_context", "confirm_premise":
 		return s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	}
 	return s.PrepareWorkLawProof(ctx, workID)
@@ -192,7 +195,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
-	ctx, err := s.prepareWorkflowActionRegistryProof(ctx, request.ActionID, request.WorkID)
+	ctx, err := s.PrepareWorkflowActionProof(ctx, request.ActionID, request.WorkID)
 	if err != nil {
 		return err
 	}

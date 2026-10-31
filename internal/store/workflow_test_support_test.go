@@ -35,7 +35,12 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	if len(request.WorkID) < 2 || len(request.WorkID) > 128 {
 		return out, newFailure(KindInvalidOperation, "workflow_read", "work ID is out of bounds", false, "supply one bounded work ID")
 	}
-	var err error
+	// The production read prepares the work's law proof before its read
+	// snapshot opens (PrepareWorkLawProof); this helper does the same.
+	ctx, err := s.PrepareWorkLawProof(ctx, request.WorkID)
+	if err != nil {
+		return out, err
+	}
 	err = s.readSnapshot(ctx, func(q queryer) error {
 		out, err = readWorkflowProjectionTx(ctx, q, request)
 		return err

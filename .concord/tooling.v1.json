@@ -70,7 +70,7 @@
       "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
       "config_path": "lefthook.yml",
       "automation_path": ".github/workflows/ci.yml",
-      "notes": "Every push uses the installed shared hook; CONTRIBUTING.md owns clone setup and failure recovery. This invocation diagnoses the same gates manually, not a full verify or an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14."
+      "notes": "Every push uses the installed shared hook; CONTRIBUTING.md owns clone setup and failure recovery. This invocation diagnoses the same gates manually, not a full verify or an exhaustive test mapping; CI stays the verification owner. The pinned upstream release is v2.1.14."
     },
     {
       "id": "adapter-continuity",

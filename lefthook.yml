@@ -4,18 +4,11 @@
 # before it reaches CI. CI remains the verification owner; the full Go test
 # suite, the adapter suite, the race detector, and acceptance stay CI-only.
 #
-# Every gate command is identical to the CI step that owns the same command
-# in .github/workflows/ci.yml. scripts/check-pre-push.py fails when a gate,
-# command, environment, or pin drifts from CI, so the two sides cannot
-# silently diverge.
-#
 # Routing: a command whose glob matches none of the pushed files is skipped,
 # so a documentation-only or Python-only push skips the Go gates. Lefthook's
 # default matcher compiles patterns without a path separator, so a single
 # `*` also crosses directory boundaries, and matching is case-insensitive
-# against the repository-relative path. The required routes are executable
-# conformance fixtures in scripts/test-pre-push.py, which runs the real
-# pinned release over this file's glob lists.
+# against the repository-relative path.
 #
 # `no_auto_install: true` keeps `lefthook run pre-push` (what
 # `bin/oc-test preflight` executes) from touching the installed hooks.

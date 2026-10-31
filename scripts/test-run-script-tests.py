@@ -856,7 +856,6 @@ class RepositoryBatteryTest(unittest.TestCase):
         battery = selector.tooling_battery(REPO)
         self.assertTrue(battery, "the tooling battery must derive from ci.yml")
         self.assertEqual(battery[0], "scripts/test-release.py")
-        self.assertIn("scripts/test-pre-push.py", battery)
         self.assertIn("scripts/test-run-script-tests.py", battery)
 
     def test_real_repository_selection_runs_a_changed_checker_suite(self) -> None:

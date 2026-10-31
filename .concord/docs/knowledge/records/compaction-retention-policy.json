@@ -45,7 +45,7 @@
   "home_domain_id": "product-memory",
   "id": "compaction-retention-policy",
   "kind": "spec",
-  "path": ".concord/docs/compaction-retention-policy.md",
+  "path": ".concord/law/specs/compaction-retention-policy.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -53,7 +53,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:775c2b036798a40a34c1a525d766db362efefb90fe9f9448d8460fdc00775089",
+  "sha256": "sha256:ea82acd8743110836e181069d0bd30b41d593d5eabaacbfe0148308e95f4e4dc",
   "status": "accepted",
   "summary": "Gates terminal execution cleanup on verified closure, settled publication and released consumers; keeps research retirement separate and historical indexes Git-derived.",
   "tags": [

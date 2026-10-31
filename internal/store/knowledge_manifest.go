@@ -26,6 +26,8 @@ const (
 	// prefix its layout tier carries. Authoring is always the current tier.
 	manifestRecordPathPrefix             = ".concord/docs/"
 	preMigrationManifestRecordPathPrefix = "docs/"
+	// The current shard layout admits law and nonlaw bodies in separate trees.
+	transitionalLawRecordPathPrefix = ".concord/law/"
 	// CD-0194 D2: an operator override is the only route that admits a
 	// Product knowledge location outside the layout tier's prefix. The
 	// bounded array and closed path shape mirror $defs.operatorOverrides in
@@ -1141,7 +1143,7 @@ func validateKnowledgeRecordIdentity(record KnowledgeRecord, supported, indexed 
 		return err
 	}
 	if record.Kind == "decision" && !canonicalDecisionPath(record.Path) {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "decision record is outside the canonical CD decision path", false, "use "+pathPrefix+"decisions/CD-NNNN markdown")
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "decision record is outside the canonical CD decision path", false, "use "+pathPrefix+"decisions/CD-NNNN or "+transitionalLawRecordPathPrefix+"decisions/CD-NNNN markdown")
 	}
 	if record.Status != "accepted" && record.Status != "published" {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record status is not closed", false, "use accepted or published")
@@ -1194,7 +1196,21 @@ func canonicalDecisionPath(value string) bool {
 }
 
 func validateManifestPath(value string) error {
+	if tree := admittedRecordPathTree(value, manifestRecordPathPrefix); tree != "" {
+		return validateManifestPathForPrefix(value, tree)
+	}
 	return validateManifestPathForPrefix(value, manifestRecordPathPrefix)
+}
+
+// admittedRecordPathTree returns the admitted default tree the value sits
+// below, or "" when it sits below none.
+func admittedRecordPathTree(value, pathPrefix string) string {
+	for _, prefix := range manifestRecordPathPrefixes(pathPrefix) {
+		if strings.HasPrefix(value, prefix) {
+			return prefix
+		}
+	}
+	return ""
 }
 
 // operatorOverridePathRE mirrors OPERATOR_OVERRIDE_PATH_RE in
@@ -1274,16 +1290,24 @@ func validateOperatorOverride(override KnowledgeOperatorOverride, productKey str
 	return nil
 }
 
-// validateRecordPathForTier validates one record path under the prefix its
-// layout tier carries (CD-0194 D5). A path below the tier prefix follows the
-// authored tier rules. A path outside the prefix is a Product knowledge
-// location outside the default tree: CD-0194 D2 admits it only through an
-// explicit operator override, and never for a path inside .concord/, which no
-// override can name. covered is nil on self-authored validation routes, which
-// never leave the tier prefix.
+// Only the current layout admits the separate law tree.
+func manifestRecordPathPrefixes(pathPrefix string) []string {
+	if pathPrefix == manifestRecordPathPrefix {
+		return []string{pathPrefix, transitionalLawRecordPathPrefix}
+	}
+	return []string{pathPrefix}
+}
+
+// validateRecordPathForTier validates one record path under the prefixes its
+// layout tier admits (CD-0194 D5). A path below an admitted tree
+// follows the authored tier rules. A path outside them is a Product
+// knowledge location outside the default trees: CD-0194 D2 admits it only
+// through an explicit operator override, and never for a path inside
+// .concord/, which no override can name. covered is nil on self-authored
+// validation routes, which never leave the tier prefixes.
 func validateRecordPathForTier(value, pathPrefix string, covered func(string) bool) error {
-	if strings.HasPrefix(value, pathPrefix) {
-		return validateManifestPathForPrefix(value, pathPrefix)
+	if tree := admittedRecordPathTree(value, pathPrefix); tree != "" {
+		return validateManifestPathForPrefix(value, tree)
 	}
 	if covered != nil && !strings.HasPrefix(value, ".concord/") && covered(value) {
 		return validateExternalRecordPath(value, pathPrefix)
@@ -1346,11 +1370,12 @@ func validateManifestPathForPrefix(value, pathPrefix string) error {
 // manifestIneligiblePrefixes and manifestIneligibleSubstring decompose the
 // negative lookahead of $defs.record.path in
 // contracts/concord-knowledge-index.v1.schema.json, which is the sole
-// declaration of which authored docs paths may carry a manifest record. RE2
-// has no lookahead, so the schema pattern cannot be compiled here;
-// TestKnowledgeManifestIneligiblePathsMatchSchema binds this decomposition
-// back to the schema alternation instead of trusting the restatement.
-var manifestIneligiblePrefixes = ineligiblePrefixesForPrefix(manifestRecordPathPrefix)
+// declaration of which authored docs and law tree paths may carry a manifest
+// record. RE2 has no lookahead, so the schema pattern cannot be compiled
+// here; TestKnowledgeManifestIneligiblePathsMatchSchema binds this
+// decomposition back to the schema alternation instead of trusting the
+// restatement. The prefixes cover every admitted tree, each tree-relative.
+var manifestIneligiblePrefixes = ineligiblePrefixesForTrees(manifestRecordPathPrefix)
 
 // The comparison is ASCII case-insensitive, which the schema alternation
 // spells as a per-letter character class so both forms accept the same set.
@@ -1360,14 +1385,24 @@ func ineligiblePrefixesForPrefix(pathPrefix string) []string {
 	return []string{pathPrefix + "work/", pathPrefix + "research/"}
 }
 
-// manifestPathIneligible reports why a well-formed docs markdown path may not
-// carry a manifest record, or false when the path is eligible.
+// ineligiblePrefixesForTrees collects the ineligible prefixes of every
+// default tree a manifest at pathPrefix admits.
+func ineligiblePrefixesForTrees(pathPrefix string) []string {
+	out := []string{}
+	for _, tree := range manifestRecordPathPrefixes(pathPrefix) {
+		out = append(out, ineligiblePrefixesForPrefix(tree)...)
+	}
+	return out
+}
+
+// manifestPathIneligible reports why a well-formed docs or law tree markdown
+// path may not carry a manifest record, or false when the path is eligible.
 func manifestPathIneligible(value string) (string, bool) {
 	return manifestPathIneligibleFor(value, manifestRecordPathPrefix)
 }
 
 func manifestPathIneligibleFor(value, pathPrefix string) (string, bool) {
-	for _, prefix := range ineligiblePrefixesForPrefix(pathPrefix) {
+	for _, prefix := range ineligiblePrefixesForTrees(pathPrefix) {
 		if strings.HasPrefix(value, prefix) {
 			return "path is under " + prefix, true
 		}
@@ -1385,7 +1420,7 @@ func manifestIneligibleHint() string {
 }
 
 func manifestIneligibleHintFor(pathPrefix string) string {
-	return "a record path may not start with " + strings.Join(ineligiblePrefixesForPrefix(pathPrefix), " or ") +
+	return "a record path may not start with " + strings.Join(ineligiblePrefixesForTrees(pathPrefix), " or ") +
 		", or contain " + strconv.Quote(manifestIneligibleSubstring)
 }
 
@@ -1542,13 +1577,8 @@ func readAggregateKnowledgeManifestRunner(ctx context.Context, runner GitRunner,
 	return manifest, false, nil
 }
 
-// aggregateRecordPathPrefix resolves the record path prefix an aggregate
-// manifest validates under. The aggregate shape predates the shard homes and
-// carries no layout marker, so the prefix follows the document: every record
-// under .concord/docs/ is a current-placement corpus, anything else is the
-// aggregate-era docs/ placement. A corpus mixing the two refuses under the
-// docs/ prefix it falls back to, which is the outcome a mixed corpus has
-// coming.
+// aggregateRecordPathPrefix uses body paths because aggregates carry no
+// layout marker. A mixed current/legacy corpus must fail legacy admission.
 func aggregateRecordPathPrefix(data []byte) string {
 	var probe struct {
 		Records []struct {
@@ -1559,7 +1589,7 @@ func aggregateRecordPathPrefix(data []byte) string {
 		return preMigrationManifestRecordPathPrefix
 	}
 	for _, record := range probe.Records {
-		if !strings.HasPrefix(record.Path, manifestRecordPathPrefix) {
+		if admittedRecordPathTree(record.Path, manifestRecordPathPrefix) == "" {
 			return preMigrationManifestRecordPathPrefix
 		}
 	}

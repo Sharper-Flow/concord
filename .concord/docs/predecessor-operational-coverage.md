@@ -1,23 +1,23 @@
 # Predecessor operational coverage
 
 > **Status:** Authorizing for floor condition 6 coverage assessment. Companion to
-> [`priorities.md`](./priorities.md) (canonical floor definition) and
+> [`../law/constitution/priorities.md`](../law/constitution/priorities.md) (canonical floor definition) and
 > [`floor-readiness.md`](./floor-readiness.md) (first-usable floor conditions).
 > **Issue:** [#78](https://github.com/Sharper-Flow/concord/issues/78).
-> **Review authority ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5):** review records the
+> **Review authority ([CD-0242](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5):** review records the
 > verdict and Implement cannot accept its own result; no separate final evaluator
 > or other executing-actor distinctness exists.
 > **Predecessor:** the public [Advance](https://github.com/Sharper-Flow/Advance)
 > repository. Citations below name public predecessor documents, never private
 > history or local state.
 
-[`priorities.md`](./priorities.md) §First-usable floor condition 6 supports a
+[`../law/constitution/priorities.md`](../law/constitution/priorities.md) §First-usable floor condition 6 supports a
 replacement-readiness claim by checking that Concord covers predecessor surfaces
 "without losing operational coverage." It does not authorize migration. That
 coverage is unassessable without a list of what it *is*. This document is that
 list, and the coverage judgement against it.
 
-[CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+[CD-0243 D7](../law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, evidence, and historical-pin
 requirements remain required.
@@ -28,7 +28,7 @@ An enumeration of **operational territory** — what an operator or an agent mus
 able to accomplish — paired with a coverage state for each entry.
 
 It is deliberately not organized by predecessor command shape.
-[`priorities.md`](./priorities.md) §Relationship to Advance rejects command-for-command
+[`../law/constitution/priorities.md`](../law/constitution/priorities.md) §Relationship to Advance rejects command-for-command
 cloning, and CD-0006 fixes Concord's own workflow model. An enumeration organized
 around predecessor commands would smuggle that shape back in through the gate that
 exists to keep it out.
@@ -53,7 +53,7 @@ surface is **not covered** — unreachable code produces no outcome.
 Turning intent into durable, reviewable commitment before implementation.
 
 Planning facts live in Linear through the Linear MCP server under
-[CD-0213](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).
+[CD-0213](../law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).
 The covered paths below concern Concord's managed execution records and contracts,
 not a local planning backlog or remote issue writer.
 
@@ -97,22 +97,22 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 |---|---|---|
 | Drive a unit of implementation work through a staged lifecycle with required evidence at each stage | Covered | `implementation` workflow definition, `internal/store/workflow_registry.go` |
 | Bind completion to recorded proof rather than assertion | Covered | `bind_evidence`, `RequiredEvidenceKinds`, `internal/store/workflow_completion.go` |
-| Require an evaluator distinct from the author on high-risk work | Covered | [CD-0242 D5-D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) requires independent native Task Review. The coordinator owns obtaining it; Concord records subject-bound outcomes without mechanically attesting a distinct subagent producer. |
+| Require an evaluator distinct from the author on high-risk work | Covered | [CD-0242 D5-D6](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) requires independent native Task Review. The coordinator owns obtaining it; Concord records subject-bound outcomes without mechanically attesting a distinct subagent producer. |
 | Reject a delivered end-state weaker than the approved one | Covered | CD-0012; completion clause 4 in `internal/store/workflow_completion.go` refuses a criterion with no passing proof, which a weaker or incomparable delivery cannot obtain (CD-0235 D2; WF04, WF50) |
 | Absorb a mid-execution discovery without discarding completed work or silently substituting scope | Covered | `link_successor` forward composition, `internal/store/workflow_dispatch.go` |
 | Resume interrupted work without losing workflow position or repeating external effects | Covered | Attempt epochs, claim/checkpoint/complete fencing in `internal/store/fence.go` |
 | Survive a working-window boundary without dropping law, approvals, or position | Covered | CD-0016; `checkpoint_context` and `cross_context_boundary` in `internal/store/workflow_continuity.go` |
 | Restart cleanly into a typed agent after a boundary rather than summarizing | Excluded | CD-0027: pinned continuity is re-derived per call (CD-0016), so a post-boundary session receives exact pinned state rather than a summary; restart would only preserve in-flight working memory, which the host owns. |
 | Cancel work safely, with recorded evidence | Covered | Terminal lifecycle transitions require evidence, `internal/agent/mutations.go`; operator decisions follow CD-0243 D2 in conversation. |
-| Delegate bounded subagent work | Excluded | Native Task belongs to the host under [CD-0242 D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host). Concord records subject-bound stage outcomes, not subagent execution or model identity. |
+| Delegate bounded subagent work | Excluded | Native Task belongs to the host under [CD-0242 D6](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host). Concord records subject-bound stage outcomes, not subagent execution or model identity. |
 | Measure lane prompt behaviour with an evaluation harness | Excluded | Concord keeps no lane registry or live-model prompt-evaluation harness under CD-0242 D6. Native Task behavior belongs to the host, not a Concord packet, report or dispatch contract. |
 | Isolate each unit of work in its own git worktree | Covered | `internal/store/worktrees.go` owns worktree creation as one durable cross-authority operation (atomic claim, probe-before-create, verify, append verified locator, reconcile on interruption) and reclamation from git facts; a second active worktree for the same set is refused. Reachable as `concord_work_transition.worktree_claim` / `.worktree_reclaim`, with the locator inputs (branch, base SHA, path) derived by the `concord worktree-locate` read verb — the named owner of the locator policy (issue #316) — so a caller reaches the claim with authority-derived intent instead of per-session conventions; `cmd/concord/worktree_locate_test.go` proves the located intent is accepted on the first attempt. Refusing mutating grants bound to the main checkout stands beside it in `internal/agent/authority.go`. |
 | Refuse raw file writes (edit, write, delete) to the trunk checkout through host tooling | Excluded | CD-0072: the predecessor enforced this half in an editor-host hook that intercepted write, edit, and destructive shell calls before execution, and no Concord surface can hold that control — `capability-placement.md` §1 does not list an interception point inside another tool's write path among Concord's surfaces, and a host script cannot intercept a call another tool makes. The operator accepted losing the enforcement on 2026-08-21 rather than shipping an editor plugin. Grant-level main-checkout refusal, the one-active-worktree-per-Project refusal, and git-fact reclamation remain in force and are not equivalent to the predecessor's combined guarantee. |
 | Sub-divide a change into an ordered task graph with per-task evidence policy | Excluded | CD-0013 makes the workflow step the unit of execution authority, with evidence obligations declared per workflow definition. A second sub-unit with its own evidence model would duplicate that authority. |
 | Run quality scanners over a change — code smell, architectural inconsistency, competitive comparison, optimization survey | Excluded | [`capability-placement.md`](./capability-placement.md) §3: analysis tooling is an external native authority. Tracked analysis uses a retained workflow family and records the external run's scope, report, and evidence (`workflows.md` §5); Concord does not implement scanners. |
-| Obtain independent review before acceptance | Covered | [CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) requires independent native Task Review. The coordinator records its exact-subject outcome without Concord attesting producer identity. Native receipts and required CI retain their own authority. |
+| Obtain independent review before acceptance | Covered | [CD-0242 D5](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) requires independent native Task Review. The coordinator records its exact-subject outcome without Concord attesting producer identity. Native receipts and required CI retain their own authority. |
 | Track a small, well-understood durable change without the full spec-driven lifecycle | Not covered | `internal/store/workflow_small_route_outcomes_test.go` proves mandatory completion outcomes on the shared route but starts at execution, not entry. `internal/store/workflow_composition.go` retains the shared required stages. CD-0242 D4 assigns mandatory stages by change type and risk; this evidence does not establish the entry-to-completion lightweight journey. |
-| Obtain a review verdict on rendered visual or frontend output | Covered | `record_review` carries the exact-subject independent Review outcome under CD-0242 D5; native receipts and `record_verdict` retain verification authority. The host owns surface inspection and tool-specific procedure under [CD-0043](./decisions/CD-0043-host-owned-lane-methodology.md); portable methods ship as skills under CD-0246 without dispatch provenance. |
+| Obtain a review verdict on rendered visual or frontend output | Covered | `record_review` carries the exact-subject independent Review outcome under CD-0242 D5; native receipts and `record_verdict` retain verification authority. The host owns surface inspection and tool-specific procedure under [CD-0043](../law/decisions/CD-0043-host-owned-lane-methodology.md); portable methods ship as skills under CD-0246 without dispatch provenance. |
 
 ## 4. Research and investigation
 
@@ -134,9 +134,9 @@ Executing operational procedures with approval, conditions, and rollback.
 
 | Outcome | State | Evidence or reason |
 |---|---|---|
-| Execute an operational procedure with an approval step, checkpoints, and a cleanup obligation | Excluded | Accepted [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 retires ops choreography from new execution and adds no provider executor. D4 preserves archived definitions for historical reads, not new capture or dispatch. |
-| Roll back a partially executed operation | Excluded | Accepted [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 removes ops choreography without adding a rollback claim or authority for external effects. The archived `rollback_run` action is not a live rollback route. |
-| Record the health of an operational run | Excluded | Accepted [CD-0218](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 removes ops choreography without adding a health observer. D4 preserves archived `record_health` history, not a live health-recording route. |
+| Execute an operational procedure with an approval step, checkpoints, and a cleanup obligation | Excluded | Accepted [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 retires ops choreography from new execution and adds no provider executor. D4 preserves archived definitions for historical reads, not new capture or dispatch. |
+| Roll back a partially executed operation | Excluded | Accepted [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 removes ops choreography without adding a rollback claim or authority for external effects. The archived `rollback_run` action is not a live rollback route. |
+| Record the health of an operational run | Excluded | Accepted [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) D1 removes ops choreography without adding a health observer. D4 preserves archived `record_health` history, not a live health-recording route. |
 | Throttle local test execution, wait on remote CI, keep worktrees fresh, bootstrap a project | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places these as host scripts. They are cross-tool executables that outlive any coordination system, and Concord observes their results rather than owning them. |
 | Install, sync, pin, and roll back the coordination runtime itself | Excluded | Owned by the release and installer path (`scripts/release.py`, `scripts/install.py`), which CI validates. Not coordination territory. |
 | Diagnose a failing local environment interactively | Excluded | [`capability-placement.md`](./capability-placement.md) §6 places host diagnosis with host scripts and on-demand methodology. Concord observes the results a local environment produces; it does not own diagnosing one. |
@@ -152,10 +152,10 @@ Knowledge that outlives the change that produced it.
 | Search durable knowledge by kind, tag, and text | Covered | Q9, `internal/store/knowledge_query.go` |
 | Filter durable knowledge search by a time window | Excluded | CD-0020 D2 excludes a time-window filter from Q9. Law lookup has no time job, and each Q9 result still carries its record date. |
 | Resolve the canonical note for a completed unit of work | Covered | Q10, `internal/store/knowledge_query.go` |
-| Keep specifications as binding law with typed relations between them | Covered | CD-0015; `.concord/docs/decisions/CD-0015-typed-law-relations.md` |
+| Keep specifications as binding law with typed relations between them | Covered | CD-0015; `.concord/law/decisions/CD-0015-typed-law-relations.md` |
 | Bind a law change to the work that justified it, so law and history move together | Covered | `law_modifies` amendment path, `internal/store/workflow_completion.go` |
 | Preserve the provenance link between a unit of work and its external tracking record | Covered | CD-0213's record-only `concord_work_define.issue_link_record` stores the reported key, UUID, and URL without remote confirmation (`internal/store/linear_issue_link.go`, `internal/agent/issue_link_record_test.go`). |
-| Capture a per-change learning and promote the durable ones to project scope | Covered | A lesson per change is authored as a file with an explicit scope and published through a reviewed pull request; explicit scopes reach project/Product through the existing scope-filtered reads (CD-0026 D1/D2; `.concord/docs/decisions/CD-0026-learning-capture.md`). |
+| Capture a per-change learning and promote the durable ones to project scope | Covered | A lesson per change is authored as a file with an explicit scope and published through a reviewed pull request; explicit scopes reach project/Product through the existing scope-filtered reads (CD-0026 D1/D2; `.concord/law/decisions/CD-0026-learning-capture.md`). |
 | Preserve provenance when an item is promoted into an initiative | Excluded | CD-0213 places grouping and membership changes in Linear through the Linear MCP server. Concord retains the work unit's recorded issue identity, not an Initiative promotion operation or membership history projection. |
 | Audit instruction and guidance prose against executable anchors | Covered | CD-0026 D4: manifest records name implementation evidence and `scripts/check-knowledge-index.py` fails in CI when a named path rots, so guidance cannot silently outlive the code it describes. |
 
@@ -166,12 +166,12 @@ Territory that appears across all six and is an outcome in its own right.
 | Outcome | State | Evidence or reason |
 |---|---|---|
 | Many concurrent agents mutate shared state on one machine with bounded writer admission and no escaped busy failure | Covered | Ten-process conformance harness, `internal/store/conformance_test.go`; invariant stated by CD-0045 |
-| Reconstruct any subject at any point in its history | Excluded | [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history): the store keeps current rows and finite verified snapshots, not history; no point-in-time reconstruction, retained log, or fold exists. |
-| Rebuild every projection from the event log without loss | Excluded | [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history): the store keeps current rows and finite verified snapshots, not an event log, so no rebuild-from-log capability exists; the Git-derived knowledge index rebuilds from Git (CD-0242 D1). |
+| Reconstruct any subject at any point in its history | Excluded | [CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history): the store keeps current rows and finite verified snapshots, not history; no point-in-time reconstruction, retained log, or fold exists. |
+| Rebuild every projection from the event log without loss | Excluded | [CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history): the store keeps current rows and finite verified snapshots, not an event log, so no rebuild-from-log capability exists; the Git-derived knowledge index rebuilds from Git (CD-0242 D1). |
 | Constrain what an agent may do, scoped to a Product or Project | Covered | Per-call authorization and scope validation, `internal/agent/authority.go` |
 | Refuse a mutation whose scope version is stale, while allowing a refreshed read | Covered | `internal/agent/context_freshness_test.go` asserts the split directly: a stale read returns the refreshed scope version with a `context_refreshed` notice and records no domain event, while a stale mutation fails `stale_context` before any effect. |
 | Triage accumulated coordination residue — stale work, drifted worktrees, orphaned state | Covered | Worktree drift reclaims from git facts (`internal/store/worktrees.go`); stale plans are detected by staleness rules and revised through `supersede_contract` (`internal/store/workflow_event_constructors.go`). Concord has no separate residue sweep because residue is resolved where it is produced. |
-| Deliver agent behavioural methodology — rule rationale, structured preference elicitation | Excluded | [`capability-placement.md`](./capability-placement.md) §4 and [CD-0043](./decisions/CD-0043-host-owned-lane-methodology.md): host-specific procedure stays host-owned; portable methods ship as skills under CD-0246, not durable coordination state. |
+| Deliver agent behavioural methodology — rule rationale, structured preference elicitation | Excluded | [`capability-placement.md`](./capability-placement.md) §4 and [CD-0043](../law/decisions/CD-0043-host-owned-lane-methodology.md): host-specific procedure stays host-owned; portable methods ship as skills under CD-0246, not durable coordination state. |
 
 ---
 
@@ -217,6 +217,6 @@ replaced with a real per-surface stability assessment before any condition-6 cla
 
 It does not authorize migration, set a readiness date, or sequence the not-covered
 work. [`floor-readiness.md`](./floor-readiness.md) records state; issues plan work;
-[`priorities.md`](./priorities.md) defines the floor. A condition-6 claim requires
+[`../law/constitution/priorities.md`](../law/constitution/priorities.md) defines the floor. A condition-6 claim requires
 every entry above to be covered or excluded with an accepted reason, judged against
 `priorities.md` rather than against this file.

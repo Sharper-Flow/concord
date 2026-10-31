@@ -14,7 +14,7 @@
   "home_domain_id": "product-memory",
   "id": "CD-0076",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0076-current-knowledge-manifest-has-no-legacy-migration.md",
+  "path": ".concord/law/decisions/CD-0076-current-knowledge-manifest-has-no-legacy-migration.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

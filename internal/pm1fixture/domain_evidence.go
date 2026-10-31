@@ -30,7 +30,7 @@ const (
 	// DomainEvidenceLawID is the accepted decision homed to the root Domain.
 	DomainEvidenceLawID = "CD-0041"
 	// DomainEvidenceLawPath is the accepted decision's committed path.
-	DomainEvidenceLawPath = ".concord/docs/decisions/CD-0041.md"
+	DomainEvidenceLawPath = ".concord/law/decisions/CD-0041.md"
 	// DomainEvidenceLawTitle is its manifest title.
 	DomainEvidenceLawTitle = "Domain authority"
 	// DomainEvidenceLawBody is the committed blob behind DomainEvidenceLawPath.

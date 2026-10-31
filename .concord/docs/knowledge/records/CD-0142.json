@@ -28,7 +28,7 @@
       "target_id": "CD-0217"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0142-operator-directed-execution-removal.md",
+  "path": ".concord/law/decisions/CD-0142-operator-directed-execution-removal.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

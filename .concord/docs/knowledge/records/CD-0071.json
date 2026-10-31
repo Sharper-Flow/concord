@@ -9,13 +9,13 @@
     "internal/store/schema.go",
     "internal/store/agent_authority_test.go",
     "internal/agent/authority.go",
-    ".concord/docs/agent-call-context-contract.md",
+    ".concord/law/specs/agent-call-context-contract.md",
     ".concord/docs/reachability-exceptions.v1.json"
   ],
   "home_domain_id": "agent-call-boundary",
   "id": "CD-0071",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0071-authority-boundary-is-model-output.md",
+  "path": ".concord/law/decisions/CD-0071-authority-boundary-is-model-output.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:be7e1df999ece60f32476cca1194e7f69a82fcc29f0222f27d04b66f98f370bf",
+  "sha256": "sha256:72776e87d49c296ea72521cdba1e779c119cc04dd0939a4e3657ef801183f151",
   "status": "accepted",
   "summary": "The authority system constrains model output, not hostile same-UID processes. Authority tables need no tamper-evidence against that excluded adversary. Git-derived scope, cross_scope capability, manifest-digest pinning, typed refusals and principal_ref remain load-bearing. A process boundary would require a separate UID and a UID-checked socket, which CD-0003 and CD-0042 foreclose. Client revocation and key rotation remain reachable; per-grant revocation is not required.",
   "tags": [

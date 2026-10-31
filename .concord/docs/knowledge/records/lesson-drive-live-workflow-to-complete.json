@@ -7,7 +7,7 @@
     "internal/store/workpin.go",
     "internal/store/lifecycle.go",
     "internal/store/workflow_completion.go",
-    ".concord/docs/decisions/CD-0183-workflow-actions-start-the-lifecycle-and-the-completion-closes-it.md"
+    ".concord/law/decisions/CD-0183-workflow-actions-start-the-lifecycle-and-the-completion-closes-it.md"
   ],
   "id": "lesson-drive-live-workflow-to-complete",
   "kind": "lesson",

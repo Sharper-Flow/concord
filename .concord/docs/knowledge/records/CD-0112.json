@@ -14,7 +14,7 @@
   "home_domain_id": "workflow-engine",
   "id": "CD-0112",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0112-record-delivery-exits-the-step-a-session-executed.md",
+  "path": ".concord/law/decisions/CD-0112-record-delivery-exits-the-step-a-session-executed.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

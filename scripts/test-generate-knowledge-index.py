@@ -260,6 +260,26 @@ def test_external_decision_requires_the_canonical_cd_filename() -> None:
     assert findings == ["records/shard.json: decision is outside the canonical CD decision path"], findings
 
 
+def test_law_tree_record_path_composes() -> None:
+    """A shard record under .concord/law/
+    passes the composer's path rule, which stays closed to overrides there."""
+    shard = decision_shard("CD-0002")
+    shard["path"] = ".concord/law/decisions/CD-0002-law.md"
+    findings: list[str] = []
+    generator.validate_record(shard, "1.2", {"product-root:concord"}, "records/shard.json", findings)
+    assert findings == [], findings
+
+
+def test_law_tree_decision_requires_the_canonical_cd_filename() -> None:
+    """The canonical decision rule covers the law tree exactly as the docs
+    tree: a law-tree decision with a non-canonical name refuses."""
+    decision = decision_shard("CD-0002")
+    decision["path"] = ".concord/law/decisions/odd-name.md"
+    findings: list[str] = []
+    generator.validate_record(decision, "1.2", {"product-root:concord"}, "records/shard.json", findings)
+    assert findings == ["records/shard.json: decision is outside the canonical CD decision path"], findings
+
+
 if __name__ == "__main__":
     failures = 0
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_") and callable(value)]

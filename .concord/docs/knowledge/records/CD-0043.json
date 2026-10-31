@@ -13,7 +13,7 @@
   "home_domain_id": "agent-adapter",
   "id": "CD-0043",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0043-host-owned-lane-methodology.md",
+  "path": ".concord/law/decisions/CD-0043-host-owned-lane-methodology.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bf10d3cd3f0ac5930b308835cea41a34d05aa8bb86a3c6d2f9e50c311da804e9",
+  "sha256": "sha256:7cb50fcf243515da4cec3645b88971a89060a3c8d6c8d5f6718f78ca03d4e80a",
   "status": "accepted",
   "summary": "Host-specific procedure stays host-owned and is not durable coordination state. Portable methods and skills operating Concord-defined structure ship through the existing skill path. Coverage deferrals name the host; neither a loaded method nor a report establishes Product truth or verification evidence.",
   "tags": [

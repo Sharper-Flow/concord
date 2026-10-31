@@ -157,7 +157,7 @@ skills; [PostHog's top-level `services/`](https://github.com/PostHog/posthog/tre
 
 | Doc | Link |
 |---|---|
-| [`priorities.md`](./priorities.md) Purpose, operating envelope, and first-usable floor | Positioning reinforced here. |
+| [`../law/constitution/priorities.md`](../law/constitution/priorities.md) Purpose, operating envelope, and first-usable floor | Positioning reinforced here. |
 | `capability-placement.md` | PostHog's extension tiers inform the plugin contract (C10). |
 | `clarifications.md` C5 | Multi-client: confirmed no concrete second client in market today. |
 

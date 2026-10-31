@@ -14,7 +14,7 @@
   "home_domain_id": "agent-adapter",
   "id": "CD-0084",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0084-tool-results-are-host-tool-results.md",
+  "path": ".concord/law/decisions/CD-0084-tool-results-are-host-tool-results.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

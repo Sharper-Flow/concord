@@ -4,7 +4,7 @@
   },
   "date": "2026-08-07T00:00:00Z",
   "evidence": [
-    ".concord/docs/priorities.md"
+    ".concord/law/constitution/priorities.md"
   ],
   "id": "capability-placement",
   "kind": "reference",
@@ -16,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:55ac42ba88aa21fc86f5cd1dd0f45208c8178a183929aeac275c2e32a9e93354",
+  "sha256": "sha256:0aa0da2df9160b37300c2a3e6f6a6daaa72d57b6dff863f9944fd7de13a7f945",
   "status": "published",
   "summary": "Draft v2 rubric for placing a capability by its shape. Advisory, and its header names companions rather than claiming acceptance.",
   "tags": [

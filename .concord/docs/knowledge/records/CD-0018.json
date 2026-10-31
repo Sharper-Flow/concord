@@ -15,7 +15,7 @@
   "home_domain_id": "work-coordination",
   "id": "CD-0018",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0018-declared-urgency-and-provenance.md",
+  "path": ".concord/law/decisions/CD-0018-declared-urgency-and-provenance.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

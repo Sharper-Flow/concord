@@ -27,7 +27,7 @@
   "home_domain_id": "durable-authority",
   "id": "PM2",
   "kind": "spec",
-  "path": ".concord/docs/product-memory-authority-scope.md",
+  "path": ".concord/law/specs/product-memory-authority-scope.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -35,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:892c15a2b36482e7d3d5ac6ccc5efc6fbcc6fb266d9d4880217ab397f2655008",
+  "sha256": "sha256:e2452bc38a717987b784ec79b1f00fda19ac1f89008ea44d13d6adab2a0b69e6",
   "status": "accepted",
   "summary": "Defines one global local SQLite authority per installation under the XDG data home.",
   "tags": [

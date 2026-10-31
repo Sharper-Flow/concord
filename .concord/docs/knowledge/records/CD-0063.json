@@ -10,7 +10,7 @@
   "home_domain_id": "agent-adapter",
   "id": "CD-0063",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0063-shipped-operator-conduct-rules.md",
+  "path": ".concord/law/decisions/CD-0063-shipped-operator-conduct-rules.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fbb050dfe1c44538fe9ece047cec563ca442bdeb9e54926ee84989355cd3f56c",
+  "sha256": "sha256:da0f5fdbff0d277b648ffc60576552c0e0effcb289237ae4061fa0ff2e3fe8db",
   "status": "accepted",
   "summary": "Concord installs its agent definitions, skills, and an authored tool-agnostic conduct corpus once under the versioned data root, and a consuming project holds a pointer rather than a copy. The always-on instruction surface is registered per project so non-Concord projects receive nothing, while agents live in the central OpenCode agents directory because no per-project pointer exists and an agent is inert until invoked. Installer ownership covers manifest-listed files and Concord registrations, never user agent configuration, instruction files, or unmanaged agents. Machine agent overrides live in the host's home-level ~/.opencode/opencode.json[c], loaded after generated markdown and project settings; native instruction lists compose extra user instruction. CD-0245 and CD-0246 admit skills that operate Concord-defined structure or carry portable engineering methods through the existing release and install route. Host-specific procedure stays host-owned under CD-0043, and portable methods stay out of the always-on corpus. The host loads conduct; Concord records no dispatch provenance manifest and does not attest which conduct a native Task subagent loaded.",
   "tags": [

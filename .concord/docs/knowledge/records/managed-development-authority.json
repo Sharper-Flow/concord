@@ -80,7 +80,7 @@
       "target_id": "CD-0241"
     }
   ],
-  "path": ".concord/docs/managed-development-authority.md",
+  "path": ".concord/law/specs/managed-development-authority.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -88,7 +88,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4d66232d08e5483a1e2bc268c342a22f076826700cfb0f4ce3396110574c1722",
+  "sha256": "sha256:5f6f79fbbb412d4cd989e3d6e7506225ddf9ff9519512c8f0ffe6d3e1e0fc7c1",
   "status": "accepted",
   "summary": "Assigns planning to Linear through the Linear MCP server, keeps managed workflow, review, merge, isolation, and law authority in their existing owners, and preserves the outside-work and defect-repair boundaries.",
   "tags": [

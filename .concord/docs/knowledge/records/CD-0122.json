@@ -6,7 +6,7 @@
   },
   "date": "2026-09-09T00:00:00Z",
   "evidence": [
-    ".concord/docs/managed-development-authority.md",
+    ".concord/law/specs/managed-development-authority.md",
     "AGENTS.md",
     "scripts/check-agents-md.py",
     "scripts/check-doc-links.py",
@@ -22,7 +22,7 @@
       "target_id": "CD-0089"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md",
+  "path": ".concord/law/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md",
   "product_wide_rationale": "Concord workflow participation is explicit across the Product. Outside project work and authorized defect repair must preserve repository evidence without changing host-owned roles.",
   "scopes": {
     "domain_ids": [],

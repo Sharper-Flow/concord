@@ -20,7 +20,7 @@
       "target_id": "CD-0018"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0184-acceptance-is-decidable-at-delivery.md",
+  "path": ".concord/law/decisions/CD-0184-acceptance-is-decidable-at-delivery.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

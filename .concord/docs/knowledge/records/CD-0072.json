@@ -13,7 +13,7 @@
   "home_domain_id": "repository-verification",
   "id": "CD-0072",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0072-unguarded-trunk-file-writes.md",
+  "path": ".concord/law/decisions/CD-0072-unguarded-trunk-file-writes.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1d99ece06c441be27a8f036326f22067e2a9e251da854599a849b16757da3e32",
+  "sha256": "sha256:6218fe7bee4e9aa5291f78ffc3e2f4c21d1be770bec84762d6a30489368ad646",
   "status": "accepted",
   "summary": "Ordinary trunk file writes remain deliberately unguarded by Concord. Host tooling owns file-write permissions; Concord provides no subagent capability interceptor or filesystem sandbox. Main-checkout mutation refusal, worktree ownership and Git-fact reclamation retain their existing authority.",
   "tags": [

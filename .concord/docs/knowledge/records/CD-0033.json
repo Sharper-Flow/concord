@@ -11,7 +11,7 @@
   "home_domain_id": "workflow-engine",
   "id": "CD-0033",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0033-out-of-band-direction.md",
+  "path": ".concord/law/decisions/CD-0033-out-of-band-direction.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

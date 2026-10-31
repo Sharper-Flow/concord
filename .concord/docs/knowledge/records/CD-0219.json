@@ -36,7 +36,7 @@
       "target_id": "C17"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0219-the-terminal-launcher-tui-is-retired.md",
+  "path": ".concord/law/decisions/CD-0219-the-terminal-launcher-tui-is-retired.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

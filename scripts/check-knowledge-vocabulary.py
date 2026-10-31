@@ -109,14 +109,15 @@ def compare_pattern(subject: str, declared: str | None, enforced: str, findings:
 # has no lookahead. It decomposes the alternation into prefix and substring
 # rules instead, and internal/store/knowledge_vocabulary_test.go binds that
 # decomposition by reading the alternation back out of this same pattern. That
-# reader only works while the pattern keeps this shape, so a restructure must
-# fail here rather than silently leave the Go side matching nothing.
-RECORD_PATH_SHAPE = re.compile(r"^\^.concord/docs/\(\?!(?P<alternation>.+)\)\.\*\\\.md\$$")
+# reader only works while the pattern keeps this shape — both admitted tree
+# roots followed by the lookahead — so a restructure must fail here rather
+# than silently leave the Go side matching nothing.
+RECORD_PATH_SHAPE = re.compile(r"^\^\(\?:.concord/docs/\|.concord/law/\)\(\?!(?P<alternation>.+)\)\.\*\\\.md\$$")
 
 # The clause discriminator both default-tree readers share: the if-clause
-# selects every default-tree markdown path, and the then-clause carries the
-# authored path rule.
-DEFAULT_TREE_CLAUSE_CONDITION = r"^\.concord/docs/.*\.md$"
+# selects every default-tree markdown path in either admitted tree
+# and the then-clause carries the authored path rule.
+DEFAULT_TREE_CLAUSE_CONDITION = r"^(?:\.concord/docs/|\.concord/law/).*\.md$"
 
 
 def schema_default_path_pattern(schema: object, findings: list[str]) -> str | None:
@@ -151,9 +152,9 @@ def schema_external_path_pattern(schema: object, findings: list[str]) -> str | N
     """Read the external path pattern from $defs.record.allOf (CD-0194 D2).
 
     The clause is an implication: a path that is not a default-tree markdown
-    path must carry the closed external shape. The reader finds the clause
-    structurally, so a restructure fails loudly instead of leaving the
-    external rule unbound.
+    path in either admitted tree must carry the closed external
+    shape. The reader finds the clause structurally, so a restructure fails
+    loudly instead of leaving the external rule unbound.
     """
     clauses = walk(schema, ["$defs", "record", "allOf"], findings)
     if not isinstance(clauses, list):
@@ -167,7 +168,7 @@ def schema_external_path_pattern(schema: object, findings: list[str]) -> str | N
         then = clause.get("then") or {}
         then_paths = (then.get("properties") or {}).get("path") or {}
         pattern = then_paths.get("pattern")
-        if negated.get("pattern") == r"^\.concord/docs/.*\.md$" and isinstance(pattern, str) and pattern:
+        if negated.get("pattern") == DEFAULT_TREE_CLAUSE_CONDITION and isinstance(pattern, str) and pattern:
             return pattern
     findings.append("schema: $defs.record.allOf declares no external record path clause")
     return None
@@ -181,7 +182,7 @@ def check_record_path_decomposable(schema: object, findings: list[str]) -> None:
     if shape is None:
         findings.append(
             "record path ineligibility: schema pattern is no longer the "
-            "'^.concord/docs/(?!<alternation>).*\\.md$' shape the Go binding decomposes: "
+            "'^(?:.concord/docs/|.concord/law/)(?!<alternation>).*\\.md$' shape the Go binding decomposes: "
             f"{pattern!r}"
         )
         return

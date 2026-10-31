@@ -397,6 +397,83 @@ def test_class_exclusions_survive_the_repeal() -> None:
         assert any("forbidden or unsafe path" in finding for finding in findings), (path, findings)
 
 
+def law_tree_value(path: str) -> dict:
+    """A v1.2 lesson manifest whose one record lives at the law-tree path."""
+    return fixture(path=path)
+
+
+def test_law_tree_record_paths_are_admitted() -> None:
+    """A record under .concord/law/ is a
+    default-tree record, held to the same authored rules as .concord/docs/."""
+    for path in (".concord/law/lesson.md", ".concord/law/generation-policy.md"):
+        with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+            root = Path(directory)
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("law\n", encoding="utf-8")
+            with mock.patch.object(checker, "ROOT", root):
+                findings = checker.validate(law_tree_value(path), check_hashes=False)
+            assert not any("forbidden or unsafe path" in finding for finding in findings), (path, findings)
+
+
+def test_law_tree_class_exclusions_hold() -> None:
+    """The law tree carries its own work and research exclusions and the
+    generic generated-substring exclusion."""
+    for path in (
+        ".concord/law/work/scratch.md",
+        ".concord/law/research/R1-probe.md",
+        ".concord/law/generated-agent-contracts.md",
+        ".concord/law/Generated.md",
+    ):
+        findings = checker.validate(law_tree_value(path), check_hashes=False)
+        assert any("forbidden or unsafe path" in finding for finding in findings), (path, findings)
+
+
+def law_tree_decision_value(path: str) -> dict:
+    value = law_tree_value(path)
+    value["supported_kinds"] = ["decision"]
+    value["indexed_kinds"] = ["decision"]
+    record = value["records"][0]
+    record.update(id="CD-0099", kind="decision", status="accepted", path=path)
+    record["home_domain_id"] = "product-root:concord"
+    record["product_wide_rationale"] = "The law tree is Product-wide placement law."
+    return value
+
+
+def test_law_tree_decision_follows_the_canonical_cd_rule() -> None:
+    """A decision under .concord/law/decisions/ keeps the canonical CD path;
+    the canonical rule applies to the law tree exactly as to the docs tree."""
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        canonical = root / ".concord/law/decisions/CD-0099.md"
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        canonical.write_text("decision\n", encoding="utf-8")
+        with mock.patch.object(checker, "ROOT", root):
+            assert checker.validate(law_tree_decision_value(".concord/law/decisions/CD-0099.md"), check_hashes=False) == []
+            odd = root / ".concord/law/decisions/odd-name.md"
+            odd.write_text("odd\n", encoding="utf-8")
+            findings = checker.validate(law_tree_decision_value(".concord/law/decisions/odd-name.md"), check_hashes=False)
+        assert any("decision is outside the canonical CD decision path" in finding for finding in findings), findings
+
+
+def test_law_tree_decisions_map_exactly_once() -> None:
+    """Decision discovery scans both trees: a law-tree decision file must map
+    exactly once, and the same CD id in both trees is a duplicate refusal."""
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        law_decision = root / ".concord/law/decisions/CD-0099-law.md"
+        law_decision.parent.mkdir(parents=True, exist_ok=True)
+        law_decision.write_text("law\n", encoding="utf-8")
+        value = law_tree_decision_value(".concord/law/decisions/CD-0099-law.md")
+        with mock.patch.object(checker, "ROOT", root):
+            assert checker.validate(value, check_hashes=False) == [], "a sole law-tree decision must map cleanly"
+            docs_decisions = root / ".concord/docs/decisions"
+            docs_decisions.mkdir(parents=True)
+            (docs_decisions / "CD-0099-docs.md").write_text("docs\n", encoding="utf-8")
+            findings = checker.validate(value, check_hashes=False)
+        assert any("multiple canonical files" in finding for finding in findings), findings
+
+
 def test_eligible_paths_are_not_swept_up_by_the_substring_rule() -> None:
     """`generated` is a substring rule; near misses must stay eligible."""
     for path in (".concord/docs/workflows.md", ".concord/docs/generation-policy.md", ".concord/docs/researcher-guide.md"):

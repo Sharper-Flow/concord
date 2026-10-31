@@ -78,6 +78,31 @@ class RenumberTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def seed_law(self, identifier: str, slug: str, with_shard: bool = True) -> None:
+        """Seed a decision document in the law decisions tree."""
+        document = self.root / f".concord/law/decisions/{identifier}-{slug}.md"
+        document.parent.mkdir(parents=True, exist_ok=True)
+        document.write_text(
+            f"# {identifier}: {slug}\n\nThis decision is {identifier}.\n", encoding="utf-8"
+        )
+        if with_shard:
+            record = self.root / f".concord/docs/knowledge/records/{identifier}.json"
+            record.parent.mkdir(parents=True, exist_ok=True)
+            record.write_text(
+                json.dumps(
+                    {
+                        "id": identifier,
+                        "kind": "decision",
+                        "path": f".concord/law/decisions/{identifier}-{slug}.md",
+                        "sha256": "sha256:" + "0" * 64,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
     def write(self, relative: str, text: str) -> None:
         path = self.root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -110,6 +135,49 @@ class RenumberTests(unittest.TestCase):
         )
         self.assertFalse((self.root / ".concord/docs/knowledge/records/CD-0061.json").exists())
         self.assertTrue((self.root / ".concord/docs/knowledge/records/CD-0062.json").exists())
+
+    def test_moves_a_document_that_lives_in_the_law_tree(self) -> None:
+        """The canonical decisions home includes the law tree; a
+        law-tree document moves inside it and its shard path follows."""
+        self.seed_law("CD-0071", "law-tree-seed")
+        self.commit()
+
+        self.assertEqual(self.move(old="CD-0071", new="CD-0072"), [])
+
+        self.assertFalse(
+            (self.root / ".concord/law/decisions/CD-0071-law-tree-seed.md").exists()
+        )
+        self.assertTrue(
+            (self.root / ".concord/law/decisions/CD-0072-law-tree-seed.md").exists()
+        )
+        record = json.loads(
+            (self.root / ".concord/docs/knowledge/records/CD-0072.json").read_text()
+        )
+        self.assertEqual(record["path"], ".concord/law/decisions/CD-0072-law-tree-seed.md")
+
+    def test_refuses_when_the_target_exists_in_the_other_tree(self) -> None:
+        """A target number occupied in either decisions tree is taken. The
+        occupant's body carries no literal id, so only tree occupancy can
+        produce the refusal."""
+        occupant = self.root / ".concord/law/decisions/CD-0062-law-tree-occupant.md"
+        occupant.parent.mkdir(parents=True, exist_ok=True)
+        occupant.write_text("# Another decision\n\nUnrelated prose.\n", encoding="utf-8")
+        self.commit()
+
+        findings = self.move()
+
+        self.assertTrue(any("already has a decision document" in finding for finding in findings), findings)
+
+    def test_refuses_a_source_duplicated_across_trees(self) -> None:
+        """One CD id in both decisions trees is ambiguous and refuses, the
+        same as two files in one tree."""
+        self.seed_law("CD-0061", "root-home-states-its-claim")
+        self.commit()
+
+        findings = self.move()
+
+        self.assertTrue(any("matches more than one decision document" in finding for finding in findings), findings)
+        self.assertTrue((self.root / ".concord/docs/knowledge/records/CD-0061.json").exists())
 
     def test_record_id_and_path_follow_the_move(self) -> None:
         self.assertEqual(self.move(), [])

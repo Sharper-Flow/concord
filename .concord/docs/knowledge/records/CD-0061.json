@@ -7,13 +7,13 @@
     "internal/store/schema.go",
     "internal/store/workflow_continuity.go",
     "cmd/concord/session.go",
-    ".concord/docs/decisions/CD-0027-typed-restart-excluded.md",
-    ".concord/docs/decisions/CD-0049-agent-delivery-and-identity-assertion.md"
+    ".concord/law/decisions/CD-0027-typed-restart-excluded.md",
+    ".concord/law/decisions/CD-0049-agent-delivery-and-identity-assertion.md"
   ],
   "home_domain_id": "operator-surface",
   "id": "CD-0061",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0061-orchestrator-identity-recording.md",
+  "path": ".concord/law/decisions/CD-0061-orchestrator-identity-recording.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

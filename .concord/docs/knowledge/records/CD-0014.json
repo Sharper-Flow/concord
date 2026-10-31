@@ -8,7 +8,7 @@
   "home_domain_id": "operator-surface",
   "id": "CD-0014",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0014-terminal-launcher-rendering.md",
+  "path": ".concord/law/decisions/CD-0014-terminal-launcher-rendering.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -16,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6426795af4f9a445399111f6be4aa91536cd23f3d9242b158b03af8166c12e89",
+  "sha256": "sha256:78907b48d310902a59e9a69e6ccc1e4c74376be6ca80a6910ae47755567dc4ef",
   "status": "accepted",
   "summary": "Chose Bubble Tea v2 behind an isolated adapter for the terminal launcher and fixed Product-only launcher query scope; the rendering stack retires with the launcher TUI under CD-0219.",
   "tags": [

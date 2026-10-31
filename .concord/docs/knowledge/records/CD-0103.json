@@ -8,7 +8,7 @@
   "home_domain_id": "agent-adapter",
   "id": "CD-0103",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0103-the-move-route-offers-no-turn-boundary.md",
+  "path": ".concord/law/decisions/CD-0103-the-move-route-offers-no-turn-boundary.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

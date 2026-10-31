@@ -4,7 +4,7 @@
   },
   "date": "2026-08-24T00:00:00Z",
   "evidence": [
-    ".concord/docs/priorities.md"
+    ".concord/law/constitution/priorities.md"
   ],
   "id": "predecessor-operational-coverage",
   "kind": "reference",
@@ -16,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c4366d2ec60c44f2baa2030910fbf5a9d511cde520fb0a299bdb4ceb4628fe72",
+  "sha256": "sha256:9c1791de91a01f95135e9bfbaf07526e503f3b43bdc9d8686ad7584c27de6989",
   "status": "published",
   "summary": "Per-territory assessment of Concord's operational coverage against the predecessor.",
   "tags": [

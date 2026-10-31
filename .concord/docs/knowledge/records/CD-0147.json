@@ -6,9 +6,9 @@
   },
   "date": "2026-09-14T00:00:00Z",
   "evidence": [
-    ".concord/docs/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md",
-    ".concord/docs/decisions/CD-0144-record-reality-reconciliation.md",
-    ".concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
+    ".concord/law/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md",
+    ".concord/law/decisions/CD-0144-record-reality-reconciliation.md",
+    ".concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
     "scripts/check-knowledge-index.py"
   ],
   "home_domain_id": "product-root:concord",
@@ -20,7 +20,7 @@
       "target_id": "CD-0122"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0147-self-repair-route-for-workflow-blocking-defects.md",
+  "path": ".concord/law/decisions/CD-0147-self-repair-route-for-workflow-blocking-defects.md",
   "product_wide_rationale": "A code-first repair route must govern every Concord Domain without adding capability or weakening typed refusals, and its record must carry the full reconciliation that makes the repair legitimate.",
   "scopes": {
     "domain_ids": [],

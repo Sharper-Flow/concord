@@ -9,8 +9,8 @@
   },
   "date": "2026-09-20T00:00:00Z",
   "evidence": [
-    ".concord/docs/decisions/CD-0006-concord-root-product-policy.md",
-    ".concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
+    ".concord/law/decisions/CD-0006-concord-root-product-policy.md",
+    ".concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
     ".concord/docs/specs-as-laws.md",
     "internal/store/workflow_registry.go"
   ],
@@ -27,7 +27,7 @@
       "target_id": "CD-0222"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0159-authority-tier-for-product-law.md",
+  "path": ".concord/law/decisions/CD-0159-authority-tier-for-product-law.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

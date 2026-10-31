@@ -6,13 +6,13 @@
   },
   "date": "2026-08-20T00:00:00Z",
   "evidence": [
-    ".concord/docs/decisions/CD-0011-retain-sqlite-after-conformance.md",
+    ".concord/law/decisions/CD-0011-retain-sqlite-after-conformance.md",
     ".concord/docs/core-architecture.md"
   ],
   "home_domain_id": "durable-authority",
   "id": "CD-0045",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0045-writer-admission-invariant.md",
+  "path": ".concord/law/decisions/CD-0045-writer-admission-invariant.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -20,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7b930ee662fb1e9465ade9d3f513131271bcc3783c21e63b710b9f42884bb0b4",
+  "sha256": "sha256:a3bec4782ac90c89599745dd38fe8015c565e14f6cd24456a62352fac042976e",
   "status": "accepted",
   "summary": "The Priority 2 concurrency invariant states bounded writer admission rather than zero contention; writer-admission wait, commit duration, and escaped busy failure are distinct measured quantities, correctness precedes latency, population identity is part of the bound, and CD-0011 retains sole ownership of the reopen conditions.",
   "tags": [

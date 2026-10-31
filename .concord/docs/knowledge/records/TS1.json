@@ -33,7 +33,7 @@
   "home_domain_id": "agent-contract",
   "id": "TS1",
   "kind": "spec",
-  "path": ".concord/docs/agent-tool-surface-jobs.md",
+  "path": ".concord/law/specs/agent-tool-surface-jobs.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -41,7 +41,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0d126ab0d3526464b259862007391cc0b4100ded48565cb2bd230072f085957d",
+  "sha256": "sha256:ce2494dcef9654309a2464aaaf4f3a4ae2f9695e49b0e2c1dbbd0834f6f4dd0e",
   "status": "accepted",
   "summary": "Defines the canonical agent jobs AJ1-AJ8 and the scenario acceptance corpus that measures them.",
   "tags": [

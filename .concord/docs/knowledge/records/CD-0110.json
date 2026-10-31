@@ -13,7 +13,7 @@
   "home_domain_id": "agent-adapter",
   "id": "CD-0110",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0110-work-start-chains-from-a-terminal-worktree.md",
+  "path": ".concord/law/decisions/CD-0110-work-start-chains-from-a-terminal-worktree.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

@@ -6,7 +6,7 @@
   "home_domain_id": "product-root:concord",
   "id": "CD-0091",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0091-maturity-promotion-ladder.md",
+  "path": ".concord/law/decisions/CD-0091-maturity-promotion-ladder.md",
   "product_wide_rationale": "Defines the evidence bar that promotes a Product's maturity and audience commitment. It governs how this Product is matured, not how it behaves, so no runtime Domain owns it.",
   "scopes": {
     "domain_ids": [],

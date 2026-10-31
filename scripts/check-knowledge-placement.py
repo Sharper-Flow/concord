@@ -8,7 +8,7 @@ Product law: all repository-authored Product knowledge lives under
 operator override recorded in the manifest head — never an inferred
 exception.
 
-This validator owns four propositions:
+This validator owns five propositions:
 
 1. Default placement. Every declared knowledge root and every record path
    lives under `.concord/`, or is covered by an operator override.
@@ -31,6 +31,10 @@ This validator owns four propositions:
 4. Absence of the retired root trees. The root `docs/`, `instructions/`, and
    `scenarios/` paths must not exist — as directories, files, or symlinks —
    and the three `.concord/` homes must be real directories, not symlinks.
+5. A real law home when declared. A manifest that places knowledge in the
+   law tree, `.concord/law/`, asserts the home is in use, so the
+   tree must exist as a real directory; a manifest that names no law
+   placement asserts nothing about it.
 """
 from __future__ import annotations
 
@@ -44,6 +48,7 @@ import knowledge_index  # noqa: E402
 
 DEFAULT_TREE = ".concord/"
 DEFAULT_ROOTS = (".concord/docs/",)
+LAW_TREE = ".concord/law/"
 RETIRED_ROOT_TREES = ("docs", "instructions", "scenarios")
 CONCORD_HOMES = (".concord/docs", ".concord/instructions", ".concord/scenarios")
 MAX_FINDINGS = 1000
@@ -344,6 +349,43 @@ def knowledge_roots_of(manifest: dict) -> list[str]:
     return list(DEFAULT_ROOTS)
 
 
+def manifest_declares_law_home(manifest: dict) -> bool:
+    """True when the manifest places knowledge in the law tree:
+    a knowledge root or a record path below .concord/law/. The check is
+    Product-agnostic — whatever Product's manifest names the tree, that
+    manifest requires the home."""
+    if any(root.startswith(LAW_TREE) for root in knowledge_roots_of(manifest)):
+        return True
+    records = manifest.get("records")
+    if not isinstance(records, list):
+        return False
+    return any(
+        isinstance(record, dict)
+        and isinstance(record.get("path"), str)
+        and record["path"].startswith(LAW_TREE)
+        for record in records
+    )
+
+
+def check_law_home(manifest: dict, findings: list[str]) -> None:
+    """A declared law home must be a real directory.
+
+    A manifest that
+    names the tree — through a knowledge root or a record path — asserts the
+    home is in use, so the directory must exist as a real directory, exactly
+    like an override path that must exist on disk. A manifest that names no
+    law placement asserts nothing about the tree and skips the check, which
+    keeps a pre-relocation revision passing.
+    """
+    if not manifest_declares_law_home(manifest):
+        return
+    candidate = ROOT / LAW_TREE
+    if candidate.is_symlink() or not candidate.is_dir():
+        findings.append(
+            f"declared law home is not a real directory: {LAW_TREE.rstrip('/')}"
+        )
+
+
 def check_placement(manifest: dict, findings: list[str]) -> None:
     overrides = manifest.get("operator_overrides")
     if not isinstance(overrides, list):
@@ -419,6 +461,7 @@ def main(argv: list[str] | None = None) -> int:
     check_retired_root_trees(findings)
     if isinstance(manifest, dict):
         check_placement(manifest, findings)
+        check_law_home(manifest, findings)
     return report(findings)
 
 

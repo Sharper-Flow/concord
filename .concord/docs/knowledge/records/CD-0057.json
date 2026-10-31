@@ -6,13 +6,13 @@
   },
   "date": "2026-08-22T00:00:00Z",
   "evidence": [
-    ".concord/docs/decisions/CD-0051-conformance-falsifier-quantity.md",
+    ".concord/law/decisions/CD-0051-conformance-falsifier-quantity.md",
     "internal/store/conformance_test.go"
   ],
   "home_domain_id": "durable-authority",
   "id": "CD-0057",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0057-conformance-control-round.md",
+  "path": ".concord/law/decisions/CD-0057-conformance-control-round.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

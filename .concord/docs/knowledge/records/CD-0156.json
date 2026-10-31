@@ -9,7 +9,7 @@
     "internal/store/workflow_registry.go",
     "internal/store/workflow_parts.go",
     "internal/store/workflow_backlog_alignment_test.go",
-    ".concord/docs/workflow-engine-contract.md"
+    ".concord/law/specs/workflow-engine-contract.md"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0156",
@@ -20,7 +20,7 @@
       "target_id": "CD-0013"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0156-mandatory-backlog-alignment-step.md",
+  "path": ".concord/law/decisions/CD-0156-mandatory-backlog-alignment-step.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

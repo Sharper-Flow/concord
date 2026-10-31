@@ -11,13 +11,13 @@
     "adapter/opencode/continuity_hook.test.ts",
     "cmd/concord/session.go",
     "internal/store/workflow_continuity.go",
-    ".concord/docs/decisions/CD-0090-per-turn-continuity-re-pin-hook.md",
+    ".concord/law/decisions/CD-0090-per-turn-continuity-re-pin-hook.md",
     ".concord/scenarios/adapter-continuity.v1.json"
   ],
   "home_domain_id": "agent-adapter",
   "id": "CD-0090",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0090-per-turn-continuity-re-pin-hook.md",
+  "path": ".concord/law/decisions/CD-0090-per-turn-continuity-re-pin-hook.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

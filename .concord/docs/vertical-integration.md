@@ -13,12 +13,12 @@ This document is **only** about whether Concord should own, swallow, or
 product-scope lgrep and vision. The operator-surface / admin-panel question
 is resolved in [`clarifications.md`](./clarifications.md) R1:
 
-- The primary operator surface follows [`priorities.md`](./priorities.md).
+- The primary operator surface follows [`../law/constitution/priorities.md`](../law/constitution/priorities.md).
 - The host owns operator session start and resume. Concord supplies managed work
   context and verified worktree placement.
 - Any **admin panel** or web UI is an optional projection, not the operating center.
 
-The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
+The canonical Concord priorities are maintained in [`../law/constitution/priorities.md`](../law/constitution/priorities.md); this document
 follows them without restating the ranked list.
 
 ---
@@ -78,7 +78,7 @@ integration could make them cohesive and Product-scoped.
 
 - **Scope explosion:** Concord's mandate grows from "project/ops platform" to
   "also a code-search engine + MCP host." Tension with the **tightly scoped**
-  pillar ([`priorities.md`](./priorities.md) Operating envelope).
+  pillar ([`../law/constitution/priorities.md`](../law/constitution/priorities.md) Operating envelope).
 - **Maturity / generality:** these are mature, general-purpose tools with their
   own deploy stories and possibly other consumers. Swallowing couples them to
   Concord and loses generality.
@@ -128,7 +128,7 @@ tool does not move the boundary for the other.
 | [`clarifications.md`](./clarifications.md) R7 | The knowledge ladder is observation, lesson, decision. |
 | [`workflows.md` §0](./workflows.md#0-audience-and-primary-surface-resolved) | The host owns operator session start and resume; Concord supplies managed context and verified worktree placement. |
 | `product-data-model.md` §3 | Product-scoped instances are a locality mechanism. |
-| [`priorities.md`](./priorities.md) Operating envelope | The guardrail against premature swallowing. |
+| [`../law/constitution/priorities.md`](../law/constitution/priorities.md) Operating envelope | The guardrail against premature swallowing. |
 
 ---
 

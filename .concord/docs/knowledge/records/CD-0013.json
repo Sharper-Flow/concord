@@ -14,7 +14,7 @@
   "home_domain_id": "workflow-engine",
   "id": "CD-0013",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0013-workflow-engine-mechanism.md",
+  "path": ".concord/law/decisions/CD-0013-workflow-engine-mechanism.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a35e3a1f6a0bf499520640dd35614f9e465ff5f379ad0aff5e457e49afd14b28",
+  "sha256": "sha256:088544bfeb0bf2085b606f4cc5611ec2cd7a3b7f1ba3222042fcf9ab72e322af",
   "status": "accepted",
   "summary": "Defines workflow registration, execution evidence, subject-bound stage results, fail-closed completion and declared correction of delivered work. Independent native Task Review remains required; the coordinator records outcomes without subagent execution attestation.",
   "tags": [

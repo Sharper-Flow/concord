@@ -30,7 +30,7 @@
   "home_domain_id": "agent-evolution",
   "id": "TS9",
   "kind": "spec",
-  "path": ".concord/docs/agent-tool-surface-measurement.md",
+  "path": ".concord/law/specs/agent-tool-surface-measurement.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

@@ -174,6 +174,29 @@ class DurableTierCheckerTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("not in the budget inventory", output)
 
+    def test_law_tree_decision_artifact_requires_inventory(self) -> None:
+        """The decisions inventory covers the law decisions tree
+        exactly as the docs tree, so an unacknowledged artifact there fails."""
+        root, tmp = build_repo(base_budget())
+        with tmp:
+            write_note(root, ".concord/law/decisions/CD-9999-state.v1.json", "{}")
+            code, output = run_checker(root)
+        self.assertEqual(code, 1)
+        self.assertIn("not in the budget inventory", output)
+
+    def test_law_tree_inventoried_artifact_passes(self) -> None:
+        """An inventory entry may name the law decisions tree, and
+        an acknowledged artifact there passes."""
+        budget = base_budget()
+        budget["non_markdown_inventory"] = [
+            {"path": ".concord/law/decisions/license-evidence/x/LICENSE", "reason": "license text is legal material"}
+        ]
+        root, tmp = build_repo(budget)
+        with tmp:
+            write_note(root, ".concord/law/decisions/license-evidence/x/LICENSE", "MIT")
+            code, output = run_checker(root)
+        self.assertEqual(code, 0, output)
+
     def test_dangling_inventory_entry_fails(self) -> None:
         budget = base_budget()
         budget["non_markdown_inventory"] = [

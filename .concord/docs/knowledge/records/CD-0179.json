@@ -14,7 +14,7 @@
       "target_id": "CD-0178"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0179-a-worktree-occupancy-row-releases-when-no-live-process-predates-it.md",
+  "path": ".concord/law/decisions/CD-0179-a-worktree-occupancy-row-releases-when-no-live-process-predates-it.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

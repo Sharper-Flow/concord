@@ -26,7 +26,7 @@
       "target_id": "CD-0094"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0183-workflow-actions-start-the-lifecycle-and-the-completion-closes-it.md",
+  "path": ".concord/law/decisions/CD-0183-workflow-actions-start-the-lifecycle-and-the-completion-closes-it.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

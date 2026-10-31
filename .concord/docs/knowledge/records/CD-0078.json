@@ -12,7 +12,7 @@
   "home_domain_id": "operator-surface",
   "id": "CD-0078",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0078-terminal-placement-belongs-to-the-host.md",
+  "path": ".concord/law/decisions/CD-0078-terminal-placement-belongs-to-the-host.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

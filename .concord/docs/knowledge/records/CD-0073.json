@@ -15,7 +15,7 @@
   "home_domain_id": "repository-verification",
   "id": "CD-0073",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0073-scenario-overrides-prove-consumption.md",
+  "path": ".concord/law/decisions/CD-0073-scenario-overrides-prove-consumption.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

@@ -4,8 +4,8 @@
   },
   "date": "2026-08-07T00:00:00Z",
   "evidence": [
-    ".concord/docs/decisions/CD-0006-concord-root-product-policy.md",
-    ".concord/docs/priorities.md"
+    ".concord/law/decisions/CD-0006-concord-root-product-policy.md",
+    ".concord/law/constitution/priorities.md"
   ],
   "id": "specs-as-laws",
   "kind": "reference",
@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c2791aed4c74c0bf28f5117e5151e02226af38a0afbce987cb53f967d5f0ee7a",
+  "sha256": "sha256:9d7fcee7ff8eaee2f48b9bd82226ccf5f3fe53b4b617cecb2d81a59277f19f4c",
   "status": "published",
   "summary": "Explains the accepted spec-as-law decisions and how conflicts surface and evolve.",
   "tags": [

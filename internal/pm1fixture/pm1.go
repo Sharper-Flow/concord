@@ -173,7 +173,7 @@ func SeedCommittedProductDomain(ctx context.Context, s *store.Store, productID, 
 	if err != nil {
 		return store.KnowledgeHome{}, err
 	}
-	const decisionPath = ".concord/docs/decisions/CD-0001-fixture-law.md"
+	const decisionPath = ".concord/law/decisions/CD-0001-fixture-law.md"
 	decision := canonicalKnowledgeNote("CD-0001", "decision", "2026-08-04T12:00:00Z", []string{"governance"})
 	if err := writeKnowledgeFile(repo, decisionPath, decision); err != nil {
 		return store.KnowledgeHome{}, fmt.Errorf("pm1fixture: write fixture decision: %w", err)
@@ -421,7 +421,7 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: write work note: %w", err)
 	}
 	lessonPath := ".concord/docs/lessons/2026-08-04-state-authority.md"
-	decisionPath := ".concord/docs/decisions/CD-0002-state-authority.md"
+	decisionPath := ".concord/law/decisions/CD-0002-state-authority.md"
 	if err := writeKnowledgeFile(repo, lessonPath, canonicalKnowledgeNote("knowledge-lesson", "lesson", "2026-08-05T12:00:00Z", []string{"state-authority", "sqlite"})); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: write lesson note: %w", err)
 	}
@@ -495,7 +495,7 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 // unlucky one.
 func SeedLaggingKnowledge(home store.KnowledgeHome) (string, error) {
 	const id = "knowledge-decision-lagging"
-	const path = ".concord/docs/decisions/CD-0003-lagging-authority.md"
+	const path = ".concord/law/decisions/CD-0003-lagging-authority.md"
 	manifest, err := readKnowledgeShards(home.RepoPath)
 	if err != nil {
 		return "", err

@@ -31,7 +31,7 @@
   "home_domain_id": "durable-authority",
   "id": "PM3",
   "kind": "spec",
-  "path": ".concord/docs/product-memory-domain-schema.md",
+  "path": ".concord/law/specs/product-memory-domain-schema.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -39,7 +39,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c1cfef4da56a919e7055e1cc0d38b19b2051f9aca804d34684ebaccc6173f1c1",
+  "sha256": "sha256:37cd91c7f57524124daa76ec7cf0325455cd5552952b3ba537482fbf609462b7",
   "status": "accepted",
   "summary": "Defines typed current-state ownership and the separate research aggregate, which only explicit eligible research_retire may delete.",
   "tags": [

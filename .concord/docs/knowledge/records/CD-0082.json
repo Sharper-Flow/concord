@@ -8,7 +8,7 @@
   "home_domain_id": "product-root:concord",
   "id": "CD-0082",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0082-migration-is-demand-driven.md",
+  "path": ".concord/law/decisions/CD-0082-migration-is-demand-driven.md",
   "product_wide_rationale": "Keeps migration and correction demand-driven without a predecessor-replacement mission, while preserving current release, maturity, and data-integrity requirements across Domains.",
   "scopes": {
     "domain_ids": [],
@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:47f7a732cd22558cc59360a40ebdc6df7450f2f32bad61fe94e26878314b1abe",
+  "sha256": "sha256:10fa0b850a4c2e91c99d118a5972987b8e3f6b386a90e5e57a50d1c197ec4f3d",
   "status": "accepted",
   "summary": "Keeps migration and correction demand-driven and preserves bounded Domain, work-item, and data-integrity controls. CD-0006 D1 owns Product direction; release, maturity, and development-authority requirements keep their owning records.",
   "tags": [

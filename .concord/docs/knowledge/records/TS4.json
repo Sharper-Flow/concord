@@ -30,7 +30,7 @@
   "home_domain_id": "agent-contract",
   "id": "TS4",
   "kind": "spec",
-  "path": ".concord/docs/agent-mutation-tool-contract.md",
+  "path": ".concord/law/specs/agent-mutation-tool-contract.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -38,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b940848226c8d992622159b3e25510bc7b37a197036ed1bc274db12009a1973b",
+  "sha256": "sha256:2d8c1361fc98cf269f3290b263ff1f42e811dc4c832707d2b9a6dac13035d444",
   "status": "accepted",
   "summary": "Fixes the mutation tools, each committing one domain intent per SQLite transaction with sequenced git-first compaction.",
   "tags": [

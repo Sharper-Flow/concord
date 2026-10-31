@@ -3,9 +3,9 @@
 The operator's goals for Concord. Quoted text is the operator's own words; the rest is text the operator approved.
 
 This document is guidance, not law. The constraints, the conflict rules, and the route for Concord's own
-development are law in [`priorities.md`](./priorities.md).
+development are law in [`../law/constitution/priorities.md`](../law/constitution/priorities.md).
 
-[CD-0243](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md) defines the roles and the
+[CD-0243](../law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md) defines the roles and the
 operator's approval boundary.
 
 ## Purpose
@@ -21,7 +21,7 @@ operator's approval boundary.
   to."
 - For whom: agents that work separately on the same system, under one operator.
 - The User Operator owns product direction and the six approval classes in
-  [CD-0243 D2](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
+  [CD-0243 D2](../law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
 - The Concord Agent owns its item through delivery. Concord-RTE, the release train engineer (RTE), coordinates concurrent work;
   Concord-Planner is the operator's assistant Product Owner. Both are optional, not approval gates
   on a Concord Agent's work (CD-0243 D1).
@@ -39,7 +39,7 @@ operator's approval boundary.
 ## 2. Goals, with how the operator will know each is met
 The goals are not ranked: "Right sized and fast is equal to all of these. None should interfere with eachother
 in reality. speed to ship requires quality." When two goals do pull against each other, a defined rule settles
-the case ([`priorities.md`](./priorities.md) Appendix A), not a ranking.
+the case ([`../law/constitution/priorities.md`](../law/constitution/priorities.md) Appendix A), not a ranking.
 
 ### A. Formal product law and domain architecture
 - Formal, retrievable stores of product law and of domain architecture. All agents follow them, or change them
@@ -102,7 +102,7 @@ the case ([`priorities.md`](./priorities.md) Appendix A), not a ranking.
 ### F. The conflict rules and the sizing model are built into Concord
 - "we need to architect and build something in to concord to handle this. Then we can in the future do spot
   checks to see if we are following".
-- "This" covers both the conflict rules ([`priorities.md`](./priorities.md) Appendix A) and the sizing decision model (goal B). They
+- "This" covers both the conflict rules ([`../law/constitution/priorities.md`](../law/constitution/priorities.md) Appendix A) and the sizing decision model (goal B). They
   become a mechanism inside Concord, not prose.
 - Measure: the operator's spot checks show that agents follow the rules.
 
@@ -113,7 +113,7 @@ the case ([`priorities.md`](./priorities.md) Appendix A), not a ranking.
 - Stop giving agents prose instructions for jobs that a programmed function or tool can do.
 
 ## 4. Constraints that must hold
-The constraints are law in [`priorities.md`](./priorities.md#constraints).
+The constraints are law in [`../law/constitution/priorities.md`](../law/constitution/priorities.md#constraints).
 
 ## 5. Open questions
 - Time targets from start to merge queue for larger and crucial changes. Set them after current times are

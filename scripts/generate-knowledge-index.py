@@ -78,10 +78,11 @@ KINDS = {"constitution", "decision", "spec", "lesson", "reference", "research"}
 LAW_BEARING_KINDS = {"constitution", "decision", "spec"}
 LAW_RELATION_SUBJECTS = {"decision", "spec"}
 LAW_RELATION_KINDS = {"refines", "subordinate_to", "conflicts_with"}
-# Which authored docs path may carry a record is declared once, as the
-# $defs.record.path pattern in contracts/concord-knowledge-index.v1.schema.json.
+# Which authored docs and law tree path may carry a record is declared once,
+# as the $defs.record.path pattern in contracts/concord-knowledge-index.v1.schema.json.
 # check-knowledge-vocabulary.py binds this restatement to that pattern text.
-RECORD_PATH_RE = re.compile(r"^.concord/docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
+# The law tree follows the same path rule as nonlaw documents.
+RECORD_PATH_RE = re.compile(r"^(?:.concord/docs/|.concord/law/)(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
 # CD-0194 D2: the closed external shape an operator override admits. The text
 # mirrors the external path pattern in $defs.record.allOf of
 # contracts/concord-knowledge-index.v1.schema.json;
@@ -286,12 +287,13 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
     if kind == "decision":
         # An override-admitted decision keeps the canonical CD filename,
         # mirroring canonicalDecisionPath in the store parser and the index
-        # checker's decision rule.
-        if isinstance(path, str) and path.startswith(".concord/docs/decisions/"):
-            if not re.fullmatch(r".concord/docs/decisions/CD-[0-9]{4}(?:-.*)?\.md", path):
+        # checker's decision rule. The canonical rule covers both default
+        # trees.
+        if isinstance(path, str) and path.startswith((".concord/docs/decisions/", ".concord/law/decisions/")):
+            if not re.fullmatch(r"(?:.concord/docs/|.concord/law/)decisions/CD-[0-9]{4}(?:-.*)?\.md", path):
                 findings.append(f"{prefix}: decision is outside the canonical CD decision path")
         elif not isinstance(path, str) or (
-            not path.startswith(".concord/docs/") and not re.fullmatch(r"CD-[0-9]{4}(?:-.+)?\.md", Path(path).name)
+            not path.startswith((".concord/docs/", ".concord/law/")) and not re.fullmatch(r"CD-[0-9]{4}(?:-.+)?\.md", Path(path).name)
         ):
             findings.append(f"{prefix}: decision is outside the canonical CD decision path")
     try:

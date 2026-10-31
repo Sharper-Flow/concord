@@ -13,7 +13,7 @@
   "home_domain_id": "work-coordination",
   "id": "CD-0030",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0030-mid-execution-observations.md",
+  "path": ".concord/law/decisions/CD-0030-mid-execution-observations.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

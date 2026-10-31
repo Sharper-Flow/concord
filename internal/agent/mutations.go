@@ -3775,7 +3775,7 @@ type publicationStep struct {
 }
 
 // publicationPhases is the accepted publication order, declared as data. The
-// order is a contract (.concord/docs/agent-mutation-tool-contract.md: commit to git,
+// order is a contract (.concord/law/specs/agent-mutation-tool-contract.md: commit to git,
 // verify the commit, then append the SQLite compaction link), so it lives in one
 // declared sequence rather than being an emergent property of statement order.
 var publicationPhases = []string{"git_publish", "verify_commit", "record_locator"}

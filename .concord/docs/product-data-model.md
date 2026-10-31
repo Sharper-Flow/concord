@@ -25,7 +25,7 @@ Domain, exact governing law revisions, authorized law changes, and verification
 obligations. Business grouping lives in Linear through the Linear MCP server;
 Concord keeps managed execution and at most one recorded issue identity per work unit.
 
-The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
+The canonical Concord priorities are maintained in [`../law/constitution/priorities.md`](../law/constitution/priorities.md); this document
 follows them without restating the ranked list.
 
 ---
@@ -65,7 +65,7 @@ through which law and work are organized.
   architectural contracts, and the code that implements them. It is not a
   cross-cutting concern. A rule that binds several Domains belongs to the
   enforcing Domain as an invariant fact
-  ([CD-0244 D1 and D6](decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d1-a-domain-exclusively-owns-its-code)).
+  ([CD-0244 D1 and D6](../law/decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d1-a-domain-exclusively-owns-its-code)).
 - Every Domain belongs to exactly one Product.
 - Domain identity, hierarchy, and architecture relations are declared in the
   Product's Git knowledge manifest. SQLite projects that law. Neither side
@@ -134,10 +134,10 @@ CD-0222 and PM4.
 
 Business grouping lives in Linear under CD-0213. Product embeds no grouping record, and grouping is not a second Product,
 Domain, or architecture authority.
-[CD-0213 D8](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-retired-planning-kinds-keep-no-history)
+[CD-0213 D8](../law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-retired-planning-kinds-keep-no-history)
 keeps planning history in Linear; the local store keeps current state and finite
 snapshots, with no event log or replay
-([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 Member records carry **identity + role + metadata** — not credentials, not live
 connections.
@@ -157,7 +157,7 @@ a flat list of changes or workflows.
 - A change or workflow is **architecture-bound history** from the Domain; it is not the
   top-level browse path.
 - Product-scoped Initiative planning context lives only in Linear under
-  [CD-0213 D1/D4](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d1-linear-is-the-only-planning-authority).
+  [CD-0213 D1/D4](../law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d1-linear-is-the-only-planning-authority).
   Concord stores no Initiative or grouping projection; planning context supplies
   no architecture authority.
 - Completed history, archived work, and passive context are available through
@@ -189,7 +189,7 @@ This is a property of the read surfaces, not an optional filter.
 > below are decided; the mapping from stage to concrete evidence requirements is
 > not (§12).
 
-[`priorities.md` — Quality (goal E)](./priorities.md#quality-goal-e) names
+[`priorities.md` — Quality (goal E)](../law/constitution/priorities.md#quality-goal-e) names
 **proportional rigor** as a quality attribute. Declared lifecycle stage is one
 input to the decision model, alongside the change inputs in
 [`goals.md` — goal B](./goals.md#b-fast-right-sized-delivery).
@@ -232,7 +232,7 @@ describes what the operator has committed to keeping true.
 Stage is one input to the decision model's minimum steps, proof, and testing,
 not a fixed workflow shape. See
 [`goals.md` — goal B](./goals.md#b-fast-right-sized-delivery) and
-[`priorities.md` — Quality (goal E)](./priorities.md#quality-goal-e).
+[`priorities.md` — Quality (goal E)](../law/constitution/priorities.md#quality-goal-e).
 Mandatory stages and operator approvals cannot be waived (CD-0242 D4).
 
 **No stage is an evidence exemption.** The lowest maturity still requires proof
@@ -287,8 +287,8 @@ respectively. The remaining model-internal open question is:
 
 | Doc | Link |
 |---|---|
-| [CD-0222](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
-| [`priorities.md` — Quality (goal E)](./priorities.md#quality-goal-e) | Proportional rigor is the quality attribute that §8 supplies an input for. |
+| [CD-0222](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
+| [`priorities.md` — Quality (goal E)](../law/constitution/priorities.md#quality-goal-e) | Proportional rigor is the quality attribute that §8 supplies an input for. |
 | `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, current rows with finite snapshots, no history to repair (CD-0242 D2). Stage transitions write current rows (§8.5). |
 | `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |
 | `workflows.md` §2.5 | Workflows are reached from Product → Domain. |

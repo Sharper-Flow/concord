@@ -2,7 +2,7 @@
 
 > **Status:** Public bootstrap and Concord coordination sequence.
 > **Authority:** [`goals.md`](./goals.md) records Product direction as guidance;
-> [`priorities.md`](./priorities.md) owns the operating envelope, constraints, conflict rules, and standing law.
+> [`../law/constitution/priorities.md`](../law/constitution/priorities.md) owns the operating envelope, constraints, conflict rules, and standing law.
 > This document describes sequencing and entry conditions under those authorities.
 > **Origin:** Product direction recorded 2026-07-25; public bootstrap execution
 > authorized 2026-08-07 under CD-0007.
@@ -22,7 +22,7 @@ second authority. Reachable issue-backed lessons are summarized in
 
 ## 1. Work allowed after bootstrap
 
-Development follows [`managed-development-authority.md`](./managed-development-authority.md).
+Development follows [`../law/specs/managed-development-authority.md`](../law/specs/managed-development-authority.md).
 Explicit managed participation grants Concord workflow authority. Outside-workflow
 development follows host permissions and repository rules. Planning belongs to
 Linear; branches, worktrees, pull requests, and required checks retain their authority.
@@ -42,8 +42,8 @@ Runtime implementation proceeds only when all of these are true:
 5. CD-0006 fixes root Product policy, workflow composition, rigor bands, and
    boundary freshness.
 6. CD-0008 fixes mechanism hardening: immutable evidence subjects and typed degradation.
-   [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-   governs current-state recovery and schema evolution; [D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)
+   [CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+   governs current-state recovery and schema evolution; [D6](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)
    gives native Task execution to the host while workflow stages retain subject-bound outcomes.
 7. CD-0215 fixes research context as bounded working context, not a second
    durable-knowledge authority.
@@ -92,7 +92,7 @@ No global adoption sequence, mandatory pre-adoption exercise, rollback restricti
 retirement sequence, or migration record applies unless a later decision accepts a
 bounded need.
 
-[CD-0091](./decisions/CD-0091-maturity-promotion-ladder.md) is one such accepted
+[CD-0091](../law/decisions/CD-0091-maturity-promotion-ladder.md) is one such accepted
 bounded need. It owns the evidence bar for maturity and audience-commitment
 promotion. It imposes no schedule, so the demand-driven model above still holds.
 
@@ -101,12 +101,12 @@ promotion. It imposes no schedule, so the demand-driven model above still holds.
 | Document | Role |
 |---|---|
 | [`goals.md`](./goals.md) | Product purpose, goals, and measures, as guidance. |
-| [`priorities.md`](./priorities.md) | Operating envelope, constraints, conflict rules, and standing law. |
-| [`managed-development-authority.md`](./managed-development-authority.md) | Concord development authority, explicit workflow participation, outside-work defect repair, and repository evidence. |
-| [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md) | Public repository, bootstrap, governance, release, privacy, and platform boundary. |
-| [`decisions/CD-0089-concord-development-coordination.md`](./decisions/CD-0089-concord-development-coordination.md) | Concord development coordination and explicit managed participation. |
-| [`decisions/CD-0122-concord-workflow-scope-and-defect-repair.md`](./decisions/CD-0122-concord-workflow-scope-and-defect-repair.md) | Explicit workflow participation, outside project work, authorized defect repair, and host-role preservation. |
-| [`decisions/CD-0091-maturity-promotion-ladder.md`](./decisions/CD-0091-maturity-promotion-ladder.md) | Maturity and audience-commitment promotion evidence. |
+| [`../law/constitution/priorities.md`](../law/constitution/priorities.md) | Operating envelope, constraints, conflict rules, and standing law. |
+| [`../law/specs/managed-development-authority.md`](../law/specs/managed-development-authority.md) | Concord development authority, explicit workflow participation, outside-work defect repair, and repository evidence. |
+| [`../law/decisions/CD-0007-concord-repository-bootstrap.md`](../law/decisions/CD-0007-concord-repository-bootstrap.md) | Public repository, bootstrap, governance, release, privacy, and platform boundary. |
+| [`../law/decisions/CD-0089-concord-development-coordination.md`](../law/decisions/CD-0089-concord-development-coordination.md) | Concord development coordination and explicit managed participation. |
+| [`../law/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md`](../law/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md) | Explicit workflow participation, outside project work, authorized defect repair, and host-role preservation. |
+| [`../law/decisions/CD-0091-maturity-promotion-ladder.md`](../law/decisions/CD-0091-maturity-promotion-ladder.md) | Maturity and audience-commitment promotion evidence. |
 | [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public predecessor lessons; reference-only. |
 | [`clarifications.md`](./clarifications.md) | Accepted decisions and explicitly deferred questions. |
 

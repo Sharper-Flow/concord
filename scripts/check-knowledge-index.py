@@ -60,13 +60,13 @@ MAX_CRITERION_EXEMPTION = 512
 CRITERION_WORK_ID_PATTERN = re.compile(r"^work-[0-9a-f]{8,64}$")
 CRITERION_PREDICATE_ID_PATTERN = re.compile(r"^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$")
 DISPOSITION_PATH_RE = re.compile(r"^(?![\s\S]*\.\.)[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*\.md$")
-# Which authored docs paths may carry a record is declared once, as the
-# $defs.record.path pattern in contracts/concord-knowledge-index.v1.schema.json.
+# Which authored docs and law tree paths may carry a record is declared once,
+# as the $defs.record.path pattern in contracts/concord-knowledge-index.v1.schema.json.
 # Python re carries the lookahead that JSON Schema uses, so this restates the
 # pattern verbatim rather than decomposing it; check-knowledge-vocabulary.py
 # binds the two texts. `generated` is spelled as per-letter character classes
 # because the Go model matches it ASCII case-insensitively.
-RECORD_PATH_RE = re.compile(r"^.concord/docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
+RECORD_PATH_RE = re.compile(r"^(?:.concord/docs/|.concord/law/)(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
 # CD-0194 D2: the closed external shape an operator override admits. The text
 # mirrors the external path pattern in $defs.record.allOf of
 # contracts/concord-knowledge-index.v1.schema.json;
@@ -98,13 +98,14 @@ def external_path_is_generated(path: str) -> bool:
 def record_path_admitted(path: str, overrides: object, product_key: str | None = None) -> bool:
     """The full record path rule for the composed manifest (CD-0194).
 
-    A path under the default tree follows RECORD_PATH_RE. Any other path is
-    a Product knowledge location outside the default tree: it is admitted
-    only when the manifest head carries a shape-valid operator override that
-    covers it, names this manifest's owning Product, and the path carries
-    the closed external shape. An override can never name a .concord/ path,
-    so a stray .concord path refuses here too, and an override recorded for
-    another Product never admits this one's placements.
+    A path under a default tree (.concord/docs/ or the transitional
+    .concord/law/) follows RECORD_PATH_RE. Any other path is a Product
+    knowledge location outside the default trees: it is admitted only when
+    the manifest head carries a shape-valid operator override that covers
+    it, names this manifest's owning Product, and the path carries the
+    closed external shape. An override can never name a .concord/ path, so a
+    stray .concord path (either tree) refuses here too, and an override
+    recorded for another Product never admits this one's placements.
     """
     if RECORD_PATH_RE.fullmatch(path):
         return True
@@ -540,9 +541,9 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             fail(findings, f"{prefix}: duplicate path {path}")
         else:
             paths.add(path)
-        if kind == "decision" and path.startswith(".concord/docs/decisions/") and (not isinstance(path, str) or not re.fullmatch(r".concord/docs/decisions/CD-[0-9]{4}(?:-.*)?\.md", path)):
+        if kind == "decision" and isinstance(path, str) and path.startswith((".concord/docs/decisions/", ".concord/law/decisions/")) and not re.fullmatch(r"(?:.concord/docs/|.concord/law/)decisions/CD-[0-9]{4}(?:-.*)?\.md", path):
             fail(findings, f"{prefix}: decision is outside the canonical CD decision path")
-        elif kind == "decision" and not path.startswith(".concord/docs/") and not re.fullmatch(r"CD-[0-9]{4}(?:-.+)?\.md", Path(path).name):
+        elif kind == "decision" and (not isinstance(path, str) or not path.startswith((".concord/docs/", ".concord/law/"))) and not re.fullmatch(r"CD-[0-9]{4}(?:-.+)?\.md", Path(path).name):
             # An override-admitted decision keeps the canonical CD filename,
             # mirroring canonicalDecisionPath in the Go parser.
             fail(findings, f"{prefix}: decision is outside the canonical CD decision path")
@@ -749,13 +750,15 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         fail(findings, "manifest: directed law relations contain a cycle")
 
     decision_paths: dict[str, list[str]] = {}
-    for path in sorted((ROOT / ".concord/docs/decisions").glob("CD-*.md"), key=lambda item: item.as_posix()):
-        match = re.fullmatch(r"(CD-[0-9]{4})(?:-.*)?\.md", path.name)
-        relative = path.relative_to(ROOT).as_posix()
-        if match is None:
-            fail(findings, f"manifest: decision file has a non-canonical name: {relative}")
-            continue
-        decision_paths.setdefault(match.group(1), []).append(relative)
+    # One decision ID must name one canonical file across both admitted trees.
+    for decisions_root in (ROOT / ".concord/docs/decisions", ROOT / ".concord/law/decisions"):
+        for path in sorted(decisions_root.glob("CD-*.md"), key=lambda item: item.as_posix()):
+            match = re.fullmatch(r"(CD-[0-9]{4})(?:-.*)?\.md", path.name)
+            relative = path.relative_to(ROOT).as_posix()
+            if match is None:
+                fail(findings, f"manifest: decision file has a non-canonical name: {relative}")
+                continue
+            decision_paths.setdefault(match.group(1), []).append(relative)
     expected_decisions: dict[str, str] = {}
     for identifier, paths_for_id in decision_paths.items():
         if len(paths_for_id) != 1:
@@ -778,7 +781,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             continue
         path = record.get("path")
         identifier = record.get("id")
-        if isinstance(path, str) and path.startswith(".concord/docs/decisions/") and path not in discovered_decision_paths:
+        if isinstance(path, str) and path.startswith((".concord/docs/decisions/", ".concord/law/decisions/")) and path not in discovered_decision_paths:
             fail(findings, f"manifest: extra decision path is forbidden: {path}")
         if isinstance(identifier, str) and identifier.startswith("CD-") and identifier not in decision_paths:
             fail(findings, f"manifest: extra decision ID is forbidden: {identifier}")

@@ -114,10 +114,10 @@ Product.
 
 | Requirement | Canonical owner and authority | Applicability and delivery |
 |---|---|---|
-| Planning through Linear MCP | [CD-0213](decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) | Reusable across Products; the generated primary states the operative planning rule. |
-| Source-edit boundary | [CD-0220](decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md) | Approved scope and law-change authority remain distinct from host tool permission. |
-| Committed-content conduct | [Shared conduct](../instructions/change.md) under [CD-0063](decisions/CD-0063-shipped-operator-conduct-rules.md) | Loaded from the installed corpus, not inferred from a Product-relative filename. |
-| Concord repository engineering | [Concord's AGENTS.md](../../AGENTS.md) and the explicitly Concord-specific items 2 and 5 in [development authority](managed-development-authority.md#preserved-boundaries) | Repository instruction, not part of the shipped conduct corpus. Other boundaries keep their stated scope. |
+| Planning through Linear MCP | [CD-0213](../law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) | Reusable across Products; the generated primary states the operative planning rule. |
+| Source-edit boundary | [CD-0220](../law/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md) | Approved scope and law-change authority remain distinct from host tool permission. |
+| Committed-content conduct | [Shared conduct](../instructions/change.md) under [CD-0063](../law/decisions/CD-0063-shipped-operator-conduct-rules.md) | Loaded from the installed corpus, not inferred from a Product-relative filename. |
+| Concord repository engineering | [Concord's AGENTS.md](../../AGENTS.md) and the explicitly Concord-specific items 2 and 5 in [development authority](../law/specs/managed-development-authority.md#preserved-boundaries) | Repository instruction, not part of the shipped conduct corpus. Other boundaries keep their stated scope. |
 | An adopting Product's law and facts | That Product's canonical knowledge home | Product-scoped knowledge reads and declared reading sources; not inherited from Concord's source checkout. |
 
 Decision identifiers in a generated profile identify Concord's governing source;
@@ -377,7 +377,7 @@ later pass.
 
 ## Recovery
 
-Recovery restores a verified snapshot and reconciles current rows, and a refusal to open the authority database states the recovery action the caller may take ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history), [CD-0242 D12](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)); the store keeps no append-only event log to rebuild from.
+Recovery restores a verified snapshot and reconciles current rows, and a refusal to open the authority database states the recovery action the caller may take ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history), [CD-0242 D12](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)); the store keeps no append-only event log to rebuild from.
 
 ## Uninstall
 

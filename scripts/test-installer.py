@@ -2590,8 +2590,8 @@ esac''',
                     f"{version}/agents/{name}:{number}: {line.strip()}"
                     for number, line in enumerate(prompt.splitlines(), 1)
                     if any(reference in line for reference in (
-                        ".concord/docs/managed-development-authority.md",
-                        ".concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md",
+                        ".concord/law/specs/managed-development-authority.md",
+                        ".concord/law/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md",
                         ".concord/instructions/change.md",
                     ))
                 )

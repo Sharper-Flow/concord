@@ -12,7 +12,7 @@
   "home_domain_id": "product-memory",
   "id": "CD-0015",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0015-typed-law-relations.md",
+  "path": ".concord/law/decisions/CD-0015-typed-law-relations.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -20,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e75bb139ef60976070afe0bc551f9f37da5806722947d180858b03ffc372135e",
+  "sha256": "sha256:c92663be84a58eae0c9a1305f5d88d5f9879645d55aad47862bddde1678c35f2",
   "status": "accepted",
   "summary": "Defines Git-authoritative typed law relations and bounded workflow conflict checks.",
   "tags": [

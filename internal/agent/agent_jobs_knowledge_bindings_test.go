@@ -144,7 +144,7 @@ func bindAJ7SearchKnowledge(t *testing.T, sc jobScenario) jobObservation {
 			}
 		}
 	}
-	body, err := os.ReadFile(filepath.Join(home.RepoPath, filepath.FromSlash(".concord/docs/decisions/CD-0002-state-authority.md")))
+	body, err := os.ReadFile(filepath.Join(home.RepoPath, filepath.FromSlash(".concord/law/decisions/CD-0002-state-authority.md")))
 	if err != nil {
 		t.Fatalf("read committed decision body: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestKnowledgeResolveNoteRebuildsAStaleIndexOnDemand(t *testing.T) {
 	if result.State != "canonical" {
 		t.Fatalf("resolve_note state = %q, want canonical for the newly committed law %q (result %s)", result.State, unscanned, string(resp.Result))
 	}
-	const wantLocator = ".concord/docs/decisions/CD-0003-lagging-authority.md"
+	const wantLocator = ".concord/law/decisions/CD-0003-lagging-authority.md"
 	if result.Locator == nil || *result.Locator == "" {
 		t.Fatalf("canonical resolve_note carried no locator: %s", string(resp.Result))
 	}

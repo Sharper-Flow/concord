@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "source": ".concord/docs/decisions/CD-0069-durable-tier-enforcement.md",
+  "source": ".concord/law/decisions/CD-0069-durable-tier-enforcement.md",
   "note_roots": [
     ".concord/docs/work",
     ".concord/docs/lessons"

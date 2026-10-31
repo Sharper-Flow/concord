@@ -14,7 +14,7 @@
   "home_domain_id": "repository-verification",
   "id": "CD-0075",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0075-tooling-inventory-excludes-selection-cadence.md",
+  "path": ".concord/law/decisions/CD-0075-tooling-inventory-excludes-selection-cadence.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

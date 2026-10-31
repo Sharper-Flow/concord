@@ -14,7 +14,7 @@
       "target_id": "CD-0105"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0162-main-checkout-admission-follows-the-reclaim-tiers.md",
+  "path": ".concord/law/decisions/CD-0162-main-checkout-admission-follows-the-reclaim-tiers.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

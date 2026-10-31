@@ -49,7 +49,7 @@
       "target_id": "CD-0204"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0209-declared-recovery-routes-preserve-artifact-truth.md",
+  "path": ".concord/law/decisions/CD-0209-declared-recovery-routes-preserve-artifact-truth.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

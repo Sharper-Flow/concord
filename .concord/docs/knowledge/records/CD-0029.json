@@ -12,7 +12,7 @@
   "home_domain_id": "work-coordination",
   "id": "CD-0029",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0029-peer-messages.md",
+  "path": ".concord/law/decisions/CD-0029-peer-messages.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

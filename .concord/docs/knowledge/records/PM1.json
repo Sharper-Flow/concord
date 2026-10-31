@@ -33,7 +33,7 @@
   "home_domain_id": "product-memory",
   "id": "PM1",
   "kind": "spec",
-  "path": ".concord/docs/product-memory-query-contract.md",
+  "path": ".concord/law/specs/product-memory-query-contract.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -41,7 +41,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e850655e2122e769c5ad3bca8ded5e6b82d41e26207f9565aed5aee4fcfaa143",
+  "sha256": "sha256:3537027ac6e312386e7bff3f0acb28801c2d466907ff866e01ae45223da7ea64",
   "status": "accepted",
   "summary": "Defines bounded authoritative Product-memory queries including Q9 and Q10.",
   "tags": [

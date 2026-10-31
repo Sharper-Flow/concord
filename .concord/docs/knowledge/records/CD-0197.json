@@ -6,7 +6,7 @@
   "home_domain_id": "workflow-engine",
   "id": "CD-0197",
   "kind": "decision",
-  "path": ".concord/docs/decisions/CD-0197-a-review-report-carries-a-typed-verdict-and-ranked-findings.md",
+  "path": ".concord/law/decisions/CD-0197-a-review-report-carries-a-typed-verdict-and-ranked-findings.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

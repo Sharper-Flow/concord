@@ -22,7 +22,7 @@ func bindAJ5FootprintOfAChange(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, home, _ := agentJobsKnowledgeFixture(t, false)
 	ambient, _ := sc.InitialState["ambient_project"].(string)
-	const document = ".concord/docs/decisions/CD-0002-state-authority.md"
+	const document = ".concord/law/decisions/CD-0002-state-authority.md"
 	eventsBefore := domainEventCountForTest(t, s)
 
 	resp := dispatchRead(t, s, service, InvokeRequest{

@@ -29,7 +29,7 @@
   "home_domain_id": "work-coordination",
   "id": "PM5",
   "kind": "spec",
-  "path": ".concord/docs/product-memory-membership.md",
+  "path": ".concord/law/specs/product-memory-membership.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -37,7 +37,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:28c96ef5e7c96b69e4109c783b4ed6c7520f72ae6cc45dbacfbbe488a268925c",
+  "sha256": "sha256:6f424815088a927d289938d27918aee0ae4bdc692bfc4861dc20665f5f8091de",
   "status": "accepted",
   "summary": "Concord Product-memory membership law: one canonical work item with typed membership edges, Product scope derived through joins and never copied, at-least-one membership with optional singular primary, atomic membership operations, and duplicate-free Product-scoped reads. The first spec record formalized under the full doc contract: Context, Contract, bound acceptance criteria, and Verification.",
   "tags": [

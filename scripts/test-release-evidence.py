@@ -130,6 +130,46 @@ def needs_list(job: dict) -> list:
 
 
 class CIWorkflowDriftTests(unittest.TestCase):
+    def test_nightly_workflow_is_absent(self) -> None:
+        self.assertFalse((WORKFLOW_DIR / "nightly.yml").exists())
+
+    def test_ci_has_no_stale_nightly_reference(self) -> None:
+        self.assertFalse("nightly" in CI_WORKFLOW.read_text(encoding="utf-8").lower(),
+                         "ci.yml must not reference the retired Nightly workflow")
+
+    def test_tooling_does_not_declare_a_full_tree_race_command(self) -> None:
+        tools = json.loads((ROOT / ".concord/tooling.v1.json").read_text())["tools"]
+        self.assertNotIn("go-test-race", [tool["id"] for tool in tools])
+        for tool in tools:
+            argv = shlex.split(tool["invocation"])
+            self.assertFalse("-race" in argv and "./..." in argv, tool["id"])
+
+    def test_tooling_declares_local_store_suite(self) -> None:
+        tools = json.loads((ROOT / ".concord/tooling.v1.json").read_text())["tools"]
+        store = [tool for tool in tools if tool["id"] == "go-test-store"]
+        self.assertEqual(len(store), 1)
+        self.assertEqual(store[0]["invocation"], "bin/oc-test broad -- go test -timeout=15m ./internal/store")
+        self.assertEqual(store[0]["automation_path"], CI_PATH)
+
+    def test_ci_keeps_the_bounded_store_race_execution(self) -> None:
+        job = jobs(load_workflow(CI_WORKFLOW))["verify-race"]
+        self.assertNotIn("if", job)
+        self.assertNotIn("continue-on-error", job)
+        steps = [step for step in job["steps"] if "go test" in step.get("run", "")]
+        self.assertEqual(len(steps), 1)
+        step = steps[0]
+        self.assertNotIn("if", step)
+        self.assertNotIn("continue-on-error", step)
+        selector = (
+            "^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|"
+            "TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter|"
+            "TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance)$"
+        )
+        self.assertEqual(shlex.split(step["run"]), [
+            "python3", "scripts/go-test-results.py", "--output-dir", "$RUNNER_TEMP/go-test-results/tests", "--",
+            "go", "test", "-race", "-timeout=15m", "-run", selector, "./internal/store",
+        ])
+
     def test_required_go_job_runs_pinned_vulnerability_scan_before_other_checks(self) -> None:
         job = jobs(load_workflow(CI_WORKFLOW))["verify-go"]
         self.assertNotIn("if", job)

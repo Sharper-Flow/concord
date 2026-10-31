@@ -15,8 +15,7 @@ type mutationDurability struct {
 
 // Baselines state the transaction class each operation keeps regardless of
 // consent: initial selects the executor's opening transaction — the durable
-// journal behind an operator-governed consequence, plus worktree_claim,
-// whose SQL authority binds to an already-created native tree — and replay
+// journal behind an operator-governed consequence — and replay
 // selects the early-replay baseline that re-acknowledges the original
 // authority. A planner's conditional fact replaces initial, never replay.
 var mutationDurabilityDeclarations = map[string]mutationDurability{
@@ -33,13 +32,8 @@ var mutationDurabilityDeclarations = map[string]mutationDurability{
 	"concord_work_transition.lifecycle":                {},
 	"concord_work_transition.remove":                   {initial: true, replay: true},
 	"concord_work_transition.workflow_action":          {replay: true},
-	"concord_work_transition.worktree_claim":           {initial: true, replay: true},
-	"concord_work_transition.session_vacate":           {},
 	"concord_work_transition.project_handoff_record":   {},
 	"concord_work_transition.project_handoff_consume":  {},
-	"concord_work_transition.worktree_reclaim":         {},
-	"concord_work_transition.worktree_audit_reclaim":   {},
-	"concord_work_transition.worktree_destroy":         {},
 	"concord_work_relate.set_memberships":              {},
 	"concord_work_relate.resolve_overlap":              {initial: true, replay: true},
 	"concord_work_relate.message_send":                 {},

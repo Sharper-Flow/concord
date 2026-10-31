@@ -59,8 +59,10 @@ reads law and the independent Domain registry at that same commit into an
 explicit immutable in-memory snapshot before opening a store transaction.
 Dirty files, another checkout's branch and later commits cannot alter that
 snapshot. A consequential transaction revalidates its home and reference
-binding through the existing bounded small-file proof, and refuses a
-changed binding rather than consuming stale proof. It does not run Git
+binding through the existing bounded small-file proof. The proof binds the
+committed law-folder and Domain-registry content, so a moved head over
+unchanged law and registry content stays admitted, and changed law or
+registry content refuses rather than consuming stale proof. It does not run Git
 subprocesses or network operations while holding the store connection.
 
 The law index, manifest registration, record shards, derived law

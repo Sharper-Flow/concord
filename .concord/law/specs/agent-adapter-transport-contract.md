@@ -81,10 +81,9 @@ The adapter's domain-tool interface has three host-specific responsibilities:
    TS5's hidden envelope.
 
 The plugin entry also registers only the host runtime hooks that accepted
-decisions require. The continuity hook re-asserts core-derived state without
-gating or payload-validation
-authority, as [CD-0090 D1–D2](../decisions/CD-0090-per-turn-continuity-re-pin-hook.md#d1-runtime-hooks-and-authority-hooks-are-different-classes)
-requires. Every domain decision, scope resolution, authorization check,
+decisions require. Work context reaches agents through explicit Concord reads
+under [CD-0016](../decisions/CD-0016-context-continuity.md), not automatic
+per-turn injection. Every domain decision, scope resolution, authorization check,
 expected-version check, idempotency decision, recorded write, recovery
 state, and result classification stays in the Go core.
 
@@ -209,8 +208,9 @@ retry returns a prior result, resumes a durable operation, or executes.
 ## 6. Plugin entry and transport module
 
 `concord-plugin.ts` owns registration and the host hooks required by accepted
-decisions. [CD-0090](../decisions/CD-0090-per-turn-continuity-re-pin-hook.md)
-owns the continuity re-pin hook. `concord.ts` stays transport-only.
+decisions. `concord.ts` stays transport-only and reads the host session directory
+per call for authenticated Project resolution under
+[CD-0104 D1](../decisions/CD-0104-a-session-worktree-is-its-actual-directory.md#d1-the-sessions-worktree-is-the-directory-it-runs-in).
 
 Native Task is the host's own surface. Concord adds no authorization,
 packaging, completion readback or recovery bridge for it (CD-0242 D6).

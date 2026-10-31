@@ -357,7 +357,7 @@ PM2–PM5 and CD-0008 govern storage, membership, evidence binding, and unreadab
 
 All five criteria are proved by scenarios of
 `.concord/scenarios/product-memory-query.v1.json`, executed by
-`TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).
+`TestAgentJobsCorpus` (`internal/agent/agent_jobs_corpus_test.go`).
 
 - Criterion 1 is proved by the bound `Q1-ambiguous-project` scenario, which
   resolves ambiguous ownership and asserts typed ambiguity candidates instead

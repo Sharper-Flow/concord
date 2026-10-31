@@ -62,11 +62,6 @@ func TestReviewCurrentPlanRevisionCannotRestoreReadiness(t *testing.T) {
 			f := seedWorkContextFixture(t, "review-plan-revision")
 			t.Cleanup(func() { _ = f.store.Close() })
 			repo, _ := reviewSubjectClaim(t, f.store, f.workID)
-			var branch string
-			if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(f.workID)).Scan(&branch); err != nil {
-				t.Fatal(err)
-			}
-			gitRunStore(t, repo, "branch", "-m", branch)
 			j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
 			j.observeRun(t, "plan-basis")
 			if accepted {

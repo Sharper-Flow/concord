@@ -12,10 +12,6 @@
   "law_relations": [
     {
       "kind": "refines",
-      "target_id": "CD-0144"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0094"
     }
   ]
@@ -27,7 +23,7 @@
 - **Date:** 2026-09-27
 - **Scope:** The workflow start and complete actions, the execution-start
   fact, the lifecycle completed gate, and the tests that pin them
-- **Related:** CD-0144, CD-0094, CD-0013, CD-0166
+- **Related:** CD-0094, CD-0013, CD-0166
 - **Approval:** The operator approved this change in session 2026-09-27 on
   work item `work-4c428253aab7dc64d936e08b`
   ([Concord (CON) issue 158](https://linear.app/sharper-flow/issue/CON-158)).

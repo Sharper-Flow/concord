@@ -94,7 +94,7 @@ func scanAmbiguousScopeFile(path string, file *ast.File, fset *token.FileSet) []
 				if !ok {
 					return true
 				}
-				if ident.Name != "newFailure" && ident.Name != "wrapFailure" && ident.Name != "newRouteFailure" {
+				if ident.Name != "newFailure" && ident.Name != "wrapFailure" {
 					return true
 				}
 				if len(n.Args) == 0 {

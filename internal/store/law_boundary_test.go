@@ -389,3 +389,75 @@ func TestMandatedLawBoundaryChecksUnknownConflictAndAmendmentSubset(t *testing.T
 		t.Fatal("undeclared law modification accepted")
 	}
 }
+
+// qualifiedScopeFixture seeds two Product-member Projects, each with its own
+// committed law folder: p1/l1 carries law a (the Product's designated home),
+// p2/l2 carries law q (a member Project a qualified mandate may name).
+func qualifiedScopeFixture(t *testing.T) (*Store, KnowledgeHome) {
+	t.Helper()
+	repoA := initKnowledgeRepo(t)
+	writeKnowledgeFile(t, repoA, knowledgeRegistryPath, fixtureLawFolderRegistry)
+	writeKnowledgeFile(t, repoA, ".concord/law/decisions/a-fixture.md", fixtureLawFolderLaw("a"))
+	commitKnowledgeRepo(t, repoA, "home a law folder")
+	repoB := initKnowledgeRepo(t)
+	writeKnowledgeFile(t, repoB, knowledgeRegistryPath, fixtureLawFolderRegistry)
+	writeKnowledgeFile(t, repoB, ".concord/law/specs/q-fixture.md", fixtureLawFolderLaw("q"))
+	commitKnowledgeRepo(t, repoB, "home q law folder")
+	s := openTemp(t)
+	home1 := KnowledgeHome{HomeProjectID: "p1", HomeLocatorID: "l1", RepoPath: repoA, HeadRef: "HEAD"}
+	home2 := KnowledgeHome{HomeProjectID: "p2", HomeLocatorID: "l2", RepoPath: repoB, HeadRef: "HEAD"}
+	authorizeKnowledgeLocator(t, s, home1)
+	authorizeKnowledgeLocator(t, s, home2)
+	authorizeKnowledgeProductHome(t, s, "prod", home1)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT OR IGNORE INTO product_projects(product_id,project_id,role) VALUES('prod','p2','secondary'); DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	return s, home1
+}
+
+// TestQualifiedMandateResolvesThroughWidenedVerifiedSources holds the
+// qualified Project scope (CD-0200): the establishment widens the verified
+// source set with the qualified mandate's named Project, so the qualified
+// reference resolves through a verified source while a bare ID never crosses
+// a home, and a Project the proof does not bind answers as missing law
+// instead of an imported answer.
+func TestQualifiedMandateResolvesThroughWidenedVerifiedSources(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, home := qualifiedScopeFixture(t)
+	proofCtx, err := s.establishKnowledgeSourceSetProofAtHomes(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"p2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(proofCtx, func(tx *Transaction) error {
+		raw, err := transactionSQL(tx, "check_mandated_laws")
+		if err != nil {
+			return err
+		}
+		return checkMandatedLawsTxAtHome(proofCtx, raw, home.HomeProjectID, home.HomeLocatorID, []string{"a", "p2/q"}, nil, true)
+	}); err != nil {
+		t.Fatalf("a qualified reference through a verified second source was refused: %v", err)
+	}
+	err = s.Transact(proofCtx, func(tx *Transaction) error {
+		raw, err := transactionSQL(tx, "check_mandated_laws")
+		if err != nil {
+			return err
+		}
+		return checkMandatedLawsTxAtHome(proofCtx, raw, home.HomeProjectID, home.HomeLocatorID, []string{"a", "q"}, nil, true)
+	})
+	requireFailureKind(t, err, KindProjectionNotFound, "a bare ID must not cross into another home's law folder")
+	if !strings.Contains(err.Error(), "q") {
+		t.Fatalf("the bare-crossing refusal does not name the crossed ID: %v", err)
+	}
+	err = s.Transact(proofCtx, func(tx *Transaction) error {
+		raw, err := transactionSQL(tx, "check_mandated_laws")
+		if err != nil {
+			return err
+		}
+		return checkMandatedLawsTxAtHome(proofCtx, raw, home.HomeProjectID, home.HomeLocatorID, []string{"a", "p3/r"}, nil, true)
+	})
+	requireFailureKind(t, err, KindProjectionNotFound, "a qualified reference through an unverified Project answers as missing law")
+	if !strings.Contains(err.Error(), "p3/r") {
+		t.Fatalf("the unverified-source refusal does not name the reference: %v", err)
+	}
+}

@@ -443,62 +443,41 @@ func (s *Store) qualifiedSourceHomes(ctx context.Context, home KnowledgeHome, qu
 // the re-validation stays inside CD-0195 D2. The refusal is the completion
 // gate's answer when the caller skipped the pre-transaction verification, or
 // when a source changed after it.
-func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, references []string) error {
+func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectID, homeLocatorID string) error {
 	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
 	if err != nil || productID == "" {
 		return err
 	}
-	sources, err := requireKnowledgeSourceSet(ctx, q, homeProjectID, homeLocatorID, references)
+	sources, err := verifiedKnowledgeSourceSet(ctx, q, productID)
 	if err != nil {
 		return err
 	}
 	return requireKnowledgeSourcesProof(ctx, q, productID, sources)
 }
 
-// requireKnowledgeSourceSet resolves the transaction's expected source set
-// the same way the pre-transaction verification expanded it: the Product's
-// designated homes, then one canonical home per Project the mandate names
-// through the qualified reference form. A named Project whose home the proof
-// does not bind stays out of the set — the reference itself answers as
-// missing law with that recovery, instead of widening the checked set
-// beyond what was verified.
-func requireKnowledgeSourceSet(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, references []string) ([]KnowledgeHome, error) {
-	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
-	if err != nil {
-		return nil, err
-	}
+// verifiedKnowledgeSourceSet resolves the transaction's law source set: the
+// Product's designated homes plus every source the pre-transaction
+// verification bound (the qualified-mandate widening), so a qualified
+// reference resolves through verified sources and the source-set digest
+// compares like for like.
+func verifiedKnowledgeSourceSet(ctx context.Context, q queryer, productID string) ([]KnowledgeHome, error) {
 	sources, err := resolveKnowledgeQuerySources(ctx, q, productID, "check_mandated_laws")
 	if err != nil {
 		return nil, err
 	}
 	proof := knowledgeSourceSetProofFrom(ctx)
-	bound := map[string]bool{}
-	if proof != nil {
-		for _, source := range proof.sources {
-			bound[source.HomeProjectID] = true
-		}
+	if proof == nil {
+		return sources, nil
 	}
-	seen := map[string]bool{homeProjectID: true}
+	seen := map[string]bool{}
 	for _, source := range sources {
-		seen[source.HomeProjectID] = true
+		seen[knowledgeSourceProofKey(source)] = true
 	}
-	for _, reference := range references {
-		projectID, _, qualified, err := parseQualifiedKnowledgeID("check_mandated_laws", reference)
-		if err != nil {
-			return nil, err
+	for _, source := range proof.sources {
+		if !seen[knowledgeSourceProofKey(source)] {
+			seen[knowledgeSourceProofKey(source)] = true
+			sources = append(sources, source)
 		}
-		if !qualified || seen[projectID] || proof != nil && !bound[projectID] {
-			continue
-		}
-		candidates, err := projectCanonicalHomeCandidates(ctx, q, projectID)
-		if err != nil {
-			return nil, err
-		}
-		if len(candidates) == 0 {
-			return nil, newFailure(KindProjectionNotFound, "check_mandated_laws", "the contract's qualified law mandate names a Project with no canonical-path knowledge locator: "+projectID, false, "designate the Project's canonical-path locator before mandating through it")
-		}
-		seen[projectID] = true
-		sources = append(sources, candidates[0])
 	}
 	return sources, nil
 }
@@ -576,7 +555,7 @@ func checkMandatedLawsTxAtHome(ctx context.Context, tx *sql.Tx, homeProjectID, h
 	if tx == nil {
 		return newFailure(KindUnavailable, "check_mandated_laws", "transaction is not open", false, "open a mutation transaction")
 	}
-	if err := requireKnowledgeSourceSetProof(ctx, tx, homeProjectID, homeLocatorID, append(append([]string{}, mandated...), modified...)); err != nil {
+	if err := requireKnowledgeSourceSetProof(ctx, tx, homeProjectID, homeLocatorID); err != nil {
 		return err
 	}
 	return checkMandatedLawsQuery(ctx, tx, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
@@ -615,7 +594,7 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 	}
 	var sources []KnowledgeHome
 	if productID != "" {
-		resolved, err := resolveKnowledgeQuerySources(ctx, q, productID, "check_mandated_laws")
+		resolved, err := verifiedKnowledgeSourceSet(ctx, q, productID)
 		if err != nil {
 			return err
 		}

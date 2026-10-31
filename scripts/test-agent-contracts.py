@@ -30,7 +30,7 @@ class VerificationReportSchemaTests(unittest.TestCase):
             with self.subTest(missing=field), self.assertRaises(ValueError):
                 generator.schema_validate(incomplete, schema, payload_schema)
 
-    def test_bind_evidence_publishes_report_and_inspect_rejects_output(self):
+    def test_bind_evidence_publishes_report(self):
         fields = payload_schema["$defs"]["work_transition_action_variant_bind_evidence"]["properties"]["fields"]
         self.assertEqual(fields["properties"]["verification_report"], {"$ref": "#/$defs/workflow_verification_report"})
         schema = payload_schema["$defs"]["work_transition_action_variant_bind_evidence"]
@@ -40,17 +40,6 @@ class VerificationReportSchemaTests(unittest.TestCase):
                                            "result": "pass", "run_ref": "run:1"}}}
         generator.schema_validate(binding, schema, payload_schema)
         generator.schema_validate(binding | {"fields": {"evidence_kind": "review"}}, schema, payload_schema)
-        schema = payload_schema["$defs"]["work_browse_worktree_inspect_input"]
-        generator.schema_validate({"work_id": "work-1", "mode": "status"}, schema, payload_schema)
-        with self.assertRaises(ValueError):
-            generator.schema_validate({"work_id": "work-1", "mode": "oracle_output", "run_ref": "run:1", "stream": "stdout", "offset": 0, "length": 1}, schema, payload_schema)
-        result_schema = payload_schema["$defs"]["worktree_inspect_result"]
-        for mode in ("status", "diff", "file"):
-            result = {"work_id": "work-1", "project_id": "project-1", "branch": "work/work-1",
-                      "path": "/synthetic/tree", "mode": mode, "content": "", "truncated": False}
-            generator.schema_validate(result, result_schema, payload_schema)
-            with self.assertRaises(ValueError):
-                generator.schema_validate(result | {"path": ""}, result_schema, payload_schema)
 
     def test_pruning_drops_retired_native_definitions(self):
         document = copy.deepcopy(payload_schema)
@@ -488,7 +477,7 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
         original = lane_checker._load_json(ROOT / ".concord/scenarios/workflow-engine.v1.json")
         association = copy.deepcopy(original["scenarios"][0])
         association["action"] = association["request"]["action_id"] = "record_verdict"
-        association["request"]["fields"] = {"verdicts": [{"predicate_id": "predicate:return-route", "receipt_refs": ["worktree_verify:captured"]}]}
+        association["request"]["fields"] = {"verdicts": [{"predicate_id": "predicate:return-route", "receipt_refs": ["verification:reported"]}]}
         original["scenarios"].append(association)
         self.assertEqual(lane_checker._structured_scenario_check(original), [])
         for action, field in (("approve_contract", "premise"), ("record_proposal", "problem"), ("record_verdict", "verdicts"), ("complete", "impact_verdict")):
@@ -570,7 +559,6 @@ work_kinds_generator = _load_cli_module("cli_safety_work_kinds", "generate-work-
 native_run_statuses_generator = _load_cli_module("cli_safety_native_run_statuses", "generate-native-run-statuses.py")
 relation_vocabulary_generator = _load_cli_module("cli_safety_relation_vocabulary", "generate-relation-vocabulary.py")
 durable_tier_budget_generator = _load_cli_module("cli_safety_durable_tier_budget", "generate-durable-tier-budget.py")
-branch_freshness_generator = _load_cli_module("cli_safety_branch_freshness", "generate-branch-freshness.py")
 class PublicationPinGenerationTests(unittest.TestCase):
     def test_pin_measures_the_production_publication(self):
         with unittest.mock.patch.object(generator.subprocess, "run") as run:
@@ -778,42 +766,6 @@ class ToolDescriptionTests(unittest.TestCase):
                     if tool["id"] == owner:
                         self.assertNotRegex(tool["description"],
                                             re.compile(r"\b" + re.escape(name) + r"\b", re.I))
-
-
-class WorkStartHostContractTests(unittest.TestCase):
-    def setUp(self):
-        host = json.loads((ROOT / "contracts/host-tool-surface.v1.json").read_text())
-        self.tool = next(tool for tool in host["tools"] if tool["name"] == "concord_work_start")
-
-    def edited(self, change):
-        tool = copy.deepcopy(self.tool)
-        change(tool["args"]["oneOf"][0], tool["args"]["oneOf"][1])
-        return tool
-
-    def test_shipped_capture_and_resume_selector_xor_validate(self):
-        generator.validate_work_start_host_tool(self.tool)
-        capture, resume = self.tool["args"]["oneOf"]
-        self.assertEqual(list(resume["properties"]), ["issue_key", "work_id"])
-        self.assertEqual(resume["oneOf"], [{"required": ["work_id"]}, {"required": ["issue_key"]}])
-        self.assertNotIn("issue_key", capture["properties"])
-
-    def test_selector_shape_closure_and_bounds_cannot_drift(self):
-        changes = {
-            "work_id only": lambda _, resume: (resume["properties"].pop("issue_key"), resume.pop("oneOf"), resume.update(required=["work_id"])),
-            "both required": lambda _, resume: resume.update(required=["work_id", "issue_key"]),
-            "selector optional": lambda _, resume: resume.pop("oneOf"),
-            "selector any": lambda _, resume: resume.update(anyOf=resume.pop("oneOf")),
-            "Project override": lambda _, resume: resume["properties"].update(project_id={"type": "string"}),
-            "open resume": lambda _, resume: resume.update(additionalProperties=True),
-            "capture issue key": lambda capture, resume: capture["properties"].update(issue_key=resume["properties"]["issue_key"]),
-            "key pattern": lambda _, resume: resume["properties"]["issue_key"].update(pattern="^.+$"),
-            "key minimum": lambda _, resume: resume["properties"]["issue_key"].update(minLength=1),
-            "key maximum": lambda _, resume: resume["properties"]["issue_key"].update(maxLength=128),
-            "key type": lambda _, resume: resume["properties"]["issue_key"].update(type=["string", "null"]),
-        }
-        for name, change in changes.items():
-            with self.subTest(change=name), self.assertRaises(ValueError):
-                generator.validate_work_start_host_tool(self.edited(change))
 
 
 class ResultRequirednessTests(unittest.TestCase):
@@ -2101,7 +2053,7 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
 
     def test_resolution_proof_kinds_are_bounded_and_nonempty(self):
         schemas = ((self.projected["$defs"]["lane_report_resolved_finding"], self.projected),)
-        native = {"finding_id": "finding:19:0", "evidence_refs": ["worktree_verify:one"]}
+        native = {"finding_id": "finding:19:0", "evidence_refs": ["verification:reported"]}
         judged = {"finding_id": "finding:19:0", "judged_case_ids": ["case:one"]}
         for schema, root in schemas:
             for valid in (native, judged, native | judged,
@@ -3304,7 +3256,6 @@ class GeneratorCLISafetyTests(unittest.TestCase):
         ("generate-native-run-statuses.py", native_run_statuses_generator, "VOCABULARY"),
         ("generate-relation-vocabulary.py", relation_vocabulary_generator, "VOCABULARY"),
         ("generate-durable-tier-budget.py", durable_tier_budget_generator, "BUDGET"),
-        ("generate-branch-freshness.py", branch_freshness_generator, "DECLARATION"),
     )
     REFUSAL_ARGSETS = (
         ("unknown-flag", ["--unknown-option"]),

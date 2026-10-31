@@ -509,30 +509,6 @@ func TestDurableCommitFailureReportsPersistedEffect(t *testing.T) {
 	}
 }
 
-func TestDurableClaimCommitFailureKeepsPersistedNativeState(t *testing.T) {
-	ctx := context.Background()
-	s, git, _ := worktreeFixture(t)
-	if err := s.db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	connector := &restoreFaultConnector{dsn: dataSourceName(s.Path())}
-	connector.failCommit.Store(true)
-	s.db = sql.OpenDB(connector)
-	s.db.SetMaxOpenConns(1)
-	_, err := s.ClaimWorktree(ctx, baseClaim(git))
-	var failure *Failure
-	if !errors.As(err, &failure) || !failure.EffectPossible {
-		t.Fatalf("claim commit failure lost its possible effect: %v", err)
-	}
-	entries, err := s.WorktreeEntries(ctx, "work-w")
-	if err != nil || len(entries) != 1 || entries[0].State != worktreeEntryActive {
-		t.Fatalf("claim did not persist before the error: entries=%+v err=%v", entries, err)
-	}
-	if git.countCalls("worktree remove") != 0 {
-		t.Fatal("compensation removed native state still named by persisted authority")
-	}
-}
-
 func TestMigrateV115ToV116AddsDurabilityMarker(t *testing.T) {
 	useStampedBuild(t)
 	ctx := context.Background()

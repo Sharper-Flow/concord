@@ -3,9 +3,7 @@
   "id": "CD-0134",
   "title": "The agent surface splits by authority boundary",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "agent-surface",
   "applies_to_domain_ids": [
@@ -85,7 +83,7 @@ The registry adds these current children under `agent-surface`:
 |---|---|---|
 | `agent-contract` | Agent jobs, granularity, read intents, mutation intents, and operation contracts | TS1, TS2, TS3, TS4, CD-0216, CD-0035, CD-0038, CD-0069, CD-0113 |
 | `agent-call-boundary` | Scope, authorization, idempotency, result, error, evidence, and pagination semantics | TS5, TS7, CD-0023, CD-0027, CD-0071, CD-0080, CD-0132 |
-| `agent-adapter` | OpenCode registration, host context, CLI transport and shipped host methods | TS6, CD-0043, CD-0058, CD-0063, CD-0084, CD-0088, CD-0090, CD-0246 |
+| `agent-adapter` | OpenCode registration, host context, CLI transport and shipped host methods | TS6, CD-0043, CD-0058, CD-0063, CD-0084, CD-0088, CD-0246 |
 | `agent-evolution` | Manifest identity, pre-go-live surface change, and deterministic change evidence | TS8, TS9, CD-0024, CD-0042 |
 
 The parent retains CD-0005 because that record indexes the complete agent surface and its cross-child invariants. CD-0134 also remains at the parent because it governs the decomposition itself. The migration marks the child-specific applicability of these clauses without creating a second home.

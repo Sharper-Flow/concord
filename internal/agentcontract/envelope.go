@@ -110,12 +110,6 @@ type RecoveryAction struct {
 	RequiredRefs []string `json:"required_refs,omitempty"`
 }
 
-type SessionPlacement struct {
-	WorkID    string `json:"work_id"`
-	ProjectID string `json:"project_id"`
-	Directory string `json:"directory"`
-}
-
 type StaleLawRevision struct {
 	OldLawID        string   `json:"old_law_id"`
 	OldContentHash  string   `json:"old_content_hash"`
@@ -158,7 +152,6 @@ type TypedError struct {
 	Options             []string             `json:"options,omitempty"`
 	StaleLawRevision    *StaleLawRevision    `json:"stale_law_revision,omitempty"`
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
-	SessionPlacement    *SessionPlacement    `json:"session_placement,omitempty"`
 	// SupportedBudgetSeconds is the CD-0038 D3 typed ceiling. It rides every
 	// budget_refused error — seconds refusal, result-size overrun, and the
 	// legacy millisecond bound alike — so the value a caller needs to recover
@@ -654,19 +647,18 @@ var (
 // Size failures allow producer repair when no caller-controlled limit exists.
 // Companion-field requirements remain separate from action membership.
 var enforcedRecoveryCouplings = map[string][]string{
-	"ambiguous_scope":        {"resolve_ambiguity"},
-	"budget_refused":         {"adjust_budget"},
-	"cancelled":              {"retry_same_request"},
-	"cross_repository_claim": {"use_declared_route"},
-	"invalid_cursor":         {"restart_query"},
-	"limit_exceeded":         {"reduce_limit", "contact_operator"},
-	"missing_evidence":       {"provide_evidence"},
-	"operation_conflict":     {"reconcile_operation"},
-	"resource_busy":          {"retry_same_request"},
-	"outcome_mismatch":       {"contact_operator"},
-	"stale_context":          {"refresh_context"},
-	"timeout":                {"retry_same_request"},
-	"version_conflict":       {"reread_entities"},
+	"ambiguous_scope":    {"resolve_ambiguity"},
+	"budget_refused":     {"adjust_budget"},
+	"cancelled":          {"retry_same_request"},
+	"invalid_cursor":     {"restart_query"},
+	"limit_exceeded":     {"reduce_limit", "contact_operator"},
+	"missing_evidence":   {"provide_evidence"},
+	"operation_conflict": {"reconcile_operation"},
+	"resource_busy":      {"retry_same_request"},
+	"outcome_mismatch":   {"contact_operator"},
+	"stale_context":      {"refresh_context"},
+	"timeout":            {"retry_same_request"},
+	"version_conflict":   {"reread_entities"},
 	// The outside-repair active refusal (CD-0210) carries the declared route
 	// refs the store names: reconcile and resume. The work pin pre-records the
 	// same routes, so a refusal that reaches a caller names routes the caller
@@ -740,12 +732,6 @@ func validateError(err TypedError) error {
 }
 
 func validateErrorReferenceCouplings(err TypedError) error {
-	if err.Kind == "cross_repository_claim" || err.SessionPlacement != nil {
-		placement := err.SessionPlacement
-		if err.Kind != "cross_repository_claim" || placement == nil || !BoundedBytes(placement.WorkID, 1, 128) || !BoundedBytes(placement.ProjectID, 1, 128) || !BoundedBytes(placement.Directory, 1, 4096) || !strings.HasPrefix(placement.Directory, "/") || strings.ContainsRune(placement.Directory, '\x00') {
-			return errors.New("session placement coupling violated")
-		}
-	}
 	if err.Kind == "stale_law_revision" {
 		if x := validateStaleLawRevisionCoupling(err.StaleLawRevision); x != nil {
 			return x

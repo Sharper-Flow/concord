@@ -37,7 +37,7 @@ func qBuildAcceptancePredicates(t *testing.T, workID, artifact string, associate
 
 // qAssociateCurrentProof keeps the seeded store and contract. The item must
 // declare the current Review and criterion-association routes. It adds a
-// managed claim and clean candidate before capturing the command receipt.
+// clean candidate repository before capturing the command receipt.
 // Investigation is seeded by default; pass false to leave that gate unmet.
 func qAssociateCurrentProof(t *testing.T, f workContextFixture, artifact string, associate bool, investigation ...bool) acceptanceRecoveryFixture {
 	t.Helper()
@@ -50,11 +50,6 @@ func qAssociateCurrentProofAt(t *testing.T, f workContextFixture, verdictStep, a
 	t.Helper()
 	workID := f.workID
 	repo, _ := reviewSubjectClaim(t, f.store, workID)
-	var branch string
-	if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(workID)).Scan(&branch); err != nil {
-		t.Fatal(err)
-	}
-	gitRunStore(t, repo, "branch", "-m", branch)
 	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo, acceptor: f.owner}
 	if artifact != "" {
 		if err := j.action(t, "start_execution", map[string]any{}, f.owner); err != nil {

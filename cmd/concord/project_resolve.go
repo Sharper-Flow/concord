@@ -19,11 +19,10 @@ import (
 // scope_version is the membership watermark, so a host cache can tell a moved
 // repository from changed Product↔Project authority.
 //
-// Placement: a core CLI verb rather than a host script, the same rationale
-// worktree-locate carries — the inputs are registered locators only the core
-// can read. Recorded in .concord/docs/capability-placement.md §6 and CD-0079.
+// Registered locators belong to the core, not a host-side directory heuristic
+// (.concord/docs/capability-placement.md §6 and CD-0079).
 //
-// The verb is unauthenticated, as worktree-locate is. CD-0079 D2 records why:
+// The verb is unauthenticated. CD-0079 D2 records why:
 // the trust boundary is filesystem access to the authority database, which a
 // caller able to exec this verb already holds. This is a read. It appends no
 // event, and CD-0021's rejection of a second write authority still binds.

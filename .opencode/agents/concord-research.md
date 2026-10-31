@@ -46,7 +46,6 @@ permission:
     "go run *cmd/concord*": deny
     "concord --help": allow
     "concord --version": allow
-    "concord continuity-block": allow
     "concord client show": allow
     "gh pr view *": allow
     "gh pr diff *": allow
@@ -62,7 +61,6 @@ permission:
   concord_work_compact: deny
   concord_work_define: deny
   concord_work_relate: deny
-  concord_work_start: deny
   concord_work_transition: deny
 ---
 

@@ -173,13 +173,13 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ReadLinearLink", run: func() error {
-			link, err := s.ReadLinearLink(ctx, "blocker")
+		{name: "readLinearLinkCore", run: func() error {
+			link, found, err := readLinearLinkCore(ctx, s.db, "blocker")
 			if err != nil {
 				return err
 			}
-			if link.URL != "https://example.invalid/issues/SYN-1" {
-				return fmt.Errorf("url=%q", link.URL)
+			if !found || link.URL != "https://example.invalid/issues/SYN-1" {
+				return fmt.Errorf("found=%v url=%q", found, link.URL)
 			}
 			return nil
 		}},
@@ -203,20 +203,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "WorktreeEntries", run: func() error {
-			entries, err := s.WorktreeEntries(ctx, "blocker")
-			if err != nil {
-				return err
-			}
-			if len(entries) != 0 {
-				return fmt.Errorf("entries=%+v, want none", entries)
-			}
-			return nil
-		}},
-		{name: "ResumeWorktreeLocation", absent: KindProjectionNotFound, run: func() error {
-			_, err := s.ResumeWorktreeLocation(ctx, "prod", "proj", "blocker")
-			return err
-		}},
 		{name: "LawAdditionReservations", run: func() error {
 			reservations, err := s.LawAdditionReservations(ctx, "prod")
 			if err != nil {
@@ -224,26 +210,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if len(reservations) != 0 {
 				return fmt.Errorf("reservations=%+v, want none", reservations)
-			}
-			return nil
-		}},
-		{name: "WorktreeOwnerWorkID", run: func() error {
-			workID, err := s.WorktreeOwnerWorkID(ctx, "proj", toolRepo)
-			if err != nil {
-				return err
-			}
-			if workID != "" {
-				return fmt.Errorf("owner=%q, want empty", workID)
-			}
-			return nil
-		}},
-		{name: "WorktreeAudit", run: func() error {
-			audit, err := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "prod", Limit: 20})
-			if err != nil {
-				return err
-			}
-			if len(audit.Drift) != 0 {
-				return fmt.Errorf("drift=%+v, want none", audit.Drift)
 			}
 			return nil
 		}},
@@ -425,16 +391,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ProjectCanonicalPath", run: func() error {
-			path, err := s.ProjectCanonicalPath(ctx, "proj")
-			if err != nil {
-				return err
-			}
-			if path != toolRepo {
-				return fmt.Errorf("path=%q", path)
-			}
-			return nil
-		}},
 		{name: "ProjectLocators", run: func() error {
 			locators, err := s.ProjectLocators(ctx, "proj")
 			if err != nil {
@@ -531,16 +487,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ResolveContinuityWorkByDirectory", run: func() error {
-			resolution, err := s.ResolveContinuityWorkByDirectory(ctx, filepath.Join(toolRepo, "no-such-dir"))
-			if err != nil {
-				return err
-			}
-			if resolution.WorkID != "" || resolution.ProjectID != "" {
-				return fmt.Errorf("resolution=%+v, want empty", resolution)
-			}
-			return nil
-		}},
 		{name: "GoverningRequirementsForProjectIDs", run: func() error {
 			refs, err := s.GoverningRequirementsForProjectIDs(ctx, []string{"proj"})
 			if err != nil {
@@ -572,16 +518,8 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			_, err := BackupWithOptions(ctx, s, optioned, BackupOptions{SnapshotID: "neighbor-snapshot"})
 			return err
 		}},
-		{name: "ReadSessionClaimedWorktree", run: func() error {
-			_, err := ReadSessionClaimedWorktree(ctx, s, "neighbor-work", "proj")
-			return err
-		}},
-		{name: "ReadPendingProjectHandoffForProject", run: func() error {
-			_, err := ReadPendingProjectHandoffForProject(ctx, s, "neighbor-work", "proj", "neighbor-session")
-			return err
-		}},
 		{name: "EvaluateProjectSessionRetirement", run: func() error {
-			_, err := EvaluateProjectSessionRetirement(ctx, s, "neighbor-work", "proj", "neighbor-session")
+			_, err := EvaluateProjectSessionRetirement(ctx, s, "neighbor-work", "proj", "neighbor-session", toolRepo)
 			return err
 		}},
 	}
@@ -626,34 +564,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if mode == neighbor.Writer && time.Since(started) >= neighbor.WriterHold {
 				t.Fatal("supersede_contract discovery waited for writer release")
-			}
-		})
-	}
-	// The bootstrap-origin validation owns a worktree fixture and its fake
-	// git, so it prepares its own store per mode beside the same neighbors.
-	for _, mode := range []neighbor.Mode{neighbor.Reader, neighbor.Writer} {
-		t.Run(string(mode)+"/ValidateBootstrapOrigin", func(t *testing.T) {
-			s, git, _ := worktreeFixture(t)
-			claim, err := s.ClaimWorktree(ctx, baseClaim(git))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := s.db.Exec("PRAGMA busy_timeout=50"); err != nil {
-				t.Fatal(err)
-			}
-			neighbor.Start(t, s.Path(), mode)
-			if _, err := s.ValidateBootstrapOrigin(ctx, "project-w", claim.Entry.Path, git); err != nil {
-				t.Fatal(err)
-			}
-			// The claimed worktree backs the worktree-tier read surface: the
-			// inspection is a read over the claim's entry plus the fake git's
-			// porcelain answer, never a lease.
-			status, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-w", ProjectID: "project-w", Mode: WorktreeInspectModeStatus, Runner: git})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if status.Path != claim.Entry.Path {
-				t.Fatalf("status=%+v", status)
 			}
 		})
 	}

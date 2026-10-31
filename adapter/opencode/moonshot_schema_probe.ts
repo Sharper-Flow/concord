@@ -1,4 +1,4 @@
-import { domain, product_view, publishRequestDefinition, publishWorkStartDefinition, work_browse, work_compact, work_define, work_relate, work_start, work_trace, work_transition } from "./concord"
+import { domain, product_view, publishRequestDefinition, work_browse, work_compact, work_define, work_relate, work_trace, work_transition } from "./concord"
 
 // Live probe: submit every published Concord tool schema to the Moonshot-backed
 // opencode-go provider and fail when its flavored validator refuses any of them.
@@ -34,10 +34,6 @@ for (const [name, exportedTool] of Object.entries(coreTools)) {
   await publishRequestDefinition({ toolID: name }, definition)
   tools.push({ name, description: definition.description, parameters: definition.jsonSchema })
 }
-
-const workStartDefinition = { description: String(work_start.description ?? ""), parameters: {} as unknown, jsonSchema: undefined as unknown }
-await publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartDefinition)
-tools.push({ name: "concord_work_start", description: workStartDefinition.description, parameters: workStartDefinition.jsonSchema })
 
 function fail(message: string): never {
   throw new Error(message)

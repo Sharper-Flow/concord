@@ -70,13 +70,13 @@ already produces. The verb never guesses, and it never writes a locator to make
 a lookup succeed. Registration remains the operator's explicit act through
 `project locator-add`.
 
-Placement follows `worktree-locate` (issue #316): a core CLI verb because the
-inputs are registered locators only the core can read, and a host script would
-duplicate database access or double-hop through this verb anyway.
+Directory resolution is a core CLI read because its inputs are registered
+locators only the core can read. Worktree placement and path policy remain
+host-owned (CD-0088 D1).
 
 ### D2. The verb does not authenticate its caller
 
-No operator verb authenticates the operator. `worktree-locate` is an
+No operator verb authenticates the operator. `project-resolve` is an
 unauthenticated read. Concord's trust
 boundary for the operator surface is filesystem access to the authority
 database.

@@ -56,7 +56,7 @@ Any other value refuses the capture.
 
 ### D3. Keep creation routes on one rule
 
-Agent capture and host bootstrap publish `raised_from_work_id` on the shared
+Agent capture publishes `raised_from_work_id` on the shared
 creation route
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 Initiative creation and Linear import retain their existing import behavior.
@@ -66,4 +66,4 @@ Initiative creation and Linear import retain their existing import behavior.
 - Store tests prove live collisions refuse with the typed owner and reference.
 - Store tests prove a matching acknowledgement records `raised_from` atomically.
 - Store tests prove terminal owners do not block a later capture.
-- Contract checks prove the capture and host bootstrap fields are published.
+- Contract checks prove the capture fields are published.

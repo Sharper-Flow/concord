@@ -220,6 +220,9 @@ func init() {
 	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/bounded_job/maxLength", handoffJobMax)
 	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/changes/items/maxLength", handoffEntryMax)
 	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/changes/maxItems", handoffListMax)
+	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/consumed_at/maxLength", handoffRecordedAt)
+	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/consumed_by_session_ref/maxLength",
+		sessionRefGuard) // the value is grant.SessionRef of the consuming session
 	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/handoff_id/maxLength", handoffIDMax)
 	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/next_action/maxLength", handoffActionMax)
 	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/recorded_at/maxLength", handoffRecordedAt)
@@ -441,11 +444,10 @@ func init() {
 		unboundedOutput("knowledgeRegistryLocator joins the knowledge home's canonical-path locator with one fixed shard file name (internal/store/workflow_law_revision.go:836,849); the home locator's normalized value derives through normalizePath, whose symlink resolution expands the path to filesystem-target text with no length guard (internal/store/project_locator.go:154-161), so the joined locator is byte-ceiling only", readSizeRefusalPath, mutationResultPath))
 	registerOutputBound("/$defs/workflow_law_context_criterion/properties/predicate_id/maxLength",
 		manifestCriterionPredicate) // the manifest contract bounds criterion predicate ids with a closed pattern
-	// Law context Domain identity: the full-string guards sit upstream of
-	// the projection in the manifest parse chain (knowledge_manifest.go:
-	// 616,709,727); the insert at knowledge_index_projection.go:502 copies
-	// the already-validated fields, and rebuilds re-read the same validated
-	// registry.
+	// Law context Domain identity: the full-string guards sit in the
+	// committed law read (knowledge_record.go,
+	// validateKnowledgeDomainRegistry -> validateKnowledgeDomainRecord), so
+	// the already-validated fields are the writer chain's bounds.
 	registerOutputBound("/$defs/workflow_law_context_domain/properties/name/maxLength", domainNameGuard)
 	registerOutputBound("/$defs/workflow_law_context_domain/properties/purpose/maxLength", domainPurposeGuard)
 	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/criteria/maxItems",

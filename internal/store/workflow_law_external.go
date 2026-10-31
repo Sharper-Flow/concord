@@ -82,7 +82,7 @@ func (s *Store) lawCandidateProof(ctx context.Context, workID string) *workflowL
 	}
 	gitCtx, cancel := context.WithTimeout(ctx, gitCommandTimeout)
 	defer cancel()
-	repo := s.lawCandidateRepo(gitCtx, workID, *candidate)
+	repo := s.lawCandidateRepo(gitCtx, *candidate)
 	if repo == "" {
 		return nil
 	}
@@ -250,11 +250,9 @@ func workflowLawGitBlob(ctx context.Context, repo, commit, path string) (string,
 }
 
 // The candidate must resolve to the exact reviewed commit and tree. The
-// item's claimed worktree holds it first; the Project's canonical checkout
-// shares its objects after the worktree is gone.
-func (s *Store) lawCandidateRepo(gitCtx context.Context, workID string, candidate ReviewCandidate) string {
-	rows, err := s.db.QueryContext(gitCtx, `SELECT e.path FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id=? AND e.project_id=? AND e.state='active'
-UNION ALL SELECT normalized_value FROM project_locators WHERE project_id=? AND kind='canonical_path'`, workID, candidate.ProjectID, candidate.ProjectID)
+// Project's canonical checkouts supply the Git objects.
+func (s *Store) lawCandidateRepo(gitCtx context.Context, candidate ReviewCandidate) string {
+	rows, err := s.db.QueryContext(gitCtx, `SELECT normalized_value FROM project_locators WHERE project_id=? AND kind='canonical_path'`, candidate.ProjectID)
 	if err != nil {
 		return ""
 	}

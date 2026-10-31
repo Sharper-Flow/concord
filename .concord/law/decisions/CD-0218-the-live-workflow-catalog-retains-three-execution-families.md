@@ -97,7 +97,8 @@ correction route, not ordinary stale recovery. Preserve both independently; an
 ordinary re-pin does not manufacture a producer return or evade the correction
 gate. Cancellation does not replace an existing admitted re-pin exit.
 
-Exact shared-write conflicts, exclusive claims, session/worktree placement,
+Exact shared-write conflicts, exclusive step claims, host-owned session/worktree
+placement under CD-0088 D1,
 cross-repository handoff, uncertain-effect recovery, typed shared context,
 research-pack provenance and consumers, and GitHub delivery receipts remain.
 Shared affected-Domain membership alone grants no effect authority and creates

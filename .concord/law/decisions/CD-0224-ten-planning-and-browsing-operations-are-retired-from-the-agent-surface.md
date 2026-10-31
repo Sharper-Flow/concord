@@ -38,10 +38,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0179"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0048"
     },
     {

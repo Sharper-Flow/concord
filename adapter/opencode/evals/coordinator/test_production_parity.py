@@ -1,10 +1,7 @@
 """Executable production-boundary parity for the recording doubles.
 
-The comparison the contract names: one common synthetic corpus — malformed and
-corrected shapes for concord_work_start resume, malformed and corrected
-capture shapes for concord_work_start, and the malformed and corrected shapes
-for concord_work_transition.worktree_claim, including blank, whitespace-only,
-oversize, pattern-refusing, and numeric-constraint variants — runs through the
+One common synthetic corpus of malformed and corrected workflow_action inputs,
+including blank, whitespace-only, oversize, and numeric-constraint variants, runs through the
 actual production boundaries AND through the recording double run.py generates
 for a model run, and the captured semantic envelopes are compared field by
 field: outcome, error.kind, error.effect_state, error.recovery_action (the
@@ -13,20 +10,10 @@ Kind/effect/recovery constants and source imports alone prove nothing, so
 every comparison below reads envelopes captured by executing a real boundary
 in this test run:
 
-- concord_work_transition.worktree_claim executes through the real core CLI
+- concord_work_transition.workflow_action executes through the real core CLI
   binary built from this repository (`go build ./cmd/concord`, then
   `concord invoke` against an isolated empty store). The core owns this
-  input boundary; the adapter injects host_pid and forwards.
-- concord_work_start executes through the real adapter module
-  (adapter/opencode/concord.ts) under bun, with a controlled child runner
-  and host control plane exactly like the owning adapter suite. The adapter
-  owns this input boundary (validateWorkStartArgs, before any host write or
-  core call).
-- the same real adapter module also serves the closed table's input tuples
-  for three agent-named destination refusals on
-  concord_work_transition.session_vacate, captured
-  from the real work_transition tool before any core call. The production
-  capture is the evidence here; the double corpus is unchanged.
+  input boundary.
 - the recording double executes under bun from the same generated tool
   source run.py writes for a model run, against the real plugin tool module,
   so the served envelopes and the calls.jsonl trace are the double's real
@@ -55,7 +42,7 @@ from pathlib import Path
 
 import run as run_module
 from evaluation import structural_equal
-from scenarios import BASE_SHA, SCENARIOS, WORK
+from scenarios import SCENARIOS, WORK, REVIEW_FIELDS
 
 REPO = Path(__file__).resolve().parents[4]
 ADAPTER = REPO / "adapter" / "opencode"
@@ -67,49 +54,20 @@ PINNED_PLUGIN_VERSION = PINNED_PLUGIN["version"]
 # The semantic triple classification each production boundary serves for the
 # corpus, cross-checked against the envelopes executed in this run. The
 # recovery_action is the object form both executed boundaries serve.
-PRODUCTION_CLAIM_INPUT_REFUSAL = {
-    "kind": "invalid_input",
-    "effect_state": "none",
-    "recovery_action": {"kind": "correct_request"},
-    "retry_safe": False,
-}
-PRODUCTION_START_INPUT_REFUSAL = {
-    "kind": "invalid_input",
-    "effect_state": "none",
-    "recovery_action": {"kind": "correct_request"},
-    "retry_safe": False,
-}
-PRODUCTION_RESUME_REFUSAL = {
-    "kind": "resume_failure",
-    "effect_state": "possible",
-    "recovery_action": {"kind": "contact_operator"},
-    "retry_safe": False,
-}
-# The closed table's invalid_tool_input tuple the real adapter's
-# work_transition tool serves for the shared host-argument refusals: the
-# same pre-effect correction triple the core's payload refusals serve, with
-# adapter_reason separating the two boundaries. Captured from the executed
-# production boundary below.
-PRODUCTION_ADAPTER_TOOL_INPUT_REFUSAL = {
+PRODUCTION_WORKFLOW_INPUT_REFUSAL = {
     "kind": "invalid_input",
     "effect_state": "none",
     "recovery_action": {"kind": "correct_request"},
     "retry_safe": False,
 }
 MANIFEST_DIGEST = (REPO / "contracts" / "agent-tool-surface.digest").read_text().strip()
-DIRTY_ORIGIN_STDERR = ("concord work-resume: store: work_bootstrap: invalid_operation: "
-                       "cannot chain from dirty worktree of synthetic-origin-work")
-SHORT_BASE_SHA = "aabbcc"
-# The blank, oversize, and pattern-refusing payload variants: each one passes
+# The blank and oversize payload variants: each one passes
 # the double's tool schema (every value is a string) and reaches the core's
 # payload-schema value validation, which classifies it by the public
-# constraints the payload contract states ($defs/id and the inline base_sha
-# rule) — never as a missing field.
+# constraints the payload contract states — never as a missing field.
 EMPTY_IDEMPOTENCY_KEY = ""
 WHITESPACE_IDEMPOTENCY_KEY = "   "
 OVERSIZE_IDEMPOTENCY_KEY = "a" * 129
-PATTERN_BASE_SHA = "a" * 45
-OVERSIZE_BASE_SHA = "a" * 65
 # The numeric constraint variant: expected_version passes the tool schema's
 # integer typing and reaches the core's payload numeric validation.
 ZERO_EXPECTED_VERSION = 0
@@ -245,100 +203,36 @@ def invoke_request(input_value, request_id):
             "ambient_project_id": "synthetic-project", "scope_version": "v1",
             "manifest_digest": MANIFEST_DIGEST,
         },
-        "tool": "concord_work_transition", "operation": "worktree_claim",
+        "tool": "concord_work_transition", "operation": "workflow_action",
         "input": input_value,
     }
 
 
-def malformed_claim_args():
-    """A worktree_claim missing its idempotency_key (the common malformed case)."""
-    return {"request": {"operation": "worktree_claim", "input": {
-        "work_id": WORK, "project_id": "synthetic-same-repo-project",
-        "base_sha": BASE_SHA, "expected_version": 1,
-    }}}
+def workflow_args_with(**overrides):
+    data = {"work_id": WORK, "expected_version": 1, "action_id": "record_review",
+            "idempotency_key": "parity-review-key", "fields": REVIEW_FIELDS}
+    data.update(overrides)
+    return {"request": {"operation": "workflow_action", "input": data}}
 
 
-def corrected_claim_args():
-    args = malformed_claim_args()
-    args["request"]["input"]["idempotency_key"] = "parity-claim-key"
-    return args
-
-
-def short_base_claim_args():
-    args = corrected_claim_args()
-    args["request"]["input"]["base_sha"] = SHORT_BASE_SHA
-    return args
-
-
-def claim_args_with(**overrides):
-    """Corrected claim args with the named input fields overridden."""
-    args = corrected_claim_args()
-    args["request"]["input"].update(overrides)
-    return args
-
-
-def capture_start_args(idempotency_key):
-    """A capture-shaped work_start call: the corrected capture corpus with
-    the given idempotency_key."""
-    return {"title": "Synthetic parser repair", "value_statement": "The parser fails on synthetic input",
-            "kind": "bug", "task": "Fix the synthetic parser defect with regression coverage",
-            "idempotency_key": idempotency_key}
-
-
-def claim_corpus_args():
-    """The shared claim corpus as driven tool args, in execution order: every
-    input except the corrected shape is a malformed variant the core's input
-    boundary refuses before admission."""
+def workflow_corpus_args():
+    missing = workflow_args_with()
+    del missing["request"]["input"]["idempotency_key"]
     return {
-        "claim-missing-idem": malformed_claim_args(),
-        "claim-empty-idem": claim_args_with(idempotency_key=EMPTY_IDEMPOTENCY_KEY),
-        "claim-whitespace-idem": claim_args_with(idempotency_key=WHITESPACE_IDEMPOTENCY_KEY),
-        "claim-oversize-idem": claim_args_with(idempotency_key=OVERSIZE_IDEMPOTENCY_KEY),
-        "claim-short-base": short_base_claim_args(),
-        "claim-pattern-base": claim_args_with(base_sha=PATTERN_BASE_SHA),
-        "claim-oversize-base": claim_args_with(base_sha=OVERSIZE_BASE_SHA),
-        "claim-zero-version": claim_args_with(expected_version=ZERO_EXPECTED_VERSION),
-        "claim-corrected": corrected_claim_args(),
-    }
-
-
-def start_corpus_args():
-    """The shared start corpus as driven tool args, in execution order: the
-    adapter's input boundary answers every member except the corrected
-    resumes and the valid capture before any effect. start-project-selector
-    is the Project selector the resume branch refuses: the branch carries
-    exactly one of work_id or issue_key, so the generated contract refuses
-    the argument, both selectors, and a malformed key before any effect on
-    both boundaries."""
-    return {
-        "start-mixed": {"work_id": WORK, "title": "Both shapes at once"},
-        "start-corrected": {"work_id": WORK},
-        "start-issue-key-corrected": {"issue_key": "SYN-1"},
-        "start-project-selector": {"work_id": WORK, "project_id": "synthetic-foreign-project"},
-        "start-both-selectors": {"work_id": WORK, "issue_key": "SYN-1"},
-        "start-malformed-issue-key": {"issue_key": "syn-1"},
-        "cap-blank": capture_start_args(EMPTY_IDEMPOTENCY_KEY),
-        "cap-whitespace": capture_start_args(WHITESPACE_IDEMPOTENCY_KEY),
-        "cap-oversize": capture_start_args(OVERSIZE_IDEMPOTENCY_KEY),
-        "cap-valid": capture_start_args("capture-key-1"),
-    }
-
-
-def transition_corpus_args():
-    """Session vacate derives its destination from the registered main checkout.
-    Agent-named destinations refuse before core or host effects."""
-    return {
-        f"trans-vacate-{field}": {"request": {"operation": "session_vacate", "input": {
-            field: "/synthetic/foreign-checkout", "idempotency_key": "parity-vacate"}}}
-        for field in ("destination", "destination_directory", "path")
+        "workflow-missing-idem": missing,
+        "workflow-empty-idem": workflow_args_with(idempotency_key=EMPTY_IDEMPOTENCY_KEY),
+        "workflow-whitespace-idem": workflow_args_with(idempotency_key=WHITESPACE_IDEMPOTENCY_KEY),
+        "workflow-oversize-idem": workflow_args_with(idempotency_key=OVERSIZE_IDEMPOTENCY_KEY),
+        "workflow-zero-version": workflow_args_with(expected_version=ZERO_EXPECTED_VERSION),
+        "workflow-corrected": workflow_args_with(),
     }
 
 
 def execute_core_boundary_corpus(invoke):
-    """The executed production core envelopes for the claim corpus, driven
+    """The executed production core envelopes for the workflow corpus, driven
     through one invoke(input_value, request_id) callable."""
     return {label: invoke(args["request"]["input"], "parity-" + label)[1]
-            for label, args in claim_corpus_args().items()}
+            for label, args in workflow_corpus_args().items()}
 
 
 def build_core_boundary(root):
@@ -365,38 +259,15 @@ def invoke_core(binary, store, input_value, request_id):
 
 
 def execute_core_corpus(root):
-    """The executed production core envelopes for the claim corpus."""
+    """The executed production core envelopes for the workflow corpus."""
     binary, store = build_core_boundary(root)
     def invoke(input_value, request_id):
         return invoke_core(binary, store, input_value, request_id)
     return execute_core_boundary_corpus(invoke)
 
 
-def execute_adapter_corpus(bootstrap_stdout=""):
-    """The executed production adapter envelopes for the start corpus."""
-    root = Path(tempfile.mkdtemp(prefix="concord-parity-adapter-"))
-    start_calls = "\n".join(
-        f'await call({json.dumps(label)}, work_start, {json.dumps(args)});'
-        for label, args in start_corpus_args().items())
-    transition_calls = "\n".join(
-        f'await call({json.dumps(label)}, work_transition, {json.dumps(args)});'
-        for label, args in transition_corpus_args().items())
-    source = (ADAPTER_DRIVER
-              .replace("{adapter}", str(ADAPTER))
-              .replace("{dirty_stderr}", json.dumps(DIRTY_ORIGIN_STDERR))
-              .replace("{bootstrap_stdout}", json.dumps(bootstrap_stdout))
-              .replace("{start_calls}", start_calls)
-              .replace("{transition_calls}", transition_calls))
-    run = run_bun(root, source)
-    if run.returncode != 0:
-        raise AssertionError(f"adapter driver failed:\n{run.stderr}")
-    observation = {item["tool"]: item for item in (json.loads(line) for line in run.stdout.splitlines() if line.strip())}
-    shutil.rmtree(root, ignore_errors=True)
-    return observation
-
-
 class ProductionCoreBoundaryTests(unittest.TestCase):
-    """The real core CLI answers for the common synthetic claim inputs."""
+    """The real core CLI answers for the common synthetic workflow inputs."""
 
     @classmethod
     def setUpClass(cls):
@@ -412,52 +283,52 @@ class ProductionCoreBoundaryTests(unittest.TestCase):
         return invoke_core(self.binary, self.store, input_value, request_id)
 
     def captured(self):
-        """The executed production envelopes for the whole claim corpus."""
+        """The executed production envelopes for the whole workflow corpus."""
         return execute_core_boundary_corpus(self.invoke)
 
-    def test_malformed_claim_corpus_serves_the_core_input_refusal(self):
+    def test_malformed_workflow_corpus_serves_the_core_input_refusal(self):
         for name, envelope in self.captured().items():
-            if name == "claim-corrected":
+            if name == "workflow-corrected":
                 continue
             with self.subTest(case=name):
                 self.assertEqual(envelope.get("outcome"), "error")
                 captured = semantic_envelope(envelope)
                 triple = {key: captured["error"][key] for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
-                self.assertTrue(structural_equal(triple, PRODUCTION_CLAIM_INPUT_REFUSAL),
+                self.assertTrue(structural_equal(triple, PRODUCTION_WORKFLOW_INPUT_REFUSAL),
                                 json.dumps(captured, indent=1))
                 self.assertIsInstance(captured["error"]["message"], str)
                 self.assertTrue(captured["error"]["message"])
 
-    def test_corrected_claim_shape_passes_the_input_boundary(self):
+    def test_corrected_workflow_shape_passes_the_input_boundary(self):
         # The corrected shape is admitted by the input boundary: against an
         # empty isolated store the refusal that answers it is the authority
         # gate, not invalid_input — exactly the separation the correction
         # credit depends on.
-        envelope = self.captured()["claim-corrected"]
+        envelope = self.captured()["workflow-corrected"]
         self.assertEqual(envelope.get("outcome"), "error")
         captured = semantic_envelope(envelope)
         triple = {key: captured["error"][key] for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
-        self.assertFalse(structural_equal(triple, PRODUCTION_CLAIM_INPUT_REFUSAL))
+        self.assertFalse(structural_equal(triple, PRODUCTION_WORKFLOW_INPUT_REFUSAL))
 
     def test_executed_transport_only_members_are_consistent(self):
         # The named exclusion for the double comparison: the executed core
         # envelope's transport members are per-invocation framing. This check
         # proves they are present and consistent on the executed capture, so
         # excluding them from the double comparison hides no semantic drift.
-        envelope = self.captured()["claim-missing-idem"]
+        envelope = self.captured()["workflow-missing-idem"]
         self.assertEqual(envelope.get("schema_version"), "1.0")
-        self.assertEqual(envelope.get("request_id"), "parity-claim-missing-idem")
+        self.assertEqual(envelope.get("request_id"), "parity-workflow-missing-idem")
         self.assertEqual(envelope.get("manifest_digest"), MANIFEST_DIGEST)
         self.assertEqual(envelope.get("origin"), "core")
         self.assertEqual(envelope.get("tool"), "concord_work_transition")
-        self.assertEqual(envelope.get("operation"), "worktree_claim")
+        self.assertEqual(envelope.get("operation"), "workflow_action")
         for member in ("resolved_scope", "freshness", "next_cursor", "omissions",
                        "warnings", "evidence_refs", "ordering_keys", "source_version_watermark"):
             self.assertIn(member, envelope)
 
 
 DOUBLE_DRIVER = """
-import { work_start, work_transition } from {tools_import};
+import { work_transition } from {tools_import};
 const context = { sessionID: "parity-session", messageID: "m1", agent: "coordinator-probe",
   directory: "/synthetic/repo", worktree: "/synthetic/repo", abort: new AbortController().signal };
 async function call(name, tool, args) {
@@ -467,41 +338,8 @@ async function call(name, tool, args) {
   console.log(JSON.stringify({ tool: name, envelope: JSON.parse(newline === -1 ? output : output.slice(0, newline)),
     notice: newline === -1 ? null : output.slice(newline + 1) }));
 }
-{start_calls}
-{claim_calls}
+{workflow_calls}
 """
-
-ADAPTER_DRIVER = """
-import { configureCoreBinary } from "{adapter}/core-runtime.ts";
-import { hostControlPlane } from "{adapter}/move-session.ts";
-import { configureConcordAdapter, work_start, work_transition } from "{adapter}/concord.ts";
-configureCoreBinary("concord");
-hostControlPlane().bind({
-  get: async () => ({ data: { id: "parity-session", directory: "/synthetic/repo", metadata: { "concord.task_scope": "managed" } }, response: new Response(null, { status: 200 }) }),
-  post: async () => ({ response: new Response(null, { status: 204 }) }),
-  patch: async () => ({ response: new Response(null, { status: 204 }) }),
-});
-const calls = [];
-configureConcordAdapter({ runner: { async run(argv, input) {
-  calls.push(argv[1]);
-  if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify({ project_id: "synthetic-project", product_ids: ["synthetic-product"], scope_version: "1", main_worktree: true }), stderr: "" };
-  if (argv[1] === "work-resume") return { exitCode: 2, stdout: "", stderr: {dirty_stderr} };
-  if (argv[1] === "work-bootstrap") return { exitCode: 1, stdout: {bootstrap_stdout}, stderr: "concord work-bootstrap: synthetic post-boundary refusal" };
-  throw new Error("unexpected command " + argv.join(" "));
-} } });
-const context = { sessionID: "parity-session", messageID: "m1", agent: "coordinator-probe",
-  directory: "/synthetic/repo", worktree: "/synthetic/repo", abort: new AbortController().signal };
-async function call(name, tool, args) {
-  const before = calls.length;
-  const result = await tool.execute(args, context);
-  const output = typeof result === "string" ? result : result.output;
-  const newline = output.indexOf("\\n");
-  console.log(JSON.stringify({ tool: name, envelope: JSON.parse(newline === -1 ? output : output.slice(0, newline)), children: calls.slice(before) }));
-}
-{start_calls}
-{transition_calls}
-"""
-
 
 def run_bun(root, driver_source):
     require("bun", "executing the adapter and recording-double boundaries")
@@ -509,104 +347,6 @@ def run_bun(root, driver_source):
     driver.write_text(driver_source)
     return subprocess.run(["bun", str(driver)], capture_output=True, text=True,
                           timeout=180, cwd=str(root))
-
-
-class ProductionAdapterBoundaryTests(unittest.TestCase):
-    """The real adapter module answers for the common synthetic start inputs."""
-
-    def observed(self):
-        return execute_adapter_corpus()
-
-    def test_mixed_resume_fields_serve_the_adapter_input_refusal_before_effects(self):
-        envelope = self.observed()["start-mixed"]["envelope"]
-        self.assertEqual(envelope.get("outcome"), "error")
-        captured = semantic_envelope(envelope)
-        triple = {key: captured["error"][key] for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
-        self.assertTrue(structural_equal(triple, PRODUCTION_START_INPUT_REFUSAL),
-                        json.dumps(captured, indent=1))
-        self.assertIsInstance(captured["error"]["message"], str)
-        # The shape refusal precedes every effect: no effect-bearing child
-        # command ran (project-resolve is a permitted context read).
-        children = self.observed()["start-mixed"]["children"]
-        self.assertNotIn("work-resume", children)
-
-    def test_malformed_capture_corpus_serves_the_adapter_input_refusal_before_effects(self):
-        # Blank, whitespace-only, and oversize capture idempotency keys are
-        # schema value violations, not missing fields: the executed adapter
-        # names the field and the constraint, and refuses before any child
-        # command runs.
-        observation = self.observed()
-        for label in ("cap-blank", "cap-whitespace", "cap-oversize"):
-            with self.subTest(corpus=label):
-                envelope = observation[label]["envelope"]
-                self.assertEqual(envelope.get("outcome"), "error")
-                captured = semantic_envelope(envelope)
-                triple = {key: captured["error"][key] for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
-                self.assertTrue(structural_equal(triple, PRODUCTION_START_INPUT_REFUSAL),
-                                json.dumps(captured, indent=1))
-                self.assertIn("idempotency_key", captured["error"]["message"])
-                self.assertNotIn("is missing required", captured["error"]["message"])
-                self.assertEqual(observation[label]["children"], [])
-
-    def test_corrected_resume_passes_the_input_boundary_and_classifies_the_refusal_exit(self):
-        observation = self.observed()
-        # Input admitted: the adapter reached the work-resume child for the
-        # corrected shape, and the typed refusal exit is classified as the
-        # genuine non-retry refusal. Its empty stdout cannot establish rollback, so
-        # the effect remains possible independently of retry safety.
-        for label in ("start-corrected", "start-issue-key-corrected"):
-            with self.subTest(corpus=label):
-                self.assertIn("work-resume", observation[label]["children"])
-                corrected = observation[label]["envelope"]
-                self.assertEqual(corrected.get("outcome"), "error")
-                captured = semantic_envelope(corrected)
-                triple = {key: captured["error"][key] for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
-                self.assertTrue(structural_equal(triple, PRODUCTION_RESUME_REFUSAL),
-                                json.dumps(captured, indent=1))
-                self.assertEqual(captured["error"]["message"], DIRTY_ORIGIN_STDERR)
-
-    def test_failed_capture_without_a_verified_response_preserves_possible_effects(self):
-        for stdout in ("", "unknown child output", '{"outcome":"error"}'):
-            with self.subTest(stdout=stdout):
-                observation = execute_adapter_corpus(bootstrap_stdout=stdout)["cap-valid"]
-                self.assertIn("work-bootstrap", observation["children"])
-                captured = semantic_envelope(observation["envelope"])
-                self.assertTrue(structural_equal(captured, {
-                    "outcome": "error", "error": {
-                        "kind": "bootstrap_failure", "effect_state": "possible",
-                        "recovery_action": {"kind": "retry_same_request"}, "retry_safe": True,
-                        "message": "concord work-bootstrap: synthetic post-boundary refusal",
-                    },
-                }), json.dumps(captured, indent=1))
-
-
-class ProductionAdapterTransitionTupleTests(unittest.TestCase):
-    """The real adapter serves the closed table's invalid_tool_input tuple
-    for the shared host-argument refusals, before any core call."""
-
-    def observed(self):
-        return execute_adapter_corpus()
-
-    def test_host_argument_refusals_serve_the_adapter_tool_input_tuple(self):
-        observation = self.observed()
-        for label in transition_corpus_args():
-            with self.subTest(corpus=label):
-                envelope = observation[label]["envelope"]
-                self.assertEqual(envelope.get("outcome"), "error")
-                captured = semantic_envelope(envelope)
-                triple = {key: captured["error"][key] for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
-                self.assertTrue(structural_equal(triple, PRODUCTION_ADAPTER_TOOL_INPUT_REFUSAL),
-                                json.dumps(captured, indent=1))
-                self.assertEqual(envelope["error"].get("adapter_reason"), "invalid_tool_input")
-                # The refusal precedes every effect: no child command ran.
-                self.assertEqual(observation[label]["children"], [])
-
-    def test_captured_diagnostics_name_the_argument_defect(self):
-        observation = self.observed()
-        for label in transition_corpus_args():
-            with self.subTest(corpus=label):
-                self.assertEqual(observation[label]["envelope"]["error"]["message"],
-                                 "session_vacate derives the registered main checkout and refuses an agent-named destination")
 
 
 class RecordingDoubleParityTests(unittest.TestCase):
@@ -617,14 +357,10 @@ class RecordingDoubleParityTests(unittest.TestCase):
     def setUpClass(cls):
         cls.sdk_tool = plugin_tool_module()
 
-    def double_observation(self, start=None):
+    def double_observation(self):
         root = Path(tempfile.mkdtemp(prefix="concord-parity-double-"))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
-        case = {
-            "start": start if start is not None else SCENARIOS["default-checkout-resume"]["start"],
-            "transition": SCENARIOS["same-repository-second-project"]["transition"],
-            "responses": {},
-        }
+        case = SCENARIOS["native-route-discovery"]
         sources = run_module.double_sources(root, case,
                                             sdk_tool=self.sdk_tool,
                                             production_concord=ADAPTER / "concord.ts")
@@ -632,16 +368,12 @@ class RecordingDoubleParityTests(unittest.TestCase):
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content)
-        claim_calls = "\n".join(
+        workflow_calls = "\n".join(
             f'await call({json.dumps(label)}, work_transition, {json.dumps(args)});'
-            for label, args in claim_corpus_args().items())
-        start_calls = "\n".join(
-            f'await call({json.dumps(label)}, work_start, {json.dumps(args)});'
-            for label, args in start_corpus_args().items())
+            for label, args in workflow_corpus_args().items())
         driver = (DOUBLE_DRIVER
                   .replace("{tools_import}", json.dumps(str(root / ".opencode/tools/concord.ts")))
-                  .replace("{start_calls}", start_calls)
-                  .replace("{claim_calls}", claim_calls))
+                  .replace("{workflow_calls}", workflow_calls))
         run = run_bun(root, driver)
         if run.returncode != 0:
             raise AssertionError(f"double driver failed:\n{run.stderr}")
@@ -652,21 +384,10 @@ class RecordingDoubleParityTests(unittest.TestCase):
         return observations
 
     def production_capture(self):
-        """The executed production evidence for the same corpus: the captured
-        claim envelopes from the core, plus the adapter observation (envelopes
-        and the child commands that prove which side of the input boundary
-        each start input reached)."""
+        """The executed production core envelopes for the same workflow corpus."""
         root = Path(tempfile.mkdtemp(prefix="concord-parity-core-compare-"))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
-        captured = execute_core_corpus(root)
-        adapter_observation = execute_adapter_corpus()
-        return {
-            **{label: adapter_observation[label]["envelope"] for label in start_corpus_args()},
-            "start-corrected-children": adapter_observation["start-corrected"]["children"],
-            "start-issue-key-corrected-children": adapter_observation["start-issue-key-corrected"]["children"],
-            "cap-valid-children": adapter_observation["cap-valid"]["children"],
-            **captured,
-        }
+        return execute_core_corpus(root)
 
     def assert_double_matches_production(self, double_envelope, production_envelope, label):
         double_semantic = semantic_envelope(double_envelope)
@@ -685,10 +406,9 @@ class RecordingDoubleParityTests(unittest.TestCase):
         # nothing; only these captured envelopes do.
         double = self.double_observation()
         production = self.production_capture()
-        malformed_start = (label for label in start_corpus_args()
-                           if label not in ("start-corrected", "start-issue-key-corrected", "cap-valid"))
-        malformed_claim = (label for label in claim_corpus_args() if label != "claim-corrected")
-        for label in (*malformed_start, *malformed_claim):
+        for label in workflow_corpus_args():
+            if label == "workflow-corrected":
+                continue
             with self.subTest(corpus=label):
                 self.assert_double_matches_production(double[label]["envelope"], production[label], label)
 
@@ -701,54 +421,17 @@ class RecordingDoubleParityTests(unittest.TestCase):
         # serving the input refusal.
         double = self.double_observation()
         production = self.production_capture()
-        with self.subTest(corpus="start-corrected"):
-            # Production: the corrected resume reached the work-resume child
-            # (past validateWorkStartArgs). Double: admitted, outcome ok.
-            self.assertIn("work-resume", production["start-corrected-children"])
-            self.assertEqual(double["start-corrected"]["envelope"].get("outcome"), "ok")
-        with self.subTest(corpus="start-issue-key-corrected"):
-            # Both boundaries admit the issue-key selector. Production reaches
-            # the work-resume child; the work_id-only fixture then refuses it
-            # as outside its grant, never as an input refusal.
-            self.assertIn("work-resume", production["start-issue-key-corrected-children"])
-            self.assertNotEqual(semantic_envelope(double["start-issue-key-corrected"]["envelope"])["error"]["kind"], "invalid_input")
-        with self.subTest(corpus="cap-valid"):
-            # Production: the valid capture passed the input boundary and
-            # reached the bootstrap child. Double: the boundary admitted it
-            # too — the non-capture scenario fixture then answers with its
-            # authorization refusal, never the input refusal.
-            self.assertIn("work-bootstrap", production["cap-valid-children"])
-            production_triple = {key: semantic_envelope(production["cap-valid"])["error"][key]
-                                 for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
-            self.assertFalse(structural_equal(production_triple, PRODUCTION_START_INPUT_REFUSAL))
-            self.assertNotEqual(semantic_envelope(double["cap-valid"]["envelope"])["error"]["kind"], "invalid_input")
-        with self.subTest(corpus="claim-corrected"):
-            # Production: the corrected claim left the input boundary (the
-            # empty-store refusal is the authority gate, not invalid_input).
-            # Double: admitted with the move notice.
-            production_triple = {key: semantic_envelope(production["claim-corrected"])["error"][key]
-                                 for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
-            self.assertFalse(structural_equal(production_triple, PRODUCTION_CLAIM_INPUT_REFUSAL))
-            self.assertEqual(double["claim-corrected"]["envelope"].get("outcome"), "ok")
+        production_triple = {key: semantic_envelope(production["workflow-corrected"])["error"][key]
+                             for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
+        self.assertFalse(structural_equal(production_triple, PRODUCTION_WORKFLOW_INPUT_REFUSAL))
+        self.assertEqual(double["workflow-corrected"]["envelope"].get("outcome"), "ok")
 
-    def test_double_corrected_claim_admits_with_notice_and_trace(self):
+    def test_double_corrected_workflow_admits_with_trace(self):
         observation = self.double_observation()
-        corrected = observation["claim-corrected"]["envelope"]
+        corrected = observation["workflow-corrected"]["envelope"]
         self.assertEqual(corrected.get("outcome"), "ok")
-        self.assertEqual(corrected.get("result", {}).get("path"), "/synthetic/worktrees/synthetic-work-other-project")
-        self.assertIn("A turn-move boundary is active", observation["claim-corrected"]["notice"] or "")
-
-    def test_double_issue_key_matches_only_its_selector_and_preserves_genuine_refusal(self):
-        production = execute_adapter_corpus()["start-issue-key-corrected"]["envelope"]
-        for scenario in ("default-checkout-resume", "genuine-refusal-no-fallback"):
-            with self.subTest(scenario=scenario):
-                start = {**SCENARIOS[scenario]["start"], "admit": {"issue_key": "SYN-1"}}
-                observation = self.double_observation(start=start)
-                served = observation["start-issue-key-corrected"]["envelope"]
-                self.assertTrue(structural_equal(served, start["result"]))
-                self.assertEqual(observation["start-corrected"]["envelope"].get("outcome"), "error")
-                if scenario == "genuine-refusal-no-fallback":
-                    self.assert_double_matches_production(served, production, scenario)
+        self.assertTrue(structural_equal(corrected, SCENARIOS["native-route-discovery"]["responses"]["concord_work_transition"]))
+        self.assertIsNone(observation["workflow-corrected"]["notice"])
 
     def test_double_trace_records_every_served_envelope_exactly(self):
         # Trace fidelity: calls.jsonl is append-order, so its entries map to
@@ -758,8 +441,7 @@ class RecordingDoubleParityTests(unittest.TestCase):
         observation = self.double_observation()
         trace = observation["trace"]
         corpus = (
-            *(("concord_work_start", label, args) for label, args in start_corpus_args().items()),
-            *(("concord_work_transition", label, args) for label, args in claim_corpus_args().items()),
+            *(("concord_work_transition", label, args) for label, args in workflow_corpus_args().items()),
         )
         self.assertEqual(len(trace), len(corpus))
         for entry, (tool, label, args) in zip(trace, corpus):
@@ -769,14 +451,6 @@ class RecordingDoubleParityTests(unittest.TestCase):
                                 f"trace args for {label} do not match the driven input")
                 self.assertTrue(structural_equal(entry.get("result"), observation[label]["envelope"]),
                                 f"trace entry for {label} does not match the served envelope")
-
-    def test_double_genuine_refusal_fixture_matches_the_production_adapter_classification(self):
-        served = SCENARIOS["genuine-refusal-no-fallback"]["start"]["result"]["error"]
-        envelope = {"outcome": "error", "error": served}
-        captured = semantic_envelope(envelope)
-        triple = {key: captured["error"][key] for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
-        self.assertTrue(structural_equal(triple, PRODUCTION_RESUME_REFUSAL))
-
 
 class PluginToolModuleResolverTests(unittest.TestCase):
     """The owning plugin resolver: which module it actually selects, and

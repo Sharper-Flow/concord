@@ -51,7 +51,7 @@ Concord must carry each forward, in some shape:
 | 1 | Specs — queryable capability law | Behavioral contract that prevents drift; legislator-visible law | [`specs-as-laws.md`](../../docs/specs-as-laws.md) |
 | 2 | Per-change narrative artifacts — problem/decision/outcome trail | Each change leaves a coherent WHY, not just a git diff | [`self-documentation.md`](../../docs/self-documentation.md) §1.2 |
 | 3 | Law folder + Domain registry — discoverable law and ownership map | Navigable map of what is where | [law-folder-authority](../constitution/law-folder-authority.md) and the Domain registry |
-| 4 | Conformance — claims-vs-reality check | Automated proof stated behavior matches delivered behavior | `internal/store.TestAcceptedQ1ToQ10Corpus` and `internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions` |
+| 4 | Conformance — claims-vs-reality check | Automated proof stated behavior matches delivered behavior | `internal/agent.TestAgentJobsCorpus` and `internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions` |
 | 5 | Triage — issue ↔ work reconciliation + portfolio balance | Overlap coalescing and what-matters-next surfacing | Linear MCP as planning authority (CD-0213) |
 | 6 | Reflection — post-completion learning | Durable lessons that fit in no single change | not yet identified; research under D2 |
 

@@ -89,9 +89,10 @@ Restore results distinguish source-snapshot inventory from the verified restored
 inventory after migration and verification. Neither inventory is authority.
 
 Recovery restores a verified snapshot and reconciles current rows with Git,
-worktrees, artifacts, and external effects. When recovery cannot reconcile an occupancy row, it refuses with a typed
-refusal that names the worktree, the session, and the caller's action
-([CD-0242 D11](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d11-a-fresh-session-resumes-from-current-state), [CD-0242 D12](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)); no replay of retained events exists
+artifacts, and external effects. Host tools own checkout recovery; Concord
+retains no worktree metadata or inspection service. Restore follows the
+snapshot-backed table retirement in CD-0088 D2 and does not recreate ownership
+or locator machinery. No replay of retained events exists
 ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## 2. Restore protocol

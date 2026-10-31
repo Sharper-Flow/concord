@@ -42,6 +42,7 @@ func TestVerificationRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
+	assertWorktreeTablesAbsent(t, db)
 	for _, query := range []string{
 		`SELECT name FROM sqlite_schema WHERE name='worktree_verify_leases' OR tbl_name='worktree_verify_leases'`,
 		`SELECT op_id FROM durable_operations WHERE workflow_type_ref='worktree.verify'`,

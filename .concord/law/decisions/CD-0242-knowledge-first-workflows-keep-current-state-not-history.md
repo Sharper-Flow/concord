@@ -62,10 +62,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0239"
-    },
-    {
-      "kind": "refines",
       "target_id": "PM1"
     },
     {
@@ -220,7 +216,7 @@ strategy and details only the next assignment.
 
 Main owns the plan and every progression. Each implementation assignment
 carries one focused outcome. Main may run independent assignments concurrently
-when their interfaces and worktree ownership are settled; dependent assignments
+when their interfaces and host worktree placement are settled; dependent assignments
 run in sequence. Implement builds and verifies. Main integrates the results
 into one candidate and obtains independent Review through the host's native
 Task. Review inspects the accumulated solution, may commit corrective changes,
@@ -334,18 +330,18 @@ one, and its reason.
 
 ### D11. A fresh session resumes from current state
 
-Given a Linear issue key, a session resolves the work item, its Project, its
-active execution, and its worktree. It reports committed and uncommitted
-changes, completed exits, remaining obligations, unresolved findings, evidence
+Given a Linear issue key, a session resolves the work item, its Project, and its
+active execution. Host shell and Git tools inspect the current checkout;
+Concord stores no worktree locator or inspection metadata. The session reports
+committed and uncommitted changes, completed exits, remaining obligations, unresolved findings, evidence
 locations, and the next admitted actions. It needs neither the predecessor
 conversation nor any historical record.
 
-Ownership passes only through the liveness-checked occupancy route. A resume
-never takes work from a live session. A session whose authority was replaced
-cannot record a result. Claims, dependencies, and
-cross-Project handoffs stay atomic in the shared store. A missing worktree is
-rebuilt from surviving Git references; uncommitted bytes are recoverable only
-from a backup.
+Host tools own worktree placement and recovery under CD-0088 D1, not a
+Concord occupancy or restore operation. A session whose workflow authority was
+replaced cannot record a result. Workflow authority, overlap detection,
+dependencies, and cross-Project handoffs stay atomic in the shared store.
+Uncommitted bytes are recoverable only from a backup.
 
 ### D12. Every refusal states an action the caller may take
 

@@ -52,7 +52,7 @@ func attributionCompletion(t *testing.T, s *Store, id string, closureHashes ...s
 	return attributionCompletionWith(t, s, id, nil, closureHashes...)
 }
 
-// attributionCompletionWith lets candidate edit the claimed repository before
+// attributionCompletionWith lets candidate edit the repository before
 // its HEAD becomes the reviewed candidate.
 func attributionCompletionWith(t *testing.T, s *Store, id string, candidate func(repo string), closureHashes ...string) Event {
 	t.Helper()
@@ -63,11 +63,6 @@ func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, ca
 	t.Helper()
 	fixture := workContextFixture{store: s, workID: id, owner: lawChangeConstructorActor}
 	repo, _ := reviewSubjectClaim(t, s, id)
-	var branch string
-	if err := s.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(id)).Scan(&branch); err != nil {
-		t.Fatal(err)
-	}
-	gitRunStore(t, repo, "branch", "-m", branch)
 	if candidate != nil {
 		candidate(repo)
 	}

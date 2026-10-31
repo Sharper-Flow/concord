@@ -7,11 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -86,52 +84,8 @@ type workRemovalMutationInput struct {
 	EffectsReconciled     bool                             `json:"effects_reconciled"`
 	DependenciesResolved  bool                             `json:"dependencies_resolved"`
 	ArtifactsVerified     bool                             `json:"artifacts_verified"`
-	Sessions              []store.WorkRemovalSession       `json:"sessions"`
 }
 
-type worktreeClaimInput struct {
-	WorkID          string `json:"work_id"`
-	ProjectID       string `json:"project_id"`
-	BaseSHA         string `json:"base_sha"`
-	ExpectedVersion int64  `json:"expected_version"`
-	IdempotencyKey  string `json:"idempotency_key"`
-	// HostPID is the OpenCode process whose adapter records the claim. The
-	// adapter injects it; an agent never supplies it. The claimed worktree's
-	// occupancy row records the process identity, so no claim the agent
-	// surface makes leaves a row without one (CD-0179).
-	HostPID int `json:"host_pid,omitempty"`
-}
-
-type sessionVacateInput struct {
-	IdempotencyKey string `json:"idempotency_key"`
-}
-
-type worktreeReclaimInput struct {
-	WorkID          string `json:"work_id"`
-	ProjectID       string `json:"project_id"`
-	DefaultRef      string `json:"default_ref"`
-	ExpectedVersion int64  `json:"expected_version"`
-	IdempotencyKey  string `json:"idempotency_key"`
-}
-
-type worktreeAuditReclaimInput struct {
-	ProductID      string `json:"product_id"`
-	DefaultRef     string `json:"default_ref"`
-	Limit          int    `json:"limit"`
-	IdempotencyKey string `json:"idempotency_key"`
-}
-
-type worktreeDestroyInput struct {
-	WorkID          string `json:"work_id"`
-	ExpectedVersion int64  `json:"expected_version"`
-	// DefaultRef optionally names the merge target ref; the default branch
-	// of origin resolves when empty.
-	DefaultRef string `json:"default_ref"`
-	// Destructive declares intent to remove without the clean-tree and
-	// merged-branch gates.
-	Destructive    bool   `json:"destructive"`
-	IdempotencyKey string `json:"idempotency_key"`
-}
 type researchRevisionInput struct {
 	Question string `json:"question"`
 	ScopeIn  any    `json:"scope_in"`
@@ -292,15 +246,14 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base agentcontra
 	if op.ID == "concord_work_define.research_retire" {
 		return agentcontract.Envelope{}, false, nil
 	}
-	// session_vacate and project_handoff_consume replay state-driven: their
-	// recorded successes go stale — the vacate the moment a later claim's
-	// occupancy rows stand (CD-0190 D2/D3), the consume the moment its bind
-	// names another receiving session or the active contract moved on. Every
+	// project_handoff_consume replays state-driven: its recorded success
+	// goes stale when its bind names another receiving session or the active
+	// contract moved on. Every
 	// replay must reach the planner and re-read the recorded state inside
 	// the transaction instead of returning the cached payload here: the
 	// core's own state checks refuse the foreign or stale bind and resolve
 	// the owning session's replay as the standing bind with no second event.
-	if op.ID == "concord_work_transition.session_vacate" || op.ID == "concord_work_transition.project_handoff_consume" {
+	if op.ID == "concord_work_transition.project_handoff_consume" {
 		return agentcontract.Envelope{}, false, nil
 	}
 	key := idempotencyKey(raw)
@@ -591,12 +544,12 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 		}
 	}
 	preflightErr := store.WorkflowActionPreflightWithRegistry(ctx, s, registry, store.WorkflowActionPreflightRequest{
-		WorkID:          in.WorkID,
-		ExpectedVersion: in.ExpectedVersion,
-		ActionID:        in.ActionID,
-		Payload:         payload,
-		Actor:           store.WorkflowActor{PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, ActorClass: store.ActorAgent},
-		SessionWorktree: env.Worktree,
+		WorkID:           in.WorkID,
+		ExpectedVersion:  in.ExpectedVersion,
+		ActionID:         in.ActionID,
+		Payload:          payload,
+		Actor:            store.WorkflowActor{PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, ActorClass: store.ActorAgent},
+		SessionProjectID: env.AmbientProjectID,
 	})
 	if preflightErr == nil {
 		return nil
@@ -902,7 +855,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base agentcontract.En
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	operationID := "workflow-" + digest[7:31]
 	scope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "work_ids": []string{in.WorkID}, "scope_version": r.Envelope.ScopeVersion}
-	preflight := store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, Payload: payload, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree}
+	preflight := store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, Payload: payload, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionProjectID: r.Envelope.AmbientProjectID}
 	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
 		if replayErr != nil {
 			return failureEnvelope(base, replayErr), nil
@@ -952,7 +905,7 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 		return failureEnvelope(base, hostErr), nil
 	}
 	scopeJSON, _ := json.Marshal(scope)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, ExpectedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: agentcontract.ManifestDigest, Now: r.Authority.now()}
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, ExpectedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: agentcontract.ManifestDigest, Now: r.Authority.now()}
 	// CD-0200: the approval, supersession, and completion gates each run the
 	// mandated-law boundary inside their transaction, so their registered
 	// source set verifies before the transaction opens (store connection
@@ -1047,29 +1000,13 @@ func workKindMutationRefusal(kind string, allowed bool, fallback string) (string
 // mutationPlan carries the scope, next intents, and transactional effect
 // prepared by one operation handler for the common executor.
 type mutationPlan struct {
-	removalProof *store.DefaultCheckoutRemovalProof
-	scope        map[string]any
-	intents      []agentcontract.NextIntent
-	effect       mutationEffect
+	scope   map[string]any
+	intents []agentcontract.NextIntent
+	effect  mutationEffect
 	// evidenceRefs surfaces the operation's evidence on the result envelope.
 	// A lifecycle transition into a terminal state sets it so the adapter can
 	// render a closure receipt from the same envelope that reports the state.
 	evidenceRefs []agentcontract.EvidenceRef
-	// nativeCreation records native state the effect created outside the
-	// transaction — the git worktree and branch a worktree_claim created —
-	// so a failure after the effect (enrichment, result validation,
-	// idempotency, the commit itself) is compensated instead of stranding it.
-	nativeCreation *store.WorktreeClaimCreation
-	// nativeCleanup compensates nativeCreation when the mutation transaction
-	// fails. Only operations with an out-of-transaction native effect set it.
-	nativeCleanup func(ctx context.Context, cause error) error
-	// nativeFinalize completes the operation's native work after the
-	// transaction commits — the worktree removal a committed reclaim or
-	// destroy still owes (CD-0195 D2). When set, the idempotency record
-	// waits for the finalize: a failed native removal leaves no cached
-	// success, so the same request retries and converges the committed
-	// reclaim instead of replaying it.
-	nativeFinalize func(ctx context.Context) error
 	// plannedInitialDurability is the optional initial-durability fact a
 	// planner raises from its own consequence branch. Nil leaves the
 	// operation's declared baseline in force.
@@ -1347,54 +1284,9 @@ func (r runtime) planLifecycle(_ context.Context, base agentcontract.Envelope, r
 		}
 		changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 		resultPayload := mutationPayload(changed, plan.intents)
-		if in.Target == "completed" || in.Target == "cancelled" {
-			// A terminal transition names the vacate target when the calling
-			// session runs in this work item's worktree, so the adapter can
-			// move the session to the registered main checkout after the
-			// transition (CD-0179). The resolution is advisory: any failure
-			// leaves the result without the field, because the transition is
-			// already applied in this transaction and a failed enrichment
-			// must not roll it back.
-			if vacate := r.terminalVacateTargetTx(ctx, tx, grant, in.WorkID); vacate != nil {
-				merged := map[string]any{}
-				if err := json.Unmarshal(resultPayload, &merged); err == nil {
-					merged["vacate_target"] = vacate
-					if payload, marshalErr := json.Marshal(merged); marshalErr == nil {
-						resultPayload = payload
-					}
-				}
-			}
-		}
 		return resultPayload, result.EventIDs, changed, nil
 	}
 	return agentcontract.Envelope{}, nil, false
-}
-
-// terminalVacateTargetTx resolves the vacate target a terminal transition
-// offers the calling session: non-nil only when the session runs in a linked
-// worktree of the ambient Project, that worktree is the transitioned work
-// item's active worktree, and the session's own occupancy row makes the
-// subsequent session_vacate resolvable. Every refusal or read failure
-// resolves to no target: the field is an enrichment of an already-applied
-// transition, never a condition on it (CD-0179).
-func (r runtime) terminalVacateTargetTx(ctx context.Context, tx *store.Transaction, grant Authority, workID string) map[string]any {
-	if grant.Worktree == "" || grant.MainWorktree {
-		return nil
-	}
-	project := r.Envelope.AmbientProjectID
-	if project == "" {
-		return nil
-	}
-	target, err := store.ResolveSessionVacateTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
-	if err != nil || target.WorkID != workID {
-		return nil
-	}
-	return map[string]any{
-		"work_id":               target.WorkID,
-		"project_id":            target.ProjectID,
-		"source_directory":      target.SourceDirectory,
-		"destination_directory": target.DestinationDirectory,
-	}
 }
 
 // planResearchPackCreate plans concord_work_define.research_pack_create.
@@ -1891,179 +1783,6 @@ func (r runtime) planIssueLinkRecord(_ context.Context, base agentcontract.Envel
 	return agentcontract.Envelope{}, nil, false
 }
 
-// refuseWhenCallingRepositoryDiffers returns a typed refusal envelope when
-// the calling session's directory belongs to a different git repository
-// than the target Project's canonical locator (CD-0178 D2). It is
-// non-retryable: the host refuses a move that crosses repositories, so the
-// only route is a second coordinator session in the target repository,
-// which resumes the work there through concord_work_start with the work and
-// Project identities (CD-0182). An empty target repository (no canonical
-// locator yet) admits the claim because the store has nothing to compare
-// against; the within-repository gate then runs.
-func (r *runtime) refuseWhenCallingRepositoryDiffers(ctx context.Context, base agentcontract.Envelope, callingDir, workID, projectID string) *agentcontract.Envelope {
-	if callingDir == "" {
-		return nil
-	}
-	// Resolve the calling session's git common dir. The probe is best-effort:
-	// a non-git directory or a directory the host cannot inspect admits the
-	// claim rather than refusing an unrelated operation.
-	callingRepo, err := resolveGitCommonDir(callingDir)
-	if err != nil || callingRepo == "" {
-		return nil
-	}
-	// Resolve the target Project's canonical locator through the store. The
-	// locator is the one the host read back when the Project was registered
-	// (see internal/store/project_locator.go); it is the same path the claim
-	// route uses to derive the new worktree's repository.
-	projectRepo, err := r.Store.ProjectCanonicalPath(ctx, projectID)
-	if err != nil || projectRepo == "" {
-		return nil
-	}
-	targetRepo, err := resolveGitCommonDir(projectRepo)
-	if err != nil || targetRepo == "" {
-		return nil
-	}
-	if pathsEquivalent(callingRepo, targetRepo) {
-		return nil
-	}
-	// The remedy is a declared route, not a context refresh: the claim is
-	// refused for the session's repository, so replaying it after a refresh
-	// fails the same way. CD-0182 names the route — a second coordinator
-	// session opened through concord_work_start with the work and Project
-	// identities the message carries.
-	refused := coreErrorAction(base, string(store.KindCrossRepositoryClaim),
-		fmt.Sprintf("worktree_claim target Project %s belongs to another repository; the host refuses a move across repositories, so one coordinator session per repository drives this Project from its own repository. Start a coordinator session in %s and resume this work there with concord_work_start carrying work_id %s and project_id %s",
-			projectID, projectRepo, workID, projectID),
-		agentcontract.RecoveryAction{Kind: "use_declared_route", RequiredRefs: []string{"concord_work_start"}}, false, nil)
-	refused.Error.SessionPlacement = &agentcontract.SessionPlacement{WorkID: workID, ProjectID: projectID, Directory: projectRepo}
-	return &refused
-}
-
-// resolveGitCommonDir returns the git common directory of root, or empty
-// when root is not a git checkout or the probe fails. The CD-0178 D2 rule
-// compares repositories through this value, so the helper is the only place
-// the probe runs and stays a thin wrapper.
-func resolveGitCommonDir(root string) (string, error) {
-	runner := store.ExecGitRunner{}
-	out, err := runner.Run(context.Background(), root, "rev-parse", "--git-common-dir")
-	if err != nil {
-		return "", err
-	}
-	commonDir := strings.TrimSpace(string(out))
-	if commonDir == "" {
-		return "", nil
-	}
-	// Git prints ".git" relative to the checkout it inspects, while a linked
-	// worktree prints the absolute path into the main repository. One
-	// canonical form is what makes the repository comparison honest.
-	if !filepath.IsAbs(commonDir) {
-		commonDir = filepath.Join(root, commonDir)
-	}
-	return commonDir, nil
-}
-
-// pathsEquivalent reports whether two filesystem paths name the same
-// directory after symlink resolution and trailing-slash normalization. The
-// common dir returned by git is rooted at the git directory's parent for
-// the main checkout and at the linked worktree's git directory for a
-// linked checkout, so this normalization is what makes the comparison
-// honest.
-func pathsEquivalent(left, right string) bool {
-	if left == right {
-		return true
-	}
-	nl, errL := filepath.EvalSymlinks(left)
-	nr, errR := filepath.EvalSymlinks(right)
-	if errL != nil || errR != nil {
-		return false
-	}
-	return filepath.Clean(nl) == filepath.Clean(nr)
-}
-
-// planWorktreeClaim plans concord_work_transition.worktree_claim. CD-0178 D2:
-// before the claim touches the store, the planner compares the git common
-// dir of the calling session's directory with the target Project's canonical
-// repository. A different repository refuses with cross_repository_claim
-// before any worktree is created, and the refusal is non-retryable — the
-// host refuses a move into another git repository, so the only route is a
-// second coordinator session in the target repository. Two Projects in one
-// repository keep the within-repository move.
-func (r runtime) planWorktreeClaim(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in worktreeClaimInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	plan.scope["work_ids"] = []string{in.WorkID}
-	plan.scope["project_ids"] = []string{in.ProjectID}
-	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
-	// Cross-repository gate: the calling session's directory and the target
-	// Project's canonical locator must resolve to the same git common dir.
-	// Two Projects in one repository keep the within-repository move;
-	// otherwise the host refuses the move and the planner refuses here. The
-	// calling directory is the call envelope's directory, the same value
-	// every other runtime path reads.
-	if refused := r.refuseWhenCallingRepositoryDiffers(ctx, base, r.Envelope.Directory, in.WorkID, in.ProjectID); refused != nil {
-		return *refused, nil, true
-	}
-	// The claimed worktree's occupancy row records the recording host's
-	// process identity from creation (CD-0179), so the adapter supplies its
-	// process pid and an agent cannot claim without one. The authority
-	// gates run first: an admission refusal names the authority problem, not
-	// the missing pid.
-	if in.HostPID <= 0 {
-		return coreError(base, "invalid_input", "worktree_claim requires the host process pid the adapter injects", "reread_entities", false), nil, true
-	}
-	// The native half runs here, before the mutation transaction opens, so
-	// no write lock spans git worktree add (CD-0195 D2). The creation is
-	// reported at plan time, so a refusal or failure anywhere after it —
-	// authority, approval, the effect, or the commit — compensates it.
-	opID := digest + ":worktree-claim:" + in.ProjectID
-	native, created, err := r.Store.PrepareWorktreeClaimNative(ctx, store.WorktreeClaimRequest{
-		OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
-		BaseSHA:      in.BaseSHA,
-		PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
-		SessionRef:      grant.SessionRef,
-		ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
-		HostPID: in.HostPID,
-	})
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	plan.nativeCreation = created
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		claimed, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
-			OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
-			BaseSHA:      in.BaseSHA,
-			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
-			SessionRef:      grant.SessionRef,
-			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
-			HostPID: in.HostPID,
-		}, native)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		result, err := json.Marshal(map[string]any{
-			"changed_refs":       mutationResultChangedRefs(changed),
-			"next_valid_intents": mutationResultIntents(plan.intents),
-			"path":               claimed.Entry.Path,
-		})
-		return result, []string{opID + ":worktree-created"}, changed, err
-	}
-	// The claim's worktree exists outside the transaction, so a failure after
-	// the effect — enrichment, result validation, idempotency, or the commit —
-	// rolls the claim row back and would strand the creation. The cleanup
-	// compensates exactly what the claim reported creating; a failure it
-	// cannot prove removed reports effect-possible through the cause.
-	plan.nativeCleanup = func(ctx context.Context, cause error) error {
-		if plan.nativeCreation == nil {
-			return cause
-		}
-		return r.Store.CompensateWorktreeClaimCreation(ctx, nil, *plan.nativeCreation, cause)
-	}
-	return agentcontract.Envelope{}, nil, false
-}
-
 // projectHandoffRecordInput is concord_work_transition.project_handoff_record
 // (CD-0182 amendment). The source Project and source session resolve from the
 // authenticated call context; the input only names the receiving Project and
@@ -2093,16 +1812,12 @@ type projectHandoffConsumeInput struct {
 // handoff. The artifact-preservation probe runs here, in the plan phase,
 // BEFORE the mutation transaction opens: it is a git/filesystem fact, and
 // the single-connection store cannot observe a subprocess parked inside a
-// transaction. The probe binds to the shared work's OWN claimed source
-// worktree — the store's claim resolution, never an input, and never just
-// the session's linked worktree — so a clean unrelated linked worktree
-// cannot stand in for a claimed source that carries unpreserved changes.
-// The record transaction re-checks the binding inside its own transaction,
-// so a claim that moves between this read and the record refuses there.
-// Content drift inside the probed tree in that same window is not
-// re-probeable inside a transaction; the retirement read re-proves
-// preservation from the recorded references against the claimed source
-// before any readiness, so a stale preservation never reaches retirement.
+// transaction. The probe runs in the session's host-reported worktree, the
+// tree whose changes the session's departure could lose; the authority
+// already refused the call unless that worktree resolves the ambient Project
+// and is not the main checkout. Content drift inside the probed tree after
+// the probe is not re-probeable inside a transaction; the retirement read
+// re-proves preservation from the recorded references before any readiness.
 func (r runtime) planProjectHandoffRecord(ctx context.Context, base agentcontract.Envelope, raw []byte, _ string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in projectHandoffRecordInput
 	if err := decodeOperationInput(raw, &in); err != nil {
@@ -2118,26 +1833,16 @@ func (r runtime) planProjectHandoffRecord(ctx context.Context, base agentcontrac
 	if r.Store == nil {
 		return coreError(base, "unreachable", "project handoff record requires the store authority", "contact_operator", true), nil, true
 	}
-	claimed, err := store.ReadSessionClaimedWorktree(ctx, r.Store, in.WorkID, project)
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	if claimed == "" {
-		return coreError(base, "invalid_input", "the work holds no claimed source worktree for this Project, so the handoff cannot bind artifact preservation to the shared work's own source claim", "reread_entities", false), nil, true
-	}
-	if filepath.Clean(claimed) != filepath.Clean(grant.Worktree) {
-		return coreError(base, "invalid_input", fmt.Sprintf("the session's linked worktree is not the work's claimed source worktree %s; the preservation probe verifies the claimed source only", claimed), "reread_entities", false), nil, true
-	}
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["project_ids"] = []string{project, in.TargetProjectID}
 	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "project_retirement", QueryID: "CD-0182.R1", ReasonCode: "verify_handoff_recorded", RequiredFields: []string{"work_id"}}}
 	req := store.RecordProjectHandoffRequest{
 		WorkID: in.WorkID, SourceProjectID: project, TargetProjectID: in.TargetProjectID, SourceSessionRef: grant.SessionRef,
 		BoundedJob: in.BoundedJob, Changes: in.Changes, Verification: in.Verification, ArtifactRefs: in.ArtifactRefs,
-		Blockers: in.Blockers, NextAction: in.NextAction, SourceWorktree: claimed,
+		Blockers: in.Blockers, NextAction: in.NextAction,
 	}
 	// Outside any transaction: the probe reads git and the artifact files.
-	if err := store.VerifyProjectHandoffArtifactPreservation(ctx, claimed, in.ArtifactRefs); err != nil {
+	if err := store.VerifyProjectHandoffArtifactPreservation(ctx, grant.Worktree, in.ArtifactRefs); err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
@@ -2199,229 +1904,6 @@ func (r runtime) planProjectHandoffConsume(_ context.Context, base agentcontract
 	return agentcontract.Envelope{}, nil, false
 }
 
-// planSessionVacate derives the registered main checkout for the session's
-// linked worktree and records the relocation request before the adapter moves
-// it. The commit leaves every occupancy row standing; the adapter-only
-// vacate-landing verb releases them once the host readback verifies the
-// landing.
-func (r runtime) planSessionVacate(_ context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in sessionVacateInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	project := r.Envelope.AmbientProjectID
-	if project == "" {
-		return coreError(base, "unknown_scope", "session vacate requires a resolved Project", "refresh_context", false), nil, true
-	}
-	plan.scope["project_ids"] = []string{project}
-	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "verify_session_vacated", RequiredFields: []string{"work_id"}}}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		return r.applySessionVacateTx(ctx, tx, grant, raw, digest, project, plan.intents)
-	}
-	return agentcontract.Envelope{}, nil, false
-}
-
-func (r runtime) applySessionVacateTx(ctx context.Context, tx *store.Transaction, grant Authority, raw []byte, digest, project string, intents []agentcontract.NextIntent) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-	resolvePayload := func(target store.SessionVacateReplayTarget) (json.RawMessage, error) {
-		return json.Marshal(map[string]any{
-			"changed_refs":          mutationResultChangedRefs([]agentcontract.ChangedRef{}),
-			"next_valid_intents":    mutationResultIntents(intents),
-			"work_id":               target.WorkID,
-			"project_id":            target.ProjectID,
-			"source_directory":      target.SourceDirectory,
-			"destination_directory": target.DestinationDirectory,
-		})
-	}
-	// The replay decision reads the idempotency record inside this
-	// transaction: the caller's own commit is the state the replay must
-	// re-read, and a read outside the transaction could miss it.
-	key := idempotencyKey(raw)
-	prior, replayed, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if replayed && prior.CanonicalDigest != digest {
-		return nil, nil, nil, storeIdempotencyConflict(r.Operation, key)
-	}
-	if replayed {
-		// A same-key replay never appends and never answers from the
-		// cached success: it re-reads the committed request's state and
-		// resolves or refuses from it. A pending request resolves from
-		// the verified destination or from its source worktree, a
-		// completed request resolves while the session holds no rows,
-		// and a later claim's rows refuse with effect none — the host
-		// mover never runs on the refusal, so the session stays where it
-		// sits (CD-0190 D2/D3).
-		var recorded struct {
-			WorkID string `json:"work_id"`
-		}
-		_ = json.Unmarshal([]byte(prior.ResultPayload), &recorded)
-		target, rerr := store.ResolveSessionVacateReplayTx(ctx, tx, project, grant.Worktree, grant.SessionRef, recorded.WorkID)
-		if rerr != nil {
-			return nil, nil, nil, rerr
-		}
-		payload, merr := resolvePayload(target)
-		return payload, nil, []agentcontract.ChangedRef{}, merr
-	}
-	// CD-0190 D3: session_vacate called again re-reads the committed
-	// request's state whatever idempotency key the retry carries. A
-	// still-pending version 2 request whose source worktree is this one
-	// is the same relocation: the call answers through the replay
-	// resolution and appends nothing, so a retry under a new key never
-	// records a second relocation request for one move. A request its
-	// recorded landing already completed resolves no pending request
-	// here, so the fresh-request path below still records a re-occupied
-	// worktree's own new relocation (CD-0190 D2).
-	// Only a confirmed absence falls through to a fresh request: an
-	// unreadable or undecodable pending request refuses, so a failed
-	// lookup never records a second relocation request for one move.
-	pending, perr := store.PendingSessionVacateSourceRequestTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
-	if perr == nil {
-		result, merr := resolvePayload(pending)
-		return result, nil, []agentcontract.ChangedRef{}, merr
-	}
-	var pendingFailure *store.Failure
-	if !errors.As(perr, &pendingFailure) || pendingFailure.Kind != store.KindProjectionNotFound {
-		return nil, nil, nil, perr
-	}
-	target, err := store.ResolveSessionVacateTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
-	if err != nil {
-		// A vacate whose host move landed without a recorded landing
-		// leaves the session outside every active worktree with the
-		// relocation request standing. The replay from the verified
-		// destination is the recovery: the core resolves it to the
-		// committed request and appends nothing, and the adapter-only
-		// vacate-landing verb records the landing and releases the
-		// session's rows in its own transaction, so no stale row strands
-		// the session from claiming other work.
-		var failure *store.Failure
-		if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
-			pending, perr := store.ResolveSessionVacateReplayTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
-			if perr == nil {
-				result, merr := resolvePayload(pending)
-				return result, nil, []agentcontract.ChangedRef{}, merr
-			}
-			// The replay resolves a pending request, and a committed
-			// request whose recorded landing already completed resolves
-			// too while the session holds no rows: the caller's
-			// readback-verified landing call then replays idempotently
-			// with no event, so an uncertain landing result recovers
-			// (CD-0190 D3). Once a later claim's rows stand the completed
-			// request refuses with its completed state, not the generic
-			// no-active-worktree error, so the session learns its rows
-			// belong to that claim; no event appends either way.
-			var replayFailure *store.Failure
-			if errors.As(perr, &replayFailure) && replayFailure.Kind == store.KindInvalidOperation {
-				return nil, nil, nil, perr
-			}
-		}
-		return nil, nil, nil, err
-	}
-	// The request digest is caller-constant here: mutationDigest strips
-	// session identity and idempotency key by design, and the vacate
-	// input carries nothing else, so digest alone names no one. The event
-	// id must name the relocating session and the worktree's work item,
-	// or the first vacate ever recorded owns the id for every later
-	// session and each one refuses as a conflicting replay (CD-0120 D4).
-	// One relocation request of one work item by one session is the unit
-	// of identity: the recorded vacate count is the ordinal of this
-	// request. This event records the relocation request before the
-	// adapter moves the host session and leaves every occupancy row
-	// standing: the release waits for the verified landing the
-	// adapter-only vacate-landing verb records after the host readback
-	// names the destination, so a refused move, a destination mismatch,
-	// or an unreadable landing never leaves a live session in a worktree
-	// recorded as empty. Read-only work resume writes no event and no
-	// occupancy, and the worktree projection is identical before repeated
-	// vacates of the same work item by the same session, so the recorded
-	// operation count is the only projection that orders them.
-	vacated, err := store.CountWorkSessionVacatesTx(ctx, tx, target.WorkID, grant.SessionRef)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	eventID := fmt.Sprintf("%s:session-vacated:%s:%s:%d", digest, grant.SessionRef, target.WorkID, vacated+1)
-	payload, err := json.Marshal(map[string]any{
-		"work_id":               target.WorkID,
-		"project_id":            target.ProjectID,
-		"session_ref":           grant.SessionRef,
-		"source_directory":      target.SourceDirectory,
-		"destination_directory": target.DestinationDirectory,
-	})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{
-		EventID:        eventID,
-		Kind:           "work.session_vacated",
-		SubjectType:    store.SubjectWorkItem,
-		SubjectID:      target.WorkID,
-		Actor:          grant.PrincipalRef,
-		OccurredAt:     r.Authority.now(),
-		PayloadVersion: 2,
-		Payload:        payload,
-	}}}); err != nil {
-		return nil, nil, nil, err
-	}
-	result, err := json.Marshal(map[string]any{
-		"changed_refs":          mutationResultChangedRefs([]agentcontract.ChangedRef{}),
-		"next_valid_intents":    mutationResultIntents(intents),
-		"work_id":               target.WorkID,
-		"project_id":            target.ProjectID,
-		"source_directory":      target.SourceDirectory,
-		"destination_directory": target.DestinationDirectory,
-	})
-	return result, []string{eventID}, []agentcontract.ChangedRef{}, err
-}
-
-// planWorktreeDestroy plans concord_work_transition.worktree_destroy
-// (CD-0096 D3 Destroy). The worktree resolves through the session's Project
-// anchor; no path input exists (CD-0096 D2).
-func (r runtime) planWorktreeDestroy(ctx context.Context, base agentcontract.Envelope, raw []byte, _ string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in worktreeDestroyInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	project := r.Envelope.AmbientProjectID
-	if project == "" {
-		return coreError(base, "unknown_scope", "worktree tiers resolve through the session's Project; this session holds none", "refresh_context", false), nil, true
-	}
-	plan.scope["work_ids"] = []string{in.WorkID}
-	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
-	// The lease set and the git facts are read before the mutation
-	// transaction opens (CD-0179, CD-0195 D2): the legacy-row release proof
-	// compares the lease snapshot against the row's recorded_at, and no
-	// write lock may span a git probe.
-	reclaimReq := store.WorktreeReclaimRequest{
-		WorkID: in.WorkID, ProjectID: project, DefaultRef: in.DefaultRef,
-		PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
-		ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
-		RequireTerminal: true, Destructive: in.Destructive,
-		HostLeases: r.Store.ReadHostLeases(),
-	}
-	probe, err := r.Store.PrepareWorktreeReclaim(ctx, reclaimReq)
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	var removal *store.WorktreeNativeRemoval
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		result, err := store.DestroyWorktreeTx(ctx, tx, reclaimReq, probe)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		removal = result.Removal
-		changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), []string{in.WorkID + ":" + project + ":worktree-destroyed"}, changed, nil
-	}
-	// The native removal follows the commit with no transaction open
-	// (CD-0195 D2); the idempotency record waits for it, so a failed
-	// removal leaves the same request free to converge the committed
-	// reclaim.
-	plan.nativeFinalize = func(ctx context.Context) error {
-		return r.Store.FinishWorktreeNativeRemoval(ctx, nil, removal)
-	}
-	return agentcontract.Envelope{}, nil, false
-}
-
 // planWorkRemoval plans the operator-controlled, per-item removal operation.
 func (r runtime) planWorkRemoval(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in workRemovalMutationInput
@@ -2447,24 +1929,28 @@ func (r runtime) planWorkRemoval(ctx context.Context, base agentcontract.Envelop
 		ProductID: product, Handoff: in.Handoff, Linear: in.Linear,
 		ExecutionRelinquished: in.ExecutionRelinquished, WritesReconciled: in.WritesReconciled,
 		EffectsReconciled: in.EffectsReconciled, DependenciesResolved: in.DependenciesResolved,
-		ArtifactsVerified: in.ArtifactsVerified, Sessions: in.Sessions,
+		ArtifactsVerified: in.ArtifactsVerified,
 	}
 	if grant.MainWorktree {
-		project, _ := grant.ScopeSnapshot["project_id"].(string)
 		if product != r.Envelope.SelectedProductID {
 			return coreError(base, "unauthorized", "default-checkout shelving requires the selected Product", "contact_operator", false), nil, true
 		}
-		proof, err := r.Store.ProveDefaultCheckoutRemoval(ctx, removalRequest, project)
-		if err != nil {
+		project, _ := grant.ScopeSnapshot["project_id"].(string)
+		if err := r.Store.CheckDefaultCheckoutRemoval(ctx, removalRequest, project); err != nil {
 			return failureEnvelope(base, err), nil, true
 		}
-		plan.removalProof = proof
 	}
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["product_ids"] = nonEmpty(product)
 	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "audit_removed_work"}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 		removalRequest.Actor = grant.PrincipalRef
+		if grant.MainWorktree {
+			project, _ := grant.ScopeSnapshot["project_id"].(string)
+			if err := store.CheckDefaultCheckoutRemovalTx(ctx, tx, removalRequest, project); err != nil {
+				return nil, nil, nil, err
+			}
+		}
 		prepared, err := store.PrepareWorkRemovalTx(ctx, tx, removalRequest)
 		if err != nil {
 			return nil, nil, nil, err
@@ -2484,209 +1970,6 @@ func (r runtime) planWorkRemoval(ctx context.Context, base agentcontract.Envelop
 	return agentcontract.Envelope{}, nil, false
 }
 
-// mutateWorktreeAuditReclaim plans concord_work_transition.worktree_audit_reclaim.
-// The audit performs the one safe action it names: each terminal-present
-// worktree reclaims through the direct reclaim's own gates, in its own
-// transaction, so one refused row never rolls back another's reclamation.
-// That is why the effect cannot sit inside executeMutation's single
-// transaction: the store owns the row transactions, and this planner owns
-// the envelope and the idempotency record. A replay under the same key
-// returns the recorded pass and does not run the audit again.
-//
-// The pass reclaims only rows whose tier gate establishes no live
-// implementation surface (CD-0162): the terminal tier retires a merged tree,
-// the unstarted tier (CD-0118) a clean tree with no commit beyond the
-// default ref. That is why no worktree anchor is required to run it.
-//
-// A failure after the audit ran must not claim no effect: the reclaimed rows
-// in changed already committed, and a replay converges without re-executing
-// them (the recorded pass returns, or a re-audit finds the rows gone). Every
-// post-commit exit below routes through auditReclaimPostCommitFailure, which
-// keeps the failure's kind and coupled recovery, marks effects possible, and
-// carries exactly the committed refs (issue #757).
-func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base agentcontract.Envelope, raw []byte, grant Authority, _ agentcontract.ContractOperation) (agentcontract.Envelope, error) {
-	var in worktreeAuditReclaimInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err
-	}
-	if r.Budget.CeilingRefused {
-		return r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds)), nil
-	}
-	product := in.ProductID
-	if product == "" {
-		product = r.Envelope.SelectedProductID
-	}
-	if product == "" {
-		return coreError(base, "unknown_scope", "worktree audit reclaim requires a resolved Product", "reread_entities", false), nil
-	}
-	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
-	scope := map[string]any{"product_ids": []string{product}}
-	intents := []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "worktree_audit", QueryID: "PM1.Q16", ReasonCode: "audit_after_reclaim", RequiredFields: []string{"product_id"}}}
-	scoped := base
-	scoped.ResolvedScope = scopeFromMap(scope)
-	result, err := r.Store.WorktreeAuditReclaim(ctx, store.WorktreeAuditReclaimRequest{
-		ProductID:    product,
-		DefaultRef:   in.DefaultRef,
-		PrincipalRef: grant.PrincipalRef,
-		RequestID:    in.IdempotencyKey,
-		Now:          r.Authority.now(),
-		Limit:        in.Limit,
-		Admit:        auditReclaimAdmission(scoped, intents),
-	})
-	if err != nil {
-		return auditReclaimPostCommitFailure(base, auditReclaimChangedRefs(result.Rows), failureEnvelope(base, err)), nil
-	}
-	report, err := buildAuditReclaimReport(base, result.Root, result.Rows, result.ReportOnly, intents)
-	changed := report.changed
-	if err != nil {
-		return auditReclaimPostCommitFailure(base, changed, failureEnvelope(base, err)), nil
-	}
-	base, payload, intents, pinless := report.base, report.payload, report.intents, report.pinless
-	base.ResolvedScope = scoped.ResolvedScope
-	payload, paged := compactAuditReclaimReport(base, payload, changed, intents)
-	base.Omissions = append(base.Omissions, paged...)
-	response := r.mutationResult(base, payload, changed, intents, pinless...)
-	if response.Outcome == agentcontract.OutcomeError {
-		return auditReclaimPostCommitFailure(base, changed, response), nil
-	}
-	changedJSON, _ := json.Marshal(changed)
-	authorizedScope, _ := json.Marshal(mutationResponseScope(scope, response, pinless))
-	if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{
-			Key:                     store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey},
-			CanonicalDigest:         digest,
-			OperationID:             "mutation-" + digest[7:31],
-			ResultPayload:           string(payload),
-			ChangedRefs:             string(changedJSON),
-			AuthorizedScopeSnapshot: string(authorizedScope),
-			ObservedAt:              r.Authority.now(),
-		})
-	}); err != nil {
-		return auditReclaimPostCommitFailure(base, changed, failureEnvelope(base, err)), nil
-	}
-	return response, nil
-}
-
-// auditReclaimPostCommitFailure classifies a genuine fault that fired after
-// some of the audit's row transactions committed. The reclaimed rows in
-// changed already applied, so the envelope keeps the failure's kind and
-// coupled recovery, marks effects possible, and carries exactly the committed
-// refs; refused rows never ride along, and the admission bound keeps the
-// committed refs within the envelope's capacity. A valid failure keeps its
-// kind and recovery action. An invalid failure becomes malformed_response,
-// while an empty commit set leaves the no-effect classification truthful.
-func auditReclaimPostCommitFailure(base agentcontract.Envelope, changed []agentcontract.ChangedRef, failure agentcontract.Envelope) agentcontract.Envelope {
-	refs := append([]agentcontract.ChangedRef(nil), changed...)
-	if len(refs) > 0 && failure.Outcome == agentcontract.OutcomeError && failure.Error != nil {
-		failure.Error.EffectState = agentcontract.EffectPossible
-		failure.ChangedRefs = &refs
-	}
-	if err := failure.Validate(); err == nil {
-		return failure
-	}
-	validated := coreError(base, "malformed_response", "post-commit failure envelope failed closed-schema validation", "contact_operator", false)
-	if len(refs) > 0 {
-		validated.Error.EffectState = agentcontract.EffectPossible
-		validated.ChangedRefs = &refs
-	}
-	return validated
-}
-
-// auditReclaimReport is one pass's success report before report-only paging:
-// the payload with its work pins, the envelope base carrying the pin notice,
-// and the intents the pins derive.
-type auditReclaimReport struct {
-	base    agentcontract.Envelope
-	payload json.RawMessage
-	changed []agentcontract.ChangedRef
-	intents []agentcontract.NextIntent
-	pinless []string
-}
-
-// buildAuditReclaimReport builds the report for the given rows. The final
-// result and the admission bound both build through it, so the bound measures
-// exactly the bytes the result reports.
-func buildAuditReclaimReport(base agentcontract.Envelope, root string, rows []store.WorktreeAuditReclaimRow, reportOnly []store.WorktreeDrift, intents []agentcontract.NextIntent) (auditReclaimReport, error) {
-	changed := auditReclaimChangedRefs(rows)
-	report := auditReclaimReport{base: base, changed: changed, intents: intents}
-	payload, err := json.Marshal(map[string]any{
-		"root": root, "rows": rows, "report_only": reportOnly,
-		"changed_refs":       mutationResultChangedRefs(changed),
-		"next_valid_intents": mutationResultIntents(intents),
-	})
-	if err != nil {
-		return report, err
-	}
-	pins := make([]store.WorkPin, 0, len(changed))
-	for _, row := range rows {
-		if row.Outcome != store.WorktreeAuditReclaimed {
-			continue
-		}
-		if row.WorkPin != nil {
-			pins = append(pins, *row.WorkPin)
-		} else {
-			report.pinless = append(report.pinless, row.WorkID)
-		}
-	}
-	report.base.Omissions = append(append([]agentcontract.Notice{}, base.Omissions...), mutationPinOmissions(report.pinless)...)
-	payload, derivedIntents, err := enrichMutationPayload(payload, pins)
-	if err != nil {
-		return report, err
-	}
-	if derivedIntents != nil {
-		report.intents = derivedIntents
-	}
-	report.payload = payload
-	return report, nil
-}
-
-// auditReclaimNoticeCountBound bounds the counts the admission bound reserves
-// for the paging notices, whose final counts are unknown while the pass runs.
-const auditReclaimNoticeCountBound = int64(1<<31 - 1)
-
-// auditReclaimRefusalKindBytes is the result schema's refusal_kind maxLength.
-const auditReclaimRefusalKindBytes = 64
-
-// auditReclaimAdmission is the producer bound the store applies inside each
-// reclaimed row's transaction, so a pass commits only what its success
-// envelope can report (CD-0185). It captures values only: it runs while the
-// store's one pooled connection is held and must never reach the store.
-func auditReclaimAdmission(base agentcontract.Envelope, intents []agentcontract.NextIntent) func(string, []store.WorktreeAuditReclaimRow, []store.WorktreeDrift) bool {
-	return func(root string, rows []store.WorktreeAuditReclaimRow, remaining []store.WorktreeDrift) bool {
-		if len(auditReclaimChangedRefs(rows)) > agentcontract.MaxChangedRefs {
-			return false
-		}
-		return auditReclaimAdmissionBytes(base, intents, root, rows, remaining) <= agentcontract.MaxResultEnvelopeBytes
-	}
-}
-
-// auditReclaimAdmissionBytes measures the smallest success envelope the
-// compaction can reach with rows reported: report_only paged to nothing,
-// every row detail dropped, both paging notices at their bounded counts, and
-// every remaining attempt reserved in its refused form, so no later refusal
-// can push the committed pass past the cap.
-func auditReclaimAdmissionBytes(base agentcontract.Envelope, intents []agentcontract.NextIntent, root string, rows []store.WorktreeAuditReclaimRow, remaining []store.WorktreeDrift) int {
-	minimal := make([]store.WorktreeAuditReclaimRow, 0, len(rows)+len(remaining))
-	for _, row := range rows {
-		row.Detail = ""
-		minimal = append(minimal, row)
-	}
-	reserve := strings.Repeat("x", auditReclaimRefusalKindBytes)
-	for _, drift := range remaining {
-		minimal = append(minimal, store.WorktreeAuditReclaimRow{ProjectID: drift.ProjectID, WorkID: drift.WorkID, Path: drift.Path, Lifecycle: drift.Lifecycle, Outcome: store.WorktreeAuditRefused, RefusalKind: reserve})
-	}
-	report, err := buildAuditReclaimReport(base, root, minimal, []store.WorktreeDrift{}, intents)
-	if err != nil {
-		return int(^uint(0) >> 1)
-	}
-	bound := auditReclaimNoticeCountBound
-	notices := []agentcontract.Notice{
-		{Kind: "report_only_paged", Count: bound, Details: map[string]any{"classified": bound, "reported": bound}},
-		{Kind: "row_details_omitted", Count: bound, Details: map[string]any{"rows": bound, "with_detail": bound}},
-	}
-	return auditReclaimEnvelopeBytes(report.base, report.payload, report.changed, report.intents, notices)
-}
-
 // boundResultChangedRefs bounds a committed change list to the result
 // envelope's changed-reference capacity. Research retirement reports every
 // candidate in its payload, but a retirement batch can retire more packs than
@@ -2703,212 +1986,6 @@ func boundResultChangedRefs(changed []agentcontract.ChangedRef) ([]agentcontract
 		Details: map[string]any{"committed": int64(len(changed)), "reported": int64(agentcontract.MaxChangedRefs)},
 	}
 	return bounded, &notice
-}
-
-func auditReclaimChangedRefs(rows []store.WorktreeAuditReclaimRow) []agentcontract.ChangedRef {
-	changed := make([]agentcontract.ChangedRef, 0, len(rows))
-	for _, row := range rows {
-		if row.Outcome == store.WorktreeAuditReclaimed {
-			changed = append(changed, agentcontract.ChangedRef{EntityKind: "work_item", ID: row.WorkID, Version: strconv.FormatInt(row.Version, 10)})
-		}
-	}
-	return changed
-}
-
-// MaxAuditReclaimInlineRows is the result payload schema's report_only
-// capacity. A pass can classify more rows than it, because the pass limit
-// bounds attempts only (CD-0179 D5), so the overflow pages before any byte
-// pressure applies.
-const MaxAuditReclaimInlineRows = 100
-
-// compactAuditReclaimReport bounds one audit reclaim pass result so its
-// success envelope fits the result envelope cap before the pass reports
-// success (CD-0185). Each row commits ahead of the report, so the report
-// cannot refuse its way back to a no-effect answer; it compacts instead.
-// Every committed and refused attempt stays reported with its outcome,
-// version, and refusal kind. What pages is the report-only classification:
-// the prefix stays inline, the worktree_audit read — already the pass's named
-// next intent — delivers the complete classification over cursor pages, and
-// an omission notice carries the explicit count. The free-text row detail
-// drops only under byte pressure, after the fully recoverable report-only
-// rows, and under its own notice. The returned payload is the exact bytes the
-// idempotency record stores, so a replay under the same key returns the same
-// bounded result.
-func compactAuditReclaimReport(base agentcontract.Envelope, payload json.RawMessage, changed []agentcontract.ChangedRef, intents []agentcontract.NextIntent) (json.RawMessage, []agentcontract.Notice) {
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &object); err != nil {
-		return payload, nil
-	}
-	rowsKey, hasRows := object["rows"]
-	reportKey, hasReport := object["report_only"]
-	if !hasRows || !hasReport {
-		return payload, nil
-	}
-	// The slices start non-nil: a payload whose array marshals empty decodes
-	// into a nil slice here, and re-marshaling nil would emit null where the
-	// result schema requires an array.
-	rows := []store.WorktreeAuditReclaimRow{}
-	reportOnly := []store.WorktreeDrift{}
-	if json.Unmarshal(rowsKey, &rows) != nil || json.Unmarshal(reportKey, &reportOnly) != nil {
-		return payload, nil
-	}
-	classified := len(reportOnly)
-	kept := classified
-	if kept > MaxAuditReclaimInlineRows {
-		kept = MaxAuditReclaimInlineRows
-	}
-	// The detail-drop order runs from the last row backward, so the earlier
-	// rows keep their refusal detail longest. A row already without detail
-	// contributes nothing and stays out of the order.
-	detailOrder := []int{}
-	for i := len(rows) - 1; i >= 0; i-- {
-		if rows[i].Detail != "" {
-			detailOrder = append(detailOrder, i)
-		}
-	}
-	build := func(kept, detailDropped int) (json.RawMessage, []agentcontract.Notice, bool) {
-		notices := []agentcontract.Notice{}
-		if kept < classified {
-			notices = append(notices, agentcontract.Notice{Kind: "report_only_paged", Count: int64(classified - kept), Details: map[string]any{"classified": int64(classified), "reported": int64(kept)}})
-		}
-		if detailDropped > 0 {
-			notices = append(notices, agentcontract.Notice{Kind: "row_details_omitted", Count: int64(detailDropped), Details: map[string]any{"rows": int64(len(rows)), "with_detail": int64(len(rows) - detailDropped)}})
-		}
-		reported := rows
-		if detailDropped > 0 {
-			reported = make([]store.WorktreeAuditReclaimRow, len(rows))
-			copy(reported, rows)
-			for _, i := range detailOrder[:detailDropped] {
-				reported[i].Detail = ""
-			}
-		}
-		object["rows"], _ = json.Marshal(reported)
-		object["report_only"], _ = json.Marshal(reportOnly[:kept])
-		raw, err := json.Marshal(object)
-		if err != nil {
-			return nil, nil, false
-		}
-		return raw, notices, true
-	}
-	fits := func(raw json.RawMessage, notices []agentcontract.Notice) bool {
-		return auditReclaimEnvelopeBytes(base, raw, changed, intents, notices) <= agentcontract.MaxResultEnvelopeBytes
-	}
-	raw, notices, ok := build(kept, 0)
-	if !ok {
-		return payload, nil
-	}
-	for kept > 0 && !fits(raw, notices) {
-		kept--
-		raw, notices, ok = build(kept, 0)
-		if !ok {
-			return payload, nil
-		}
-	}
-	for detailDropped := 0; detailDropped < len(detailOrder) && !fits(raw, notices); detailDropped++ {
-		raw, notices, ok = build(kept, detailDropped+1)
-		if !ok {
-			return payload, nil
-		}
-	}
-	return raw, notices
-}
-
-// auditReclaimEnvelopeBytes measures the wire size of the success envelope the
-// planner is about to report, with the candidate payload and its notices. It
-// encodes the same wire form mutationResult's cap check encodes, so the
-// compaction targets exactly the bound the producer is held to (CD-0132: the
-// envelope law is the same at producer and adapter).
-func auditReclaimEnvelopeBytes(base agentcontract.Envelope, payload json.RawMessage, changed []agentcontract.ChangedRef, intents []agentcontract.NextIntent, notices []agentcontract.Notice) int {
-	candidate := base
-	candidate.Omissions = append(append([]agentcontract.Notice{}, base.Omissions...), notices...)
-	response := agentcontract.NewOKMutation(candidate, payload, changed, intents)
-	type wire agentcontract.Envelope
-	encoded, err := json.Marshal(wire(response))
-	if err != nil {
-		return int(^uint(0) >> 1)
-	}
-	return len(encoded)
-}
-
-// planWorktreeReclaim plans concord_work_transition.worktree_reclaim.
-func (r runtime) planWorktreeReclaim(ctx context.Context, base agentcontract.Envelope, raw []byte, _ string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in worktreeReclaimInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	plan.scope["work_ids"] = []string{in.WorkID}
-	plan.scope["project_ids"] = []string{in.ProjectID}
-	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
-	// The CD-0092 D2 terminality gate runs before the pre-transaction probe:
-	// a main-checkout reclaim of non-terminal work refuses here with the same
-	// typed refusal the in-transaction re-authorization below enforces, so
-	// the probe's projection gates cannot answer first. The in-transaction
-	// gate stays authoritative; this read only preserves the refusal order.
-	if grant.MainWorktree {
-		lifecycle, lifecycleErr := r.Store.WorkLifecycle(ctx, in.WorkID)
-		if lifecycleErr != nil {
-			return failureEnvelope(base, lifecycleErr), nil, true
-		}
-		if !store.IsTerminalLifecycle(lifecycle) {
-			return failureEnvelope(base, newRuntimeFailure("unauthorized", "implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)", "contact_operator", false)), nil, true
-		}
-	}
-	// The lease set and the git facts are read before the mutation
-	// transaction opens (CD-0179, CD-0195 D2): the legacy-row release proof
-	// compares the lease snapshot against the row's recorded_at, and no
-	// write lock may span a git probe.
-	leaseSet := r.Store.ReadHostLeases()
-	probe, err := r.Store.PrepareWorktreeReclaim(ctx, store.WorktreeReclaimRequest{
-		WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
-		PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
-		ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
-		HostLeases: leaseSet,
-	})
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	var removal *store.WorktreeNativeRemoval
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		// Issue #674 amends the CD-0092 D2 surface for this operation: a
-		// main-checkout grant may reclaim once the work item is terminal,
-		// because terminal work holds no live implementation surface. The
-		// lifecycle read is tx-scoped and the grant is the in-transaction
-		// re-authorization, so the condition holds atomically with the
-		// reclamation; non-terminal work keeps the CD-0092 D2 refusal. The
-		// audit pass carries the same admission on its per-row tier gates
-		// (CD-0162).
-		if grant.MainWorktree {
-			lifecycle, err := currentLifecycle(ctx, tx, in.WorkID)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			if !store.IsTerminalLifecycle(lifecycle) {
-				return nil, nil, nil, newRuntimeFailure("unauthorized", "implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)", "contact_operator", false)
-			}
-		}
-		result, err := store.ReclaimWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
-			WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
-			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
-			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
-			// The legacy-row release proof compares this lease-set snapshot
-			// against the row's recorded_at (CD-0179).
-			HostLeases: leaseSet,
-		}, probe)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		removal = result.Removal
-		changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), []string{in.WorkID + ":" + in.ProjectID + ":worktree-reclaimed"}, changed, nil
-	}
-	// The native removal follows the commit with no transaction open
-	// (CD-0195 D2); the idempotency record waits for it, so a failed
-	// removal leaves the same request free to converge the committed
-	// reclaim.
-	plan.nativeFinalize = func(ctx context.Context) error {
-		return r.Store.FinishWorktreeNativeRemoval(ctx, nil, removal)
-	}
-	return agentcontract.Envelope{}, nil, false
 }
 
 // planSetMemberships plans concord_work_relate.set_memberships.
@@ -3021,9 +2098,6 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 	if op.ID == "concord_work_transition.workflow_action" {
 		return r.mutateWorkflowAction(ctx, base, raw, grant, op)
 	}
-	if op.ID == "concord_work_transition.worktree_audit_reclaim" {
-		return r.mutateWorktreeAuditReclaim(ctx, base, raw, grant, op)
-	}
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	if r.Tool == "concord_work_compact" {
 		return r.mutateCompaction(ctx, base, raw, digest, op)
@@ -3059,10 +2133,6 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 		answer, err, handled = r.planObservationRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.issue_link_record":
 		answer, err, handled = r.planIssueLinkRecord(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_transition.worktree_claim":
-		answer, err, handled = r.planWorktreeClaim(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_transition.session_vacate":
-		answer, err, handled = r.planSessionVacate(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.project_handoff_record":
 		answer, err, handled = r.planProjectHandoffRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.project_handoff_consume":
@@ -3073,10 +2143,6 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 		answer, err, handled = r.planOutsideRepairDisposition(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.outside_repair_reconcile":
 		answer, err, handled = r.planOutsideRepairReconcile(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_transition.worktree_reclaim":
-		answer, err, handled = r.planWorktreeReclaim(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_transition.worktree_destroy":
-		answer, err, handled = r.planWorktreeDestroy(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.set_memberships":
 		answer, err, handled = r.planSetMemberships(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.resolve_overlap":
@@ -3096,8 +2162,7 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 	}
 	plan.scope["product_ids"] = preflightProducts
 	base.EvidenceRefs = append([]agentcontract.EvidenceRef{}, plan.evidenceRefs...)
-	r.removalProof = plan.removalProof
-	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.plannedInitialDurability, plan.intents, plan.effect, plan.nativeCleanup, plan.nativeFinalize)
+	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.plannedInitialDurability, plan.intents, plan.effect)
 }
 
 func (r runtime) deriveMutationProducts(ctx context.Context, scope map[string]any) ([]string, error) {
@@ -3910,7 +2975,7 @@ func (r runtime) executeAdmittedMutation(ctx *context.Context, durable *bool, mu
 	return err
 }
 
-func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, scope map[string]any, plannedInitialDurability *bool, intents []agentcontract.NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (agentcontract.Envelope, error) {
+func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, scope map[string]any, plannedInitialDurability *bool, intents []agentcontract.NextIntent, effect mutationEffect) (agentcontract.Envelope, error) {
 	// Durability resolves before any effect: the operation's declaration is
 	// the baseline, a planner fact replaces it, and a missing or unknown
 	// declaration is an invariant failure, never an ordinary write.
@@ -3932,52 +2997,14 @@ func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelop
 	if hostErr != nil {
 		return agentcontract.Envelope{}, hostErr
 	}
-	execution := mutationExecution{runtime: r, base: base, raw: raw, digest: digest, scope: scope, intents: intents, effect: effect, host: host, contractOp: contractOp, nativeFinalize: nativeFinalize}
+	execution := mutationExecution{runtime: r, base: base, raw: raw, digest: digest, scope: scope, intents: intents, effect: effect, host: host, contractOp: contractOp}
 	mutation := func(tx *store.Transaction) error {
 		return execution.executeTx(ctx, tx, durable)
 	}
 	err := r.executeAdmittedMutation(&ctx, &durable, mutation)
 	base, response := execution.base, execution.response
-	resultRejected, cachedReplay, deferredInsert := execution.resultRejected, execution.cachedReplay, execution.deferredInsert
-	transact := r.Store.Transact
-	if durable {
-		transact = r.Store.TransactDurable
-	}
-	if err == nil && nativeFinalize != nil && !cachedReplay {
-		if err := nativeFinalize(ctx); err != nil {
-			// The event is committed; the retryable failure names the native
-			// work still owed, and no idempotency record replays over it.
-			return failureEnvelope(base, err), nil
-		}
-		if deferredInsert != nil {
-			if err := transact(ctx, func(tx *store.Transaction) error {
-				return store.InsertMutationIdempotencyTx(ctx, tx, *deferredInsert)
-			}); err != nil {
-				return failureEnvelope(base, err), nil
-			}
-		}
-	}
-	if err == nil && response.Outcome == agentcontract.OutcomeError && nativeCleanup != nil {
-		// The refusal must leave no effect, so the creation compensates; a
-		// removal that cannot be proven reports the possible effect through
-		// the failure envelope instead of the refusal.
-		if cleanupErr := nativeCleanup(ctx, errors.New("mutation refused after the native worktree was created")); cleanupErr != nil {
-			return failureEnvelope(base, cleanupErr), nil
-		}
-	}
+	resultRejected := execution.resultRejected
 	if err != nil {
-		// Only compensate a proven rollback. A commit or restoration failure
-		// may follow persisted authority that still names the native state.
-		var committedFailure *store.Failure
-		if nativeCleanup != nil && (!errors.As(err, &committedFailure) || !committedFailure.EffectPossible) {
-			err = nativeCleanup(ctx, err)
-		}
-		var failure *store.Failure
-		if resultRejected && errors.As(err, &failure) && failure.EffectPossible {
-			// The refusal stands, but the created worktree outlives the
-			// rolled-back claim, so the possible effect is the honest report.
-			return failureEnvelope(base, err), nil
-		}
 		if resultRejected {
 			return response, nil
 		}
@@ -3988,20 +3015,16 @@ func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelop
 
 type mutationExecution struct {
 	runtime
-	base                         agentcontract.Envelope
-	raw                          []byte
-	digest                       string
-	scope                        map[string]any
-	intents                      []agentcontract.NextIntent
-	effect                       mutationEffect
-	host                         store.ResolvedProjectHost
-	contractOp                   agentcontract.ContractOperation
-	nativeFinalize               func(context.Context) error
-	response                     agentcontract.Envelope
-	resultRejected, cachedReplay bool
-	// A native finalize defers the receipt until native work completes, so
-	// failed removal never leaves a cached success (CD-0195 D2).
-	deferredInsert *store.MutationIdempotencyInsert
+	base           agentcontract.Envelope
+	raw            []byte
+	digest         string
+	scope          map[string]any
+	intents        []agentcontract.NextIntent
+	effect         mutationEffect
+	host           store.ResolvedProjectHost
+	contractOp     agentcontract.ContractOperation
+	response       agentcontract.Envelope
+	resultRejected bool
 }
 
 func (m *mutationExecution) executeTx(ctx context.Context, tx *store.Transaction, durable bool) error {
@@ -4033,15 +3056,14 @@ func (m *mutationExecution) executeTx(ctx context.Context, tx *store.Transaction
 		if prior.CanonicalDigest != digest {
 			return storeIdempotencyConflict(r.Operation, key)
 		}
-		if r.Operation != "session_vacate" && r.Operation != "project_handoff_consume" {
+		if r.Operation != "project_handoff_consume" {
 			return m.replayTx(ctx, tx, prior, grant, key)
 		}
-		// session_vacate and project_handoff_consume replay state-driven:
-		// the cached payload is stale the moment a later claim's occupancy
-		// rows stand, or the moment the consume bind names another
+		// project_handoff_consume replays state-driven:
+		// the cached payload is stale when the consume bind names another
 		// receiving session or the active contract moved on, so the
 		// effect below re-reads the recorded state and resolves or
-		// refuses from it (CD-0190 D2/D3). The key stays recorded, so the
+		// refuses from it. The key stays recorded, so the
 		// tail touches instead of inserting.
 		replay = true
 	}
@@ -4055,7 +3077,6 @@ func (m *mutationExecution) replayTx(ctx context.Context, tx *store.Transaction,
 	r := m.runtime
 	var replayErr error
 	m.response, m.resultRejected, replayErr = r.replayCachedMutationTx(ctx, tx, m.base, prior, grant, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
-	m.cachedReplay = replayErr == nil
 	return replayErr
 }
 
@@ -4063,11 +3084,7 @@ func (m *mutationExecution) admitTx(ctx context.Context, tx *store.Transaction, 
 	r, raw, base, scope := m.runtime, m.raw, m.base, m.scope
 	if grant.MainWorktree && m.contractOp.ID == "concord_work_transition.remove" {
 		if grant.ScopeVersion != r.Envelope.ScopeVersion {
-			return newRuntimeFailure("stale_context", "shelving scope changed after native retirement observation", "refresh_context", false)
-		}
-		project, _ := grant.ScopeSnapshot["project_id"].(string)
-		if err := store.ValidateDefaultCheckoutRemovalTx(ctx, tx, r.removalProof, project, r.Envelope.SelectedProductID); err != nil {
-			return err
+			return newRuntimeFailure("stale_context", "shelving scope changed after planning", "refresh_context", false)
 		}
 	}
 	// CD-0222 D7: every consequential boundary validates the contract's law
@@ -4134,11 +3151,6 @@ func (m *mutationExecution) applyTx(ctx context.Context, tx *store.Transaction, 
 	authorizedSnapshot["durable_commit"] = durable
 	authorizedScope, _ := json.Marshal(authorizedSnapshot)
 	insert := store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: m.digest, OperationID: "mutation-" + m.digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()}
-	if m.nativeFinalize != nil {
-		// A cached success cannot precede the native removal it reports.
-		m.deferredInsert = &insert
-		return nil
-	}
 	return store.InsertMutationIdempotencyTx(ctx, tx, insert)
 }
 

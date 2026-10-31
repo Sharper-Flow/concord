@@ -2,10 +2,9 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import nodeFs from "node:fs"
 import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { hostControlPlane, MOVE_SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
-import { enqueueWorkNotice } from "./concord"
+import { hostControlPlane, SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
+import { enqueueWorkNotice, publishedRequestSchema } from "./concord"
 import { contractOperations, hostToolSchemas } from "./generated-contracts"
-import { expandedPublishedRequestSchema } from "./generated-contract-tests"
 import { configureCoreBinary } from "./core-runtime"
 import { resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { syntheticHostVersionFixture } from "./host-version.test-support"
@@ -19,49 +18,39 @@ const fs = { ...nodeFs, mkdtempSync }
 
 syntheticHostVersionFixture()
 
-test("work start publishes the closed capture and resume contract through the host definition hook", async () => {
-  const plugin = await ConcordAdapterPlugin()
-  // The host's legacy JSON-schema conversion drops undefined entries and
-  // requires every remaining property before it invokes tool.definition.
-  const properties = Object.fromEntries(Object.entries(plugin.tool.concord_work_start.args)
-    .filter(([, value]) => value !== null && typeof value === "object" && !Array.isArray(value)))
-  const parameters = {}
-  const output = {
-    description: plugin.tool.concord_work_start.description,
-    parameters,
-    jsonSchema: { type: "object", properties, required: Object.keys(properties) },
-  }
-  const hook = Reflect.get(plugin, "tool.definition")
-  if (typeof hook !== "function") throw new Error("plugin registers no tool.definition hook")
-  await hook({ toolID: "concord_work_start" }, output)
-  const published = JSON.parse(JSON.stringify(output.jsonSchema))
-  // The generated closed modes survive in conditional branches; the root
-  // remains an object accepted by Anthropic's tool-schema validator.
-  expect(published.type).toBe("object")
-  expect(published.oneOf).toBeUndefined()
-  expect(published.if).toEqual({ required: ["work_id"] })
-  // Publication interns repeated field schemas into the root's local
-  // definitions table, so the branch comparison reads the resolved view
-  // against the unchanged generated contracts.
-  const resolved = expandedPublishedRequestSchema(published) as any
-  expect(resolved.else.if).toEqual({ required: ["issue_key"] })
-  expect(resolved.else.else).toEqual(hostToolSchemas.concord_work_start.oneOf[0])
-  expect(resolved.then).toEqual(expandedPublishedRequestSchema(hostToolSchemas.concord_work_start.oneOf[1]))
-  expect(resolved.else.then).toEqual(expandedPublishedRequestSchema(hostToolSchemas.concord_work_start.oneOf[1]))
-  expect(resolved.else.else.properties.work_id).toBeUndefined()
-  expect(resolved.then.properties.title).toBeUndefined()
-  expect(output.parameters).toBe(parameters)
-  expect(output.description).toBe(plugin.tool.concord_work_start.description)
-})
-
 test("the plugin registration set equals the complete host tool catalog", async () => {
   // Every registered tool must be a catalog member, so the generated
   // utility denials derived from the catalog can never miss a new
   // registration.
   const plugin = await ConcordAdapterPlugin()
   const catalog = [...new Set([...Object.keys(hostToolSchemas), ...contractOperations.map((operation: any) => operation.tool)])].sort()
-  expect(catalog.length).toBe(10)
+  expect(catalog.length).toBe(9)
   expect(Object.keys(plugin.tool).sort()).toEqual(catalog)
+})
+
+test("the system transform keeps agent-switch notices without reading host continuity", async () => {
+  let reads = 0
+  const raw = {
+    get: async () => {
+      reads += 1
+      return { data: { directory: "/session/project" }, response: new Response(null, { status: 200 }) }
+    },
+    post: async () => ({ response: new Response(null, { status: 204 }) }),
+  }
+  const plugin = await ConcordAdapterPlugin({ client: { _client: raw } as never })
+  const input = { sessionID: "session-system-transform" }
+  const transform = plugin["experimental.chat.system.transform"]
+  const unchanged = { system: ["system prefix"] }
+  await transform(input, unchanged)
+  expect(unchanged.system).toEqual(["system prefix"])
+
+  await plugin["chat.message"]({ ...input, agent: "agent-first" })
+  await plugin["chat.message"]({ ...input, agent: "agent-second" })
+  const switched = { system: ["system prefix"] }
+  await transform(input, switched)
+  expect(switched.system[0]).toContain("The active agent changed from `agent-first` to `agent-second`.")
+  expect(switched.system[0]).not.toContain("<!-- concord:continuity:v1 -->")
+  expect(reads).toBe(0)
 })
 
 // The text-part channel. The work-state reporter queues operator-facing
@@ -79,13 +68,13 @@ describe("plugin entry registers the text-completion hook", () => {
 
   test("appends the queued notice blocks to the assistant text and clears the queue", async () => {
     const hook = await completeHook()
-    enqueueWorkNotice("session-text", "Concord released the worktree for work-1.")
+    enqueueWorkNotice("session-text", "The bounded work result is ready.")
     enqueueWorkNotice("session-text", "| 🛫 CON-42 Complete (work-1) |\n| :-- |\n| ✅ Delegate passes the verb bytes |\n| ✓ check check:repo:verify · pass |")
     const output = { text: "assistant text" }
     await hook({ sessionID: "session-text", messageID: "message-1", partID: "part-1" }, output)
     expect(output.text).toBe([
       "assistant text",
-      "Concord released the worktree for work-1.",
+      "The bounded work result is ready.",
       "| 🛫 CON-42 Complete (work-1) |\n| :-- |\n| ✅ Delegate passes the verb bytes |\n| ✓ check check:repo:verify · pass |",
     ].join("\n\n"))
     // The queue drained, so a later completion in the same session carries
@@ -168,8 +157,7 @@ test("the definition hook leaves tools no hook owns unchanged", async () => {
   const schema = output.jsonSchema
   const hook = Reflect.get(plugin, "tool.definition")
   expect(typeof hook).toBe("function")
-  // "bash" is no Concord tool: neither the request hook, the work start
-  // hook, nor the ci watch hook may touch its definition.
+  // "bash" is no Concord tool: no Concord definition hook may change it.
   await hook({ toolID: "bash" }, output)
   expect(output.jsonSchema).toBe(schema)
   expect(output.description).toBe("another tool")
@@ -206,63 +194,57 @@ test("a request tool publishes the hoisted argument root through the host defini
   expect(output.description).toBe(plugin.tool.concord_work_trace.description)
 })
 
-test("published work start schemas cannot mutate runtime validation", async () => {
+test("published request schemas cannot mutate the registered arguments or generated operations", async () => {
   const plugin = await ConcordAdapterPlugin()
   const output: { description: string; parameters: Record<string, unknown>; jsonSchema: Record<string, any> } = {
-    description: "work start", parameters: {}, jsonSchema: { properties: plugin.tool.concord_work_start.args },
+    description: "work define", parameters: {}, jsonSchema: { properties: plugin.tool.concord_work_define.args },
   }
-  await plugin["tool.definition"]({ toolID: "concord_work_start" }, output)
-  const argsTitle = plugin.tool.concord_work_start.args.title
-  const publishedTitle = output.jsonSchema.else.else.properties.title
-  const expectedTitle = hostToolSchemas.concord_work_start.oneOf[0].properties.title
-  const maximum = expectedTitle.maxLength
+  await plugin["tool.definition"]({ toolID: "concord_work_define" }, output)
+  const argsOperations = (plugin.tool.concord_work_define.args.request as any).properties.operation.enum as string[]
+  const publishedOperations = output.jsonSchema.properties.request.properties.operation.enum as string[]
+  const expected = contractOperations.filter((operation) => operation.tool === "concord_work_define").map((operation) => operation.id.slice("concord_work_define.".length))
+  const original = [...argsOperations]
   try {
-    argsTitle.maxLength = 1
-    publishedTitle.maxLength = 2
-    expect(expectedTitle.maxLength).toBe(maximum)
-    expect(argsTitle.maxLength).toBe(1)
-    expect(publishedTitle.maxLength).toBe(2)
+    argsOperations.push("registration-only")
+    expect(publishedOperations).toEqual(expected)
+    publishedOperations.push("publication-only")
+    expect(argsOperations).toEqual([...expected, "registration-only"])
+    expect((publishedRequestSchema("concord_work_define") as any).properties.operation.enum).toEqual(expected)
+    expect(contractOperations.filter((operation) => operation.tool === "concord_work_define").map((operation) => operation.id.slice("concord_work_define.".length))).toEqual(expected)
   } finally {
-    argsTitle.maxLength = maximum
-    publishedTitle.maxLength = maximum
+    argsOperations.splice(0, argsOperations.length, ...original)
   }
 })
 
-// CD-0098 D2. The control plane takes its transport from the client the host
-// supplies, because that client dispatches in process and carries the host's
-// headers. A host that binds no listener still exposes a `serverUrl`, so a
-// route reached through that value cannot connect and work start refuses on
-// every attempt.
 describe("plugin entry binds the control plane to the host client", () => {
-  test("routes the move through the client the host supplied", async () => {
-    const seen: Array<{ url: string; body?: unknown }> = []
+  test("reads the actual session directory through the client the host supplied", async () => {
+    const seen: Array<{ url: string; path?: Record<string, unknown> }> = []
     const raw = {
-      get: async () => ({ data: { directory: "/w" }, response: new Response(null, { status: 200 }) }),
-      post: async ({ url, body }: { url: string; body?: unknown }) => {
-        seen.push({ url, body })
-        return { response: new Response(null, { status: 204 }) }
+      get: async ({ url, path }: { url: string; path?: Record<string, unknown> }) => {
+        seen.push({ url, path })
+        return { data: { directory: "/w" }, response: new Response(null, { status: 200 }) }
       },
+      post: async () => { throw new Error("a directory read must not write") },
     }
     await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
 
-    await hostControlPlane().moveSession("session-1", "/w")
-    expect(seen).toEqual([{ url: MOVE_SESSION_ROUTE, body: { sessionID: "session-1", destination: { directory: "/w" } } }])
     expect(await hostControlPlane().sessionDirectory("session-1")).toBe("/w")
+    expect(seen).toEqual([{ url: SESSION_ROUTE, path: { id: "session-1" } }])
   })
 
   test("refuses the route when the host supplied no client", async () => {
     await ConcordAdapterPlugin({ serverUrl: new URL("https://example.invalid") })
-    await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toBeInstanceOf(MoveSessionUnavailable)
+    await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toBeInstanceOf(MoveSessionUnavailable)
     // A server URL is present and still yields no route: the URL is not what
     // the adapter needs, so its presence must not read as a usable transport.
-    await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toThrow(/handed the plugin no client \(host version synthetic-test-host\)/)
+    await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toThrow(/handed the plugin no client \(host version synthetic-test-host\)/)
   })
 })
 
 // The client parses the refusal body before it returns, so the parsed value on
 // the result is the only readable copy. A refusal that reads the response a
 // second time reports that the host said nothing, and the operator loses the
-// one sentence that says why the move failed.
+// one sentence that says why the session read failed.
 describe("a refusal carries the host's own words", () => {
   // A body the client already consumed. Reading it again throws, which is what
   // a real host response does once the SDK client has parsed it.
@@ -271,20 +253,6 @@ describe("a refusal carries the host's own words", () => {
     void response.text()
     return response
   }
-
-  test("reports the host message when the move is refused", async () => {
-    const raw = {
-      get: async () => ({ data: { directory: "/w" }, response: new Response(null, { status: 200 }) }),
-      post: async () => ({
-        data: { data: { message: "worktree /w is held by another session" } },
-        response: consumed(409, { data: { message: "worktree /w is held by another session" } }),
-      }),
-    }
-    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("https://example.invalid") })
-    await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toThrow(
-      /worktree \/w is held by another session/,
-    )
-  })
 
   test("reports the host message when the session readback is refused", async () => {
     const raw = {

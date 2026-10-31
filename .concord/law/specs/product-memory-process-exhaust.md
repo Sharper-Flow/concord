@@ -10,7 +10,7 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "Salvage and the authenticated publisher's summary attestation are publication properties, not query-corpus cases. TestPublishCanonicalNoteCommitsOneNote and TestCompactionPayloadRequiresExplicitUniqueScopeArrays in internal/store/knowledge_index_test.go are candidate witnesses; integrated attestation coverage remains unmeasured."
+      "exemption": "Salvage and the authenticated publisher's summary attestation are publication properties, not query-corpus cases. The compaction-link witnesses TestCompactionLinkPublishRecordsNoVersionChange (internal/store/compaction_link_version_test.go) and TestCompactionReconcileMissingVersionRetainsProofStep (internal/agent/compaction_partial_serialization_test.go) carry the retained publication proof; integrated attestation coverage remains unmeasured."
     },
     {
       "criterion": 2,
@@ -18,7 +18,7 @@
     },
     {
       "criterion": 3,
-      "exemption": "Typed unavailability is a query property. The guarantee is proved by TestQueryQ10ReturnsAmbiguousAsTypedResult and the typed-outcome tests of internal/store/query_test.go."
+      "exemption": "Typed unavailability is a query property. Its dedicated typed-outcome witness was retired with the index query family; the surviving query suite still refuses an unavailable read (internal/store/query_test.go), and integrated typed-unavailability coverage remains unmeasured."
     }
   ]
 }
@@ -218,16 +218,19 @@ PM1–PM8 and Concord's no-WIP-byte decision remain controlling.
 No corpus scenario can exercise the absence of a receipt mechanism, so every
 criterion carries a typed exemption naming the structural proof.
 
-- Criterion 1 is proved by the compaction flow tests of PM6's verification
-  (`TestPublishCanonicalNoteCommitsOneNote` and
-  `TestCompactionPayloadRequiresExplicitUniqueScopeArrays`,
-  `internal/store/knowledge_index_test.go`), which fix the bounded note
-  payload the publisher attests.
+- Criterion 1 is proved by the retained compaction-link witnesses
+  (`TestCompactionLinkPublishRecordsNoVersionChange`,
+  `internal/store/compaction_link_version_test.go`, and
+  `TestCompactionReconcileMissingVersionRetainsProofStep`,
+  `internal/agent/compaction_partial_serialization_test.go`), which carry the
+  publication proof the publisher attests; attestation coverage remains
+  unmeasured.
 - Criterion 2 is proved by
   `TestPM8AndPM9DeclareNoEvidenceOrReceiptStore`
   (`internal/store/pm8_pm9_absence_test.go`), which rejects receipt-shaped
   tables and event kinds by name over the whole registry.
-- Criterion 3 is proved by `TestQueryQ10ReturnsAmbiguousAsTypedResult` and
-  the typed-outcome tests of `internal/store/query_test.go`, which keep
-  unavailable and integrity failures distinct. Section 8 records the reopen
+- Criterion 3's dedicated typed-outcome witness was retired with the index
+  query family; the surviving query suite still refuses an unavailable read
+  (`internal/store/query_test.go`), and integrated typed-unavailability
+  coverage remains unmeasured. Section 8 records the reopen
   criteria for each guarantee.

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"path/filepath"
 	"strconv"
 )
 
@@ -114,10 +113,12 @@ type ContinuitySnapshot struct {
 	ArchitectureBinding     *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
 	CompatibleLawAmendments []CompatibleLawAmendment     `json:"compatible_law_amendments"`
 	WorkPin                 *WorkPin                     `json:"work_pin,omitempty"`
-	// PendingProjectHandoff carries the work's newest unconsumed
-	// Project-session handoff (CD-0182 amendment), so a Project-selected
-	// boot renders the bounded job a receiving session must consume before
-	// managed execution. Nil when no handoff stands unconsumed.
+	// PendingProjectHandoff carries the frontier handoff addressed to the
+	// reading session's Project under the active contract, consumed or not,
+	// so every session of the receiving Project reads the bounded job
+	// (CD-0182 D5). A read with no Project, or whose Project no handoff
+	// addresses, carries the work's newest unconsumed handoff. Nil when
+	// neither stands.
 	PendingProjectHandoff *ProjectHandoff `json:"pending_project_handoff,omitempty"`
 	// LawContext resolves the approved contract's binding law and Domains
 	// against the verified committed law folder and Domain registry at read
@@ -142,6 +143,9 @@ type ContinuityRequest struct {
 	Work   string
 	Limit  int
 	Cursor string
+	// ProjectID is the reading session's authenticated Project. It selects
+	// the handoff frontier addressed to that Project.
+	ProjectID string
 }
 
 func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest) (ContinuitySnapshot, error) {
@@ -285,12 +289,17 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 	if err := continuityReadCheckpointTx(ctx, tx, req.Work, out); err != nil {
 		return err
 	}
-	// The work's newest unconsumed Project-session handoff rides the
-	// snapshot when present; the absent field keeps a handoff-free work's
-	// bytes unchanged.
-	out.PendingProjectHandoff, err = PendingProjectHandoffTx(ctx, tx, req.Work)
+	// The handoff rides the snapshot when present; the absent field keeps a
+	// handoff-free work's bytes unchanged.
+	out.PendingProjectHandoff, err = addressedProjectHandoffFrontierTx(ctx, tx, req.Work, req.ProjectID, activeContractVersion)
 	if err != nil {
 		return err
+	}
+	if out.PendingProjectHandoff == nil {
+		out.PendingProjectHandoff, err = PendingProjectHandoffTx(ctx, tx, req.Work)
+		if err != nil {
+			return err
+		}
 	}
 	out.DesignRecord, err = readCurrentWorkflowDesign(ctx, tx, req.Work)
 	if err != nil {
@@ -546,61 +555,6 @@ func continuityReadTrailingTx(ctx context.Context, tx *sql.Tx, work string, out 
 // ContinuityObservationWindow bounds the newest observations continuity
 // carries. The whole population pages through concord_work_trace.observations.
 const ContinuityObservationWindow = 16
-
-// ContinuityWorkResolution names the active work item a session directory
-// resolves to. ProductID is the first Product identity the work's Project
-// carries, so the session boot render always names an identity the
-// continuity snapshot binds.
-type ContinuityWorkResolution struct {
-	WorkID    string
-	ProductID string
-	ProjectID string
-}
-
-// ResolveContinuityWorkByDirectory resolves a session directory through the
-// claimed worktree to the active work item. The read is pure projection over
-// worktree_entries and worktree_claims (CD-0104 D1): it records nothing and
-// binds no session to work. A directory that holds no active claimed
-// worktree — the registered main checkout, an unknown path, a reclaimed
-// claim — resolves an empty WorkID with no error, which the caller renders
-// as no block rather than the launch item's.
-func (s *Store) ResolveContinuityWorkByDirectory(ctx context.Context, directory string) (ContinuityWorkResolution, error) {
-	var out ContinuityWorkResolution
-	if s == nil || s.db == nil {
-		return out, newFailure(KindUnavailable, "continuity_directory", "store is not open", false, "open the authority database")
-	}
-	if directory == "" {
-		return out, nil
-	}
-	// A claimed worktree path is stored clean and absolute. The session
-	// directory the host reports may traverse symlinks, so the symlink-
-	// resolved form is a candidate beside the clean one. A path that cannot
-	// be resolved on this machine still resolves on its clean form: the read
-	// stays a projection over the claims, not a filesystem probe.
-	normalized, err := normalizePath(directory)
-	if err != nil {
-		normalized = ""
-	}
-	err = s.db.QueryRowContext(ctx, `SELECT c.work_id,c.project_id FROM worktree_entries e
-		JOIN worktree_claims c ON c.op_id=e.claim_op_id
-		JOIN work_items w ON w.id=c.work_id
-		WHERE e.state='active' AND c.state IN ('pending','verified') AND e.path IN (?,?)
-		ORDER BY c.work_id LIMIT 1`, filepath.Clean(directory), normalized).Scan(&out.WorkID, &out.ProjectID)
-	if err == sql.ErrNoRows {
-		return ContinuityWorkResolution{}, nil
-	}
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "continuity_directory", "cannot read the claimed worktree", true, "retry once the database is readable", err)
-	}
-	err = s.db.QueryRowContext(ctx, `SELECT product_id FROM product_projects WHERE project_id=? ORDER BY product_id LIMIT 1`, out.ProjectID).Scan(&out.ProductID)
-	if err == sql.ErrNoRows {
-		return ContinuityWorkResolution{}, nil
-	}
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "continuity_directory", "cannot read the work's Product identity", true, "retry once the database is readable", err)
-	}
-	return out, nil
-}
 
 // readContinuityInstanceForRegistryTx is the registry-threaded continuity
 // instance phase: a caller registry verifies the stored pin and seats the

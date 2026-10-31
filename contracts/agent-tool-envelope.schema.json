@@ -28,43 +28,11 @@
         }
       },
       "then": {
-        "if": {
-          "required": ["origin", "outcome", "tool", "operation", "error"],
-          "properties": {
-            "origin": { "const": "adapter" },
-            "outcome": { "const": "error" },
-            "tool": { "const": "concord_work_transition" },
-            "operation": { "const": "session_vacate" },
-            "error": {
-              "required": ["kind", "adapter_reason", "effect_state"],
-              "properties": {
-                "kind": { "const": "operation_conflict" },
-                "adapter_reason": { "const": "unknown_effect" },
-                "effect_state": { "const": "possible" }
-              }
-            }
-          }
-        },
-        "then": {
-          "properties": {
-            "error": {
-              "properties": {
-                "recovery_action": {
-                  "properties": {
-                    "kind": { "enum": ["retry_same_request", "contact_operator"], "type": "string" }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "else": {
-          "properties": {
-            "error": {
-              "properties": {
-                "recovery_action": {
-                  "properties": { "kind": { "const": "reconcile_operation" } }
-                }
+        "properties": {
+          "error": {
+            "properties": {
+              "recovery_action": {
+                "properties": { "kind": { "const": "reconcile_operation" } }
               }
             }
           }
@@ -330,44 +298,8 @@
             "operation": {
               "const": "messages"
             },
-            "query_id": {
+             "query_id": {
               "const": "PM1.Q14"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_work_browse"
-            },
-            "operation": {
-              "const": "worktree_audit"
-            },
-            "query_id": {
-              "const": "PM1.Q16"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_work_browse"
-            },
-            "operation": {
-              "const": "worktree_inspect"
-            },
-            "query_id": {
-              "const": "CD-0096.R1"
             }
           }
         },
@@ -422,13 +354,8 @@
                 "remove",
                 "workflow_action",
                 "correct_delivery",
-                "worktree_claim",
-                "session_vacate",
                 "project_handoff_record",
                 "project_handoff_consume",
-                "worktree_destroy",
-                "worktree_reclaim",
-                "worktree_audit_reclaim",
                 "outside_repair",
                 "outside_repair_reconcile"
               ],
@@ -614,13 +541,6 @@
             "remove",
             "workflow_action",
             "correct_delivery",
-            "worktree_audit",
-            "worktree_audit_reclaim",
-            "worktree_claim",
-            "session_vacate",
-            "worktree_destroy",
-            "worktree_inspect",
-            "worktree_reclaim",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement",
@@ -631,7 +551,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$"
         },
         "outcome": {
           "enum": [
@@ -1083,13 +1003,6 @@
             "remove",
             "workflow_action",
             "correct_delivery",
-            "worktree_audit",
-            "worktree_audit_reclaim",
-            "worktree_claim",
-            "session_vacate",
-            "worktree_destroy",
-            "worktree_inspect",
-            "worktree_reclaim",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement",
@@ -1100,7 +1013,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$"
         },
         "reason_code": {
           "type": "string",
@@ -1183,19 +1096,13 @@
     "adapterSalvaged": {
       "type": "object",
       "additionalProperties": false,
-      "maxProperties": 3,
+      "maxProperties": 2,
       "properties": {
         "work_id": {
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
-        },
-        "worktree_path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096,
-          "pattern": "^/"
         },
         "changed_refs": {
           "type": "array",
@@ -1292,7 +1199,6 @@
             "idempotency_conflict",
             "operation_conflict",
             "resource_busy",
-            "cross_repository_claim",
             "invalid_transition",
             "invalid_relation",
             "invariant_violation",
@@ -1398,16 +1304,6 @@
               "accept_scope_cut"
             ],
             "type": "string"
-          }
-        },
-        "session_placement": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["work_id", "project_id", "directory"],
-          "properties": {
-            "work_id": { "type": "string", "minLength": 1, "maxLength": 128 },
-            "project_id": { "type": "string", "minLength": 1, "maxLength": 128 },
-            "directory": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^/[^\\x00]*$" }
           }
         },
         "stale_law_revision": {
@@ -1676,23 +1572,6 @@
               }
             }
           }
-        },
-        {
-          "if": {
-            "properties": {
-              "kind": {
-                "const": "cross_repository_claim"
-              }
-            },
-            "required": ["kind"]
-          },
-          "then": {
-            "required": ["session_placement"],
-            "properties": {
-              "recovery_action": { "properties": { "kind": { "const": "use_declared_route" } } }
-            }
-          },
-          "else": { "not": { "required": ["session_placement"] } }
         },
         {
           "if": {
@@ -1986,13 +1865,8 @@
                       "correct_delivery",
                       "lifecycle",
                       "remove",
-                      "session_vacate",
                       "project_handoff_record",
                       "project_handoff_consume",
-                      "worktree_audit_reclaim",
-                      "worktree_claim",
-                      "worktree_destroy",
-                      "worktree_reclaim",
                       "workflow_action",
                       "outside_repair",
                       "outside_repair_reconcile"

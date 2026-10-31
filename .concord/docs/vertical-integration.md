@@ -14,8 +14,8 @@ product-scope lgrep and vision. The operator-surface / admin-panel question
 is resolved in [`clarifications.md`](./clarifications.md) R1:
 
 - The primary operator surface follows [`../law/constitution/priorities.md`](../law/constitution/priorities.md).
-- The host owns operator session start and resume. Concord supplies managed work
-  context and verified worktree placement.
+- The host owns operator session start, resume, and worktree placement
+  (CD-0088 D1). Concord supplies managed work context.
 - Any **admin panel** or web UI is an optional projection, not the operating center.
 
 The canonical Concord priorities are maintained in [`../law/constitution/priorities.md`](../law/constitution/priorities.md); this document
@@ -126,7 +126,7 @@ tool does not move the boundary for the other.
 |---|---|
 | [`clarifications.md`](./clarifications.md) C8 | Open question about lgrep / vision ownership, scoped separately from the interface decision (R1). |
 | [`clarifications.md`](./clarifications.md) R7 | The knowledge ladder is observation, lesson, decision. |
-| [`workflows.md` §0](./workflows.md#0-audience-and-primary-surface-resolved) | The host owns operator session start and resume; Concord supplies managed context and verified worktree placement. |
+| [`workflows.md` §0](./workflows.md#0-audience-and-primary-surface-resolved) | The host owns operator sessions and worktree placement; Concord supplies managed context. |
 | `product-data-model.md` §3 | Product-scoped instances are a locality mechanism. |
 | [`../law/constitution/priorities.md`](../law/constitution/priorities.md) Operating envelope | The guardrail against premature swallowing. |
 

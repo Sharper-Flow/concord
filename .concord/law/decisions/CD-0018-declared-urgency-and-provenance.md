@@ -141,8 +141,8 @@ the typed mutation surface.
 
 ## Operational usage note
 
-Core-derived continuity reaches managed sessions through work-start
-preparation and continuity hooks. Durable work intent uses the typed
+Core-derived continuity reaches managed sessions through `session-prepare`
+and explicit work-context reads. Durable work intent uses the typed
 mutation surface.
 
 > The mechanism for delivering operational guidance to Concord agents — skills,

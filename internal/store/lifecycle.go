@@ -143,18 +143,9 @@ var lifecycleStates = map[string]bool{
 	"needed": true, "in_progress": true, "completed": true, "cancelled": true, "superseded": true,
 }
 
-// terminalLifecycles is the one definition of terminal work. A terminal item
-// holds no live implementation surface: its worktree may be reclaimed, its
-// observations are closed, and its completion cannot be re-entered. Every
-// gate that asks "is this terminal" consumes this set; a hand-spelled
-// completed-or-cancelled at a gate omitted superseded and left a superseded
-// item's worktree invisible to the audit and refused by destroy.
+// terminalLifecycles keeps completion, cancellation and supersession consistent
+// across lifecycle consumers.
 var terminalLifecycles = []string{"completed", "cancelled", "superseded"}
-
-// IsTerminalLifecycle reports whether a lifecycle is terminal by the store's
-// one definition. Consumers outside the package use it so no gate re-spells
-// the set.
-func IsTerminalLifecycle(v string) bool { return isTerminalLifecycle(v) }
 
 func isTerminalLifecycle(v string) bool {
 	for _, terminal := range terminalLifecycles {

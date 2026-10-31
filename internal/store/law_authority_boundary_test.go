@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -392,5 +393,267 @@ func TestAuthorityLawFixtureDigestIsTheWholeFile(t *testing.T) {
 	sum := sha256.Sum256(content)
 	if got := "sha256:" + hex.EncodeToString(sum[:]); len(got) != len("sha256:")+64 {
 		t.Fatalf("fixture digest shape wrong: %s", got)
+	}
+}
+
+// authorityFamilyDefinition reads the current built-in family's identity and
+// Product-truth classification.
+func authorityFamilyDefinition(t *testing.T, ref string) (string, bool) {
+	t.Helper()
+	if registered, ok := BuiltinWorkflowRegistry().Current(ref); ok {
+		if registered.Definition.ChangesProductTruth == nil {
+			t.Fatalf("registered definition %s carries no Product-truth classification", ref)
+		}
+		return registered.Digest, *registered.Definition.ChangesProductTruth
+	}
+	t.Fatalf("no registered workflow definition for %s", ref)
+	return "", false
+}
+
+// seedAuthorityLawAdditions writes the write-seam-only projection chain one
+// contract's law additions occupy: the architecture binding, its reservation,
+// and the additions row the resolver reads. This is synthetic fixture
+// evidence about the rule, never a claim of real approval.
+func seedAuthorityLawAdditions(t *testing.T, s *Store, workID string, version int64, productID string, lawIDs ...string) {
+	t.Helper()
+	db := s.DatabaseForTesting()
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
+		}
+	}()
+	bindingHash := "sha256:" + strings.Repeat("b", 64)
+	projectionHash := "sha256:" + strings.Repeat("c", 64)
+	if _, err := db.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,?,?,?,?,?)`,
+		workID, version, productID, bindingHash, "product-root:authority-fixture", projectionHash); err != nil {
+		t.Fatal(err)
+	}
+	for _, lawID := range lawIDs {
+		if _, err := db.Exec(`INSERT INTO workflow_law_addition_reservations(product_id,law_id,owner_work_id,owner_contract_version,home_domain_id) VALUES(?,?,?,?,?)`,
+			productID, lawID, workID, version, "product-root:authority-fixture"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO workflow_contract_law_additions(work_id,contract_version,product_id,law_id,home_domain_id,reservation_owner_work_id,reservation_owner_contract_version) VALUES(?,?,?,?,?,?,?)`,
+			workID, version, productID, lawID, "product-root:authority-fixture", workID, version); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A non-vehicle work reference keeps the resolver as its only runtime gate:
+// the frozen cohort check leaves every other declared reference alone.
+func TestKnowledgeAuthorityDefaultLeavesNonVehicleReferencesAlone(t *testing.T) {
+	t.Parallel()
+	record := authorityLawRecord(t, authoritySyntheticWork, "CD-0001", 7)
+	if err := validateKnowledgeRecordAuthority(record); err != nil {
+		t.Fatalf("a non-vehicle work reference keeps the resolver as its only runtime gate: %v", err)
+	}
+}
+
+// A superseded contract classifies through its own exact historical pin: a
+// resolver that read the current instance or the latest family pin would
+// refuse; the declared version's own approved row classifies instead.
+func TestSupersededContractClassifiesThroughItsOwnPin(t *testing.T) {
+	t.Parallel()
+	s, home := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
+	defer s.Close()
+	seedAuthorityWork(t, s, authoritySyntheticWork)
+	productRef, productDigest := authorityRegisteredDefinition(t, true)
+	retiredRef, retiredDigest := authorityRegisteredDefinition(t, false)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, productRef, productDigest, []string{"CD-8751"}, nil)
+	// The superseding contract is not Product-changing and names nothing.
+	seedAuthorityContract(t, s, authoritySyntheticWork, 2, retiredRef, retiredDigest, nil, nil)
+	db := s.DatabaseForTesting()
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	_, updateErr := db.Exec(`UPDATE workflow_contracts SET superseded_by=2 WHERE work_id=? AND contract_version=1`, authoritySyntheticWork)
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Errorf("remove write guard: %v", err)
+	}
+	if updateErr != nil {
+		t.Fatal(updateErr)
+	}
+	if err := establishAuthorityFixture(t, s, home); err != nil {
+		t.Fatalf("a superseded contract keeps its own pin: %v", err)
+	}
+}
+
+// A cancelled legislating work is held history, not unverified absence: its
+// approved contract keeps classifying the law it enacted. A non-Product-
+// changing family still refuses, cancellation or not.
+func TestCancelledWorkKeepsExactLegislativeAuthority(t *testing.T) {
+	t.Parallel()
+	for _, family := range []string{"workflow.implementation", "workflow.research"} {
+		t.Run(family, func(t *testing.T) {
+			s, home := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
+			defer s.Close()
+			seedAuthorityWork(t, s, authoritySyntheticWork)
+			digest, changesProductTruth := authorityFamilyDefinition(t, family)
+			seedAuthorityContract(t, s, authoritySyntheticWork, 1, family, digest, []string{"CD-8751"}, nil)
+			db := s.DatabaseForTesting()
+			if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+				t.Fatal(err)
+			}
+			_, updateErr := db.Exec(`UPDATE work_items SET lifecycle='cancelled' WHERE id=?`, authoritySyntheticWork)
+			if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+				t.Errorf("remove write guard: %v", err)
+			}
+			if updateErr != nil {
+				t.Fatal(updateErr)
+			}
+			err := establishAuthorityFixture(t, s, home)
+			if !changesProductTruth {
+				assertFailureKind(t, err, KindInvalidNoteProof)
+				return
+			}
+			if err != nil {
+				t.Fatalf("cancellation must not erase an approved legislative contract: %v", err)
+			}
+		})
+	}
+}
+
+// A research contract revising derived law through law_modifies is the
+// sharpest non-Product-changing claim, because research legitimately modifies
+// law. The Product-truth classification gate must refuse before the
+// decision/constitution field split ever consults law_modifies.
+func TestLawEstablishmentRefusesResearchPinLawModifiesLegislation(t *testing.T) {
+	t.Parallel()
+	s, home := authorityLawScenario(t, authorityLawFixture{ID: "CD-8753", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
+	defer s.Close()
+	seedAuthorityWork(t, s, authoritySyntheticWork)
+	digest, changesProductTruth := authorityFamilyDefinition(t, "workflow.research")
+	if changesProductTruth {
+		t.Fatal("workflow.research must classify non-Product-changing for this case to be real")
+	}
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, "workflow.research", digest, []string{"CD-8753"}, nil)
+	err := establishAuthorityFixture(t, s, home)
+	assertFailureKind(t, err, KindInvalidNoteProof)
+}
+
+// Law additions are an admitted legislative field for exactly the decision
+// and constitution kinds: one Product-changing contract whose additions name
+// both records admits each of them.
+func TestLawEstablishmentAdmitsDecisionAndConstitutionThroughLawAdditions(t *testing.T) {
+	t.Parallel()
+	s, home := authorityLawScenario(t,
+		authorityLawFixture{ID: "CD-8755", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1},
+		authorityLawFixture{ID: "CD-8756", Kind: "constitution", LegislatedBy: authoritySyntheticWork, Version: 1},
+	)
+	defer s.Close()
+	seedAuthorityWork(t, s, authoritySyntheticWork)
+	ref, digest := authorityRegisteredDefinition(t, true)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, digest, nil, nil)
+	seedAuthorityLawAdditions(t, s, authoritySyntheticWork, 1, "authority-product", "CD-8755", "CD-8756")
+	if err := establishAuthorityFixture(t, s, home); err != nil {
+		t.Fatalf("law additions admit the decision and constitution records: %v", err)
+	}
+}
+
+// A spec record has no additions or law_modifies field: additions naming it
+// alone name the law in no admitted legislative field.
+func TestLawEstablishmentRefusesSpecThroughLawAdditionsOnly(t *testing.T) {
+	t.Parallel()
+	s, home := authorityLawScenario(t, authorityLawFixture{ID: "SPEC-8755", Kind: "spec", LegislatedBy: authoritySyntheticWork, Version: 1})
+	defer s.Close()
+	seedAuthorityWork(t, s, authoritySyntheticWork)
+	ref, digest := authorityRegisteredDefinition(t, true)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, digest, nil, nil)
+	seedAuthorityLawAdditions(t, s, authoritySyntheticWork, 1, "authority-product", "SPEC-8755")
+	err := establishAuthorityFixture(t, s, home)
+	assertFailureKind(t, err, KindInvalidNoteProof)
+}
+
+// lawFolderRepositoryRootForTest locates the repository root the committed
+// law folder lives in, walking up from the package directory.
+func lawFolderRepositoryRootForTest(t *testing.T) string {
+	t.Helper()
+	root := "."
+	for {
+		if _, err := os.Stat(filepath.Join(root, ".concord", "law")); err == nil {
+			break
+		}
+		if root == "." {
+			root = ".."
+		} else {
+			root = filepath.Join(root, "..")
+		}
+		abs, err := filepath.Abs(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		root = abs
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return abs
+}
+
+// Every work-backed legislated record in the committed law folder must
+// classify through one synthetic Product-changing contract per declared
+// (work, version) pair — the corpus-resolved form of the establishment
+// admission, with no fixed census: whatever the committed folder carries is
+// exactly what the resolver must answer for. The frozen cohort's own records
+// carry their standing from the committed asset and skip the lookup.
+func TestAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T) {
+	t.Parallel()
+	root := lawFolderRepositoryRootForTest(t)
+	head := strings.TrimSpace(runKnowledgeGit(t, root, "rev-parse", "HEAD"))
+	snapshot, err := loadLawFolderSnapshot(context.Background(), root, head)
+	if err != nil {
+		t.Fatalf("the committed law folder must load under the retained validators: %v", err)
+	}
+	defaults := readCommittedAuthorityDefaults(t)
+	corpus := make([]KnowledgeRecord, 0)
+	for _, lawID := range snapshot.LawIDs() {
+		record, _ := snapshot.Law(lawID)
+		if record.Authority.Tier != "legislated" || record.Authority.LegislatedBy == defaults.VehicleWorkID {
+			continue
+		}
+		corpus = append(corpus, record)
+	}
+	if len(corpus) == 0 {
+		t.Fatal("the committed corpus must contain work-backed legislative claims")
+	}
+	fixtures := make([]authorityLawFixture, 0, len(corpus))
+	// Group the declared references by exact (work, version) pair: the
+	// resolver checks the exact historical version, so each corpus record's
+	// own declared version is the one the synthetic contract must occupy.
+	declared := map[string][]string{}
+	for _, record := range corpus {
+		fixtures = append(fixtures, authorityLawFixture{ID: record.ID, Kind: record.Kind, LegislatedBy: record.Authority.LegislatedBy, Version: record.Authority.ContractVersion})
+		key := record.Authority.LegislatedBy + ":" + strconv.FormatInt(record.Authority.ContractVersion, 10)
+		declared[key] = append(declared[key], record.ID)
+	}
+	repo := initKnowledgeRepo(t)
+	writeAuthorityLaw(t, repo, fixtures...)
+	commitKnowledgeRepo(t, repo, "the committed corpus metadata")
+	s := openTemp(t)
+	defer s.Close()
+	home := KnowledgeHome{HomeProjectID: "authority-project", HomeLocatorID: "authority-locator", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, "authority-product", home, "authority-project")
+	// One synthetic Product-changing contract per declared (work, version)
+	// pair, admitting every record it names through the exact exists subject —
+	// a field every kind admits. law_modifies stays empty: its 32-entry bound
+	// cannot carry a whole work's corpus in one row.
+	ref, digest := authorityRegisteredDefinition(t, true)
+	for key, ids := range declared {
+		parts := strings.SplitN(key, ":", 2)
+		workID := parts[0]
+		version, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seedAuthorityWork(t, s, workID)
+		seedAuthorityContract(t, s, workID, version, ref, digest, nil, ids)
+	}
+	if err := establishAuthorityFixture(t, s, home); err != nil {
+		t.Fatalf("every work-backed legislated record in the committed corpus must classify through a synthetic Product-changing contract: %v", err)
 	}
 }

@@ -14,19 +14,19 @@
     },
     {
       "criterion": 2,
-      "exemption": "Canonical discovery and cleanup eligibility are operation properties, not one query-corpus case. TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag (internal/store/knowledge_index_test.go) is a candidate discovery witness; Q10-not-compacted, executed by TestAcceptedQ1ToQ10Corpus (internal/store/query_corpus_test.go), covers work with no verified note. Integrated coverage remains unmeasured."
+      "exemption": "Canonical discovery and cleanup eligibility are operation properties, not one query-corpus case. TestValidateNotePathAdmitsLawDecisionNotes (internal/store/knowledge_note_path_test.go) is a candidate canonical-placement witness; integrated discovery and cleanup coverage remains unmeasured."
     },
     {
       "criterion": 3,
-      "exemption": "Orphan recovery is an operation property below scenario grain. The guarantee is proved by TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes (internal/store/knowledge_index_test.go) and TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote (internal/agent/mutation_dispatch_test.go)."
+      "exemption": "Orphan recovery is an operation property below scenario grain. The guarantee is proved by TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote (internal/agent/mutation_dispatch_test.go)."
     },
     {
       "criterion": 4,
-      "exemption": "Git-proof verification is an operation property. The guarantee is proved by TestVerifyCommittedNoteRejectsHashMismatchAndSymlink and TestVerifyCommittedNoteRejectsUnsafeAndNonBlobPaths (internal/store/knowledge_index_test.go)."
+      "exemption": "Git-proof verification is an operation property. The retained VerifyCommittedNote proof runs in internal/store/git_knowledge.go; its bounded-runner proof is TestVerifyCommittedNoteDefaultRunnerStaysBounded (internal/store/git_note_bounded_test.go). Hash-mismatch and unsafe-path rejection cases remain unmeasured."
     },
     {
       "criterion": 5,
-      "exemption": "Ambiguous-claim detection is a rebuild property. The guarantee is proved by TestParseKnowledgeNoteRejectsAmbiguousAndMalformedCriticalMetadata (internal/store/knowledge_index_test.go)."
+      "exemption": "Ambiguous-claim detection is a verification property. The retained parser is parseKnowledgeNote in internal/store/git_knowledge.go; its dedicated rejection tests were retired with the index and the rejection cases remain unmeasured."
     }
   ]
 }
@@ -420,21 +420,19 @@ operator choice, and the falsifiers above remain controlling.
 - Criterion 1 is proved by the bound `AJ6-compact-terminal-work` scenario of
   `.concord/scenarios/agent-jobs.v1.json`, executed by `TestAgentJobsCorpus`
   (`internal/agent/agent_jobs_corpus_test.go`).
-- Criterion 2 is proved by
-  `TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag`
-  (`internal/store/knowledge_index_test.go`) and, for work with no verified
-  note, by the bound `Q10-not-compacted` scenario of
-  `.concord/scenarios/product-memory-query.v1.json`, executed by
-  `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).
+- Criterion 2's canonical-placement witness is
+  `TestValidateNotePathAdmitsLawDecisionNotes`
+  (`internal/store/knowledge_note_path_test.go`); integrated discovery and
+  cleanup coverage remains unmeasured.
 - Criterion 3 is proved by
-  `TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes`
-  (`internal/store/knowledge_index_test.go`) and
   `TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote`
   (`internal/agent/mutation_dispatch_test.go`).
-- Criterion 4 is proved by `TestVerifyCommittedNoteRejectsHashMismatchAndSymlink`
-  and `TestVerifyCommittedNoteRejectsUnsafeAndNonBlobPaths`
-  (`internal/store/knowledge_index_test.go`).
-- Criterion 5 is proved by
-  `TestParseKnowledgeNoteRejectsAmbiguousAndMalformedCriticalMetadata`
-  (`internal/store/knowledge_index_test.go`). Section 12 records the
-  falsifiers for each guarantee.
+- Criterion 4's retained proof is `VerifyCommittedNote`
+  (`internal/store/git_knowledge.go`), exercised by
+  `TestVerifyCommittedNoteDefaultRunnerStaysBounded`
+  (`internal/store/git_note_bounded_test.go`); hash-mismatch and unsafe-path
+  rejection cases remain unmeasured.
+- Criterion 5's retained parser is `parseKnowledgeNote`
+  (`internal/store/git_knowledge.go`); its dedicated rejection tests were
+  retired with the index and the rejection cases remain unmeasured. Section 12
+  records the falsifiers for each guarantee.

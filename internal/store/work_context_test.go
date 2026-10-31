@@ -990,11 +990,6 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		t.Fatalf("declaration refused: %v", err)
 	}
 	repo, _ := reviewSubjectClaim(t, fixture.store, fixture.workID)
-	var branch string
-	if err := fixture.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(fixture.workID)).Scan(&branch); err != nil {
-		t.Fatal(err)
-	}
-	gitRunStore(t, repo, "branch", "-m", branch)
 	journey := &candidateJourney{fixture: fixture, s: fixture.store, workID: fixture.workID, repo: repo}
 	if err := journey.action(t, "checkpoint_repair", map[string]any{}, fixture.owner); err != nil {
 		t.Fatalf("start ordinary repair: %v", err)
@@ -1043,7 +1038,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	ctx := t.Context()
 	confirmation := WorkflowActionExecutionRequest{
 		WorkID: fixture.workID, ExpectedVersion: readWorkVersion(t, fixture.store, fixture.workID), ActionID: "confirm_premise",
-		Payload: json.RawMessage(`{}`), Actor: fixture.owner, SessionWorktree: repo,
+		Payload: json.RawMessage(`{}`), Actor: fixture.owner,
 		AcceptedInputsDigest: nativeDigest([]byte("ctx-no-promotion-confirm")), IdempotencyIdentity: "ctx-no-promotion-confirm", OperationID: "ctx-no-promotion-confirm",
 		PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "ctx-no-promotion-confirm", RequestID: "request:ctx-no-promotion-confirm", ContractDigest: testManifestDigest, Now: time.Now().UTC(),
 	}

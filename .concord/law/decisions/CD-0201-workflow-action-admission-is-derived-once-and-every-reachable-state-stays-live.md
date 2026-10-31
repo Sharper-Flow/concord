@@ -145,7 +145,7 @@ integration boundary
 ## Consequences
 
 Every admission site that derives one of these conditions answers identically
-for the same current state and host observations (CD-0239 D3). A change that strands
+for the same current state and host observations. A change that strands
 a reachable state fails the
 liveness checks with a witness before merge.
 

@@ -118,13 +118,13 @@ Only explicit eligible research_retire deletes a pack aggregate under CD-0216 an
 Releasing a consumer pin never deletes its pack.
 Product/work state and retention follow CD-0242 D2; no other fact type inherits research-pack retention by analogy.
 
-### 3.1b Worktree occupancy reconciliation
+### 3.1b Worktree state belongs to the host
 
-Worktree occupancy recovery reconciles current occupancy rows with Git and
-worktree references during verified-snapshot restore. When recovery cannot reconcile an occupancy row, it refuses with a typed
-refusal that names the worktree, the session, and the caller's action
-([CD-0242 D11](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d11-a-fresh-session-resumes-from-current-state), [CD-0242 D12](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)); no replay of retained events exists
-([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+Concord retains no worktree lifecycle or inspection metadata. The mandatory
+verified-snapshot upgrade precedes table removal under CD-0088 D2. Host tools
+own checkout inspection, recovery, and lifetime; snapshot restore does not
+reintroduce a worktree ownership writer, inspection service, or locator registry
+([CD-0088 D1–D2](../decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md#d1-host-tools-own-worktree-isolation)).
 
 ### 3.2 No typed-log explosion
 

@@ -4,7 +4,7 @@ import { promptAndConfirm, type HostPromptClient, type SessionMessage } from "./
 const sessionID = "session-prompt"
 const text = "Synthetic continuation fixture"
 const timing = { confirmWindowMs: 2, confirmPollMs: 1 }
-const metadata = { "concord.work_start_continuation": "fixture-token" }
+const metadata = { "fixture.marker": "fixture-token" }
 
 function fixture(mode: "delivered" | "missing-route" | "rejected" | "unpersisted" | "unanswered" | "placeholder" | "wrong-parent" | "assistant-error") {
   const posts: unknown[] = []

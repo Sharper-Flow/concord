@@ -31,8 +31,8 @@ is one documented migration with a verified snapshot and the operator's approval
 of its destructive operation (CD-0242 D13).
 
 The primary operator interacts through host-started agent sessions: the
-operator starts each session, and agents enter managed work through
-`concord_work_start`. Optional grid/table views are projections, not the
+operator starts each session, and agents use Concord's typed work and workflow
+operations. Optional grid/table views are projections, not the
 primary interface.
 
 The canonical Concord priorities are maintained in [`../law/constitution/priorities.md`](../law/constitution/priorities.md); this document
@@ -43,8 +43,7 @@ follows them without restating them.
 ## 0. Audience and primary surface (resolved)
 
 - **Primary operator surface:** follows [`../law/constitution/priorities.md`](../law/constitution/priorities.md).
-  The host starts each session; the session enters named work through
-  `concord_work_start`.
+  The host starts each session and owns its worktree placement (CD-0088 D1).
 - **Entry responsibility:** narrow start/resume actions. Substantive
   workflow decisions happen after selection.
 - **Human questions:** provide purpose, relevant context, concrete examples, and
@@ -52,8 +51,8 @@ follows them without restating them.
 - **Web / admin panel:** optional; a grid/table projection for humans, not the
   daily operating surface.
 - **Session entry:** the host owns operator session start and resume
-  (CD-0078). Concord owns managed worktree claims, verified landing, and
-  work-start context; no Concord command starts a session.
+  (CD-0078) and worktree lifecycle (CD-0088 D1). Concord derives session
+  context; no Concord command starts a session or owns its worktree.
 - **Agent surface:** CD-0005's eight scenario-validated tools through the accepted
   `concord.ts` custom-tool adapter and short-lived Go CLI. No plugin/MCP v1 and no
   separate human-only GUI required for correctness.

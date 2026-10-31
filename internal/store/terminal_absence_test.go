@@ -72,19 +72,7 @@ func assertPublishedExecutionAbsenceReaders(t *testing.T, s *Store, home Knowled
 			return err
 		},
 		"retirement": func() error {
-			_, err := EvaluateProjectSessionRetirement(ctx, s, "work-published", "proj-web", "session-reader")
-			return err
-		},
-		"worktree": func() error {
-			_, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-published", ProjectID: "proj-web", Mode: "status"})
-			return err
-		},
-		"resume": func() error {
-			_, err := s.ResumeWorktreeLocation(ctx, "prod-alpha", "proj-web", "work-published")
-			return err
-		},
-		"bootstrap existing": func() error {
-			_, err := s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{ProductID: "prod-alpha", ProjectID: "proj-web", WorkID: "work-published"}, nil)
+			_, err := EvaluateProjectSessionRetirement(ctx, s, "work-published", "proj-web", "session-reader", t.TempDir())
 			return err
 		},
 		"summary":   func() error { _, err := s.ReadWorkItemSummary(ctx, "work-published"); return err },
@@ -103,20 +91,8 @@ func TestPublishedExecutionAbsenceProjectGuards(t *testing.T) {
 	s, _, _, _ := publishedAbsenceFixture(t)
 	ctx := t.Context()
 	for name, read := range map[string]func() error{
-		"resume Project": func() error {
-			_, err := s.ResumeWorktreeLocation(ctx, "prod-alpha", "proj-other", "work-published")
-			return err
-		},
-		"resume Product": func() error {
-			_, err := s.ResumeWorktreeLocation(ctx, "prod-other", "proj-web", "work-published")
-			return err
-		},
-		"inspect": func() error {
-			_, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-published", ProjectID: "proj-other", Mode: "status"})
-			return err
-		},
 		"retirement": func() error {
-			_, err := EvaluateProjectSessionRetirement(ctx, s, "work-published", "proj-other", "session-reader")
+			_, err := EvaluateProjectSessionRetirement(ctx, s, "work-published", "proj-other", "session-reader", t.TempDir())
 			return err
 		},
 		"scope Product": func() error {
@@ -157,20 +133,20 @@ func TestPublishedIssueLinksSurviveWithRetainedLinkage(t *testing.T) {
 	if _, err := s.db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
-	link, err := s.ReadLinearLinkByIssueKey(ctx, "EX-3")
-	if err != nil || link.WorkID != "work-published" {
-		t.Fatalf("published link = %+v, %v", link, err)
+	link, found, err := readLinearLinkCore(ctx, s.db, "work-published")
+	if err != nil || !found || link.WorkID != "work-published" || link.HumanKey != "EX-3" {
+		t.Fatalf("published link = %+v, found=%v, %v", link, found, err)
 	}
-	_, err = s.ResumeWorktreeLocation(ctx, "prod-alpha", "proj-web", link.WorkID)
+	_, err = ReadWorkPin(ctx, s, link.WorkID)
 	assertPublishedAbsence(t, err, home, commit, hash)
-	if _, err := s.ReadLinearLinkByIssueKey(ctx, "EX-4"); err != nil {
-		t.Fatalf("live link pruned: %v", err)
+	if link, found, err := readLinearLinkCore(ctx, s.db, "work-live-link"); err != nil || !found || link.HumanKey != "EX-4" {
+		t.Fatalf("live link pruned: %+v found=%v err=%v", link, found, err)
 	}
-	orphan, err := s.ReadLinearLinkByIssueKey(ctx, "EX-5")
-	if err != nil || orphan.WorkID != "work-orphan-link" {
-		t.Fatalf("unindexed work lost its issue identity: %+v %v", orphan, err)
+	orphan, found, err := readLinearLinkCore(ctx, s.db, "work-orphan-link")
+	if err != nil || !found || orphan.WorkID != "work-orphan-link" || orphan.HumanKey != "EX-5" {
+		t.Fatalf("unindexed work lost its issue identity: %+v found=%v %v", orphan, found, err)
 	}
-	_, err = s.ResumeWorktreeLocation(ctx, "prod-alpha", "proj-web", orphan.WorkID)
+	_, err = ReadWorkPin(ctx, s, orphan.WorkID)
 	assertFailureKind(t, err, KindProjectionNotFound)
 	if !strings.Contains(err.Error(), orphan.WorkID) || !strings.Contains(err.Error(), "execution state is not retained") {
 		t.Fatalf("unindexed issue identity lost typed absence: %v", err)
@@ -179,6 +155,7 @@ func TestPublishedIssueLinksSurviveWithRetainedLinkage(t *testing.T) {
 	if err != nil || len(products["work-published"]) != 1 || products["work-published"][0] != "prod-alpha" {
 		t.Fatalf("published authorization scope = %v, %v", products, err)
 	}
+
 }
 
 func TestPublishedAbsenceHelperUsesCallerTransaction(t *testing.T) {

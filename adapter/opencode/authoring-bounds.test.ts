@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { contractOperations, hostToolSchemas, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema, validateGeneratedPayload } from "./generated-contract-tests"
-import { publishRequestDefinition, publishWorkStartDefinition } from "./concord"
+import { publishRequestDefinition } from "./concord"
 import { validateAgainstSchema } from "./core-runtime"
 
 // Bound-annotation contract for every enforced countable bound. The node
@@ -225,9 +225,7 @@ function boundInventory(roots: { at: string; schema: unknown }[], table: SchemaT
 
 // canonicalBoundRoots assembles the served contract: one input schema per
 // operation, one schema per public workflow_action variant, and the host
-// tool schemas with concord_work_start split into its capture and resume
-// modes (its published conditional carries those two branches) plus their
-// merged root-property view.
+// tool schemas.
 function canonicalBoundRoots(): { at: string; schema: unknown }[] {
   const payloadTable = payloadSchemas as unknown as SchemaTable
   const roots: { at: string; schema: unknown }[] = []
@@ -239,22 +237,15 @@ function canonicalBoundRoots(): { at: string; schema: unknown }[] {
   for (const variant of workflowActionPublicVariants) {
     roots.push({ at: `@concord_work_transition.workflow_action#${variant.action_id}`, schema: payloadTable[variant.schema] })
   }
-  const [capture, resume] = (hostToolSchemas as unknown as SchemaTable).concord_work_start.oneOf as [Schema, Schema]
-  roots.push(
-    { at: "@concord_work_start#capture", schema: capture },
-    { at: "@concord_work_start#resume", schema: resume },
-    { at: "@concord_work_start", schema: { type: "object", additionalProperties: false, properties: { ...capture.properties, ...resume.properties } } },
-  )
   for (const [tool, schema] of Object.entries(hostToolSchemas)) {
-    if (tool !== "concord_work_start") roots.push({ at: `@${tool}`, schema })
+    roots.push({ at: `@${tool}`, schema })
   }
   return roots
 }
 
 // publishedBoundRoots collects every hook output restored to its
 // legacy-effective view: one expanded branch per operation (one per
-// workflow_action variant), concord_work_start split into else.else (capture),
-// then and else.then (resume), its merged root properties, and the other hooks whole.
+// workflow_action variant), and the host-only tool hooks whole.
 async function publishedBoundRoots(): Promise<{ at: string; schema: unknown }[]> {
   const roots: { at: string; schema: unknown }[] = []
   for (const toolID of new Set(contractOperations.map(operation => (operation as unknown as { tool: string }).tool))) {
@@ -269,23 +260,6 @@ async function publishedBoundRoots(): Promise<{ at: string; schema: unknown }[]>
           : { at: `@${toolID}.${operationConst}`, schema: branch.properties.input },
       )
     }
-  }
-  for (const [toolID, hook] of [
-    ["concord_work_start", publishWorkStartDefinition],
-  ] as const) {
-    const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-    await hook({ toolID }, output)
-    const expanded: any = expandedPublishedRequestSchema(output.jsonSchema)
-    if (toolID === "concord_work_start") {
-      roots.push(
-        { at: "@concord_work_start#capture", schema: expanded.else.else },
-        { at: "@concord_work_start#resume", schema: expanded.then },
-        { at: "@concord_work_start#resume", schema: expanded.else.then },
-        { at: "@concord_work_start", schema: { type: "object", additionalProperties: false, properties: expanded.properties } },
-      )
-      continue
-    }
-    roots.push({ at: `@${toolID}`, schema: expanded })
   }
   return roots
 }
@@ -446,14 +420,16 @@ test("bounds checker: anyOf factoring preserves inherited bounds and branch loss
   expect([...usesOf(canonical)].filter(use => !usesOf(dropped).has(use))).toEqual(["@w.anyOf[1].beta#maxItems=4(items)"])
 })
 
-test("capture keeps its closed surface and source-free research inputs validate", () => {
-  const [capture] = hostToolSchemas.concord_work_start.oneOf
-  const research = { title: "Research", value_statement: "Findings without source changes", kind: "research", task: "Investigate only", idempotency_key: "research" }
-  expect(validateAgainstSchema(capture, research, [])).toBe(true)
-  const input = { ...research, project_ids: ["project-1"] }
+test("capture keeps its closed surface and source-free research inputs validate", async () => {
+  const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
+  await publishRequestDefinition({ toolID: "concord_work_define" }, output)
+  const expanded: any = expandedPublishedRequestSchema(output.jsonSchema)
+  const capture = expanded.oneOf.find((branch: any) => branch.properties.operation.const === "capture").properties.input
+  const input = { title: "Research", value_statement: "Findings without source changes", kind: "research", task: "Investigate only", project_ids: ["project-1"], idempotency_key: "research" }
+  expect(validateAgainstSchema(capture, input, [])).toBe(true)
   expect(validateGeneratedPayload("work_define_capture_input", input)).toBe(true)
   const size_inputs = { behavior: "investigate", security: false, user_visible: false, blast_radius: "contained", estimated_production_lines: 20 }
-  expect(validateAgainstSchema(capture, { ...research, size_inputs }, [])).toBe(false)
+  expect(validateAgainstSchema(capture, { ...input, size_inputs }, [])).toBe(false)
   expect(validateGeneratedPayload("work_define_capture_input", { ...input, size_inputs })).toBe(false)
   const revise = { work_id: "work-1", expected_version: 1, title: "Research", value_statement: "Findings", kind: "research", reason: "Update", idempotency_key: "revise" }
   expect(validateGeneratedPayload("work_define_revise_input", revise)).toBe(true)

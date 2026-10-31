@@ -162,17 +162,13 @@ func TestMainCheckoutLifecyclePreservesTerminalGates(t *testing.T) {
 	})
 }
 
-// The main checkout refuses implementation-bearing operations. worktree_reclaim
-// stays refused here because work-1 is non-terminal (needed); issue #674 admits
-// it from the main checkout only for terminal work items.
+// The main checkout refuses implementation-bearing operations.
 func TestMainCheckoutRefusesImplementationOperations(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		operation string
 		input     string
 	}{
-		{operation: "worktree_claim", input: `{"work_id":"work-1","project_id":"project-1","base_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expected_version":2,"idempotency_key":"main-claim"}`},
-		{operation: "worktree_reclaim", input: `{"work_id":"work-1","project_id":"project-1","default_ref":"main","expected_version":2,"idempotency_key":"main-reclaim"}`},
 		{operation: "workflow_action", input: `{"work_id":"work-1","expected_version":2,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"main-action"}`},
 	}
 	for _, tc := range cases {
@@ -198,40 +194,6 @@ func TestMainCheckoutRefusesImplementationOperations(t *testing.T) {
 	}
 }
 
-func TestMainCheckoutDispatchRefusalNamesVacateRoute(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, err := Dispatch(ctx, s, service, InvokeRequest{
-		Tool:      "concord_work_transition",
-		Operation: "worktree_destroy",
-		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":2,"default_ref":"main","idempotency_key":"main-destroy-route"}`),
-	}, mutationEnvelope(grant, scopeVersion))
-	if err != nil || response.Outcome != agentcontract.OutcomeError || response.Error == nil {
-		t.Fatalf("response=%+v err=%v, want an authorization refusal", response, err)
-	}
-	if response.Error.Kind != "unauthorized" {
-		t.Fatalf("error.kind=%q, want unauthorized", response.Error.Kind)
-	}
-	if response.Error.RecoveryAction.Kind != "use_declared_route" {
-		t.Fatalf("recovery action=%q, want use_declared_route", response.Error.RecoveryAction.Kind)
-	}
-	wantRefs := []string{"session_vacate", "worktree_reclaim"}
-	if len(response.Error.RecoveryAction.RequiredRefs) != len(wantRefs) {
-		t.Fatalf("required refs=%v, want %v", response.Error.RecoveryAction.RequiredRefs, wantRefs)
-	}
-	for i, want := range wantRefs {
-		if response.Error.RecoveryAction.RequiredRefs[i] != want {
-			t.Fatalf("required refs=%v, want %v", response.Error.RecoveryAction.RequiredRefs, wantRefs)
-		}
-	}
-}
-
 func TestMainCheckoutAllowlistDeclaresBothSides(t *testing.T) {
 	t.Parallel()
 	for _, capability := range []agentcontract.Capability{"product_read", "work_define"} {
@@ -246,64 +208,12 @@ func TestMainCheckoutAllowlistDeclaresBothSides(t *testing.T) {
 	if !ok {
 		t.Fatal("work_transition operation allowlist is missing")
 	}
-	for _, operation := range []string{"lifecycle", "session_vacate", "remove"} {
+	for _, operation := range []string{"lifecycle", "remove"} {
 		if _, ok := operations[operation]; !ok {
 			t.Fatalf("operation %q is missing from the work_transition main-checkout allowlist", operation)
 		}
 	}
-	if len(operations) != 3 {
-		t.Fatalf("work_transition operation allowlist=%v, want lifecycle, session_vacate and conditional remove only", operations)
+	if len(operations) != 2 {
+		t.Fatalf("work_transition operation allowlist=%v, want lifecycle and conditional remove only", operations)
 	}
-	retirement, ok := mainCheckoutWorktreeRetirementOperations[agentcontract.Capability("work_transition")]
-	if !ok {
-		t.Fatal("work_transition worktree-retirement operation set is missing")
-	}
-	for _, operation := range []string{"worktree_audit_reclaim", "worktree_reclaim"} {
-		if _, ok := retirement[operation]; !ok {
-			t.Fatalf("operation %q is missing from the main-checkout retirement allowlist", operation)
-		}
-	}
-	if len(retirement) != 2 {
-		t.Fatalf("work_transition retirement operations=%v, want worktree_audit_reclaim and worktree_reclaim only", retirement)
-	}
-}
-
-// CD-0162: worktree_audit_reclaim resolves from the main checkout. The store
-// pass applies the tier gates per row (CD-0105 D2 terminal tier, CD-0118 D3
-// unstarted tier), so the firewall admits the operation without a worktree
-// anchor. The dispatch subtest runs a real audit pass, proving the response
-// no longer dies at the main-checkout boundary.
-func TestAuditReclaimResolvesFromMainCheckout(t *testing.T) {
-	t.Parallel()
-	t.Run("authorization grants", func(t *testing.T) {
-		service := trunkFirewallFixture(t, true)
-		authority, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "work_transition", RequiredOperation: "worktree_audit_reclaim", ProductID: "product-1", ProjectID: "project-1"})
-		if err != nil {
-			t.Fatalf("worktree_audit_reclaim must resolve from the main checkout, got err=%v", err)
-		}
-		if !authority.MainWorktree {
-			t.Fatal("authority must carry the main-checkout grant")
-		}
-	})
-
-	t.Run("dispatch runs the pass", func(t *testing.T) {
-		s, service, grant, _ := tiersRepoFixture(t)
-		resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
-		response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
-			"product_id": "product-1", "default_ref": "main", "idempotency_key": "main-audit-reclaim",
-		})
-		if response.Outcome != agentcontract.OutcomeOK {
-			t.Fatalf("audit reclaim response=%+v err=%+v", response, response.Error)
-		}
-		var result struct {
-			Rows       []map[string]any `json:"rows"`
-			ReportOnly []map[string]any `json:"report_only"`
-		}
-		if err := json.Unmarshal(response.Result, &result); err != nil {
-			t.Fatal(err)
-		}
-		if len(result.Rows) != 0 || len(result.ReportOnly) != 0 {
-			t.Fatalf("a repository with no drift must reclaim nothing: %+v", result)
-		}
-	})
 }

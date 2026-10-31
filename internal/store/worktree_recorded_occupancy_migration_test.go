@@ -64,7 +64,18 @@ func TestRecordedOccupancyMigration89BackfillAndReleasedRow(t *testing.T) {
 			}
 			continue
 		}
-		var p worktreeCreatedPayload
+		var p struct {
+			SetID            string          `json:"set_id"`
+			ProjectID        string          `json:"project_id"`
+			ClaimOpID        string          `json:"claim_op_id"`
+			Branch           string          `json:"branch"`
+			BaseSHA          string          `json:"base_sha"`
+			Path             string          `json:"path"`
+			RepositoryID     string          `json:"repository_id"`
+			GitFacts         json.RawMessage `json:"git_facts"`
+			ExpectedVersion  int64           `json:"expected_version"`
+			ResultingVersion int64           `json:"resulting_version"`
+		}
 		if err := json.Unmarshal(event.Payload, &p); err != nil {
 			t.Fatal(err)
 		}
@@ -106,12 +117,14 @@ func TestRecordedOccupancyMigration89BackfillAndReleasedRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := histEventRows(t, s)
-	if err := migrateRestoredStage(ctx, db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, db, 104)
 	var count int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("migration restored a released scalar occupant: rows=%d: %v", count, err)
 	}
+	if err := migrateRestoredStage(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	assertWorktreeTablesAbsent(t, db)
 	assertHistoricalReceipts(t, db, before)
 }

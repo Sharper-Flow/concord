@@ -43,16 +43,6 @@ type HostRepository struct {
 	WorktreePath  string
 }
 
-// WorktreeLocation is the pinned native worktree intent derived from a
-// registered Project and a repository ref.
-type WorktreeLocation struct {
-	Branch  string `json:"branch"`
-	BaseSHA string `json:"base_sha"`
-	Path    string `json:"path"`
-	Repo    string `json:"repo"`
-	Ref     string `json:"ref"`
-}
-
 // GitRunner is the test seam for host verification. Implementations receive
 // argv as separate values; a shell command string is never accepted.
 type GitRunner interface {
@@ -242,106 +232,19 @@ func normalizeRemoteVersion(value string, version int) (string, error) {
 	return scheme + "://" + user + host + "/" + path, nil
 }
 
-// ProjectCanonicalPath returns the Project's canonical_path locator value,
-// normalized. It is the read seam for callers that need the registered
-// repository location (for example the worktree locator verb, issue #316);
-// identity never derives from the returned path (CD-0008 D1).
-func (s *Store) ProjectCanonicalPath(ctx context.Context, projectID string) (string, error) {
-	if s == nil || s.db == nil {
-		return "", newFailure(KindUnavailable, "project_locator", "store is not open", false, "open the authority database")
-	}
-	var normalized string
-	err := s.db.QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE kind=? AND project_id=? ORDER BY locator_id LIMIT 1`, LocatorCanonicalPath, projectID).Scan(&normalized)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", newFailure(KindUnknownScope, "project_locator", "Project has no canonical_path locator", false, "register the repository's canonical path locator")
-		}
-		return "", wrapFailure(KindUnavailable, "project_locator", "cannot read Project locators", true, "retry once the database is readable", err)
-	}
-	return normalized, nil
-}
-
-// LocateWorktree owns the branch, base, and path derivation used by native
-// worktree operations.
-func (s *Store) LocateWorktree(ctx context.Context, projectID, workID, ref string) (WorktreeLocation, error) {
-	return s.locateWorktreeWithRunner(ctx, projectID, workID, ref, ExecGitRunner{})
-}
-
-func (s *Store) locateWorktreeWithRunner(ctx context.Context, projectID, workID, ref string, runner GitRunner) (WorktreeLocation, error) {
-	return locateWorktree(ctx, s.db, filepath.Dir(s.Path()), projectID, workID, ref, runner)
-}
-
-// locateWorktree reads the Project's canonical locator and probes the
-// repository for the pinned base commit. It owns the creation base
-// resolution: an omitted ref is default-based and resolves through the local
-// refs/remotes/origin/<default> tracking ref — the cache every fresh
-// creation refreshes before it resolves its base — while a caller-supplied
-// ref, including HEAD, stays an exact pin resolved as given. The read is
-// network-free. It takes *sql.DB because the git
-// probes must never run inside an open transaction (CD-0195 D2): the type
-// makes a transaction caller a compile-time error. Callers pass the store's
-// own connection, and each read completes before the probes run.
-func locateWorktree(ctx context.Context, db *sql.DB, dataDir, projectID, workID, ref string, runner GitRunner) (WorktreeLocation, error) {
-	var out WorktreeLocation
-	if projectID == "" || workID == "" {
-		return out, newFailure(KindInvalidOperation, "worktree_locate", "project and work IDs are required", false, "supply one Project and one work item")
-	}
-	omitted := ref == ""
-	if omitted {
-		ref = "HEAD"
-	}
-	var repo string
-	err := db.QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE kind=? AND project_id=? ORDER BY locator_id LIMIT 1`, LocatorCanonicalPath, projectID).Scan(&repo)
-	if err == sql.ErrNoRows {
-		return out, newFailure(KindUnknownScope, "worktree_locate", "Project has no canonical_path locator", false, "register the repository's canonical path locator")
-	}
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "worktree_locate", "cannot read Project locators", true, "retry once the database is readable", err)
-	}
-	baseRef := ref
-	if omitted {
-		defaultRef, err := bootstrapDefaultBranchRef(ctx, runner, repo)
-		if err != nil {
-			return out, err
-		}
-		baseRef = "refs/remotes/origin/" + strings.TrimPrefix(defaultRef, "origin/")
-	}
-	sha, err := resolveCommitSHARunner(ctx, runner, repo, baseRef)
-	if err != nil {
-		return out, err
-	}
-	return deriveWorktreeLocation(dataDir, projectID, workID, ref, repo, sha)
-}
-
-func deriveWorktreeLocation(dataDir, projectID, workID, ref, repo, sha string) (WorktreeLocation, error) {
-	out := WorktreeLocation{
-		Branch:  "work/" + workID,
-		BaseSHA: sha,
-		Path:    filepath.Join(dataDir, "worktrees", projectID, workID),
-		Repo:    repo,
-		Ref:     ref,
-	}
-	if err := ValidateWorktreeClaimIntent(out.Branch, out.BaseSHA, out.Path); err != nil {
-		return WorktreeLocation{}, wrapFailure(KindInvalidOperation, "worktree_locate", "derived intent fails the claim's own validation", false, "use a valid work item ID and repository ref", err)
-	}
-	return out, nil
-}
-
 // resolveCommitSHARunner pins a repository ref to one full commit SHA. It is
-// the runner-parameterized core, so callers that
-// already hold a GitRunner seam (the worktree claim and retarget routes)
-// resolve the base commit through their own runner.
+// the runner-parameterized core used by knowledge publication.
 func resolveCommitSHARunner(ctx context.Context, runner GitRunner, repo, ref string) (string, error) {
 	if repo == "" || strings.HasPrefix(ref, "-") || strings.ContainsAny(ref, " \t\n\r\x00") {
-		return "", newFailure(KindInvalidOperation, "worktree_locate", "ref starts with a dash or contains whitespace or NUL", false, "supply one rev-syntax ref")
+		return "", newFailure(KindInvalidOperation, "project_locator", "ref starts with a dash or contains whitespace or NUL", false, "supply one rev-syntax ref")
 	}
 	out, err := runner.Run(ctx, repo, "rev-parse", "--verify", ref+"^{commit}")
 	if err != nil {
-		return "", newFailure(KindGitUnreachable, "worktree_locate", fmt.Sprintf("cannot resolve %s to a commit in %s", ref, repo), false, "supply a ref that resolves to one commit")
+		return "", newFailure(KindGitUnreachable, "project_locator", fmt.Sprintf("cannot resolve %s to a commit in %s", ref, repo), false, "supply a ref that resolves to one commit")
 	}
 	sha := strings.TrimSpace(string(out))
 	if !worktreeSHAPattern.MatchString(sha) || len(sha) != 40 {
-		return "", newFailure(KindGitUnreachable, "worktree_locate", "resolved value is not a full 40-character SHA", false, "supply a ref that resolves to one full commit SHA")
+		return "", newFailure(KindGitUnreachable, "project_locator", "resolved value is not a full 40-character SHA", false, "supply a ref that resolves to one full commit SHA")
 	}
 	return sha, nil
 }

@@ -3,7 +3,7 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { configureCoreBinary, type CoreRunner } from "./core-runtime"
 import { manifestDigest } from "./generated-contracts"
 import { configureHostLease } from "./host-lease"
-import { configureConcordAdapter, consumeAddressedProjectHandoff, projectHandoffConsumeKey, work_trace } from "./concord"
+import { configureConcordAdapter, work_trace } from "./concord"
 
 // The consume resolves the core binary path before the runner seam
 // intercepts the verb, so the file binds a path once at module level.
@@ -19,10 +19,10 @@ const context = () =>
     abort: new AbortController().signal,
     metadata: () => {},
     ask: async () => {},
-  }) as Parameters<typeof consumeAddressedProjectHandoff>[2]
+  }) as Parameters<typeof work_trace.execute>[1]
 
 // fakeHost wires the plugin's control-plane client so the session route
-// answers the worktree the verified landing read back, and swaps the runner
+// answers the host-placed checkout, and swaps the runner
 // seam the owning invoke route uses. The plugin factory claims the host
 // lease at load, so the file stamps the release identity and answers the
 // claim leg the way an installed release would, or every operation would
@@ -111,9 +111,6 @@ function coreEnvelope(tool: string, operation: string, outcome: string, extra: R
   }
 }
 
-const refusalAnswer = (kind: string, message: string, recovery: string) =>
-  coreEnvelope("concord_work_transition", "project_handoff_consume", "error", { error: { kind, retry_safe: false, recovery_action: { kind: recovery }, effect_state: "none", message } })
-
 afterEach(async () => {
   configureConcordAdapter({ reset: true })
   configureHostLease({ reset: true })
@@ -122,108 +119,6 @@ afterEach(async () => {
   // process hands the next file an unfaulted lease module.
   await ConcordAdapterPlugin({})
   configureHostLease({ reset: true })
-})
-
-// The verified landing supplies the transport facts: the session directory
-// the host readback proved and the ambient context the boot flow resolved.
-const landingTransport = () => ({ sessionDirectory: "/worktree", ambient: { projectID: "project-receive", productIDs: ["product-1"], scopeVersion: "sv-1", mainWorktree: false } })
-
-// The bounded job the work-resume rendered for this Project: the consume
-// carries its durable id, never an adapter-invented identity.
-const renderedHandoffID = "work-1:project-handoff:project-source:project-receive:abcd1234abcd"
-
-// The identity members the generated consume payload accepts: the owning
-// agent-tool-surface-payloads.schema.json $defs/id bound both ids share.
-const MAX_ID = 128
-const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
-const maxID = (head: string) => (head + "w".repeat(MAX_ID)).slice(0, MAX_ID)
-
-describe("projectHandoffConsumeKey", () => {
-  // The negative control: the consume key fits the 128-character contract
-  // bound at maximum accepted identity lengths, so the maximum accepted
-  // work_id and handoff id pair stays within it. Both assertions fail if
-  // the key ever grows unbounded.
-  test("fits the 128-character contract bound at maximum accepted identity lengths", () => {
-    const workID = maxID("work-")
-    const handoffID = maxID("project-handoff-")
-    expect(workID).toHaveLength(128)
-    expect(ID_PATTERN.test(workID)).toBe(true)
-    const key = projectHandoffConsumeKey(workID, handoffID)
-    expect(key.length).toBeLessThanOrEqual(128)
-    expect(ID_PATTERN.test(key)).toBe(true)
-    expect(ID_PATTERN.test(projectHandoffConsumeKey(workID, maxID("work-")))).toBe(true)
-  })
-
-  test("the reviewed 123-character work_id no longer overflows the bound", () => {
-    const workID = "work-" + "w".repeat(118)
-    const key = projectHandoffConsumeKey(workID, renderedHandoffID)
-    expect(key.length).toBeLessThanOrEqual(128)
-    expect(`handoff-consume-${workID}-${"b".repeat(16)}`.length).toBeGreaterThan(128)
-  })
-
-  test("equal identities replay one key; another work or handoff never collides", () => {
-    const workID = maxID("work-")
-    expect(projectHandoffConsumeKey(workID, renderedHandoffID)).toBe(projectHandoffConsumeKey(workID, renderedHandoffID))
-    expect(projectHandoffConsumeKey(workID, renderedHandoffID)).not.toBe(projectHandoffConsumeKey(workID, "project-handoff-" + "f".repeat(32)))
-    expect(projectHandoffConsumeKey(workID, renderedHandoffID)).not.toBe(projectHandoffConsumeKey("work-other", renderedHandoffID))
-  })
-})
-
-describe("consumeAddressedProjectHandoff", () => {
-  // The consume's success path is proven on the real boundary in
-  // project_handoff_end_to_end.test.ts: a real core binary against a real
-  // store, the real boot route's bounded job, and the real claim-landing
-  // placement. The tests here pin the adapter's own refusal handling on
-  // typed core refusals and transport faults.
-
-  test("a typed stale-contract refusal never binds and carries the typed refusal message", async () => {
-    const captured: CapturedInvoke = {}
-    await fakeHost(coreRunner(refusalAnswer("invalid_input", "the handoff was recorded under contract version 1, but the active contract is version 2", "reread_entities"), captured))
-    const out = await consumeAddressedProjectHandoff("work-1", renderedHandoffID, context(), landingTransport())
-    expect(out.consumed).toBe(false)
-    expect(out.message).toContain("invalid_input")
-    expect(out.message).toContain("active contract is version 2")
-    expect(out.handoffID).toBe("")
-  })
-
-  test("an unknown-scope answer for a rendered handoff fails closed instead of reporting quiet", async () => {
-    const captured: CapturedInvoke = {}
-    await fakeHost(coreRunner(refusalAnswer("unknown_scope", "no recorded project handoff addresses this Project", "none"), captured))
-    const out = await consumeAddressedProjectHandoff("work-1", renderedHandoffID, context(), landingTransport())
-    expect(out.consumed).toBe(false)
-    expect(out.message).toContain("unknown_scope")
-    expect(out.message).toContain("no recorded project handoff addresses this Project")
-    expect(out.handoffID).toBe("")
-  })
-
-  test("a runner failure at the invoke leg surfaces as a refusal, never a bypass", async () => {
-    const captured: CapturedInvoke = {}
-    await fakeHost(coreRunner(refusalAnswer("operation_conflict", "core unreachable", "retry_same_request"), captured, true))
-    const out = await consumeAddressedProjectHandoff("work-1", renderedHandoffID, context(), landingTransport())
-    expect(out.consumed).toBe(false)
-    expect(out.message).toContain("operation_conflict")
-    expect(out.message).toContain("core unreachable")
-    expect(out.handoffID).toBe("")
-  })
-
-  test("an unreadable core answer fails the closed-envelope gate and binds nothing", async () => {
-    const captured: CapturedInvoke = {}
-    await fakeHost(coreRunner(refusalAnswer("operation_conflict", "answer lost", "retry_same_request"), captured, false, "concord core answer lost in transit\n"))
-    const out = await consumeAddressedProjectHandoff("work-1", renderedHandoffID, context(), landingTransport())
-    expect(out.consumed).toBe(false)
-    expect(out.message).toContain("operation_conflict")
-    expect(out.handoffID).toBe("")
-  })
-
-  test("a missing work, handoff, or session identity skips the consume entirely", async () => {
-    const captured: CapturedInvoke = {}
-    await fakeHost(coreRunner(refusalAnswer("operation_conflict", "never reached", "retry_same_request"), captured))
-    const out = await consumeAddressedProjectHandoff("", renderedHandoffID, context(), landingTransport())
-    expect(out.consumed).toBe(false)
-    expect(out.message).toContain("consume skipped")
-    expect(captured.call_envelope).toBeUndefined()
-    expect(out.handoffID).toBe("")
-  })
 })
 
 describe("project_retirement preserves the core's derived state", () => {
@@ -238,7 +133,7 @@ describe("project_retirement preserves the core's derived state", () => {
   const readyAnswer = () =>
     coreEnvelope("concord_work_trace", "project_retirement", "ok", {
       query_id: "CD-0182.R1",
-      result: { work_id: "work-1", project_id: "project-receive", session_ref: "session-receive", state: "ready_to_close_or_replace", recorded_handoff: true, artifacts_preserved: true, vacate_landed: true, blockers: [] },
+      result: { work_id: "work-1", project_id: "project-receive", session_ref: "session-receive", state: "ready_to_close_or_replace", recorded_handoff: true, artifacts_preserved: true, blockers: [] },
     })
 
   async function readRetirement() {

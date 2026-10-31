@@ -80,12 +80,7 @@ after its durable commit succeeds, under CD-0050 D2's durability guarantee.
 ### D2. The enumeration names every family the store commits durably
 
 The consequential transaction families are grant, client, and approval authority;
-workflow actions; cross-authority steps; producer evidence; and the
-following families:
-
-| Family | Sites | Why it is consequential |
-|---|---|---|
-| Bootstrap journal and worktree claim | `internal/store/bootstrap.go` `claimCrossProjectWorktree`, `prepareBootstrapMode`, `setBootstrapState`, `rollbackBootstrap`, `finalizeBootstrap`; `internal/store/worktrees.go` `ClaimWorktree` | The journal and the claim decide which work item owns a worktree on disk. A claim lost after its acknowledgement permits a second owner of the same worktree. |
+workflow actions; cross-authority steps; and producer evidence.
 
 Workflow completion commits inside the workflow action dispatch boundary
 family. Cross-authority fence entry points are declared in D3.

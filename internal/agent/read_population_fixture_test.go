@@ -83,7 +83,7 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 	// identity from the relation-creating event count, so the bulk-seeded
 	// blocker edges must land only after the last folded relation, or they
 	// would occupy the identity the fold assigns.
-	fx.seedWorktreeClaim(t)
+	fx.seedHostCheckout(t)
 	fx.seedPopulationRows(t)
 	seedReadPopulationProducts(t, s)
 	return fx
@@ -303,10 +303,8 @@ func (fx readPopulationFixture) seedResearchPack(t *testing.T) {
 	}
 }
 
-// seedWorktreeClaim registers the focus Project's source repository and claims
-// the focus work's canonical worktree through the real dispatch path, so the
-// inspect read walks an actual Git worktree.
-func (fx readPopulationFixture) seedWorktreeClaim(t *testing.T) {
+// The inspect read walks an actual Git worktree and the retained entry projection.
+func (fx readPopulationFixture) seedHostCheckout(t *testing.T) {
 	t.Helper()
 	repo := t.TempDir()
 	gitRun(t, repo, "init", "-b", "main")
@@ -319,11 +317,7 @@ func (fx readPopulationFixture) seedWorktreeClaim(t *testing.T) {
 	gitRun(t, repo, "commit", "--quiet", "-m", "population fixture base")
 	seedClaimOrigin(t, repo)
 	execPopulationStatement(t, fx.store, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('population-project-repo','proj-web','canonical_path',?,?,'now','now')`, repo, repo)
-	_, version := readWorkFromStore(t, fx.store, fx.workID)
-	claim := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: json.RawMessage(`{"work_id":"` + fx.workID + `","project_id":"proj-web","base_sha":"` + gitRun(t, repo, "rev-parse", "HEAD") + `","expected_version":` + fmt.Sprintf("%d", version) + `,"host_pid":` + strconv.Itoa(os.Getpid()) + `,"idempotency_key":"population-claim"}`)}, fx.envelope(t))
-	if claim.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("worktree claim outcome=%s err=%+v", claim.Outcome, claim.Error)
-	}
+	seedHostWorktree(t, fx.store, repo, fx.workID, "proj-web", gitRun(t, repo, "rev-parse", "HEAD"))
 }
 
 func (fx readPopulationFixture) envelope(t *testing.T) CallEnvelope {

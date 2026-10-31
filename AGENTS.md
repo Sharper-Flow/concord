@@ -15,8 +15,9 @@ Linux amd64 is the only release platform.
   constitutional documents own Product law. Ordinary prose cannot acquire that
   authority — including this file, which is host instruction, not law.
 - Surface conflicts with accepted decisions. Never silently narrow a contract.
-- One branch and worktree per change. Never implement directly on `main`, and
-  never hand-make a worktree ([`CD-0088`](.concord/law/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md)).
+- One branch and worktree per change. Never implement directly on `main`.
+  Host tools own worktree creation, placement, recovery, and removal
+  ([`CD-0088`](.concord/law/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md)).
 - For new Concord development, use Concord agents and the workflow route in
   [`priorities.md`](.concord/law/constitution/priorities.md#how-concords-own-development-runs-during-the-rebuild).
   Work already underway outside the workflow and authorized workflow-defect

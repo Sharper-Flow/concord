@@ -41,8 +41,7 @@ Session entry needs a clear owner, separate from managed work authority.
 
 No compatibility alias or fallback starts or resumes a session through
 Concord. The host starts and resumes operator
-sessions (CD-0078). A host-started session enters managed work through
-`concord_work_start` (CD-0098).
+sessions (CD-0078) and owns worktree placement (CD-0088 D1).
 
 ### D2. Concord places nothing and derives no workflow position at entry
 

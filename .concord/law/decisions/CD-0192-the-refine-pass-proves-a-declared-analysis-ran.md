@@ -23,9 +23,9 @@
   `workflow.break_fix`, the Project tooling manifest, and the argv equality
   the guard enforces
 - **Preserves:** CD-0138 D1, D2, and D4, the agent-judgment rule of CD-0138 D3,
-  CD-0055 D4, CD-0096 D3, and the digests derived from the one canonical
+  CD-0055 D4 and the digests derived from the one canonical
   source ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
-- **Related:** CD-0013, CD-0055, CD-0096, CD-0138, CD-0156
+- **Related:** CD-0013, CD-0055, CD-0138, CD-0156
 - **Approval:** The operator approved the work item contract that carries this
   record on 2026-09-29.
 

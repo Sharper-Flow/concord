@@ -140,7 +140,7 @@ func requireWorkflowLawInventoryProof(ctx context.Context, q queryer, project, l
 		return err
 	}
 	if productID != "" {
-		return requireKnowledgeSourceSetProof(ctx, q, project, locator, nil)
+		return requireKnowledgeSourceSetProof(ctx, q, project, locator)
 	}
 	homes, err := projectCanonicalHomeCandidates(ctx, q, project)
 	if err != nil {

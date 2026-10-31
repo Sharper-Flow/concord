@@ -3,9 +3,7 @@
   "id": "CD-0071",
   "title": "The authority boundary is the model's output, not the agent's process",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "agent-call-boundary",
   "applies_to_domain_ids": []
@@ -116,7 +114,7 @@ work on it.
 **Load-bearing.** Git-derived scope resolution at authorization, and the refusals it
 produces; the `cross_scope` capability gate; manifest-digest pinning; typed
 `unauthorized` refusals; and `principal_ref`, on which idempotency
-partitioning, worktree claim ownership, workflow authority checks (CD-0242 D5),
+partitioning, workflow authority checks (CD-0242 D5),
 and durable operation attribution all depend. These constrain model output
 or carry checked identity. They stay.
 

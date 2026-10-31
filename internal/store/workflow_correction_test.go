@@ -487,10 +487,7 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	}
 	requireWorkPinOutstandingKinds(t, &debtPin, []string{"artifact", "review", "verification"})
 	wf := workContextFixture{store: s, workID: workID, owner: fixture.owner, operator: fixture.operator}
-	var repo string
-	if err := s.db.QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(workID)).Scan(&repo); err != nil {
-		t.Fatal(err)
-	}
+	repo := reviewFixtureDirectory(t, s, workID)
 	var failure *Failure
 	if err := pConfirmReceiptPremise(t, wf); err == nil {
 		t.Fatal("confirm_premise passed with only predecessor evidence")

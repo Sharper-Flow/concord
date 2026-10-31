@@ -4,7 +4,7 @@ import path from "node:path"
 import { contractOperations, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema } from "./generated-contract-tests"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
-import { domain, product_view, publishRequestDefinition, publishWorkStartDefinition, work_browse, work_compact, work_define, work_relate, work_start, work_trace, work_transition } from "./concord"
+import { domain, product_view, publishRequestDefinition, work_browse, work_compact, work_define, work_relate, work_trace, work_transition } from "./concord"
 
 const tools: Record<string, any> = {
   concord_product_view: product_view,
@@ -17,42 +17,7 @@ const tools: Record<string, any> = {
   concord_work_compact: work_compact,
 }
 
-// Apply the production hook to the registration view. The expected contract
-// is used for comparison only, never to repair the observed schema.
-const expectedWorkStart = object(hostToolSchemas.concord_work_start, "generated work start schema")
-const expectedWorkStartBranches = (expectedWorkStart.oneOf as any[]).filter((branch) => object(branch, "generated work start branch"))
-if (expectedWorkStartBranches.length !== 2) fail("generated work start schema must carry the capture and resume branches")
-const workStartDefinition = {
-  description: work_start.description,
-  parameters: {},
-  jsonSchema: undefined as unknown,
-}
-await publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartDefinition)
-// The root is provider-compatible; its conditional branches retain the
-// generated capture/resume contract without losing requireds or exclusions.
-// Publication interns repeated field schemas into the root's local
-// definitions table, so closure is proven on the raw root and the branch
-// comparison reads the resolved view against the same generated branches.
-const workStartRoot = object(workStartDefinition.jsonSchema, "published work start schema")
-if (workStartRoot.type !== "object") fail("concord_work_start schema root is not an object")
-const registrationBytes: Record<string, number> = { concord_work_start: Buffer.byteLength(JSON.stringify(workStartRoot), "utf8") }
-for (const keyword of ["oneOf", "anyOf", "allOf"]) {
-  if (Object.hasOwn(workStartRoot, keyword)) fail(`concord_work_start carries provider-unsafe root ${keyword}`)
-}
-if (JSON.stringify(workStartRoot.if) !== JSON.stringify({ required: ["work_id"] })) fail("concord_work_start does not select resume by work_id presence")
-const workStartIssueKeySelector = object(workStartRoot.else, "published work start issue_key selector")
-if (JSON.stringify(workStartIssueKeySelector.if) !== JSON.stringify({ required: ["issue_key"] })) fail("concord_work_start does not select resume by issue_key presence")
-checkLocalRefs(workStartRoot, "concord_work_start")
-const expandedWorkStart: any = expandedPublishedRequestSchema(workStartRoot)
-const publishedBranches = [expandedWorkStart.else?.else, expandedWorkStart.then, expandedWorkStart.else?.then].map((branch) => object(branch, "published work start branch"))
-for (const [index, branch] of publishedBranches.entries()) {
-  if (JSON.stringify(branch) !== JSON.stringify(expandedPublishedRequestSchema(expectedWorkStartBranches[Math.min(index, 1)]))) fail(`published work start branch ${index} differs from its generated closed contract`)
-}
-inspect(workStartRoot)
-// The registration map is the host's per-parameter rendering channel; its
-// field schemas must still match the generated branches exactly.
-const workStartRegistration = publishedArgsSchema(work_start.args, "work start registration schema")
-inspect(workStartRegistration)
+const registrationBytes: Record<string, number> = {}
 
 function fail(message: string): never {
   throw new Error(message)

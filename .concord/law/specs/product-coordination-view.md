@@ -213,5 +213,5 @@ This contract must be revised or superseded when:
 
 - Criterion 1 is proved by the bound `Q5-ready-ranking` scenario of
   `.concord/scenarios/product-memory-query.v1.json`, executed by
-  `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).
+  `TestAgentJobsCorpus` (`internal/agent/agent_jobs_corpus_test.go`).
   Section 10 records the falsifiers for each guarantee.

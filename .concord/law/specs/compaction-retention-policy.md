@@ -12,11 +12,11 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "scenario": "Q10-not-compacted"
+      "exemption": "Committed retained work keeps its canonical locator proof across compaction linkage: TestCompactionReconcileMissingVersionRetainsProofStep (internal/agent/compaction_partial_serialization_test.go) retains the proof step and TestCompactionLinkPublishRecordsNoVersionChange (internal/store/compaction_link_version_test.go) pins the publish version; integrated corpus coverage remains unmeasured."
     },
     {
       "criterion": 2,
-      "exemption": "Cross-tier deduplication and watermark composition are query properties, not a single corpus case. TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead in internal/store/knowledge_index_test.go is a watermark witness; integrated cleanup and historical-tier coverage remain unmeasured."
+      "exemption": "Cross-tier deduplication and watermark composition are query properties, not a single corpus case. Their watermark witness was retired with the index; integrated cleanup and historical-tier coverage remain unmeasured."
     },
     {
       "criterion": 3,
@@ -28,7 +28,7 @@
     },
     {
       "criterion": 5,
-      "exemption": "Historical derivation is a rebuild property. TestCompactionPayloadRequiresExplicitUniqueScopeArrays and TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag in internal/store/knowledge_index_test.go are candidate witnesses; derivation of every historical field remains unmeasured."
+      "exemption": "Historical derivation is a reconstruction property. Its rebuild witnesses were retired with the index; derivation of every historical field remains unmeasured."
     },
     {
       "criterion": 6,
@@ -184,7 +184,7 @@ Authorized owner reopen before retirement removes eligibility without reconstruc
 |---|---|---|---|---|---|
 | canonical Git note | retain | distilled knowledge | publication and reconciliation; work-note-only recovery; the typed-absence outcome locator | the note commit verifies from Git | none in Concord; Git owns the note |
 | canonical publication proof | verify from Git; the settled operation and closure judgement gate cleanup | PM6 and CD-0242 D9 | terminal cleanup | Git proof verified before cleanup; version, lifecycle, and home re-read in the cleanup transaction | removed with its terminal execution |
-| terminal execution and owned membership/relation rows | collect only after verified closure and release of every consuming category | CD-0242 D2 | live executions that reference it; unsettled effects, claims, leases, messages, findings, and owned research | the cleanup blocker list in `internal/store/terminal_cleanup.go` | terminal, its published note matches the lifecycle, and no blocker holds |
+| terminal execution and owned membership/relation rows | collect only after verified closure and release of every consuming category | CD-0242 D2; CD-0088 D2 | live executions that reference it; unsettled effects, workflow steps, Project handoffs, messages, findings, and owned research; not worktree ownership or verification leases | the cleanup blocker list in `internal/store/terminal_cleanup.go` | terminal, its published note matches the lifecycle, and no blocker holds |
 | defect recurrence classification and required Product/workflow scope | retain until work or Product removal | CD-0211 D2–D4 | recurrence admission of later defect captures | same-shape lookup at capture | work or Product removal |
 | historical index and scope edges | retain or rebuild | verified Git-derived projections | historical queries | rebuilt against the current Git head watermark | replaced by the rebuild; never a source of truth |
 | research packs and dependent content | retain until explicit eligible retirement | direct tables | active pins and the owning execution | pin and owner checks in `research_retire` | explicit `research_retire` with no active pin |
@@ -257,11 +257,11 @@ A simpler PM10 authority must preserve the canonical note, retained receipts, an
 
 ## Verification
 
-- Criterion 1 retains the PM1 `Q10-not-compacted` corpus binding and canonical locator witnesses.
-- Criterion 2 retains `internal/store.TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead` for watermark evidence; no executed cleanup proves the historical-tier join.
+- Criterion 1 keeps its canonical locator proof: `TestCompactionReconcileMissingVersionRetainsProofStep` retains the proof step and `TestCompactionLinkPublishRecordsNoVersionChange` pins the publish version.
+- Criterion 2's watermark witness was retired with the index; no executed cleanup proves the historical-tier join.
 - Criterion 3 names candidate `internal/store.TestResearchRetirementTerminalOwnersEligible`; integrated retirement eligibility remains unmeasured.
 - Criterion 4 names candidate `internal/store.TestResearchRetirementActivePinsProtectAndTerminalReleaseFences`; publication separation and full protection coverage remain unmeasured.
-- Criterion 5 retains `internal/store.TestCompactionPayloadRequiresExplicitUniqueScopeArrays` for explicit scope derivation; derivation of every historical projection field remains unmeasured.
+- Criterion 5's rebuild witnesses were retired with the index; derivation of every historical projection field remains unmeasured.
 - Criterion 6 names candidate `internal/store.TestResearchRetirementDryRunMixedBatchHasNoWrites`; integrated dry-run coverage remains unmeasured.
 - Criterion 7 names candidate `internal/agent.TestResearchRetireDryRunAndReplay`; restart and full committed replay coverage remain unmeasured.
 

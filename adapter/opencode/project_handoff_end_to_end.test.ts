@@ -35,8 +35,8 @@ routeDeclaration("capture replays real core effects without duplicate identity",
   expect(result.exitCode, `owned capture suite failed:\n${result.stdout}\n${result.stderr}`).toBe(0)
 }, 240_000)
 
-routeDeclaration("boots, consumes, retires, and resumes after host restart through the real core routes", async () => {
-  const result = await runHandoffCases("^(boots, consumes|restarts the handoff)")
+routeDeclaration("prepares, consumes, retires, and resumes after host restart through the real core routes", async () => {
+  const result = await runHandoffCases("^(prepares, consumes|restarts the handoff)")
   expect(result.exitCode, `owned handoff suite failed:\n${result.stdout}\n${result.stderr}`).toBe(0)
 }, 450_000)
 

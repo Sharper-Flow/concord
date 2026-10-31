@@ -271,7 +271,7 @@ func TestAdapterEnvelopeRetainsSchemaRejections(t *testing.T) {
 	}
 }
 
-func TestAdapterVacateGeneratedSchemaRecoveryScope(t *testing.T) {
+func TestGeneratedSchemaConflictRecoveryRequiresReconciliation(t *testing.T) {
 	// Test the generated schema independently of Go's core-only recovery coupling.
 	type schemaWire Envelope
 	validate := func(e Envelope) error {
@@ -284,18 +284,9 @@ func TestAdapterVacateGeneratedSchemaRecoveryScope(t *testing.T) {
 	}
 	for _, recovery := range []string{"retry_same_request", "contact_operator"} {
 		t.Run(recovery, func(t *testing.T) {
-			e := NewCoreError(NewBase("vacate-schema", "concord_work_transition", "session_vacate"), TypedError{Kind: "operation_conflict", AdapterReason: "unknown_effect", EffectState: EffectPossible, RecoveryAction: RecoveryAction{Kind: recovery}})
-			e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
-			if err := validate(e); err != nil {
-				t.Fatalf("adapter vacate recovery refused: %v", err)
-			}
-			e.Operation = "lifecycle"
+			e := NewCoreError(NewBase("conflict-schema", "concord_work_transition", "lifecycle"), TypedError{Kind: "operation_conflict", EffectState: EffectPossible, RecoveryAction: RecoveryAction{Kind: recovery}})
 			if err := validate(e); err == nil {
-				t.Fatal("vacate recovery admitted under another operation")
-			}
-			e.Operation, e.Origin, e.Authority, e.Error.AdapterReason = "session_vacate", OriginCore, AuthorityAuthoritative, ""
-			if err := validate(e); err == nil {
-				t.Fatal("vacate recovery admitted under core origin")
+				t.Fatal("core conflict admitted without reconciliation")
 			}
 			e.Error.RecoveryAction.Kind = "reconcile_operation"
 			if err := validate(e); err != nil {
@@ -451,53 +442,6 @@ func TestStaleLawRevisionRequiresSHA256Proofs(t *testing.T) {
 	valid.Error.StaleLawRevision.OldContentHash = "sha256:not-a-proof"
 	if _, err := valid.Encode(); err == nil {
 		t.Fatal("stale law revision accepted an invalid old content hash")
-	}
-}
-
-func TestSessionPlacementRequiresCrossRepositoryKindAndCheckout(t *testing.T) {
-	t.Parallel()
-	for _, scenario := range []string{"valid", "missing", "wrong-kind", "empty-work", "empty-project", "relative-path", "nul-path", "oversized-path"} {
-		t.Run(scenario, func(t *testing.T) {
-			placement := &SessionPlacement{WorkID: "work-1", ProjectID: "project-1", Directory: "/example/repository"}
-			typed := TypedError{Kind: "cross_repository_claim", RecoveryAction: RecoveryAction{Kind: "use_declared_route", RequiredRefs: []string{"concord_work_start"}}, EffectState: EffectNone, SessionPlacement: placement}
-			switch scenario {
-			case "missing":
-				typed.SessionPlacement = nil
-			case "wrong-kind":
-				typed.Kind = "invalid_input"
-			case "empty-work":
-				placement.WorkID = ""
-			case "empty-project":
-				placement.ProjectID = ""
-			case "relative-path":
-				placement.Directory = "example/repository"
-			case "nul-path":
-				placement.Directory = "/example/\x00"
-			case "oversized-path":
-				placement.Directory = "/" + strings.Repeat("a", 4096)
-			}
-			wantValid := scenario == "valid"
-			if err := validateError(typed); (err == nil) != wantValid {
-				t.Fatalf("Go error validation=%v, want valid=%v", err, wantValid)
-			}
-			base := NewCoreError(NewBase("placement", "concord_work_transition", "worktree_claim"), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone})
-			encoded, err := base.Encode()
-			if err != nil {
-				t.Fatal(err)
-			}
-			var raw map[string]any
-			if err := json.Unmarshal(encoded, &raw); err != nil {
-				t.Fatal(err)
-			}
-			raw["error"] = typed
-			encoded, err = json.Marshal(raw)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := payloadschema.ValidateEnvelope(encoded); (err == nil) != wantValid {
-				t.Fatalf("schema validation=%v, want valid=%v", err, wantValid)
-			}
-		})
 	}
 }
 

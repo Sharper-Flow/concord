@@ -18,7 +18,7 @@ func init() {
 	)
 	reference := goInlineBound("internal/store/workflow_registry.go", "ValidReference", "len(value)", boundBytes)
 	predicate := goPatternBound(review, "reviewPredicatePattern")
-	sha := goPatternBound("internal/store/worktrees.go", "worktreeSHAPattern")
+	sha := goPatternBound("internal/store/worktree_reads.go", "worktreeSHAPattern")
 	evidenceRef := goInlineBound(review, "validateReviewOracleFinding", "len(ref)", boundBytes)
 	evidenceCount := goInlineBound(review, "validateReviewOracleFinding", "len(finding.EvidenceRefs)", boundItems)
 	entryPoint := goInlineBound(review, "validateReviewOracleFinding", "len(finding.EntryPoint)", boundBytes)

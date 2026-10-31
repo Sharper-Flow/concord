@@ -41,10 +41,10 @@ Each amendment retires duplicate execution or a stale proof claim. Revisions ena
 
 - [CD-0016](../../law/decisions/CD-0016-context-continuity.md): continuity retains report references instead of native verifier output, removing obsolete stream retention.
 - [CD-0058](../../law/decisions/CD-0058-no-model-routing.md): replace native-receipt wording with attributed reports; model ownership does not change.
-- [CD-0096](../../law/decisions/CD-0096-in-session-worktree-retargeting.md): retire the Verify tier, leases and output inspection; retain inspect/destroy authority.
+- [CD-0096](https://github.com/Sharper-Flow/concord/tree/1c68214413f3d02c32630416396a733adf8af1d9/.concord/law/decisions/CD-0096-in-session-worktree-retargeting.md): retire the Verify tier, leases and output inspection; retain inspect/destroy authority.
 - [CD-0104](../../law/decisions/CD-0104-a-session-worktree-is-its-actual-directory.md): remove verification-lease ownership and session-movement coupling.
-- [CD-0110](../../law/decisions/CD-0110-work-start-chains-from-a-terminal-worktree.md): remove the terminal worktree verification-lease gate.
-- [CD-0119](../../law/decisions/CD-0119-work-start-resumes-an-existing-item-by-work-identity.md): resume no longer handles native verification leases.
+- [CD-0110](https://github.com/Sharper-Flow/concord/tree/1c68214413f3d02c32630416396a733adf8af1d9/.concord/law/decisions/CD-0110-work-start-chains-from-a-terminal-worktree.md): remove the terminal worktree verification-lease gate.
+- [CD-0119](https://github.com/Sharper-Flow/concord/tree/1c68214413f3d02c32630416396a733adf8af1d9/.concord/law/decisions/CD-0119-work-start-resumes-an-existing-item-by-work-identity.md): resume no longer handles native verification leases.
 - [CD-0192](../../law/decisions/CD-0192-the-refine-pass-proves-a-declared-analysis-ran.md): refine consumes a passing attributed report for the recorded commit instead of executed argv/native receipts.
 - [CD-0197](../../law/decisions/CD-0197-a-review-report-carries-a-typed-verdict-and-ranked-findings.md): Review judges recorded candidates and report adequacy; retire native qualification, live-Git freshness and the duplicate descriptor.
 - [CD-0198](../../law/decisions/CD-0198-small-items-batch-merge-and-derive-routine-workflow-actions.md): routine derivations consume reported evidence instead of native runs.

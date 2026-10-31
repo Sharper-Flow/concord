@@ -14,7 +14,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
-      "concord_work_start",
       "concord_work_transition"
     ]
   },
@@ -24,7 +23,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
-      "concord_work_start",
       "concord_work_transition"
     ]
   },
@@ -34,7 +32,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
-      "concord_work_start",
       "concord_work_transition"
     ]
   },
@@ -44,7 +41,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
-      "concord_work_start",
       "concord_work_transition"
     ]
   },
@@ -54,7 +50,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
-      "concord_work_start",
       "concord_work_transition"
     ]
   },
@@ -64,7 +59,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
-      "concord_work_start",
       "concord_work_transition"
     ]
   },
@@ -78,7 +72,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
-      "concord_work_start",
       "concord_work_trace",
       "concord_work_transition"
     ]
@@ -93,7 +86,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
-      "concord_work_start",
       "concord_work_trace",
       "concord_work_transition"
     ]
@@ -108,7 +100,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
-      "concord_work_start",
       "concord_work_trace",
       "concord_work_transition"
     ]

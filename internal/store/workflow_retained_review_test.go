@@ -11,11 +11,6 @@ func retainedReviewFixture(t *testing.T, id string) (*candidateJourney, ReviewCa
 	f := seedWorkContextFixture(t, id)
 	t.Cleanup(func() { _ = f.store.Close() })
 	dir, _ := reviewSubjectClaim(t, f.store, id)
-	var branch string
-	if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(id)).Scan(&branch); err != nil {
-		t.Fatal(err)
-	}
-	gitRunStore(t, dir, "branch", "-m", branch)
 	j := &candidateJourney{fixture: f, s: f.store, workID: id, repo: dir}
 	j.observeRun(t, "baseline")
 	acceptCurrentReviewForTest(t, f, "continue")

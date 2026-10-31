@@ -141,7 +141,7 @@ therefore does not satisfy CON-797.
 
 ### D1. Every new public bug capture declares its failure shape
 
-`concord_work_define.capture` and the capture form of `concord_work_start`
+`concord_work_define.capture`
 require a `defect_intake` record for kind `bug`. Kind `research` may carry the
 same record as a cluster-analysis identity. Other kinds refuse it.
 
@@ -173,9 +173,8 @@ the capturing item. A classified explicit sibling must carry the same shape.
 The core persists its complete, sorted sibling snapshot beside the capture
 record in the intent projection. It does not create a semantic relation.
 
-The two public routes use the same membership computation inside the capture
-transaction. A refusal rolls back the operation before a work item, journal,
-claim, or native worktree effect becomes durable. Concurrent captures cannot
+The public capture route computes membership inside the capture
+transaction. A refusal rolls back before the work item becomes durable. Concurrent captures cannot
 both claim to be the first stored bug of the same shape in that scope.
 
 The input identifier list remains bounded. The authoritative sibling snapshot

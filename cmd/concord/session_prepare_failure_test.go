@@ -17,10 +17,7 @@ func TestSessionPrepareCallbackFailureClassification(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	s := mustOpenStore(t, dbPath)
 	seedLocatorAuthority(t, s, repo)
-	result, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	result := seedCLISessionWorktree(t, s, repo)
 	t.Setenv(dbOverrideEnv, dbPath)
 	t.Chdir(result.Entry.Path)
 
@@ -53,7 +50,7 @@ func TestSessionPrepareCallbackFailureClassification(t *testing.T) {
 							}
 							return "concord-1", nil
 						},
-						func(context.Context, string, string, string) ([]byte, error) {
+						func(context.Context, string, string, string, string) ([]byte, error) {
 							bootCalls++
 							return nil, tc.err
 						})

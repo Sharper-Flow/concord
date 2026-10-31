@@ -37,11 +37,6 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 		setup(f)
 	}
 	repo, _ := reviewSubjectClaim(t, f.store, workID)
-	var branch string
-	if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(workID)).Scan(&branch); err != nil {
-		t.Fatal(err)
-	}
-	gitRunStore(t, repo, "branch", "-m", branch)
 	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo}
 	dependencies, err := workflowReviewDependencies(t.Context(), f.store.db, workID)
 	if err != nil {

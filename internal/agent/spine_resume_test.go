@@ -9,7 +9,6 @@ import (
 	"reflect"
 	goruntime "runtime"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -192,18 +191,8 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 		t.Fatal("capture omitted its work identity")
 	}
 	f.work = (*captured.ChangedRefs)[0].ID
-	claimed := spineOK(t, f.call(t, "concord_work_transition", "worktree_claim", map[string]any{
-		"work_id": f.work, "project_id": "project-1", "host_pid": os.Getpid(), "base_sha": base,
-		"expected_version": f.read(t).Pinned.Pin.Version, "idempotency_key": "spine-claim",
-	}))
-	var claim struct {
-		Path string `json:"path"`
-	}
-	if err := json.Unmarshal(claimed.Result, &claim); err != nil {
-		t.Fatal(err)
-	}
-	f.path = claim.Path
-	f.env.Directory, f.env.Worktree = claim.Path, claim.Path
+	f.path = seedHostWorktree(t, s, repo, f.work, "project-1", base)
+	f.env.Directory, f.env.Worktree = f.path, f.path
 	f.env.ScopeVersion, _, err = s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -273,7 +262,6 @@ func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
 	if !slices.ContainsFunc(before.Pinned.Pin.NextValidIntents, func(i store.WorkPinIntent) bool { return i.ActionID == "record_verdict" }) {
 		t.Fatalf("evaluation is not an admitted next action: %+v", before.Pinned.Pin)
 	}
-	claimBefore := spineOK(t, f.call(t, "concord_work_browse", "worktree_inspect", map[string]any{"work_id": f.work, "mode": "status"}))
 	database := f.s.Path()
 	if err := f.s.Close(); err != nil {
 		t.Fatal(err)
@@ -298,10 +286,6 @@ func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
 		!reflect.DeepEqual(before.Pinned.Contract.RequiredEvidence, after.Pinned.Contract.RequiredEvidence) || !reflect.DeepEqual(before.Pinned.Pin.OutstandingEvidenceKinds, after.Pinned.Pin.OutstandingEvidenceKinds) ||
 		!reflect.DeepEqual(before.Pinned.Pin.VerdictEvidence, after.Pinned.Pin.VerdictEvidence) || !reflect.DeepEqual(before.Pinned.Pin.NextValidIntents, after.Pinned.Pin.NextValidIntents) {
 		t.Fatalf("fresh session did not recover current state: before=%+v after=%+v", before.Pinned, after.Pinned)
-	}
-	status := spineOK(t, f.call(t, "concord_work_browse", "worktree_inspect", map[string]any{"work_id": f.work, "mode": "status"}))
-	if !strings.Contains(string(status.Result), f.path) || !reflect.DeepEqual(claimBefore.Result, status.Result) {
-		t.Fatalf("resumed claim location missing: %s", status.Result)
 	}
 	spineOK(t, f.action(t, "record_verdict", map[string]any{"verdicts": []map[string]any{{
 		"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof},

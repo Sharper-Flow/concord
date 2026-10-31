@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:e7bdfb48b826e4e19223da63d482b10bce4579112e1b16cfa7542be29a9b46be`
-Payload schema digest: `sha256:a231410ead65344948909becbcbf44d7206a37f8e761fd59c07766415f717416`
+Manifest digest: `sha256:af5b377d1b5af5be7640198f171750311cceac27c05ea3b3844b254dc5de95c7`
+Payload schema digest: `sha256:afa9b8b3bbc0eba73ce0175234708c2641100f4d394d4b0046761c3faf7d9a9d`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -13,8 +13,6 @@ Envelope schema: `1.0`
 | `concord_work_browse.ready` | `read` | `PM1.Q5` | `product_read` | `read` | `always` |
 | `concord_work_browse.scope` | `read` | `PM1.Q6` | `product_read` | `read` | `always` |
 | `concord_work_browse.messages` | `read` | `PM1.Q14` | `product_read` | `read` | `always` |
-| `concord_work_browse.worktree_audit` | `read` | `PM1.Q16` | `product_read` | `read` | `always` |
-| `concord_work_browse.worktree_inspect` | `read` | `CD-0096.R1` | `product_read` | `read` | `always` |
 | `concord_work_trace.history` | `read` | `PM1.Q7` | `product_read` | `read` | `always` |
 | `concord_work_trace.observations` | `read` | `CD-0030.R1` | `product_read` | `read` | `always` |
 | `concord_work_trace.external_observations` | `read` | `CD-0040.R1` | `product_read` | `read` | `always` |
@@ -39,13 +37,8 @@ Envelope schema: `1.0`
 | `concord_work_transition.lifecycle` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.remove` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.workflow_action` | `mutation` | `—` | `work_transition` | `workflow_action` | `workflow_definition` |
-| `concord_work_transition.worktree_claim` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
-| `concord_work_transition.session_vacate` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.project_handoff_record` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.project_handoff_consume` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
-| `concord_work_transition.worktree_reclaim` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
-| `concord_work_transition.worktree_audit_reclaim` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
-| `concord_work_transition.worktree_destroy` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_relate.set_memberships` | `mutation` | `—` | `work_relate` | `scope` | `always` |
 | `concord_work_relate.resolve_overlap` | `mutation` | `—` | `work_relate` | `relation` | `always` |
 | `concord_work_relate.message_send` | `mutation` | `—` | `work_relate` | `relation` | `always` |

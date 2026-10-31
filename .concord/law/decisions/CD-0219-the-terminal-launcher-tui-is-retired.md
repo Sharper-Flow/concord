@@ -55,9 +55,8 @@
   record. Its authority tier is `derived` under CD-0159 D3.
 - **Related:** CD-0014, CD-0031, CD-0048, CD-0078, CD-0108, CD-0222,
   CD-0163, CD-0176, C14, C17
-- **Preserves:** CD-0078 D1 through D3, CD-0093, CD-0031, CD-0090, CD-0163
-  D1, CD-0176 D3, CD-0098, the store-write-free managed-entry boundary, and
-  the verified worktree claim, occupancy, landing, and vacate rules
+- **Preserves:** CD-0078 D1 through D3, CD-0093, CD-0031, CD-0016, CD-0163
+  D1, CD-0176 D3, and the store-write-free session-preparation boundary
 
 ## Context
 
@@ -66,9 +65,8 @@ is deleted end to end: internal/launcher, the `concord launcher` verb, the
 bare-invocation TUI route, and the `charm.land` Bubble Tea, bubbles, and
 lipgloss modules. Bare `concord` prints usage.
 
-The host starts
-and resumes operator sessions, and a host-started session enters managed
-work through `concord_work_start` (CD-0098).
+The host starts and resumes operator sessions and owns worktree placement
+(CD-0088 D1).
 
 ## Decision
 
@@ -102,11 +100,11 @@ store reads (the store query contracts).
 
 CD-0078 D1 through D3,
 CD-0163 D1, CD-0176 D3, CD-0093, and CD-0031 bind host-started managed
-sessions through work start, session-prepare, and the per-turn hook. The
+sessions through session preparation and explicit work-context reads. The
 context, identity, registry-probe, and terminal-placement proofs live with
-the surfaces that own those behaviors. The worktree claim, occupancy,
-landing, and vacate rules require verified placement, collision
-protection, and release-under-live-work refusals.
+the surfaces that own those behaviors. Host tools own worktree lifecycle
+under CD-0088 D1. No worktree-ownership lookup supplies context; authenticated
+per-call Project resolution remains bound to the host-reported directory.
 
 ## Alternatives considered
 
@@ -140,8 +138,6 @@ first-usable floor criterion.
   document's file, and no retired artifact keeps a file under `.concord/law/`.
 - `python3 scripts/check-doc-links.py` proves no document links a retired
   artifact.
-- `go test ./internal/store/ -run
-  TestResolveContinuityWorkByDirectory` proves the directory binding that
-  CD-0093 and CD-0176 keep, and `go test ./cmd/concord/ -run
-  TestSessionPrepare` proves the context and probe obligations that CD-0031
+- `go test ./cmd/concord/ -run
+  TestSessionPrepare` proves the directory, context and probe obligations that CD-0093, CD-0176, CD-0031
   and CD-0189 keep.

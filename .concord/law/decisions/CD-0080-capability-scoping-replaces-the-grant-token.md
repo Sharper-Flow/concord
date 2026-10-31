@@ -3,9 +3,7 @@
   "id": "CD-0080",
   "title": "Capability scoping replaces the grant token",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "agent-call-boundary",
   "applies_to_domain_ids": []
@@ -73,7 +71,7 @@ unchanged in effect and moved in site.
 ### D2. The grant token, its record, and its lifetime bounds are removed
 
 `principal_ref` survives on `agent_clients` and continues to carry checked
-identity for idempotency partitioning, worktree claim ownership, workflow
+identity for idempotency partitioning, workflow
 authority and durable operation attribution.
 
 ### D7. The three revocation methods are removed

@@ -37,10 +37,6 @@ for (const tool of [...new Set(contractOperations.map((operation: any) => operat
   expect(output.jsonSchema, tool).toBeObject()
   registeredBytes.set(tool, Buffer.byteLength(JSON.stringify(output.jsonSchema), "utf8"))
 }
-const workStartOutput = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-await adapter.publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartOutput)
-expect(workStartOutput.jsonSchema).toBeObject()
-registeredBytes.set("concord_work_start", Buffer.byteLength(JSON.stringify(workStartOutput.jsonSchema), "utf8"))
 
 function projectedBytes(role: string): { allowed: string[]; bytes: number } {
   const denied = new Set(roleDeniedConcordTools[role].tools)
@@ -88,20 +84,22 @@ test("the authored registries carry exactly the generated role population and gr
 test("per-role no-overlay byte budgets match the complete parameter roots", () => {
   // Pinned measured budgets at this head. A catalog or schema change moves
   // these numbers, which is a visible test change, never silent drift.
-  // Coverage and positivity are asserted before any total is formed: a
-  // role's zero budget is its empty allowed list, never a missing root.
+  // Exact catalog coverage and positive root sizes distinguish an empty
+  // allowed list from a missing root.
+  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 108_305 }
+  const registeredTotal = [...registeredBytes.values()].reduce((sum, size) => sum + size, 0)
+  expect(registeredTotal).toBe(PRIMARY_BUDGET.bytes)
   expect([...registeredBytes.keys()].sort(), "registered byte accounting must cover the catalog exactly").toEqual(CATALOG)
   for (const [tool, size] of registeredBytes) {
     expect(Number.isFinite(size) && size > 0, `${tool} must carry a finite positive root size`).toBe(true)
   }
   const EMPTY_BUDGET = { allowed: [] as string[], bytes: 0 }
-  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 117_223 }
   // Neither full primary profile denies a tool, so each no-overlay budget
   // is the whole registered catalog at the full published total. Planner
   // loses exactly the work-state writers' roots.
   expect(projectedBytes("Concord-RTE")).toEqual(PRIMARY_BUDGET)
   expect(projectedBytes("Concord")).toEqual(PRIMARY_BUDGET)
-  const WRITERS = ["concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_start", "concord_work_transition"]
+  const WRITERS = ["concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_transition"]
   const writerBytes = WRITERS.reduce((sum, tool) => sum + (registeredBytes.get(tool) ?? Number.NaN), 0)
   expect(projectedBytes("Concord-Planner")).toEqual({ allowed: CATALOG.filter((tool) => !WRITERS.includes(tool)), bytes: PRIMARY_BUDGET.bytes - writerBytes })
   expect(projectedBytes("concord-review")).toEqual(projectedBytes("Concord-Planner"))
@@ -112,8 +110,6 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   for (const role of UTILITY_AGENTS) {
     expect(projectedBytes(role), role).toEqual(EMPTY_BUDGET)
   }
-  const registeredTotal = [...registeredBytes.values()].reduce((sum, size) => sum + size, 0)
-  expect(registeredTotal).toBe(PRIMARY_BUDGET.bytes)
 })
 
 test("grants select whole tools and never trim a published schema", async () => {
@@ -128,7 +124,7 @@ test("grants select whole tools and never trim a published schema", async () => 
     const operations = contractOperations.filter((operation: any) => operation.tool === tool)
     expect(expanded.oneOf, tool).toHaveLength(operations.length)
   }
-  expect(registeredBytes.get("concord_work_transition")).toBe(73_256)
+  expect(registeredBytes.get("concord_work_transition")).toBe(69_826)
   expect(workflowActionPublicVariants.length).toBe(26)
 })
 
@@ -141,11 +137,7 @@ test("publication is role-blind, so a denied role's budget is not an immutable c
   // --host-merge probe; this test pins the structural precondition.
   for (const tool of CATALOG) {
     const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-    if (tool === "concord_work_start") {
-      await adapter.publishWorkStartDefinition({ toolID: tool }, output)
-    } else {
-      await adapter.publishRequestDefinition({ toolID: tool }, output)
-    }
+    await adapter.publishRequestDefinition({ toolID: tool }, output)
     const rootBytes = registeredBytes.get(tool)
     expect(rootBytes, tool).toBeNumber()
     expect(Buffer.byteLength(JSON.stringify(output.jsonSchema), "utf8"), tool).toBe(rootBytes!)

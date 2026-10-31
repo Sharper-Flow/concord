@@ -5,15 +5,13 @@ import (
 	"go/ast"
 	"go/token"
 	"os"
-	"strconv"
 	"strings"
 	"testing"
-	"unicode/utf8"
 )
 
 // Shared primitive output-bound source rows for the structural output-bound
 // ledger. This file owns the $defs primitives every operation family
-// consumes: absolute_path, cursor, digest, evidence.locator,
+// consumes: cursor, digest, evidence.locator,
 // evidence.version, id, law_id, next_valid_intent.required_fields,
 // obligation_id, reference (maxLength and x-maxBytes), and short.
 //
@@ -25,9 +23,9 @@ import (
 // here and repaired at the consumer sites.
 //
 // Row states after the source trace:
-//   - absolute_path and cursor are unbounded, byte-ceiling only: every
-//     writer was traced and neither family has an expressible finite
-//     producer guard. Their consumer caps are parent repairs.
+//   - cursor is unbounded, byte-ceiling only: every writer was traced and
+//     the family has no expressible finite producer guard. Its consumer
+//     caps are parent repairs.
 //   - SQLite length() over TEXT measures only the NUL-terminated prefix,
 //     so no row cites a TEXT CHECK as a full-string source. The digest and
 //     id rows cite the boundary admission instead; their echo columns'
@@ -36,9 +34,6 @@ import (
 //     character-bound node and proves its writer through the actor fold's
 //     full-string byte guard.
 //   - reference cites the ValidReference byte guard beside the admission.
-//   - short closes through a live derivation of the bootstrap rollback
-//     reason (the sole production caller's errors.New literal plus the
-//     writer's fixed prefix).
 //   - retained work identity, work intent text, and Project identity echo
 //     presence-only fold writers with no complete-string guard; they type
 //     through the output-only retained_work_id, retained_work_text, and
@@ -63,28 +58,9 @@ import (
 func init() {
 	registerOutputBound("/$defs/knowledge_id/maxLength",
 		schemaBound("contracts/concord-knowledge-index.v1.schema.json", "/$defs/id/maxLength"))
-	// absolute_path: every writer was traced and none carries a Go-side
-	// length bound. The registered route is unbounded, byte-ceiling only:
-	// the typed read-envelope refusal is the bound. Parent repair: remove
-	// the /$defs/absolute_path/maxLength cap (the traced truth is
-	// unbounded, not 4096).
-	registerOutputBound("/$defs/absolute_path/maxLength", unboundedOutput(
-		"unbounded store reads and joins: internal/store/project_locator.go:deriveWorktreeLocation "+
-			"joins the unbounded host dataDir and ValidateWorktreeClaimIntent checks filepath.IsAbs only "+
-			"(internal/store/worktrees.go:3648); internal/store/session_vacate.go:ResolveSessionVacateTargetTx "+
-			"echoes worktree_entries.path verbatim with no column CHECK and no existence validation on the read; "+
-			"internal/store/worker_worktree.go:activeWorkerClaimedWorktreeForProject canonicalizes the same column "+
-			"through filepath.EvalSymlinks, whose existence check still leaves no Go-side length bound (PATH_MAX is "+
-			"kernel enforcement at worktree creation, not a citable source). The vacate destination column "+
-			"project_locators.normalized_value carries only a TEXT length() CHECK (1..4096), which under the NUL "+
-			"model bounds only the prefix, never the full destination. Missing: a filesystem-path derivation "+
-			"constructor, or the consumer repair removing /$defs/absolute_path/maxLength",
-		"internal/agent/runtime.go:readSizeRefusal", "internal/agent/mutations.go:mutationResult"))
-
 	// digest: every output value is a boundary-admitted digest (<=128 code
 	// points, hex pattern — the admission is a full-string bound), a
 	// Go-minted sha256 form (64 bare hex, 71 with the sha256: prefix;
-	// internal/store/bootstrap.go work/boot identity,
 	// internal/store/workflow.go:workflowDigest echo guard), or a persisted
 	// echo of one of those values. The echo columns' TEXT length() CHECKs
 	// (agent_grants manifest_digest, workflow_instances
@@ -216,21 +192,10 @@ func init() {
 	// work_pin.title) were traced to the presence-only fold writers behind
 	// work_items.title and intent_json and are not admission-bounded; they
 	// now type through the output-only retained_work_text def, outside this
-	// claim — no generic event admission is claimed for the def. The
-	// bootstrap host path holds its title/value_statement/external_ref
-	// writes to 256 bytes inline. The remaining store-side writer is the
-	// bootstrap rollback reason:
-	// internal/store/bootstrap.go:rollbackBootstrapTx writes
-	// "bootstrap rolled back: " + reason with no length guard into a
-	// short-typed work_transitioned reason, and foldWorkTransitioned checks
-	// only non-emptiness. The derivation below proves that writer through
-	// its live sole caller instead of inventing a guard: the reason is the
-	// fixed prefix plus the one production errors.New literal, so the bound
-	// is the constant the source actually contains.
+	// claim — no generic event admission is claimed for the def.
 	registerOutputBound("/$defs/short/maxLength", maxBound(
 		inputBound("/$defs/short/maxLength"),
 		goConstantBound("internal/store/operation.go", "maxDisplayNameLength", boundCharacters),
-		sharedRollbackReasonBound(),
 	))
 
 	// retained_work_id: the retained work identity writer is the creation
@@ -291,177 +256,6 @@ func init() {
 			"internal/store/operation.go:1219) and projects.id carries no CHECK (internal/store/schema.go:173), so "+
 			"the membership echo in work_summary.project_ids projects verbatim",
 		"internal/agent/runtime.go:readSizeRefusal"))
-}
-
-// ---------------------------------------------------------------------------
-// Shared derivation: the bootstrap rollback transition reason
-// ---------------------------------------------------------------------------
-
-// sharedRollbackReasonBound derives the length of the short-typed reason
-// rollbackBootstrapTx writes ("bootstrap rolled back: " + reason) from live
-// source, by tracing the reason parameter to its only production input: the
-// errors.New literal at the sole production call site of rollbackBootstrap.
-// Three live facts must hold together, and each fails closed:
-//
-//   - internal/store names exactly one non-test call site of
-//     rollbackBootstrap, and its cause argument is errors.New with one
-//     string literal (a dynamic cause leaves the writer unproven);
-//   - rollbackBootstrap forwards that parameter verbatim as
-//     <cause>.Error() into the rollbackBootstrapTx call;
-//   - rollbackBootstrapTx builds its workTransitionPayload Reason as the
-//     concatenation of one string literal and the reason parameter.
-//
-// The bound is the concatenated constant in both units. Any added caller,
-// changed signature position, dynamic cause, or reshaped concatenation
-// fails the derivation instead of shrinking the bound.
-func sharedRollbackReasonBound() outputBoundSource {
-	const (
-		pkg         = "internal/store"
-		file        = "internal/store/bootstrap.go"
-		callerName  = "rollbackBootstrap"
-		forward     = "rollbackBootstrap"
-		writer      = "rollbackBootstrapTx"
-		causeIndex  = 5 // (ctx, operationID, workID, location, runner, cause)
-		reasonIndex = 5
-	)
-	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		// 1. The sole production caller and its constant cause.
-		dir, err := rt.repoPath(pkg)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return evaluatedBound{}, fmt.Errorf("cannot enumerate %s: %w", pkg, err)
-		}
-		callCount := 0
-		var callerCall *ast.CallExpr
-		for _, entry := range entries {
-			name := entry.Name()
-			if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-				continue
-			}
-			goS, err := rt.loadGo(pkg + "/" + name)
-			if err != nil {
-				return evaluatedBound{}, err
-			}
-			ast.Inspect(goS.file, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok || !ledgerCalleeMatches(call, callerName) {
-					return true
-				}
-				callCount++
-				callerCall = call
-				return true
-			})
-		}
-		if callCount != 1 {
-			return evaluatedBound{}, fmt.Errorf("rollbackBootstrap has %d production call sites in %s; the reason constant is not the sole writer input", callCount, pkg)
-		}
-		if len(callerCall.Args) != causeIndex+1 {
-			return evaluatedBound{}, fmt.Errorf("the rollbackBootstrap call no longer carries %d arguments", causeIndex+1)
-		}
-		newCall, ok := callerCall.Args[causeIndex].(*ast.CallExpr)
-		if !ok || ledgerCalledName(newCall.Fun) != "errors.New" || len(newCall.Args) != 1 {
-			return evaluatedBound{}, fmt.Errorf("the rollbackBootstrap cause argument is no longer an errors.New literal")
-		}
-		literal, ok := newCall.Args[0].(*ast.BasicLit)
-		if !ok || literal.Kind != token.STRING {
-			return evaluatedBound{}, fmt.Errorf("the errors.New cause argument is not a string literal")
-		}
-		cause, err := strconv.Unquote(literal.Value)
-		if err != nil {
-			return evaluatedBound{}, fmt.Errorf("the errors.New cause literal does not unquote: %w", err)
-		}
-		// 2. The forward: rollbackBootstrap passes <cause>.Error().
-		goS, err := rt.loadGo(file)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		forwardFn, err := sharedUniqueFunc(goS, forward)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		forwardParams := sharedParamFields(forwardFn)
-		if len(forwardParams) != causeIndex+1 || forwardParams[causeIndex].name == "" || !sharedIdentType(forwardParams[causeIndex].typ, "error") {
-			return evaluatedBound{}, fmt.Errorf("rollbackBootstrap's parameter %d is no longer a named error cause", causeIndex)
-		}
-		txCalls := 0
-		var forwardArg ast.Expr
-		ast.Inspect(forwardFn.Body, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok || !ledgerCalleeMatches(call, writer) {
-				return true
-			}
-			txCalls++
-			if len(call.Args) == reasonIndex+1 {
-				forwardArg = call.Args[reasonIndex]
-			}
-			return true
-		})
-		if txCalls != 1 || forwardArg == nil {
-			return evaluatedBound{}, fmt.Errorf("rollbackBootstrap no longer calls rollbackBootstrapTx exactly once with %d arguments", reasonIndex+1)
-		}
-		if ledgerExprText(forwardArg) != forwardParams[causeIndex].name+".Error()" {
-			return evaluatedBound{}, fmt.Errorf("rollbackBootstrap no longer forwards %s.Error() into rollbackBootstrapTx", forwardParams[causeIndex].name)
-		}
-		// 3. The writer: Reason is <literal> + <reason parameter>.
-		writerFn, err := sharedUniqueFunc(goS, writer)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		writerParams := sharedParamFields(writerFn)
-		if len(writerParams) != reasonIndex+1 || writerParams[reasonIndex].name == "" || !sharedIdentType(writerParams[reasonIndex].typ, "string") {
-			return evaluatedBound{}, fmt.Errorf("rollbackBootstrapTx's parameter %d is no longer a named string reason", reasonIndex)
-		}
-		reasonParam, prefixText := writerParams[reasonIndex].name, ""
-		reasons := 0
-		ast.Inspect(writerFn.Body, func(n ast.Node) bool {
-			keyValue, ok := n.(*ast.KeyValueExpr)
-			if !ok {
-				return true
-			}
-			key, ok := keyValue.Key.(*ast.Ident)
-			if !ok || key.Name != "Reason" {
-				return true
-			}
-			reasons++
-			concat, ok := keyValue.Value.(*ast.BinaryExpr)
-			if !ok || concat.Op != token.ADD {
-				return true
-			}
-			lit, ok := concat.X.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
-			}
-			param, ok := concat.Y.(*ast.Ident)
-			if !ok || param.Name != reasonParam {
-				return true
-			}
-			prefix, err := strconv.Unquote(lit.Value)
-			if err != nil {
-				return true
-			}
-			prefixText = prefix
-			return true
-		})
-		if reasons != 1 || prefixText == "" {
-			return evaluatedBound{}, fmt.Errorf("rollbackBootstrapTx no longer writes Reason as one string literal concatenated with the %s parameter", reasonParam)
-		}
-		// 4. The bound: the concatenated constant, in both units.
-		value := prefixText + cause
-		characters, bytes := int64(utf8.RuneCountInString(value)), int64(len(value))
-		describe := fmt.Sprintf("bootstrap rollback transition reason is the live concatenation %q + the sole production caller's errors.New literal %q (%s), %d characters and %d bytes",
-			prefixText, cause, file, characters, bytes)
-		return evaluatedBound{
-			constraints: []boundConstraint{
-				{unit: boundCharacters, value: characters, from: describe},
-				{unit: boundBytes, value: bytes, from: describe},
-			},
-			kind:     "derived",
-			describe: describe,
-		}, nil
-	}}
 }
 
 // ---------------------------------------------------------------------------
@@ -635,121 +429,6 @@ func sharedIdentType(expr ast.Expr, want string) bool {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-
-// TestSharedRollbackReasonBound runs the rollback reason derivation against
-// synthetic package trees and against the live repository. Each mutation
-// asserts the derivation fails closed instead of shrinking or guessing.
-// Synthetic files are assembled from one package clause and one import block
-// per file: two "package store" headers in one file do not parse.
-func TestSharedRollbackReasonBound(t *testing.T) {
-	t.Parallel()
-	const prefix = "bootstrap rolled back: "
-	const cause = "resume interrupted bootstrap rollback"
-	writerDecl := "func rollbackBootstrapTx(ctx context.Context, transaction *Transaction, operationID, workID string, now time.Time, reason string) error {\n" +
-		"\tpayload, _ := json.Marshal(workTransitionPayload{From: \"needed\", To: \"cancelled\", Reason: \"" + prefix + "\" + reason, ExpectedVersion: 1, ResultingVersion: 2})\n" +
-		"\t_ = payload\n" +
-		"\treturn nil\n}\n"
-	writerMutantDecl := "func rollbackBootstrapTx(ctx context.Context, transaction *Transaction, operationID, workID string, now time.Time, reason string) error {\n" +
-		"\tpayload := workTransitionPayload{From: \"needed\", To: \"cancelled\", Reason: fmt.Sprintf(\"%s%s\", \"" + prefix + "\", reason), ExpectedVersion: 1, ResultingVersion: 2}\n" +
-		"\t_ = payload\n" +
-		"\treturn nil\n}\n"
-	forwardDecl := "func rollbackBootstrap(ctx context.Context, operationID, workID string, location WorktreeLocation, runner GitRunner, cause error) error {\n" +
-		"\treturn rollbackBootstrapTx(ctx, nil, operationID, workID, time.Time{}, cause.Error())\n}\n"
-	forwardMutantDecl := "func rollbackBootstrap(ctx context.Context, operationID, workID string, location WorktreeLocation, runner GitRunner, cause error) error {\n" +
-		"\treason := cause.Error()\n" +
-		"\treturn rollbackBootstrapTx(ctx, nil, operationID, workID, time.Time{}, reason)\n}\n"
-	callerDecl := func(literal string) string {
-		return "func site(s *Store) error {\n" +
-			"\treturn s.rollbackBootstrap(context.Background(), \"op\", \"work\", WorktreeLocation{}, ExecGitRunner{}, errors.New(" + literal + "))\n}\n"
-	}
-	dynamicCallerDecl := "func site(s *Store) error {\n" +
-		"\treturn s.rollbackBootstrap(context.Background(), \"op\", \"work\", WorktreeLocation{}, ExecGitRunner{}, errors.New(fmt.Sprintf(\"cause-%d\", 1)))\n}\n"
-	extraCallerDecl := "func otherSite(s *Store) error {\n" +
-		"\treturn s.rollbackBootstrap(context.Background(), \"op\", \"work\", WorktreeLocation{}, ExecGitRunner{}, errors.New(\"another cause\"))\n}\n"
-	// assemble writes one valid synthetic file: exactly one package clause,
-	// one import block, then the declarations.
-	assemble := func(imports []string, decls ...string) string {
-		var b strings.Builder
-		b.WriteString("package store\n")
-		if len(imports) > 0 {
-			b.WriteString("\nimport (\n")
-			for _, imp := range imports {
-				b.WriteString("\t\"" + imp + "\"\n")
-			}
-			b.WriteString(")\n")
-		}
-		for _, decl := range decls {
-			b.WriteString("\n" + decl)
-		}
-		return b.String()
-	}
-	// evaluate writes the named production files into one synthetic package
-	// and evaluates the derivation against them.
-	evaluate := func(files map[string]string) (evaluatedBound, error) {
-		root := t.TempDir()
-		for name, src := range files {
-			path := root + "/internal/store"
-			if err := os.MkdirAll(path, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(path+"/"+name, []byte(src), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
-		return newLedgerRuntime(root).evaluateSource(sharedRollbackReasonBound(), nil)
-	}
-	baselineBootstrap := assemble([]string{"context", "encoding/json", "time"}, writerDecl, forwardDecl)
-	baselineCaller := assemble([]string{"context", "errors"}, callerDecl("\""+cause+"\""))
-	bound, err := evaluate(map[string]string{
-		"bootstrap.go": baselineBootstrap,
-		"caller.go":    baselineCaller,
-	})
-	if err != nil {
-		t.Fatalf("baseline derivation was refused: %v", err)
-	}
-	want := int64(len(prefix + cause))
-	if len(bound.constraints) != 2 || bound.constraints[0].value != want || bound.constraints[1].value != want {
-		t.Fatalf("baseline bound %+v, want two constraints of %d", bound.constraints, want)
-	}
-	if _, err := evaluate(map[string]string{
-		"bootstrap.go": baselineBootstrap,
-		"caller.go":    assemble([]string{"context", "errors"}, callerDecl("\"a longer interrupted bootstrap rollback cause\"")),
-	}); err != nil {
-		t.Fatalf("a changed caller literal must re-derive, not fail: %v", err)
-	}
-	if _, err := evaluate(map[string]string{
-		"bootstrap.go": baselineBootstrap,
-		"caller.go":    assemble([]string{"context", "errors", "fmt"}, dynamicCallerDecl),
-	}); err == nil {
-		t.Fatal("a dynamic cause must fail the derivation")
-	}
-	if _, err := evaluate(map[string]string{
-		"bootstrap.go": baselineBootstrap,
-		"caller.go":    baselineCaller,
-		"extra.go":     assemble([]string{"context", "errors"}, extraCallerDecl),
-	}); err == nil {
-		t.Fatal("a second production caller must fail the derivation")
-	}
-	if _, err := evaluate(map[string]string{
-		"bootstrap.go": assemble([]string{"context", "fmt", "time"}, writerMutantDecl, forwardDecl),
-		"caller.go":    baselineCaller,
-	}); err == nil {
-		t.Fatal("a reshaped Reason concatenation must fail the derivation")
-	}
-	if _, err := evaluate(map[string]string{
-		"bootstrap.go": assemble([]string{"context", "encoding/json", "time"}, writerDecl, forwardMutantDecl),
-		"caller.go":    baselineCaller,
-	}); err == nil {
-		t.Fatal("a forwarding change must fail the derivation")
-	}
-	liveBound, err := newLedgerRuntime(ledgerRepoRoot(t)).evaluateSource(sharedRollbackReasonBound(), nil)
-	if err != nil {
-		t.Fatalf("the live bootstrap rollback derivation was refused: %v", err)
-	}
-	if len(liveBound.constraints) != 2 || liveBound.constraints[0].unit != boundCharacters || liveBound.constraints[0].value != liveBound.constraints[1].value {
-		t.Fatalf("live bound %+v, want one ASCII width in both units", liveBound.constraints)
-	}
-}
 
 // TestSharedSessionRefFoldBound runs the session-ref fold derivation against
 // synthetic package trees and against the live repository: the pinned guard

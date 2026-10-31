@@ -1022,8 +1022,6 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_work_browse.ready":                `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.scope":                `{"product_id":"prod-alpha","work_id":"` + fx.workID + `"}`,
 		"concord_work_browse.messages":             `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
-		"concord_work_browse.worktree_audit":       `{"product_id":"prod-alpha"}`,
-		"concord_work_browse.worktree_inspect":     `{"work_id":"` + fx.workID + `","mode":"status"}`,
 		"concord_work_trace.history":               `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
 		"concord_work_trace.observations":          `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
 		"concord_work_trace.external_observations": `{"work_id":"` + fx.workID + `","limit":20}`,
@@ -1099,7 +1097,6 @@ var readPopulationRows = map[string][]string{
 	"concord_work_browse.ready":                {"items"},
 	"concord_work_browse.scope":                {"memberships"},
 	"concord_work_browse.messages":             {"messages"},
-	"concord_work_browse.worktree_audit":       {"drift"},
 	"concord_work_trace.history":               {"entries"},
 	"concord_work_trace.observations":          {"observations"},
 	"concord_work_trace.external_observations": {"external_observations"},
@@ -1116,8 +1113,7 @@ var readPopulationRows = map[string][]string{
 // cannot apply: its answer is a scalar summary, or its only arrays populate on
 // states the probed input cannot reach.
 var readPopulationRowExemptions = map[string]string{
-	"concord_work_trace.mutation_result":   "one exact retained document answers a scalar JSON fragment; its content and digest are checked by the witness",
-	"concord_work_browse.worktree_inspect": "the probed status mode answers a scalar status summary and carries no row collection",
+	"concord_work_trace.mutation_result": "one exact retained document answers a scalar JSON fragment; its content and digest are checked by the witness",
 }
 
 // populationRowPathLength decodes one dotted JSON path against a dispatched

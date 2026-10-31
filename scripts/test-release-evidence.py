@@ -130,6 +130,46 @@ def needs_list(job: dict) -> list:
 
 
 class CIWorkflowDriftTests(unittest.TestCase):
+    def test_nightly_workflow_is_absent(self) -> None:
+        self.assertFalse((WORKFLOW_DIR / "nightly.yml").exists())
+
+    def test_ci_has_no_stale_nightly_reference(self) -> None:
+        self.assertFalse("nightly" in CI_WORKFLOW.read_text(encoding="utf-8").lower(),
+                         "ci.yml must not reference the retired Nightly workflow")
+
+    def test_tooling_does_not_declare_a_full_tree_race_command(self) -> None:
+        tools = json.loads((ROOT / ".concord/tooling.v1.json").read_text())["tools"]
+        self.assertNotIn("go-test-race", [tool["id"] for tool in tools])
+        for tool in tools:
+            argv = shlex.split(tool["invocation"])
+            self.assertFalse("-race" in argv and "./..." in argv, tool["id"])
+
+    def test_tooling_declares_local_store_suite(self) -> None:
+        tools = json.loads((ROOT / ".concord/tooling.v1.json").read_text())["tools"]
+        store = [tool for tool in tools if tool["id"] == "go-test-store"]
+        self.assertEqual(len(store), 1)
+        self.assertEqual(store[0]["invocation"], "bin/oc-test broad -- go test -timeout=15m ./internal/store")
+        self.assertEqual(store[0]["automation_path"], CI_PATH)
+
+    def test_ci_keeps_the_bounded_store_race_execution(self) -> None:
+        job = jobs(load_workflow(CI_WORKFLOW))["verify-race"]
+        self.assertNotIn("if", job)
+        self.assertNotIn("continue-on-error", job)
+        steps = [step for step in job["steps"] if "go test" in step.get("run", "")]
+        self.assertEqual(len(steps), 1)
+        step = steps[0]
+        self.assertNotIn("if", step)
+        self.assertNotIn("continue-on-error", step)
+        selector = (
+            "^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|"
+            "TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter|"
+            "TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance)$"
+        )
+        self.assertEqual(shlex.split(step["run"]), [
+            "python3", "scripts/go-test-results.py", "--output-dir", "$RUNNER_TEMP/go-test-results/tests", "--",
+            "go", "test", "-race", "-timeout=15m", "-run", selector, "./internal/store",
+        ])
+
     def test_required_go_job_runs_pinned_vulnerability_scan_before_other_checks(self) -> None:
         job = jobs(load_workflow(CI_WORKFLOW))["verify-go"]
         self.assertNotIn("if", job)
@@ -146,38 +186,8 @@ class CIWorkflowDriftTests(unittest.TestCase):
         self.assertEqual(declared["invocation"], scan["run"])
         self.assertEqual(declared["automation_path"], CI_PATH)
 
-    def test_ci_consumes_all_eight_continuity_witnesses_from_retained_results(self) -> None:
+    def test_named_adapter_result_consumption_runs_in_tooling_not_contracts(self) -> None:
         block = jobs(load_workflow(CI_WORKFLOW))
-        scenarios = json.loads((ROOT / ".concord/scenarios/adapter-continuity.v1.json").read_text())["scenarios"]
-        tools = json.loads((ROOT / ".concord/tooling.v1.json").read_text())["tools"]
-        bindings = {entry["anchor"]["value"]: entry["owner"] for tool in tools
-                    for entry in tool.get("coverage", []) if entry["anchor"]["kind"] == "scenario"}
-        adapter = next(step for step in block["verify-adapter-rest"]["steps"]
-                       if step["name"] == "Require the seven adapter continuity witnesses in native results")
-        reclaim = next(step for step in block["verify-go"]["steps"]
-                       if step["name"] == "Require the continuity reclaim witness in native results")
-        self.assertNotIn("if", adapter)
-        self.assertNotIn("if", reclaim)
-        argv = shlex.split(adapter["run"].replace("\\\n", " "))
-        self.assertEqual(argv[:3], ["python3", "adapter/opencode/acceptance.py", "continuity_hook.test.ts"])
-        self.assertEqual(argv[3:7], ["--read-report", "$RUNNER_TEMP/adapter-test-results.xml", "--process-exit-code", "0"])
-        expected = argv[7:]
-        self.assertEqual(expected[::2], ["--expect"] * 7)
-        self.assertEqual(len(set(expected[1::2])), 7)
-        go = shlex.split(reclaim["run"])
-        self.assertEqual(go[:3], ["bin/oc-test", "read-go", "$RUNNER_TEMP/go-test-results/event-log"])
-        self.assertEqual(len(go), 4)
-        go_owner, go_id = go[3].split("=", 1)[1].split("/", 1)
-        self.assertEqual(go[3].split("=", 1)[0], "github.com/sharper-flow/concord/internal/store")
-        self.assertEqual(set(expected[1::2]) | {go_id}, {scenario["id"] for scenario in scenarios})
-        for identity in expected[1::2]:
-            self.assertEqual(bindings[identity], {"kind": "adapter_test", "value": f"adapter/opencode/continuity_hook.test.ts#{identity}"})
-        self.assertEqual(bindings[go_id], {"kind": "go_test", "value": f"internal/store.{go_owner}"})
-        producer = next(step for step in block["verify-go"]["steps"]
-                        if step["name"] == "Check event log references and continuity reclaim")
-        producer_argv = shlex.split(producer["run"])
-        self.assertEqual(producer_argv[:4], ["python3", "scripts/go-test-results.py", "--output-dir", go[2]])
-        self.assertIn(go_owner, producer_argv[producer_argv.index("-run") + 1])
         suite = "python3 scripts/test-adapter-acceptance.py"
         self.assertTrue(any(step.get("run") == suite for step in block["verify-tooling"]["steps"]))
         self.assertFalse(any(step.get("run") == suite for step in block["verify-contracts"]["steps"]))

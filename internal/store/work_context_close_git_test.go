@@ -34,13 +34,14 @@ func TestWorkContextCloseGit(t *testing.T) {
 	gitRunStore(t, repository, "fetch", "origin")
 	gitRunStore(t, repository, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	base := strings.TrimSpace(closeGitOutput(t, repository, "rev-parse", "HEAD"))
-	claimed, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
-		OpID: "close-git-claim", WorkID: workID, ProjectID: "project", BaseSHA: base,
-		PrincipalRef: "principal/operator", RequestID: "request:close-git-claim",
-		ExpectedVersion: readWorkVersion(t, s, workID), Now: time.Unix(10, 0).UTC(),
-	})
-	if err != nil {
-		t.Fatalf("claim real context worktree: %v", err)
+	checkout := filepath.Join(t.TempDir(), "checkout")
+	gitRunStore(t, repository, "worktree", "add", checkout, "-b", "work/"+workID, base)
+	var projectVersion int64
+	if err := s.db.QueryRow(`SELECT version FROM projects WHERE id='project'`).Scan(&projectVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddProjectLocator(ctx, "project", ProjectLocator{ID: "review-repo-" + workID, Kind: LocatorCanonicalPath, Value: checkout}, projectVersion); err != nil {
+		t.Fatal(err)
 	}
 	seedIssue31DomainRegistry(t, s)
 	execInFold(t, s, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','child-alpha','Context','Implementation context','root','current','sha256:`+strings.Repeat("b", 64)+`','test')`)
@@ -159,7 +160,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	})
 	completion.PayloadVersion = 2
 	beforeHome := snapshotCloseGit(t, repository)
-	beforeWorktree := snapshotCloseGit(t, claimed.Entry.Path)
+	beforeWorktree := snapshotCloseGit(t, checkout)
 	if beforeHome.Status != "" || beforeWorktree.Status != "" {
 		t.Fatal("close witness must start with clean repositories")
 	}
@@ -169,7 +170,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	for _, probe := range []struct {
 		name, path string
 		before     closeGitSnapshot
-	}{{"law home", repository, beforeHome}, {"claimed worktree", claimed.Entry.Path, beforeWorktree}} {
+	}{{"law home", repository, beforeHome}, {"host worktree", checkout, beforeWorktree}} {
 		if after := snapshotCloseGit(t, probe.path); !reflect.DeepEqual(probe.before, after) {
 			t.Errorf("completion changed %s Git/content state: before=%+v after=%+v", probe.name, probe.before, after)
 		}

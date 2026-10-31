@@ -75,10 +75,7 @@ func prepareSessionPrepareNeighborRow(ctx context.Context) func(t *testing.T) cl
 		dbPath := filepath.Join(t.TempDir(), "concord.db")
 		s := mustOpenStore(t, dbPath)
 		seedLocatorAuthority(t, s, repo)
-		result, err := s.BootstrapWorktree(ctx, bootstrapRequest(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		result := seedCLISessionWorktree(t, s, repo)
 		t.Setenv(dbOverrideEnv, dbPath)
 		t.Chdir(result.Entry.Path)
 		var before int
@@ -94,7 +91,7 @@ func prepareSessionPrepareNeighborRow(ctx context.Context) func(t *testing.T) cl
 					identityCalls++
 					return "concord-1", nil
 				},
-				func(context.Context, string, string, string) ([]byte, error) {
+				func(context.Context, string, string, string, string) ([]byte, error) {
 					return []byte(`{"watermark":"test"}`), nil
 				})
 			if code != 0 || identityCalls != 1 {

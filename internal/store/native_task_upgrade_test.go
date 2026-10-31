@@ -136,10 +136,6 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 		"effect_receipts":            `SELECT * FROM effect_receipts ORDER BY rowid`,
 		"store_sequences":            `SELECT * FROM store_sequences ORDER BY rowid`,
 		"work_context_findings":      `SELECT * FROM work_context_findings ORDER BY rowid`,
-		"worktree_occupancy":         `SELECT * FROM worktree_occupancy ORDER BY rowid`,
-		"worktree_ref_outcomes":      `SELECT * FROM worktree_ref_outcomes ORDER BY rowid`,
-		"worktree_entries":           `SELECT set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts FROM worktree_entries WHERE claim_op_id='claim:ordinary'`,
-		"worktree_claims":            `SELECT op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at,repository_id,incarnation,executor_pid,executor_pid_start FROM worktree_claims ORDER BY op_id`,
 		"workflow_instances":         `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,outside_repair_state,completion_payload,completion_occurred_at,unhealthy_verdict_seq FROM workflow_instances`,
 		"workflow_step_epochs":       `SELECT work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload FROM workflow_step_epochs`,
 	}
@@ -182,12 +178,7 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 			t.Errorf("retired worker owner remains: %v", got)
 		}
 	}
-	if got := retirementUpgradeRows(t, db, `SELECT name FROM pragma_table_info('worktree_entries') WHERE name='member_id'`); len(got) != 0 {
-		t.Fatalf("member entry metadata remains: %v", got)
-	}
-	if got := retirementUpgradeRows(t, db, `SELECT count(*) FROM worktree_entries`); !reflect.DeepEqual(got, [][]any{{int64(1)}}) {
-		t.Fatalf("settled member tree was not retired: %v", got)
-	}
+	assertWorktreeTablesAbsent(t, db)
 	afterReview, err := readWorkflowReviewFacts(t.Context(), db, "work-upgrade-from")
 	if err != nil || !reflect.DeepEqual(afterReview.Candidate, review.Candidate) || !reflect.DeepEqual(afterReview.Accepted, review.Accepted) || !reflect.DeepEqual(afterReview.Findings, review.Findings) {
 		t.Fatalf("candidate, accepted report or open blocker changed: before=%+v after=%+v err=%v", review, afterReview, err)
@@ -221,6 +212,37 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 	if err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != m.Version-1 {
 		t.Fatalf("native upgrade changed retained predecessor snapshot: %+v err=%v", verified, err)
 	}
+}
+
+func TestNativeTaskRetirementPreservesOrdinaryOwnershipAtHistoricalPrefix(t *testing.T) {
+	db, _, historical := nativeTaskUpgradeFixture(t)
+	queries := map[string]string{
+		"worktree_occupancy":    `SELECT * FROM worktree_occupancy ORDER BY rowid`,
+		"worktree_ref_outcomes": `SELECT * FROM worktree_ref_outcomes ORDER BY rowid`,
+		"worktree_entries":      `SELECT set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts FROM worktree_entries WHERE claim_op_id='claim:ordinary'`,
+		"worktree_claims":       `SELECT op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at,repository_id,incarnation,executor_pid,executor_pid_start FROM worktree_claims ORDER BY op_id`,
+	}
+	want := map[string][][]any{}
+	for table, query := range queries {
+		want[table] = retirementUpgradeRows(t, db, query)
+		if len(want[table]) == 0 {
+			t.Fatalf("historical preservation witness %s is empty", table)
+		}
+	}
+	advanceHistoricalPrefix(t, db, nativeTaskRetirementMigration(t).Version)
+	for table, query := range queries {
+		if got := retirementUpgradeRows(t, db, query); !reflect.DeepEqual(got, want[table]) {
+			t.Errorf("native retirement changed historical %s: before=%#v after=%#v", table, want[table], got)
+		}
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT name FROM pragma_table_info('worktree_entries') WHERE name='member_id'`); len(got) != 0 {
+		t.Fatalf("member entry metadata remains: %v", got)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT count(*) FROM worktree_entries`); !reflect.DeepEqual(got, [][]any{{int64(1)}}) {
+		t.Fatalf("settled member tree was not retired: %v", got)
+	}
+	assertHistoricalReceipts(t, db, historical)
+	retirementUpgradeHealthy(t, db)
 }
 
 func TestNativeTaskPopulatedUpgradeRefusesUnsettledMemberWithoutEffects(t *testing.T) {

@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-08-20T00:00:00Z",
   "evidence": [
@@ -21,9 +19,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bf022ac02afb20ca299b63c81e1bf9aac4e7e4d12b2331ba7a92688bb45a443a",
+  "sha256": "sha256:2f384e1b928024fa85cdf1ccf18f5abc150add2be3403cc527def8d9c561d888",
   "status": "accepted",
-  "summary": "An accepted conformance falsifier verdict is reachable only from the acceptance entry point run with the required-check signal the workflow sets; every other invocation stays inconclusive regardless of the threshold, a CI run missing the signal fails visibly, and CD-0011 structural wording is amended to the narrower enforceable claim of invocation provenance.",
+  "summary": "Correctness population authority is invocation provenance, not measured host isolation. A pure resolver admits accepted authority only for the acceptance entry point with the workflow's required-check signal; other invocations remain diagnostic, and a CI run missing the signal fails visibly. Exact effects bind every population; zero escaped busy additionally binds the accepted population. Shared provenance and host-load support for unrelated read P99 proof remain.",
   "tags": [
     "conformance",
     "population-authority",

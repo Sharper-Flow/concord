@@ -7,7 +7,7 @@
 #               JSON/law validation.
 #   targeted    Bounded command shapes checked without executing discovery.
 #   broad       Explicit arbitrary command under full host admission.
-#   conformance Gated production-like ten-process conformance harness.
+#   conformance Gated ten-process correctness conformance harness.
 #   preflight   Lefthook pre-push gates (lefthook.yml), pinned to v2.1.14.
 #
 # Smoke leaves out the packages CI splits into shard jobs (internal/store,
@@ -60,7 +60,7 @@ Usage: bin/oc-test smoke | targeted -- <command> [args...] | broad -- <command> 
   broad        arbitrary caller command under full host admission (including suites/shards)
   plan         print command/admission/selection JSON without discovery or execution
   read-go      compare named expectations with retained shared Go producer artifacts
-  conformance  long uninstrumented ten-process SQLite harness under host admission control
+  conformance  ten-process SQLite correctness harness under host admission control
   preflight    Lefthook pre-push gates from lefthook.yml under smoke admission
 
 Every tier limits each written file to OC_TEST_MAX_FILE_MIB (default 1024) MiB.

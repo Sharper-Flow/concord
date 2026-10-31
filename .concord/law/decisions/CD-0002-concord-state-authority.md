@@ -210,12 +210,13 @@ requirement. Test output and other WIP bytes remain with their producing environ
 
 ## 2e. Falsifiers — what would overturn this decision
 
-A decision that cannot be proven wrong is not engineering. Instrument these from day
-one (log write-latency percentiles and `SQLITE_BUSY` counts):
+A decision that cannot be proven wrong is not engineering. Retain correctness
+evidence, including escaped `SQLITE_BUSY` counts, under
+[CD-0045](CD-0045-writer-admission-invariant.md). CD-0011 owns the storage
+authority's reopen conditions; no write-latency percentile target applies.
 
 | Signal | Threshold | Response |
 |---|---|---|
-| Write-latency tail | P99 write > ~100 ms sustained | introduce the §2b daemon |
 | `SQLITE_BUSY` escapes | errors surface past a 5 s `busy_timeout` | raise timeout, then daemon |
 | Contending writers per project DB | > ~50–100 concurrent | daemon or finer sharding |
 | Sustained write rate to one project DB | > ~hundreds/sec | daemon or finer sharding |

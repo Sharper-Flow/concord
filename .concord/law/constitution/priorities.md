@@ -130,7 +130,7 @@ Concord-owned state is trustworthy, durable, and evolvable without destructive
 migration or manual repair. The data model can grow, shrink, and reshape
 without corrupting in-flight work or historical records.
 
-- Agent-facing writes queue behind one writer and are admitted within the accepted bound: no escaped busy failure, no lost or duplicated effect, no retry storm. Reads are lock-free. See CD-0045.
+- Agent-facing writes queue behind one writer with no escaped busy failure on the accepted population, no lost or duplicated effect, and no retry storm. Reads are lock-free. [CD-0045](../decisions/CD-0045-writer-admission-invariant.md) requires ten-process correctness proof, not a write-latency percentile target.
 - The store keeps current state and finite verified snapshots, and each correction writes the corrected current rows ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - Acknowledged consequential operations — approvals, workflow dispatch
   and terminal transitions, cross-authority step claims, and producer evidence —

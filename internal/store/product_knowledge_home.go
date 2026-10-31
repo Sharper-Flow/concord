@@ -161,37 +161,42 @@ func (s *Store) DesignateProductKnowledgeHome(ctx context.Context, request Produ
 	}
 	event := Event{EventID: operatorEventID("product.knowledge_home_designated", request.ProductID), Kind: "product.knowledge_home_designated", SubjectType: SubjectProduct, SubjectID: request.ProductID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: encoded}
 	err = s.Transact(ctx, func(transaction *Transaction) error {
-		tx, err := transactionSQL(transaction, op)
-		if err != nil {
-			return err
-		}
-		var version int64
-		if err := tx.QueryRowContext(ctx, `SELECT version FROM products WHERE id=?`, request.ProductID).Scan(&version); err != nil {
-			return err
-		}
-		if version != request.ExpectedVersion {
-			return newFailure(KindVersionConflict, op, "Product version changed", false, "read the current Product version before retrying")
-		}
-		if err := verifyKnowledgeHomeEligibility(ctx, tx, knowledgeHomePayload{ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID}); err != nil {
-			return err
-		}
-		var sameHome bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM product_knowledge_homes WHERE product_id=? AND project_id=? AND locator_id=?)`, request.ProductID, request.ProjectID, request.LocatorID).Scan(&sameHome); err != nil {
-			return err
-		}
-		if sameHome {
-			result.EventIDs = []string{}
-			return nil
-		}
-		result, err = ApplyOperationTx(ctx, transaction, Operation{
-			Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, request.ProductID): request.ExpectedVersion},
-		})
-		return err
+		return designateProductKnowledgeHomeTx(ctx, transaction, request, event, &result)
 	})
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}
 	return result, nil
+}
+
+func designateProductKnowledgeHomeTx(ctx context.Context, transaction *Transaction, request ProductKnowledgeHomeDesignation, event Event, result *ApplyOperationResult) error {
+	const op = "product_knowledge_home_designate"
+	tx, err := transactionSQL(transaction, op)
+	if err != nil {
+		return err
+	}
+	var version int64
+	if err := tx.QueryRowContext(ctx, `SELECT version FROM products WHERE id=?`, request.ProductID).Scan(&version); err != nil {
+		return err
+	}
+	if version != request.ExpectedVersion {
+		return newFailure(KindVersionConflict, op, "Product version changed", false, "read the current Product version before retrying")
+	}
+	if err := verifyKnowledgeHomeEligibility(ctx, tx, knowledgeHomePayload{ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID}); err != nil {
+		return err
+	}
+	var sameHome bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM product_knowledge_homes WHERE product_id=? AND project_id=? AND locator_id=?)`, request.ProductID, request.ProjectID, request.LocatorID).Scan(&sameHome); err != nil {
+		return err
+	}
+	if sameHome {
+		result.EventIDs = []string{}
+		return nil
+	}
+	*result, err = ApplyOperationTx(ctx, transaction, Operation{
+		Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, request.ProductID): request.ExpectedVersion},
+	})
+	return err
 }
 
 // ClearProductKnowledgeHome removes a Product's knowledge home designation.

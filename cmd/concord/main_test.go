@@ -389,14 +389,19 @@ func TestEveryVerbHasAHelpRoute(t *testing.T) {
 func TestGroupHelp(t *testing.T) {
 	topLevel := topLevelHelp(t)
 	groups := commandGroups()
-	for _, want := range []string{"client", "product", "domain", "project"} {
+	for _, want := range []string{"client", "product", "project", "cd"} {
 		if !slices.Contains(groups, want) {
 			t.Fatalf("commandGroups() = %v, missing %q", groups, want)
 		}
 	}
+	if slices.Contains(groups, "domain") {
+		t.Fatalf("commandGroups() = %v, includes retired domain group", groups)
+	}
 	for _, group := range groups {
 		t.Run(group, func(t *testing.T) {
 			wantSections := topLevelGroupSections(t, topLevel, group)
+			dbPath := filepath.Join(t.TempDir(), "concord.db")
+			t.Setenv(dbOverrideEnv, dbPath)
 
 			var out, errOut bytes.Buffer
 			stdin := &countingStdin{}
@@ -432,6 +437,9 @@ func TestGroupHelp(t *testing.T) {
 				if stdin.reads != 0 {
 					t.Fatalf("%v read stdin %d times, want 0", args, stdin.reads)
 				}
+			}
+			if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+				t.Fatalf("touched the store database at %s", dbPath)
 			}
 		})
 	}

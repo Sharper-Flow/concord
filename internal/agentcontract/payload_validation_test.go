@@ -81,8 +81,8 @@ func TestValidateOperationPayloadSelectsInputOrResultSchema(t *testing.T) {
 
 func TestValidateOperationPayloadOrdersMissingUnknownAndSiblingFields(t *testing.T) {
 	t.Parallel()
-	payload := []byte(`{"zeta":1,"path":"src/example.go","alpha":2}`)
-	want := "missing payload field product_id; missing payload field domain_id; unknown payload field alpha; unknown payload field path for operation concord_domain.detail; field is declared by operation(s) concord_domain.shape; unknown payload field zeta"
+	payload := []byte(`{"zeta":1,"path":"src/example.go","limit":10,"alpha":2}`)
+	want := "missing payload field product_id; missing payload field domain_id; unknown payload field alpha; unknown payload field limit for operation concord_domain.detail; field is declared by operation(s) concord_domain.list; unknown payload field path; unknown payload field zeta"
 	for range 50 {
 		err := agentcontract.ValidateOperationPayload("concord_domain", "detail", payload, false)
 		if err == nil || err.Error() != want {
@@ -171,7 +171,10 @@ func TestGeneratedContractDeclarations(t *testing.T) {
 	if !slices.Equal(gotRule.Required, wantRule.Required) || !slices.Equal(gotRule.Properties, wantRule.Properties) {
 		t.Fatalf("domain detail rule = %+v, want %+v", gotRule, wantRule)
 	}
-	if owners := agentcontract.GeneratedPayloadFieldOwners["concord_domain/input"]["path"]; !slices.Equal(owners, []string{"concord_domain.shape"}) {
+	if owners := agentcontract.GeneratedPayloadFieldOwners["concord_domain/input"]["limit"]; !slices.Equal(owners, []string{"concord_domain.list"}) {
+		t.Fatalf("limit field owners = %v", owners)
+	}
+	if owners := agentcontract.GeneratedPayloadFieldOwners["concord_domain/input"]["path"]; len(owners) != 0 {
 		t.Fatalf("path field owners = %v", owners)
 	}
 }

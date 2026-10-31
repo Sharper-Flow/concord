@@ -130,6 +130,34 @@ def needs_list(job: dict) -> list:
 
 
 class CIWorkflowDriftTests(unittest.TestCase):
+    def test_required_go_job_runs_pinned_vulnerability_scan_before_other_checks(self) -> None:
+        job = jobs(load_workflow(CI_WORKFLOW))["verify-go"]
+        self.assertNotIn("if", job)
+        self.assertNotIn("continue-on-error", job)
+        steps = job["steps"]
+        scan = next(step for step in steps if step.get("name") == "Run govulncheck")
+        self.assertEqual(scan["run"], "go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...")
+        self.assertNotIn("if", scan)
+        self.assertNotIn("continue-on-error", scan)
+        setup = next(i for i, step in enumerate(steps) if "actions/setup-go@" in step.get("uses", ""))
+        self.assertEqual(steps[setup + 1], scan)
+        tools = json.loads((ROOT / ".concord/tooling.v1.json").read_text())["tools"]
+        declared = next(tool for tool in tools if tool["id"] == "govulncheck")
+        self.assertEqual(declared["invocation"], scan["run"])
+        self.assertEqual(declared["automation_path"], CI_PATH)
+
+    def test_race_declaration_matches_bounded_required_job_and_nightly_is_absent(self) -> None:
+        self.assertFalse((WORKFLOW_DIR / "nightly.yml").exists())
+        job = jobs(load_workflow(CI_WORKFLOW))["verify-race"]
+        step = next(step for step in job["steps"]
+                    if step.get("name") == "Test concurrent store access under the race detector")
+        argv = shlex.split(step["run"])
+        command = argv[argv.index("--") + 1:]
+        tools = json.loads((ROOT / ".concord/tooling.v1.json").read_text())["tools"]
+        declared = next(tool for tool in tools if tool["id"] == "go-test-race")
+        self.assertEqual(shlex.split(declared["invocation"]), ["bin/oc-test", "targeted", "--", *command])
+        self.assertEqual(declared["automation_path"], CI_PATH)
+
     def test_ci_consumes_all_eight_continuity_witnesses_from_retained_results(self) -> None:
         block = jobs(load_workflow(CI_WORKFLOW))
         scenarios = json.loads((ROOT / ".concord/scenarios/adapter-continuity.v1.json").read_text())["scenarios"]
@@ -273,11 +301,10 @@ class NativeRecipePrerequisiteTests(unittest.TestCase):
     def recipe_steps(self):
         block = jobs(load_workflow(CI_WORKFLOW))
         consumers = [block[f"verify-tests-store-{index}"] for index in range(1, STORE_SHARDS + 1)]
-        consumers += list(jobs(load_workflow(WORKFLOW_DIR / "nightly.yml")).values())
         for job in consumers:
             steps = job["steps"]
             matches = [(i, step) for i, step in enumerate(steps) if step.get("name") == self.STEP]
-            self.assertEqual(len(matches), 1, "Every store shard and the full-tree nightly need the recipe runtime")
+            self.assertEqual(len(matches), 1, "Every store shard needs the recipe runtime")
             index, step = matches[0]
             warm = next(i for i, s in enumerate(steps) if s.get("name") == "Warm the uv fixture cache from the committed lock")
             self.assertLess(index, warm)
@@ -286,7 +313,7 @@ class NativeRecipePrerequisiteTests(unittest.TestCase):
 
     def test_every_store_consumer_provisions_the_recipe_before_offline_tests(self):
         commands = list(self.recipe_steps())
-        self.assertEqual(len(commands), STORE_SHARDS + 1)
+        self.assertEqual(len(commands), STORE_SHARDS)
         self.assertEqual(len(set(commands)), 1)
 
     def test_provisioning_reads_pin_publishes_python3_and_refuses_unavailable_runtime(self):

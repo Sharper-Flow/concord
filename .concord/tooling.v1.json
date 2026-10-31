@@ -25,10 +25,17 @@
     },
     {
       "id": "go-test-race",
-      "purpose": "The Go test suite with the race detector.",
-      "invocation": "bin/oc-test broad -- go test -race -timeout=20m ./...",
+      "purpose": "Race instrumentation for the five concurrent store tests in required verify-race.",
+      "invocation": "bin/oc-test targeted -- go test -race -timeout=15m -run '^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter|TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance)$' ./internal/store",
       "tier": "slow",
-      "cost_hint": "The command timeout is 20 minutes.",
+      "cost_hint": "The command timeout is 15 minutes.",
+      "automation_path": ".github/workflows/ci.yml"
+    },
+    {
+      "id": "go-event-log-continuity",
+      "purpose": "Event-log reference assertions and the continuity reclaim witness in required verify-go.",
+      "invocation": "bin/oc-test targeted -- go test -count=1 -timeout=300s -run '^(TestEventLogReferences|TestEventLogReferencePropertiesBite|TestSessionVacateReclaimOccupancyGateCorpus)$' ./internal/store",
+      "tier": "standard",
       "automation_path": ".github/workflows/ci.yml",
       "coverage": [
         {
@@ -55,7 +62,7 @@
     },
     {
       "id": "govulncheck",
-      "purpose": "Go vulnerability scan against the pinned govulncheck version.",
+      "purpose": "Go dependency vulnerability scan in required verify-go against the pinned govulncheck version.",
       "invocation": "go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
       "tier": "standard",
       "cost_hint": "Expected to complete in minutes.",

@@ -1005,3 +1005,26 @@ func PendingProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID string) (*P
 	}
 	return &handoff, nil
 }
+
+// addressedProjectHandoffFrontierTx reads the newest handoff addressed to
+// projectID under the active contract, in any state. Every session of the
+// receiving Project reads that bounded job, before and after the consume
+// (CD-0182 D5). An empty Project or no active contract reads nothing.
+func addressedProjectHandoffFrontierTx(ctx context.Context, tx *sql.Tx, workID, projectID string, contractVersion int64) (*ProjectHandoff, error) {
+	if projectID == "" || contractVersion == 0 {
+		return nil, nil
+	}
+	var id string
+	err := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? AND contract_version=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, contractVersion).Scan(&id)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "project_handoff", "cannot read the addressed handoff", true, "retry once the database is readable", err)
+	}
+	handoff, err := readProjectHandoffTx(ctx, tx, workID, id)
+	if err != nil {
+		return nil, err
+	}
+	return &handoff, nil
+}

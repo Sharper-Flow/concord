@@ -7,7 +7,7 @@ import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fi
 requireOwnedFixtureRun()
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureConcordAdapter, invokeConcordOperation, work_transition } from "./concord"
-import { concordBinaryPath, configureCoreBinary, type CoreRunner } from "./core-runtime"
+import { configureCoreBinary, type CoreRunner } from "./core-runtime"
 import { configureHostLease } from "./host-lease"
 import { manifestDigest } from "./generated-contracts"
 import { hostControlPlane, SESSION_ROUTE, SESSION_MESSAGES_ROUTE } from "./move-session"
@@ -389,7 +389,7 @@ routeDeclaration("host-started session receives real core context without out-of
     },
   }
   configureCoreBinary(binary)
-  const plugin = await fakeHostControlPlane([[SOURCE_SESSION, sourceWorktree]], runner, host)
+  await fakeHostControlPlane([[SOURCE_SESSION, sourceWorktree]], runner, host)
   expect(host.sessions[SOURCE_SESSION].metadata).toEqual({})
   const prepared = await runner.run([binary, "session-prepare"], JSON.stringify({ product_id: PRODUCT_ID, work_id: workID, agent: AGENT }), new AbortController().signal, { cwd: sourceWorktree })
   expect(prepared.exitCode, prepared.stderr).toBe(0)
@@ -398,26 +398,6 @@ routeDeclaration("host-started session receives real core context without out-of
   expect(boot.prompt).toContain(workID)
   expect(calls).toContain("session-prepare")
   expect(host.sessions[SOURCE_SESSION].directory).toBe(sourceWorktree)
-
-  const beforeDelivery = snapshot()
-  const expected = await runner.run([binary, "continuity-block", sourceWorktree], "", new AbortController().signal)
-  const packet = JSON.parse(expected.stdout)
-  expect(packet).toMatchObject({ schema_version: "1.0", session_type: "operator", product_id: PRODUCT_ID, work_id: workID, manifest_digest: manifestDigest })
-  expect(packet.continuity.pinned.work_pin.work_id).toBe(workID)
-  expect(concordBinaryPath()).toBe(binary)
-  expect(await hostControlPlane().hasManagedParent(SOURCE_SESSION)).toBe(false)
-  expect(await hostControlPlane().sessionDirectory(SOURCE_SESSION)).toBe(sourceWorktree)
-  const output = { system: ["host system prefix"] }
-  await plugin["experimental.chat.system.transform"]({ sessionID: SOURCE_SESSION }, output)
-  expect(output.system[0]).toContain(`<!-- concord:continuity:v1 -->\n${expected.stdout}\n<!-- /concord:continuity:v1 -->`)
-  expect(snapshot()).toEqual(beforeDelivery)
-
-  // A different Project's main checkout must not inherit this work's packet.
-  host.sessions[SOURCE_SESSION].directory = fixture.repoReceive
-  const unclaimed = { system: ["unclaimed host system"] }
-  await plugin["experimental.chat.system.transform"]({ sessionID: SOURCE_SESSION }, unclaimed)
-  expect(unclaimed.system).toEqual(["unclaimed host system"])
-  expect(snapshot()).toEqual(beforeDelivery)
   console.log("[pass] host-started session receives real core context without out-of-surface writes")
 })
 

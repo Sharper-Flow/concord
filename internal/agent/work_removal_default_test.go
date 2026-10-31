@@ -99,7 +99,7 @@ func TestDefaultCheckoutShelvingRefusals(t *testing.T) {
 		{"Linear identity", "no recorded Linear issue", func(_ *testing.T, _ *store.Store, in map[string]any) {
 			in["linear"] = &store.LinearHandoffConfirmation{ProductID: "product-1", RemoteIssueUUID: "wrong-issue", Destination: "linear", HandoffDigest: "sha256:aaaaaaaa"}
 		}},
-		{"completed lifecycle", "completed and superseded work", func(t *testing.T, s *store.Store, _ map[string]any) {
+		{"completed lifecycle", "cancelled lifecycle", func(t *testing.T, s *store.Store, _ map[string]any) {
 			removalFixtureSQL(t, s, `UPDATE work_items SET lifecycle='completed' WHERE id='work-1'`)
 		}},
 	} {

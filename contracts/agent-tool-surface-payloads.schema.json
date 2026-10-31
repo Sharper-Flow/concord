@@ -10498,7 +10498,21 @@
           "maxLength": 1000
         },
         "state": {
-          "const": "recorded"
+          "type": "string",
+          "enum": [
+            "recorded",
+            "consumed"
+          ]
+        },
+        "consumed_by_session_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "consumed_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         },
         "recorded_at": {
           "type": "string",

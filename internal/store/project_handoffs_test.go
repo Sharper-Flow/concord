@@ -386,6 +386,41 @@ func TestProjectHandoffPendingHandoffRidesTheContinuitySnapshot(t *testing.T) {
 	}
 }
 
+// CD-0182 D5: every session of the receiving Project reads the frontier's
+// bounded job, before and after the consume. The continuity read selects the
+// frontier by the reading session's Project; a session of another Project
+// reads only the work's newest unconsumed handoff, and a contract
+// replacement drops the stale frontier.
+func TestContinuityRendersTheAddressedFrontierToTheReceivingProject(t *testing.T) {
+	t.Parallel()
+	f := setupProjectHandoffFixture(t)
+	ctx := context.Background()
+	recorded := recordHandoff(t, f, f.sourceTree)
+	consumeHandoff(t, f, recorded.HandoffID)
+	read := func(projectID string) *ProjectHandoff {
+		t.Helper()
+		snapshot, err := ReadWorkflowContinuity(ctx, f.store, ContinuityRequest{Work: f.workID, ProjectID: projectID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snapshot.PendingProjectHandoff
+	}
+	handoff := read(f.targetProject)
+	if handoff == nil || handoff.HandoffID != recorded.HandoffID || handoff.State != ProjectHandoffConsumed {
+		t.Fatalf("handoff=%+v, want the consumed frontier for the receiving Project", handoff)
+	}
+	if handoff.BoundedJob == "" || handoff.NextAction == "" || len(handoff.Changes) == 0 || len(handoff.Verification) == 0 {
+		t.Fatalf("handoff=%+v, want the full bounded job", handoff)
+	}
+	if other := read(f.sourceProject); other != nil {
+		t.Fatalf("handoff=%+v, want no consumed frontier for the source Project", other)
+	}
+	seedReplacementProjectHandoffContract(t, f.store, f.workID, f.finalWorkVersion)
+	if stale := read(f.targetProject); stale != nil {
+		t.Fatalf("handoff=%+v, want no frontier under a replaced contract", stale)
+	}
+}
+
 func TestProjectHandoffRefusesDirtySourceWorktree(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)

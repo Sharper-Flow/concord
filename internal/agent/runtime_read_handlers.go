@@ -339,7 +339,7 @@ func (r runtime) readTraceContinuity(ctx context.Context, base agentcontract.Env
 	// CD-0096 D5: a session that signs its identity re-pins its held
 	// verify leases in the pinned projection. Envelopes without a session
 	// identity keep the work-keyed snapshot the session-boot path renders.
-	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: limit, Cursor: inner}
+	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: limit, Cursor: inner, ProjectID: r.Envelope.AmbientProjectID}
 	if r.Envelope.ClientRef != "" && r.Envelope.AgentRef != "" && r.Envelope.SessionRef != "" {
 		continuityReq.Owner = &store.SessionWorktreeOwner{ClientRef: r.Envelope.ClientRef, AgentRef: r.Envelope.AgentRef, SessionRef: r.Envelope.SessionRef}
 	}
@@ -497,7 +497,7 @@ func (r runtime) continuityProjectionSnapshot(ctx context.Context, limit int, cu
 	if captured != nil {
 		return *captured, nil
 	}
-	req := store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor}
+	req := store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor, ProjectID: r.Envelope.AmbientProjectID}
 	if r.Envelope.ClientRef != "" && r.Envelope.AgentRef != "" && r.Envelope.SessionRef != "" {
 		req.Owner = &store.SessionWorktreeOwner{ClientRef: r.Envelope.ClientRef, AgentRef: r.Envelope.AgentRef, SessionRef: r.Envelope.SessionRef}
 	}

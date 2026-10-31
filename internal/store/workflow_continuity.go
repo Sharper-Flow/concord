@@ -122,10 +122,12 @@ type ContinuitySnapshot struct {
 	CompatibleLawAmendments []CompatibleLawAmendment    `json:"compatible_law_amendments"`
 	ActiveVerifyLeases      []ActiveWorktreeVerifyLease `json:"active_verify_leases,omitempty"`
 	WorkPin                 *WorkPin                    `json:"work_pin,omitempty"`
-	// PendingProjectHandoff carries the work's newest unconsumed
-	// Project-session handoff (CD-0182 amendment), so a Project-selected
-	// boot renders the bounded job a receiving session must consume before
-	// managed execution. Nil when no handoff stands unconsumed.
+	// PendingProjectHandoff carries the frontier handoff addressed to the
+	// reading session's Project under the active contract, consumed or not,
+	// so every session of the receiving Project reads the bounded job
+	// (CD-0182 D5). A read with no Project, or whose Project no handoff
+	// addresses, carries the work's newest unconsumed handoff. Nil when
+	// neither stands.
 	PendingProjectHandoff *ProjectHandoff `json:"pending_project_handoff,omitempty"`
 	// LawContext resolves the approved contract's binding law and Domains
 	// against the law_subjects and domains projections at read time. Nil
@@ -154,6 +156,9 @@ type ContinuityRequest struct {
 	// held verify leases (CD-0096 D5). Nil keeps the work-keyed projection
 	// the session-boot path renders.
 	Owner *SessionWorktreeOwner
+	// ProjectID is the reading session's authenticated Project. It selects
+	// the handoff frontier addressed to that Project.
+	ProjectID string
 }
 
 func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest) (ContinuitySnapshot, error) {
@@ -307,12 +312,17 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 	if err := continuityReadCheckpointTx(ctx, tx, req.Work, out); err != nil {
 		return err
 	}
-	// The work's newest unconsumed Project-session handoff rides the
-	// snapshot when present; the absent field keeps a handoff-free work's
-	// bytes unchanged.
-	out.PendingProjectHandoff, err = PendingProjectHandoffTx(ctx, tx, req.Work)
+	// The handoff rides the snapshot when present; the absent field keeps a
+	// handoff-free work's bytes unchanged.
+	out.PendingProjectHandoff, err = addressedProjectHandoffFrontierTx(ctx, tx, req.Work, req.ProjectID, activeContractVersion)
 	if err != nil {
 		return err
+	}
+	if out.PendingProjectHandoff == nil {
+		out.PendingProjectHandoff, err = PendingProjectHandoffTx(ctx, tx, req.Work)
+		if err != nil {
+			return err
+		}
 	}
 	out.DesignRecord, err = readCurrentWorkflowDesign(ctx, tx, req.Work)
 	if err != nil {

@@ -742,6 +742,16 @@ const GeneratedPayloadSchemaDocument = `{
             "null"
           ]
         },
+        "consumed_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "consumed_by_session_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "contract_version": {
           "minimum": 1,
           "type": "integer"
@@ -770,7 +780,11 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "state": {
-          "const": "recorded"
+          "enum": [
+            "recorded",
+            "consumed"
+          ],
+          "type": "string"
         },
         "target_project_id": {
           "$ref": "#/$defs/id"

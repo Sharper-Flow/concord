@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:ebd054cd948740721ff8f7134ad081b17b855b2ea573bcd3779e8ad293d51648"
+const ManifestDigest = "sha256:d4d022812ff76447bd72c72106439ff9fdb9a338524c404290f7d8cec2a3c192"
 
 type OperationKind string
 
@@ -112,7 +112,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"continuity_boundary":                                   {Required: []string{"boundary_id", "sequence", "kind", "checkpoint_id", "checkpoint_sequence", "summary", "recorded_at"}, Properties: []string{"boundary_id", "sequence", "kind", "checkpoint_id", "checkpoint_sequence", "summary", "recorded_at"}},
 	"continuity_checkpoint":                                 {Required: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}, Properties: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}},
 	"continuity_operator_decision":                          {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
-	"continuity_pending_project_handoff":                    {Required: []string{"handoff_id", "work_id", "contract_version", "source_project_id", "target_project_id", "source_session_ref", "bounded_job", "changes", "verification", "artifact_refs", "blockers", "next_action", "state", "recorded_at"}, Properties: []string{"handoff_id", "work_id", "contract_version", "source_project_id", "target_project_id", "source_session_ref", "bounded_job", "changes", "verification", "artifact_refs", "blockers", "next_action", "state", "recorded_at"}},
+	"continuity_pending_project_handoff":                    {Required: []string{"handoff_id", "work_id", "contract_version", "source_project_id", "target_project_id", "source_session_ref", "bounded_job", "changes", "verification", "artifact_refs", "blockers", "next_action", "state", "recorded_at"}, Properties: []string{"handoff_id", "work_id", "contract_version", "source_project_id", "target_project_id", "source_session_ref", "bounded_job", "changes", "verification", "artifact_refs", "blockers", "next_action", "state", "consumed_by_session_ref", "consumed_at", "recorded_at"}},
 	"continuity_projection_page":                            {Required: []string{"work_id", "workflow_instance", "workflow_step", "watermark", "projection_page", "next_kind"}, Properties: []string{"work_id", "work_version", "workflow_instance", "workflow_step", "watermark", "projection_page", "next_kind"}},
 	"continuity_read_result":                                {Required: []string{}, Properties: []string{"work_id", "pinned", "boundaries", "typed_availability", "observations", "observations_total", "observations_read", "pending_messages", "work_version", "workflow_instance", "workflow_step", "watermark", "projection_page", "next_kind"}},
 	"continuity_review_input":                               {Required: []string{"input_candidate", "dependencies"}, Properties: []string{"input_candidate", "dependencies", "size"}},

@@ -229,6 +229,9 @@ func init() {
 	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/bounded_job/maxLength", handoffJobMax)
 	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/changes/items/maxLength", handoffEntryMax)
 	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/changes/maxItems", handoffListMax)
+	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/consumed_at/maxLength", handoffRecordedAt)
+	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/consumed_by_session_ref/maxLength",
+		sessionRefGuard) // the value is grant.SessionRef of the consuming session
 	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/handoff_id/maxLength", handoffIDMax)
 	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/next_action/maxLength", handoffActionMax)
 	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/recorded_at/maxLength", handoffRecordedAt)

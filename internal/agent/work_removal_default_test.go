@@ -14,7 +14,7 @@ import (
 
 func defaultRemovalFixture(t *testing.T) (*store.Store, *Service, CallEnvelope, map[string]any) {
 	t.Helper()
-	s, service, grant, root, _ := worktreeDispatchFixture(t)
+	s, service, grant, root := worktreeDispatchFixture(t)
 	seedWorkTransition(t, s, "work-1", "needed", "cancelled", 2)
 	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	scope, _, err := s.ScopeVersion(t.Context(), "project-1")
@@ -80,9 +80,9 @@ func TestDefaultCheckoutShelvingRemoval(t *testing.T) {
 	}
 }
 
-func removalFixtureSQL(t *testing.T, s *store.Store, statement string, args ...any) {
+func removalFixtureSQL(t *testing.T, s *store.Store, statement string) {
 	t.Helper()
-	execProjection(t, s, []string{statement}, [][]any{args})
+	execProjection(t, s, []string{statement}, [][]any{nil})
 }
 
 func TestDefaultCheckoutShelvingRefusals(t *testing.T) {
@@ -247,7 +247,7 @@ func TestDefaultCheckoutShelvingScopeAndWorkflow(t *testing.T) {
 
 func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	ctx := t.Context()
-	s, service, grant, root, _ := worktreeDispatchFixture(t)
+	s, service, grant, root := worktreeDispatchFixture(t)
 	seedContinuityWorkflow(t, s, "work-1")
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_law_baselines WHERE work_id='work-1'`) != 1 {
 		t.Fatal("fixture lacks its owning-start law baseline")

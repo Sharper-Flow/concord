@@ -126,21 +126,6 @@ func defectIntakeFromProjection(intake *DefectIntake) *DefectClassification {
 	}
 }
 
-// normalizedDefectIntake returns a copy of the record whose related list is
-// never nil, so request marshalling and digest comparison treat an omitted
-// list and an empty list as the same capture intent without writing through
-// the caller's pointer.
-func normalizedDefectIntake(intake *DefectIntake) *DefectIntake {
-	if intake == nil {
-		return nil
-	}
-	copied := *intake
-	if copied.RelatedDefectIDs == nil {
-		copied.RelatedDefectIDs = []string{}
-	}
-	return &copied
-}
-
 // admitDefectIntakeTx is the one transaction-scoped owner of defect capture
 // admission. The capture membership fold calls it with the new item's Project
 // memberships already inserted, so Product scope is known inside the same

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -58,8 +59,8 @@ func TestDispatchIssueLinkRecordStoresReportedIdentity(t *testing.T) {
 	if len(*response.ChangedRefs) != 1 || (*response.ChangedRefs)[0].EntityKind != "linear_issue_link" || (*response.ChangedRefs)[0].ID != "link-agent-work" {
 		t.Fatalf("changed refs=%#v", response.ChangedRefs)
 	}
-	link, err := s.ReadLinearLink(ctx, "link-agent-work")
-	if err != nil {
+	var link store.LinearIssueLink
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT work_id, remote_issue_uuid, human_key, url FROM linear_issue_links WHERE work_id=?`, "link-agent-work").Scan(&link.WorkID, &link.RemoteIssueUUID, &link.HumanKey, &link.URL); err != nil {
 		t.Fatal(err)
 	}
 	want := store.LinearIssueLink{WorkID: "link-agent-work", RemoteIssueUUID: "cccccccc-0000-0000-0000-000000000003", HumanKey: "EX-3", URL: "https://linear.app/example/issue/EX-3"}
@@ -113,11 +114,12 @@ func TestDispatchIssueLinkRecordRefusesSecondAndForeignIdentity(t *testing.T) {
 			t.Fatalf("%s: response error=%+v err=%v", tc.name, response.Error, err)
 		}
 	}
-	if link, err := s.ReadLinearLink(ctx, "link-held-work"); err != nil || link.HumanKey != "EX-1" {
-		t.Fatalf("held link = %+v err=%v", link, err)
+	var key string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT human_key FROM linear_issue_links WHERE work_id=?`, "link-held-work").Scan(&key); err != nil || key != "EX-1" {
+		t.Fatalf("held link key = %q err=%v", key, err)
 	}
-	if _, err := s.ReadLinearLink(ctx, "link-probe-work"); err == nil {
-		t.Fatal("probe work recorded a refused identity")
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT human_key FROM linear_issue_links WHERE work_id=?`, "link-probe-work").Scan(&key); err != sql.ErrNoRows {
+		t.Fatalf("probe work recorded a refused identity: key=%q err=%v", key, err)
 	}
 }
 

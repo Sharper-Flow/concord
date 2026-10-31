@@ -79,7 +79,7 @@ func cleanHandoffRepo(t *testing.T) string {
 	return repo
 }
 
-func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, CallEnvelope, CallEnvelope, string, string) {
+func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, CallEnvelope, CallEnvelope, string) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -179,7 +179,7 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	}
 	sourceGrant = handoffSessionReauthorized(t, sourceService, "client-source", "project-1", sourcePath)
 	sourceEnv = handoffEnvelope(sourceGrant, "project-1", scopeVersion)
-	return s, sourceService, receiveService, sourceEnv, receiveEnv, repoSource, receivePath
+	return s, sourceService, receiveService, sourceEnv, receiveEnv, repoSource
 }
 
 // handoffSessionReauthorized re-authorizes a client in a linked worktree.
@@ -254,7 +254,7 @@ func retirementInvoke(t *testing.T, s *store.Store, service *Service, env CallEn
 
 func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) {
 	t.Parallel()
-	s, sourceService, receiveService, sourceEnv, receiveEnv, _, _ := handoffDispatchFixture(t)
+	s, sourceService, receiveService, sourceEnv, receiveEnv, _ := handoffDispatchFixture(t)
 	// The source records the addressed handoff from its authenticated
 	// identities: no input names the source Project or session.
 	record := handoffInvoke(t, s, sourceService, sourceEnv, "project_handoff_record", map[string]any{
@@ -339,7 +339,7 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 // receiver's same-key replay refuses on the recorded bind, and a replay
 // after a contract replacement refuses closed on the stale bind.
 func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
-	s, sourceService, receiveService, sourceEnv, receiveEnv, _, _ := handoffDispatchFixture(t)
+	s, sourceService, receiveService, sourceEnv, receiveEnv, _ := handoffDispatchFixture(t)
 	record := handoffInvoke(t, s, sourceService, sourceEnv, "project_handoff_record", map[string]any{
 		"idempotency_key": "replay-record",
 		"work_id":         "work-1", "target_project_id": "project-2",
@@ -398,7 +398,7 @@ func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
 // The probe checks the calling session's worktree, not another linked tree.
 func TestProjectHandoffRecordProbesTheSessionWorktree(t *testing.T) {
 	t.Parallel()
-	s, sourceService, _, sourceEnv, _, repoSource, _ := handoffDispatchFixture(t)
+	s, sourceService, _, sourceEnv, _, repoSource := handoffDispatchFixture(t)
 	ctx := context.Background()
 	assertNoWorktreeOwnershipSchema(t, s)
 	// The source session's worktree carries unpreserved changes.

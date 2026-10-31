@@ -315,14 +315,6 @@ func newAmbiguousScopeFailure(op, detail, recovery string, candidates []string) 
 // route in execution order; the agent envelope validates the pair.
 const RecoveryUseDeclaredRoute = "use_declared_route"
 
-// newRouteFailure builds a refusal whose remedy is a declared route of
-// workflow actions. route is ordered: the caller executes it front to back.
-func newRouteFailure(kind FailureKind, op, detail string, retrySafe bool, route ...string) *Failure {
-	f := newFailure(kind, op, detail, retrySafe, RecoveryUseDeclaredRoute)
-	f.RecoveryRefs = append([]string{}, route...)
-	return f
-}
-
 func wrapFailure(kind FailureKind, op, detail string, retrySafe bool, recovery string, err error) *Failure {
 	f := newFailure(kind, op, detail, retrySafe, recovery)
 	f.Err = err

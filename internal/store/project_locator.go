@@ -232,24 +232,6 @@ func normalizeRemoteVersion(value string, version int) (string, error) {
 	return scheme + "://" + user + host + "/" + path, nil
 }
 
-// ProjectCanonicalPath returns the Project's canonical_path locator value,
-// normalized. It is the read seam for callers that need the registered
-// repository location; identity never derives from the returned path (CD-0008 D1).
-func (s *Store) ProjectCanonicalPath(ctx context.Context, projectID string) (string, error) {
-	if s == nil || s.db == nil {
-		return "", newFailure(KindUnavailable, "project_locator", "store is not open", false, "open the authority database")
-	}
-	var normalized string
-	err := s.db.QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE kind=? AND project_id=? ORDER BY locator_id LIMIT 1`, LocatorCanonicalPath, projectID).Scan(&normalized)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", newFailure(KindUnknownScope, "project_locator", "Project has no canonical_path locator", false, "register the repository's canonical path locator")
-		}
-		return "", wrapFailure(KindUnavailable, "project_locator", "cannot read Project locators", true, "retry once the database is readable", err)
-	}
-	return normalized, nil
-}
-
 // resolveCommitSHARunner pins a repository ref to one full commit SHA. It is
 // the runner-parameterized core used by knowledge publication.
 func resolveCommitSHARunner(ctx context.Context, runner GitRunner, repo, ref string) (string, error) {

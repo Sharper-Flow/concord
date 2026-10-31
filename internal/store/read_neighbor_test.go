@@ -203,13 +203,13 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ReadLinearLink", run: func() error {
-			link, err := s.ReadLinearLink(ctx, "blocker")
+		{name: "readLinearLinkCore", run: func() error {
+			link, found, err := readLinearLinkCore(ctx, s.db, "blocker")
 			if err != nil {
 				return err
 			}
-			if link.URL != "https://example.invalid/issues/SYN-1" {
-				return fmt.Errorf("url=%q", link.URL)
+			if !found || link.URL != "https://example.invalid/issues/SYN-1" {
+				return fmt.Errorf("found=%v url=%q", found, link.URL)
 			}
 			return nil
 		}},
@@ -418,16 +418,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if len(memberships) != 1 {
 				return fmt.Errorf("memberships=%+v", memberships)
-			}
-			return nil
-		}},
-		{name: "ProjectCanonicalPath", run: func() error {
-			path, err := s.ProjectCanonicalPath(ctx, "proj")
-			if err != nil {
-				return err
-			}
-			if path != toolRepo {
-				return fmt.Errorf("path=%q", path)
 			}
 			return nil
 		}},

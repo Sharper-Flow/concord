@@ -147,11 +147,6 @@ var lifecycleStates = map[string]bool{
 // across lifecycle consumers.
 var terminalLifecycles = []string{"completed", "cancelled", "superseded"}
 
-// IsTerminalLifecycle reports whether a lifecycle is terminal by the store's
-// one definition. Consumers outside the package use it so no gate re-spells
-// the set.
-func IsTerminalLifecycle(v string) bool { return isTerminalLifecycle(v) }
-
 func isTerminalLifecycle(v string) bool {
 	for _, terminal := range terminalLifecycles {
 		if v == terminal {

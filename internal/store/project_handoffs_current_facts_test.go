@@ -15,14 +15,14 @@ import (
 // after the later fractional stamp.
 func recordOrderedHandoffPair(t *testing.T, f projectHandoffFixture) (older, newer string) {
 	t.Helper()
-	first := f.recordRequest(f.sourceTree)
+	first := f.recordRequest()
 	first.Now = time.Unix(40, 0).UTC()
 	first.ArtifactRefs = []string{"sha256:" + strings.Repeat("a", 64) + ":/first-artifact.txt"}
 	firstRec, err := runRecordProjectHandoffTx(f, first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second := f.recordRequest(f.sourceTree)
+	second := f.recordRequest()
 	second.BoundedJob = "the later recorded repository job"
 	second.ArtifactRefs = []string{"sha256:" + strings.Repeat("b", 64) + ":/second-artifact.txt"}
 	second.Now = time.Unix(40, 1).UTC()

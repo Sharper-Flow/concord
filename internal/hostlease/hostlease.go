@@ -593,37 +593,3 @@ func ProcessStart(pid int) (uint64, error) {
 	}
 	return value, nil
 }
-
-// linuxUserHZ is the kernel's fixed USER_HZ: the unit /proc reports process
-// start times in on every Linux release platform, independent of the
-// configured kernel tick rate.
-const linuxUserHZ = 100
-
-// WallStart reports when the process began, as wall-clock time. /proc records
-// the start as clock ticks since boot, so the conversion subtracts the boot
-// age that /proc/uptime reports. The value is approximate: it reads two files
-// and the clock in separate instants, so callers must compare it only against
-// times the subject provably predates or postdates by more than the skew.
-func WallStart(pid int) (time.Time, error) {
-	ticks, err := ProcessStart(pid)
-	if err != nil {
-		return time.Time{}, err
-	}
-	raw, err := os.ReadFile("/proc/uptime")
-	if err != nil {
-		return time.Time{}, fmt.Errorf("hostlease: cannot read /proc/uptime: %w", err)
-	}
-	uptimeText := strings.Fields(string(raw))
-	if len(uptimeText) == 0 {
-		return time.Time{}, fmt.Errorf("hostlease: /proc/uptime is empty")
-	}
-	uptime, err := strconv.ParseFloat(uptimeText[0], 64)
-	if err != nil || uptime < 0 {
-		return time.Time{}, fmt.Errorf("hostlease: /proc/uptime is not a number of seconds")
-	}
-	age := uptime - float64(ticks)/linuxUserHZ
-	if age < 0 {
-		age = 0
-	}
-	return time.Now().Add(-time.Duration(age * float64(time.Second))), nil
-}

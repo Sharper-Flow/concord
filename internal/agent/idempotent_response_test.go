@@ -13,7 +13,7 @@ import (
 )
 
 func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
-	s, service, grant, _ := tiersRepoFixture(t)
+	s, service, grant := tiersRepoFixture(t)
 	initializeMutationPinWorkflow(t, s, "work-1", store.BuiltinWorkflowDefinitions()[0])
 	_, before := readWorkFromStore(t, s, "work-1")
 	input := map[string]any{"work_id": "work-1", "target": "in_progress", "reason": "begin work", "expected_version": before, "idempotency_key": "response-lifecycle"}

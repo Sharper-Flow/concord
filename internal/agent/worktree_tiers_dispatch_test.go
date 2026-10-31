@@ -12,7 +12,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-func tiersRepoFixture(t *testing.T) (*store.Store, *Service, Authority, string) {
+func tiersRepoFixture(t *testing.T) (*store.Store, *Service, Authority) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -48,7 +48,7 @@ func tiersRepoFixture(t *testing.T) (*store.Store, *Service, Authority, string) 
 	}
 
 	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
-	return s, service, grant, repoRoot
+	return s, service, grant
 }
 
 func tiersInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, tool, operation string, input map[string]any) agentcontract.Envelope {

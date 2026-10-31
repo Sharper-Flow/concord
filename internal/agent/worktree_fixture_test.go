@@ -33,7 +33,7 @@ func seedClaimOrigin(t *testing.T, repoRoot string) {
 	gitRun(t, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 }
 
-func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, string, string) {
+func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, string) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -50,12 +50,12 @@ func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, s
 	}
 	repoRoot := t.TempDir()
 	seedFixtureRepo(t, repoRoot, "# fixture\n", "fixture base")
-	baseSHA := gitRun(t, repoRoot, "rev-parse", "HEAD")
+	gitRun(t, repoRoot, "rev-parse", "HEAD")
 	if err := s.AddProjectLocator(ctx, "project-1", store.ProjectLocator{ID: "path-1", Kind: store.LocatorCanonicalPath, Value: repoRoot}, 1); err != nil {
 		t.Fatal(err)
 	}
 	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
-	return s, service, grant, repoRoot, baseSHA
+	return s, service, grant, repoRoot
 }
 
 func seedSecondProjectFixture(t *testing.T, s *store.Store) string {

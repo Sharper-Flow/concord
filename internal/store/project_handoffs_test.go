@@ -216,7 +216,7 @@ func (f projectHandoffFixture) artifactRef(t *testing.T, tree string) string {
 	return fmt.Sprintf("sha256:%s:%s", artifactDigest(t, filepath.Join(tree, "tracked.txt")), filepath.Join(tree, "tracked.txt"))
 }
 
-func (f projectHandoffFixture) recordRequest(tree string) RecordProjectHandoffRequest {
+func (f projectHandoffFixture) recordRequest() RecordProjectHandoffRequest {
 	return RecordProjectHandoffRequest{
 		WorkID: f.workID, SourceProjectID: f.sourceProject, TargetProjectID: f.targetProject,
 		SourceSessionRef: f.sourceSession, BoundedJob: "verify the receiving repository's adapter surface",
@@ -230,7 +230,7 @@ func (f projectHandoffFixture) recordRequest(tree string) RecordProjectHandoffRe
 
 func recordHandoff(t *testing.T, f projectHandoffFixture, tree string) ProjectHandoffResult {
 	t.Helper()
-	req := f.recordRequest(tree)
+	req := f.recordRequest()
 	req.ArtifactRefs = []string{f.artifactRef(t, tree)}
 	out, err := runRecordProjectHandoffTx(f, req)
 	if err != nil {
@@ -312,7 +312,7 @@ func TestProjectHandoffRecordsAndConsumesAcrossTwoProjectWorktrees(t *testing.T)
 	}
 	// Same-record replays resolve from state with no second event.
 	replayedRecord, err := runRecordProjectHandoffTx(f, func() RecordProjectHandoffRequest {
-		req := f.recordRequest(f.sourceTree)
+		req := f.recordRequest()
 		req.ArtifactRefs = []string{f.artifactRef(t, f.sourceTree)}
 		return req
 	}())
@@ -339,7 +339,7 @@ func TestProjectHandoffRecordsAndConsumesAcrossTwoProjectWorktrees(t *testing.T)
 	// A same-content re-record after consumption refuses: the successor
 	// handoff records from its own state, never over the consumed bind.
 	_, err = runRecordProjectHandoffTx(f, func() RecordProjectHandoffRequest {
-		req := f.recordRequest(f.sourceTree)
+		req := f.recordRequest()
 		req.ArtifactRefs = []string{f.artifactRef(t, f.sourceTree)}
 		return req
 	}())
@@ -414,7 +414,7 @@ func TestProjectHandoffRefusesDirtySourceWorktree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(f.sourceTree, "tracked.txt"), []byte("mutated\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	req := f.recordRequest(f.sourceTree)
+	req := f.recordRequest()
 	req.ArtifactRefs = []string{f.artifactRef(t, f.sourceTree)}
 	// The probe runs before any mutation transaction, exactly as the agent
 	// mutation plan runs it; the tx-scoped record never probes inside a
@@ -449,14 +449,14 @@ func TestProjectHandoffRefusesUnverifiedArtifactDigest(t *testing.T) {
 func TestProjectHandoffRefusesNonMemberTargetAndSelfAddress(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
-	req := f.recordRequest(f.sourceTree)
+	req := f.recordRequest()
 	req.TargetProjectID = "project-nowhere"
 	req.ArtifactRefs = []string{f.artifactRef(t, f.sourceTree)}
 	_, err := runRecordProjectHandoffTx(f, req)
 	if failureKind(err) != KindProjectionNotFound {
 		t.Fatalf("err=%v, want the membership refusal", err)
 	}
-	self := f.recordRequest(f.sourceTree)
+	self := f.recordRequest()
 	self.TargetProjectID = f.sourceProject
 	self.ArtifactRefs = []string{f.artifactRef(t, f.sourceTree)}
 	_, err = runRecordProjectHandoffTx(f, self)
@@ -606,7 +606,7 @@ func TestManagedExecutionRefusesUntilHandoffConsumed(t *testing.T) {
 	// The source-side recovery: a fresh addressed handoff under the active
 	// contract supersedes the stale frontier, and consuming it reopens
 	// admission for this session.
-	req := f.recordRequest(f.sourceTree)
+	req := f.recordRequest()
 	req.BoundedJob = "fresh successor job"
 	req.Now = time.Unix(40, 0).UTC()
 	successor, recordErr := runRecordProjectHandoffTx(f, req)
@@ -648,7 +648,7 @@ func TestProjectHandoffConsumeReplayRefusesAfterContractReplacement(t *testing.T
 	}
 	// Recovery: a fresh successor handoff under the active contract records,
 	// consumes, and replays as AlreadyConsumed under the live contract.
-	req := f.recordRequest(f.sourceTree)
+	req := f.recordRequest()
 	req.BoundedJob = "fresh successor job"
 	req.Now = time.Unix(40, 0).UTC()
 	second, recordErr := runRecordProjectHandoffTx(f, req)
@@ -677,7 +677,7 @@ func TestManagedExecutionGateAdmitsAFreshConsumedFrontierAfterContractReplacemen
 	first := recordHandoff(t, f, f.sourceTree)
 	consumeHandoff(t, f, first.HandoffID)
 	seedReplacementProjectHandoffContract(t, f.store, f.workID, f.finalWorkVersion)
-	req := f.recordRequest(f.sourceTree)
+	req := f.recordRequest()
 	req.BoundedJob = "fresh successor job"
 	req.Now = time.Unix(40, 0).UTC()
 	second, err := runRecordProjectHandoffTx(f, req)
@@ -705,7 +705,7 @@ func TestManagedExecutionGateHoldsOnStaleUnconsumedHandoff(t *testing.T) {
 	// A fresh handoff under the active contract supersedes the stale one:
 	// the frontier is now the fresh handoff, and the gate still refuses
 	// while it stands unconsumed.
-	req := f.recordRequest(f.sourceTree)
+	req := f.recordRequest()
 	req.BoundedJob = "fresh successor job"
 	req.Now = time.Unix(40, 0).UTC()
 	second, recordErr := runRecordProjectHandoffTx(f, req)
@@ -1078,7 +1078,7 @@ func TestRetirementDriftRefusesReadinessOnNewerHandoffBetweenProbeAndFinalRead(t
 		t.Fatalf("retirement=%+v, want readiness before any interleaved change", ready)
 	}
 	drifted := retireWithProbeInterleave(t, f, func() {
-		req := f.recordRequest(f.sourceTree)
+		req := f.recordRequest()
 		req.BoundedJob = "successor job recorded mid-evaluation"
 		req.Now = time.Unix(60, 0).UTC()
 		req.ArtifactRefs = []string{f.artifactRef(t, f.sourceTree)}
@@ -1222,7 +1222,7 @@ func TestManagedExecutionGateAdmitsEverySessionOfTheReceivingProject(t *testing.
 	}
 	// The recovery stays the source-side fresh handoff under the active
 	// contract: consuming it reopens admission for every session.
-	req := f.recordRequest(f.sourceTree)
+	req := f.recordRequest()
 	req.BoundedJob = "successor job"
 	req.Now = time.Unix(40, 0).UTC()
 	second, recordErr := runRecordProjectHandoffTx(f, req)
@@ -1281,14 +1281,14 @@ func TestProjectHandoffSelectionsOrderByRecordedEventOrder(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
 	ctx := context.Background()
-	first := f.recordRequest(f.sourceTree)
+	first := f.recordRequest()
 	first.Now = time.Unix(40, 0).UTC()
 	first.ArtifactRefs = []string{"sha256:" + strings.Repeat("a", 64) + ":/first-artifact.txt"}
 	firstRec, err := runRecordProjectHandoffTx(f, first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second := f.recordRequest(f.sourceTree)
+	second := f.recordRequest()
 	second.BoundedJob = "the later recorded repository job"
 	second.ArtifactRefs = []string{"sha256:" + strings.Repeat("b", 64) + ":/second-artifact.txt"}
 	second.Now = time.Unix(40, 1).UTC()

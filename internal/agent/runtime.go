@@ -796,14 +796,6 @@ func newRuntimeFailure(kind, message, recovery string, retry bool) *runtimeFailu
 	return &runtimeFailure{kind: kind, message: message, recovery: recovery, retry: retry}
 }
 
-// newRouteFailure mints a refusal whose remedy is a declared route of
-// workflow actions rather than an operator. route is ordered: the caller
-// executes it front to back. unauthorized is deliberately absent from the
-// agentcontract recovery coupling table, so a refusal of that kind may name
-// the route it admits instead of the standing contact_operator default.
-func newRouteFailure(kind, message string, route ...string) *runtimeFailure {
-	return &runtimeFailure{kind: kind, message: message, recovery: "use_declared_route", retry: false, recoveryRefs: route}
-}
 func failureEnvelope(base agentcontract.Envelope, err error) agentcontract.Envelope {
 	// A failure marked EffectPossible followed a committed transaction
 	// (CD-0050 D2), so it must not read as a clean timeout even when its

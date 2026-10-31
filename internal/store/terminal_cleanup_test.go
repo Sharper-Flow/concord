@@ -97,9 +97,9 @@ func TestTerminalCleanupRetryOwnershipAndIssueIdentity(t *testing.T) {
 	if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM idempotency_records WHERE idempotency_key<>'non-work-request'`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("closed work retry rows remain: count=%d err=%v", count, err)
 	}
-	link, err := s.ReadLinearLinkByIssueKey(t.Context(), "SYN-123")
-	if err != nil || link.WorkID != "work-done" {
-		t.Fatalf("issue identity lost: %+v err=%v", link, err)
+	link, found, err := readLinearLinkCore(t.Context(), s.db, "work-done")
+	if err != nil || !found || link.WorkID != "work-done" || link.HumanKey != "SYN-123" {
+		t.Fatalf("issue identity lost: %+v found=%v err=%v", link, found, err)
 	}
 	err = ApplyOperation(t.Context(), s, Operation{Events: []Event{{EventID: "create-work-work-done", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-done", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: workCreatedCurrentVersion(), Payload: []byte(`{"work_kind":"task","title":"Late retry","priority":0}`)}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-done"): 0}})
 	assertFailureKind(t, err, KindProjectionNotFound)

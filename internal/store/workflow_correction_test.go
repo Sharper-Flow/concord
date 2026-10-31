@@ -1035,7 +1035,6 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedDuplicateContractProjection(t, s, workID, ownerRef)
-	seedWorkflowLawProjection(t, s)
 	var activeCount int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil {
 		t.Fatal(err)

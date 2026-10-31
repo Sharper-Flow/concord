@@ -138,12 +138,20 @@ func TestRoutineRecovery(t *testing.T) {
 		s := fixture.store
 		attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 		// A clone keeps the deleted mandate; complete successors may drop it
-		// or bind any current accepted law (CD-0036 D3).
+		// or bind any current accepted law (CD-0036 D3). The clone's contract
+		// mandates the pinned law, and the mandated law retires by deleting
+		// its committed file, the ordinary pull-request route.
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 			UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
-			DELETE FROM law_domain_homes WHERE law_id='spec:one';
-			DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
 			DELETE FROM write_guard`, workID); err != nil {
+			t.Fatal(err)
+		}
+		removeCommittedFixtureLaw(t, lawChangeFixtureHome(t, s), "spec:one")
+		// The wall reads the committed law folder inside its transaction, so
+		// the pre-transaction proof verifies the home after the retirement
+		// commit.
+		ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+		if err != nil {
 			t.Fatal(err)
 		}
 		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)

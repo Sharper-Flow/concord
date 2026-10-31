@@ -16,6 +16,8 @@ func TestWorkflowLawRevisionDeletedPinnedLawIsStale(t *testing.T) {
 	s := openTemp(t)
 	repo := initKnowledgeRepo(t)
 	home := KnowledgeHome{HomeProjectID: "p", HomeLocatorID: "l", RepoPath: repo, HeadRef: "HEAD"}
+	// seedWork first: it creates the shared Project the work membership needs.
+	seedWork(t, s, "deleted-law-pin")
 	// The committed law folder carries a registry and no spec:deleted: the
 	// pinned ID is not a current law file.
 	writeFixtureLawSource(t, home)
@@ -23,7 +25,6 @@ func TestWorkflowLawRevisionDeletedPinnedLawIsStale(t *testing.T) {
 	// Designate the committed folder as the Product's knowledge home, so the
 	// per-project verification resolves and binds it.
 	authorizeKnowledgeProductHome(t, s, "anchor-product-p", home, "p")
-	seedWork(t, s, "deleted-law-pin")
 	hash := "sha256:" + strings.Repeat("a", 64)
 	insertLawRevisionFixture(t, s, "deleted-law-pin", "spec:deleted", hash)
 	ctx, err := s.EstablishKnowledgeSourceSetProofForProject(context.Background(), "p")

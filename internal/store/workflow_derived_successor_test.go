@@ -30,11 +30,9 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			seedDerivedLawExtension(t, s)
 			// Both successor mandate candidates exist before this item's start.
 			// A research contract revises derived law; it cannot add new law.
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-				INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test');
-				DELETE FROM write_guard`); err != nil {
-				t.Fatal(err)
-			}
+			// spec:two exists when its committed file is on the default
+			// branch, so the successor candidate is a committed spec fixture.
+			commitFixtureLawFile(t, lawChangeFixtureHome(t, s), "spec:two", fixtureLawFolderLaw("spec:two"))
 			version := seedDerivedRevisionWorkflow(t, s, workID, actor)
 			// The initial contract declares spec:one in every scenario, so the
 			// CD-0230 D4 law-change inputs ride on the shared map; the
@@ -110,7 +108,7 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 					t.Errorf("active successor law_modifies=%s, want %s", stored, want)
 				}
 				revisions, err := readWorkflowLawRevisions(ctx, s.DatabaseForTesting(), workID, 2)
-				wantPins := []WorkflowLawRevision{{LawID: "spec:two", ContentHash: "sha256:" + strings.Repeat("b", 64)}}
+				wantPins := []WorkflowLawRevision{{LawID: "spec:two", ContentHash: fixtureLawFolderLawHash("spec:two")}}
 				if err != nil || !slices.Equal(revisions, wantPins) {
 					t.Fatalf("successor pins=%v, want %v: %v", revisions, wantPins, err)
 				}

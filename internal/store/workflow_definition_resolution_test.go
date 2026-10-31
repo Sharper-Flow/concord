@@ -349,12 +349,19 @@ func seedResolutionInvestigation(t *testing.T, s *Store, workID string) {
 
 // confirmResolutionPremise drives the confirm_premise constructor wrapper —
 // the entry dispatch itself calls — and folds the produced event through the
-// registered fold. It returns the constructor error so callers can assert
-// refusals, and folds only when construction succeeded.
+// registered fold. The proof the constructor's law and Domain reads
+// revalidate is prepared before the transaction opens, the same
+// pre-transaction preparation the owning boundary runs
+// (PrepareWorkflowActionProof). It returns the constructor error so callers
+// can assert refusals, and folds only when construction succeeded.
 func confirmResolutionPremise(t *testing.T, s *Store, registry DefinitionRegistry, definition WorkflowDefinition, workID string, actor WorkflowActor, operator *WorkflowActor, fields map[string]json.RawMessage) ([]Event, error) {
 	t.Helper()
+	ctx, err := s.PrepareWorkflowActionProof(context.Background(), "confirm_premise", workID)
+	if err != nil {
+		return nil, err
+	}
 	version := readWorkVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +372,7 @@ func confirmResolutionPremise(t *testing.T, s *Store, registry DefinitionRegistr
 	if operator != nil {
 		invoker = ownerRefForTest(t, *operator)
 	}
-	events, err := workflowConfirmPremiseEvents(context.Background(), tx, definition, WorkflowActionExecutionRequest{
+	events, err := workflowConfirmPremiseEvents(ctx, tx, definition, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise",
 		OperationID: "resolution-confirm-" + workID, Now: time.Unix(10, 30).UTC(),
 	}, invoker, fields, "resolution-confirm-"+workID, version)

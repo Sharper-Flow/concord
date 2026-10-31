@@ -60,16 +60,23 @@ func seedRoutineReviewersForSelection(t *testing.T, s *Store, workID string) (re
 
 // runEngineeringConfirmation invokes the confirm_premise constructor directly
 // on the seeded store: the sanctioned transactional seam for a definition the
-// builtin registry does not carry.
+// builtin registry does not carry. The proof the constructor's law and Domain
+// reads revalidate is prepared before the transaction opens, the same
+// pre-transaction preparation the owning boundary runs
+// (PrepareWorkflowActionProof).
 func runEngineeringConfirmation(t *testing.T, s *Store, definition WorkflowDefinition, workID, invokerRef string, fields map[string]json.RawMessage) ([]Event, error) {
 	t.Helper()
+	ctx, err := s.PrepareWorkflowActionProof(context.Background(), "confirm_premise", workID)
+	if err != nil {
+		return nil, err
+	}
 	version := readWorkVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	return workflowConfirmPremiseEventsForDefinition(context.Background(), tx, definition, WorkflowActionExecutionRequest{
+	return workflowConfirmPremiseEventsForDefinition(ctx, tx, definition, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", OperationID: "confirm-" + workID,
 	}, invokerRef, fields, "confirm-"+workID, version)
 }

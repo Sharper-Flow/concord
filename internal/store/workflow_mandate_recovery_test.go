@@ -32,21 +32,14 @@ func seedReservedLawAddition(t *testing.T, s *Store, workID string) {
 	}
 }
 
-// A law-subject row in the Git-derived projection. The recovery path never
-// reads it; the published-addition tests seed it to prove the refusal does
-// not move with projection state.
+// seedPublishedLawSubject commits the law file the reserved id names into the
+// fixture's committed home. The recovery path never reads committed law; the
+// published-addition tests commit the file to prove the refusal does not move
+// with published-law state.
 func seedPublishedLawSubject(t *testing.T, s *Store, lawID string) {
 	t.Helper()
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator',?,'decision','accepted','docs/decisions/`+lawID+`-other.md','Another work''s decision','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test')`, lawID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
+	commitWorkflowFixtureLaw(t, home, lawID, fixtureLawFolderLaw(lawID))
 }
 
 func seedMandateContract(t *testing.T, s *Store, workID string) {
@@ -106,9 +99,9 @@ func TestMandateRecoveryKeepsConditionalGuidanceForAnUnseenCollision(t *testing.
 	}
 }
 
-// A Git law projection row for the reserved id names no branch authorship
-// either: the projection can be stale or can carry another work's law, and
-// the store cannot read branch contents. The refusal is identical to the
+// A committed law file for the reserved id names no branch authorship either:
+// the store cannot read branch contents, so a published id still refuses
+// through the same conditional route. The refusal is identical to the
 // unseen collision's.
 func TestMandateRecoveryTreatsAPublishedAdditionLikeAnUnseenOne(t *testing.T) {
 	t.Parallel()

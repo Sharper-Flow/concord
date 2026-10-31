@@ -210,7 +210,8 @@ func lawSnapshotForSource(ctx context.Context, home KnowledgeHome, op string) (*
 	if proof == nil {
 		return nil, newFailure(KindInvalidOperation, op, "the knowledge home was not verified before this transaction", false, "verify the Product's knowledge home before the consequential transaction opens")
 	}
-	snapshot, ok := proof.snapshots[knowledgeSourceProofKey(home)]
+	key := knowledgeSourceProofKey(home)
+	snapshot, ok := proof.snapshots[key]
 	if !ok {
 		// A standalone verification records its failure for the consumer
 		// that demands the snapshot; that cause outranks the bare absence.
@@ -219,7 +220,48 @@ func lawSnapshotForSource(ctx context.Context, home KnowledgeHome, op string) (*
 		}
 		return nil, newFailure(KindInvalidOperation, op, "the knowledge home was not verified before this transaction", false, "verify the Product's knowledge home before the consequential transaction opens")
 	}
-	return snapshot, nil
+	for _, source := range proof.sources {
+		if knowledgeSourceProofKey(source) == key {
+			if err := proof.revalidateSource(source, op); err != nil {
+				return nil, err
+			}
+			return snapshot, nil
+		}
+	}
+	return nil, newFailure(KindInvalidOperation, op, "knowledge home "+key+" carries no verified law snapshot", false, "verify the Product's knowledge home again before the consequential transaction opens")
+}
+
+// revalidateSource confirms, inside the transaction, that one verified
+// source's committed law content is still what its snapshot was read from.
+// The head may have moved past the verified revision by a commit that touches
+// no law content — that commit is itself part of the verified state (PM1
+// §3.3) — so the check compares the law folder and registry OIDs, never the
+// head alone. It uses only small file reads (resolveKnowledgeHeadCheap and
+// the cheap object walk), so it stays inside CD-0195 D2.
+func (proof *knowledgeSourceSetProof) revalidateSource(source KnowledgeHome, op string) error {
+	key := knowledgeSourceProofKey(source)
+	verified := proof.revisions[key]
+	if proof.snapshots[key] == nil || verified.head == "" {
+		return newFailure(KindInvalidOperation, op, "knowledge home "+key+" carries no verified law snapshot", false, "verify the Product's knowledge home again before the consequential transaction opens")
+	}
+	head, err := resolveKnowledgeHeadCheap(source.RepoPath, source.HeadRef)
+	if err != nil {
+		return wrapFailure(KindInvalidOperation, op, "the git head of knowledge home "+key+" cannot be re-validated inside the transaction", false, "verify the Product's knowledge home again before the consequential transaction opens", err)
+	}
+	if head == verified.head {
+		return nil
+	}
+	cheap, err := resolveLawSourceOIDsCheap(source.RepoPath, source.HeadRef)
+	if err != nil {
+		return wrapFailure(KindInvalidOperation, op, "the law content of knowledge home "+key+" cannot be re-validated inside the transaction", false, "verify the Product's knowledge home again before the consequential transaction opens", err)
+	}
+	if cheap.head != head {
+		return newFailure(KindInvalidOperation, op, "knowledge home "+key+" cannot be re-validated against its resolved head inside the transaction", false, "verify the Product's knowledge home again before the consequential transaction opens")
+	}
+	if cheap.lawTreeOID == verified.lawTreeOID && cheap.registryOID == verified.registryOID {
+		return nil
+	}
+	return newFailure(KindInvalidOperation, op, "knowledge home "+key+" moved its committed law content after its verification", false, "verify the Product's knowledge home again before the consequential transaction opens")
 }
 
 // sourceBoundInProof reports whether the pre-transaction proof carries a
@@ -557,33 +599,9 @@ func requireKnowledgeSourcesProof(ctx context.Context, q queryer, productID stri
 		if live, ok := current[key]; !ok || live.RepoPath != source.RepoPath || live.HeadRef != source.HeadRef {
 			return newFailure(KindInvalidOperation, "check_mandated_laws", "knowledge home "+key+" resolved to a different canonical location after its verification", false, "verify the Product's knowledge home again before the consequential transaction opens")
 		}
-		verified := proof.revisions[key]
-		snapshot := proof.snapshots[key]
-		if snapshot == nil || verified.head == "" {
-			return newFailure(KindInvalidOperation, "check_mandated_laws", "knowledge home "+key+" carries no verified law snapshot", false, "verify the Product's knowledge home again before the consequential transaction opens")
+		if err := proof.revalidateSource(source, "check_mandated_laws"); err != nil {
+			return err
 		}
-		head, headErr := resolveKnowledgeHeadCheap(source.RepoPath, source.HeadRef)
-		if headErr != nil {
-			return wrapFailure(KindInvalidOperation, "check_mandated_laws", "the git head of knowledge home "+key+" cannot be re-validated inside the transaction", false, "verify the Product's knowledge home again before the consequential transaction opens", headErr)
-		}
-		if head == verified.head {
-			continue
-		}
-		// PM1 §3.3: the head may have moved past the verified revision by a
-		// commit that touches no law content — that commit is itself part of
-		// the verified state. The cheap content walk compares the law folder
-		// and registry OIDs, never the head alone.
-		cheap, cheapErr := resolveLawSourceOIDsCheap(source.RepoPath, source.HeadRef)
-		if cheapErr != nil {
-			return wrapFailure(KindInvalidOperation, "check_mandated_laws", "the law content of knowledge home "+key+" cannot be re-validated inside the transaction", false, "verify the Product's knowledge home again before the consequential transaction opens", cheapErr)
-		}
-		if cheap.head != head {
-			return newFailure(KindInvalidOperation, "check_mandated_laws", "knowledge home "+key+" cannot be re-validated against its resolved head inside the transaction", false, "verify the Product's knowledge home again before the consequential transaction opens")
-		}
-		if cheap.lawTreeOID == verified.lawTreeOID && cheap.registryOID == verified.registryOID {
-			continue
-		}
-		return newFailure(KindInvalidOperation, "check_mandated_laws", "knowledge home "+key+" moved its committed law content after its verification", false, "verify the Product's knowledge home again before the consequential transaction opens")
 	}
 	return nil
 }

@@ -77,7 +77,12 @@ func conformanceCheckpoint(t *testing.T, s *Store, registry DefinitionRegistry, 
 
 func conformanceFold(t *testing.T, s *Store, registry DefinitionRegistry, workID string, definition WorkflowDefinition, label string) WorkflowAdmissionState {
 	t.Helper()
-	ctx := context.Background()
+	// The fold reads the work's law and registry state; production prepares
+	// that proof before the read transaction opens (PrepareWorkLawProof).
+	ctx, err := s.PrepareWorkLawProof(context.Background(), workID)
+	if err != nil {
+		t.Fatalf("%s: prepare law proof: %v", label, err)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatalf("%s: begin: %v", label, err)

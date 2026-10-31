@@ -87,10 +87,16 @@ func approvalKindEvidenceCount(t *testing.T, s *Store, workID string) int {
 
 // foldedApprovalAdmission loads the tx-scoped admission state for one work
 // item through the shared loader, in one short read transaction so the pooled
-// connection is released before the next store call.
+// connection is released before the next store call. The proof the fold's law
+// and Domain reads revalidate is prepared before the transaction opens, the
+// same pre-transaction preparation the owning boundary runs
+// (PrepareWorkflowActionProof).
 func foldedApprovalAdmission(t *testing.T, s *Store, registry DefinitionRegistry, definition WorkflowDefinition, workID string) WorkflowAdmissionState {
 	t.Helper()
-	ctx := context.Background()
+	ctx, err := s.PrepareWorkflowActionProof(context.Background(), "confirm_premise", workID)
+	if err != nil {
+		t.Fatalf("prepare the confirm_premise proof: %v", err)
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

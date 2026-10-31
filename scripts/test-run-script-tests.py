@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for the changed-file script suite selector.
 
-The selector spawns suites with the hook-inherited Git environment cleared;
+The selector spawns suites with any inherited local Git environment cleared;
 scripts/git_environment.py owns that namespace and is tested
 here alongside the selector boundary that uses it.
 """
@@ -562,8 +562,9 @@ class GitEnvironmentTest(unittest.TestCase):
 class HookEnvironmentLeakTest(unittest.TestCase):
     """Suite children must not inherit a hook's Git environment.
 
-    A hook invokes the real selector runner with Git's local environment
-    variables set for the outer repository. The runner executes selected
+    A Git hook or other Git-launched process that invokes the real selector
+    runner passes Git's local environment variables set for the outer
+    repository. The runner executes selected
     suites as children, so an inherited variable redirects every git call a
     suite makes into the outer repository, or refuses it outright. The real
     runner runs here under hook-like inherited variables that point only at a

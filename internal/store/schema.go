@@ -8396,18 +8396,36 @@ DROP TABLE law_subjects;
 DROP TABLE knowledge_kind_coverage;
 DROP TABLE knowledge_index_watermark;
 DROP TABLE knowledge_publication_observations;
+-- The committed Domain registry is read from Git at each use, so its SQL
+-- projection has no writer. Domain observations validate their Domain against
+-- that committed registry in the fold, so the row drops its key to the
+-- projection.
+CREATE TEMP TABLE domain_observations_v174 AS SELECT * FROM domain_observations;
+DROP TABLE domain_observations;
+DROP TABLE domain_architecture_relations;
+DROP TABLE domains;
+DROP TABLE domain_registries;
+CREATE TABLE domain_observations (
+    observation_id TEXT PRIMARY KEY CHECK(length(observation_id) = 20 AND substr(observation_id,1,4) = 'dob:'),
+    product_id TEXT NOT NULL,
+    domain_id  TEXT NOT NULL,
+    statement TEXT NOT NULL CHECK(length(statement) > 0 AND length(statement) <= 512),
+    refs TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(refs) AND json_type(refs)='array' AND json_array_length(refs) <= 16),
+    tags TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(tags) AND json_type(tags)='array' AND json_array_length(tags) <= 8),
+    state TEXT NOT NULL CHECK(state IN ('open','dismissed')),
+    recorded_at TEXT NOT NULL,
+    dismissed_at TEXT,
+    CHECK((state = 'dismissed') = (dismissed_at IS NOT NULL))
+);
+INSERT INTO domain_observations SELECT * FROM domain_observations_v174;
+DROP TABLE domain_observations_v174;
+CREATE INDEX domain_observations_open ON domain_observations(product_id, domain_id, state, recorded_at);
+CREATE TRIGGER domain_observations_guard_insert BEFORE INSERT ON domain_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_observations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER domain_observations_guard_update BEFORE UPDATE ON domain_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_observations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER domain_observations_guard_delete BEFORE DELETE ON domain_observations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'domain_observations is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TRIGGER project_locators_referenced_by_knowledge_no_delete
 BEFORE DELETE ON project_locators FOR EACH ROW
 WHEN     EXISTS (SELECT 1 FROM archived_work k
-            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
- OR
-    EXISTS (SELECT 1 FROM domains k
-            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
- OR
-    EXISTS (SELECT 1 FROM domain_registries k
-            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
- OR
-    EXISTS (SELECT 1 FROM domain_architecture_relations k
             WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
 BEGIN
     SELECT RAISE(ABORT, 'Project locator is referenced by Git-derived knowledge');

@@ -1078,8 +1078,14 @@ func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, r
 		}
 		plan.declareInitialDurability(true)
 	}
+	// Declared refs that name law resolve through the verified committed law
+	// folder, so the proof precedes both governing-requirement checks.
+	verifiedCtx, proofErr := r.Store.EstablishKnowledgeSourceSetProofForProject(ctx, in.ProjectIDs[0])
+	if proofErr != nil {
+		return failureEnvelope(base, proofErr), nil, true
+	}
 	productIDs := captureProductIDs(productsByProject)
-	if err := r.Store.ValidateCaptureGoverningRequirements(ctx, productIDs, applicable, in.GoverningRequirements); err != nil {
+	if err := r.Store.ValidateCaptureGoverningRequirements(verifiedCtx, productIDs, applicable, in.GoverningRequirements); err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
 	for _, product := range productIDs {
@@ -1088,15 +1094,11 @@ func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, r
 		}
 	}
 	plan.scope["project_ids"] = in.ProjectIDs
-	verifiedCtx, proofErr := r.Store.EstablishKnowledgeSourceSetProofForProject(ctx, in.ProjectIDs[0])
-	if proofErr != nil {
-		return failureEnvelope(base, proofErr), nil, true
-	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 		if len(governingScope.Missing()) > 0 && !containsCapability(grant.Capabilities, agentcontract.Capability("cross_scope")) {
 			return nil, nil, nil, &store.Failure{Kind: store.KindUnauthorized, Op: "capture", Detail: "a governing-requirement scope cut requires cross_scope capability", RecoveryAction: "contact_operator", Violations: governingScope.Missing()}
 		}
-		if err := store.ValidateCaptureGoverningRequirementsTx(ctx, tx, in.ProjectIDs, governingScope); err != nil {
+		if err := store.ValidateCaptureGoverningRequirementsTx(verifiedCtx, tx, in.ProjectIDs, governingScope); err != nil {
 			return nil, nil, nil, err
 		}
 		return r.applyCaptureTx(verifiedCtx, tx, grant, in, digest, workID, registeredDefinition)

@@ -45,7 +45,8 @@ const (
 )
 
 // lawIndexRetiredPrefixes covers every retired table plus the guards and
-// indexes that belong to it. law_cross_source_relations and
+// indexes that belong to it, including the Domain registry projection the
+// index rebuild alone wrote. law_cross_source_relations and
 // compaction_publications left the schema at migrations 164 and 153; their
 // continued absence stays part of this contract so a conditional drop of
 // them cannot fail the retirement on an already-missing table.
@@ -53,6 +54,7 @@ var lawIndexRetiredPrefixes = []string{
 	"law_subjects", "law_relations", "law_cross_source_relations", "law_bodies",
 	"law_domain_homes", "law_domain_applicability", "domain_relation_governing_laws",
 	"knowledge_kind_coverage", "knowledge_index_watermark", "knowledge_publication_observations",
+	"domain_registries", "domains", "domain_architecture_relations",
 	"compaction_publications",
 }
 
@@ -61,7 +63,7 @@ var lawIndexPreservedTables = []string{
 	"projects", "project_locators", "products", "product_projects", "product_knowledge_homes",
 	"work_items", "work_projects", "external_observations", "workflow_overlap_resolutions",
 	"archived_work", "archived_work_products", "archived_work_projects",
-	"archived_work_domains", "archived_work_tags",
+	"archived_work_domains", "archived_work_tags", "domain_observations",
 }
 
 // lawIndexSubjectSeed is one legacy law row set: the stable ID, the path the
@@ -184,6 +186,8 @@ func lawIndexRetirementFixture(t *testing.T, repo, homePath, commit string, subj
 			`INSERT INTO `+table+`(home_project_id, home_locator_id, work_id, `+scope[0]+`) VALUES('project-upgrade', ?, 'law-index-archive', ?)`, //nolint:gosec // table and column come from the closed scope map above and every value stays parameter-bound.
 			lawIndexRetirementLocator, scope[1])
 	}
+	seedExec(
+		`INSERT INTO domain_observations(observation_id,product_id,domain_id,statement,refs,tags,state,recorded_at) VALUES('dob:0000000000000174','product-upgrade','child','The observation survives the projection drop.','[]','[]','open','2026-08-07T12:00:00Z')`)
 	seedExec(`DELETE FROM write_guard`)
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)

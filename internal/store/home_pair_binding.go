@@ -14,9 +14,6 @@ import (
 // cannot drift apart.
 var knowledgeHomePairTables = []string{
 	"archived_work",
-	"domains",
-	"domain_registries",
-	"domain_architecture_relations",
 }
 
 // knowledgeLocatorDeleteGuardName is the migration 52 trigger that refuses

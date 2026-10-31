@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -109,16 +109,9 @@ func governingRequirementsForProjectIDs(ctx context.Context, q queryer, ids []st
 	return out, rows.Err()
 }
 
-// knownGoverningRequirementRefsForProducts returns the registered governing
-// requirement refs plus the current law IDs of each Product's designated law
-// homes. The law IDs come from the verified committed law-folder snapshots the
-// pre-transaction proof carries; the capture transaction runs this check, so a
-// home without a verified snapshot refuses rather than answering from a stale
-// projection.
-func knownGoverningRequirementRefsForProducts(ctx context.Context, q queryer, productIDs []string) ([]string, error) {
-	if len(productIDs) == 0 {
-		return nil, nil
-	}
+// registeredGoverningRequirementRefsForProducts returns the governing
+// requirement refs registered on any Project of the Products.
+func registeredGoverningRequirementRefsForProducts(ctx context.Context, q queryer, productIDs []string) (map[string]bool, error) {
 	placeholders := make([]string, len(productIDs))
 	args := make([]any, len(productIDs))
 	for i, id := range productIDs {
@@ -126,47 +119,21 @@ func knownGoverningRequirementRefsForProducts(ctx context.Context, q queryer, pr
 	}
 	query := `SELECT DISTINCT requirement_ref FROM project_governing_requirements WHERE project_id IN (
 		SELECT project_id FROM product_projects WHERE product_id IN (` + strings.Join(placeholders, ",") + `)
-	) ORDER BY 1`
+	)`
 	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "resolve_governing_requirement_refs", "cannot resolve registered governing requirements", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
-	seen := map[string]bool{}
-	var refs []string
+	refs := map[string]bool{}
 	for rows.Next() {
 		var ref string
 		if err := rows.Scan(&ref); err != nil {
 			return nil, err
 		}
-		if !seen[ref] {
-			seen[ref] = true
-			refs = append(refs, ref)
-		}
+		refs[ref] = true
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	for _, productID := range productIDs {
-		sources, err := resolveKnowledgeQuerySources(ctx, q, productID, "resolve_governing_requirement_refs")
-		if err != nil {
-			return nil, err
-		}
-		for _, source := range sources {
-			snapshot, err := lawSnapshotForSource(ctx, source, "resolve_governing_requirement_refs")
-			if err != nil {
-				return nil, err
-			}
-			for _, lawID := range snapshot.LawIDs() {
-				if !seen[lawID] {
-					seen[lawID] = true
-					refs = append(refs, lawID)
-				}
-			}
-		}
-	}
-	sort.Strings(refs)
-	return refs, nil
+	return refs, rows.Err()
 }
 
 // ValidateCaptureGoverningRequirements refuses declared refs that resolve in
@@ -175,23 +142,52 @@ func (s *Store) ValidateCaptureGoverningRequirements(ctx context.Context, produc
 	return validateCaptureGoverningRequirements(ctx, s.db, productIDs, applicable, declared)
 }
 
+// validateCaptureGoverningRequirements resolves each declared ref against the
+// applicable set, then the Products' registered requirements, then the law
+// IDs committed in each Product's designated law home. A Product without a
+// designated home holds no Product law. Law IDs come only from the verified
+// law-folder snapshot the pre-transaction proof carries, so a capture whose
+// declared refs resolve without law reads no law and needs no proof.
 func validateCaptureGoverningRequirements(ctx context.Context, q queryer, productIDs, applicable, declared []string) error {
 	if err := validateDeclaredGoverningRequirements(declared); err != nil {
 		return err
 	}
-	known, err := knownGoverningRequirementRefsForProducts(ctx, q, productIDs)
-	if err != nil {
-		return err
+	unresolved := map[string]bool{}
+	for _, ref := range declared {
+		if !slices.Contains(applicable, ref) {
+			unresolved[ref] = true
+		}
 	}
-	resolved := make(map[string]struct{}, len(applicable)+len(known))
-	for _, ref := range applicable {
-		resolved[ref] = struct{}{}
+	if len(unresolved) > 0 && len(productIDs) > 0 {
+		registered, err := registeredGoverningRequirementRefsForProducts(ctx, q, productIDs)
+		if err != nil {
+			return err
+		}
+		for ref := range registered {
+			delete(unresolved, ref)
+		}
 	}
-	for _, ref := range known {
-		resolved[ref] = struct{}{}
+	for _, productID := range productIDs {
+		if len(unresolved) == 0 {
+			break
+		}
+		candidates, err := productKnowledgeHomeCandidates(ctx, q, productID)
+		if err != nil {
+			return err
+		}
+		if len(candidates) == 0 {
+			continue
+		}
+		snapshot, err := lawSnapshotForProduct(ctx, q, productID, "resolve_governing_requirement_refs")
+		if err != nil {
+			return err
+		}
+		for _, lawID := range snapshot.LawIDs() {
+			delete(unresolved, lawID)
+		}
 	}
 	for _, ref := range declared {
-		if _, ok := resolved[ref]; !ok {
+		if unresolved[ref] {
 			return newFailure(KindProjectionNotFound, "capture", fmt.Sprintf("governing requirement %q is not registered or accepted; declare the requirement on the Project or name an accepted law ID", ref), false, "reread_entities")
 		}
 	}

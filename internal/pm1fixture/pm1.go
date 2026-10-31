@@ -94,7 +94,9 @@ type GitKnowledge struct {
 
 const (
 	FixtureDomainRegistryContentHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	FixtureRootDomainID              = "root"
+	// FixtureRootDomainID is the root Domain SeedCommittedProductDomain
+	// commits for product-1, the Product nearly every caller seeds.
+	FixtureRootDomainID = "product-root:fixture-product-1"
 )
 
 // SeedCommittedProductDomain designates a real git knowledge home for a
@@ -105,11 +107,13 @@ const (
 // registry nobody has read. It returns the home so a test can move its head
 // or inspect the derived hash.
 func SeedCommittedProductDomain(ctx context.Context, s *store.Store, productID, homeProjectID, dir string) (store.KnowledgeHome, error) {
+	// A registry's root Domain is named for its Product key.
+	root := "product-root:fixture-" + productID
 	registry := store.KnowledgeDomainRegistry{
 		SchemaVersion: "1.0",
 		ProductKey:    "fixture-" + productID,
-		RootDomainID:  FixtureRootDomainID,
-		Domains: []store.KnowledgeDomain{{DomainID: FixtureRootDomainID, Name: "Fixture root",
+		RootDomainID:  root,
+		Domains: []store.KnowledgeDomain{{DomainID: root, Name: "Fixture root",
 			Purpose: "Product law fixture", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}}},
 	}
 	return SeedProductDomainRegistry(ctx, s, productID, homeProjectID, dir, registry)

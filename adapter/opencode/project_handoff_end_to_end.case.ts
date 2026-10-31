@@ -219,7 +219,7 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
       await Bun.write(join(repo, "AGENTS.md"), repo === repoReceive ? "Synthetic receiver instructions: preserve the bounded handoff.\n" : "Synthetic source instructions: record the bounded handoff.\n")
       await mkdir(join(repo, "oraclekit"))
       await mkdir(join(repo, "test-oracle"))
-      await Bun.write(join(repo, "go.mod"), "module example.test/handoff\n\ngo 1.26.0\ntoolchain go1.26.7\n")
+      await Bun.write(join(repo, "go.mod"), "module example.test/handoff\n\ngo 1.26.0\ntoolchain go1.26.10\n")
       await Bun.write(join(repo, "oraclekit/oracle.go"), "package oraclekit\n\nfunc HandoffReady() bool { return true }\n")
       await Bun.write(join(repo, "oraclekit/oracle_test.go"), 'package oraclekit\n\nimport "testing"\n\nfunc TestHandoffReady(t *testing.T) { if !HandoffReady() { t.Fatal("handoff not ready") } }\n')
       await Bun.write(join(repo, "test-oracle/manifest.json"), JSON.stringify({ kind: "go_top_level_v1", package_cwd: "oraclekit", test_files: ["oraclekit/oracle_test.go"], fixture_files: [], cases: { "case:handoff": ["TestHandoffReady"] } }))

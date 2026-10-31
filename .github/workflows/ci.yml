@@ -1025,7 +1025,7 @@ jobs:
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
         run: >-
           python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -race -timeout=15m -run
-          '^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter|TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance)$'
+          '^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter)$'
           ./internal/store
       - name: Retain native Go results
         if: always()

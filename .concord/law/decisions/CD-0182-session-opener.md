@@ -70,18 +70,21 @@ The job names its receiving Project, shared work item, and active contract.
 The source session records that job as a typed handoff on the work item.
 The record carries the changes, the verification results, the immutable
 artifact references, the open blockers, and the exact next action. The
-source session verifies its changed artifacts against the claimed worktree
-before the record commits: a dirty or untracked worktree refuses, and the
-core never commits, stashes, or hides files.
+source session verifies its changed artifacts against the host-reported
+worktree it runs in before the record commits: an artifact outside that
+worktree, a dirty worktree, or an untracked file refuses, and the core never
+commits, stashes, or hides files.
 
 The receiving session consumes the recorded handoff before it runs any
 managed external effect. The consume binds the record to the work item
-and its addressed receiving Project under the current contract: any
-coordinator session with a verified landing in the receiving Project may
-act under the frontier handoff's bind, and every such session reads
-the frontier's bounded job.
-A session without a verified landing, or in another Project, stays
-refused. A missing, wrong-target, or stale handoff refuses.
+and its addressed receiving Project under the current contract. Any
+coordinator session whose directory resolves the receiving Project, a member
+of the work, may act under the frontier handoff's bind, and every such
+session reads the frontier's bounded job. The directory is the
+authenticated session directory that resolves the Project for every Concord
+call (CD-0178 D2); Concord records no separate placement for the bind.
+A session that resolves no member Project, or resolves another Project,
+stays refused. A missing, wrong-target, or stale handoff refuses.
 Managed-execution admission fails closed while an unconsumed or stale
 handoff stands, and a contract replacement refuses the stale bind equally
 for the consuming session and a later session of the Project.
@@ -100,8 +103,11 @@ changed artifacts verify preserved, its nonterminal actions stopped, and its
 retained departure checks pass. Host tools own the physical move; no Concord
 vacate or occupancy-release writer is required. Retirement never completes or
 cancels the shared work, removes a worktree, or terminates a process. The
-continuity snapshot carries the newest unconsumed handoff.
-The receiving Project's resume names the bounded job without operator copying.
+continuity snapshot carries the newest handoff addressed to the reading
+session's Project under the active contract, consumed or not. A read from
+any other Project carries the work's newest unconsumed handoff.
+The receiving Project's continuity read names the bounded job without
+operator copying.
 
 ## Alternatives considered
 
@@ -140,28 +146,28 @@ Host tools own within-repository placement too.
   TestLauncherAndCommandCarryNoMultiplexerKnowledge` proves the binaries
   stay multiplexer-free.
 - `go test ./internal/store/ -run
-  TestManagedExecutionGateAdmitsEveryPlacedSessionOfTheReceivingProject`
-  proves D5's widened bind: a second landed session of the receiving
-  Project dispatches under a frontier the first session consumed, the
-  stale-bind refusal after a contract replacement is equal for both
-  sessions, and an unverified or wrong-Project session stays refused.
+  TestManagedExecutionGateAdmitsEverySessionOfTheReceivingProject`
+  proves D5's widened bind: a second session of the receiving Project
+  dispatches under a frontier the first session consumed, the stale-bind
+  refusal after a contract replacement is equal for both sessions, and a
+  session that resolves no Project stays refused.
   `go test ./internal/store/ -run
+  TestManagedExecutionGateRefusesUnresolvedProjectOnHandoffBearingWork`
+  proves an unresolved or non-member Project refuses admission on
+  handoff-bearing work. `go test ./internal/store/ -run
   TestProjectHandoffConsumeResolvesTheSharedBindForEverySessionOfTheProject`
   proves the consume resolves the shared bind for a second session and
-  refuses an unplaced session's replay at the placement boundary, and
+  refuses a replay from a session that resolves no Project, and
   `go test ./internal/store/ -run
-  TestBootResumeRendersTheConsumedFrontierToEveryPlacedSessionOfTheProject`
+  TestContinuityRendersTheAddressedFrontierToTheReceivingProject`
   proves the widened frontier read. `go test ./internal/store/ -run
   TestManagedExecutionGateKeepsTheWrongProjectBindRefusedAndSourceExecutionAdmitted`
-  proves the widened bind never crosses Projects: a session placed in the
-  source Project acquires no bind while that Project's own execution stays
+  proves the widened bind never crosses Projects: a session of the source
+  Project acquires no bind while that Project's own execution stays
   admitted. `go test ./internal/store/ -run
-  TestConsumedSharedBindSurvivesTheOriginalReceiverVacate` proves the
-  widened bind's lifetime: after the original receiver's recorded departure
-  makes its own admission fail closed, a
-  second landed session of the receiving Project still dispatches under
-  the standing bind, and its consume replay resolves as already consumed
-  with no second consumed event. `bun test
+  TestProjectHandoffConsumeAdmissionAndRetirementWithoutOwnershipRows`
+  proves record, consume, admission, and retirement succeed with no Concord
+  ownership row. `bun test
   adapter/opencode/project_handoff_end_to_end.test.ts`
   exercises the receiving session's bounded job and standing bind.
 - `python3 scripts/check-knowledge-index.py` and

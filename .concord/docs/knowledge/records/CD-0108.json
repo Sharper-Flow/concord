@@ -20,7 +20,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e4b250aba6756e4e9820553162a19f8d5c030537913eda51be8dece60bf9aa9d",
+  "sha256": "sha256:51249f7fd81c5056844267aa81f07cce92702d0838ca08da485547a9a10b4c54",
   "status": "accepted",
   "summary": "The ZLauncher replacement role is retired: the session entry route, its verbs, and its resume and pass-through duties are removed with no compatibility alias, and the host starts and resumes operator sessions. Managed entry writes only through the typed mutation surface, and no entry surface places a terminal surface or performs a durable store write.",
   "tags": [

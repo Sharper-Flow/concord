@@ -39,7 +39,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:37cd91c7f57524124daa76ec7cf0325455cd5552952b3ba537482fbf609462b7",
+  "sha256": "sha256:89eeacf1d6d8c7cfa7ffabe1a74af22a13f7b2851b7071ed6be632c529be3d71",
   "status": "accepted",
   "summary": "Defines typed current-state ownership and the separate research aggregate, which only explicit eligible research_retire may delete.",
   "tags": [

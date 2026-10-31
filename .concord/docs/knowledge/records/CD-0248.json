@@ -28,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0944800734156fe6d09285ee320399f90c1f5ae1253c0ae2189edb545e3f2dd0",
+  "sha256": "sha256:0fbaebe53382f8da3edd77e9312c8706fa5ddfe329b44e72d72a8647f8f4dc99",
   "status": "accepted",
   "summary": "Applicable footprint checks bind declared commands to executable owners. Native receipts, local verification, required CI and accepted Review establish candidate-specific execution and assertion adequacy without worker-job binding. Required continuity obligations remain unproved until checked bindings, passing execution and independent Review establish them. Existing proof, subject, refinement and Review gates keep their owners; no new receipt system or automatic footprint refusal is added.",
   "tags": [

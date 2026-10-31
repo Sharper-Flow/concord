@@ -88,7 +88,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5f6f79fbbb412d4cd989e3d6e7506225ddf9ff9519512c8f0ffe6d3e1e0fc7c1",
+  "sha256": "sha256:6a83a6caf804ff7bbfdf31d983c2a31ba0572ad012e4cef852f93da6fbb2bb0f",
   "status": "accepted",
   "summary": "Assigns planning to Linear through the Linear MCP server, keeps managed workflow, review, merge, isolation, and law authority in their existing owners, and preserves the outside-work and defect-repair boundaries.",
   "tags": [

@@ -53,7 +53,7 @@ directory, model or execution identity that produced them under CD-0242 D5/D6.
 
 ### D2. One coordinator session per repository
 
-Every coordinator session with a verified landing in the receiving Project
+Every coordinator session whose directory resolves the receiving Project
 may use the shared handoff bind and dispatch under it
 ([CD-0182](CD-0182-session-opener.md)). Repository-local execution and the refusal
 of a move into another repository stay unchanged.

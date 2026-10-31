@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6316d573a3d80c7db95d86551b485c4bb48cf739082040304cfa6b05d6ebf5c8",
+  "sha256": "sha256:5aad20dc3c1be13ff53c10c04278c5aefdd5a95aa3967a636358d4589b9831f0",
   "status": "accepted",
   "summary": "A per-turn runtime hook in the adapter plugin entry re-asserts the CD-0016 pinned continuity projection after context boundaries, closing the mid-session window where compaction leaves workflow position carried only by a summary. The hook holds no authority: it transports bytes rendered by the sessionboot.Build path, replaces its sentinel-delimited block in place for prompt-cache byte-stability, gates its core spawn by a bounded time window, and degrades to silence on any failure. ContinuitySnapshot gains step_actions as durable-state projection, recorded as agent-tool surface 2.4.0.",
   "tags": [

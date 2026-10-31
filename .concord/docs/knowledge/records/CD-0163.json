@@ -31,9 +31,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f8b9c225002b72bf5c91f94b369848d74edb18d19e0220751e4713d191fe15fd",
+  "sha256": "sha256:3c655679783d3a0d084a2965cef7097b8e0afb19c9539d2e8971b3be32046c0e",
   "status": "accepted",
-  "summary": "No Concord component creates, names, splits, focuses, or destroys a tab, pane, window, or session: the host owns placement and starts and resumes operator sessions, and a host-started session enters managed work through concord_work_start. The boundary binds every Concord binary with no session entry route; the entry route's resume and pass-through duties retired with it.",
+  "summary": "No Concord component creates, names, splits, focuses, or destroys a tab, pane, window, or session. The host starts and resumes sessions and owns terminal and worktree placement. Workflow position comes from canonical continuity, not a terminal session identifier.",
   "tags": [
     "operator-surface",
     "boundary"

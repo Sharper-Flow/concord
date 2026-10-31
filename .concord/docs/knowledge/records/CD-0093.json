@@ -16,9 +16,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f04b7a8d413bc50c47f18fdd9f32dffcb4c1e43376f12d5b1285770712b3cea4",
+  "sha256": "sha256:31555edb47a4981ec1a645a13115239fc8c836d1dffc424cbf6471aa3e6369ad",
   "status": "accepted",
-  "summary": "A managed session's work resolves from its active claim and directory: session-prepare uses the claimed worktree directory alone for agent resolution, the single bounded calling-host registry probe, and the context read, and refuses any other directory or a failed probe before managed action. The launch landing and the configured launch command are retired.",
+  "summary": "Session preparation resolves the host-placed worktree to a registered Project and verifies work and Product scope without a claim. The same directory governs agent resolution, one bounded calling-host registry probe, and context; invalid scope, main checkout, or failed identity and registry checks refuse before managed action.",
   "tags": [
     "session-prepare",
     "session-boot"

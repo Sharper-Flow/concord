@@ -13,8 +13,6 @@
   },
   "date": "2026-08-05T00:00:00Z",
   "evidence": [
-    "internal/store/worktrees.go",
-    "internal/store/worktrees_test.go",
     "internal/agent/trunk_firewall_test.go"
   ],
   "home_domain_id": "durable-authority",
@@ -28,7 +26,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:aa15ba5a5f1e2875268a5a713e59c520a3bb1477ba5c71945e4b4cc482011566",
+  "sha256": "sha256:a0cc0af67951f55c5ac77a221f110d32d30a1ba659b2adc8eb977c34131b12f6",
   "status": "accepted",
   "summary": "Defines unreadable-record isolation and durable evidence hardening.",
   "tags": [

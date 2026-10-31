@@ -18,7 +18,7 @@ An operator can run the host through a wrapper program. Host tools place the
 session under CD-0088 D1.
 session-prepare must verify the registry that the calling host resolves. It probes the
 calling host once, under the calling host's inherited environment, in the
-claimed worktree.
+session's directory.
 
 ## Decision
 
@@ -28,7 +28,7 @@ The host owns session placement. Concord starts no host process.
 
 ### D2. The registry session-prepare verifies is the one the calling host resolves
 
-session-prepare runs one bare registry probe in the claimed worktree under
+session-prepare runs one bare registry probe in the session's directory under
 the calling host's inherited environment. That environment resolves the
 registry the calling session runs with, so the verification constrains the
 host that executes. The probe is bounded: one probe, one document, no second
@@ -53,7 +53,7 @@ ships no wrapper name and hard-codes none.
 ## Costs
 
 - session-prepare's probe cost is unchanged: one bare probe per prepared
-  session, in the claimed worktree.
+  session, in the session's directory.
 
 ## Alternatives considered
 

@@ -14,9 +14,9 @@ import (
 // output keeps naming the fixture that produced it.
 func agentFixtureProductEvents(prefix, productID, projectID, productName, projectName, reason string) []store.Event {
 	return []store.Event{
-		{EventID: prefix + "-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("product.created"), Payload: json.RawMessage(`{"display_name":"` + productName + `","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: prefix + "-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"` + projectName + `"}`)},
-		{EventID: prefix + "-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("product_project.added"), Payload: json.RawMessage(`{"product_id":"` + productID + `","project_id":"` + projectID + `","role":"primary","reason":"` + reason + `","expected_version":1,"resulting_version":2}`)},
+		{EventID: prefix + "-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"` + productName + `","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
+		{EventID: prefix + "-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"display_name":"` + projectName + `"}`)},
+		{EventID: prefix + "-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"` + productID + `","project_id":"` + projectID + `","role":"primary","reason":"` + reason + `","expected_version":1,"resulting_version":2}`)},
 	}
 }
 

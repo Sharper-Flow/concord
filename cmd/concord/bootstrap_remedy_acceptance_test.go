@@ -81,7 +81,7 @@ func brSeedAuthority(t *testing.T, s *store.Store, repo string, workID string) {
 	})
 	must(err)
 	must(store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-		{EventID: "br-work-create-" + workID, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: raw(`{"work_kind":"task","title":"Remedy Work","priority":1}`)},
+		{EventID: "br-work-create-" + workID, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: 4, Payload: raw(`{"work_kind":"task","title":"Remedy Work","priority":1}`)},
 		{EventID: "br-work-membership-" + workID, Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: 1, Payload: raw(`{"memberships":[{"project_id":"project-wl","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}}))
 	must(s.AddProjectLocator(ctx, "project-wl", store.ProjectLocator{ID: "path-wl-" + workID, Kind: store.LocatorCanonicalPath, Value: repo}, 1))

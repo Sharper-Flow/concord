@@ -22,7 +22,7 @@ func seedBootstrapRetainedCapture(t *testing.T, s *store.Store) {
 		}
 		if err := store.ApplyOperation(t.Context(), s, store.Operation{Events: []store.Event{{
 			EventID: eventID, Kind: kind, SubjectType: store.SubjectWorkItem, SubjectID: id,
-			Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: store.CurrentEventPayloadVersion(kind), Payload: raw,
+			Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: raw,
 		}}}); err != nil {
 			t.Fatal(err)
 		}
@@ -37,7 +37,7 @@ func seedBootstrapRetainedCapture(t *testing.T, s *store.Store) {
 			t.Fatal(err)
 		}
 		if err := store.ApplyOperation(t.Context(), s, store.Operation{Events: []store.Event{
-			{EventID: id + ":created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: created},
+			{EventID: id + ":created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 4, Payload: created},
 			{EventID: id + ":memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-wl","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 		}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, id): 0}}); err != nil {
 			t.Fatal(err)

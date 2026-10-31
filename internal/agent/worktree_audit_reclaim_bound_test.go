@@ -30,7 +30,7 @@ func auditReclaimTerminalFixture(t *testing.T, count int, managed bool, title st
 	for i := 1; i <= count; i++ {
 		workID := fmt.Sprintf("work-%02d", i)
 		events = append(events,
-			store.Event{EventID: "audit-bound-work-" + workID, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"` + title + `","priority":1}`)},
+			store.Event{EventID: "audit-bound-work-" + workID, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"` + title + `","priority":1}`)},
 			store.Event{EventID: "audit-bound-membership-" + workID, Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 		)
 		versions[store.VersionRef(store.SubjectWorkItem, workID)] = 0

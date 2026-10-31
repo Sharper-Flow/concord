@@ -29,7 +29,7 @@ func seedLocatorAuthority(t *testing.T, s *store.Store, repo string) {
 	seedProductProject(t, s, "product-wl", "project-wl", "wl")
 
 	must(store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-		{EventID: "wl-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-wl", Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Locator Work","priority":1}`)},
+		{EventID: "wl-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-wl", Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 4, Payload: jsonRaw(`{"work_kind":"task","title":"Locator Work","priority":1}`)},
 		{EventID: "wl-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-wl", Actor: "operator", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-wl","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-wl"): 0}}))
 	must(s.AddProjectLocator(ctx, "project-wl", store.ProjectLocator{ID: "path-wl", Kind: store.LocatorCanonicalPath, Value: repo}, 1))

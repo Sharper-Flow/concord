@@ -47,10 +47,6 @@ func approvalRouteDefinition(t *testing.T) WorkflowDefinition {
 // transaction is the store's own Transact scope and the action commits or
 // rolls back as one unit. It returns the refusal so negative callers can
 // assert it.
-//
-// A terminal action consumes the sealed subject preparation of the item's
-// active claimed worktree, the same preparation the host seals before the
-// boundary call.
 func runCoordinatorActionTx(t *testing.T, s *Store, registry DefinitionRegistry, workID, actionID string, actor WorkflowActor, payload string) error {
 	t.Helper()
 	ctx := context.Background()
@@ -60,14 +56,6 @@ func runCoordinatorActionTx(t *testing.T, s *Store, registry DefinitionRegistry,
 			return err
 		}
 		ctx = verified
-	}
-	var worktree string
-	if WorkflowActionRequiresSubjectFreshness(actionID) && s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' LIMIT 1`, WorktreeSetID(workID)).Scan(&worktree) == nil {
-		prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkflowSubjectRequest{WorkID: workID})
-		if err != nil {
-			return err
-		}
-		ctx = WithWorkflowSubjectPreparation(ctx, prepared)
 	}
 	version := readWorkVersion(t, s, workID)
 	request := WorkflowActionExecutionRequest{

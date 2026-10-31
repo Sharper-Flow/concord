@@ -128,12 +128,11 @@ type WorkContextDomainGroup struct {
 // retained findings), and the Domain grouping. SourceEventFrontier is the
 // highest sequence among the work item's context-source events.
 type WorkContextView struct {
-	SubjectCommit       string                    `json:"subject_commit,omitempty"`
-	OraclePreparations  []NativeOraclePreparation `json:"oracle_preparations,omitempty"`
-	SourceEventFrontier int64                     `json:"source_event_frontier"`
-	RequiredReading     []WorkContextReading      `json:"required_reading"`
-	Findings            []WorkContextFindingView  `json:"findings"`
-	DomainGroups        []WorkContextDomainGroup  `json:"domain_groups"`
+	SubjectCommit       string                   `json:"subject_commit,omitempty"`
+	SourceEventFrontier int64                    `json:"source_event_frontier"`
+	RequiredReading     []WorkContextReading     `json:"required_reading"`
+	Findings            []WorkContextFindingView `json:"findings"`
+	DomainGroups        []WorkContextDomainGroup `json:"domain_groups"`
 	// ResearchFindings carries the latest declaration anchor's selected
 	// research in authored order, resolved through the canonical
 	// selected-read helper. Research entries and event-owned findings share
@@ -685,16 +684,14 @@ func workContextOriginForKind(kind string) string {
 // nil.
 func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkContextView, error) {
 	view := WorkContextView{RequiredReading: []WorkContextReading{}, Findings: []WorkContextFindingView{}, DomainGroups: []WorkContextDomainGroup{}}
-	subject, subjectErr := readCurrentOracleSubject(ctx, q, workID)
-	if subjectErr != nil {
-		return nil, subjectErr
+	review, reviewErr := readWorkflowReviewFacts(ctx, q, workID)
+	if reviewErr != nil {
+		return nil, reviewErr
 	}
-	view.SubjectCommit = subject
-	preparations, prepareErr := readSelectedOraclePreparations(ctx, q, workID)
-	if prepareErr != nil {
-		return nil, prepareErr
+	if review.Candidate != nil {
+		view.SubjectCommit = review.Candidate.Commit
 	}
-	view.OraclePreparations = preparations
+	var prepareErr error
 	view.SourceEventFrontier, prepareErr = readWorkContextSourceFrontier(ctx, q, workID)
 	if prepareErr != nil {
 		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the work context source frontier", true, "retry once the database is readable", prepareErr)
@@ -705,10 +702,6 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	anchorErr := q.QueryRowContext(ctx, `SELECT declaration_seq,declaration_id,declaration_payload FROM work_context_state WHERE work_id=? AND declaration_seq>0`, workID).Scan(&anchorSeq, &anchor.EventID, &anchor.Payload)
 	if anchorErr != nil && anchorErr != sql.ErrNoRows {
 		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the latest work context declaration", true, "retry once the database is readable", anchorErr)
-	}
-	review, reviewErr := readWorkflowReviewFacts(ctx, q, workID)
-	if reviewErr != nil {
-		return nil, reviewErr
 	}
 	byID := make(map[string]WorkContextFindingView)
 	order := make([]string, 0, WorkContextViewFindingsMax+1)
@@ -769,7 +762,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 			fmt.Sprintf("the current work context measures %d bytes of canonical JSON, above the %d-byte view bound and the read refuses instead of truncating", len(viewJSON), WorkContextCombinedMaxBytes),
 			workContextOverflowRecovery())
 	}
-	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.ResearchFindings) == 0 && len(view.RequiredReading) == 0 && len(view.OraclePreparations) == 0 && view.SubjectCommit == "" {
+	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.ResearchFindings) == 0 && len(view.RequiredReading) == 0 && view.SubjectCommit == "" {
 		return nil, nil
 	}
 	return &view, nil

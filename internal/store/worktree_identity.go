@@ -22,3 +22,8 @@ func nativeWorktreePathIdentity(path string) string {
 	sum := sha256.Sum256([]byte(path))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
+
+func nativeDigest(b []byte) string {
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}

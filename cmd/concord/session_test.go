@@ -104,13 +104,6 @@ func TestContinuityBlockRecoversWhenReviewCandidateGitIsUnavailable(t *testing.T
 		VALUES('%s',1,'session recovery fixture','internal_sqlite','[]','[]','now',(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','[]',1,'prototype_internal')`, started.WorkID),
 		fmt.Sprintf(`INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
 		VALUES('%s',1,'predicate:session',0,'exists','{"kind":"exists","subjects":["README.md"],"surface":"repository"}')`, started.WorkID))
-	if _, err := s.VerifyWorktree(t.Context(), store.WorktreeVerifyRequest{
-		WorkID: started.WorkID, ProjectID: "project-wl", Command: []string{"true"},
-		Owner:   store.SessionWorktreeOwner{ClientRef: "client/session", AgentRef: "agent/session", SessionRef: "session/session"},
-		LeaseID: "lease:session", PrincipalRef: "principal/session", RequestID: "request:session",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	snapshot, err := store.ReadWorkflowContinuity(t.Context(), s, store.ContinuityRequest{Work: started.WorkID})
 	if err != nil || snapshot.ReviewInput == nil {
 		t.Fatalf("reachable review candidate: %+v, %v", snapshot.ReviewInput, err)

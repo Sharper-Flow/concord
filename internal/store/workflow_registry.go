@@ -1217,6 +1217,7 @@ func evidenceBindingActionFields() []WorkflowPayloadField {
 		actionRefField("producer_id", false),
 		actionRefField("producer_run_ref", false),
 		actionRefField("producer_watermark", false),
+		actionObjectField("verification_report", false, "workflow_verification_report"),
 	}
 }
 

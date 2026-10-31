@@ -71,9 +71,9 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 	acceptCurrentReviewForTest(t, c.f, c.j.repo, "continue")
 	pReturnProduce(t, c.j, "unreviewed-repair")
 	qualifyReviewSubjectForTest(t, s, workID, c.j.repo)
-	// Gate recovery requires candidate or dependency movement, not merely a
-	// non-ready disposition on an otherwise current Review.
+	// A changed recorded criterion makes the accepted Review inapplicable.
 	setWorkflowStepForOperatorVerdictTest(t, s, workID, "delivery")
+	reviewGateChangeRecordedCriterion(t, c.j)
 	reviewGateRequireStep(t, s, workID, "delivery")
 
 	pinnedRef, pinnedDigest := reviewGateInstancePin(t, s, workID)
@@ -91,7 +91,7 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 		t.Fatal(pinErr)
 	}
 	if workPinContainsAction(pin.NextValidIntents, "record_delivery") || workPinContainsAction(pin.NextValidIntents, "accept_worker_result") {
-		t.Fatalf("pinned pin offered an advance behind an unreviewed repair: %#v", pin.NextValidIntents)
+		t.Fatalf("pinned pin offered an advance behind stale Review dependencies: %#v", pin.NextValidIntents)
 	}
 	returnIntent := ""
 	for _, intent := range pin.NextValidIntents {

@@ -137,7 +137,6 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 		"store_sequences":            `SELECT * FROM store_sequences ORDER BY rowid`,
 		"work_context_findings":      `SELECT * FROM work_context_findings ORDER BY rowid`,
 		"worktree_occupancy":         `SELECT * FROM worktree_occupancy ORDER BY rowid`,
-		"worktree_verify_leases":     `SELECT * FROM worktree_verify_leases ORDER BY rowid`,
 		"worktree_ref_outcomes":      `SELECT * FROM worktree_ref_outcomes ORDER BY rowid`,
 		"worktree_entries":           `SELECT set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts FROM worktree_entries WHERE claim_op_id='claim:ordinary'`,
 		"worktree_claims":            `SELECT op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at,repository_id,incarnation,executor_pid,executor_pid_start FROM worktree_claims ORDER BY op_id`,
@@ -175,7 +174,7 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 			t.Errorf("native cutover changed retained %s: before=%#v after=%#v", table, want[table], got)
 		}
 	}
-	for _, table := range []string{"worker_attempts", "worker_authorizations", "worker_attempt_dispositions", "worker_job_revisions", "worker_oracle_finding_facts", "workflow_worker_actors", "workflow_member_groups", "workflow_group_members", "workflow_member_callers"} {
+	for _, table := range []string{"worker_attempts", "worker_authorizations", "worker_attempt_dispositions", "worker_job_revisions", "worker_oracle_finding_facts", "workflow_worker_actors", "workflow_member_groups", "workflow_group_members", "workflow_member_callers", "worktree_verify_leases"} {
 		if len(before[table]) == 0 {
 			t.Errorf("retired source %s was not populated", table)
 		}

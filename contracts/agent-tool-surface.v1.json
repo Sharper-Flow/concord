@@ -94,7 +94,6 @@
         "concord_work_transition.project_handoff_consume",
         "concord_work_transition.worktree_reclaim",
         "concord_work_transition.worktree_audit_reclaim",
-        "concord_work_transition.worktree_verify",
         "concord_work_transition.worktree_destroy",
         "concord_work_transition.correct_delivery",
         "concord_work_transition.outside_repair",
@@ -913,26 +912,6 @@
       "supported_budget_seconds": 300
     },
     {
-      "id": "concord_work_transition.worktree_verify",
-      "tool": "concord_work_transition",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_transition_worktree_verify_input",
-      "result_schema": "#/schemas/worktree_verify_result",
-      "capability": "work_transition",
-      "consequence": "claim",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 1800
-    },
-    {
       "id": "concord_work_transition.worktree_destroy",
       "tool": "concord_work_transition",
       "kind": "mutation",
@@ -1506,10 +1485,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_reclaim_input",
       "closed": true
     },
-    "work_transition_worktree_verify_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_verify_input",
-      "closed": true
-    },
     "worktree_audit_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_audit_page",
       "closed": true
@@ -1524,10 +1499,6 @@
     },
     "worktree_inspect_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_inspect_result",
-      "closed": true
-    },
-    "worktree_verify_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_verify_result",
       "closed": true
     },
     "work_transition_project_handoff_record_input": {
@@ -1628,6 +1599,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:96a655e3b5703cff8911fba11d8d4be08b066a9d18db724f9caa4748d419a42e",
-  "digest": "sha256:85e920084b6ff4452e050c2305ef67ab85978229b489cb2b90e9ef44e2b0b214"
+  "payload_digest": "sha256:2e4d9f8bb063356b1b4d997714d7fd79797243ee3fc08bf08c8174589822f711",
+  "digest": "sha256:56796aae57346ffb17ba9306770f5c0ba8d9f89e1893c31021830ef45a7ec437"
 }

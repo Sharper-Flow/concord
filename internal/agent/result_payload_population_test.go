@@ -1223,15 +1223,9 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 
 // enrichmentChangedRefs names the changed refs each operation's real effect
 // returns. Every generic-tail mutation returns work-item refs, so enrichment
-// stamps its pin onto the result; worktree_verify answers with a lease ref,
-// which does not pass the work-item filter.
-func enrichmentChangedRefs(workID string, version int64, opID string) []agentcontract.ChangedRef {
-	switch opID {
-	case "concord_work_transition.worktree_verify":
-		return []agentcontract.ChangedRef{{EntityKind: "worktree_verify_lease", ID: "lease-1", Version: "1"}}
-	default:
-		return []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
-	}
+// stamps its pin onto the result.
+func enrichmentChangedRefs(workID string, version int64, _ string) []agentcontract.ChangedRef {
+	return []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
 }
 
 // TestClosedMutationResultPayloadsSurviveEnrichment runs every mutation

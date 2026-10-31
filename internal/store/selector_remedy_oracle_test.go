@@ -4,10 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
-	"errors"
 	"path/filepath"
-	"slices"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agent"
@@ -63,44 +60,4 @@ func serializeSelectorRefusal(t *testing.T, failure *store.Failure) []byte {
 		t.Fatal(err)
 	}
 	return encoded
-}
-
-func TestNativeSelectorRemedyVisible(t *testing.T) {
-	for _, runner := range []string{"check", "pytest"} {
-		t.Run(runner, func(t *testing.T) {
-			_, err := store.NativeSelectorRemedyFixture(runner, []string{runner, "zeta", "alpha"})
-			var failure *store.Failure
-			if !errors.As(err, &failure) || failure.Kind != store.KindUnavailable {
-				t.Fatalf("unsorted selector must still refuse: %v", err)
-			}
-			encoded := serializeSelectorRefusal(t, failure)
-			var wire struct {
-				Error struct {
-					Details map[string]any `json:"details"`
-				} `json:"error"`
-			}
-			if err := json.Unmarshal(encoded, &wire); err != nil {
-				t.Fatal(err)
-			}
-			remedy, _ := wire.Error.Details["recovery_detail"].(string)
-			argv, _ := json.Marshal([]string{runner, "alpha", "zeta"})
-			if !strings.Contains(remedy, string(argv)) || !strings.Contains(remedy, "worktree_verify") || !strings.Contains(remedy, `oracle.phase=prepare`) || strings.Contains(remedy, "record_worker_job") {
-				t.Fatalf("serialized refusal omits the sorted selector or recorded revision/preparation route: %s", encoded)
-			}
-		})
-	}
-}
-
-func TestNativeSelectorRemedyCallable(t *testing.T) {
-	for _, runner := range []string{"check", "pytest"} {
-		got, err := store.NativeSelectorRemedyFixture(runner, []string{runner, "alpha", "zeta"})
-		if err != nil || !slices.Equal(got, []string{"alpha", "zeta"}) {
-			t.Fatalf("advertised sorted selector is not callable: %v, %v", got, err)
-		}
-		for _, argv := range [][]string{{runner, "alpha"}, {runner, "alpha", "zeta", "extra"}, {"other", "alpha", "zeta"}} {
-			if _, err := store.NativeSelectorRemedyFixture(runner, argv); err == nil {
-				t.Fatalf("incorrect selector became admitted: %v", argv)
-			}
-		}
-	}
 }

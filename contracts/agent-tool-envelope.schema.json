@@ -499,7 +499,6 @@
                 "worktree_destroy",
                 "worktree_reclaim",
                 "worktree_audit_reclaim",
-                "worktree_verify",
                 "outside_repair",
                 "outside_repair_reconcile"
               ],
@@ -698,7 +697,6 @@
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_verify",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement",
@@ -1175,7 +1173,6 @@
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_verify",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement",
@@ -1547,10 +1544,10 @@
           }
         },
         "supported_budget_seconds": {
-          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind. The maximum tracks the agent-tool-surface ceiling (CD-0038 D2 evidence-fixed exceptions; worktree_verify is fixed at 1800).",
+          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind.",
           "type": "integer",
           "minimum": 1,
-          "maximum": 1800
+          "maximum": 300
         },
         "details": {
           "type": "object",
@@ -2079,7 +2076,6 @@
                       "worktree_claim",
                       "worktree_destroy",
                       "worktree_reclaim",
-                      "worktree_verify",
                       "workflow_action",
                       "outside_repair",
                       "outside_repair_reconcile"

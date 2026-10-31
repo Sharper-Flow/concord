@@ -112,5 +112,5 @@ Host safety permissions remain in force; a refusal is a result to return.
 Report pass, fail or incomplete with the exact commands, exit codes, failed
 test output or job URLs and assertions. Link matching flake records, separate
 observations from suspected causes, and name missing evidence, unrun checks
-and unexpected changed paths. A Task result is not captured native verification
-proof or a Concord verdict; the caller owns evidence binding and workflow state.
+and unexpected changed paths. A Task result is not a bound verification report
+or a Concord verdict; the caller owns evidence binding and workflow state.

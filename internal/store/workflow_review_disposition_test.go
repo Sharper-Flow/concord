@@ -39,13 +39,7 @@ func TestBlockingReviewDispositionRecordsWithoutAdvancing(t *testing.T) {
 			acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
 			reviewGateStartStep(t, j.s, j.workID, step, "start_execution", j.fixture.owner)
 			verification := j.observeRun(t, "review-ready-delivery")
-			if err := j.action(t, "bind_evidence", map[string]any{
-				"evidence_kind": "verification", "immutable_subject_ref": verification.OperationRef,
-				"producer_id": j.fixture.owner.PrincipalRef, "producer_run_ref": verification.OperationRef,
-				"producer_watermark": "request-" + strings.TrimPrefix(verification.LeaseID, "candidate-"),
-			}, j.fixture.owner); err != nil {
-				t.Fatal(err)
-			}
+			j.bindVerification(t, verification)
 			pin, err = ReadWorkPin(t.Context(), j.s, j.workID)
 			if err != nil {
 				t.Fatal(err)

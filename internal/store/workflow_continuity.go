@@ -109,17 +109,13 @@ type ContinuitySnapshot struct {
 	// ObservationsTotal counts the whole population, so a reader knows when
 	// the paged concord_work_trace.observations read holds more. Read-time
 	// visibility: no gate consumes this.
-	Observations        []WorkObservation            `json:"observations"`
-	ObservationsTotal   int64                        `json:"observations_total"`
-	StaleLawRevision    *StaleLawRevision            `json:"stale_law_revision,omitempty"`
-	ChangesProductTruth bool                         `json:"changes_product_truth"`
-	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
-	// ActiveVerifyLeases re-pins the reading session's held verify leases
-	// (CD-0096 D5), newest first, bounded. Empty when the session named no
-	// identity or holds none.
-	CompatibleLawAmendments []CompatibleLawAmendment    `json:"compatible_law_amendments"`
-	ActiveVerifyLeases      []ActiveWorktreeVerifyLease `json:"active_verify_leases,omitempty"`
-	WorkPin                 *WorkPin                    `json:"work_pin,omitempty"`
+	Observations            []WorkObservation            `json:"observations"`
+	ObservationsTotal       int64                        `json:"observations_total"`
+	StaleLawRevision        *StaleLawRevision            `json:"stale_law_revision,omitempty"`
+	ChangesProductTruth     bool                         `json:"changes_product_truth"`
+	ArchitectureBinding     *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+	CompatibleLawAmendments []CompatibleLawAmendment     `json:"compatible_law_amendments"`
+	WorkPin                 *WorkPin                     `json:"work_pin,omitempty"`
 	// PendingProjectHandoff carries the work's newest unconsumed
 	// Project-session handoff (CD-0182 amendment), so a Project-selected
 	// boot renders the bounded job a receiving session must consume before
@@ -193,11 +189,6 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 		if err := validateSessionWorktreeOwner(*req.Owner); err != nil {
 			return out, err
 		}
-		leases, err := heldWorktreeVerifyLeasesByOwnerTx(ctx, tx, *req.Owner)
-		if err != nil {
-			return out, err
-		}
-		out.ActiveVerifyLeases = leases
 	}
 	out, err = continuityReadIdentityTx(ctx, tx, req.Work, out)
 	if err != nil {
@@ -215,16 +206,12 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err := continuityReadManagedHistoryTx(ctx, tx, req, registry, offset, &out); err != nil {
 		return out, err
 	}
-	// Resolve immutable Git content only after the read snapshot closes.
-	// The descriptor grants no action or execution authority.
-	reviewSubject, err := sampleContinuityReviewSubjectTx(ctx, tx, req.Work, &out)
-	if err != nil {
+	if err := populateContinuityReviewInput(ctx, tx, req.Work, &out); err != nil {
 		return out, err
 	}
 	if err := tx.Rollback(); err != nil {
 		return out, err
 	}
-	observeContinuityReviewSubject(ctx, &out, reviewSubject)
 	return out, nil
 }
 

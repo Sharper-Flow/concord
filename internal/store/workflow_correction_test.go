@@ -522,10 +522,8 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	// required-kind bindings, all recorded after the cutoff: that is the fresh
 	// evidence the path back to completion requires (CD-0172 D4, CD-0242 D8).
 	journey := &candidateJourney{fixture: wf, s: s, workID: workID, repo: repo, acceptor: fixture.owner}
-	run, runErr := s.VerifyWorktree(ctx, journey.request("q-proof-successor", nil))
-	if runErr != nil || run.ExitCode != 0 {
-		t.Fatalf("capture the successor's candidate receipt: %+v, %v", run, runErr)
-	}
+	run := journey.observeRun(t, "q-proof-successor")
+	journey.bindVerification(t, run)
 	qAcceptCriterionReview(t, wf, repo, run.OperationRef)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", qAssociationPayload(t, acceptanceRecoveryFixture{store: s, workID: workID, receipt: run.OperationRef}), 0, fixture.owner); err != nil {
 		t.Fatalf("associate the successor's fresh proof: %v", err)

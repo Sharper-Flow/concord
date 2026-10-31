@@ -58,7 +58,6 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	fixture := oAgentFixture(t, s, service, env, "work-1")
-	oAgentControlRepository(t, fixture)
 	env = fixture.env
 	invoke := func(input map[string]any) agentcontract.Envelope {
 		t.Helper()
@@ -79,16 +78,19 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	version := func() int64 { return workVersion(t, s, "work-1") }
 	changeCandidate := func(label string) {
 		t.Helper()
+		if err := os.MkdirAll(filepath.Join(fixture.path, "o_fixture"), 0o700); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(fixture.path, "o_fixture/value.go"), []byte("package fixture\n// "+label+"\nfunc Value() int { return 3 + 4 }\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		gitRun(t, fixture.path, "add", "o_fixture/value.go")
 		gitRun(t, fixture.path, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", label)
-		oAgentVerify(t, fixture, []string{"go", "vet", "./..."})
+		oAgentReport(t, fixture)
 	}
 	recordFinding := func(status, disposition string) {
 		t.Helper()
-		proof := oAgentVerify(t, fixture, []string{"go", "vet", "./..."})
+		proof := oAgentReport(t, fixture)
 		pin, err := store.ReadWorkPin(ctx, s, "work-1")
 		if err != nil || pin.Review == nil || pin.Review.Dependencies == nil {
 			t.Fatalf("gate Review dependencies: %v", err)
@@ -123,7 +125,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("gate recovery bind_evidence: %+v", response.Error)
 	}
 	changeCandidate("execution")
-	integrationRef := oAgentVerify(t, fixture, []string{"go", "vet", "./..."})
+	integrationRef := oAgentReport(t, fixture)
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "verification", "evidence_ref": integrationRef}, "idempotency_key": "gate-execution-integration"}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("gate recovery integration bind: %+v", response.Error)
 	}

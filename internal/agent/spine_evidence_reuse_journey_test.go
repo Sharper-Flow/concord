@@ -15,10 +15,8 @@ import (
 func TestCriterion13ProducerFactsSurviveStageExitAndFreshSession(t *testing.T) {
 	f := newSpineExecutionFixture(t)
 	f.verify(t)
-	f.prepareControl(t)
 	f.implement(t)
 	f.proof = f.verify(t)
-	f.prepareControl(t)
 	producer := f.read(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	if step := f.read(t).Pinned.Step; step != "execution" {

@@ -14,10 +14,8 @@ import (
 func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	f := newSpineExecutionFixture(t)
 	f.verify(t)
-	f.prepareControl(t)
 	f.implement(t)
 	f.proof = f.verify(t)
-	f.prepareControl(t)
 	beforeReview := f.read(t)
 	if beforeReview.Pinned.Pin.Review == nil || beforeReview.Pinned.Pin.Review.Dependencies == nil {
 		t.Fatal("qualified candidate has no current Review dependency identities")
@@ -114,7 +112,6 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 		t.Fatal("correction replay had another effect")
 	}
 	// Corrective bytes still need current Review before delivery.
-	f.prepareControl(t)
 	if err := os.WriteFile(filepath.Join(f.path, "pkg/value.go"), []byte("package spine\n\nfunc Value() int { return 2 + 5 }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +119,6 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	gitRun(t, f.path, "commit", "-qm", "checked corrective implementation")
 	f.proof = f.verify(t)
 	t.Run("corrective intake still requires current ready Review", func(t *testing.T) { refuse(t, "record_delivery", delivery) })
-	f.prepareControl(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	t.Run("ready Review closes the correction prerequisite", func(t *testing.T) { refuse(t, "request_correction", fields) })
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))

@@ -28,7 +28,7 @@ func TestArtifactSupersessionUsesRecordedProofDependencies(t *testing.T) {
 			successor := pContractSuccessor(t, s, f.workID, "Reassess the same candidate.")
 			if changed {
 				predicate := successor["outcome_predicates"].([]any)[0].(map[string]any)
-				predicate["outcome_payload"].(map[string]any)["immutable_subject_ref"] = "commit:reassessed"
+				predicate["outcome_payload"].(map[string]any)["check_ref"] = "check:reassessed"
 			}
 			if err := runVerdictActionAs(t, s, f.workID, "supersede_contract", mustJSONValue(successor), 0, f.owner); err != nil {
 				t.Fatal(err)

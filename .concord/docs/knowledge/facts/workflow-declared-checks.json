@@ -1,14 +1,14 @@
 {
   "config_coupling": {
-    "effect": "Each admitted plain invocation splits on whitespace and qualifies a verification run only when its argument vector matches exactly. The delivery proof guard and integration tooling check consume that comparison; declaring an invocation does not run it or supply passing evidence. A candidate branch cannot declare its own qualifying command. When no manifest resolves on the default ref, both guards skip the comparison and any otherwise qualifying passing run counts.",
+    "effect": "Tool declarations support tooling and footprint validation. A bound verification report has no command list and is not matched to a declared invocation. Independent Review judges check adequacy; required CI remains external.",
     "environments": ["development", "production", "test"],
     "read_by": {
       "path": "internal/store/project_tooling.go",
       "project_id": "concord",
-      "symbol": "ProjectToolingInvocationDeclared"
+      "symbol": "ParseProjectToolingManifest"
     },
     "setting": "tools[].invocation",
-    "source": "ResolveWorkProjectTooling loads .concord/tooling.v1.json from the work item's primary Project default ref, never its working tree. ParseProjectToolingManifest admits tool IDs and plain argument-vector invocations."
+    "source": "ParseProjectToolingManifest admits tool IDs and plain argument-vector invocations; a verification report records source, commit, result and run reference."
   },
   "id": "workflow-declared-checks",
   "kind": "config_coupling",

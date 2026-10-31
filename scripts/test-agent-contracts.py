@@ -14,46 +14,57 @@ envelope_schema = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json"
 payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schema.json").read_text())
 
 
+class VerificationReportSchemaTests(unittest.TestCase):
+    def test_report_is_closed_and_bounded(self):
+        schema = payload_schema["$defs"]["workflow_verification_report"]
+        report = {"source": "local", "commit": "a" * 40, "result": "pass", "run_ref": "run:1"}
+        generator.schema_validate(report, schema, payload_schema)
+        for change in ({"source": "other"}, {"result": "unknown"}, {"commit": "abc"},
+                       {"run_ref": ""}, {"run_ref": "x" * 513}, {"project_id": "project"},
+                       {"checks": ["test"]}, {"predicate_ids": ["predicate:one"]}, {"extra": True}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                generator.schema_validate(report | change, schema, payload_schema)
+        for field in report:
+            incomplete = dict(report)
+            del incomplete[field]
+            with self.subTest(missing=field), self.assertRaises(ValueError):
+                generator.schema_validate(incomplete, schema, payload_schema)
+
+    def test_bind_evidence_publishes_report_and_inspect_rejects_output(self):
+        fields = payload_schema["$defs"]["work_transition_action_variant_bind_evidence"]["properties"]["fields"]
+        self.assertEqual(fields["properties"]["verification_report"], {"$ref": "#/$defs/workflow_verification_report"})
+        schema = payload_schema["$defs"]["work_transition_action_variant_bind_evidence"]
+        binding = {"work_id": "work-1", "expected_version": 1, "action_id": "bind_evidence",
+                   "idempotency_key": "key-1", "fields": {"evidence_kind": "verification",
+                   "verification_report": {"source": "required_ci", "commit": "a" * 40,
+                                           "result": "pass", "run_ref": "run:1"}}}
+        generator.schema_validate(binding, schema, payload_schema)
+        generator.schema_validate(binding | {"fields": {"evidence_kind": "review"}}, schema, payload_schema)
+        schema = payload_schema["$defs"]["work_browse_worktree_inspect_input"]
+        generator.schema_validate({"work_id": "work-1", "mode": "status"}, schema, payload_schema)
+        with self.assertRaises(ValueError):
+            generator.schema_validate({"work_id": "work-1", "mode": "oracle_output", "run_ref": "run:1", "stream": "stdout", "offset": 0, "length": 1}, schema, payload_schema)
+        result_schema = payload_schema["$defs"]["worktree_inspect_result"]
+        for mode in ("status", "diff", "file"):
+            result = {"work_id": "work-1", "project_id": "project-1", "branch": "work/work-1",
+                      "path": "/synthetic/tree", "mode": mode, "content": "", "truncated": False}
+            generator.schema_validate(result, result_schema, payload_schema)
+            with self.assertRaises(ValueError):
+                generator.schema_validate(result | {"path": ""}, result_schema, payload_schema)
+
+    def test_pruning_drops_retired_native_definitions(self):
+        document = copy.deepcopy(payload_schema)
+        generator.prune_payload_definitions(document, manifest, [])
+        for name in document["$defs"]:
+            self.assertFalse(name.startswith("native_oracle_"), name)
+            self.assertNotIn(name, {"retained_native_oracle_preparation", "active_worktree_verify_lease",
+                                    "worktree_verify_result", "work_transition_worktree_verify_input"})
+
+
 class NativeTaskContractTests(unittest.TestCase):
     def setUp(self):
         self.payload = copy.deepcopy(payload_schema)
         self.defs = self.payload["$defs"]
-        generator.project_native_oracle_requests(self.defs)
-
-    def test_execute_selects_only_the_preparation(self):
-        request = {"phase": "execute", "preparation_run_ref": "native:preparation-1"}
-        schema = self.defs["native_oracle_execute_request"]
-        self.assertEqual(set(schema["required"]), set(request))
-        self.assertEqual(set(schema["properties"]), set(request))
-        generator.schema_validate(request, schema, self.payload)
-        for name, value in (("attempt_id", "attempt-1"), ("attempt_epoch", 1),
-                            ("worker_packet_digest", "sha256:" + "a" * 64),
-                            ("worker_job_binding", {}), ("control_id", "control:one"),
-                            ("control_bundle", {})):
-            with self.subTest(field=name), self.assertRaises(ValueError):
-                generator.schema_validate({**request, name: value}, schema, self.payload)
-
-    def test_prepare_retains_contract_and_control_bundle(self):
-        schema = self.defs["native_oracle_prepare_request"]
-        self.assertEqual(set(schema["required"]), {"phase", "expected_contract_version", "control_bundle"})
-        bundle = self.defs["native_oracle_control_bundle"]
-        self.assertEqual(set(bundle["required"]), {"owner", "control", "cases"})
-        self.assertNotIn("readiness_evidence_refs", self.defs["native_oracle_prepare_control"]["properties"])
-
-    def test_execute_result_keeps_native_producer_proof(self):
-        generator.project_native_oracle_metadata(self.defs)
-        execute = self.defs["native_oracle_result"]["oneOf"][1]
-        for field in ("subject_commit", "build_environment_digest", "bundle_digest", "preparation_run_ref", "stages"):
-            self.assertIn(field, execute["properties"])
-            self.assertIn(field, execute["required"])
-        for field in ("attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding"):
-            self.assertNotIn(field, execute["properties"])
-        self.assertEqual(execute["properties"]["qualification"]["enum"], ["pass", "fail", "unavailable"])
-        proofs = execute["then"]["oneOf"]
-        self.assertEqual([branch["required"] for branch in proofs], [
-            ["input_manifest_digest", "binary_digest", "observed_test_names"],
-            ["input_manifest_digest", "binary_digest", "observed_witness_ids"],
-        ])
 
     def review_report(self):
         candidate = {"project_id": "project-1", "commit": "a" * 40, "tree": "b" * 40}
@@ -74,16 +85,6 @@ class NativeTaskContractTests(unittest.TestCase):
         for field in ("attempt_id", "lane_id", "job_id", "readback_model"):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 generator.schema_validate({**report, field: "untrusted"}, schema, self.payload)
-
-    def test_native_case_maps_keep_bounded_keys_and_typed_witnesses(self):
-        schema = self.defs["native_oracle_preparation"]["properties"]["case_to_test_map"]
-        generator.schema_validate({"case:one": ["TestOwnerOracleGraph"]}, schema, self.payload)
-        for cases in ({}, {"not-a-case": ["TestOwnerOracleGraph"]},
-                      {"case:" + "x" * 124: ["TestOwnerOracleGraph"]}, {"case:one": ["not-a-test"]},
-                      {"case:one": "TestOwnerOracleGraph"},
-                      {f"case:{index}": ["TestOwnerOracleGraph"] for index in range(65)}):
-            with self.subTest(cases=cases), self.assertRaises(ValueError):
-                generator.schema_validate(cases, schema, self.payload)
 
     def test_review_keeps_optional_classification_and_pure_or_mixed_closure_claims(self):
         report = self.review_report()
@@ -114,11 +115,11 @@ class NativeTaskContractTests(unittest.TestCase):
             with self.subTest(claim=claim), self.assertRaises(ValueError):
                 generator.schema_validate(report, self.defs["workflow_review_report"], self.payload)
 
-    def test_pruning_keeps_transitive_native_and_review_definitions(self):
+    def test_pruning_keeps_transitive_review_definitions(self):
         self.defs["root"] = {"$ref": "#/$defs/leaf"}
         self.defs["leaf"] = {"type": "string"}
         generator.prune_payload_definitions(self.payload, {"schemas": {"root": {"ref": "#/$defs/root"}}}, [])
-        for name in ("root", "leaf", "native_oracle_preparation", "workflow_review_report"):
+        for name in ("root", "leaf", "workflow_review_report"):
             self.assertIn(name, self.payload["$defs"])
         self.assertNotIn("worker_packet", self.payload["$defs"])
         self.assertNotIn("native_oracle_job_binding", self.payload["$defs"])
@@ -627,33 +628,6 @@ work_sizes_generator = _load_cli_module("cli_safety_work_sizes", "generate-work-
 relation_vocabulary_generator = _load_cli_module("cli_safety_relation_vocabulary", "generate-relation-vocabulary.py")
 durable_tier_budget_generator = _load_cli_module("cli_safety_durable_tier_budget", "generate-durable-tier-budget.py")
 branch_freshness_generator = _load_cli_module("cli_safety_branch_freshness", "generate-branch-freshness.py")
-adapter_oracle_generator = _load_cli_module("adapter_oracle_generator", "generate-adapter-oracle.py")
-
-
-class AdapterOracleGenerationTests(unittest.TestCase):
-    def test_committed_outputs_match_sources(self):
-        for path, expected in adapter_oracle_generator.render().items():
-            with self.subTest(path=path):
-                self.assertEqual(path.read_text(), expected)
-
-    def test_checks_and_helpers_are_pinned_existing_files(self):
-        recipe = json.loads(adapter_oracle_generator.render()[adapter_oracle_generator.OUTPUT])
-        harness = recipe["harness_files"]
-        self.assertLessEqual(len(harness), 16)
-        for name in harness:
-            self.assertTrue((ROOT / name).is_file(), name)
-        for check in recipe["checks"]:
-            for name in check["argv"][1:]:
-                self.assertIn(f"adapter/opencode/{name}", harness)
-
-    def test_a_dependency_change_cannot_regenerate_an_empty_lock(self):
-        with tempfile.TemporaryDirectory() as directory:
-            package = Path(directory) / "package.json"
-            package.write_text(json.dumps({"name": "adapter", "private": True, "dependencies": {"unexpected": "1.0.0"}}))
-            with unittest.mock.patch.object(adapter_oracle_generator, "PACKAGE", package):
-                with self.assertRaisesRegex(SystemExit, "must remain dependency-free"):
-                    adapter_oracle_generator.render()
-
 class PublicationPinGenerationTests(unittest.TestCase):
     def test_pin_measures_the_production_publication(self):
         with unittest.mock.patch.object(generator.subprocess, "run") as run:
@@ -935,8 +909,7 @@ class ResultRequirednessTests(unittest.TestCase):
 class EvidenceFixedBudgetCeilingTests(unittest.TestCase):
     """CD-0038 D2: the surface ceiling is uniform except where accepted
     evidence fixes a different value. The generator admits only the
-    declared exceptions (workflow_action TS1 30; worktree_verify CON-317
-    1800); any other non-uniform value, including one that mimics an
+    declared exception (workflow_action TS1 30); any other non-uniform value, including one that mimics an
     evidence-fixed value on a different operation, must fail closed so the
     rule cannot erode by accretion.
     """
@@ -949,8 +922,8 @@ class EvidenceFixedBudgetCeilingTests(unittest.TestCase):
         return value_dict
 
     def test_shipped_manifest_admits_only_declared_evidence_fixed_ceilings(self):
-        # The shipped manifest declares exactly two non-uniform ceilings
-        # (workflow_action 30 and worktree_verify 1800); validate() enforces
+        # The shipped manifest declares workflow_action's non-uniform ceiling;
+        # validate() enforces
         # that, and the rest of the surface must stay at the uniform 300.
         try:
             generator.validate(manifest)
@@ -960,7 +933,6 @@ class EvidenceFixedBudgetCeilingTests(unittest.TestCase):
                        if op["supported_budget_seconds"] != 300}
         self.assertEqual(non_uniform, {
             "concord_work_transition.workflow_action": 30,
-            "concord_work_transition.worktree_verify": 1800,
         })
 
     def test_a_uniform_seven_minute_ceiling_is_rejected(self):
@@ -979,10 +951,8 @@ class EvidenceFixedBudgetCeilingTests(unittest.TestCase):
             generator.validate(drifted)
 
     def test_an_evidence_value_on_an_undeclared_operation_is_rejected(self):
-        # 1800 is a declared ceiling for worktree_verify only. Putting it on
-        # another operation copies the value without the evidence that
-        # names the operation; the rule's job is to refuse that copy.
-        drifted = self._replace_supported_budget("concord_work_transition.lifecycle", 1800)
+        # The workflow_action ceiling is not transferable to another operation.
+        drifted = self._replace_supported_budget("concord_work_transition.lifecycle", 30)
         with self.assertRaises(ValueError):
             generator.validate(drifted)
 
@@ -2203,13 +2173,6 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
             for schema, root in ((defs["worker_oracle_case"], self.projected),):
                 with self.assertRaises(ValueError, msg=invalid):
                     generator.schema_validate(invalid, schema, root)
-        control = _schema_sample(defs["native_oracle_prepare_control"], self.projected)
-        bundle = {"owner": _schema_sample(defs["worker_oracle_owner"], self.projected),
-                  "control": control, "cases": [executable]}
-        self.validate(bundle, "native_oracle_control_bundle")
-        for invalid in (judged, executable | {"judge": "review"}):
-            with self.assertRaises(ValueError):
-                self.validate(bundle | {"cases": [invalid]}, "native_oracle_control_bundle")
 
     def test_resolution_proof_kinds_are_bounded_and_nonempty(self):
         schemas = ((self.projected["$defs"]["lane_report_resolved_finding"], self.projected),)
@@ -2231,199 +2194,6 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
                 with self.assertRaises(ValueError, msg=invalid):
                     generator.schema_validate(invalid, schema, root)
 
-    def test_prepare_and_execute_are_closed_disjoint_native_requests(self):
-        defs = self.projected["$defs"]
-        control = _schema_sample(defs["worker_oracle_control"], self.projected)
-        control.pop("readiness_evidence_refs")
-        bundle = {"owner": _schema_sample(defs["worker_oracle_owner"], self.projected), "control": control,
-                  "cases": [_schema_sample(defs["native_oracle_executable_case"], self.projected)]}
-        prepare = {"work_id": "work-1", "idempotency_key": "prepare-1", "oracle": {
-            "phase": "prepare", "expected_contract_version": 1, "control_bundle": bundle}}
-        execute = {"work_id": "work-1", "idempotency_key": "execute-1", "oracle": {
-            "phase": "execute", "preparation_run_ref": "worktree_verify:prepare-1"}}
-        name = "work_transition_worktree_verify_input"
-        for value in (prepare, execute, {"work_id": "work-1", "idempotency_key": "legacy-1", "command": ["true"]}):
-            self.validate(value, name)
-        for value in (prepare | {"command": ["true"]}, execute | {"command": []},
-                      {"work_id": "work-1", "idempotency_key": "no-variant"}):
-            with self.assertRaises(ValueError):
-                self.validate(value, name)
-        for value, foreign in ((prepare, execute["oracle"]), (execute, prepare["oracle"])):
-            for field, content in foreign.items():
-                if field == "phase":
-                    continue
-                invalid = copy.deepcopy(value)
-                invalid["oracle"][field] = content
-                with self.assertRaises(ValueError, msg=field):
-                    self.validate(invalid, name)
-            for field in ("subject_commit", "project_id", "cwd", "recipe_source", "stdout", "native_plan_sha256"):
-                invalid = copy.deepcopy(value)
-                invalid["oracle"][field] = "caller-assertion"
-                with self.assertRaises(ValueError, msg=field):
-                    self.validate(invalid, name)
-        invalid = copy.deepcopy(prepare)
-        invalid["oracle"]["control_bundle"]["control"]["readiness_evidence_refs"] = ["invented:ready"]
-        with self.assertRaises(ValueError):
-            self.validate(invalid, name)
-        self.assertIn("readiness_evidence_refs", defs["worker_oracle_control"]["required"])
-        # The prepare teaching names both recipe families explicitly: the
-        # pure-Go harness compiles, a target_runner_v1 recipe runs only its
-        # collection or check-input stage, and both grant readiness only.
-        description = defs["native_oracle_request"]["description"]
-        for claim in ("target_runner_v1", "compiles", "collection", "check-input", "readiness only"):
-            self.assertIn(claim, description)
-        self.assertNotIn("prepare compiles", description)
-
-    def test_output_read_has_bounded_bytes_and_no_mutation_or_path_selector(self):
-        name = "work_browse_worktree_inspect_input"
-        page = {"work_id": "work-1", "mode": "oracle_output", "run_ref": "worktree_verify:run-1",
-                "stream": "stdout", "offset": 0, "length": 16384}
-        for stream in ("stdout", "stderr"):
-            self.validate(page | {"stream": stream}, name)
-        for mode in ("status", "diff", "file"):
-            self.validate({"work_id": "work-1", "mode": mode, "path": "fixture.txt"}, name)
-            with self.assertRaises(ValueError):
-                self.validate(page | {"mode": mode}, name)
-        for change in ({"path": "fixture.txt"}, {"project_id": "foreign"}, {"idempotency_key": "page-1"},
-                       {"offset": -1}, {"length": 0}, {"length": 16385}, {"stream": "combined"}):
-            with self.assertRaises(ValueError):
-                self.validate(page | change, name)
-        for field in ("run_ref", "stream", "offset", "length"):
-            missing = dict(page)
-            missing.pop(field)
-            with self.assertRaises(ValueError):
-                self.validate(missing, name)
-
-    def test_native_metadata_is_closed_bounded_and_phase_specific(self):
-        defs = self.projected["$defs"]
-        schema = defs["native_oracle_preparation"]
-        preparation = {name: _schema_sample(schema["properties"][name], self.projected)
-                       for name in schema["required"] if name not in ("stdout", "stderr")}
-        preparation["case_to_test_map"] = {"case:one": ["TestOne"]}
-        preparation["selected_test_names"] = ["TestOne"]
-        preparation["selected_distinct_count"] = 1
-        preparation["streams_complete"] = True
-        for stream in ("stdout", "stderr"):
-            preparation[stream] = {"stream": stream, "length": 0, "sha256": "sha256:" + "a" * 64,
-                                   "complete": True, "ref": "oracle_output:" + stream}
-        self.validate(preparation, "native_oracle_preparation")
-        self.validate(preparation | {"case_to_test_map": {"case:" + "a" * 123: ["TestOne"]}}, "native_oracle_preparation")
-        for cases in ({}, {"not-a-case": ["TestOne"]}, {"case:" + "a" * 124: ["TestOne"]},
-                      {"case:one": []}, {"case:one": ["not-a-test"]},
-                      {f"case:{index}": ["TestOne"] for index in range(65)}):
-            with self.assertRaises(ValueError):
-                self.validate(preparation | {"case_to_test_map": cases}, "native_oracle_preparation")
-        for field in ("candidate_subject", "output", "data_base64", "stdout_blob", "native_plan_json"):
-            with self.assertRaises(ValueError):
-                self.validate(preparation | {field: "not-native-metadata"}, "native_oracle_preparation")
-        for subject in ("commit:" + "a" * 40, "a" * 41, "not-an-oid"):
-            with self.assertRaises(ValueError):
-                self.validate(preparation | {"subject_commit": subject}, "native_oracle_preparation")
-        for stream in ("stdout", "stderr"):
-            invalid = copy.deepcopy(preparation)
-            invalid[stream]["length"] = 2097153
-            with self.assertRaises(ValueError):
-                self.validate(invalid, "native_oracle_preparation")
-        prepare_result = preparation | {"control_id": "control:one", "stages": []}
-        self.validate(prepare_result, "native_oracle_result")
-        execute = prepare_result | {"phase": "execute", "qualification": "pass",
-            "preparation_run_ref": "run:prepare",
-            "input_manifest_digest": "sha256:" + "c" * 64, "binary_digest": "sha256:" + "d" * 64, "observed_test_names": ["TestOne"]}
-        self.validate(execute, "native_oracle_result")
-        for invalid in (prepare_result | {"attempt_id": "attempt-1"}, execute | {"attempt_id": "attempt-1"},
-                        execute | {"worker_job_binding": {}}, execute | {"authorization_event_id": "event:dispatch"},
-                        execute | {"start_seq": 8}, execute | {"qualification": "ready"},
-                        prepare_result | {"qualification": "pass"}):
-            with self.assertRaises(ValueError):
-                self.validate(invalid, "native_oracle_result")
-        for field in ("preparation_run_ref",):
-            missing = dict(execute)
-            missing.pop(field)
-            with self.assertRaises(ValueError):
-                self.validate(missing, "native_oracle_result")
-        incomplete = copy.deepcopy(execute)
-        incomplete["streams_complete"] = False
-        with self.assertRaises(ValueError):
-            self.validate(incomplete, "native_oracle_result")
-        go_pass_without_witnesses = {key: value for key, value in execute.items() if key != "observed_test_names"}
-        with self.assertRaises(ValueError):
-            self.validate(go_pass_without_witnesses, "native_oracle_result")
-        # The target_runner_v1 family is the second closed branch of the same
-        # record: the discriminator and both axes are required, real witness
-        # IDs replace the Go test-name grammar, and the legacy Go fields are
-        # forbidden. Only the three admitted pairs validate.
-        target = {key: value for key, value in preparation.items()
-                  if key not in ("selected_test_names", "case_to_test_map")}
-        witness = "tests/test_billing.py::test_invoice_total"
-        target.update({
-            "recipe_kind": "target_runner_v1", "target_materializer": "uv", "target_runner": "pytest",
-            "selected_witness_ids": [witness], "case_to_witness_map": {"case:one": [witness]},
-        })
-        self.validate(target, "native_oracle_preparation")
-        git_view = {"object_format": "sha1", "commit": "a" * 40, "tree": "b" * 40,
-                    "tags": [{"ref": "refs/tags/v1.0.0", "object": "c" * 40, "peeled": "a" * 40}]}
-        git_metadata = {"mode": "candidate_ancestry_v1", "candidate": git_view, "recipe": git_view}
-        git_result = target | {"control_id": "control:one", "stages": [], "git_metadata": git_metadata}
-        self.validate(git_result, "native_oracle_result")
-        with self.assertRaises(ValueError):
-            self.validate(target | {"git_metadata": git_metadata}, "native_oracle_preparation")
-        with self.assertRaises(ValueError):
-            self.validate(preparation | {"git_metadata": git_metadata}, "native_oracle_preparation")
-        with self.assertRaises(ValueError):
-            self.validate(prepare_result | {"git_metadata": git_metadata}, "native_oracle_result")
-        for invalid in ({"mode": "ambient", "candidate": git_view, "recipe": git_view},
-                        git_metadata | {"host_path": "/synthetic/repo"},
-                        git_metadata | {"recipe": git_view | {"commit": "not-an-oid"}},
-                        {"mode": "candidate_ancestry_v1", "candidate": git_view}):
-            with self.assertRaises(ValueError):
-                self.validate(git_result | {"git_metadata": invalid}, "native_oracle_result")
-        for pair in ({"target_materializer": "none", "target_runner": "check"},
-                     {"target_materializer": "uv", "target_runner": "check"}):
-            self.validate(target | pair, "native_oracle_preparation")
-        partial_target = {key: value for key, value in preparation.items() if key != "selected_test_names"}
-        partial_target.update({"recipe_kind": "target_runner_v1", "target_materializer": "uv",
-                               "target_runner": "pytest", "selected_witness_ids": [witness],
-                               "case_to_witness_map": {"case:one": [witness]}})
-        for invalid in (
-            target | {"target_materializer": "none", "target_runner": "pytest"},
-            target | {"target_materializer": "future", "target_runner": "pytest"},
-            target | {"target_runner": "future"},
-            target | {"recipe_kind": "target_runner_v2"},
-            target | {"selected_test_names": ["TestOne"]},
-            target | {"case_to_test_map": {"case:one": ["TestOne"]}},
-            partial_target,
-            target | {"selected_witness_ids": []},
-            target | {"selected_witness_ids": [witness, witness]},
-            target | {"selected_witness_ids": ["x" * 257]},
-            target | {"selected_witness_ids": ["na\x00l"]},
-            target | {"case_to_witness_map": {}},
-            target | {"case_to_witness_map": {"not-a-case": [witness]}},
-            target | {"case_to_witness_map": {"case:one": [f"w{index}" for index in range(9)]}},
-            target | {"selected_witness_ids": [f"w{index}" for index in range(41)],
-                      "selected_distinct_count": 41,
-                      "case_to_witness_map": {f"case:c{index}": [f"w{index}"] for index in range(41)}},
-            # Cross-field joins the schema cannot express — count equality
-            # and map-witness membership — belong to the native core consumer.
-        ):
-            with self.assertRaises(ValueError):
-                self.validate(invalid, "native_oracle_preparation")
-        target_prepare_result = target | {"control_id": "control:one", "stages": []}
-        self.validate(target_prepare_result, "native_oracle_result")
-        target_execute = target_prepare_result | {"phase": "execute", "qualification": "pass",
-            "preparation_run_ref": "run:prepare",
-            "input_manifest_digest": "sha256:" + "c" * 64, "binary_digest": "sha256:" + "d" * 64,
-            "observed_witness_ids": [witness]}
-        self.validate(target_execute, "native_oracle_result")
-        for invalid in (
-            target_execute | {"observed_test_names": ["TestOne"]},
-            {key: value for key, value in target_execute.items() if key != "observed_witness_ids"},
-        ):
-            with self.assertRaises(ValueError):
-                self.validate(invalid, "native_oracle_result")
-        for invalid in (execute | {"observed_witness_ids": ["w"]},):
-            with self.assertRaises(ValueError):
-                self.validate(invalid, "native_oracle_result")
-
     def test_projection_is_idempotent_and_keeps_native_navigation_without_attempts(self):
         actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
         repeated, _ = generator.project_workflow_action_schema(self.projected, actions, workflows, teaching)
@@ -2440,30 +2210,6 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
         self.assertNotIn("oracle_receipts", self.projected["$defs"]["work_context_view"]["properties"])
         for name in ("worker_packet", "worker_oracle_receipt"):
             self.assertNotIn(name, self.projected["$defs"])
-
-    def test_output_page_result_keeps_legacy_modes_and_exact_byte_bound(self):
-        import base64
-        page = {"run_ref": "worktree_verify:run", "stream": "stderr", "offset": 0,
-                "data_base64": base64.b64encode(b"x" * 16384).decode(), "length": 16384,
-                "total_length": 2097152, "sha256": "sha256:" + "a" * 64, "complete": True,
-                "next_offset": 16384, "eof": False}
-        result = {"work_id": "work-1", "project_id": "project-1", "branch": "", "path": "", "mode": "oracle_output",
-                  "content": "", "truncated": False, "oracle_output": page}
-        self.validate(result, "worktree_inspect_result")
-        self.assertEqual(len(page["data_base64"]), 21848)
-        with self.assertRaises(ValueError):
-            self.validate(result | {"mode": "status"}, "worktree_inspect_result")
-        invalid = copy.deepcopy(result)
-        invalid["oracle_output"]["length"] = 16385
-        with self.assertRaises(ValueError):
-            self.validate(invalid, "worktree_inspect_result")
-        for mode in ("status", "diff", "file"):
-            legacy = {"work_id": "work-1", "project_id": "project-1", "branch": "work/work-1", "path": "/synthetic/tree", "mode": mode,
-                      "content": "", "truncated": False}
-            self.validate(legacy, "worktree_inspect_result")
-            with self.assertRaises(ValueError):
-                self.validate(legacy | {"path": ""}, "worktree_inspect_result")
-
 
 def workflow_job_steps(job_name: str) -> list[dict]:
     """One job's steps as name/run/env records.

@@ -61,10 +61,8 @@ func qAssociateCurrentProofAt(t *testing.T, f workContextFixture, verdictStep, a
 			t.Fatalf("start candidate production: %v", err)
 		}
 	}
-	run, err := f.store.VerifyWorktree(t.Context(), j.request("q-proof", nil))
-	if err != nil || run.ExitCode != 0 {
-		t.Fatalf("capture candidate command receipt: %+v, %v", run, err)
-	}
+	run := j.observeRun(t, "q-proof")
+	j.bindVerification(t, run)
 	qAcceptCriterionReview(t, f, repo, run.OperationRef)
 	if artifact != "" {
 		j.bindVerification(t, j.observeRun(t, "q-delivery"))

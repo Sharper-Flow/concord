@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,8 +9,6 @@ import (
 )
 
 func TestReviewOracleOwnerIDBound(t *testing.T) {
-	f := newNativeOracleFixture(t)
-	raw := mustJSONValue(f.bundle)
 	for _, length := range []int{6, 7, 128, 129, 133} {
 		t.Run(fmt.Sprint(length), func(t *testing.T) {
 			ownerID := "owner:" + strings.Repeat("a", length-len("owner:"))
@@ -26,23 +23,6 @@ func TestReviewOracleOwnerIDBound(t *testing.T) {
 			state := WorkflowReviewState{Findings: report.Findings}
 			if err := payloadschema.Validate("workflow_review_state", mustJSONValue(state)); (err == nil) != want {
 				t.Errorf("output schema accepted=%v, want %v: %v", err == nil, want, err)
-			}
-
-			var bundle NativeOracleControlBundle
-			if err := json.Unmarshal(raw, &bundle); err != nil {
-				t.Fatal(err)
-			}
-			bundle.Owner.OwnerID, bundle.Control.OwnerID = ownerID, ownerID
-			for i := range bundle.Cases {
-				bundle.Cases[i].OwnerID = ownerID
-			}
-			tx, err := f.s.db.BeginTx(t.Context(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer tx.Rollback()
-			if err := validateNativeBundleAuthorityTx(t.Context(), tx, f.work, 1, bundle); (err == nil) != want {
-				t.Errorf("native preparation accepted=%v, want %v: %v", err == nil, want, err)
 			}
 		})
 	}

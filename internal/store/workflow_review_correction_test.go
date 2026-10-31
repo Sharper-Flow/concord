@@ -79,8 +79,8 @@ func reviewGateDeliveryRefusal(t *testing.T, j *candidateJourney) {
 	before := j.effects(t)
 	deliveries := reviewGateCountDeliveries(t, j.s, j.workID)
 	err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:review-gate-" + j.workID, "delivery_state": "asserted"}, j.fixture.owner)
-	if !hasFailureKind(err, KindStaleRequiresReview) {
-		t.Fatalf("delivery after candidate movement=%v, want stale_requires_review", err)
+	if !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("delivery with correction required=%v, want missing_evidence", err)
 	}
 	if j.effects(t) != before || reviewGateCountDeliveries(t, j.s, j.workID) != deliveries {
 		t.Fatal("refused delivery changed durable state")
@@ -111,22 +111,43 @@ func reviewGateAcceptor(workID string) WorkflowActor {
 	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/review-gate-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
 }
 
+func reviewGateChangeRecordedCriterion(t *testing.T, j *candidateJourney) {
+	t.Helper()
+	owner, err := WorkflowActorRef(j.fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	successor := pContractSuccessor(t, j.s, j.workID, "changed criterion")
+	delete(successor, "audit_evidence")
+	delete(successor, "supersede_reason")
+	successor["outcome_kind"] = "check"
+	successor["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "fail"
+	version := readWorkVersion(t, j.s, j.workID)
+	successor["law_revisions"], successor["law_boundary_version"], successor["consequence_class"] = []WorkflowLawRevision{}, 1, "internal_sqlite"
+	event := workflowEventWithActor("gate-criterion-successor", WorkflowContractSuperseded, j.workID, owner, map[string]any{"work_id": j.workID, "expected_version": version, "resulting_version": version + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "changed criterion", "audit_evidence": []string{"evidence:return-route-artifact"}, "successor_contract": successor})
+	event = withPinnedDecisionFact(t, pinnedWorkflowDefinitionForTest(t, j.s, j.workID), event)
+	if err := applyWorkflowTestOperation(t.Context(), j.s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, j.workID): version}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDeliveryRequiresReviewOfCurrentCandidate(t *testing.T) {
 	j := reviewGateRefineFixture(t, "review-gate-break-fix", "workflow.break_fix")
 	reviewGateCompleteReview(t, j, "correction_required")
 	reviewGateCompleteReview(t, j, "continue")
 	pReturnProduce(t, j, "repair")
-	reviewGateDeliveryRefusal(t, j)
-	pin := issue1013Pin(t, j.s, j.workID)
-	if workPinContainsAction(pin.NextValidIntents, "record_delivery") {
-		t.Fatalf("pin offered delivery behind unreviewed repair: %+v", pin.NextValidIntents)
-	}
 	before := j.effects(t)
 	if err := j.action(t, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), j.fixture.owner); err == nil {
 		t.Fatal("refine admitted correction without an applicable correction-required Review")
 	}
 	if j.effects(t) != before {
 		t.Fatal("refused corrective return changed durable state")
+	}
+	reviewGateCompleteReview(t, j, "correction_required")
+	reviewGateDeliveryRefusal(t, j)
+	pin := issue1013Pin(t, j.s, j.workID)
+	if workPinContainsAction(pin.NextValidIntents, "record_delivery") {
+		t.Fatalf("pin offered delivery despite recorded correction: %+v", pin.NextValidIntents)
 	}
 	reviewGateExitWithCurrentReview(t, j)
 }
@@ -146,10 +167,18 @@ func TestDeliveryGateDeclaresCorrectiveReturn(t *testing.T) {
 
 func TestReviewOfReplacedCandidateCannotAuthorizeDelivery(t *testing.T) {
 	j := reviewGateRefineFixture(t, "review-gate-stale-review", "workflow.break_fix")
-	early := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
+	input := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof").InputCandidate
+	oldRef := j.observeRun(t, "old-candidate").OperationRef
 	pReturnProduce(t, j, "repair")
-	if j.pinned(t) == early.OutputCandidate.Commit {
-		t.Fatal("repair did not replace the qualified subject")
+	early := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
+	early.InputCandidate = input
+	reviewGateCompleteReview(t, j, "correction_required")
+	state, err := readWorkflowReviewFacts(t.Context(), j.s.db, j.workID)
+	if err != nil || state.Candidate == nil || state.Candidate.Commit == input.Commit {
+		t.Fatalf("recorded Review did not replace the candidate: %+v, %v", state, err)
+	}
+	if err := workflowAcceptanceSubjectCurrent(t.Context(), j.s.db, j.workID, state.Candidate, []string{oldRef}); !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("old candidate report authorized the replacement: %v", err)
 	}
 	before := j.effects(t)
 	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, early); !hasFailureKind(err, KindStaleRequiresReview) {
@@ -163,11 +192,12 @@ func TestReviewOfReplacedCandidateCannotAuthorizeDelivery(t *testing.T) {
 }
 
 func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
-	t.Run("changed subject needs current Review", func(t *testing.T) {
+	t.Run("recorded correction blocks changed subject", func(t *testing.T) {
 		j := reviewGateRefineFixture(t, "review-gate-before-repair", "workflow.break_fix")
 		reviewGateCompleteReview(t, j, "continue")
 		reviewGateCompleteReview(t, j, "ready_for_final_proof")
 		pReturnProduce(t, j, "repair")
+		reviewGateCompleteReview(t, j, "correction_required")
 		reviewGateDeliveryRefusal(t, j)
 		reviewGateExitWithCurrentReview(t, j)
 	})
@@ -219,6 +249,7 @@ func TestCurrentDeliveryGateAdmitsEvidenceBearingReturn(t *testing.T) {
 			if err := advanceWorkflowTestInstanceToStep(t.Context(), j.s, j.workID, "delivery", actor); err != nil {
 				t.Fatal(err)
 			}
+			reviewGateChangeRecordedCriterion(t, j)
 			reviewGateRequireStep(t, j.s, j.workID, "delivery")
 			current := mustBuiltinDefinition(t, tc.family)
 			ref, digest := reviewGateInstancePin(t, j.s, j.workID)

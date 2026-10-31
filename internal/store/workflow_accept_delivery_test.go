@@ -48,7 +48,7 @@ type acceptDeliveryCandidate struct {
 	f          workContextFixture
 	j          *candidateJourney
 	definition RegisteredDefinition
-	early      WorktreeVerifyResult
+	early      candidateReport
 }
 
 func acceptDeliveryCandidateAt(t *testing.T, workID, ref, step string, _ bool) acceptDeliveryCandidate {
@@ -59,6 +59,7 @@ func acceptDeliveryCandidateAt(t *testing.T, workID, ref, step string, _ bool) a
 	repo, _ := reviewSubjectClaim(t, f.store, workID)
 	c := acceptDeliveryCandidate{f: f, j: &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo, acceptor: f.owner}, definition: definition}
 	c.early = c.j.observeRun(t, "early")
+	c.j.bindVerification(t, c.early)
 	if step == "refine" {
 		reviewGateStartStep(t, f.store, workID, "refine", "start_refine", f.owner)
 	}
@@ -122,28 +123,11 @@ func acceptDeliveryUnobservedCandidateAt(t *testing.T, workID, ref string) accep
 	return c
 }
 
-func acceptDeliveryUnbindableRun(t *testing.T, c acceptDeliveryCandidate, id string, command []string) {
+func acceptDeliveryFailedReport(t *testing.T, c acceptDeliveryCandidate) {
 	t.Helper()
-	request := c.j.request("observe-"+id, nil)
-	request.Command = command
-	run, _ := c.f.store.VerifyWorktree(t.Context(), request)
-	if err := runTrackedFileRestore(c.j.repo); err != nil {
-		t.Fatal(err)
-	}
-	if run.OperationRef == "" {
-		return
-	}
-	err := c.j.action(t, "bind_evidence", map[string]any{
-		"evidence_kind": "verification", "immutable_subject_ref": run.OperationRef, "producer_id": "principal/operator",
-		"producer_run_ref": run.OperationRef, "producer_watermark": "request-" + strings.TrimPrefix(run.LeaseID, "candidate-"),
-	}, c.j.acceptor)
-	if err == nil {
-		t.Fatalf("bind of the %s run %s was admitted", id, run.OperationRef)
-	}
-}
-
-func runTrackedFileRestore(repo string) error {
-	return os.WriteFile(filepath.Join(repo, "seed.txt"), []byte("review subject seed\n"), 0o644)
+	report := c.j.observeRun(t, "failed")
+	report.Report.Result = "fail"
+	c.j.bindVerification(t, report)
 }
 
 var acceptDeliveryFamilies = []struct{ ref, workStep, nextStep string }{
@@ -161,23 +145,15 @@ func TestDeliveryAdmissionRefusals(t *testing.T) {
 				kind                FailureKind
 				detail              string
 			}{
-				{"no-verification-run", true, false, func(*testing.T, acceptDeliveryCandidate) *ProjectToolingManifest { return nil }, KindMissingEvidence, "no passing producer verification covers the current integrated candidate"},
+				{"no-verification-run", true, false, func(*testing.T, acceptDeliveryCandidate) *ProjectToolingManifest { return nil }, KindMissingEvidence, "no passing verification report covers the recorded Review candidate"},
 				{"stale-run", true, false, func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					c.j.bindVerification(t, c.early)
 					return refineProofTooling(ProjectDeclaredTool{ID: "go-vet", Invocation: "go vet ./..."})
 				}, KindMissingEvidence, "verification does not cover the current integrated candidate"},
 				{"failed-run", true, false, func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
-					acceptDeliveryUnbindableRun(t, c, "failed", []string{"false"})
+					acceptDeliveryFailedReport(t, c)
 					return nil
-				}, KindMissingEvidence, "no passing producer verification covers the current integrated candidate"},
-				{"dirty-run", true, false, func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
-					acceptDeliveryUnbindableRun(t, c, "dirty", []string{"sh", "-c", "echo dirty >> seed.txt"})
-					return nil
-				}, KindMissingEvidence, "no passing producer verification covers the current integrated candidate"},
-				{"undeclared-run", false, false, func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
-					acceptDeliveryBindFresh(t, c, "undeclared")
-					return refineProofTooling(ProjectDeclaredTool{ID: "go-test-race", Invocation: "go test -race ./..."})
-				}, KindMissingEvidence, "not a tool the Project declares"},
+				}, KindMissingEvidence, "verification does not cover the current integrated candidate"},
 				{"missing-step-start", false, true, func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					setWorkflowStepForOperatorVerdictTest(t, c.f.store, c.f.workID, "refine")
 					acceptDeliveryBindFresh(t, c, "unstarted")

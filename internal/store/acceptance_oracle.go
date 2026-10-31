@@ -412,7 +412,7 @@ func validateAcceptanceOracleAuthorityTx(ctx context.Context, tx *sql.Tx, workID
 	if err := validateOracleOwnerAuthorityTx(ctx, tx, workID, contractVersion, oracle); err != nil {
 		return err
 	}
-	return validateOracleReadinessAuthorityTx(ctx, tx, workID, contractVersion, oracle)
+	return nil
 }
 
 func validateOraclePredicateAuthorityTx(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, oracle *AcceptanceOracle) error {
@@ -472,29 +472,6 @@ func validateOracleOwnerAuthorityTx(ctx context.Context, tx *sql.Tx, workID stri
 	for binding := range laws {
 		if err := validateOracleLawPinTx(ctx, tx, workID, contractVersion, "acceptance oracle", binding); err != nil {
 			return err
-		}
-	}
-	return nil
-}
-
-func validateOracleReadinessAuthorityTx(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, oracle *AcceptanceOracle) error {
-	for _, control := range oracle.Controls {
-		bundle, bundleErr := nativeBundleForControl(oracle, control.ControlID)
-		if bundleErr != nil {
-			return bundleErr
-		}
-		current, subjectErr := readCurrentOracleSubject(ctx, tx, workID)
-		if subjectErr != nil {
-			return subjectErr
-		}
-		for _, ref := range control.ReadinessEvidenceRefs {
-			preparation, err := readOraclePreparationReceiptTx(ctx, tx, workID, control.RecipeSource.ProjectID, ref)
-			if err != nil {
-				return err
-			}
-			if preparation == nil || preparation.ContractVersion != contractVersion || preparation.SubjectCommit != current || preparation.BundleDigest != nativeBundleDigest(bundle) {
-				return oracleFailure(KindInvalidPayload, "acceptance_oracle.controls readiness_evidence_refs for control "+control.ControlID+" contains "+ref+", which is not its exact qualified native preparation; prepare the exact owner/case/control bundle on the current clean candidate and replace readiness_evidence_refs with its qualified run reference before recording an ordinary same-job revision; do not use repair_revisions or repair_reason for a code correction", "correct_request")
-			}
 		}
 	}
 	return nil

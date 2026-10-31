@@ -181,11 +181,7 @@ type worktreeInspectInput struct {
 	Mode   string `json:"mode"`
 	// Path is the relative file selector for file mode. It selects inside
 	// the identity-derived worktree (CD-0096 D2), never a worktree path.
-	Path   string `json:"path"`
-	RunRef string `json:"run_ref"`
-	Stream string `json:"stream"`
-	Offset int64  `json:"offset"`
-	Length int64  `json:"length"`
+	Path string `json:"path"`
 }
 
 type researchReadInput struct {
@@ -1092,10 +1088,6 @@ func mapFailureKind(kind store.FailureKind) string {
 		// so the retry is safe. operation_conflict would couple this to
 		// reconcile_operation, and there is nothing to reconcile.
 		return "resource_busy"
-	case store.KindWorktreeVerifyMutated:
-		// CD-0096 D3 Verify: a verifier that edited its subject verifies
-		// nothing. The lease is already released; completion refuses typed.
-		return "operation_conflict"
 	case store.KindProjectionConflict:
 		// A projection identity another row already holds (a second active
 		// worktree claim, a locator-drifted worktree) is a coordination
@@ -1701,12 +1693,6 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	}
 	if snapshot.StaleLawRevision != nil {
 		pinned["stale_law_revision"] = snapshot.StaleLawRevision
-	}
-	// CD-0096 D5: the pinned projection carries the reading session's held
-	// verify leases. The absent field keeps the work-keyed boot bytes
-	// byte-stable (CD-0090 D3).
-	if len(snapshot.ActiveVerifyLeases) > 0 {
-		pinned["active_verify_leases"] = snapshot.ActiveVerifyLeases
 	}
 	// The contract's resolved law and Domain references, and the recorded
 	// proposal, ride the pinned projection when present. The absent fields

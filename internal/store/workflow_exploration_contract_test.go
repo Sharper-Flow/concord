@@ -261,7 +261,7 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 				switch {
 				case actionID == "record_verdict":
 					err = runVerdictActionAs(t, s, workID, actionID, criterionAssociationPayload(proofRef, "predicate:liveness-exit"), 0, livenessActor())
-				case journey != nil && WorkflowActionRequiresSubjectFreshness(actionID):
+				case journey != nil && (actionID == "record_review" || actionID == "confirm_premise" || actionID == "complete"):
 					err = journey.terminalAction(t, actionID, payload, livenessActor())
 				default:
 					err = livenessApply(ctx, s, workID, livenessMove{action: actionID, variant: livenessVariantLabel(variant), payload: payload}, ordinal)
@@ -294,8 +294,8 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 						journey = pReturnClaim(t, workflowReturnRouteFixture{store: s, owner: livenessActor()}, workID)
 						journey.acceptor = livenessActor()
 						run := journey.observeRun(t, "delivery-proof")
-						qAcceptCriterionReview(t, journey.fixture, journey.repo, run.OperationRef)
 						journey.bindVerification(t, run)
+						qAcceptCriterionReview(t, journey.fixture, journey.repo, run.OperationRef)
 						proofRef = run.OperationRef
 					}
 				}

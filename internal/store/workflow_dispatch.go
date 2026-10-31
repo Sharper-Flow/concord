@@ -232,11 +232,6 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 		return result, err
 	}
 	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep, instanceState: state, registry: registry}
-	if WorkflowActionRequiresSubjectFreshness(request.ActionID) {
-		if err := validateWorkflowAcceptanceFreshness(ctx, tx, request.WorkID); err != nil {
-			return result, err
-		}
-	}
 	if err := prepareWorkflowExecutionAdmission(guards); err != nil {
 		return result, err
 	}
@@ -318,7 +313,7 @@ func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 	}
 	decision := workflowAdmit(g.entry.Definition, admission, request.ActionID)
 	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld {
-		return workflowExecutionAdmissionFailure(decision, request.ProjectTooling)
+		return decision.Failure
 	}
 	if err := validateWorkflowReviewRequest(g.ctx, g.tx, request.WorkID, request.ActionID, request.Payload); err != nil {
 		return err
@@ -628,7 +623,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "record_review":
 		return workflowRecordedReviewEvents(request, actor, eventID, expected)
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
-		return workflowEvidenceBindingEvents(request, actor, fields, eventID, expected)
+		return workflowEvidenceBindingEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "record_verdict":
 		events, err := workflowRecordVerdictEvents(ctx, tx, request, actor, fields, eventID, expected)
 		if err != nil {

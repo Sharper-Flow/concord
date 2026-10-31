@@ -8,7 +8,7 @@ import (
 
 // CD-0229 D5 retains mandatory outcomes at small size. This fixture omits
 // optional architecture depth but uses the current shared implementation
-// definition, real command receipts, and Main's accepted Review assessment.
+// definition, recorded verification reports, and Main's accepted Review assessment.
 // It does not claim a generic footprint-anchor execution mapping.
 func smallImplementationAtRelease(t *testing.T) acceptDeliveryCandidate {
 	t.Helper()
@@ -68,7 +68,7 @@ func TestSmallImplementationCompletionRetainsMandatoryOutcomes(t *testing.T) {
 		{name: "complete"},
 		{name: "missing-contract-predicates", damage: `DELETE FROM workflow_contract_predicates WHERE work_id='small-route-outcomes'`, kind: KindStaleRequiresReview, detail: "recorded Review does not cover the current candidate and dependencies"},
 		{name: "missing-criterion-proof", damage: `DELETE FROM workflow_predicate_verdicts WHERE work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "workflow verdict is missing"},
-		{name: "missing-producer-receipt", damage: `DELETE FROM durable_operations WHERE json_extract(result_payload,'$.lease_id')='candidate-observe-early' AND work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "requires a passing final-subject receipt"},
+		{name: "missing-report", damage: `DELETE FROM workflow_evidence_bindings WHERE work_id='small-route-outcomes' AND json_type(payload,'$.verification_report')='object'`, kind: KindStaleRequiresReview, detail: "report"},
 		{name: "review-not-accepted", damage: `UPDATE workflow_review_state SET state=json_set(state,'$.accepted',json('null')) WHERE work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "current candidate has no recorded Review"},
 		{name: "blocking-review", damage: `UPDATE workflow_review_state SET state=json_set(state,'$.accepted.report.disposition','correction_required') WHERE work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "ready_for_final_proof"},
 	}

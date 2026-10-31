@@ -35,12 +35,6 @@ func TestDomainShapeReadingClosedSource(t *testing.T) {
 	if err := validateWorkContextReading(reading); err != nil {
 		t.Fatal(err)
 	}
-	// The closed union belongs to reading entries; oracle recipe sources share
-	// the source type and must keep decoding their retained producer facts.
-	var oracle NativeOracleResult
-	if err := json.Unmarshal([]byte(`{"recipe_source":{"kind":""}}`), &oracle); err != nil {
-		t.Fatalf("reading closure leaked into oracle recipe_source: %v", err)
-	}
 	for _, raw := range []string{
 		strings.Replace(valid, `"selector":{"path":"src"}`, `"selector":null`, 1),
 		strings.Replace(valid, `"selector":{"path":"src"}`, `"selector":{}`, 1),

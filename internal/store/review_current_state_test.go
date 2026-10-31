@@ -187,13 +187,9 @@ func TestReviewCurrentCandidateChangesOnlyOnRecordedReview(t *testing.T) {
 	if before := read(); !reflect.DeepEqual(before.Accepted, baseline.Accepted) || !reflect.DeepEqual(before.Candidate, baseline.Candidate) || before.blocker() == "" {
 		t.Fatalf("draft repair changed authority or closed its finding: %+v", before)
 	}
-	prepared, err := PrepareWorkflowAcceptanceFreshness(t.Context(), j.s, PrepareWorkflowSubjectRequest{WorkID: j.workID})
-	if err != nil {
-		t.Fatal(err)
-	}
 	beforeEffects := j.effects(t)
 	beforeValidation := read()
-	if err := validateRecordedReview(WithWorkflowSubjectPreparation(t.Context(), prepared), j.s.db, j.workID, repair); err != nil {
+	if err := validateRecordedReview(t.Context(), j.s.db, j.workID, repair); err != nil {
 		t.Fatal(err)
 	}
 	if after := read(); !reflect.DeepEqual(after, beforeValidation) || j.effects(t) != beforeEffects {
@@ -210,7 +206,7 @@ func TestReviewCurrentCandidateChangesOnlyOnRecordedReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	late := reviewBlockFixture()
-	late.InputCandidate, late.OutputCandidate, late.Dependencies = input, input, repair.Dependencies
+	late.InputCandidate, late.OutputCandidate, late.Dependencies = input, repair.OutputCandidate, repair.Dependencies
 	beforeEffects = j.effects(t)
 	if err := recordReviewForTest(t, j.s, j.workID, j.fixture.owner, late); !hasFailureKind(err, KindStaleRequiresReview) {
 		t.Fatalf("late old-subject Review=%v, want stale refusal", err)

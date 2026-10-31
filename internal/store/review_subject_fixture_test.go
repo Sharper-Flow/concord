@@ -1,19 +1,17 @@
 package store
 
 import (
-	"context"
 	"os"
 	"testing"
 )
 
-// reviewSubjectClaim qualifies a real clean commit on the work's claimed
-// checkout. Git authorship does not confer workflow authority.
+// reviewSubjectClaim creates a candidate repository for Review fixtures.
 func reviewSubjectClaim(t *testing.T, s *Store, workID string) (string, string) {
 	t.Helper()
 	return reviewSubjectClaimObserved(t, s, workID, true)
 }
 
-func reviewSubjectClaimObserved(t *testing.T, s *Store, workID string, observe bool) (string, string) {
+func reviewSubjectClaimObserved(t *testing.T, s *Store, workID string, _ bool) (string, string) {
 	t.Helper()
 	ctx := t.Context()
 	root := t.TempDir()
@@ -45,22 +43,5 @@ func reviewSubjectClaimObserved(t *testing.T, s *Store, workID string, observe b
 	gitRunStore(t, dir, "add", "-A")
 	gitRunStore(t, dir, "commit", "-m", "review subject seed")
 	head := runTestGit(t, dir, "rev-parse", "--verify", "HEAD^{commit}")
-	if !observe {
-		return dir, head
-	}
-	git.worktrees[dir] = claimed.Entry.Branch
-	git.worktreeRepos[dir] = dir
-	git.branches[claimed.Entry.Branch] = head
-	req := verifyRequest(git, "verify-"+workID, []string{"true"}, func(context.Context, string, []string, int) (int, []byte, bool, error) {
-		return 0, nil, false, nil
-	})
-	req.WorkID, req.ProjectID = workID, "project"
-	if _, err := s.VerifyWorktree(ctx, req); err != nil {
-		t.Fatal(err)
-	}
-	subject, err := readCurrentOracleSubject(ctx, s.db, workID)
-	if err != nil || subject != head {
-		t.Fatalf("qualified subject = %q err = %v, want claimed HEAD %q", subject, err, head)
-	}
 	return dir, head
 }

@@ -41,9 +41,10 @@ reads of retired launcher state report absence under CD-0242 D2 and D13.
 
 ### D6. Review content is not completion authority
 
-A recorded Review outcome supplies no verification receipt, operator approval
-or completion by itself. Verify uses `worktree_verify` receipts and
-`record_verdict`. Required CI and completion retain their existing gates.
+A recorded Review outcome supplies no bound verification report, operator approval
+or completion by itself. Verify uses attributed reports and `record_verdict`.
+Review and verdict compare recorded commits; Concord does not read live Git to
+establish candidate freshness. Required CI remains external and mandatory.
 
 ## Alternatives considered
 

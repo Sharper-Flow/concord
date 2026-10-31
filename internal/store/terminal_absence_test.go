@@ -82,10 +82,6 @@ func assertPublishedExecutionAbsenceReaders(t *testing.T, s *Store, home Knowled
 			_, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-published", ProjectID: "proj-web", Mode: "status"})
 			return err
 		},
-		"oracle output": func() error {
-			_, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-published", ProjectID: "proj-web", Mode: "oracle_output", RunRef: "native:old", Stream: "stdout", Length: 20})
-			return err
-		},
 		"resume": func() error {
 			_, err := s.ResumeWorktreeLocation(ctx, "prod-alpha", "proj-web", "work-published")
 			return err
@@ -120,10 +116,6 @@ func TestPublishedExecutionAbsenceProjectGuards(t *testing.T) {
 		},
 		"inspect": func() error {
 			_, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-published", ProjectID: "proj-other", Mode: "status"})
-			return err
-		},
-		"oracle": func() error {
-			_, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: "work-published", ProjectID: "proj-other", Mode: "oracle_output", RunRef: "native:old", Stream: "stdout", Length: 20})
 			return err
 		},
 		"retirement": func() error {

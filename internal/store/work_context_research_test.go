@@ -1258,8 +1258,7 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		if len(raw) != 65537 {
 			t.Fatalf("boundary view measures %d bytes, want exactly 65537", len(raw))
 		}
-		unframed := len(mustJSONValue(view.SubjectCommit)) +
-			len(mustJSONValue(view.OraclePreparations))
+		unframed := len(mustJSONValue(view.SubjectCommit))
 		for _, finding := range view.Findings {
 			if finding.Status == WorkContextFindingStatusOpen {
 				unframed += len(mustJSONValue(finding))
@@ -1357,8 +1356,6 @@ func seedMandatoryNativeEvidence(t *testing.T, f workContextFixture, blockers in
 	t.Helper()
 	repo, _ := reviewSubjectClaim(t, f.store, f.workID)
 	qualifyReviewSubjectForTest(t, f.store, f.workID, repo)
-	oracle := acceptanceOracleFieldsWithoutPreparationsForTest(t, f.store, f.workID)
-	seedOraclePreparationFieldsFixture(t, f.store, f.workID, oracle)
 	state := WorkflowReviewState{Findings: []ReviewFinding{}, findingSources: map[string]reviewFindingSource{}}
 	for i := 0; i < blockers; i++ {
 		refs := make([]string, 0, 16)
@@ -1388,10 +1385,10 @@ func seedMandatoryNativeEvidence(t *testing.T, f workContextFixture, blockers in
 	}
 }
 
-// Refusals preserve the exact current Review facts and native custody bytes.
+// Refusals preserve the exact current Review facts.
 func mandatoryRetainedSnapshot(t *testing.T, f workContextFixture) map[string]string {
 	t.Helper()
-	rows, err := f.store.DatabaseForTesting().Query(`SELECT work_id,state FROM workflow_review_state WHERE work_id=? UNION ALL SELECT lease_id,coalesce(result_json,'')||coalesce(native_plan_json,'') FROM worktree_verify_leases WHERE work_id=? ORDER BY 1`, f.workID, f.workID)
+	rows, err := f.store.DatabaseForTesting().Query(`SELECT work_id,state FROM workflow_review_state WHERE work_id=? ORDER BY 1`, f.workID)
 	if err != nil {
 		t.Fatal(err)
 	}

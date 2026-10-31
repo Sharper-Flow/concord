@@ -570,27 +570,12 @@ func guardNoRestartDispatch(g *workflowActionGuardContext) error {
 // guardDeliveryAdmission consumes the shared decision and binds the proof
 // to the request's external tool declaration.
 func guardDeliveryAdmission(g *workflowActionGuardContext) error {
-	state, err := g.foldedAdmissionState()
-	if err != nil {
-		return err
-	}
 	decision, err := g.foldedAdmissionDecision()
 	if err != nil {
 		return err
 	}
 	if !decision.Admitted {
-		return workflowExecutionAdmissionFailure(*decision, g.request.ProjectTooling)
-	}
-	if state.Delivery.ProofRequired && g.request.ProjectTooling != nil {
-		qualifying, why, err := workflowVerificationProof(g.deliveryProofRuns, g.request.ProjectTooling)
-		if err != nil {
-			return err
-		}
-		if !qualifying {
-			failure := workflowRefineProofFailure(why)
-			failure.Detail += " " + ProjectToolingDeclaredText(g.request.ProjectTooling)
-			return failure
-		}
+		return decision.Failure
 	}
 	return nil
 }

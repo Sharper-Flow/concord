@@ -269,7 +269,7 @@ func (l workflowAdmissionLoad) holdsAndRecovery(state *WorkflowAdmissionState) e
 }
 
 func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *WorkflowAdmissionState) error {
-	if state.ActiveContracts == 1 {
+	if state.ActiveContracts == 1 && workflowDefinitionProducesDelivery(definition) {
 		subjectErr := workflowAcceptedSubjectCurrent(ctx, q, workID)
 		if subjectErr != nil {
 			var failure *Failure

@@ -390,7 +390,7 @@ func workflowRecordedReviewEvents(request WorkflowActionExecutionRequest, actor,
 // kind. Every candidate subject satisfies the same reference rule the
 // declared payload fields already enforce, so an array-derived subject cannot
 // mint evidence that no verdict or completion can name.
-func workflowEvidenceBindingEvents(request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
+func workflowEvidenceBindingEvents(ctx context.Context, q queryer, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	producerID := workflowFieldStringDefault(fields, "producer_id", request.PrincipalRef)
 	producerRunRef := workflowFieldStringDefault(fields, "producer_run_ref", request.OperationID)
 	producerWatermark := workflowFieldStringDefault(fields, "producer_watermark", request.RequestID)
@@ -411,13 +411,37 @@ func workflowEvidenceBindingEvents(request WorkflowActionExecutionRequest, actor
 		return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("%s binds one immutable subject per call; the call names %d distinct subjects (%s); split the submission into one bind per subject", request.ActionID, len(subjects), strings.Join(named, ", ")), false, "split the submission into one bind per subject")
 	}
 	subject := subjects[0]
+	var report *VerificationReport
+	if raw, present := fields["verification_report"]; present {
+		if request.ActionID != "bind_evidence" {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "verification reports require bind_evidence", false, "bind the report through bind_evidence")
+		}
+		var decoded VerificationReport
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&decoded); err != nil {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "verification report is malformed", false, "supply the complete report")
+		}
+		if err := validateVerificationReport(subject, &decoded); err != nil {
+			return nil, err
+		}
+		report = &decoded
+		producerID, producerRunRef, producerWatermark = request.PrincipalRef, request.OperationID, request.RequestID
+	}
 	kinds, err := workflowEvidenceBindingKinds(request.ActionID, request.EvidenceKinds, fields, subject)
 	if err != nil {
 		return nil, err
 	}
 	events := make([]Event, 0, len(kinds))
 	for i, kind := range kinds {
-		events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(i), WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected+int64(i), map[string]any{"evidence_kind": kind, "immutable_subject_ref": subject, "producer_id": producerID, "producer_run_ref": producerRunRef, "producer_watermark": producerWatermark, "observed_at": request.Now.UTC().Format(time.RFC3339Nano)}))
+		payload := map[string]any{"evidence_kind": kind, "immutable_subject_ref": subject, "producer_id": producerID, "producer_run_ref": producerRunRef, "producer_watermark": producerWatermark, "observed_at": request.Now.UTC().Format(time.RFC3339Nano)}
+		if report != nil {
+			if kind != "verification" {
+				return nil, newFailure(KindInvalidPayload, "workflow_action", "verification report requires only verification evidence", false, "bind the report as verification evidence")
+			}
+			payload["verification_report"] = report
+		}
+		events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(i), WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected+int64(i), payload))
 	}
 	return events, nil
 }

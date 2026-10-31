@@ -78,7 +78,7 @@ func TestReviewRouteGuidanceAcceptance(t *testing.T) {
 		name, detail, recovery string
 		change                 func(*ReviewBlock)
 	}{
-		{"replaced input", "corrective Review input is not the retained candidate", "record the exact retained input and qualified output", func(r *ReviewBlock) { r.InputCandidate.Commit = strings.Repeat("f", 40) }},
+		{"replaced input", "corrective Review input is not the retained candidate", "record the retained input and the reviewed output", func(r *ReviewBlock) { r.InputCandidate.Commit = strings.Repeat("f", 40) }},
 		{"changed criteria", "Review judged different criterion or architecture content", "review the current criterion and architecture digests", func(r *ReviewBlock) {
 			r.Dependencies.Criteria = []ReviewCriterion{{PredicateID: "predicate:changed", ContentDigest: nativeDigest([]byte("changed"))}}
 		}},

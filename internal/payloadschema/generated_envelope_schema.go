@@ -290,7 +290,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_verify",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement",
@@ -995,7 +994,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_verify",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement",
@@ -1144,7 +1142,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "worktree_claim",
                       "worktree_destroy",
                       "worktree_reclaim",
-                      "worktree_verify",
                       "workflow_action",
                       "outside_repair",
                       "outside_repair_reconcile"
@@ -2027,7 +2024,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "worktree_destroy",
                 "worktree_reclaim",
                 "worktree_audit_reclaim",
-                "worktree_verify",
                 "outside_repair",
                 "outside_repair_reconcile"
               ],
@@ -2739,8 +2735,8 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "object"
         },
         "supported_budget_seconds": {
-          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind. The maximum tracks the agent-tool-surface ceiling (CD-0038 D2 evidence-fixed exceptions; worktree_verify is fixed at 1800).",
-          "maximum": 1800,
+          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind.",
+          "maximum": 300,
           "minimum": 1,
           "type": "integer"
         },

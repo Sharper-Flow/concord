@@ -1,8 +1,6 @@
 package store
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -75,7 +73,7 @@ func TestRetainedEditingReviewCanRepair(t *testing.T) {
 }
 
 func TestRetainedReviewCandidateBounds(t *testing.T) {
-	for _, shape := range []string{"dirty", "foreign_input", "input_tree", "output_moved", "contract"} {
+	for _, shape := range []string{"foreign_input", "input_tree", "output_moved", "contract"} {
 		t.Run(shape, func(t *testing.T) {
 			j, input := retainedReviewFixture(t, "retained-bound-"+shape)
 			descendantCommit(t, j, "ordinary-editor")
@@ -83,16 +81,15 @@ func TestRetainedReviewCandidateBounds(t *testing.T) {
 			report.InputCandidate = input
 			want := KindStaleRequiresReview
 			switch shape {
-			case "dirty":
-				if err := os.WriteFile(filepath.Join(j.repo, "seed.txt"), []byte("dirty\n"), 0o600); err != nil {
-					t.Fatal(err)
-				}
 			case "foreign_input":
 				report.InputCandidate.Commit = strings.Repeat("f", 40)
 			case "input_tree":
 				report.InputCandidate.Tree = strings.Repeat("e", 40)
 			case "output_moved":
 				descendantCommit(t, j, "later-observed-editor")
+				completeCurrentReviewForTest(t, j.fixture, j.repo, "continue", func(newReport *ReviewBlock) {
+					newReport.InputCandidate = input
+				})
 			case "contract":
 				payload := pContractSuccessor(t, j.s, j.workID, "The approved outcome needs a corrected approach.")
 				predicates := payload["outcome_predicates"].([]any)

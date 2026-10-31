@@ -149,7 +149,6 @@ const (
 	// KindWorktreeVerifyMutated marks a verify lease whose tracked files
 	// changed while the command ran (CD-0096 D3 Verify tier). A verifier
 	// that edits its subject verifies nothing, so completion refuses typed.
-	KindWorktreeVerifyMutated FailureKind = "worktree_verify_mutated"
 	// KindWorktreeUnpublishedLesson marks a worktree reclaim whose branch
 	// carries a lesson record the default branch does not hold. The reclaim
 	// deletes the branch, and a pushed-then-abandoned branch holding a

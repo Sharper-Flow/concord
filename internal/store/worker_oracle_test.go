@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -41,7 +40,7 @@ func testOracleGraph() *AcceptanceOracle {
 				ControlID: "control:immutable", OwnerID: "owner:entry",
 				PredicateIDs: []string{"predicate:one"}, CaseIDs: []string{"case:immutable", "case:rerecord"},
 				RecipeSource:          WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
-				Argv:                  oracleGoArgv("immutability"),
+				Argv:                  []string{"go", "test", "./...", "-run", "immutability"},
 				Cwd:                   "internal/store",
 				ExpectedResult:        "pass",
 				RequiredEvidenceRole:  "reported",
@@ -51,7 +50,7 @@ func testOracleGraph() *AcceptanceOracle {
 				ControlID: "control:bind", OwnerID: "owner:dispatch",
 				PredicateIDs: []string{"predicate:two"}, CaseIDs: []string{"case:bind", "case:tamper"},
 				RecipeSource:          WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
-				Argv:                  oracleGoArgv("binding"),
+				Argv:                  []string{"go", "test", "./...", "-run", "binding"},
 				Cwd:                   "internal/store",
 				ExpectedResult:        "pass",
 				RequiredEvidenceRole:  "independently_executed",
@@ -198,49 +197,5 @@ func TestOwnerOracleGraphRefusesControlCharacterArgv(t *testing.T) {
 	oracle.Controls[0].Argv = []string{"go", "test\n./..."}
 	if err := validateOracleControlDefinition(oracle.Controls[0]); err == nil {
 		t.Fatal("argument vector with a control character passed the closed validator")
-	}
-}
-
-func TestNativeOracleBundleShapeRefusals(t *testing.T) {
-	f := newNativeOracleFixture(t)
-	raw := mustJSONValue(f.bundle)
-	for _, tc := range []struct {
-		name   string
-		mutate func(*NativeOracleControlBundle)
-	}{
-		{"valid", func(b *NativeOracleControlBundle) {}},
-		{"no cases", func(b *NativeOracleControlBundle) { b.Cases = nil }},
-		{"owner id without prefix", func(b *NativeOracleControlBundle) { b.Owner.OwnerID = "entry"; b.Control.OwnerID = "entry" }},
-		{"control id without prefix", func(b *NativeOracleControlBundle) { b.Control.ControlID = "control" }},
-		{"control names undeclared owner", func(b *NativeOracleControlBundle) { b.Control.OwnerID = "owner:missing" }},
-		{"case names undeclared owner", func(b *NativeOracleControlBundle) { b.Cases[0].OwnerID = "owner:missing" }},
-		{"case names undeclared control", func(b *NativeOracleControlBundle) { b.Cases[0].ControlIDs = []string{"control:missing"} }},
-		{"control names undeclared case", func(b *NativeOracleControlBundle) { b.Control.CaseIDs = []string{"case:missing"} }},
-		{"duplicate case", func(b *NativeOracleControlBundle) {
-			b.Cases = append(b.Cases, b.Cases[0])
-			b.Control.CaseIDs = append(b.Control.CaseIDs, "case:another")
-		}},
-		{"readiness supplied before preparation", func(b *NativeOracleControlBundle) { b.Control.ReadinessEvidenceRefs = []string{"evidence:invented"} }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var bundle NativeOracleControlBundle
-			if err := json.Unmarshal(raw, &bundle); err != nil {
-				t.Fatal(err)
-			}
-			tc.mutate(&bundle)
-			tx, err := f.s.db.BeginTx(t.Context(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer tx.Rollback()
-			err = validateNativeBundleAuthorityTx(t.Context(), tx, f.work, 1, bundle)
-			if tc.name == "valid" {
-				if err != nil {
-					t.Fatalf("valid native bundle refused: %v", err)
-				}
-			} else if !hasFailureKind(err, KindInvalidPayload) {
-				t.Fatalf("native shape refusal = %v, want invalid_payload", err)
-			}
-		})
 	}
 }

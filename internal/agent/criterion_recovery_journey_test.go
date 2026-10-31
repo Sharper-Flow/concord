@@ -86,7 +86,6 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	if refused.Error == nil || refused.Error.Kind != "stale_requires_review" || refused.Error.Message != "recorded Review does not cover the current candidate and dependencies" || refused.Error.EffectState != agentcontract.EffectNone || f.read(t).Pinned.Pin.Version != version {
 		t.Fatalf("changed obligation used the old Review or committed an effect: %+v", refused.Error)
 	}
-	f.prepareControl(t)
 	f.review(t, "correction_required", "")
 	report := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": report}))
@@ -101,7 +100,6 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	if correction := f.read(t).Pinned.Pin.Correction; correction == nil || !slices.Contains(correction.EvidenceRefs, report) {
 		t.Fatal("the unmet changed obligation lost its correction authority")
 	}
-	f.prepareControl(t)
 	f.review(t, "ready_for_final_proof", f.proof)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	f.advanceToAcceptance(t)

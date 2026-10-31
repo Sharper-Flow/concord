@@ -85,8 +85,7 @@ not a development gate, migration trigger, or migration plan.
 
 Migration and correction remain demand-driven and ad hoc. Each operation defines
 its local scope, authority, input, idempotency, provenance, recovery, and native
-execution boundary. The existing predecessor inventory and import commands remain
-utilities with their current safeguards.
+execution boundary.
 
 No global adoption sequence, mandatory pre-adoption exercise, rollback restriction,
 retirement sequence, or migration record applies unless a later decision accepts a

@@ -154,9 +154,9 @@ func TestOpenTempCopiesIsolatedLatestSchema(t *testing.T) {
 	second := openTemp(t)
 	ctx := context.Background()
 
-	event := Event{EventID: "first-only", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "first-project", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("project.created"), Payload: []byte(`{"display_name":"First project"}`)}
-	product := Event{EventID: "first-product-created", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "first-product", Actor: event.Actor, OccurredAt: event.OccurredAt, PayloadVersion: CurrentEventPayloadVersion("product.created"), Payload: []byte(`{"display_name":"First product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)}
-	membership := Event{EventID: "first-membership", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: product.SubjectID, Actor: event.Actor, OccurredAt: event.OccurredAt, PayloadVersion: CurrentEventPayloadVersion("product_project.added"), Payload: []byte(`{"product_id":"first-product","project_id":"first-project","role":"primary","reason":"fixture isolation","expected_version":1,"resulting_version":2}`)}
+	event := Event{EventID: "first-only", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "first-project", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: []byte(`{"display_name":"First project"}`)}
+	product := Event{EventID: "first-product-created", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "first-product", Actor: event.Actor, OccurredAt: event.OccurredAt, PayloadVersion: 1, Payload: []byte(`{"display_name":"First product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)}
+	membership := Event{EventID: "first-membership", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: product.SubjectID, Actor: event.Actor, OccurredAt: event.OccurredAt, PayloadVersion: 1, Payload: []byte(`{"product_id":"first-product","project_id":"first-project","role":"primary","reason":"fixture isolation","expected_version":1,"resulting_version":2}`)}
 	if err := ApplyOperation(ctx, first, Operation{Events: []Event{product, event, membership}}); err != nil {
 		t.Fatalf("seed first store: %v", err)
 	}

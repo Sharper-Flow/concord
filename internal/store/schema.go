@@ -5018,7 +5018,7 @@ ALTER TABLE law_subjects ADD COLUMN authority_tier TEXT NOT NULL DEFAULT 'derive
 		// challenge's validity, and the approval minted before that round
 		// trip would match the restored policy again. The store bumps the
 		// revision on every policy write, so the restored policy is a
-		// different version and the stale approval refuses (CD-0097 D6).
+		// different version and the stale approval refuses (TS5).
 		Version:  99,
 		Name:     "agent_clients_carry_policy_revision",
 		Breaking: false,

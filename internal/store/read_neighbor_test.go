@@ -142,36 +142,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ProductMembership", run: func() error {
-			projects, err := s.ProductMembership(ctx, "prod")
-			if err != nil {
-				return err
-			}
-			if len(projects) != 1 || projects[0] != "proj" {
-				return fmt.Errorf("projects=%v", projects)
-			}
-			return nil
-		}},
-		{name: "EventIDExists", run: func() error {
-			exists, err := s.EventIDExists(ctx, "q-blocks")
-			if err != nil {
-				return err
-			}
-			if !exists {
-				return fmt.Errorf("seeded event q-blocks not found")
-			}
-			return nil
-		}},
-		{name: "FirstWorkEventByOtherActor", run: func() error {
-			kind, actor, found, err := s.FirstWorkEventByOtherActor(ctx, "blocker", "nobody")
-			if err != nil {
-				return err
-			}
-			if !found || kind != "work.created" || actor == "nobody" {
-				return fmt.Errorf("kind=%q actor=%q found=%v", kind, actor, found)
-			}
-			return nil
-		}},
 		{name: "WorkLifecycle", run: func() error {
 			lifecycle, err := s.WorkLifecycle(ctx, "blocker")
 			if err != nil {

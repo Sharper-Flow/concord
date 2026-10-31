@@ -29,7 +29,7 @@ func auditReclaimEnvelopeFixture(t *testing.T, terminal, orphans int) (*store.St
 	for i := 1; i <= terminal; i++ {
 		workID := fmt.Sprintf("work-paged-%02d", i)
 		events = append(events,
-			store.Event{EventID: "audit-paged-work-" + workID, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Audit Paged ` + workID + `","priority":1}`)},
+			store.Event{EventID: "audit-paged-work-" + workID, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Audit Paged ` + workID + `","priority":1}`)},
 			store.Event{EventID: "audit-paged-membership-" + workID, Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 		)
 		versions[store.VersionRef(store.SubjectWorkItem, workID)] = 0

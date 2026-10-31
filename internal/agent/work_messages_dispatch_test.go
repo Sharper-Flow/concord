@@ -27,7 +27,7 @@ func messagesFixture(t *testing.T) (*store.Store, *Service, Authority) {
 	// Three works: sender, target, and an active third; plus a terminal one.
 	for _, w := range []struct{ id, lifecycle string }{{"work-sender", "needed"}, {"work-target", "in_progress"}, {"work-third", "in_progress"}, {"work-done", "completed"}} {
 		events := []store.Event{
-			{EventID: w.id + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: w.id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"` + w.id + `","priority":1}`)},
+			{EventID: w.id + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: w.id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"` + w.id + `","priority":1}`)},
 			{EventID: w.id + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: w.id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 		}
 		expected := map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, w.id): 0}
@@ -264,7 +264,7 @@ func completeWorkForBroadcastTest(ctx context.Context, s *store.Store, workID st
 
 func seedActiveBroadcastRecipient(ctx context.Context, s *store.Store, workID string) error {
 	return store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-		{EventID: workID + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"` + workID + `","priority":1}`)},
+		{EventID: workID + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"` + workID + `","priority":1}`)},
 		{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 		{EventID: workID + "-active", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"from":"needed","to":"in_progress","reason":"broadcast test","expected_version":2,"resulting_version":3}`)},
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}})

@@ -8,9 +8,9 @@
 
 ## Context
 
-The predecessor enumeration (`.concord/docs/predecessor-operational-coverage.md` §3)
-requires an acceptance verdict from "an authority the implementing agent cannot
-read or influence". Concord held the influence half: CD-0013 D5 refuses a
+Acceptance needs a verdict from an authority the implementing agent cannot
+read or influence. Concord held the influence half:
+CD-0013 D5 refuses a
 verdict whose agent and session refs equal the recorded executing values.
 The read half did not
 exist: verdict content reached no agent surface at all, so no session —

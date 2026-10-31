@@ -239,7 +239,6 @@ which amends
 [CD-0138 D3](../law/decisions/CD-0138-mandatory-refinement-pass.md).
 Host-owned methodology selects the tool and analysis procedure. This boundary
 follows
-[`predecessor-operational-coverage.md` §3](./predecessor-operational-coverage.md#3-implementation-changes),
 [CD-0043 D1](../law/decisions/CD-0043-host-owned-lane-methodology.md#d1-methodology-is-not-durable-coordination-state),
 and [CD-0055 D4](../law/decisions/CD-0055-repository-check-authority.md#d4-heuristic-judgment-warns-it-never-blocks).
 

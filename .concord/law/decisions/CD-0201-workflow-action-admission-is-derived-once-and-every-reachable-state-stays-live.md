@@ -57,8 +57,8 @@ derivations degrade instead of refusing the route that recovery owns
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 Review, correction and context projections use their current findings and
-retained receipts without inventing worker lineage. Native preparation and
-execution keep their own bundle, readiness and current-subject checks.
+recorded verification reports without inventing worker lineage. Reports use
+the existing evidence-binding admission, not native preparation or execution.
 They do not create a second admission derivation or new evidence authority.
 
 The liveness checks count only exits the derived state proves, so they fail

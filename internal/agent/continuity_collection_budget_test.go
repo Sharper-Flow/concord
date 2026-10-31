@@ -1070,15 +1070,19 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 		if page == nil || page.NextKind == nil || *page.NextKind != "projection" || first.NextCursor == nil {
 			t.Fatal("fixture produced no projection continuation to continue")
 		}
-		// The held verify lease rides the reading session's view (CD-0096
-		// D5). Direct projection seeding bypasses write admission, so the
-		// revision stays put while the projection changes — exactly the
-		// case the digest binding owns.
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('lease:continuation-digest','work-1','project-1','worktree-continuation-digest','held','client-continuation-aa','agent-continuation','session-continuation-aa','principal-continuation','["go","test"]','2026-10-14T00:00:00Z','running')`); err != nil {
+		// Change the projection without moving its event watermark.
+		var step string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() {
-			_, _ = s.DatabaseForTesting().Exec(`DELETE FROM worktree_verify_leases WHERE lease_id='lease:continuation-digest'`)
+			db := s.DatabaseForTesting()
+			_, _ = db.Exec(`INSERT INTO write_guard(active) VALUES(1)`)
+			_, _ = db.Exec(`UPDATE workflow_instances SET current_step=? WHERE work_id='work-1'`, step)
+			_, _ = db.Exec(`DELETE FROM write_guard`)
 		})
 		continued := request()
 		continued["page"] = map[string]any{"cursor": *first.NextCursor}

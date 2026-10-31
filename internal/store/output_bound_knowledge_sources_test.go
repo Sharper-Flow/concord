@@ -1,7 +1,7 @@
 package store
 
 // Output-bound ledger rows for the knowledge family: the durable
-// knowledge surface (domain registry, law, footprint, git notes, research
+// knowledge surface (domain registry, law, git notes, research
 // packs, architecture bindings of contract scope, and domain observations).
 //
 // Every finite row cites a live source: a published schema node, a Go
@@ -115,120 +115,6 @@ func init() {
 			goConstantBound("internal/store/knowledge_manifest.go", "maxManifestDomains", boundItems),
 			goConstantBound("internal/store/knowledge_manifest.go", "maxManifestRelations", boundItems),
 		))
-
-	// ------------------------------------------------------------------
-	// domain footprint result (C22.DomainFootprint)
-	// ------------------------------------------------------------------
-
-	// Reached Domain IDs are admitted through validManifestID, whose
-	// code-point admission bounds the full string at 256 characters.
-	registerOutputBound("/$defs/domain_footprint_result/properties/domains/items/properties/domain_id/maxLength", goInlineBound("internal/store/knowledge_manifest.go", "validManifestID", "utf8.RuneCountInString(value)", boundCharacters))
-
-	// Domain names are read from the domains table CHECK length 1..256
-	// characters; the manifest parse guard (maxManifestTitle code points)
-	// applies the same value before projection.
-	registerOutputBound("/$defs/domain_footprint_result/properties/domains/items/properties/name/maxLength", goInlineBound("internal/store/knowledge_manifest.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Name)", boundCharacters))
-
-	// The reached set is a subset of the registry's Domains, and the
-	// registry admits at most maxManifestDomains of them.
-	registerOutputBound("/$defs/domain_footprint_result/properties/domains/maxItems",
-		goConstantBound("internal/store/knowledge_manifest.go", "maxManifestDomains", boundItems))
-
-	// The commit is the resolved git head OID: validateCommitOID admits
-	// exactly the 40- and 64-hex lengths through its two comparison
-	// operands, so the committed value carries at most 64 characters.
-	registerOutputBound("/$defs/domain_footprint_result/properties/knowledge_commit/maxLength",
-		pkLengthSetBound("internal/store/git_knowledge.go", "validateCommitOID", "len(oid)"))
-
-	// Law content hashes are stored under CHECK length 71 with the sha256
-	// prefix in the final DDL; verifyManifestBlob refuses any mismatch.
-	registerOutputBound("/$defs/domain_footprint_result/properties/laws/items/properties/content_hash/maxLength", goInlineBound("internal/store/git_knowledge.go", "validateContentHash", "len(hash)", boundBytes))
-
-	// Home Domain IDs are admitted through the same validManifestID
-	// code-point guard on every manifest record and scope array.
-	registerOutputBound("/$defs/domain_footprint_result/properties/laws/items/properties/home_domain_id/maxLength", goInlineBound("internal/store/knowledge_manifest.go", "validManifestID", "utf8.RuneCountInString(value)", boundCharacters))
-
-	// Matched paths are stored one row per path in law_evidence_paths under
-	// CHECK(length(path) BETWEEN 1 AND 512) characters, and the input
-	// admission (validFootprintPath) bounds the same value at
-	// footprintMaxPath code points.
-	registerOutputBound("/$defs/domain_footprint_result/properties/laws/items/properties/matched_paths/items/maxLength", goInlineBound("internal/store/knowledge_manifest.go", "validateKnowledgeEvidencePaths", "len(evidence)", boundBytes))
-
-	// Matched paths are a subset of the admitted input paths, and the
-	// request refuses more than footprintMaxPaths of them.
-	registerOutputBound("/$defs/domain_footprint_result/properties/laws/items/properties/matched_paths/maxItems",
-		goConstantBound("internal/store/domain_footprint.go", "footprintMaxPaths", boundItems))
-
-	// Law paths project 1:1 from manifest records; the manifest parse
-	// guard bounds each record path at maxManifestPath code points
-	// (utf8.RuneCountInString in internal/store/knowledge_manifest.go) and
-	// refuses the whole rebuild on overflow.
-	registerOutputBound("/$defs/domain_footprint_result/properties/laws/items/properties/path/maxLength",
-		goConstantBound("internal/store/knowledge_manifest.go", "maxManifestPath", boundCharacters))
-
-	// Law titles project 1:1 from manifest records bounded at
-	// maxManifestTitle code points by the same parse guard.
-	registerOutputBound("/$defs/domain_footprint_result/properties/laws/items/properties/title/maxLength",
-		goConstantBound("internal/store/knowledge_manifest.go", "maxManifestTitle", boundCharacters))
-
-	// The law page is sliced to the admitted read limit; LimitPage applies
-	// queryLimit, whose constant ceiling is queryMaxLimit, and the agent
-	// pager shrinks an oversize page the same way.
-	registerOutputBound("/$defs/domain_footprint_result/properties/laws/maxItems",
-		goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
-
-	// The owning package is a package map path stored under CHECK length
-	// 1..256 characters on knowledge_package_domains; the parse guard
-	// (maxPackageMapPath bytes) is the same bound.
-	registerOutputBound("/$defs/domain_footprint_result/properties/package_checks/items/properties/package/maxLength", goInlineBound("internal/store/knowledge_architecture.go", "validPackageMapPath", "len(value)", boundBytes))
-
-	// The check value is the live "./" literal at its construction site in
-	// footprintSelectTx plus a package map path, whose guard refuses
-	// anything over maxPackageMapPath bytes; the sum is the producer bound.
-	registerOutputBound("/$defs/domain_footprint_result/properties/package_checks/items/properties/value/maxLength",
-		sumBound(
-			pkLiteralTextBound("internal/store/domain_footprint.go", "footprintSelectTx", "./"),
-			goInlineBound("internal/store/knowledge_architecture.go", "validPackageMapPath", "len(value)", boundBytes),
-		))
-
-	// Package check owners are a subset of the admitted input paths, and
-	// the request refuses more than footprintMaxPaths of them.
-	registerOutputBound("/$defs/domain_footprint_result/properties/package_checks/maxItems",
-		goConstantBound("internal/store/domain_footprint.go", "footprintMaxPaths", boundItems))
-
-	// The package map hash is stored under CHECK length 71 with the sha256
-	// prefix on knowledge_package_domains.map_content_hash.
-	registerOutputBound("/$defs/domain_footprint_result/properties/package_map_content_hash/maxLength", pkHexDigestConstructionBound("internal/store/knowledge_architecture.go", "knowledgePackageMapContentHash"))
-
-	// Package map Domain IDs must name declared registry Domains, and
-	// validManifestID bounds every declared ID at maxManifestID code
-	// points.
-	registerOutputBound("/$defs/domain_footprint_result/properties/paths/items/properties/domain_ids/items/maxLength",
-		goConstantBound("internal/store/knowledge_manifest.go", "maxManifestID", boundCharacters))
-
-	// Each package map entry names at most maxPackageMapDomains unique
-	// declared Domains, projected one row per pair.
-	registerOutputBound("/$defs/domain_footprint_result/properties/paths/items/properties/domain_ids/maxItems",
-		goConstantBound("internal/store/knowledge_architecture.go", "maxPackageMapDomains", boundItems))
-
-	// Output package paths are the stored map paths under CHECK length
-	// 1..256 characters on knowledge_package_domains.
-	registerOutputBound("/$defs/domain_footprint_result/properties/paths/items/properties/package/maxLength", goInlineBound("internal/store/knowledge_architecture.go", "validPackageMapPath", "len(value)", boundBytes))
-
-	// Footprint paths are admitted by validFootprintPath at
-	// footprintMaxPath code points (utf8.RuneCountInString) and emitted one
-	// per admitted path.
-	registerOutputBound("/$defs/domain_footprint_result/properties/paths/items/properties/path/maxLength",
-		goConstantBound("internal/store/domain_footprint.go", "footprintMaxPath", boundCharacters))
-
-	// The output carries one entry per admitted input path; the request
-	// refuses more than footprintMaxPaths of them.
-	registerOutputBound("/$defs/domain_footprint_result/properties/paths/maxItems",
-		goConstantBound("internal/store/domain_footprint.go", "footprintMaxPaths", boundItems))
-
-	// The registry content hash is stored under CHECK length 71 with the
-	// sha256 prefix on domain_registries.
-	registerOutputBound("/$defs/domain_footprint_result/properties/registry_content_hash/maxLength", pkHexDigestConstructionBound("internal/store/knowledge_manifest.go", "domainRegistryContentHash"))
 
 	// ------------------------------------------------------------------
 	// domain ID primitive

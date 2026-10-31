@@ -151,6 +151,42 @@ CLI write bypasses. The command-text rules are not a sandbox; the same boundary
 applies to direct-store, wrapper and connected-service access. Model selection
 remains host-owned, and utility nesting restrictions remain unchanged.
 
+`concord-research` uses the same generated native Task distribution boundary to
+investigate a framed question across repository and external sources. It accepts
+the caller's known context, scope and budget, resolves Product-law state through
+`concord_knowledge` before law-dependent delegation, and delegates only to
+`concord-explore` and `concord-lookup`. It chooses follow-up questions from findings
+and stops at sufficient evidence or the assigned budget. It returns claim-level
+citations, conflicting evidence, uncertainty, gaps and caller decisions; the
+driving session records the conclusion and owns workflow state and delivery.
+
+The researcher must not edit files, write planning or Concord state, commit,
+publish, contact the operator or send session notices. It may run bounded
+read-only diagnostics. Its profile keeps Concord reads, denies editing tools and
+workflow writers, preserves inherited host safety denies without a bash wildcard
+rule, and denies CLI write bypasses. Command-text restrictions are hygiene, not a
+sandbox; direct-store, wrapper and connected-service access grant no bypass.
+Model selection remains host-owned. Exploration and lookup remain single-question
+utilities with their existing no-delegation boundaries.
+
+`concord-design` uses the same generated native Task distribution boundary for
+one bounded visual UI or UX change within assigned files in the caller's worktree.
+It leaves changes uncommitted and reports exact changed paths, checks, exits and
+gaps, with inspectable preview material: a live preview URL or screenshots that
+identify the exact version shown. Missing scope or a required approval returns
+needs-decision to the caller. Permission to prepare an unapproved preview is not
+UI/UX approval; the caller presents the material and obtains any required approval
+from the operator before delivery.
+
+The designer may use the Product's browser verification tooling when exposed by
+the host. It keeps the implementer's edit-capable permissions, Concord reads,
+exploration/lookup-only delegation, inherited host safety denies, CLI hygiene and
+no-bypass boundaries. It must not write planning or Concord state, commit,
+publish, contact the operator or send session notices. The caller owns workflow
+state, evidence binding and delivery. Command-text restrictions are not a sandbox;
+connected tool exposure and model selection remain host-owned. Exploration,
+lookup and advisor no-delegation boundaries remain unchanged.
+
 The installer refuses a conflicting unmanaged named-profile file.
 It preserves the numbered host files under D1.
 The host selects the role names explicitly and owns its launch defaults.
@@ -192,6 +228,10 @@ Utility results never become managed review or verification evidence.
   permissions, inherited safety denies and test-only instructions.
 - The same profile suite checks the implementer's bounded assignment, Fix
   regression order, uncommitted results and effective permission rules.
+- It also checks the researcher's investigation loop, read-only permissions,
+  two-delegate boundary, CLI hygiene and inherited host safety denies.
+- It checks the designer's edit-capable permissions, versioned preview and
+  operator-owned approval instructions, two-delegate boundary and host safety.
 - `adapter/opencode/session-scope.test.ts` checks native helper Task pass-through
   without dispatch; `adapter/opencode/primary-role.test.ts` checks read access
   and write refusal before transport.

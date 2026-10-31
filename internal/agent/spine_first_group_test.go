@@ -2,9 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -13,45 +10,16 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// Native verification qualifies a clean subject without manufacturing Review.
-func TestSpineFirstGroupFailedProofPreservesUnreviewedCandidate(t *testing.T) {
-	f := newSpineExecutionFixtureForFamily(t, "workflow.break_fix")
-	f.verify(t)
-	f.prepareControl(t)
-	failed := spineOK(t, f.call(t, "concord_work_transition", "worktree_verify", map[string]any{
-		"work_id": f.work, "command": []string{"go", "test", "./missing"}, "idempotency_key": "first-group-failed-proof",
-	}))
-	var proof store.WorktreeVerifyResult
-	if err := json.Unmarshal(failed.Result, &proof); err != nil || proof.ExitCode == 0 {
-		t.Fatalf("fixture did not capture a failed proof: %s (%v)", failed.Result, err)
-	}
-	before := f.read(t).Pinned.Pin
-	if before.Review.Accepted != nil {
-		t.Fatal("failure or revision manufactured a Review")
-	}
-	if err := os.WriteFile(filepath.Join(f.path, "pkg/value.go"), []byte("package spine\nfunc Value() int { return 3 + 4 }\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	gitRun(t, f.path, "add", "pkg/value.go")
-	gitRun(t, f.path, "commit", "-qm", "finish the checked repair")
-	f.verify(t)
-	after := f.read(t).Pinned.Pin
-	if after.Review.Accepted != nil || after.Review.Candidate != nil || after.WorkContext == nil || after.WorkContext.SubjectCommit != gitRun(t, f.path, "rev-parse", "HEAD") {
-		t.Fatalf("native verification lost its qualified subject or manufactured Review: context=%+v Review=%+v", after.WorkContext, after.Review)
-	}
-}
-
 func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 	f := newSpineExecutionFixtureForFamily(t, "workflow.break_fix")
 	f.verify(t)
-	f.prepareControl(t)
 	if f.read(t).Pinned.Pin.Review.Accepted != nil {
 		t.Fatal("first entry installed an unsolicited baseline Review")
 	}
 	f.implement(t)
 	before := f.read(t).Pinned.Pin
-	if before.WorkContext == nil || before.WorkContext.SubjectCommit != gitRun(t, f.path, "rev-parse", "HEAD") || before.Review.Candidate != nil || before.Review.Accepted != nil {
-		t.Fatalf("native verification did not retain the unreviewed subject: context=%+v Review=%+v", before.WorkContext, before.Review)
+	if before.Review.Candidate != nil || before.Review.Accepted != nil {
+		t.Fatalf("report manufactured Review: %+v", before.Review)
 	}
 	assertHeld := func() {
 		t.Helper()
@@ -61,7 +29,7 @@ func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 		}
 		after := f.read(t).Pinned.Pin
 		if after.Version != before.Version || after.Lifecycle != before.Lifecycle || !reflect.DeepEqual(after.Review, before.Review) || !reflect.DeepEqual(after.WorkContext, before.WorkContext) {
-			t.Fatal("refused delivery changed the qualified subject, Review, or lifecycle")
+			t.Fatal("refused delivery changed work context, Review, or lifecycle")
 		}
 	}
 	assertHeld()

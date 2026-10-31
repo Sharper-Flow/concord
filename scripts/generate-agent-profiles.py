@@ -12,7 +12,7 @@ UTILITY_MANIFEST = ROOT / "contracts/agent-utilities.v1.json"
 PRIMARY_PROFILES = ROOT / "contracts/agent-primary-profiles.v1.json"
 PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
 PRIMARY_PROFILE_IDS = ("Concord-RTE", "Concord", "Concord-Planner")
-STEP_HELPER_IDS = ("concord-review", "concord-verify", "concord-implement")
+STEP_HELPER_IDS = ("concord-review", "concord-verify", "concord-implement", "concord-design", "concord-research")
 STASH_DENIALS = tuple(f"    {json.dumps(pattern)}: deny" for pattern in
                      ("git stash *", "git * stash *", "*/git stash *", "*/git * stash *"))
 spec = importlib.util.spec_from_file_location("agent_contract_generator", ROOT / "scripts/generate-agent-contracts.py")
@@ -297,6 +297,8 @@ PRIMARY_PROFILE_REFUSAL_BOUNDARIES = {
     "concord-review": "this native review helper holds no Concord tool that writes work state; return findings and uncommitted repairs to the caller",
     "concord-verify": "this native test-only helper holds no Concord tool that writes work state; return test results and completed-CI findings to the caller",
     "concord-implement": "this native implementation helper holds no Concord tool that writes work state; return uncommitted changes and check results to the caller",
+    "concord-design": "this native design helper holds no Concord tool that writes work state; return uncommitted changes, versioned preview material and check results to the caller; UI/UX approval stays with the operator",
+    "concord-research": "this native research helper holds no Concord tool that writes work state; return cited findings, uncertainty and gaps to the caller",
 }
 UTILITY_REFUSAL_BOUNDARY = "this Concord utility holds no Concord tool access: its declared tool set is its complete tool surface"
 

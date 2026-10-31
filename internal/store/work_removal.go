@@ -503,7 +503,6 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 		{`SELECT count(*) FROM work_messages WHERE (sender_work_id=? OR recipient_work_id=?) AND state='sent'`, "work has an undelivered message"},
 		{`SELECT count(*) FROM worktree_claims WHERE work_id=? AND state IN ('pending','verified')`, "work has an active worktree claim"},
 		{`SELECT count(*) FROM worktree_entries WHERE set_id=? AND state='active'`, "work has an active worktree"},
-		{`SELECT count(*) FROM worktree_verify_leases WHERE work_id=? AND state='held'`, "work has a held worktree verification lease"},
 		{`SELECT count(*) FROM bootstrap_operations WHERE work_id=? AND state IN ('pending','creating','native_ready','rolling_back')`, "work has an incomplete bootstrap effect"},
 		{`SELECT count(*) FROM active_research_consumers WHERE consumer_work_id=? AND required=1`, "work has a required research consumer"},
 		{`SELECT count(*) FROM active_research_consumers c JOIN active_research_packs p ON p.pack_id=c.pack_id WHERE p.owner_work_id=? AND c.required=1 AND c.consumer_work_id<>?`, "work has a required research consumer that depends on its findings"},
@@ -609,7 +608,7 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 			return projectionDeleteFailure(table, err)
 		}
 	}
-	tables := []string{"workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "work_messages", "work_observations", "work_size_assessments", "external_observations", "relations", "work_projects", "linear_issue_links"}
+	tables := []string{"workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "work_messages", "work_observations", "external_observations", "relations", "work_projects", "linear_issue_links"}
 	for _, table := range tables {
 		if err := deleteWorkProjectionTx(ctx, tx, table, workID); err != nil {
 			return err
@@ -620,7 +619,6 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 		query string
 	}{
 		{"bootstrap_operations", `DELETE FROM bootstrap_operations WHERE work_id=?`},
-		{"worktree_verify_leases", `DELETE FROM worktree_verify_leases WHERE work_id=?`},
 		{"durable_operations", `DELETE FROM durable_operations WHERE work_id=?`},
 	} {
 		var err error

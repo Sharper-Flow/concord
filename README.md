@@ -32,7 +32,7 @@ You cannot fix an unsafe cast by shouting at the compiler, and you cannot fix an
 agent's semantic drift by stuffing more instructions into a prompt.
 
 Concord supplies the structural runtime guard. It enforces workflow conditions,
-outcome predicates, and cryptographic receipts outside the model's context
+outcome predicates, and evidence bindings outside the model's context
 window before state transitions commit:
 
 - **Completion requires evidence.** Concord refuses completion requests until
@@ -76,11 +76,11 @@ Every change progresses through five deterministic enforcement stages:
    - *Why*: Prevents changes from bleeding across packages or breaking trunk.
    - *How*: Concord boots each task in an isolated Git worktree pinned to an
      approved path scope. Operations outside the assigned paths are refused.
-3. **Capture verification evidence.**
-   - *Why*: A claimed result is not proof that a check ran.
-   - *How*: Native verification retains producer receipts bound to the prepared
-     recipe, environment, and exact candidate. The workflow checks those receipts
-     separately from the coordinator's acceptance verdict.
+3. **Record verification evidence.**
+   - *Why*: Review needs test results for the same commit it judges.
+   - *How*: The coordinator binds an attributed local or required CI report with
+     its source, commit, result and run reference. Concord compares recorded
+     commits; independent review judges adequacy. Concord does not run the tests.
 4. **Require independent review.**
    - *Why*: The author must not approve their own work.
    - *How*: The coordinator obtains independent review through the host's native
@@ -88,7 +88,7 @@ Every change progresses through five deterministic enforcement stages:
      Concord checks the recorded subject and findings, not which subagent
      produced the review. The coordinator owns that independence claim.
 5. **Gate terminal transitions on recorded evidence.**
-   - *Why*: Keeps completion claims bound to what actually ran.
+   - *Why*: Keeps completion tied to recorded evidence for the reviewed commit.
    - *How*: When an agent requests a `completed` transition, Concord validates
      every required evidence binding and refuses the transition with
      `missing_evidence` until the bindings stand.
@@ -136,14 +136,6 @@ Inspect the [transaction owner](internal/store/durable.go) and
 [ten-process conformance harness](internal/store/conformance_test.go) exercises
 concurrent access to the local store.
 
-### Domain Shape and architectural boundaries
-
-Products declare explicit package roles (`domain`, `mixed`, `composition`,
-`test_support`) and track typed architectural facts. Boundary checks validate
-import edges against declared `depends_on` dependencies, while an enforceable
-ratchet prevents architectural drift. Inspect the
-[domain read engine](internal/store/domain_reads.go).
-
 ### Recoverable installation and automated releases
 
 The release workflow builds Linux amd64 binaries, generates an SPDX software
@@ -176,6 +168,13 @@ portable skills ready for OpenCode out of the box.
 - **Native implementation helper**: `concord-implement` makes one bounded change,
   proves a Fix regression fails before the fix and passes after, and returns
   uncommitted changes and check results to the caller.
+- **Native research helper**: `concord-research` investigates a framed question
+  across repository and external sources within the caller's budget, returning
+  cited findings, uncertainty and gaps without editing files.
+- **Native design helper**: `concord-design` makes a bounded visual UI or UX change
+  in assigned files and returns uncommitted changes, checks and a versioned preview
+  URL or screenshots. UI/UX approval stays with the operator; Product browser
+  tooling is optional and host-provided.
 
 The host's native Task tool owns delegation. Concord neither launches subagents
 nor wraps their prompts or results.
@@ -185,8 +184,6 @@ nor wraps their prompts or results.
 The installer registers on-demand skills in OpenCode without adding runtime
 overhead:
 
-- **`concord-domain-shape-stewardship`**: Initialize, migrate, refine, and audit
-  Domain boundaries and typed architectural facts.
 - **`concord-law-writing`**: Draft, amend, or prune Product specifications and
   decisions without altering obligations or approval boundaries.
 - **Engineering methods**: Portable skills for diagnosis, codebase design,
@@ -282,8 +279,6 @@ compromising local verification:
 
 - **Release compatibility.** Expand release gates to exercise snapshot restoration
   across earlier released binaries and candidate releases.
-- **Domain Shape migration tooling.** Deepen automated boundary validation and
-  migration workflows across mixed multi-domain codebases.
 
 ## Install and setup
 

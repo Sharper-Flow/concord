@@ -23,7 +23,7 @@ The batched form carries one or more verdict objects, each naming an approved
 predicate of the active contract and its verdict kind, evaluation evidence and
 incomparable flag. Duplicate predicate IDs refuse. Each verdict retains its
 actor and records atomically. An omitted predicate stays missing and blocks
-completion. Independent Review and captured native receipts remain required;
+completion. Independent Review and bound verification reports remain required;
 Concord attests no subagent identity.
 
 ### D2. Break-fix records one typed diagnosis
@@ -39,10 +39,9 @@ declared alignment step. Analysis cannot advance without the search beside it.
 
 The first action at repair or refine derives the step-start fact in its own
 transaction. The first recorded action wins, opens the epoch and binds the
-fence from its actor. Delivery still requires that start. Refine proof must
-come from a green, unchanged-tree `worktree_verify` run acquired after it and,
-where declared, match exact tooling argv from the default ref under CD-0192.
-A prior run remains stale. Current rows own these facts; generated definitions
+fence from its actor. Delivery still requires that start. Refine proof uses a
+passing report for the recorded candidate under CD-0192; no lease acquisition,
+live Git freshness or exact tooling argv comparison is required. Current rows own these facts; generated definitions
 derive from one canonical source.
 
 Whole-work delivery uses `record_delivery` and its complete admission. A Review
@@ -65,5 +64,5 @@ No worker-failure record, combined worker acceptance or retry launcher exists.
 
 - `go test ./internal/store ./internal/agent` checks batching, duplicate and
   omitted predicates, diagnosis completeness, first-action starts and delivery
-  refusal for missing, stale, failed, dirty or undeclared verification.
+  refusal for missing, failed, unresolved or mixed-candidate verification.
 - `python3 scripts/check-knowledge-index.py` checks identity and hashes.

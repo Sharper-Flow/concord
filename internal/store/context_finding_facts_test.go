@@ -5,7 +5,6 @@ package store
 var (
 	oracleFindingFactsDDL  = contextFindingFactsMigrationSQL()
 	workflowReviewFactsDDL = contextFindingFactsMigrationSQL()
-	workSizeProofFactsDDL  = contextFindingFactsMigrationSQL()
 )
 
 func contextFindingFactsMigrationSQL() string {

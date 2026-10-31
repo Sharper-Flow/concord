@@ -1,8 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "tier": "legislated"
+    "tier": "derived"
   },
   "date": "2026-09-04T00:00:00Z",
   "evidence": [
@@ -21,9 +19,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d9cd01c2b572bf49fc1561b3bb55dc3d0768290adcff643d4a1e8d9f410924f3",
+  "sha256": "sha256:4c1027ba919caec26e07dd15a0cee91174e0cd6728e67cca9f7af747a9925ece",
   "status": "accepted",
-  "summary": "Amends CD-0098 so work_start admits a clean terminal Concord worktree as well as the Project default checkout. The core refuses live, dirty, leased, or dispatched origins before capture, the adapter forwards that refusal, and an empty ref in a linked origin resolves from origin/HEAD. The vacated origin remains for audit reclamation.",
+  "summary": "Work start admits a clean terminal Concord worktree or the Project default checkout. The core refuses live or dirty origins without a verification-lease gate; a linked origin defaults to origin/HEAD and remains for audit reclamation.",
   "tags": [
     "authority",
     "worktree-isolation",

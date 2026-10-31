@@ -9,7 +9,7 @@
   directed that it land with the deletion it describes.
 - **Related:** CD-0088, CD-0092, CD-0093, CD-0096, CD-0098, CD-0103, issues
   #736, #737, #742, #749
-- **Preserves:** CD-0096 D2 (identity over input), D3 Inspect, Verify, and
+- **Preserves:** CD-0096 D2 (identity over input), D3 Inspect and
   Destroy, and D4; every CD-0098 clause on the move and its read-back
 
 ## Context
@@ -50,10 +50,8 @@ and records nothing.
 ### D2. Concord stores what Concord owns
 
 `work_items`, `bootstrap_operations` (the derived identity and the operation
-journal), `worktree_claims`, `worktree_entries`, and `worktree_verify_leases`
-stay. Each records a fact Concord decides: which work item exists, which
-worktree was claimed for it, which command holds an exclusive lease. None
-records a fact the host or git decides.
+journal), `worktree_claims`, and `worktree_entries` record work identity and
+claims. Concord holds no repository-check execution lease.
 
 ### D3. `work_start` replays to convergence
 
@@ -77,16 +75,14 @@ applicable recovery action. The `partial` outcome remains removed from the
 ### D4. Transient exclusion is `resource_busy`
 
 A refusal that recorded nothing and that a retry may clear is
-`resource_busy`, coupled to `retry_same_request`. The verify-lease refusal maps
-to it. `operation_conflict` stays coupled to `reconcile_operation` and keeps
+`resource_busy`, coupled to `retry_same_request`. `operation_conflict` stays coupled to `reconcile_operation` and keeps
 its meaning: an operation may have taken effect and its outcome must be
 established.
 
 ### D5. One-session-per-worktree is not a stored guarantee
 
-Two sessions may run in one worktree. The verify lease refuses two
-commands on one tree, and nothing refuses two editors, which is the guarantee a
-shell gives.
+Two sessions may run in one worktree. Concord provides no verification-command
+lease or editor exclusion.
 
 ## Consequences
 
@@ -95,11 +91,11 @@ shell gives.
 - A session that starts in the default
   checkout and needs implementation authority calls `work_start`, which moves
   it. CD-0092 D2's refusal from the main checkout is unchanged.
-- The continuity projection re-pins held verify leases only.
+- The continuity projection carries no verification leases.
 - Migration 69 is breaking. A binary that defines schema version 68 refuses a
   database at 69, which is the schema compatibility floor CD-0111 D3 applies.
-- `worktree_audit`, `worktree_reclaim`, `worktree_destroy`, `worktree_inspect`,
-  and `worktree_verify` are unchanged: each resolves its subject through the
+- `worktree_audit`, `worktree_reclaim`, `worktree_destroy`, and `worktree_inspect`
+  resolve their subjects through the
   claim and the entry, which Concord owns.
 
 ## Rejected alternatives
@@ -138,11 +134,6 @@ the moment of refusal, not as a stored column.
 - `internal/agent.TestRetrySafeStoreKindsNeverCoupleToReconcile` proves no
   store kind proposing `retry_same_request` maps to a public kind coupled to
   `reconcile_operation`.
-- `internal/agent.TestWorktreeVerifyConcurrentLeaseRefusesTyped` asserts the
-  lease-held refusal is `resource_busy` with `retry_same_request`.
-- `internal/store.TestContinuityRePinsHeldLease` and
-  `internal/agent.TestContinuityDispatchRePinsHeldLease` assert the continuity
-  projection re-pins held leases and carries no target.
 - `python3 scripts/generate-agent-contracts.py --check` is clean with 62
   operations.
 - `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and

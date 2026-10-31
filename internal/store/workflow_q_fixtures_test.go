@@ -61,11 +61,9 @@ func qAssociateCurrentProofAt(t *testing.T, f workContextFixture, verdictStep, a
 			t.Fatalf("start candidate production: %v", err)
 		}
 	}
-	run, err := f.store.VerifyWorktree(t.Context(), j.request("q-proof", nil))
-	if err != nil || run.ExitCode != 0 {
-		t.Fatalf("capture candidate command receipt: %+v, %v", run, err)
-	}
-	qAcceptCriterionReview(t, f, repo, run.OperationRef)
+	run := j.observeRun(t, "q-proof")
+	j.bindVerification(t, run)
+	qAcceptCriterionReview(t, f, run.OperationRef)
 	if artifact != "" {
 		j.bindVerification(t, j.observeRun(t, "q-delivery"))
 		if err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": artifact, "delivery_state": "asserted"}, f.owner); err != nil {
@@ -110,9 +108,9 @@ func qAssociationPayload(t *testing.T, f acceptanceRecoveryFixture) json.RawMess
 	return criterionAssociationPayload(f.receipt, ids...)
 }
 
-func qAcceptCriterionReview(t *testing.T, f workContextFixture, repo, receipt string) {
+func qAcceptCriterionReview(t *testing.T, f workContextFixture, receipt string) {
 	t.Helper()
-	completeCurrentReviewForTest(t, f, repo, "ready_for_final_proof", func(report *ReviewBlock) {
+	completeCurrentReviewForTest(t, f, "ready_for_final_proof", func(report *ReviewBlock) {
 		for _, criterion := range report.Dependencies.Criteria {
 			report.Assessments = append(report.Assessments, ReviewAssessment{PredicateID: criterion.PredicateID, Assessment: "supported", ReceiptRefs: []string{receipt}})
 		}
@@ -166,7 +164,7 @@ func TestQAssociateCurrentProofCanLeaveInvestigationMissing(t *testing.T) {
 	f := qAssociateCurrentProof(t, workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}, "", true, false)
 	err = WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: readWorkVersion(t, f.store, workID), ActionID: "confirm_premise", Actor: f.owner,
-		Payload: json.RawMessage(`{}`), SelectedChoice: "confirm",
+		Payload: json.RawMessage(`{}`),
 	})
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "investigation") {

@@ -164,7 +164,7 @@ test("published tool arguments expose a host-safe request shape", async () => {
   }
   // The branch names the conditional action fields, so a calling agent can
   // read them before calling.
-  for (const field of ["action_id", "selected_choice", "decision_context_digest"]) {
+  for (const field of ["action_id"]) {
     expect(actionBranch.properties[field], field).toBeObject()
   }
   // The approval premise an author writes is the published action field, so
@@ -1010,14 +1010,9 @@ test("host publication round-trips check predicate payloads unchanged", async ()
 })
 
 test("confirm_premise refusals come from the core, not the adapter", async () => {
-  // The core owns question admission. It validates selected_choice and
-  // decision_context_digest itself, one field per refusal, and when the
-  // investigation-artifact gate withholds the question it names the missing
-  // artifact — a state the adapter cannot see. Any adapter-authored
-  // confirm_premise refusal can only mask the authoritative one, so every
-  // call reaches the core and the caller sees the core's own message.
+  // The core owns the investigation-artifact gate and its refusal.
   const artifactRefusal = coreEnvelope("concord_work_transition", "workflow_action", "error", {
-    error: { kind: "missing_evidence", retry_safe: false, recovery_action: { kind: "provide_evidence" }, effect_state: "none", message: "operator question requires a recorded investigation artifact naming a current Domain of the Product and another work item" },
+    error: { kind: "missing_evidence", retry_safe: false, recovery_action: { kind: "provide_evidence" }, effect_state: "none", message: "premise confirmation requires a recorded investigation artifact naming a current Domain of the Product and another work item; its refs must hold the bare domain_id of the current Domain and the id of another work item" },
   })
   const first = runnerWithContext(artifactRefusal)
   const result: any = await runWorkflowAction(first,
@@ -1027,21 +1022,6 @@ test("confirm_premise refusals come from the core, not the adapter", async () =>
   expect(result.origin).toBe("core")
   expect(result.error.message).toContain("investigation artifact")
 
-  const digest = "sha256:" + "b".repeat(64)
-  for (const input of [
-    { decision_context_digest: digest },
-    { selected_choice: "revise", decision_context_digest: digest },
-    { selected_choice: "confirm" },
-    { selected_choice: "confirm", decision_context_digest: 7 },
-    { selected_choice: "confirm", decision_context_digest: "sha256:NOTHEX" },
-  ]) {
-    const runner = runnerWithContext(artifactRefusal)
-    const perCase: any = await runWorkflowAction(runner,
-      { work_id: "work-1", expected_version: 2, action_id: "confirm_premise", idempotency_key: "idem-gate", ...input })
-    expect(runner.calls(), JSON.stringify(input)).toBe(2)
-    expect(perCase.origin, JSON.stringify(input)).toBe("core")
-    expect(perCase.error.message, JSON.stringify(input)).toContain("investigation artifact")
-  }
 })
 
 const coreEnvelope = <T extends Record<string, unknown>>(tool: string, operation: string, outcome: string, fields: T) => ({
@@ -1095,15 +1075,16 @@ for (const tampered of [false, true]) {
 }
 
 for (const blockedVerb of ["project-resolve", "invoke"] as const) {
-    test(`native verification cancellation during ${blockedVerb} preserves its effect boundary`, async () => {
+    test(`mutation cancellation during ${blockedVerb} preserves its effect boundary`, async () => {
       const controller = new AbortController()
       const calls: string[] = []
       const signals: AbortSignal[] = []
       let abortedAt: number | null = null
-      adapter.configureConcordAdapter({ runner: { async run(argv, _input, signal) {
+      adapter.configureConcordAdapter({ runner: { async run(argv, input, signal) {
         calls.push(argv[1])
         signals.push(signal)
         if (signal.aborted) throw signal.reason
+        if (argv[1] === "invoke") expect(JSON.parse(input).input.requested_budget_seconds).toBe(1)
         if (argv[1] !== blockedVerb) return { exitCode: 0, stdout: JSON.stringify(contextResponse(false)), stderr: "" }
         return await new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve, reject) => {
           const abort = () => {
@@ -1121,8 +1102,8 @@ for (const blockedVerb of ["project-resolve", "invoke"] as const) {
       } } })
       const started = performance.now()
       try {
-        const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worktree_verify", {
-          work_id: "work-1", command: ["true"],
+        const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
+          work_id: "work-1", expected_version: 2, target: "in_progress", reason: "Start work",
           idempotency_key: "recover-interruption", requested_budget_seconds: 1,
         }), contextFor(() => {}, controller)))
         assertAdapterEnvelope(result)
@@ -1154,7 +1135,7 @@ for (const blockedVerb of ["project-resolve", "invoke"] as const) {
     })
 }
 
-    test("native verification cancellation during live directory resolution preserves its cause", async () => {
+    test("mutation cancellation during live directory resolution preserves its cause", async () => {
       const controller = new AbortController()
       const signals: AbortSignal[] = []
       const calls: string[] = []
@@ -1181,8 +1162,8 @@ for (const blockedVerb of ["project-resolve", "invoke"] as const) {
       } } })
       const started = performance.now()
       try {
-        const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worktree_verify", {
-          work_id: "work-1", command: ["true"],
+        const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
+          work_id: "work-1", expected_version: 2, target: "in_progress", reason: "Start work",
           idempotency_key: "recover-context-read", requested_budget_seconds: 1,
         }), contextFor(() => {}, controller)))
         assertAdapterEnvelope(result)
@@ -1199,7 +1180,7 @@ for (const blockedVerb of ["project-resolve", "invoke"] as const) {
       }
     })
 
-test("native verification cancellation kills the default runner's context child", async () => {
+test("mutation cancellation kills the default runner's context child", async () => {
   const root = await mkdtemp(join(tmpdir(), "concord-context-deadline-"))
   const binary = join(root, "synthetic-core")
   await Bun.write(binary, "#!/usr/bin/env bun\nawait new Promise(resolve => setTimeout(resolve, 2_000))\n")
@@ -1210,8 +1191,8 @@ test("native verification cancellation kills the default runner's context child"
   const timer = setTimeout(() => controller.abort(), 100)
   const started = performance.now()
   try {
-    const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worktree_verify", {
-      work_id: "work-1", command: ["true"],
+    const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
+      work_id: "work-1", expected_version: 2, target: "in_progress", reason: "Start work",
       idempotency_key: "recover-default-runner", requested_budget_seconds: 1,
     }), contextFor(() => {}, controller)))
     assertAdapterEnvelope(result)

@@ -300,7 +300,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: "neighbor-work", Limit: 20})
 			return err
 		}},
-		{name: "ReadWorkPinPendingOperatorDecision", run: func() error { _, err := readOperatorQuestionFromWorkPinForTest(ctx, s, "neighbor-work"); return err }},
 		{name: "ReadWorkflowProjection", run: func() error {
 			_, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: "neighbor-work"})
 			return err
@@ -510,26 +509,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ResolveWorkProjectTooling", run: func() error {
-			tooling, err := ResolveWorkProjectTooling(ctx, s, "blocker")
-			if err != nil {
-				return err
-			}
-			if tooling == nil || len(tooling.Declared) != 1 {
-				return fmt.Errorf("tooling=%+v", tooling)
-			}
-			return nil
-		}},
-		{name: "RefineProofManifestRequired", run: func() error {
-			required, err := RefineProofManifestRequired(ctx, s, "neighbor-work", "record_delivery")
-			if err != nil {
-				return err
-			}
-			if required {
-				return fmt.Errorf("refine proof gate active at the proposal step")
-			}
-			return nil
-		}},
 		{name: "ScopeVersion", run: func() error {
 			digest, _, err := s.ScopeVersion(ctx, "proj")
 			if err != nil {
@@ -716,7 +695,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 func requireRecordedInvestigationArtifactSnapshot(ctx context.Context, s *Store, workID string) error {
 	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot open a consistent investigation snapshot", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "workflow_confirmation", "cannot open a consistent investigation snapshot", true, "retry once the database is readable", err)
 	}
 	defer tx.Rollback()
 	return requireRecordedInvestigationArtifact(ctx, tx, workID)

@@ -441,12 +441,13 @@ type workflowDesignRecordedPayload struct {
 
 type workflowEvidenceBoundPayload struct {
 	WorkflowVersionFields
-	EvidenceKind        string `json:"evidence_kind"`
-	ImmutableSubjectRef string `json:"immutable_subject_ref"`
-	ProducerID          string `json:"producer_id"`
-	ProducerRunRef      string `json:"producer_run_ref"`
-	ProducerWatermark   string `json:"producer_watermark"`
-	ObservedAt          string `json:"observed_at"`
+	EvidenceKind        string              `json:"evidence_kind"`
+	ImmutableSubjectRef string              `json:"immutable_subject_ref"`
+	ProducerID          string              `json:"producer_id"`
+	ProducerRunRef      string              `json:"producer_run_ref"`
+	ProducerWatermark   string              `json:"producer_watermark"`
+	ObservedAt          string              `json:"observed_at"`
+	VerificationReport  *VerificationReport `json:"verification_report,omitempty"`
 }
 
 type workflowVerdictRecordedPayload struct {
@@ -1043,7 +1044,6 @@ func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Ev
 		if err := refreshWorkflowHealthySequence(ctx, tx, event.SubjectID, p.ContractVersion, true); err != nil {
 			return err
 		}
-		return advanceWorkSizeProofFactsTx(ctx, tx, event)
 	}
 	return nil
 }
@@ -1245,9 +1245,6 @@ func finishWorkflowContractSupersessionTx(ctx context.Context, tx *sql.Tx, event
 		if err := resetWorkflowInstanceToContractStepTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID); err != nil {
 			return err
 		}
-	}
-	if err := advanceWorkSizeProofFactsTx(ctx, tx, event); err != nil {
-		return err
 	}
 	return nil
 }
@@ -1587,7 +1584,7 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || !workflowString(p.StepKind, 32) || len(p.ResumeCursor) > 2048 || len(p.CheckpointPayload) > 16*1024 || p.RequestID == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "action_checkpointed has invalid checkpoint fields", false, "supply a typed bounded checkpoint")
 	}
-	if p.StepKind != "internal_sqlite" && p.StepKind != "cross_authority" && p.StepKind != "external_effect" && p.StepKind != "human_checkpoint" {
+	if p.StepKind != "internal_sqlite" && p.StepKind != "cross_authority" && p.StepKind != "external_effect" {
 		return newFailure(KindInvalidPayload, "fold_event", "checkpoint step kind is not closed", false, "use a closed workflow step kind")
 	}
 	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
@@ -2203,9 +2200,6 @@ func persistWorkflowActionCompletionTx(ctx context.Context, tx *sql.Tx, event Ev
 	if err := advanceWorkflowRecordedReviewTx(ctx, tx, event, p); err != nil {
 		return err
 	}
-	if err := advanceWorkSizeProofFactsTx(ctx, tx, event); err != nil {
-		return err
-	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_step_completions(work_id,step_id,completion_seq) VALUES(?,?,?) ON CONFLICT(work_id,step_id) DO UPDATE SET completion_seq=excluded.completion_seq`, event.SubjectID, p.StepID, event.Seq); err != nil {
 		return workflowProjectionError(err, "cannot record the step completion frontier")
 	}
@@ -2413,17 +2407,13 @@ func workflowCheckpointWriterAdmitted(executionActor, actorRef string, fenced bo
 	return !fenced || actorRef == executionActor
 }
 
-// workflowStepFences reports whether any action on the step runs fenced, and so
-// whether the step records an attempt start a checkpoint can bind to.
 // workflowStepFences reports whether the step carries a coordinator
 // execution fence: a fenced action whose attempt the step's checkpoint and
 // failure events belong to. The CD-0187 checkpoint dispatch is a lane attempt
-// beside the operator's gate, not a coordinator fence, so a confirmation step
-// hosts none: its checkpoint events record operator decisions, admit the
-// coordinator writers, and a checkpoint with no start still carries the first
-// attempt epoch (CD-0112 D3).
+// beside contract approval or confirmation, not a coordinator fence; a
+// checkpoint with no start still carries the first attempt epoch (CD-0112 D3).
 func workflowStepFences(definition WorkflowDefinition, step WorkflowStep) bool {
-	if step.Kind == WorkflowStepHumanCheckpoint {
+	if slices.Contains(step.Actions, "approve_contract") || slices.Contains(step.Actions, "confirm_premise") {
 		return false
 	}
 	for _, actionID := range step.Actions {
@@ -2707,6 +2697,14 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 	}
 	if !slices.Contains([]string{"verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"}, p.EvidenceKind) || !workflowEvidenceRef(p.ImmutableSubjectRef) || !workflowString(p.ProducerID, 128) || !workflowString(p.ProducerRunRef, 128) || !workflowString(p.ProducerWatermark, 128) || p.ObservedAt == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "evidence_bound has invalid evidence identity", false, "supply a complete immutable evidence binding")
+	}
+	if p.VerificationReport != nil {
+		if p.EvidenceKind != "verification" {
+			return newFailure(KindInvalidPayload, "fold_event", "verification report requires verification evidence", false, "bind the report as verification evidence")
+		}
+		if err := validateVerificationReport(p.ImmutableSubjectRef, p.VerificationReport); err != nil {
+			return err
+		}
 	}
 	var authoritative int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE op_id=? AND work_id=? AND principal_ref=? AND request_id=? AND result_kind='completed'`, p.ProducerRunRef, event.SubjectID, p.ProducerID, p.ProducerWatermark).Scan(&authoritative); err != nil {

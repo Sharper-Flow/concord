@@ -64,17 +64,6 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(),
 			RecoveryActions: []string{"supersede_contract", "terminal_work"},
 		},
-		PendingOperatorDecision: &store.WorkflowOperatorQuestion{
-			ActionID:              "confirm_premise",
-			Prompt:                "confirm the premise",
-			Header:                "premise",
-			Choices:               []store.WorkflowOperatorChoice{{ID: "yes", Label: "Yes", Description: "accept", ActionID: "confirm_premise"}},
-			AllowMultiple:         true,
-			AllowCustom:           true,
-			PremiseSummary:        "the premise",
-			ContractSummary:       "the contract",
-			DecisionContextDigest: "sha256:" + repeatHex(),
-		},
 		LatestCheckpoint: &store.ContextCheckpoint{
 			CheckpointID:     "checkpoint-1",
 			WorkVersion:      2,
@@ -339,15 +328,9 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 			LawModifies: []string{"spec-1"}, LawRevisions: []store.WorkflowLawRevision{{LawID: "spec-1", ContentHash: "sha256:" + repeatHex()}},
 			RigorClass: "prototype_internal", ChangesProductTruth: new(true), ArchitectureBinding: binding,
 		},
-		OperatorQuestion: &store.WorkflowOperatorQuestion{
-			ActionID: "confirm_premise", Prompt: "confirm the premise", Header: "premise",
-			Choices:        []store.WorkflowOperatorChoice{{ID: "yes", Label: "Yes", Description: "accept", ActionID: "confirm_premise"}},
-			PremiseSummary: "the premise", ContractSummary: "the contract", DecisionContextDigest: "sha256:" + repeatHex(),
-		},
-		WithheldOperatorQuestion: &store.WorkflowOperatorQuestionWithheld{ActionID: "confirm_premise", Reason: "the checkpoint is not open", Remedy: "advance the workflow"},
-		CandidateIDs:             []string{"work-2", "work-3"},
-		BacklogAlignment:         &store.WorkflowReadBacklogAlignment{Searched: "Searched open work for duplicate objectives.", Outcome: "related_found", RelatedIDs: []string{"work-2", "work-3"}},
-		CompletionWarnings:       []string{"a warning"},
+		CandidateIDs:       []string{"work-2", "work-3"},
+		BacklogAlignment:   &store.WorkflowReadBacklogAlignment{Searched: "Searched open work for duplicate objectives.", Outcome: "related_found", RelatedIDs: []string{"work-2", "work-3"}},
+		CompletionWarnings: []string{"a warning"},
 		StaleLawRevision: &store.StaleLawRevision{
 			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(),
 			RecoveryActions: []string{"supersede_contract"},
@@ -967,7 +950,7 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 	})
 	t.Run("typeless_anyOf_selects_first_non_null_arm", func(t *testing.T) {
 		union := map[string]any{"anyOf": []any{
-			map[string]any{"$ref": "#/$defs/work_size_summary"},
+			map[string]any{"$ref": "#/$defs/work_pin"},
 			map[string]any{"type": "null"},
 		}}
 		arm := schemaFixtureValue(t, union, defs, 0)
@@ -975,8 +958,8 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := payloadschema.Validate("work_size_summary", data); err != nil {
-			t.Fatalf("typeless anyOf fixture does not satisfy the first arm work_size_summary: %v", err)
+		if err := payloadschema.Validate("work_pin", data); err != nil {
+			t.Fatalf("typeless anyOf fixture does not satisfy the first arm work_pin: %v", err)
 		}
 	})
 	t.Run("typeless_anyOf_sibling_constraints_bind_the_arm", func(t *testing.T) {
@@ -1054,8 +1037,6 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_knowledge.observe_publication":    `{"product_id":"prod-alpha","source_project_id":"proj-knowledge","source_locator_id":"population-knowledge-locator"}`,
 		"concord_domain.list":                      `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.detail":                    `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
-		"concord_domain.footprint":                 `{"product_id":"prod-alpha","behavior":"domain","page":{"cursor":null,"limit":20}}`,
-		"concord_domain.shape":                     `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 	}
 }
 
@@ -1132,8 +1113,6 @@ var readPopulationRows = map[string][]string{
 	"concord_knowledge.search":                 {"items"},
 	"concord_domain.list":                      {"domains"},
 	"concord_domain.detail":                    {"current_law", "relations", "observations"},
-	"concord_domain.footprint":                 {"laws"},
-	"concord_domain.shape":                     {"domain_ids", "governing_law"},
 }
 
 // readPopulationRowExemptions names every read whose probed input carries no
@@ -1240,15 +1219,9 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 
 // enrichmentChangedRefs names the changed refs each operation's real effect
 // returns. Every generic-tail mutation returns work-item refs, so enrichment
-// stamps its pin onto the result; worktree_verify answers with a lease ref,
-// which does not pass the work-item filter.
-func enrichmentChangedRefs(workID string, version int64, opID string) []agentcontract.ChangedRef {
-	switch opID {
-	case "concord_work_transition.worktree_verify":
-		return []agentcontract.ChangedRef{{EntityKind: "worktree_verify_lease", ID: "lease-1", Version: "1"}}
-	default:
-		return []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
-	}
+// stamps its pin onto the result.
+func enrichmentChangedRefs(workID string, version int64, _ string) []agentcontract.ChangedRef {
+	return []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
 }
 
 // TestClosedMutationResultPayloadsSurviveEnrichment runs every mutation

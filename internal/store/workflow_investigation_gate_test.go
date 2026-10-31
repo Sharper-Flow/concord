@@ -213,45 +213,6 @@ func insertInvestigationGateObservation(t *testing.T, s *Store, workID, observat
 	}
 }
 
-func TestOperatorQuestionWithheldForAnyApprovalRequiredAction(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	workID := "investigation-gate-question"
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
-	ctx := context.Background()
-
-	// With no observation the path produces no question, whatever the
-	// declared checkpoint action is. The verify step's confirm_premise question
-	// and the planning step's approve_contract question take the same gate.
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest, err := WorkflowDefinitionDigest(registered.Definition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition := WorkflowReadDefinition{Ref: registered.Definition.Ref, Digest: digest}
-	if q, _, err := workflowOperatorQuestionTx(ctx, s.DatabaseForTesting(), workID, "verify", 1, definition, WorkflowReadContract{}); err != nil {
-		t.Fatalf("question read failed: %v", err)
-	} else if q != nil {
-		t.Fatal("confirm_premise question admitted without an investigation artifact")
-	}
-	if q, _, err := workflowOperatorQuestionTx(ctx, s.DatabaseForTesting(), workID, "planning", 1, definition, WorkflowReadContract{}); err != nil {
-		t.Fatalf("question read failed: %v", err)
-	} else if q != nil {
-		t.Fatal("approve_contract question admitted without an investigation artifact")
-	}
-
-	// With a resolvable artifact the same questions are admitted.
-	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("4", 16), []string{"root", "investigation-gate-other-work"})
-	if _, _, err := workflowOperatorQuestionTx(ctx, s.DatabaseForTesting(), workID, "verify", 1, definition, WorkflowReadContract{}); err != nil {
-		t.Fatalf("question refused after investigation: %v", err)
-	}
-}
-
 // CD-0173: the comparison-work half of the investigation gate is conditional.
 // A Product that holds one work item in any lifecycle has no other work item
 // to name, so the artifact needs only the current Domain ref. The core counts
@@ -266,7 +227,7 @@ func TestInvestigationArtifactAdmitsSingleItemProductByDomainRef(t *testing.T) {
 	seedIssue31DomainRegistry(t, s)
 
 	// The Product holds no second work item, so a current Domain ref alone
-	// admits the question.
+	// satisfies the artifact.
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("a", 16), []string{"root"})
 	if err := requireRecordedInvestigationArtifact(context.Background(), s.DatabaseForTesting(), workID); err != nil {
 		t.Fatalf("single-item Product refused a domain-only investigation artifact: %v", err)

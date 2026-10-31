@@ -13,13 +13,11 @@ import (
 // authenticated workflow_action. The caller-owned transaction is the same
 // transaction used by the action-boundary coordinator.
 type WorkflowActionExecutionRequest struct {
-	WorkID                string
-	ExpectedVersion       int64
-	ActionID              string
-	SelectedChoice        string
-	DecisionContextDigest string
-	Payload               json.RawMessage
-	EvidenceRefs          []string
+	WorkID          string
+	ExpectedVersion int64
+	ActionID        string
+	Payload         json.RawMessage
+	EvidenceRefs    []string
 	// EvidenceKinds carries the per-entry evidence kind for each locator the
 	// caller submitted, in submission order. The bind-family event
 	// constructors read it so one locator submitted under two kinds binds two
@@ -49,13 +47,6 @@ type WorkflowActionExecutionRequest struct {
 	// standalone binding operation, because reliance declared outside the
 	// boundary that consumes it is unproven reliance.
 	ResearchBindings []ResearchBindingDeclaration
-	// ProjectTooling carries the tooling manifest resolved from the work
-	// item's primary Project default ref before this action's transaction
-	// opened (CD-0192). The refine-exit proof guard compares the bound
-	// worktree-verify run's argv against it; nil reports that the Project
-	// declares no tooling manifest on its default ref. It is never decoded
-	// from request input.
-	ProjectTooling *ProjectToolingManifest
 }
 
 type WorkflowActionExecutionResult struct {
@@ -182,7 +173,7 @@ func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx queryer, regis
 		}
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
 	}
-	state, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, currentStep, "workflow_action", registry)
+	state, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, currentStep, "workflow_action", registry)
 	if stateErr != nil {
 		return stateErr
 	}
@@ -234,11 +225,6 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 		return result, err
 	}
 	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep, instanceState: state, registry: registry}
-	if WorkflowActionRequiresSubjectFreshness(request.ActionID) {
-		if err := validateWorkflowAcceptanceFreshness(ctx, tx, request.WorkID); err != nil {
-			return result, err
-		}
-	}
 	if err := prepareWorkflowExecutionAdmission(guards); err != nil {
 		return result, err
 	}
@@ -310,24 +296,23 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 }
 
 // One admission derivation for the fold: the tx-scoped loader folds the
-// instance history once. Only the payload-bound review, operator approval,
-// and interactive closed-question walls defer to their owning guards.
+// instance history once. Only the payload-bound review and operator approval
+// defer to their owning guards.
 func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 	request := g.request
-	admission, proofRuns, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
+	admission, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
 	if err != nil {
 		return err
 	}
 	decision := workflowAdmit(g.entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed {
-		return workflowExecutionAdmissionFailure(decision, request.ProjectTooling)
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld {
+		return decision.Failure
 	}
 	if err := validateWorkflowReviewRequest(g.ctx, g.tx, request.WorkID, request.ActionID, request.Payload); err != nil {
 		return err
 	}
 	g.admissionState = &admission
 	g.admissionDecision = &decision
-	g.deliveryProofRuns = proofRuns
 	g.correctionRequestRecovery = admission.CorrectionRequestRecovery
 	g.correctionRequestMissing = admission.CorrectionRequestMissing
 	return nil
@@ -365,7 +350,7 @@ func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, reques
 		if err := validateWorkflowContractRecoveryPayload(guards.entry.Definition, request.Payload); err != nil {
 			return err
 		}
-	} else if err := validateWorkflowActionPayload(guards.entry.Definition, request.ActionID, workflowEnvelopeProjectedPayload(guards.entry.Definition, request.ActionID, request.Payload, request.SelectedChoice, request.DecisionContextDigest)); err != nil {
+	} else if err := validateWorkflowActionPayload(guards.entry.Definition, request.ActionID, request.Payload); err != nil {
 		return err
 	}
 	if err := runWorkflowActionGuard(guards, guardPhasePostValidation); err != nil {

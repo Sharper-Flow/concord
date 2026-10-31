@@ -5,14 +5,11 @@
   "date": "2026-10-10T00:00:00Z",
   "evidence": [
     ".concord/docs/knowledge/domain-registry.json",
-    ".concord/docs/knowledge/package-domains.json",
     "internal/store/domain_reads.go",
     "internal/store/work_context.go",
     "internal/store/workflow_domain_overlap.go",
     "scripts/check-domain-registry.py",
-    "scripts/check-package-domains.py",
-    "scripts/test-check-domain-registry.py",
-    "scripts/test-check-package-domains.py"
+    "scripts/test-check-domain-registry.py"
   ],
   "home_domain_id": "product-root:concord",
   "id": "CD-0222",
@@ -32,9 +29,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:02e9f1fd761d9effc1e25391046acaa99e904156360d9b353dea30e7259e218a",
+  "sha256": "sha256:a4d3ccea39a084e5921fe334fb96359658dd5bd451600d837b70a18fe25748b5",
   "status": "accepted",
-  "summary": "Carries architecture-bound Product law forward as Concord's primary coordination model: canonical Domains own law, Product-changing work binds its architecture footprint, and concurrent work on the same Domain reconciles through Git rather than a blocking overlap. Code ownership follows package boundaries; global navigation, generated cards, forced participation, and navigation adoption are retired with their consumers. Storage authority, research-pack authority, breaking cutovers, the surviving store query bounds and authority, and the applicable refinements (CD-0042 sequencing, CD-0144 execution-start fact, the 2026-09-22 browse correction, CD-0213 planning placement) remain in force. A declared, checked package-to-Domain map feeds the footprint read.",
+  "summary": "Canonical Domains own behavior and law; cross-cutting rules belong to their enforcing Domain. Product-changing work binds affected Domains and exact law revisions, and concurrent changes reconcile through Git. Registry authority, architecture bindings, law homes and applicability, bounded list/detail reads, storage authority, research-pack authority and breaking cutovers remain.",
   "tags": [
     "product-law",
     "architecture",
@@ -42,5 +39,5 @@
     "concurrency",
     "registry"
   ],
-  "title": "Architecture-bound Product law with package-boundary code ownership"
+  "title": "Architecture-bound Product law"
 }

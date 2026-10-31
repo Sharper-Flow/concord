@@ -310,7 +310,7 @@ func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
 			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contract_predicates SET outcome_kind=?,outcome_payload=? WHERE work_id=? AND contract_version=1; DELETE FROM write_guard`, test.kind, test.payload, workID); err != nil {
 				t.Fatal(err)
 			}
-			state, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, s.db, workID, entry.Definition, "acceptance", "test", BuiltinWorkflowRegistry())
+			state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, s.db, workID, entry.Definition, "acceptance", "test", BuiltinWorkflowRegistry())
 			if state.EvidenceRecoveryRoute || err != nil {
 				t.Errorf("binding availability with a %s predicate = (%t, %v), want a hidden route without an action-independent failure", test.name, state.EvidenceRecoveryRoute, err)
 			}

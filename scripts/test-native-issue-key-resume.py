@@ -22,7 +22,7 @@ class FixtureTests(unittest.TestCase):
             (root / "home").mkdir()
             fixture.stage_agents(root)
             names = {"Concord.md", "Concord-RTE.md", "Concord-Planner.md",
-                     "concord-explore.md", "concord-lookup.md", "concord-advisor.md", "concord-review.md", "concord-verify.md", "concord-implement.md"}
+                     "concord-explore.md", "concord-lookup.md", "concord-advisor.md", "concord-review.md", "concord-verify.md", "concord-implement.md", "concord-research.md", "concord-design.md"}
             self.assertEqual({p.name for p in (root / "config/opencode/agents").iterdir()},
                              names | {"fixture.md"})
             for name in names:

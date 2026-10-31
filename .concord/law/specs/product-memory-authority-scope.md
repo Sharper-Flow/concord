@@ -107,8 +107,8 @@ Costs:
 - **wide failure blast radius** for live operational memory; PM10 must prove
   automatic backup and wipe-machine restore,
 - Product export is logical rather than copying one native Product file,
-- all local writers share one WAL writer lock; CD-0002's BUSY/P99 instrumentation
-  and crossing conditions remain binding.
+- all local writers share one WAL writer lock; CD-0045's concurrent-writer
+  correctness and CD-0011's storage-authority reopen conditions remain binding.
 
 ### Per-Project — explicitly superseded
 
@@ -200,8 +200,9 @@ Reopen PM2 when any becomes a real requirement:
    replicated/CRDT SQLite architecture.
 2. **Hard Product isolation:** independent encryption keys, legal retention,
    backup, deletion, or file-native export → reconsider catalog + per-Product.
-3. **Load falsifier:** sustained BUSY/P99 or data/query scale crosses CD-0002's
-   documented thresholds after indexing/optimization.
+3. **Load falsifier:** escaped busy failures, incorrect effects, or queueing that
+   materially blocks ordinary operator work meets CD-0011's reopen conditions;
+   data/query scale remains subject to CD-0002's documented conditions.
 4. **PM1 changes:** a repeated accepted job requires another authority boundary.
 5. **Recovery failure:** one-file backup/restore cannot meet PM10 objectives.
 

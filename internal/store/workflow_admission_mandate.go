@@ -71,7 +71,7 @@ func workflowAdmitMandate(definition WorkflowDefinition, step string, state work
 	if actionID == "supersede_contract" || actionID == "bind_evidence" {
 		return nil
 	}
-	terminalGate := WorkflowActionRequiresSubjectFreshness(actionID)
+	terminalGate := actionID == "record_review" || actionID == "record_verdict" || actionID == "confirm_premise" || actionID == "complete"
 	if !terminalGate {
 		mode, declared := workflowActionExecutionMode(definition, actionID)
 		if !declared || mode != ActionAdvance || !stepDeclaresAction(definition, step, "bind_evidence") {

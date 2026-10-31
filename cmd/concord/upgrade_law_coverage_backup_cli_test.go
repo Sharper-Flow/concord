@@ -20,12 +20,11 @@ import (
 // path, and its verified-snapshot preservation requirement applies before the
 // table drop. These tests drive the real concord upgrade route over a v165
 // store carrying populated law_coverage_anchors rows: the route must write a
-// verified snapshot of the pre-upgrade store, the live store must lose only
-// the coverage table, and a snapshot failure must apply no migration.
+// verified snapshot of the pre-upgrade store, the live store must lose the
+// coverage table, and a snapshot failure must apply no migration.
 
 var lawCoverageFixtureTables = []string{
-	"law_subjects", "law_bodies", "law_evidence_paths",
-	"knowledge_package_domains", "knowledge_kind_coverage",
+	"law_subjects", "law_bodies", "knowledge_kind_coverage",
 	"projects", "work_items",
 }
 
@@ -105,6 +104,10 @@ func lawCoverageFixtureState(t *testing.T, db *sql.DB, includeCoverage bool) map
 	state := make(map[string][]string, len(lawCoverageFixtureTables)+1)
 	if includeCoverage {
 		state["law_coverage_anchors"] = lawCoverageFixtureRows(t, db, "law_coverage_anchors")
+		// These v165 projections retire with Domain Shape at v172. They must
+		// remain recoverable in the pre-upgrade snapshot, not in the live store.
+		state["law_evidence_paths"] = lawCoverageFixtureRows(t, db, "law_evidence_paths")
+		state["knowledge_package_domains"] = lawCoverageFixtureRows(t, db, "knowledge_package_domains")
 	}
 	for _, table := range lawCoverageFixtureTables {
 		state[table] = lawCoverageFixtureRows(t, db, table)
@@ -125,7 +128,7 @@ func openRawSQLite(t *testing.T, path string) *sql.DB {
 // TestUpgradeRetiringLawCoverageSnapshotsTheCoverageTableBeforeTheDrop runs
 // the concord upgrade route over a v165 store with populated coverage rows
 // and proves the verified pre-upgrade snapshot holds the original table and
-// rows while the live store loses only the coverage objects.
+// rows while the live store loses the coverage objects.
 func TestUpgradeRetiringLawCoverageSnapshotsTheCoverageTableBeforeTheDrop(t *testing.T) {
 	previous := version.Value
 	version.Value = "v-test"
@@ -180,20 +183,15 @@ func TestUpgradeRetiringLawCoverageSnapshotsTheCoverageTableBeforeTheDrop(t *tes
 	// the preserved inventory, exactly as they were before the drop.
 	snapshotDB := openRawSQLite(t, report.Backup)
 	snapshot := lawCoverageFixtureState(t, snapshotDB, true)
-	if !reflect.DeepEqual(snapshot["law_coverage_anchors"], before["law_coverage_anchors"]) {
-		t.Fatalf("snapshot lost the original coverage rows:\nbefore: %v\nsnapshot: %v", before["law_coverage_anchors"], snapshot["law_coverage_anchors"])
-	}
-	for _, table := range lawCoverageFixtureTables {
-		if !reflect.DeepEqual(snapshot[table], before[table]) {
-			t.Fatalf("snapshot changed %s:\nbefore: %v\nsnapshot: %v", table, before[table], snapshot[table])
-		}
+	if !reflect.DeepEqual(snapshot, before) {
+		t.Fatalf("snapshot changed pre-upgrade rows:\nbefore: %v\nsnapshot: %v", before, snapshot)
 	}
 	if err := snapshotDB.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	// The live store lost only the coverage objects and preserves every other
-	// seeded row at the new schema head.
+	// The live store loses coverage and the later-retired Domain Shape
+	// projections, while preserving current law and work rows.
 	liveDB := openRawSQLite(t, path)
 	var objects int
 	if err := liveDB.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name LIKE 'law_coverage_anchors%'`).Scan(&objects); err != nil {
@@ -269,10 +267,8 @@ func TestUpgradeSnapshotFailurePreventsTheCoverageDrop(t *testing.T) {
 		t.Fatalf("coverage rows = %d, want the seeded %d", anchors, len(before["law_coverage_anchors"]))
 	}
 	after := lawCoverageFixtureState(t, liveDB, true)
-	for _, table := range lawCoverageFixtureTables {
-		if !reflect.DeepEqual(after[table], before[table]) {
-			t.Fatalf("the refused upgrade changed %s:\nbefore: %v\nafter: %v", table, before[table], after[table])
-		}
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("the refused upgrade changed pre-upgrade rows:\nbefore: %v\nafter: %v", before, after)
 	}
 	entries, err := os.ReadDir(filepath.Join(root, "backups"))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {

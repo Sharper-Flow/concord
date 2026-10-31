@@ -149,7 +149,7 @@ func TestCorrectiveReviewClearsPinContext(t *testing.T) {
 	if got := issue1013Pin(t, s, workID).Correction; !reflect.DeepEqual(got, validatorCorrection) {
 		t.Fatalf("subject observation alone consumed correction: %+v", got)
 	}
-	acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
+	acceptCurrentReviewForTest(t, j.fixture, "ready_for_final_proof")
 	pin = issue1013Pin(t, s, workID)
 	if pin.Correction != nil {
 		t.Fatalf("work pin retained discharged correction: %#v", pin.Correction)
@@ -169,7 +169,7 @@ func TestRepeatedVerificationCorrectionRequiresFreshVerdict(t *testing.T) {
 	for cycle := 1; cycle <= 4; cycle++ {
 		if cycle > 1 {
 			pReturnProduce(t, j, fmt.Sprintf("correction-%d", cycle))
-			acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+			acceptCurrentReviewForTest(t, j.fixture, "correction_required")
 		}
 		if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 			t.Fatalf("cycle %d correction request: %v", cycle, err)
@@ -522,11 +522,9 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	// required-kind bindings, all recorded after the cutoff: that is the fresh
 	// evidence the path back to completion requires (CD-0172 D4, CD-0242 D8).
 	journey := &candidateJourney{fixture: wf, s: s, workID: workID, repo: repo, acceptor: fixture.owner}
-	run, runErr := s.VerifyWorktree(ctx, journey.request("q-proof-successor", nil))
-	if runErr != nil || run.ExitCode != 0 {
-		t.Fatalf("capture the successor's candidate receipt: %+v, %v", run, runErr)
-	}
-	qAcceptCriterionReview(t, wf, repo, run.OperationRef)
+	run := journey.observeRun(t, "q-proof-successor")
+	journey.bindVerification(t, run)
+	qAcceptCriterionReview(t, wf, run.OperationRef)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", qAssociationPayload(t, acceptanceRecoveryFixture{store: s, workID: workID, receipt: run.OperationRef}), 0, fixture.owner); err != nil {
 		t.Fatalf("associate the successor's fresh proof: %v", err)
 	}
@@ -796,7 +794,7 @@ func TestCorrectiveReviewAllowsFreshCorrectionSource(t *testing.T) {
 		t.Fatalf("first correction has no source: %+v", source)
 	}
 	pReturnProduce(t, j, "corrective")
-	acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
+	acceptCurrentReviewForTest(t, j.fixture, "ready_for_final_proof")
 	pin := issue1013Pin(t, j.s, workID)
 	if pin.Correction != nil {
 		t.Fatalf("corrective Review left correction context: %#v", pin.Correction)
@@ -805,7 +803,7 @@ func TestCorrectiveReviewAllowsFreshCorrectionSource(t *testing.T) {
 		t.Fatalf("Review advanced the step to %q, want repair", step)
 	}
 	pReturnProduce(t, j, "later-defect")
-	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+	acceptCurrentReviewForTest(t, j.fixture, "correction_required")
 	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
@@ -870,7 +868,7 @@ func TestCorrectionSourceSurvivesContractSupersession(t *testing.T) {
 		t.Fatalf("supersession changed the source receipt: %q -> %q, %v", sourceDigest, afterDigest, err)
 	}
 	pReturnProduce(t, j, "successor-correction")
-	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+	acceptCurrentReviewForTest(t, j.fixture, "correction_required")
 	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), owner); err != nil {
 		t.Fatalf("fresh corrective return under successor: %v", err)
 	}

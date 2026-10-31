@@ -15,15 +15,11 @@
     },
     "tools": {
       "type": "array",
-      "minItems": 0,
+      "minItems": 1,
       "maxItems": 64,
       "items": { "$ref": "#/$defs/tool" }
-    },
-    "domain_shape": { "$ref": "#/$defs/domain_shape" }
+    }
   },
-  "allOf": [
-    { "if": { "properties": { "tools": { "maxItems": 0 } } }, "then": { "required": ["domain_shape"] } }
-  ],
   "$defs": {
     "coverage_anchor": {
       "type": "object", "additionalProperties": false,
@@ -41,22 +37,6 @@
         "value": { "type": "string", "minLength": 3, "maxLength": 512, "pattern": "^\\S(?:[\\s\\S]*\\S)?$" }
       }
     },
-    "domain_shape": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Optional Product commands, referenced by existing tool ID. Membership must resolve to tools in this document. No automatic execution or workflow authority. An empty object is visibly unverified.",
-      "properties": {
-        "boundary_check": { "$ref": "#/$defs/tool_id" },
-        "data_object_extractor": { "$ref": "#/$defs/tool_id" },
-        "config_extractor": { "$ref": "#/$defs/tool_id" },
-        "reference_check": { "$ref": "#/$defs/tool_id" },
-        "required_checks": {
-          "type": "array", "maxItems": 64, "uniqueItems": true,
-          "items": { "$ref": "#/$defs/tool_id" }
-        }
-      }
-    },
-    "tool_id": { "type": "string", "pattern": "^(?!.*[\\r\\n])[a-z][a-z0-9-]{1,63}$" },
     "tool": {
       "type": "object",
       "additionalProperties": false,
@@ -83,7 +63,7 @@
             { "pattern": "^[^\\u0000-\\u001F\\u007F]+$" },
             { "pattern": "^[^'\"`\\\\$;|&<>()]+$" }
           ],
-          "description": "The command an agent runs as plain argv. Shell quoting and shell operators are forbidden so the whitespace-split invocation is the exact argv a worktree_verify run must equal (CD-0192). A fact about the tool, not guidance about when to run it."
+          "description": "The command an agent runs as plain argv, without shell quoting or operators. A fact about the tool, not guidance about when to run it. Concord does not execute it."
         },
         "tier": {
           "type": "string",

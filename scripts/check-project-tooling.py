@@ -29,9 +29,6 @@ PATH_MIN_LENGTH = 3
 PATH_MAX_LENGTH = 512
 
 ROOT_FIELDS = {"schema_version", "project", "tools"}
-OPTIONAL_ROOT_FIELDS = {"domain_shape"}
-DOMAIN_SHAPE_COMMANDS = {"boundary_check", "data_object_extractor", "config_extractor", "reference_check"}
-DOMAIN_SHAPE_FIELDS = DOMAIN_SHAPE_COMMANDS | {"required_checks"}
 TOOL_FIELDS = {
     "id",
     "purpose",
@@ -49,11 +46,8 @@ IDENTIFIER_PATTERN = r"^(?!.*[\r\n])[a-z][a-z0-9-]{1,63}$"
 SAFE_PATH_PATTERN = r"^(?!/)(?!.*//)(?!\.{1,2}(?:/|$))(?!.*\/\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
 NON_WHITESPACE_PATTERN = r"[^ \t\r\n]"
 SINGLE_LINE_PATTERN = r"^[^\u0000-\u001F\u007F]+$"
-# CD-0192: the refine-exit proof compares a worktree_verify run's argv against
-# the whitespace-split invocation, so the invocation must be plain argv.
-# Shell quoting and shell operators would make a shell re-tokenize the
-# command and break the exact equality. The pattern is byte-identical to the
-# one contracts/project-tooling.v1.schema.json declares for invocation.
+# Invocations declare plain argv, not shell programs. Keep this pattern
+# byte-identical to contracts/project-tooling.v1.schema.json.
 PLAIN_ARGV_PATTERN = r'''^[^'"`\\$;|&<>()]+$'''
 TEXT_CONSTRAINTS = {
     "purpose": (4, 256, False),
@@ -142,7 +136,7 @@ def check(*, root: Path = ROOT) -> list[str]:
 
     if not isinstance(document, dict):
         return [f"{MANIFEST}: top-level JSON value must be an object"]
-    unknown_root = set(document) - ROOT_FIELDS - OPTIONAL_ROOT_FIELDS
+    unknown_root = set(document) - ROOT_FIELDS
     if unknown_root:
         findings.append(f"{MANIFEST}: unknown root field(s): {', '.join(sorted(unknown_root))}")
     missing_root = ROOT_FIELDS - set(document)
@@ -160,10 +154,8 @@ def check(*, root: Path = ROOT) -> list[str]:
     if not isinstance(tools, list):
         findings.append(f"{MANIFEST}: tools must be an array")
         return findings
-    if not tools and "domain_shape" not in document:
-        findings.append(f"{MANIFEST}: empty tools requires domain_shape declarations")
-    if len(tools) > MAX_TOOLS:
-        findings.append(f"{MANIFEST}: tools must hold at most {MAX_TOOLS} entries")
+    if not 1 <= len(tools) <= MAX_TOOLS:
+        findings.append(f"{MANIFEST}: tools must hold 1..{MAX_TOOLS} entries")
 
     seen_ids: set[str] = set()
     for index, tool in enumerate(tools):
@@ -197,32 +189,6 @@ def check(*, root: Path = ROOT) -> list[str]:
         for key in ("config_path", "automation_path"):
             if key in tool:
                 validate_file_path(root, label, key, tool[key], findings)
-
-    if "domain_shape" in document:
-        shape = document["domain_shape"]
-        label = f"{MANIFEST}: domain_shape"
-        if not isinstance(shape, dict):
-            findings.append(f"{label}: must be an object")
-            return findings
-        unknown = set(shape) - DOMAIN_SHAPE_FIELDS
-        if unknown:
-            findings.append(f"{label}: unknown field(s): {', '.join(sorted(unknown))}")
-        for key in sorted(DOMAIN_SHAPE_COMMANDS):
-            if key in shape:
-                identifier = shape[key]
-                if not isinstance(identifier, str) or not IDENTIFIER.fullmatch(identifier) or identifier not in seen_ids:
-                    findings.append(f"{label}: {key} must reference a declared tool id")
-        if "required_checks" in shape:
-            checks = shape["required_checks"]
-            if not isinstance(checks, list) or len(checks) > MAX_TOOLS:
-                findings.append(f"{label}: required_checks must be an array of at most {MAX_TOOLS} declared tool ids")
-            else:
-                seen_checks: set[str] = set()
-                for identifier in checks:
-                    if not isinstance(identifier, str) or not IDENTIFIER.fullmatch(identifier) or identifier not in seen_ids or identifier in seen_checks:
-                        findings.append(f"{label}: required_checks must reference distinct declared tool ids")
-                    else:
-                        seen_checks.add(identifier)
 
     findings.extend(coverage_bindings(root, tools)[0])
     return findings

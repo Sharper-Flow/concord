@@ -175,14 +175,14 @@ func runResolutionProducer(s *Store, registry DefinitionRegistry, workID, princi
 	if !ok {
 		return FenceResult{}, definitionFailure(KindDefinitionDigestMismatch, "local producer definition is not registered")
 	}
-	claimed, err := claimStepObservedAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
+	claimed, err := claimStepAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
 		OpID: opID, WorkID: workID,
 		WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
 		StepID: "execution", StepKind: StepExternalEffect,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), AcceptedScopeSnapshot: `{}`,
 		PrincipalRef: principal, Tool: "workflow-resolution-test", IdempotencyKey: opID,
 		RequestID: requestID, ObservedAt: time.Unix(11, 0).UTC(), ContractDigest: testManifestDigest,
-	}, true, nil, nil, registry)
+	}, true, nil, registry)
 	if err != nil {
 		return FenceResult{}, err
 	}
@@ -193,7 +193,7 @@ func runResolutionProducer(s *Store, registry DefinitionRegistry, workID, princi
 		PrincipalRef: principal, Tool: "workflow-resolution-test", IdempotencyKey: "complete:" + opID,
 		RequestID: requestID, ObservedAt: time.Unix(11, 1).UTC(),
 		CompletedAt: ptrTime(time.Unix(11, 2).UTC()),
-	}, true, nil, registry)
+	}, true, registry)
 	if err != nil {
 		return FenceResult{}, err
 	}
@@ -366,11 +366,10 @@ func confirmResolutionPremise(t *testing.T, s *Store, registry DefinitionRegistr
 	if operator != nil {
 		invoker = ownerRefForTest(t, *operator)
 	}
-	choice, digest, rest := confirmationEnvelope(fields)
 	events, err := workflowConfirmPremiseEvents(context.Background(), tx, definition, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", SelectedChoice: choice, DecisionContextDigest: digest,
+		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise",
 		OperationID: "resolution-confirm-" + workID, Now: time.Unix(10, 30).UTC(),
-	}, invoker, rest, "resolution-confirm-"+workID, version)
+	}, invoker, fields, "resolution-confirm-"+workID, version)
 	// The store pools one connection: the constructor transaction must leave
 	// the pool before the fold append opens its own transaction.
 	if err := tx.Rollback(); err != nil {
@@ -444,7 +443,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		registry, definition := BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation").Definition
 		const engineeringID = "resolution-confirm-engineering"
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, engineeringID)
-		events, err := confirmResolutionPremise(t, s, registry, definition, engineeringID, coordinator, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)})
+		events, err := confirmResolutionPremise(t, s, registry, definition, engineeringID, coordinator, nil, nil)
 		if err != nil {
 			t.Fatalf("engineering confirmation refused: %v", err)
 		}
@@ -469,7 +468,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		// Engineering takes no operator substitution.
 		const substitutedID = "resolution-confirm-substituted"
 		s2, _, _, operator2, coordinator2 := engineeringConfirmationSeed(t, substitutedID)
-		_, substitutionErr := confirmResolutionPremise(t, s2, registry, definition, substitutedID, coordinator2, &operator2, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)})
+		_, substitutionErr := confirmResolutionPremise(t, s2, registry, definition, substitutedID, coordinator2, &operator2, nil)
 		var substitutionFailure *Failure
 		if substitutionErr == nil || !failureAs(substitutionErr, &substitutionFailure) || substitutionFailure.Kind != KindInvalidOperation {
 			t.Fatalf("engineering confirmation with an operator substitution returned %v, want the coordinator-typed refusal", substitutionErr)
@@ -571,26 +570,26 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 		// A claim naming another step of the same workflow refuses against the
 		// stored pin.
-		if _, err := claimStepObservedAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
+		if _, err := claimStepAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
 			OpID: "resolution-claim-wrong-step-" + workID, WorkID: workID,
 			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
 			StepID: "proposal", StepKind: StepInternalSQLite,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), AcceptedScopeSnapshot: `{}`,
 			PrincipalRef: owner.PrincipalRef, Tool: "workflow-resolution-test", IdempotencyKey: "resolution-claim-wrong-step-" + workID,
 			RequestID: "request:resolution-claim-wrong-step-" + workID, ObservedAt: time.Unix(11, 3).UTC(), ContractDigest: testManifestDigest,
-		}, true, nil, nil, registry); err == nil {
+		}, true, nil, registry); err == nil {
 			t.Fatal("claim with a step outside the pinned current step was accepted")
 		}
 		// Completing a stale attempt epoch refuses and leaves the current
 		// attempt without a result.
-		next, err := claimStepObservedAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
+		next, err := claimStepAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
 			OpID: "resolution-produce-" + workID, WorkID: workID,
 			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
 			StepID: "execution", StepKind: StepExternalEffect,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), AcceptedScopeSnapshot: `{}`,
 			PrincipalRef: owner.PrincipalRef, Tool: "workflow-resolution-test", IdempotencyKey: "resolution-produce-retry-" + workID,
 			RequestID: "request:resolution-produce-" + workID, ObservedAt: time.Unix(11, 4).UTC(), ContractDigest: testManifestDigest,
-		}, true, nil, nil, registry)
+		}, true, nil, registry)
 		if err != nil {
 			t.Fatalf("retry claim refused under the local pin: %v", err)
 		}
@@ -598,7 +597,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 			OpID: next.OpID, AttemptEpoch: 1, ResultKind: ResultCompleted,
 			PrincipalRef: owner.PrincipalRef, Tool: "workflow-resolution-test", IdempotencyKey: "resolution-produce-stale-" + workID,
 			RequestID: "request:resolution-produce-" + workID, ObservedAt: time.Unix(11, 5).UTC(),
-		}, true, nil, registry); err == nil {
+		}, true, registry); err == nil {
 			t.Fatal("completion with a stale attempt epoch was accepted")
 		}
 		var pending int

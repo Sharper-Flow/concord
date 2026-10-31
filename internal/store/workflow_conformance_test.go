@@ -320,7 +320,10 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 		j := pReturnClaim(t, route, workID)
 		s, owner = route.store, route.owner
 		run := j.observeRun(t, "corpus-proof")
-		completeCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof", func(report *ReviewBlock) {
+		if proof == "one_conjunct_weaker" {
+			j.bindVerification(t, run)
+		}
+		completeCurrentReviewForTest(t, j.fixture, "ready_for_final_proof", func(report *ReviewBlock) {
 			for _, criterion := range report.Dependencies.Criteria {
 				assessment := ReviewAssessment{PredicateID: criterion.PredicateID, Assessment: "mismatch", ReceiptRefs: []string{}}
 				if proof == "one_conjunct_weaker" && criterion.PredicateID == "predicate:present" {

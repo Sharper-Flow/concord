@@ -17,9 +17,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:88399dc96fc8b0e64d6ae8a708e20d485c2e07c42e511cb1240037fbeb060204",
+  "sha256": "sha256:0409274da21eafa0b46e1291dfbce1bc84e99473fabe53d517241705c85696f7",
   "status": "published",
-  "summary": "Describes the three retained execution families, shared-part workflow composition, and the model-set size; definitions are generated from one canonical source under CD-0218, CD-0229, and CD-0242.",
+  "summary": "Describes the three retained execution families, plain Go definitions and forward-linked successor composition without size classification. Public projections derive from the definitions under CD-0218, CD-0229 and CD-0242; mandatory stages and review protections remain.",
   "tags": [
     "workflows",
     "taxonomy"

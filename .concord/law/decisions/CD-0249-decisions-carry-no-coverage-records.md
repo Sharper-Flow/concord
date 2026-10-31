@@ -13,10 +13,8 @@
   approval under CD-0243 D3, and delivers through an ordinary pull request
   with independent review and required CI. Its authority tier is `derived`
   under CD-0159 D3.
-- **Related:** CD-0036 (breaking law
-  cutovers), CD-0055 (repository check authority),
-  CD-0159 (authority tier for product
-  law), CD-0222 (law homes and the footprint read), CD-0244 (Domain facts),
+- **Related:** CD-0036 (breaking law cutovers), CD-0055 (repository check
+  authority), CD-0159 (authority tier for product law), CD-0222 (law homes),
   [`reachability-exceptions.v1.json`](../../docs/reachability-exceptions.v1.json)
 - **Preserves:** computed reachability with declared exceptions; the shared
   state vocabulary and its live-pointer rule; the closed typed-anchor kinds
@@ -26,8 +24,8 @@
 
 A hash proves a document is unchanged; it does not prove the implementation
 meets the document. A decision's Verification section names its tests without
-a second per-record proof ledger. Independent reachability, tooling and
-Domain-fact checks still need their own evidence rules.
+a second per-record proof ledger. Independent reachability and tooling
+checks still need their own evidence rules.
 
 ## Decision
 
@@ -40,8 +38,8 @@ in its own Verification section; nothing else tracks whether it is proved.
 Per-law coverage is retired end to end: the coverage schema, the coverage
 shards, the coverage checker and generator scripts, their CI enforcement, the
 `law_coverage_anchors` store table with its guard triggers, the read path
-that loaded it, the per-law checks in the footprint output, and the tests of
-all of them. The removal runs through the existing breaking-migration path,
+that loaded it, and the tests of all of them. The removal runs through the
+existing breaking-migration path,
 and the verified-snapshot preservation requirement applies before the table
 drop: a failed migration step rolls back and leaves pre-upgrade catalog and
 rows unchanged.
@@ -91,9 +89,8 @@ are `go_test`, `scenario`, `validator`, `generated`, and `adapter_test`:
 
 A repository path is not an anchor, and presence alone does not prove
 behavior. An executable anchor must be reached by a required check.
-Domain-fact `enforced_by` anchors and project-tooling evidence bind through
-these kinds. The set is closed and stays minimal: a new kind requires a
-current use and a resolver.
+Project-tooling evidence binds through these kinds. The set is closed and stays
+minimal: a new kind requires a current use and a resolver.
 
 ### D4. Dead and superseded material has zero tolerance
 
@@ -137,23 +134,21 @@ excuse new dead material.
 1. A law change edits the law file; no
    coverage bookkeeping moves with it.
 2. Closing work no longer waits on a coverage record that points at it.
-3. The footprint read answers with governing Domains and current law
-   revisions and carries no per-law checks.
 
 ## Verification
 
 - `internal/store.TestMigrateV165ToV166RetiresLawCoverageStorageAndPreservesCurrentState`
-  proves migration 166 drops the coverage table and its guard triggers
-  while current knowledge, law, package-map, and work rows are
-  preserved unchanged (D1).
+  proves an upgrade from v165 drops the coverage table and its guard triggers
+  while current knowledge, law and work rows are preserved unchanged (D1).
+- `internal/store.TestMigration166PreservesPreShapeRetirementRows` proves
+  migration 166 alone preserves the package-map and law-evidence rows alongside
+  current knowledge, law and work rows (D1).
 - `internal/store.TestMigrateV165ToV166FailedStepRollsBack` proves a failed
   drop leaves the pre-upgrade catalog and rows unchanged and the upgrade
   completes once the blocker is gone (D1).
 - `internal/store.TestKnowledgeIndexRebuildIgnoresLeftoverCoverageShards`
   proves an index rebuild at a head that still carries a coverage shard
   ignores it and stores no anchors (D1).
-- `internal/store.TestFootprintResultCarriesNoLawChecks` proves the
-  marshaled footprint payload carries no per-law checks (D1).
 - `cmd/concord.TestUpgradeRetiringLawCoverageSnapshotsTheCoverageTableBeforeTheDrop`
   proves the upgrade route verifies a snapshot containing the original table
   and rows before dropping it (D1).
@@ -166,6 +161,4 @@ excuse new dead material.
 - `python3 scripts/test-update-issue-state.py` proves an outstanding pointer
   that names a closed issue is a finding (D2).
 - `python3 scripts/test-evidence-anchors.py` proves each anchor kind's
-  resolution and required-check wiring, and
-  `internal/store.TestArchitectureAnchorConstantsServeDomainFacts` proves the
-  store's domain-fact anchors share the same closed kinds (D3).
+  resolution and required-check wiring (D3).

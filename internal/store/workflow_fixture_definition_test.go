@@ -31,7 +31,7 @@ func addEdge(edges []WorkflowEdge, from, to string, kind WorkflowEdgeKind) []Wor
 // This synthetic, non-Product-changing fixture exercises generic fold and
 // transaction invariants independently of the live Product workflow policy.
 func workflowFixtureBase() WorkflowDefinition {
-	steps := []WorkflowStep{step("proposal", WorkflowStepInternalSQLite, "record_proposal"), step("discovery", WorkflowStepInternalSQLite, "record_discovery"), step("design", WorkflowStepInternalSQLite, "record_design"), step("planning", WorkflowStepHumanCheckpoint, "approve_contract"), step("execution", WorkflowStepExternalEffect, "start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "record_delivery"), step("acceptance", WorkflowStepHumanCheckpoint, "record_verdict", "confirm_premise"), step("release", WorkflowStepInternalSQLite, "complete")}
+	steps := []WorkflowStep{step("proposal", WorkflowStepInternalSQLite, "record_proposal"), step("discovery", WorkflowStepInternalSQLite, "record_discovery"), step("design", WorkflowStepInternalSQLite, "record_design"), step("planning", WorkflowStepInternalSQLite, "approve_contract"), step("execution", WorkflowStepExternalEffect, "start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "record_delivery"), step("acceptance", WorkflowStepInternalSQLite, "record_verdict", "confirm_premise"), step("release", WorkflowStepInternalSQLite, "complete")}
 	ids := []string{"proposal", "discovery", "design", "planning", "execution", "acceptance", "release"}
 	actions := []string{"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary"}
 	for i := range steps {
@@ -49,7 +49,8 @@ func workflowFixtureBase() WorkflowDefinition {
 		StepGraph: graph(steps, edges, "release"), AvailableActions: actions, ActionDefinitions: declarations,
 		RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification, EvidenceReview},
 		OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}},
-		RigorRules:            workflowPrototypeRigorRules(), StalenessRules: []WorkflowStalenessRule{}, CompositionRules: forwardOnlyComposition(WorkKindBreakFix, WorkKindResearch),
+		RigorRules:            []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}},
+		StalenessRules:        []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: []WorkKind{WorkKindBreakFix, WorkKindResearch}, ForbiddenCompositions: []WorkflowForbiddenComposition{}},
 		RecoveryRoutes: []WorkflowRecoveryRoute{
 			{Step: "acceptance", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
 			{Step: "release", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},

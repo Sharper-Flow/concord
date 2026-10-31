@@ -26,7 +26,6 @@ var eventLogMigrationAllowances = []eventLogAllowance{
 	{"internal/store/event_log_retirement.go", "retireEventLog", "151: applyMigration"},
 	{"internal/store/review_migration.go", "readLegacyReviewRecords", "148: backfillWorkflowReviewFacts"},
 	{"internal/store/work_context_facts.go", "backfillWorkContextFacts", "148: applyMigration"},
-	{"internal/store/work_size_proof_facts.go", "backfillWorkSizeProofWindow", "148: backfillWorkSizeProofFacts"},
 	{"internal/store/workflow_admission_migration.go", "workflowAdmissionFactsMigrationReady", "149: migrations.Applies"},
 	{"internal/store/workflow_correction_facts.go", "backfillWorkflowCorrectionFacts", "142: applyMigration"},
 	{"internal/store/workflow_delivery_receipts.go", "backfillWorkflowDeliveryAssertionReceipts", "147: applyMigration"},

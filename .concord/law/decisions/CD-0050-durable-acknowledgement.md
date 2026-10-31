@@ -12,9 +12,9 @@
 - **Related:** CD-0002 §2b, CD-0011 §Decision item 3, CD-0036,
   CD-0046, [`design-constraints.md`](../../docs/design-constraints.md) §4,
   [`priorities.md` — Data safety](../constitution/priorities.md#data-safety-constraint)
-- **Preserves:** `synchronous=NORMAL` for ordinary writes; the conformance
-  harness, its pacing, threshold, and population authority; CD-0011's
-  falsifier list and retention decision
+- **Preserves:** `synchronous=NORMAL` for ordinary writes; ten-process
+  correctness conformance and its population authority; CD-0011's retention
+  decision and current reopen conditions
 
 ## Context
 
@@ -25,12 +25,10 @@ transaction already reported committed may roll back, because most commits do
 not sync the WAL. A verified snapshot restore cannot recover a row that
 disappeared with the unsynced WAL tail.
 
-The issue #189 measurements put `synchronous=FULL` commit P99 at about
-183 ms on `ubuntu-latest`, above the accepted 100 ms target; NORMAL measured
-58–82 ms. Using FULL for every write would make the accepted conformance
-gate unreliable. Ordinary writes therefore stay NORMAL, while acknowledgements
-that bind authority require durability: losing an acknowledged authority change
-is not safe merely because the database remains consistent.
+Ordinary writes stay NORMAL, while acknowledgements that bind authority
+require durability: losing an acknowledged authority change is not safe
+merely because the database remains consistent. This durability distinction
+does not depend on a conformance latency target.
 
 ## Decision
 
@@ -69,8 +67,9 @@ acknowledgement to an external caller.
 
 - Ordinary-write loss is bounded by the last consequential acknowledgement
   on the same store, not by an elapsed-time guarantee.
-- The conformance harness continues to measure ordinary commits; its pacing,
-  threshold, and population authority are unchanged.
+- The conformance harness checks ordinary-write correctness under CD-0045;
+  CD-0046 owns population authority. Durable acknowledgements retain their
+  separate proof below.
 
 ## Verification
 

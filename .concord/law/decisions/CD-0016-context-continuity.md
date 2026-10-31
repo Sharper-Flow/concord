@@ -16,7 +16,7 @@ Concord names this capability **context continuity**, not compaction. Product
 and workflow authority is never carried by a model summary. On every call,
 Concord derives a pinned projection from durable state containing Product/work
 identity, the current workflow step, the approved contract, the complete
-explicit `spec_mandate` law set, any pending operator decision, the latest
+explicit `spec_mandate` law set, the latest
 durable checkpoint, and any unresolved typed failure.
 
 The preferred boundary is a clean restart, but restart dispatch remains
@@ -95,8 +95,7 @@ into another record.
 A declaration refuses without effects if its resulting shared view exceeds the bounds. The
 check runs once in the live action transaction that records the declaration. A
 declaration that restores a bounded view remains admissible.
-Recorded Review outcomes, blockers, retained receipts,
-acceptance and native verification evidence remain retained even
+Recorded Review outcomes, blockers, acceptance and bound verification reports remain retained even
 when the resulting view exceeds its read bound.
 
 When the shared reader refuses with `limit_exceeded`, the work pin and continuity

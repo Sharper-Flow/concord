@@ -137,32 +137,6 @@
           ],
           "properties": {
             "tool": {
-              "const": "concord_domain"
-            },
-            "operation": {
-              "const": "footprint"
-            },
-            "query_id": {
-              "const": "C22.DomainFootprint"
-            }
-          }
-        },
-        {
-          "required": ["tool", "operation", "query_id"],
-          "properties": {
-            "tool": {"const": "concord_domain"},
-            "operation": {"const": "shape"},
-            "query_id": {"const": "C22.DomainShape"}
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
               "const": "concord_product_view"
             },
             "operation": {
@@ -499,7 +473,6 @@
                 "worktree_destroy",
                 "worktree_reclaim",
                 "worktree_audit_reclaim",
-                "worktree_verify",
                 "outside_repair",
                 "outside_repair_reconcile"
               ],
@@ -666,8 +639,6 @@
             "mutation_result",
             "observation_record",
             "observations",
-            "footprint",
-            "shape",
             "publish",
             "ready",
             "reconcile",
@@ -698,7 +669,6 @@
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_verify",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement",
@@ -709,7 +679,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Footprint|Shape))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$"
         },
         "outcome": {
           "enum": [
@@ -1143,8 +1113,6 @@
             "mutation_result",
             "observation_record",
             "observations",
-            "footprint",
-            "shape",
             "publish",
             "ready",
             "reconcile",
@@ -1175,7 +1143,6 @@
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_verify",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement",
@@ -1186,7 +1153,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Footprint|Shape))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$"
         },
         "reason_code": {
           "type": "string",
@@ -1547,10 +1514,10 @@
           }
         },
         "supported_budget_seconds": {
-          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind. The maximum tracks the agent-tool-surface ceiling (CD-0038 D2 evidence-fixed exceptions; worktree_verify is fixed at 1800).",
+          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind.",
           "type": "integer",
           "minimum": 1,
-          "maximum": 1800
+          "maximum": 300
         },
         "details": {
           "type": "object",
@@ -2079,7 +2046,6 @@
                       "worktree_claim",
                       "worktree_destroy",
                       "worktree_reclaim",
-                      "worktree_verify",
                       "workflow_action",
                       "outside_repair",
                       "outside_repair_reconcile"

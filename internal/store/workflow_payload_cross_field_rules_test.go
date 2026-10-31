@@ -146,7 +146,7 @@ func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 		fieldsNode := mergeRefSiblings(defs, firstCallResolve(defs, variant["properties"].(map[string]any)["fields"].(map[string]any)))
 		baseFields := crossFieldSampleObject(defs, fieldsNode)
 		for _, field := range payload.Fields {
-			if field.Required && !field.Envelope {
+			if field.Required {
 				if _, present := baseFields[field.Name]; !present {
 					baseFields[field.Name] = sampleFieldValue(t, defs, variantName, field.Name)
 				}

@@ -1,4 +1,4 @@
-# CD-0245: Concord ships the skill that operates its Domain shape
+# CD-0245: Concord ships release-versioned portable skills
 
 - **Status:** Accepted
 - **Date:** 2026-10-23
@@ -14,22 +14,16 @@ no consumer needed one and because skills would need their own versioning
 regime. CD-0063 D2 built the install route: skills install once under the
 versioned data root, and a project holds a pointer.
 
-The Domain Shape v1 decision (CD-0244) defines a structure that Concord sets up
-and checks in every Product. Moving an existing Product into that structure,
-reorganising its code roots, and keeping its facts current need judgement that
-a validator cannot supply. On 2026-10-23 the operator directed that Concord
-ship this skill to every Product it manages. That direction supplies the
-consumer CD-0043 found missing.
+Operating Concord's law structure needs judgement that a validator cannot
+supply. Shipped skills carry that occasional method through the existing
+release and installation route.
 
 ## Decision
 
 ### D1. Concord ships skills that operate Concord-defined structure
 
 Concord may ship a skill when the skill operates a structure that accepted
-Concord law defines, and Concord's checks verify the result. The first such
-skill is Domain-shape stewardship. It covers migrating a Product into the
-Domain shape, reorganising code roots, refining facts after a change, and
-auditing gaps.
+Concord law defines, and Concord's checks verify the result.
 
 [CD-0246](CD-0246-concord-ships-portable-engineering-methods.md) D3 also
 admits a skill that carries a portable engineering method. Host agents and
@@ -56,16 +50,14 @@ not record evidence, approval, or law on its own authority.
 
 ## Alternatives considered
 
-- **Keep the skill host-owned.** Rejected by the operator: other machines and
-  Products would not receive it, and it could drift from the shape Concord
-  checks.
-- **Ship it as always-on instructions.** Rejected. Migration and audit are
+- **Keep admitted skills host-owned.** Rejected: other machines and
+  Products would not receive them, and they could drift from Concord's checks.
+- **Ship them as always-on instructions.** Rejected. These methods are
   occasional jobs. Always-on text grows every session's prompt, against goal D.
 
 ## Consequences
 
-- `skills/` holds a skill for the first time. `skills/README.md` records the
-  admission rule in D1 instead of a closed reason.
+- `skills/README.md` records the admission rule in D1.
 - A skill change ships on the release cadence.
 - CD-0043's verification line "`skills/` contains only `README.md`" is
   replaced by the checks below.

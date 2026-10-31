@@ -85,7 +85,7 @@ func (f acceptanceRecoveryFixture) actors() (WorkflowActor, WorkflowActor) {
 }
 
 // run applies one declared action through the real action layer. Engineering
-// confirmation uses Main's choice and the sealed live candidate observation.
+// confirmation uses Main's choice.
 func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label string, version int64, payload json.RawMessage, evidenceRefs []string) error {
 	if actionID == "complete" {
 		verified, err := f.store.EstablishKnowledgeSourceSetProof(ctx, f.workID)
@@ -94,13 +94,6 @@ func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label stri
 		}
 		ctx = verified
 	}
-	if WorkflowActionRequiresSubjectFreshness(actionID) {
-		prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, f.store, PrepareWorkflowSubjectRequest{WorkID: f.workID})
-		if err != nil {
-			return err
-		}
-		ctx = WithWorkflowSubjectPreparation(ctx, prepared)
-	}
 	invoking, operator := f.actors()
 	request := WorkflowActionExecutionRequest{
 		WorkID: f.workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, EvidenceRefs: evidenceRefs,
@@ -108,9 +101,6 @@ func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label stri
 		IdempotencyKey: f.workID + ":" + label, IdempotencyIdentity: f.workID + ":" + label, RequestID: f.workID + ":" + label,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), ContractDigest: testManifestDigest,
 		Now: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
-	}
-	if actionID == "confirm_premise" {
-		request.SelectedChoice = "confirm"
 	}
 	tx, err := f.store.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {

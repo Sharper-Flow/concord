@@ -4,12 +4,12 @@ These are synthetic records, not receipts, permissions or real operations.
 No source, law or data is changed by applying these cases. All source labels
 below are local to the scenario, not actual native record identifiers.
 
-Apply R1, and A2 row 1, which applies R1 at every size. Record the rule, size,
+Apply R1, and A2 row 1, which applies R1 to every change. Record the rule,
 outcome and supporting case records. State supported, unproved or violated,
 without inventing missing facts. Keep claims separate from approvals and
 acceptance.
 
-Each case's attributed work record gives its size as `larger`. Bloat here means
+Bloat here means
 code, configuration or prose that serves no current consumer: dead branches,
 unused parameters, duplicated helpers or redundant wrappers. Whether the fix
 made it is judged against the change's recorded base, not the author's claim. A

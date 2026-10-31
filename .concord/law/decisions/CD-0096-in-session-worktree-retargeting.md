@@ -63,37 +63,19 @@ names. A directory the store cannot derive does not exist as a target.
 
 ### D3. Same-Project cross-worktree authority is tiered
 
-Access to a worktree of another work item in the same Project follows four
+Access to a worktree of another work item in the same Project follows three
 tiers. Each tier is a typed authority, and no tier implies the one above it.
 
 **Inspect.** Reading files, Git status, and diffs is allowed against any active
 worktree in the same Project. Inspection is read-only and never moves the
 session.
-The `oracle_output` mode reads retained native-verify output for the same work
-and ambient Project through its producer run reference, without an active tree.
-It starts no process, creates no lease, and records no mutation or page bytes.
-Each page contains at most 16 KiB of raw bytes within the existing envelope.
-
-**Verify.** Tests, validators, builds, and reproductions run against a
-same-Project worktree under an exclusive lease. Tracked files must remain
-unchanged. Completion refuses when they changed, because a verifier that edits
-its subject verifies nothing.
-Native oracle preparation and execution use this same lease and operation.
-Preparation compiles the pinned harness without launching a test program.
-Execution selects the exact retained preparation_run_ref and its declared
-bundle, pinned harness, candidate and environment under
-[the workflow engine contract](../specs/workflow-engine-contract.md#51-tables).
-The producer stages private snapshots without changing the claimed worktree.
-The lease retains one immutable canonical producer plan and its digest.
-It stores one raw stdout `BLOB` and one raw stderr `BLOB`, each at most 2 MiB.
-Bounded result metadata contains descriptors, not raw stream bodies.
-No separate output store, dispatch authority, or evidence kind is created.
-Existing scope, budget, lease, and mutation-refusal gates remain mandatory.
+Concord does not execute repository checks, issue verification leases, retain
+their output, or expose an oracle-output reader. Verification follows
+[CD-0242 D8](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d8-evidence-is-captured-by-its-producer-and-bound-to-its-subject).
 
 **Take over.** There is no typed transfer, because
 there is no stored holder to transfer from. A session that needs to edit
-another work item's worktree starts that work item. Two sessions in one
-worktree are refused only at the command level, by the Verify lease.
+another work item's worktree starts that work item.
 
 **Destroy.** Normal reclaim removes merged terminal work under the
 CD-0095 store gates. A dirty tree refuses, and an unmerged branch refuses.
@@ -109,10 +91,9 @@ Holding, claiming, or targeting a worktree changes no capability boundary.
 Authority still flows only from the typed operation grants CD-0092 and CD-0094
 define. Moving a session into a canonical worktree grants no Product authority.
 
-### D5. Continuity re-pins the target and the lease
+### D5. Continuity carries no verification lease
 
-The pinned continuity projection carries the reading session's active verify
-leases.
+The pinned continuity projection carries no verification lease.
 
 ### D6. The bootstrap route and its identity guarantees are unchanged
 
@@ -162,10 +143,8 @@ retargeted tree is an identity no one verified.
 ## Verification
 
 - Inspection of any active same-Project worktree succeeds read-only.
-- Verification under an exclusive lease refuses completion when tracked files
-  changed.
 - Reclaim obeys the CD-0095 store gates for terminal work and the unstarted
   gate CD-0118 defines.
-- The continuity projection re-pins the active lease each turn.
+- The continuity projection carries no verification lease.
 - `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
   `python3 scripts/check-knowledge-index.py` pass on this record.

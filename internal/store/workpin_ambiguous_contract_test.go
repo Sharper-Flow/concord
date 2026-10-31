@@ -85,7 +85,7 @@ func TestWorkflowSupersedeDuplicateRecoveryAdmissionAgreesAcrossPinPreflightAndF
 	}); err != nil {
 		t.Fatalf("preflight refused the duplicate recovery: %v", err)
 	}
-	if err := runCoordinatorActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "supersede_contract", actor, "", string(payload)); err != nil {
+	if err := runCoordinatorActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "supersede_contract", actor, string(payload)); err != nil {
 		t.Fatalf("dispatch fold refused the duplicate recovery: %v", err)
 	}
 	var active int
@@ -164,9 +164,9 @@ func duplicateActiveWorkflowContract(ctx context.Context, t *testing.T, s *Store
 	}
 }
 
-// A contractless projection at an investigated question checkpoint has no
+// A contractless projection at an investigated confirmation step has no
 // premise to confirm and nothing to supersede. The shared admission refuses
-// both routes, so the pin, the operator question, and discovery agree.
+// both routes, so the pin and discovery agree.
 func TestContractlessInvestigatedCheckpointAdmitsNoContractRoute(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
@@ -176,7 +176,7 @@ func TestContractlessInvestigatedCheckpointAdmitsNoContractRoute(t *testing.T) {
 	seedWork(t, s, otherID)
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
-	seedWithheldQuestionWorkflow(t, s, workID)
+	seedContractlessVerifyWorkflow(t, s, workID)
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("7", 16), []string{"root", otherID})
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM workflow_contracts WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
@@ -185,11 +185,8 @@ func TestContractlessInvestigatedCheckpointAdmitsNoContractRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pin.PendingOperatorDecision != nil {
-		t.Fatalf("operator question without a contract: %+v", pin.PendingOperatorDecision)
-	}
 	if workPinContainsAction(pin.NextValidIntents, "confirm_premise") {
-		t.Error("pin advertises confirm_premise with no operator question")
+		t.Error("pin advertises confirm_premise with no active contract")
 	}
 	if workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
 		t.Error("pin advertises supersede_contract with no active contract")

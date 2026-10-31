@@ -258,8 +258,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "mutation_result",
             "observation_record",
             "observations",
-            "footprint",
-            "shape",
             "publish",
             "ready",
             "reconcile",
@@ -290,7 +288,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_verify",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement",
@@ -325,7 +322,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Footprint|Shape))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$",
           "type": "string"
         },
         "replayed": {
@@ -963,8 +960,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "mutation_result",
             "observation_record",
             "observations",
-            "footprint",
-            "shape",
             "publish",
             "ready",
             "reconcile",
@@ -995,7 +990,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_verify",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement",
@@ -1005,7 +999,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail|Footprint|Shape))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$",
           "type": "string"
         },
         "reason_code": {
@@ -1144,7 +1138,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "worktree_claim",
                       "worktree_destroy",
                       "worktree_reclaim",
-                      "worktree_verify",
                       "workflow_action",
                       "outside_repair",
                       "outside_repair_reconcile"
@@ -1637,42 +1630,6 @@ const GeneratedEnvelopeSchemaDocument = `{
         {
           "properties": {
             "operation": {
-              "const": "footprint"
-            },
-            "query_id": {
-              "const": "C22.DomainFootprint"
-            },
-            "tool": {
-              "const": "concord_domain"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "shape"
-            },
-            "query_id": {
-              "const": "C22.DomainShape"
-            },
-            "tool": {
-              "const": "concord_domain"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
               "const": "snapshot"
             },
             "query_id": {
@@ -2027,7 +1984,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "worktree_destroy",
                 "worktree_reclaim",
                 "worktree_audit_reclaim",
-                "worktree_verify",
                 "outside_repair",
                 "outside_repair_reconcile"
               ],
@@ -2739,8 +2695,8 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "object"
         },
         "supported_budget_seconds": {
-          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind. The maximum tracks the agent-tool-surface ceiling (CD-0038 D2 evidence-fixed exceptions; worktree_verify is fixed at 1800).",
-          "maximum": 1800,
+          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind.",
+          "maximum": 300,
           "minimum": 1,
           "type": "integer"
         },

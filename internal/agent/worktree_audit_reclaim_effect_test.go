@@ -70,7 +70,7 @@ func TestWorktreeAuditReclaimMixedSweepCommitsAndConverges(t *testing.T) {
 	// Reconcile under the same key: the recorded pass returns and the audit
 	// does not run again, so the completed reclaim never re-executes.
 	work2Version := workVersion(t, s, "work-2")
-	settled := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
+	settled := authorityInvoke(t, s, second, secondGrant, "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-effect-1",
 	})
 	if settled.Outcome != agentcontract.OutcomeOK {

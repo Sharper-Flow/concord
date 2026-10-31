@@ -483,10 +483,6 @@ func seedWorkflowLaw(t *testing.T, s *Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err = domainShapeKnowledgeDigest(t.Context(), home, commit, digest, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES('project','workflow-law-locator','HEAD',?,?,'test',1,?); DELETE FROM write_guard`, commit, digest, knowledgeProjectionVersion); err != nil {
 		t.Fatal(err)
 	}
@@ -679,7 +675,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 	enumFragments := map[string][]string{
 		"workflow_instances": {"'planned'", "'superseded'", "'outside_repair'", "'active'", "'resumed'"}, "workflow_contracts": {}, "workflow_contract_predicates": {"'exists'", "'check'"},
 		"workflow_candidate_sets": {"'work_item'", "candidate_role IN ('include')"}, "workflow_actors": {"'agent'", "'operator'"},
-		"workflow_checkpoints":      {"'human_checkpoint'"},
+		"workflow_checkpoints":      {"'internal_sqlite'", "'cross_authority'", "'external_effect'"},
 		"workflow_impact_edges":     {"'depends_on'", "'work_item'"},
 		"workflow_decision_records": {"'accepted_decision'", "'insufficient_evidence'"}, "workflow_design_records": {}, "workflow_premise_confirmations": {},
 	}

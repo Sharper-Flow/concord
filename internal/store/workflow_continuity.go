@@ -79,23 +79,19 @@ type ContinuitySnapshot struct {
 	// captured item carries, WorkflowInstanceAbsent for an imported or
 	// otherwise instance-less work item the read still answers for.
 	// WorkflowStep is empty exactly when this is WorkflowInstanceAbsent.
-	WorkflowInstance         string                            `json:"workflow_instance"`
-	WorkflowStep             string                            `json:"workflow_step"`
-	StepActions              []string                          `json:"step_actions"`
-	Contract                 *WorkflowReadContract             `json:"contract"`
-	SpecMandate              []string                          `json:"spec_mandate"`
-	PendingOperatorDecision  *WorkflowOperatorQuestion         `json:"pending_operator_decision"`
-	WithheldOperatorDecision *WorkflowOperatorQuestionWithheld `json:"withheld_operator_decision,omitempty"`
-	LatestCheckpoint         *ContextCheckpoint                `json:"latest_checkpoint"`
-	DesignRecord             *WorkflowDesignRecord             `json:"design_record"`
-	ProposalRecord           *WorkflowProposalRecord           `json:"proposal_record"`
-	ReviewInput              *ReviewInput                      `json:"review_input,omitempty"`
-	ReviewInputWarning       error                             `json:"-"`
-	Boundaries               []ContextBoundary                 `json:"boundaries"`
-	BoundaryCount            int64                             `json:"boundary_count"`
-	NextCursor               *string                           `json:"next_cursor"`
-	Watermark                string                            `json:"watermark"`
-	SourceVersionWatermark   int64                             `json:"-"`
+	WorkflowInstance       string                  `json:"workflow_instance"`
+	WorkflowStep           string                  `json:"workflow_step"`
+	StepActions            []string                `json:"step_actions"`
+	Contract               *WorkflowReadContract   `json:"contract"`
+	SpecMandate            []string                `json:"spec_mandate"`
+	LatestCheckpoint       *ContextCheckpoint      `json:"latest_checkpoint"`
+	DesignRecord           *WorkflowDesignRecord   `json:"design_record"`
+	ProposalRecord         *WorkflowProposalRecord `json:"proposal_record"`
+	Boundaries             []ContextBoundary       `json:"boundaries"`
+	BoundaryCount          int64                   `json:"boundary_count"`
+	NextCursor             *string                 `json:"next_cursor"`
+	Watermark              string                  `json:"watermark"`
+	SourceVersionWatermark int64                   `json:"-"`
 	// NativeRuns carries the attributed native-run reports for this work
 	// item, newest phase per run, with reporter, subject, evidence, and both
 	// times alongside the status (CD-0039 D1/D4).
@@ -111,17 +107,13 @@ type ContinuitySnapshot struct {
 	// ObservationsTotal counts the whole population, so a reader knows when
 	// the paged concord_work_trace.observations read holds more. Read-time
 	// visibility: no gate consumes this.
-	Observations        []WorkObservation            `json:"observations"`
-	ObservationsTotal   int64                        `json:"observations_total"`
-	StaleLawRevision    *StaleLawRevision            `json:"stale_law_revision,omitempty"`
-	ChangesProductTruth bool                         `json:"changes_product_truth"`
-	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
-	// ActiveVerifyLeases re-pins the reading session's held verify leases
-	// (CD-0096 D5), newest first, bounded. Empty when the session named no
-	// identity or holds none.
-	CompatibleLawAmendments []CompatibleLawAmendment    `json:"compatible_law_amendments"`
-	ActiveVerifyLeases      []ActiveWorktreeVerifyLease `json:"active_verify_leases,omitempty"`
-	WorkPin                 *WorkPin                    `json:"work_pin,omitempty"`
+	Observations            []WorkObservation            `json:"observations"`
+	ObservationsTotal       int64                        `json:"observations_total"`
+	StaleLawRevision        *StaleLawRevision            `json:"stale_law_revision,omitempty"`
+	ChangesProductTruth     bool                         `json:"changes_product_truth"`
+	ArchitectureBinding     *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+	CompatibleLawAmendments []CompatibleLawAmendment     `json:"compatible_law_amendments"`
+	WorkPin                 *WorkPin                     `json:"work_pin,omitempty"`
 	// PendingProjectHandoff carries the work's newest unconsumed
 	// Project-session handoff (CD-0182 amendment), so a Project-selected
 	// boot renders the bounded job a receiving session must consume before
@@ -150,10 +142,6 @@ type ContinuityRequest struct {
 	Work   string
 	Limit  int
 	Cursor string
-	// Owner names the reading session, so the pinned projection re-pins its
-	// held verify leases (CD-0096 D5). Nil keeps the work-keyed projection
-	// the session-boot path renders.
-	Owner *SessionWorktreeOwner
 }
 
 func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest) (ContinuitySnapshot, error) {
@@ -191,16 +179,6 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err != nil {
 		return out, err
 	}
-	if req.Owner != nil {
-		if err := validateSessionWorktreeOwner(*req.Owner); err != nil {
-			return out, err
-		}
-		leases, err := heldWorktreeVerifyLeasesByOwnerTx(ctx, tx, *req.Owner)
-		if err != nil {
-			return out, err
-		}
-		out.ActiveVerifyLeases = leases
-	}
 	out, err = continuityReadIdentityTx(ctx, tx, req.Work, out)
 	if err != nil {
 		return out, err
@@ -217,16 +195,9 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err := continuityReadManagedHistoryTx(ctx, tx, req, registry, offset, &out); err != nil {
 		return out, err
 	}
-	// Resolve immutable Git content only after the read snapshot closes.
-	// The descriptor grants no action or execution authority.
-	reviewSubject, err := sampleContinuityReviewSubjectTx(ctx, tx, req.Work, &out)
-	if err != nil {
-		return out, err
-	}
 	if err := tx.Rollback(); err != nil {
 		return out, err
 	}
-	observeContinuityReviewSubject(ctx, &out, reviewSubject)
 	return out, nil
 }
 
@@ -292,16 +263,15 @@ func continuityReadOutsideRepairIdentityTx(ctx context.Context, tx *sql.Tx, work
 }
 
 func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req ContinuityRequest, registry DefinitionRegistry, offset int, out *ContinuitySnapshot) error {
-	instance, err := readContinuityInstanceForRegistryTx(ctx, tx, req.Work, registry, out)
+	err := readContinuityInstanceForRegistryTx(ctx, tx, req.Work, registry, out)
 	if err != nil {
 		return err
 	}
-	currentStep, definition, workVersion := instance.step, instance.definition, instance.workVersion
 	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, req.Work, "C19.Continuity")
 	if contractErr != nil && contractErr != sql.ErrNoRows {
 		return contractErr
 	}
-	if err := continuityReadContractTx(ctx, tx, req.Work, out, activeContractVersion, currentStep, workVersion, definition, registry); err != nil {
+	if err := continuityReadContractTx(ctx, tx, req.Work, out, activeContractVersion); err != nil {
 		return err
 	}
 	if err := continuityReadCheckpointTx(ctx, tx, req.Work, out); err != nil {
@@ -351,8 +321,6 @@ func continuityReadOutsideRepairTx(ctx context.Context, tx *sql.Tx, work string,
 	}
 	if disposition != nil && disposition.State != OutsideRepairStateResumed {
 		out.StepActions = []string{}
-		out.PendingOperatorDecision = nil
-		out.WithheldOperatorDecision = nil
 		out.RestartAvailable = false
 		out.RestartUnavailableReason = "outside-repair disposition owns the work"
 	}
@@ -361,10 +329,10 @@ func continuityReadOutsideRepairTx(ctx context.Context, tx *sql.Tx, work string,
 
 // continuityReadContractTx reads the one active contract and every enrichment
 // that hangs off it — predicates, architecture binding, self-repair, law
-// revisions and context, stale-law and compatible-amendment scans, and the
-// open operator question. A work item with no contract row leaves the
+// revisions and context, and stale-law and compatible-amendment scans. A
+// work item with no contract row leaves the
 // snapshot without one.
-func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, activeContractVersion int64, currentStep string, workVersion int64, definition WorkflowReadDefinition, registry DefinitionRegistry) error {
+func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, activeContractVersion int64) error {
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
 	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, work, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass); err == nil {
@@ -407,19 +375,6 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 			out.LawContext = lawContext
 		}
 		out.SpecMandate = nonNilStrings(append([]string(nil), contract.SpecMandate...))
-		registered, verifyErr := verifyReadWorkflowDefinitionForRegistry(definition, registry)
-		if verifyErr != nil {
-			return verifyErr
-		}
-		confirmation, foldErr := foldWorkflowConfirmationTx(ctx, tx, work)
-		if foldErr != nil {
-			return foldErr
-		}
-		pending, withheld, questionErr := workflowOperatorQuestionForDefinitionTx(ctx, tx, work, currentStep, workVersion, registered.Definition, definition, contract, confirmation)
-		if questionErr != nil {
-			return questionErr
-		}
-		out.PendingOperatorDecision, out.WithheldOperatorDecision = pending, withheld
 	} else if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow contract", true, "retry once the database is readable", err)
 	}
@@ -639,55 +594,43 @@ func (s *Store) ResolveContinuityWorkByDirectory(ctx context.Context, directory 
 	return out, nil
 }
 
-// continuityInstance is the workflow-instance part of one continuity read.
-// present is false for a recorded work item that holds no instance.
-type continuityInstance struct {
-	step string
-	// The read-model reference and registered definition share one verified pin.
-	definition  WorkflowReadDefinition
-	registered  *RegisteredDefinition
-	workVersion int64
-	present     bool
-}
-
 // readContinuityInstanceForRegistryTx is the registry-threaded continuity
 // instance phase: a caller registry verifies the stored pin and seats the
-// work pin through itself with no builtin fallback, so the continuity
-// snapshot projects the same folded confirmation answer the work pin does.
-func readContinuityInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, work string, registry DefinitionRegistry, out *ContinuitySnapshot) (continuityInstance, error) {
-	var instance continuityInstance
-	err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, work).Scan(&instance.step, &instance.definition.Ref, &instance.definition.Digest, &instance.workVersion)
+// work pin through itself with no builtin fallback.
+func readContinuityInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, work string, registry DefinitionRegistry, out *ContinuitySnapshot) error {
+	var stepID string
+	var definition WorkflowReadDefinition
+	err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, work).Scan(&stepID, &definition.Ref, &definition.Digest)
 	if err == sql.ErrNoRows {
 		exists, existsErr := workExistsCore(ctx, tx, work)
 		if existsErr != nil {
-			return instance, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read work item", true, "retry once the database is readable", existsErr)
+			return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read work item", true, "retry once the database is readable", existsErr)
 		}
 		if !exists {
-			return instance, newFailure(KindProjectionNotFound, "C19.Continuity", "work item is not recorded", false, "reread_entities")
+			return newFailure(KindProjectionNotFound, "C19.Continuity", "work item is not recorded", false, "reread_entities")
 		}
 		out.WorkflowInstance = WorkflowInstanceAbsent
-		return instance, nil
+		return nil
 	}
 	if err != nil {
-		return instance, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow step", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow step", true, "retry once the database is readable", err)
 	}
-	instance.present = true
 	out.WorkflowInstance = WorkflowInstancePresent
 	pin, err := readWorkPinForRegistryTx(ctx, tx, work, registry)
 	if err != nil {
-		return instance, err
+		return err
 	}
 	out.WorkPin = &pin
-	out.WorkflowStep = instance.step
-	registered, err := verifyReadWorkflowDefinitionForRegistry(instance.definition, registry)
+	out.WorkflowStep = stepID
+	registered, err := verifyReadWorkflowDefinitionForRegistry(definition, registry)
 	if err != nil {
-		return instance, err
+		return err
 	}
 	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	if step := workflowStep(registered.Definition, instance.step); step != nil {
+	if step := workflowStep(registered.Definition, stepID); step != nil {
 		out.StepActions = append(out.StepActions, step.Actions...)
 	}
-	return instance, nil
+	return nil
 }
 
 func continuityOffset(cursor, work string) (int, error) {

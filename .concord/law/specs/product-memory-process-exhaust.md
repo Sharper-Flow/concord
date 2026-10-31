@@ -14,8 +14,8 @@ CD-0002 carried a process-exhaust rule that assumed a salvage-and-receipt
 handoff. The
 binding inputs are PM1 Q7, the accepted PM2 through PM8, PM6 publish
 proof, and compaction-retention-policy retention. This record closes the deferral: closure
-publishes one completion receipt, evidence is captured by its producer and bound
-to its subject, and the store keeps current state and finite verified snapshots
+publishes one completion receipt, verification reports are attributed and bound
+to their recorded subject, and the store keeps current state and finite verified snapshots
 with no event log or replay
 ([CD-0242](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) D2, D8, D9).
 Process exhaust stays producer-owned with salvage into bounded note fields
@@ -39,8 +39,8 @@ completion receipt in the canonical knowledge home, linking the delivered
 subject, the accepted outcome, consequential decisions, and the proof that
 substantiates acceptance
 ([CD-0242 D9](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
-Verification evidence is captured by its producer and bound to its subject, and
-agents never re-enter it
+Verification reports are attributed to the authenticated binder and bound to
+the recorded commit
 ([CD-0242 D8](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d8-evidence-is-captured-by-its-producer-and-bound-to-its-subject)).
 The store keeps current state and finite verified snapshots, with no event log,
 fold, or replay
@@ -51,13 +51,9 @@ traces, intermediate snapshots, WIP test output, and screenshots—remains
 producer-owned outside Concord. Its producer may discard it after the PM6
 sequence commits. Concord neither imports those bytes nor proves their deletion.
 
-Native oracle streams are core-owned verification observations under CD-0096 D3,
-not imported external process exhaust. The existing verify lease retains one
-bounded raw stdout `BLOB` and one raw stderr `BLOB` until lease/work deletion.
-These bytes grant no knowledge, independent evidence, or acceptance authority.
-They enter no generic metadata, concise note, or separate process-exhaust store.
-This narrow native retention changes neither the completion receipt rule of
-CD-0242 D9 nor the salvage obligation for external reports and traces. compaction-retention-policy owns its deletion boundary.
+Concord retains no repository-check output streams or verification leases.
+The verified-snapshot upgrade precedes removal of stored execution data. This
+does not alter completion receipts or salvage of external reports and traces.
 
 ### Required acceptance synchronization
 

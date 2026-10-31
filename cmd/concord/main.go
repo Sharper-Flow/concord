@@ -23,9 +23,6 @@ import (
 )
 
 func main() {
-	if code, handled := store.RunNativeIsolationSupervisor(); handled {
-		os.Exit(code)
-	}
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
@@ -134,7 +131,7 @@ func invokeOperationEnums() string {
 // bootstrap test. Agent invoke fields remain owned by their generated
 // transport contracts.
 var commandSpecs = []commandSpec{
-	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest; pre-dispatch decode refusals exit 64; worktree_verify input uses command OR oracle (phase prepare | execute), never both; worktree_inspect mode oracle_output uses run_ref, stream stdout | stderr, offset, length (1-16384 raw bytes), never path or idempotency_key; exact fields and exclusions follow the generated agent contracts", Enums: invokeOperationEnums()},
+	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest; pre-dispatch decode refusals exit 64; exact fields and exclusions follow the generated agent contracts", Enums: invokeOperationEnums()},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research; public_key: base64 Ed25519; agent_scope: the agent references this client may present"},
 	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research; agent_scope: the agent references this client may present"},
 	{Canonical: "client-policy-expand", TwoWord: "client policy-expand", RequiredFields: requiredFields(field("client_ref")), Optional: "capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (TS5)", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research"},
@@ -147,7 +144,6 @@ var commandSpecs = []commandSpec{
 	{Canonical: "product-stage-update", TwoWord: "product stage-update", RequiredFields: requiredFields(field("product_id"), field("stage_maturity"), field("stage_audience_commitment"), field("expected_version")), Optional: "reason (cite the CD-0091 rung evidence when raising maturity)", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "product-knowledge-home-designate", TwoWord: "product knowledge-home-designate", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a canonical_path locator of the member Project"},
 	{Canonical: "product-knowledge-home-clear", TwoWord: "product knowledge-home-clear", RequiredFields: requiredFields(field("product_id"), field("expected_version")), Optional: "reason", Enums: "none"},
-	{Canonical: "domain-shape-check", TwoWord: "domain shape-check", RequiredFields: requiredFields(field("product_id")), Optional: "checkout (clean exact pinned subject worktree of the designated home; defaults to its registered path)", Enums: "explicit operator command; strict ratchet; missing checks remain unverified; JSON report <=32768 bytes; diagnostics <=4096 bytes; failures exit nonzero"},
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-update", TwoWord: "project locator-update", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
@@ -156,7 +152,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "worktree-locate", RequiredFields: requiredFields(field("project_id"), field("work_id")), Optional: "ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)", Enums: "none"},
 	{Canonical: "claim-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
 	{Canonical: "vacate-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
-	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (default branch resolved after identity), defect_intake (required for bug), size_inputs (paths and/or behavior, security, user_visible, blast_radius, estimated_production_lines; the model decides the size), host_pid (required with session_ref); handler refusals exit 2; required-field refusals exit 64", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
+	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (default branch resolved after identity), defect_intake (required for bug), host_pid (required with session_ref); handler refusals exit 2; required-field refusals exit 64", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
 	{Canonical: "work-resume", RequiredFields: requiredFields(field("product_id"), field("project_id")), Optional: "exactly one of work_id or issue_key (unique locally recorded Linear key); session_ref; handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "receipt", RequiredFields: requiredFields(field("work_id")), Optional: "none", Enums: "prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed"},
 	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
@@ -577,10 +573,10 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 	var err error
 	switch command {
 	case "product-knowledge-home-designate":
-		return designateOperatorDomainShape(context.Background(), s, store.ProductKnowledgeHomeDesignation{
+		result, err = s.DesignateProductKnowledgeHome(context.Background(), store.ProductKnowledgeHomeDesignation{
 			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
 			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
-		}, out, errOut)
+		})
 	case "product-knowledge-home-clear":
 		result, err = s.ClearProductKnowledgeHome(context.Background(), store.ProductKnowledgeHomeDesignation{
 			ProductID: request.ProductID, Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
@@ -595,8 +591,6 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 
 func runInternal(command string, raw []byte, service *agent.Service, s *store.Store, out, errOut io.Writer) int {
 	switch command {
-	case "domain-shape-check":
-		return runDomainShapeCheck(raw, s, out, errOut)
 	case "client-show":
 		return runClientShow(raw, s, out, errOut)
 	case "client-register", "client-policy-update", "client-policy-expand":
@@ -868,12 +862,11 @@ type operatorRef struct {
 }
 
 type operatorResponse struct {
-	OK          bool                          `json:"ok"`
-	ProductID   string                        `json:"product_id,omitempty"`
-	ProjectID   string                        `json:"project_id,omitempty"`
-	EventIDs    []string                      `json:"event_ids,omitempty"`
-	ChangedRefs []operatorChangedRef          `json:"changed_refs"`
-	Setup       *store.DomainShapeSetupResult `json:"setup,omitempty"`
+	OK          bool                 `json:"ok"`
+	ProductID   string               `json:"product_id,omitempty"`
+	ProjectID   string               `json:"project_id,omitempty"`
+	EventIDs    []string             `json:"event_ids,omitempty"`
+	ChangedRefs []operatorChangedRef `json:"changed_refs"`
 }
 
 type operatorChangedRef struct {
@@ -882,12 +875,9 @@ type operatorChangedRef struct {
 	Version    string `json:"version"`
 }
 
-func writeOperatorResult(command string, s *store.Store, eventIDs []string, refs []operatorRef, out, errOut io.Writer, setup ...store.DomainShapeSetupResult) int {
+func writeOperatorResult(command string, s *store.Store, eventIDs []string, refs []operatorRef, out, errOut io.Writer) int {
 	changed := make([]operatorChangedRef, 0, len(refs))
 	response := operatorResponse{OK: true, EventIDs: eventIDs, ChangedRefs: changed}
-	if len(setup) != 0 {
-		response.Setup = &setup[0]
-	}
 	for _, ref := range refs {
 		version, err := s.EntityVersion(context.Background(), ref.EntityKind, ref.ID)
 		if err != nil {

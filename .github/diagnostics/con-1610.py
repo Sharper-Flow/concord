@@ -1,12 +1,14 @@
 """Fixed-input, branch-only WAL diagnosis. No test execution in this helper."""
 
 import hashlib
+from datetime import datetime
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import time
+from urllib.request import Request, urlopen
 
 
 BASE = "a8b034bdc99948c23d8938d183e95d2946434501"
@@ -120,7 +122,20 @@ def record_runtime(root):
     for key in ("GOFLAGS", "GODEBUG"):
         require(not os.environ.get(key), f"unexpected implicit Go input: {key}")
     command(subject, "go", "clean", "-testcache")
-    setup_elapsed = time.time() - int(os.environ["DIAGNOSIS_STARTED_AT"])
+    run_id = int(os.environ["GITHUB_RUN_ID"])
+    # Public read only; no token, retry or permission expansion on lookup failure.
+    request = Request(
+        f"https://api.github.com/repos/Sharper-Flow/concord/actions/runs/{run_id}/attempts/1/jobs",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "concord-wal-diagnosis"},
+    )
+    with urlopen(request, timeout=15) as response:
+        jobs = json.load(response)
+    require(jobs["total_count"] == len(jobs["jobs"]) == 1, "expected one diagnostic job")
+    job = jobs["jobs"][0]
+    require(job["name"] == "wal-diagnosis" and job["run_id"] == run_id and job["run_attempt"] == 1, "wrong admission job")
+    require(job["head_sha"] == os.environ["GITHUB_SHA"] and job["status"] == "in_progress", "wrong admission candidate/status")
+    started = datetime.fromisoformat(job["started_at"].replace("Z", "+00:00"))
+    setup_elapsed = time.time() - started.timestamp()
     require(0 <= setup_elapsed <= 90, "setup exceeded 90s; shard execution is not admitted")
     runtime = {
         "go_environment": go,
@@ -129,6 +144,7 @@ def record_runtime(root):
         "poison_environment": POISON,
         "test_cache_expiration_command": ["go", "clean", "-testcache"],
         "setup_elapsed_seconds_at_admission": setup_elapsed,
+        "admission_job": {key: job[key] for key in ("id", "html_url", "started_at", "run_id", "run_attempt", "head_sha")},
         "runner": {key: os.environ.get(key) for key in (
             "RUNNER_OS", "RUNNER_ARCH", "ImageOS", "ImageVersion", "GO_SETUP_CACHE_HIT", "GOMAXPROCS"
         )},

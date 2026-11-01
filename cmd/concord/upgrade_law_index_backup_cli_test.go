@@ -77,7 +77,7 @@ func runLawIndexGit(t *testing.T, repo string, args ...string) string {
 // synthetic committed Git home: the Product home binding resolves through the
 // canonical-path locator to a repo whose committed law folder carries the
 // seeded law under its recorded path with the row's whole-file digest.
-func seedLawIndexCLIStore(t *testing.T, path string) string {
+func seedLawIndexCLIStore(t *testing.T, path string) {
 	t.Helper()
 	seedCLIMigrationPrefix(t, path, 173)
 
@@ -143,7 +143,6 @@ func seedLawIndexCLIStore(t *testing.T, path string) string {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	return repo
 }
 
 // cliLawIndexRows renders every row of one table, so the live store and the

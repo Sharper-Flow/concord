@@ -26,12 +26,12 @@ func publishNote(t *testing.T, repo, workID, content string) error {
 func TestProducerRefusesNoteOverTheDurableBound(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
-	valid := canonicalWorkNote("bound-work", "2026-08-07T00:00:00Z")
+	valid := canonicalWorkNote("bound-work")
 	if err := publishNote(t, repo, "bound-work", valid); err != nil {
 		t.Fatalf("compliant note refused: %v", err)
 	}
 
-	bloated := canonicalWorkNote("bloated-work", "2026-08-07T00:00:00Z") + strings.Repeat("state dump line\n", maxDurableNoteBytes/8)
+	bloated := canonicalWorkNote("bloated-work") + strings.Repeat("state dump line\n", maxDurableNoteBytes/8)
 	if len(bloated) <= maxDurableNoteBytes {
 		t.Fatalf("fixture is %d bytes, which does not exceed the %d-byte bound it must exceed", len(bloated), maxDurableNoteBytes)
 	}
@@ -52,7 +52,7 @@ func TestProducerRefusesEmbeddedStateDump(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	dump := strings.Repeat(`{"k":"vvvvvvvvvvvvvvvv"},`, maxDurableFencedJSONBytes/16)
-	note := canonicalWorkNote("dump-work", "2026-08-07T00:00:00Z") + "\n```json\n[" + dump + "]\n```\n"
+	note := canonicalWorkNote("dump-work") + "\n```json\n[" + dump + "]\n```\n"
 	if len(note) > maxDurableNoteBytes {
 		t.Fatalf("fixture is %d bytes and must stay under the %d-byte note bound so the fence rule is what rejects it", len(note), maxDurableNoteBytes)
 	}

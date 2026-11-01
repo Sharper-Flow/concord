@@ -137,10 +137,10 @@ func externalUnrelatedCommit(t *testing.T, repo, tag string) {
 
 // externalItemLawEdit commits the item's own law revision on the candidate
 // branch.
-func externalItemLawEdit(t *testing.T, repo, lawID, body string) {
+func externalItemLawEdit(t *testing.T, repo, lawID string) {
 	t.Helper()
 	externalApplyFiles(t, repo, map[string]string{
-		workflowFixtureDecisionsLawPath(lawID): externalFixtureLaw(lawID, "derived", body),
+		workflowFixtureDecisionsLawPath(lawID): externalFixtureLaw(lawID, "derived", externalLawOwnBody),
 	}, "item law edit")
 }
 
@@ -191,20 +191,20 @@ func lawHistory(t *testing.T, s *Store, lawID, shape string) func(string) {
 			externalSyncMain(t, home, repo, false)
 			externalUnrelatedCommit(t, repo, shape)
 		case historyOwn:
-			externalItemLawEdit(t, repo, lawID, externalLawOwnBody)
+			externalItemLawEdit(t, repo, lawID)
 			squashOwn("squash of the item")
 		case historySynced:
-			externalItemLawEdit(t, repo, lawID, externalLawOwnBody)
+			externalItemLawEdit(t, repo, lawID)
 			squashOwn("squash of the item")
 			externalSyncMain(t, home, repo, false)
 			externalUnrelatedCommit(t, repo, shape)
 		case historyMainFirst:
-			externalItemLawEdit(t, repo, lawID, externalLawOwnBody)
+			externalItemLawEdit(t, repo, lawID)
 			squashOwn("squash of the item")
 			externalSyncMain(t, home, repo, true)
 			externalUnrelatedCommit(t, repo, shape)
 		case historyMerged:
-			externalItemLawEdit(t, repo, lawID, externalLawOwnBody)
+			externalItemLawEdit(t, repo, lawID)
 			runKnowledgeGit(t, home.RepoPath, "fetch", "-q", repo, externalCandidateBranch)
 			runKnowledgeGit(t, home.RepoPath, "merge", "-q", "--no-ff", "-m", "merge the item", "FETCH_HEAD")
 		default:
@@ -400,7 +400,7 @@ func externalRemovalWithOwnLawEdit(t *testing.T, shape string) {
 		t.Helper()
 		externalForkCandidate(t, home, repo)
 		// The item's own declared edit is the only change its branch makes.
-		externalItemLawEdit(t, repo, "law-own", externalLawOwnBody)
+		externalItemLawEdit(t, repo, "law-own")
 		own := externalFixtureLaw("law-own", "derived", externalLawOwnBody)
 		externalApplyFiles(t, home.RepoPath, map[string]string{
 			workflowFixtureDecisionsLawPath("law-own"): own,

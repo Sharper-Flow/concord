@@ -179,7 +179,7 @@ func VerifyCommittedNote(ctx context.Context, repo, commitOID, notePath, expecte
 	if err := validateNotePath(notePath); err != nil {
 		return VerifiedNote{}, err
 	}
-	_, content, err := committedRegularBlobBytes(ctx, runGitRunner{}, repo, commitOID, notePath)
+	content, err := committedRegularBlobBytes(ctx, runGitRunner{}, repo, commitOID, notePath)
 	if err != nil {
 		return VerifiedNote{}, err
 	}
@@ -270,19 +270,19 @@ func gitTreeEntryRunner(ctx context.Context, runner GitRunner, repo, commitOID, 
 // commit through the caller's runner and returns its bytes. VerifyCommittedNote
 // and the dispatch reading resolution both prove committed content through
 // this one owner.
-func committedRegularBlobBytes(ctx context.Context, runner GitRunner, repo, commitOID, path string) (treeEntry, []byte, error) {
+func committedRegularBlobBytes(ctx context.Context, runner GitRunner, repo, commitOID, path string) ([]byte, error) {
 	entry, err := gitTreeEntryRunner(ctx, runner, repo, commitOID, path)
 	if err != nil {
-		return treeEntry{}, nil, err
+		return nil, err
 	}
 	if entry.mode != "100644" && entry.mode != "100755" || entry.kind != "blob" {
-		return treeEntry{}, nil, newFailure(KindInvalidNoteProof, "verify_note", "committed blob is not an ordinary blob", false, "commit a regular blob at the declared path")
+		return nil, newFailure(KindInvalidNoteProof, "verify_note", "committed blob is not an ordinary blob", false, "commit a regular blob at the declared path")
 	}
 	content, err := runner.Run(ctx, repo, "cat-file", "blob", commitOID+":"+path)
 	if err != nil {
-		return treeEntry{}, nil, wrapFailure(KindInvalidNoteProof, "verify_note", "cannot read the committed blob", true, "confirm the commit and path are available", err)
+		return nil, wrapFailure(KindInvalidNoteProof, "verify_note", "cannot read the committed blob", true, "confirm the commit and path are available", err)
 	}
-	return entry, content, nil
+	return content, nil
 }
 
 func scanKnowledgeTree(ctx context.Context, home KnowledgeHome, commitOID string) ([]string, error) {

@@ -12,7 +12,7 @@ func publishedAbsenceFixture(t *testing.T) (*Store, KnowledgeHome, string, strin
 	s := openTemp(t)
 	repo := initKnowledgeRepo(t)
 	path := ".concord/docs/work/work-published.md"
-	content := canonicalWorkNote("work-published", "2026-08-07T00:00:00Z")
+	content := canonicalWorkNote("work-published")
 	writeKnowledgeFile(t, repo, path, content)
 	commit := commitKnowledgeRepo(t, repo, "published outcome")
 	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
@@ -198,7 +198,7 @@ func TestPublishedAbsenceHelperUsesCallerTransaction(t *testing.T) {
 func TestPublishedAbsenceRefusesAmbiguousCanonicalIdentity(t *testing.T) {
 	s, _, _, _ := publishedAbsenceFixture(t)
 	repo := initKnowledgeRepo(t)
-	note := canonicalWorkNote("work-published", "2026-08-07T00:00:00Z")
+	note := canonicalWorkNote("work-published")
 	writeKnowledgeFile(t, repo, ".concord/docs/work/other.md", note)
 	commit := commitKnowledgeRepo(t, repo, "second source")
 	home := KnowledgeHome{HomeProjectID: "proj-other", HomeLocatorID: "repo-other", RepoPath: repo, HeadRef: "HEAD"}
@@ -214,7 +214,7 @@ func TestPublishedAbsenceRefusesAmbiguousCanonicalIdentity(t *testing.T) {
 func TestPublishedAbsenceAmbiguityNamesOnlyInScopeHomes(t *testing.T) {
 	s, _, _, _ := publishedAbsenceFixture(t)
 	repo := initKnowledgeRepo(t)
-	note := strings.Replace(canonicalWorkNote("work-published", "2026-08-07T00:00:00Z"), "project_ids: [proj-web]", "project_ids: [proj-other]", 1)
+	note := strings.Replace(canonicalWorkNote("work-published"), "project_ids: [proj-web]", "project_ids: [proj-other]", 1)
 	writeKnowledgeFile(t, repo, ".concord/docs/work/other.md", note)
 	commit := commitKnowledgeRepo(t, repo, "second source")
 	home := KnowledgeHome{HomeProjectID: "proj-other", HomeLocatorID: "repo-other", RepoPath: repo, HeadRef: "HEAD"}

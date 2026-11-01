@@ -24,7 +24,7 @@ func (s *Store) EstablishDomainRegistryProof(ctx context.Context, productID stri
 	if s == nil || s.db == nil {
 		return ctx, newFailure(KindUnavailable, "domain_registry", "store is not open", false, "open a store before reading the committed Domain registry")
 	}
-	home, err := resolveKnowledgeQueryHome(ctx, s.db, productID, "", KnowledgeHome{}, "domain_registry")
+	home, err := resolveKnowledgeQueryHome(ctx, s.db, productID, "domain_registry")
 	if err != nil {
 		return ctx, err
 	}
@@ -47,7 +47,7 @@ func (s *Store) EstablishDomainRegistryProof(ctx context.Context, productID stri
 // committed law and registry content. It reads only SQL and small files; no
 // Git subprocess runs inside the transaction (CD-0195 D2).
 func lawSnapshotForProduct(ctx context.Context, q queryer, productID, op string) (*lawFolderSnapshot, error) {
-	home, err := resolveKnowledgeQueryHome(ctx, q, productID, "", KnowledgeHome{}, op)
+	home, err := resolveKnowledgeQueryHome(ctx, q, productID, op)
 	if err != nil {
 		return nil, err
 	}

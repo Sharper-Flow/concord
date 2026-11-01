@@ -35,7 +35,7 @@ func seedStaleLawCompaction(t *testing.T) (*Store, KnowledgeHome, string, string
 	// A law retires by deleting its committed file, the ordinary pull-request
 	// route: the workflow law home no longer carries spec:one.
 	lawHome := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
-	removeCommittedFixtureLaw(t, lawHome, "spec:one")
+	removeCommittedFixtureLaw(t, lawHome)
 	assertStaleLawCompactionEstablished(t, s, lawHome)
 	return s, home, commit, path
 }

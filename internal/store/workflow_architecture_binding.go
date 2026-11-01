@@ -380,10 +380,10 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err := validateArchitectureBindingRelationsTx(registry, affected, binding.DomainRelationModifies); err != nil {
 		return err
 	}
-	if err := validateArchitectureBindingLawModifiesTx(ctx, snapshot, homeProjectID, homeLocatorID, affected, lawModifies); err != nil {
+	if err := validateArchitectureBindingLawModifiesTx(snapshot, affected, lawModifies); err != nil {
 		return err
 	}
-	if err := validateArchitectureBindingLawAdditionsTx(ctx, snapshot, homeProjectID, homeLocatorID, affected, binding.LawAdditions, specMandate, lawModifies, lawRevisions); err != nil {
+	if err := validateArchitectureBindingLawAdditionsTx(snapshot, affected, binding.LawAdditions, specMandate, lawModifies, lawRevisions); err != nil {
 		return err
 	}
 	remaining, err := architectureBindingRevisionMandate(specMandate, binding.LawAdditions)
@@ -393,10 +393,10 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err := validateWorkflowLawRevisions(remaining, lawRevisions); err != nil {
 		return err
 	}
-	if err := validateArchitectureBindingRevisionsTx(ctx, snapshot, lawRevisions); err != nil {
+	if err := validateArchitectureBindingRevisionsTx(snapshot, lawRevisions); err != nil {
 		return err
 	}
-	return validateArchitectureBindingObligationsTx(ctx, snapshot, definition, binding.VerificationObligations, lawRevisions)
+	return validateArchitectureBindingObligationsTx(snapshot, definition, binding.VerificationObligations, lawRevisions)
 }
 
 // architectureBindingProductIDTx resolves the one Product whose primary
@@ -493,7 +493,7 @@ func validateArchitectureBindingRelationsTx(registry KnowledgeDomainRegistry, af
 // validateArchitectureBindingLawModifiesTx refuses modified laws that are
 // not current law of the Product mandate in the verified snapshot, or whose
 // home Domain the binding does not affect.
-func validateArchitectureBindingLawModifiesTx(ctx context.Context, snapshot *lawFolderSnapshot, homeProjectID, homeLocatorID string, affected map[string]struct{}, lawModifies []string) error {
+func validateArchitectureBindingLawModifiesTx(snapshot *lawFolderSnapshot, affected map[string]struct{}, lawModifies []string) error {
 	for _, lawID := range lawModifies {
 		record, ok := snapshot.Law(bareLawID(lawID))
 		if !ok {
@@ -510,7 +510,7 @@ func validateArchitectureBindingLawModifiesTx(ctx context.Context, snapshot *law
 // spec mandate does not authorize, that overlap law_modifies or governing
 // revisions, whose home Domain the binding does not affect, or that reuse an
 // existing Product law ID.
-func validateArchitectureBindingLawAdditionsTx(ctx context.Context, snapshot *lawFolderSnapshot, homeProjectID, homeLocatorID string, affected map[string]struct{}, additions []WorkflowLawAddition, specMandate, lawModifies []string, lawRevisions []WorkflowLawRevision) error {
+func validateArchitectureBindingLawAdditionsTx(snapshot *lawFolderSnapshot, affected map[string]struct{}, additions []WorkflowLawAddition, specMandate, lawModifies []string, lawRevisions []WorkflowLawRevision) error {
 	for _, addition := range additions {
 		if _, inMandate := stringSet(specMandate)[addition.LawID]; !inMandate {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition is outside spec_mandate", false, "authorize every law addition in spec_mandate")
@@ -535,7 +535,7 @@ func validateArchitectureBindingLawAdditionsTx(ctx context.Context, snapshot *la
 
 // validateArchitectureBindingRevisionsTx refuses governing law revisions
 // whose committed hash differs from the pinned hash.
-func validateArchitectureBindingRevisionsTx(ctx context.Context, snapshot *lawFolderSnapshot, lawRevisions []WorkflowLawRevision) error {
+func validateArchitectureBindingRevisionsTx(snapshot *lawFolderSnapshot, lawRevisions []WorkflowLawRevision) error {
 	for _, revision := range lawRevisions {
 		record, ok := snapshot.Law(bareLawID(revision.LawID))
 		if !ok {
@@ -551,7 +551,7 @@ func validateArchitectureBindingRevisionsTx(ctx context.Context, snapshot *lawFo
 // validateArchitectureBindingObligationsTx refuses verification obligations
 // the pinned workflow definition does not declare, that name non-current
 // law, or whose law no revision pins.
-func validateArchitectureBindingObligationsTx(ctx context.Context, snapshot *lawFolderSnapshot, definition WorkflowDefinition, obligations []WorkflowVerificationObligation, lawRevisions []WorkflowLawRevision) error {
+func validateArchitectureBindingObligationsTx(snapshot *lawFolderSnapshot, definition WorkflowDefinition, obligations []WorkflowVerificationObligation, lawRevisions []WorkflowLawRevision) error {
 	declared := workflowDefinitionObligations(definition)
 	for _, obligation := range obligations {
 		if _, ok := declared[obligation.ObligationID]; !ok {

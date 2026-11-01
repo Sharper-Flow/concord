@@ -124,18 +124,9 @@ func (s *Store) verifyLawSourceSnapshot(ctx context.Context, home KnowledgeHome)
 			revision.head = current
 			return snapshot, revision, nil
 		}
+		// The law content moved under the verification; the next attempt
+		// re-verifies at the head the content now sits at.
 		lastErr = newFailure(KindInvalidOperation, "check_mandated_laws", "knowledge source "+knowledgeSourceProofKey(home)+" moved while its verification ran", true, "verify the knowledge sources again before the consequential transaction opens")
-		// The law content moved under the verification; re-verify at the
-		// head the content actually sits at.
-		if moved, err := loadLawFolderSnapshot(ctx, home.RepoPath, current); err == nil {
-			if err := s.validateSnapshotLegislatedAuthority(ctx, moved); err != nil {
-				return nil, knowledgeSourceVerifiedRevision{}, err
-			}
-			if movedOIDs, err := lawSourceOIDs(ctx, home.RepoPath, current); err == nil {
-				head, snapshot, revision = current, moved, movedOIDs
-				revision.head = current
-			}
-		}
 	}
 	return nil, knowledgeSourceVerifiedRevision{}, lastErr
 }
@@ -396,7 +387,7 @@ func (s *Store) establishKnowledgeSourceSetProofAtHome(ctx context.Context, home
 }
 
 func (s *Store) establishKnowledgeSourceSetProofAtHomes(ctx context.Context, homeProjectID, homeLocatorID string, qualifiedProjects []string) (context.Context, error) {
-	productID, _, err := resolveKnowledgeSourceRole(ctx, s.db, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
+	productID, err := resolveKnowledgeSourceRole(ctx, s.db, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
 	if err != nil {
 		return ctx, nil
 	}
@@ -497,7 +488,7 @@ func (s *Store) qualifiedSourceHomes(ctx context.Context, home KnowledgeHome, qu
 // gate's answer when the caller skipped the pre-transaction verification, or
 // when a source changed after it.
 func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectID, homeLocatorID string) error {
-	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
+	productID, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
 	if err != nil {
 		return err
 	}
@@ -508,7 +499,7 @@ func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectI
 	if err != nil {
 		return err
 	}
-	return requireKnowledgeSourcesProof(ctx, q, productID, sources)
+	return requireKnowledgeSourcesProof(ctx, productID, sources)
 }
 
 // requireStandaloneSourceProof keeps a standalone home's demand-driven
@@ -542,7 +533,7 @@ func requireStandaloneSourceProof(ctx context.Context, q queryer, homeProjectID,
 			return newFailure(KindInvalidOperation, "check_mandated_laws", "knowledge home "+key+" resolved to a different canonical location after its verification", false, "verify the knowledge home again before the consequential transaction opens")
 		}
 	}
-	return requireKnowledgeSourcesProof(ctx, q, "", live)
+	return requireKnowledgeSourcesProof(ctx, "", live)
 }
 
 // verifiedKnowledgeSourceSet resolves the transaction's law source set: the
@@ -574,7 +565,7 @@ func verifiedKnowledgeSourceSet(ctx context.Context, q queryer, productID string
 
 // Both Product and standalone inventory reads revalidate the same canonical
 // location and small-file content proof in the transaction.
-func requireKnowledgeSourcesProof(ctx context.Context, q queryer, productID string, sources []KnowledgeHome) error {
+func requireKnowledgeSourcesProof(ctx context.Context, productID string, sources []KnowledgeHome) error {
 	proof := knowledgeSourceSetProofFrom(ctx)
 	if proof == nil {
 		return newFailure(KindInvalidOperation, "check_mandated_laws", "the knowledge home was not verified before this transaction", false, "verify the Product's knowledge home before the consequential transaction opens")
@@ -646,7 +637,7 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 	// CD-0200 D4/D6: a bare mandated ID resolves in the Product's designated
 	// home, and a qualified project_id/law_id form resolves in its named
 	// Project's canonical home. Bare IDs alone keep the single-home path below.
-	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
+	productID, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
 	if err != nil {
 		return err
 	}
@@ -734,7 +725,7 @@ func checkMandatedLawsAtSingleHome(ctx context.Context, q queryer, homeProjectID
 	if len(missing) != 0 {
 		return mandatedLawProjectionFailure(ctx, q, []KnowledgeHome{source}, missing)
 	}
-	if err := checkSingleHomeLawConflicts(ctx, snapshot, mandated, modified, authority, allowAmendment); err != nil {
+	if err := checkSingleHomeLawConflicts(snapshot, mandated, modified, authority, allowAmendment); err != nil {
 		return err
 	}
 	return nil
@@ -813,7 +804,7 @@ func mandatedLawProjectionFailure(ctx context.Context, q queryer, sources []Know
 // is authored on its declaring record, so the declaring record is always
 // known; the pair is checked in the canonical source/target order the
 // boundary has always answered with.
-func checkSingleHomeLawConflicts(ctx context.Context, snapshot *lawFolderSnapshot, mandated, modified []string, authority map[string]string, allowAmendment bool) error {
+func checkSingleHomeLawConflicts(snapshot *lawFolderSnapshot, mandated, modified []string, authority map[string]string, allowAmendment bool) error {
 	modifiedSet := make(map[string]bool, len(modified))
 	for _, id := range modified {
 		modifiedSet[id] = true
@@ -886,7 +877,7 @@ func validateDerivedLawModification(ctx context.Context, q queryer, workID strin
 	if err != nil {
 		return err
 	}
-	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
+	productID, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
 	if err != nil {
 		return err
 	}
@@ -904,7 +895,7 @@ func validateDerivedLawModification(ctx context.Context, q queryer, workID strin
 			return err
 		}
 		if anyQualified {
-			return validateDerivedLawModificationAcrossSources(ctx, q, sources, modified)
+			return validateDerivedLawModificationAcrossSources(ctx, sources, modified)
 		}
 	} else if anyQualified {
 		// A qualified reference without a Product designation resolves
@@ -932,12 +923,12 @@ func validateDerivedLawModification(ctx context.Context, q queryer, workID strin
 			seenProjects[projectID] = true
 			sources = append(sources, candidates[0])
 		}
-		return validateDerivedLawModificationAcrossSources(ctx, q, sources, modified)
+		return validateDerivedLawModificationAcrossSources(ctx, sources, modified)
 	}
-	return validateDerivedLawModificationAtHome(ctx, q, homeProjectID, homeLocatorID, modified)
+	return validateDerivedLawModificationAtHome(ctx, homeProjectID, homeLocatorID, modified)
 }
 
-func validateDerivedLawModificationAtHome(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, modified []string) error {
+func validateDerivedLawModificationAtHome(ctx context.Context, homeProjectID, homeLocatorID string, modified []string) error {
 	snapshot, err := lawSnapshotForSource(ctx, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID}, "check_derived_law_modification")
 	if err != nil {
 		return err
@@ -956,8 +947,8 @@ func validateDerivedLawModificationAtHome(ctx context.Context, q queryer, homePr
 // non-derived tier. The tier is read from the verified snapshot of the source
 // the reference resolved through, so a shared Product's derived law answers
 // from that source's committed folder.
-func validateDerivedLawModificationAcrossSources(ctx context.Context, q queryer, sources []KnowledgeHome, modified []string) error {
-	resolutions, missing, err := resolveLawReferences(ctx, q, "check_derived_law_modification", sources, modified)
+func validateDerivedLawModificationAcrossSources(ctx context.Context, sources []KnowledgeHome, modified []string) error {
+	resolutions, missing, err := resolveLawReferences(ctx, "check_derived_law_modification", sources, modified)
 	if err != nil {
 		return err
 	}
@@ -1020,7 +1011,7 @@ type lawReferenceResolution struct {
 // law-folder snapshot of the source that holds it. Bare references resolve in
 // the workflow home. Qualified references resolve only in their named
 // Project's canonical home. Callers supply those homes.
-func resolveLawReferences(ctx context.Context, q queryer, op string, sources []KnowledgeHome, references []string) (map[string]lawReferenceResolution, []string, error) {
+func resolveLawReferences(ctx context.Context, op string, sources []KnowledgeHome, references []string) (map[string]lawReferenceResolution, []string, error) {
 	resolved := make(map[string]lawReferenceResolution, len(references))
 	missing := make([]string, 0)
 	for _, reference := range references {
@@ -1140,7 +1131,7 @@ type mandatedSourceLawSet struct {
 // snapshot of the source that holds it. Conflicts read from the declaring
 // records inside the snapshot of the source that owns the resolved law.
 func checkMandatedLawsAcrossSources(ctx context.Context, q queryer, sources []KnowledgeHome, mandated, modified []string, allowAmendment bool) error {
-	resolutions, missing, err := resolveLawReferences(ctx, q, "check_mandated_laws", sources, mandated)
+	resolutions, missing, err := resolveLawReferences(ctx, "check_mandated_laws", sources, mandated)
 	if err != nil {
 		return err
 	}

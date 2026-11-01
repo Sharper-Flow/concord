@@ -18,7 +18,7 @@ func standaloneInventoryFixture(t *testing.T) (*Store, KnowledgeHome, string) {
 	s := seedLawChangeFixture(t, workID)
 	lawChangeFold(t, s, `DELETE FROM product_knowledge_homes WHERE product_id='product'`)
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
-	productID, _, err := resolveKnowledgeSourceRole(t.Context(), s.db, home)
+	productID, err := resolveKnowledgeSourceRole(t.Context(), s.db, home)
 	if err != nil || productID != "" {
 		t.Fatalf("fixture is not standalone: product=%q error=%v", productID, err)
 	}

@@ -80,18 +80,12 @@ func committedProductRegistry(t *testing.T, s *store.Store) store.DomainRegistry
 	return *list.Registry
 }
 
-// agentFixtureLawFrontmatter builds one fixture law file's closed JSON
-// frontmatter from the retained metadata only. A derived law carries no
-// legislative fields; the legislated form matches the seed's own fixture
-// decision, whose declared work is unverified rather than negative, so the
-// declared tier stands. Only a root-homed law may state the product-wide
-// rationale, so a child-homed fixture law passes an empty one and omits the
-// field.
-func agentFixtureLawFrontmatter(id, tier, homeDomainID, productWideRationale string) string {
-	authority := `{"tier":"` + tier + `"}`
-	if tier == "legislated" {
-		authority = `{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1}`
-	}
+// agentFixtureLawFrontmatter builds one derived fixture law file's closed
+// JSON frontmatter from the retained metadata only. Only a root-homed law may
+// state the product-wide rationale, so a child-homed fixture law passes an
+// empty one and omits the field.
+func agentFixtureLawFrontmatter(id, homeDomainID, productWideRationale string) string {
+	authority := `{"tier":"derived"}`
 	frontmatter := `{"id":"` + id + `","title":"Fixture law","authority":` + authority +
 		`,"home_domain_id":"` + homeDomainID + `","applies_to_domain_ids":[]`
 	if productWideRationale != "" {

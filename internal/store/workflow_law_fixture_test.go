@@ -91,14 +91,14 @@ func commitWorkflowFixtureRegistry(t *testing.T, home KnowledgeHome, registryJSO
 // commitFixtureLawFile commits one law file into the home under the fixture
 // path of its ID. It is the retained replacement for a law_subjects row: the
 // law exists when its file is on the default branch.
-func commitFixtureLawFile(t *testing.T, home KnowledgeHome, lawID, content string) string {
+func commitFixtureLawFile(t *testing.T, home KnowledgeHome, lawID, content string) {
 	t.Helper()
 	path, ok := workflowFixtureLawPaths[lawID]
 	if !ok {
 		t.Fatalf("fixture law %s has no committed path in the workflow home", lawID)
 	}
 	writeKnowledgeFile(t, home.RepoPath, path, content)
-	return commitKnowledgeRepo(t, home.RepoPath, "commit fixture law "+lawID)
+	commitKnowledgeRepo(t, home.RepoPath, "commit fixture law "+lawID)
 }
 
 // workflowFixtureDecisionsLawPath is the committed decisions-tier path of one
@@ -113,10 +113,10 @@ func workflowFixtureDecisionsLawPath(lawID string) string {
 // caller-authored front matter and body. It is the retained replacement for a
 // law_subjects insert and for a projection-row amendment: committed new bytes
 // are the only way a law's revision, tier, or Domain homes change.
-func commitWorkflowFixtureLaw(t *testing.T, home KnowledgeHome, lawID, content string) string {
+func commitWorkflowFixtureLaw(t *testing.T, home KnowledgeHome, lawID, content string) {
 	t.Helper()
 	writeKnowledgeFile(t, home.RepoPath, workflowFixtureDecisionsLawPath(lawID), content)
-	return commitKnowledgeRepo(t, home.RepoPath, "commit fixture law "+lawID)
+	commitKnowledgeRepo(t, home.RepoPath, "commit fixture law "+lawID)
 }
 
 // removeWorkflowFixtureLaw retires one decisions-tier fixture law by deleting
@@ -129,10 +129,11 @@ func removeWorkflowFixtureLaw(t *testing.T, home KnowledgeHome, lawID string) {
 	commitKnowledgeRepo(t, home.RepoPath, "retire fixture law "+lawID)
 }
 
-// removeCommittedFixtureLaw retires one fixture law by deleting its file and
-// committing, the ordinary pull-request route a law retires through.
-func removeCommittedFixtureLaw(t *testing.T, home KnowledgeHome, lawID string) {
+// removeCommittedFixtureLaw retires the fixture law spec:one by deleting its
+// file and committing, the ordinary pull-request route a law retires through.
+func removeCommittedFixtureLaw(t *testing.T, home KnowledgeHome) {
 	t.Helper()
+	const lawID = "spec:one"
 	path, ok := workflowFixtureLawPaths[lawID]
 	if !ok {
 		t.Fatalf("fixture law %s has no committed path in the workflow home", lawID)

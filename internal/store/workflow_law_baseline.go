@@ -135,7 +135,7 @@ func readWorkflowLawBaselineTx(ctx context.Context, q queryer, workID string) (*
 // Inventory admission has its own seam: unlike a mandate read, it must prove
 // the complete inventory even when the contract names no law.
 func requireWorkflowLawInventoryProof(ctx context.Context, q queryer, project, locator string) error {
-	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: project, HomeLocatorID: locator})
+	productID, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: project, HomeLocatorID: locator})
 	if err != nil {
 		return err
 	}
@@ -148,7 +148,7 @@ func requireWorkflowLawInventoryProof(ctx context.Context, q queryer, project, l
 	}
 	for _, home := range homes {
 		if home.HomeLocatorID == locator {
-			return requireKnowledgeSourcesProof(ctx, q, "", []KnowledgeHome{home})
+			return requireKnowledgeSourcesProof(ctx, "", []KnowledgeHome{home})
 		}
 	}
 	return newFailure(KindUnknownScope, "workflow_law_change", "the standalone inventory has no canonical law home", false, "resolve one canonical Git knowledge home before verifying the inventory")

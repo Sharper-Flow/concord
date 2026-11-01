@@ -54,7 +54,7 @@ func seedObservationLawBoundary(t *testing.T) observationLawBoundary {
 	boundary.home = observationCommittedHome(t, s)
 	registry := committedProductRegistry(t, s)
 	boundary.pinHash = commitAgentFixtureLaw(t, boundary.home.RepoPath, observationBoundaryLawPath,
-		agentFixtureLawFrontmatter(observationBoundaryOldLaw, "derived", registry.RootDomainID, "The observation boundary fixture registry declares no child Domain, so this law has no child home available."))
+		agentFixtureLawFrontmatter(observationBoundaryOldLaw, registry.RootDomainID, "The observation boundary fixture registry declares no child Domain, so this law has no child home available."))
 
 	actorRef := "actor:" + strings.Repeat("a", 64)
 	execProjection(t, s,

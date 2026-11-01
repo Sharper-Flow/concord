@@ -118,11 +118,12 @@ architecture_relations[]
 ```
 
 The Domain registry is Product law. Git is the sole writer of Domain identity,
-hierarchy, and architecture relations; SQLite holds a transactional derived
-projection keyed by the registry's content hash. The resolved Product knowledge
-home establishes the owning Product, so every installation that reads the same
-Git authority sees the same Domain IDs without embedding installation-local IDs
-in shared law.
+hierarchy, and architecture relations; each read uses the registry committed at
+the verified law-folder commit, and SQLite holds no copy of it
+([law-folder-authority](../constitution/law-folder-authority.md)). The
+resolved Product knowledge home establishes the owning Product, so every
+installation that reads the same Git authority sees the same Domain IDs without
+embedding installation-local IDs in shared law.
 
 SQLite separately owns a Domain stage override. It does not create or rename
 a Domain, author law, or define architecture dependencies. A Project never
@@ -202,12 +203,12 @@ family has its own owner, endpoint constraints, metadata, and graph rules.
 
 | Source | Relation | Target | Structural rule |
 |---|---|---|---|
-| Product knowledge home | `owns` | Domain | Git registry authority; SQLite projects one local Product FK |
+| Product knowledge home | `owns` | Domain | Git registry authority; the Product's designated knowledge home binds it to one Product |
 | Domain | `subdomain_of` | Domain | Git-authored; same Product; zero or one parent; acyclic |
 | Domain | `depends_on` | Domain | Git-authored; same Product; directional; cites at least one current governing law ID |
 | Domain | `shares_contract_with` | Domain | Git-authored; same Product; canonical symmetric pair; cites at least one current governing law ID |
 | Domain | `replaces` | Domain | Git-authored; same Product; stateful `declared -> building -> coexisting -> cutover -> retired` relation |
-| Law | `home` | Domain | Exactly one owner, authored in the Git manifest |
+| Law | `home` | Domain | Exactly one owner, authored in the law file's metadata |
 | Law | `applies_to` | Domain | Zero or more explicit applicability targets |
 | Law | `supersedes`, `refines`, `subordinate_to`, `conflicts_with` | Law | CD-0015/CD-0036 rules remain authoritative |
 | Work | `home_in` | Domain | Exactly one for Product-changing work |
@@ -272,8 +273,8 @@ Product-changing contract. The generic workflow type is always
 Product-changing type. The generic type cannot bypass this split.
 
 One carve-out bounds that split: a `changes_product_truth=false` contract may
-revise `derived` law in-contract. Its `law_modifies` may name only records the
-accepted Git law projection carries as `derived`; every revision line stays
+revise `derived` law in-contract. Its `law_modifies` may name only laws the
+committed law folder carries as `derived`; every revision line stays
 visible in the contract the operator approves. `legislated` law remains
 reachable only through a Product-changing workflow type, and the architecture
 binding stays reserved for Product-changing contracts regardless of tier.

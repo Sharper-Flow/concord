@@ -99,7 +99,7 @@ func writeLawIndexHome(t *testing.T, repo string, files map[string]string) strin
 // watermark, coverage, and publication-observation rows the retirement drops.
 // The home pair also gains an archived work witness with its scope children,
 // which the retirement must preserve.
-func lawIndexRetirementFixture(t *testing.T, repo, homePath, commit string, subjects []lawIndexSubjectSeed) (*sql.DB, string) {
+func lawIndexRetirementFixture(t *testing.T, homePath, commit string, subjects []lawIndexSubjectSeed) (*sql.DB, string) {
 	t.Helper()
 	db, path := retirementUpgradeFixture(t)
 	advanceHistoricalPrefix(t, db, 173)
@@ -245,7 +245,7 @@ func TestLawIndexRetirementUpgradeAdmitsFolderAuthorityAndPreservesCurrentState(
 		lawIndexCurrentPath: fixtureLawFolderLaw(lawIndexCurrentLawID),
 		lawIndexMovedPath:   fixtureLawFolderLaw(lawIndexMovedLawID),
 	})
-	db, path := lawIndexRetirementFixture(t, repo, repo, commit,
+	db, path := lawIndexRetirementFixture(t, repo, commit,
 		[]lawIndexSubjectSeed{
 			{lawID: lawIndexCurrentLawID, recordPath: lawIndexCurrentPath, content: fixtureLawFolderLaw(lawIndexCurrentLawID)},
 			{lawID: lawIndexMovedLawID, recordPath: lawIndexMovedOldPath, content: fixtureLawFolderLaw(lawIndexMovedLawID)},
@@ -334,7 +334,7 @@ func TestLawIndexRetirementRefusesMissingFolderLawAndAdmitsAfterMigration(t *tes
 	commit := writeLawIndexHome(t, repo, map[string]string{
 		lawIndexCurrentPath: fixtureLawFolderLaw(lawIndexCurrentLawID),
 	})
-	db, path := lawIndexRetirementFixture(t, repo, repo, commit,
+	db, path := lawIndexRetirementFixture(t, repo, commit,
 		[]lawIndexSubjectSeed{
 			{lawID: lawIndexCurrentLawID, recordPath: lawIndexCurrentPath, content: fixtureLawFolderLaw(lawIndexCurrentLawID)},
 			{lawID: lawIndexMissingLawID, recordPath: lawIndexMissingOldPath, content: fixtureLawFolderLaw(lawIndexMissingLawID)},
@@ -368,7 +368,7 @@ func TestLawIndexRetirementIgnoresUndesignatedHomeRows(t *testing.T) {
 	commit := writeLawIndexHome(t, repo, map[string]string{
 		lawIndexCurrentPath: fixtureLawFolderLaw(lawIndexCurrentLawID),
 	})
-	db, path := lawIndexRetirementFixture(t, repo, repo, commit,
+	db, path := lawIndexRetirementFixture(t, repo, commit,
 		[]lawIndexSubjectSeed{
 			{lawID: lawIndexCurrentLawID, recordPath: lawIndexCurrentPath, content: fixtureLawFolderLaw(lawIndexCurrentLawID)},
 		},
@@ -401,7 +401,7 @@ func TestLawIndexRetirementRefusesInvalidFolderLawAndAdmitsAfterRepair(t *testin
 	repo := initKnowledgeRepo(t)
 	broken := "---\n" + lawIndexBrokenLawID + ": this frontmatter is not strict JSON\n---\n\nBroken law body.\n"
 	commit := writeLawIndexHome(t, repo, map[string]string{lawIndexBrokenPath: broken})
-	db, path := lawIndexRetirementFixture(t, repo, repo, commit,
+	db, path := lawIndexRetirementFixture(t, repo, commit,
 		[]lawIndexSubjectSeed{
 			{lawID: lawIndexBrokenLawID, recordPath: lawIndexBrokenPath, content: fixtureLawFolderLaw(lawIndexBrokenLawID)},
 		},
@@ -435,7 +435,7 @@ func TestLawIndexRetirementRefusesUnreachableHomeWithoutChanges(t *testing.T) {
 		lawIndexCurrentPath: fixtureLawFolderLaw(lawIndexCurrentLawID),
 	})
 	absent := filepath.Join(repo, "absent-home")
-	db, path := lawIndexRetirementFixture(t, repo, absent, commit,
+	db, path := lawIndexRetirementFixture(t, absent, commit,
 		[]lawIndexSubjectSeed{
 			{lawID: lawIndexCurrentLawID, recordPath: lawIndexCurrentPath, content: fixtureLawFolderLaw(lawIndexCurrentLawID)},
 		},
@@ -459,7 +459,7 @@ func TestLawIndexRetirementHeldReleaseRefusesWithoutChanges(t *testing.T) {
 	commit := writeLawIndexHome(t, repo, map[string]string{
 		lawIndexCurrentPath: fixtureLawFolderLaw(lawIndexCurrentLawID),
 	})
-	db, path := lawIndexRetirementFixture(t, repo, repo, commit,
+	db, path := lawIndexRetirementFixture(t, repo, commit,
 		[]lawIndexSubjectSeed{
 			{lawID: lawIndexCurrentLawID, recordPath: lawIndexCurrentPath, content: fixtureLawFolderLaw(lawIndexCurrentLawID)},
 		},
@@ -483,7 +483,7 @@ func TestLawIndexRetirementFailedDropRollsBackAndRetries(t *testing.T) {
 		lawIndexCurrentPath: fixtureLawFolderLaw(lawIndexCurrentLawID),
 		lawIndexMovedPath:   fixtureLawFolderLaw(lawIndexMovedLawID),
 	})
-	db, path := lawIndexRetirementFixture(t, repo, repo, commit,
+	db, path := lawIndexRetirementFixture(t, repo, commit,
 		[]lawIndexSubjectSeed{
 			{lawID: lawIndexCurrentLawID, recordPath: lawIndexCurrentPath, content: fixtureLawFolderLaw(lawIndexCurrentLawID)},
 			{lawID: lawIndexMovedLawID, recordPath: lawIndexMovedOldPath, content: fixtureLawFolderLaw(lawIndexMovedLawID)},

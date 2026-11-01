@@ -45,7 +45,7 @@ func readWorkflowLawRegistrySnapshot(ctx context.Context, q queryer, workID stri
 	if err != nil {
 		return nil, err
 	}
-	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
+	productID, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
 	if err != nil {
 		var f *Failure
 		if failureAs(err, &f) && f.Kind == KindUnknownScope {

@@ -26,7 +26,7 @@ func TestStaleLawHoldsLateVerdictUntilRePin(t *testing.T) {
 	// law folder, so the owning start inventory carries the successor law.
 	fixture := seedWorkflowReturnRouteFixtureWithSource(t, workID, currentFixtureDefinition(t, "workflow.research"), "complete", []string{"verification"}, []string{"verification", "review", "artifact"}, func(s *Store) {
 		home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
-		removeCommittedFixtureLaw(t, home, "spec:one")
+		removeCommittedFixtureLaw(t, home)
 		commitFixtureLawFile(t, home, "spec:two", fixtureLawFolderLaw("spec:two"))
 	})
 	s, owner := fixture.store, fixture.owner

@@ -121,7 +121,7 @@ func sliceOrEmpty[T any](values []T) []T {
 // runs on the pool, never inside a transaction: the reads are git
 // subprocesses the pool lock must never hold (CD-0195 D2).
 func (s *Store) loadDomainSnapshot(ctx context.Context, productID, op string) (*lawFolderSnapshot, KnowledgeDomainRegistry, error) {
-	home, err := resolveKnowledgeQueryHome(ctx, s.db, productID, "", KnowledgeHome{}, op)
+	home, err := resolveKnowledgeQueryHome(ctx, s.db, productID, op)
 	if err != nil {
 		return nil, KnowledgeDomainRegistry{}, err
 	}

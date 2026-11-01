@@ -245,7 +245,7 @@ func loadLawFolderRegistry(ctx context.Context, runner GitRunner, repo, commitOI
 	if len(entries) == 0 {
 		return nil, nil
 	}
-	_, content, err := committedRegularBlobBytes(ctx, runner, repo, commitOID, knowledgeRegistryPath)
+	content, err := committedRegularBlobBytes(ctx, runner, repo, commitOID, knowledgeRegistryPath)
 	if err != nil {
 		return nil, err
 	}
@@ -353,7 +353,7 @@ func lawFolderRelPathClean(segments []string) bool {
 // metadata or body change moves the digest. Body size rides the
 // committed-read runner's maxGitOutput bound.
 func loadLawFolderRecord(ctx context.Context, runner GitRunner, repo, commitOID string, registry KnowledgeDomainRegistry, placement lawFolderPlacement) (KnowledgeRecord, error) {
-	_, content, err := committedRegularBlobBytes(ctx, runner, repo, commitOID, placement.path)
+	content, err := committedRegularBlobBytes(ctx, runner, repo, commitOID, placement.path)
 	if err != nil {
 		return KnowledgeRecord{}, lawFileFailure(placement.path, err)
 	}

@@ -15,7 +15,7 @@ import (
 // workContextCompanionRepo builds one real Git repository whose checkout
 // carries a complete 1.1 navigation companion and inventory, and returns the
 // repo path and its committed HEAD.
-func workContextCompanionRepo(t *testing.T) (string, string) {
+func workContextCompanionRepo(t *testing.T) string {
 	t.Helper()
 	repo := initKnowledgeRepo(t)
 	domains := []map[string]any{}
@@ -37,13 +37,14 @@ func workContextCompanionRepo(t *testing.T) (string, string) {
 		`{"domain_id":"child-alpha","name":"Affected child","purpose":"The approved affected child.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]},` +
 		`{"domain_id":"child-unaffected","name":"Unaffected","purpose":"Current outside the approved affected scope.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]}]}`
 	writeKnowledgeFile(t, repo, knowledgeRegistryPath, registry+"\n")
-	return repo, commitKnowledgeRepo(t, repo, "companion fixture")
+	commitKnowledgeRepo(t, repo, "companion fixture")
+	return repo
 }
 
 // workContextPointLawHome repoints the Product's registry home at repo: the
 // per-operation establishment re-reads the committed registry from the
 // repointed locator at the next action.
-func workContextPointLawHome(t *testing.T, f workContextFixture, repo, oid string) {
+func workContextPointLawHome(t *testing.T, f workContextFixture, repo string) {
 	t.Helper()
 	tx, err := f.store.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
@@ -71,8 +72,7 @@ func TestWorkContextViewCarriesOnlyDeclaredSourcesWithoutCompanion(t *testing.T)
 	t.Parallel()
 	f := seedWorkContextFixture(t, "ctx-cardfree-declared")
 	defer f.store.Close()
-	repo, oid := workContextCompanionRepo(t)
-	workContextPointLawHome(t, f, repo, oid)
+	workContextPointLawHome(t, f, workContextCompanionRepo(t))
 	if err := f.recordWorkContext(t, map[string]any{
 		"required_reading": []map[string]any{workContextRepoReading(workContextTestChild, "")},
 		"finding_refs":     []string{},
@@ -104,8 +104,7 @@ func TestWorkContextViewStaysAbsentBesideCompanionOnlyHome(t *testing.T) {
 	t.Parallel()
 	f := seedWorkContextFixture(t, "ctx-cardfree-absent")
 	defer f.store.Close()
-	repo, oid := workContextCompanionRepo(t)
-	workContextPointLawHome(t, f, repo, oid)
+	workContextPointLawHome(t, f, workContextCompanionRepo(t))
 	view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
 	if err != nil {
 		t.Fatalf("companion-only home refused the absent read: %v", err)

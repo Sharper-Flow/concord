@@ -146,7 +146,7 @@ func TestRoutineRecovery(t *testing.T) {
 			DELETE FROM write_guard`, workID); err != nil {
 			t.Fatal(err)
 		}
-		removeCommittedFixtureLaw(t, lawChangeFixtureHome(t, s), "spec:one")
+		removeCommittedFixtureLaw(t, lawChangeFixtureHome(t, s))
 		// The wall reads the committed law folder inside its transaction, so
 		// the pre-transaction proof verifies the home after the retirement
 		// commit.

@@ -265,12 +265,12 @@ func validateWorkflowLawChangeRemovals(change *WorkflowLawChange, op string) err
 // verified law-folder snapshot. A law the committed folder no longer holds,
 // such as one the change removed, resolves to nothing; the approval path has
 // already refused an unknown modified law.
-func resolveWorkflowChangedLawsTx(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, laws []string) (map[string]lawReferenceResolution, error) {
+func resolveWorkflowChangedLawsTx(ctx context.Context, homeProjectID, homeLocatorID string, laws []string) (map[string]lawReferenceResolution, error) {
 	if len(laws) == 0 {
 		return nil, nil
 	}
 	sources := []KnowledgeHome{{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID}}
-	resolutions, _, err := resolveLawReferences(ctx, q, "workflow_law_change", sources, laws)
+	resolutions, _, err := resolveLawReferences(ctx, "workflow_law_change", sources, laws)
 	return resolutions, err
 }
 
@@ -399,7 +399,7 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 	if err != nil {
 		return err
 	}
-	resolutions, err := resolveWorkflowChangedLawsTx(ctx, tx, homeProjectID, homeLocatorID, change.LawIDs)
+	resolutions, err := resolveWorkflowChangedLawsTx(ctx, homeProjectID, homeLocatorID, change.LawIDs)
 	if err != nil {
 		return err
 	}

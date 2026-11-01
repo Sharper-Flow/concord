@@ -106,7 +106,7 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string, removing bool) {
 	if tier == "derived" {
 		lawID = "CD-0002"
 		commitAgentFixtureLaw(t, home.RepoPath, ".concord/law/decisions/CD-0002-fixture-derived-law.md",
-			agentFixtureLawFrontmatter(lawID, "derived", pm1fixture.FixtureRootDomainID, "The law-change fixture registry declares no child Domain, so this law has no child home available."))
+			agentFixtureLawFrontmatter(lawID, pm1fixture.FixtureRootDomainID, "The law-change fixture registry declares no child Domain, so this law has no child home available."))
 	}
 	registered, err := store.LiveWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {

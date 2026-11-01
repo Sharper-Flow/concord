@@ -984,7 +984,7 @@ func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
 	// by deleting its file, and the successor law enacts by adding its file
 	// (law-folder-authority.md, Identity and change).
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
-	removeCommittedFixtureLaw(t, home, "spec:one")
+	removeCommittedFixtureLaw(t, home)
 	commitFixtureLawFile(t, home, "spec:two", "---\n"+
 		`{"id":"spec:two","title":"Synthetic successor law","authority":{"tier":"derived"},"home_domain_id":"root","applies_to_domain_ids":[]}`+"\n"+
 		"---\n\nSynthetic successor fixture law body.\n")
@@ -1217,7 +1217,7 @@ func seedOffShapeCompletedInstance(t *testing.T, workID string) workflowReturnRo
 	// deleting its file, and the successor law enacts by adding its file
 	// (law-folder-authority.md, Identity and change).
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, fixture.store), HeadRef: "HEAD"}
-	removeCommittedFixtureLaw(t, home, "spec:one")
+	removeCommittedFixtureLaw(t, home)
 	commitFixtureLawFile(t, home, "spec:two", "---\n"+
 		`{"id":"spec:two","title":"Synthetic successor law","authority":{"tier":"derived"},"home_domain_id":"root","applies_to_domain_ids":[]}`+"\n"+
 		"---\n\nSynthetic successor fixture law body.\n")

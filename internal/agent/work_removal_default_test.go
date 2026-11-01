@@ -271,7 +271,7 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	// it unstaged; the law commit below carries both into the committed state.
 	gitRun(t, root, "add", "--", ".concord/docs/knowledge/domain-registry.json")
 	lawHash := commitAgentFixtureLaw(t, root, ".concord/law/specs/shelving-fixture.md",
-		agentFixtureLawFrontmatter("spec:shelving-fixture", "derived", registry.RootDomainID, "The shelving fixture registry declares no child Domain, so this law has no child home available."))
+		agentFixtureLawFrontmatter("spec:shelving-fixture", registry.RootDomainID, "The shelving fixture registry declares no child Domain, so this law has no child home available."))
 	execProjection(t, s, []string{
 		`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) SELECT 'work-1',1,'Preserve the planning goal','internal_sqlite','[]','[]','2026-08-08T12:00:00Z',execution_actor_ref,'["spec:shelving-fixture"]','[]',1,'prototype_internal' FROM workflow_instances WHERE work_id='work-1'`,
 		`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES('work-1',1,'spec:shelving-fixture',?)`,

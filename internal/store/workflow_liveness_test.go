@@ -1044,7 +1044,7 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 		t.Fatal(err)
 	}
 	home := KnowledgeHome{HomeProjectID: "project-s", HomeLocatorID: "liveness-locator", RepoPath: repo, HeadRef: "HEAD"}
-	bindWorkflowFixtureKnowledgeSource(t, s, home)
+	bindWorkflowFixtureKnowledgeSource(t, home)
 	// The explorer synthesizes "liveness" for an unconstrained string, so a
 	// Domain of that id must exist in the committed registry for a synthesized
 	// architecture binding to resolve. Without it the binding refuses on the

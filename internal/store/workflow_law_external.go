@@ -75,7 +75,7 @@ func (s *Store) lawCandidateProof(ctx context.Context, workID string) *workflowL
 	if len(ids) == 0 && !registryMoved {
 		return nil
 	}
-	source, scanned, ok := workflowLawCandidateSource(ctx, s.db, before, candidate.ProjectID)
+	source, scanned, ok := workflowLawCandidateSource(ctx, before, candidate.ProjectID)
 	if !ok {
 		return nil
 	}
@@ -272,7 +272,7 @@ func workflowLawCandidateDeltas(before, after *workflowLawBaseline, declared map
 // workflowLawCandidateSource finds the baseline's one locator for the
 // candidate's Project and the verified snapshot commit that locator's law
 // folder was read from.
-func workflowLawCandidateSource(ctx context.Context, q queryer, before *workflowLawBaseline, project string) (workflowLawBaselineSource, string, bool) {
+func workflowLawCandidateSource(ctx context.Context, before *workflowLawBaseline, project string) (workflowLawBaselineSource, string, bool) {
 	var found []workflowLawBaselineSource
 	for _, source := range before.Sources {
 		if source.ProjectID == project {
@@ -327,7 +327,7 @@ func readWorkflowLawAttributedBaselineTx(ctx context.Context, q queryer, workID 
 	if err != nil || candidate == nil || *candidate != proof.candidate {
 		return before, after, declared, err
 	}
-	source, scanned, ok := workflowLawCandidateSource(ctx, q, before, candidate.ProjectID)
+	source, scanned, ok := workflowLawCandidateSource(ctx, before, candidate.ProjectID)
 	if !ok || source != proof.source || scanned != proof.scanned {
 		return before, after, declared, nil
 	}

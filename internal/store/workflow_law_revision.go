@@ -588,7 +588,7 @@ func resolveWorkflowLawContextLaws(ctx context.Context, tx *sql.Tx, workID strin
 // names the file the rendered Domains came from. A Product with no designated
 // law home refuses typed rather than naming any repository's file.
 func domainRegistryHomeRepo(ctx context.Context, tx *sql.Tx, productID string) (string, error) {
-	home, err := resolveKnowledgeQueryHome(ctx, tx, productID, "", KnowledgeHome{}, "read_workflow_law_context")
+	home, err := resolveKnowledgeQueryHome(ctx, tx, productID, "read_workflow_law_context")
 	if err != nil {
 		return "", err
 	}
@@ -791,7 +791,7 @@ func listedAsAddition(roles []string) bool {
 // resolveLawContextDomains resolves the binding's home Domain first, then its
 // affected Domains in ID order, from the verified committed Domain registry.
 func resolveLawContextDomains(ctx context.Context, tx *sql.Tx, productID string, binding WorkflowArchitectureBinding) ([]WorkflowLawContextDomain, error) {
-	home, err := resolveKnowledgeQueryHome(ctx, tx, productID, "", KnowledgeHome{}, "read_workflow_law_context")
+	home, err := resolveKnowledgeQueryHome(ctx, tx, productID, "read_workflow_law_context")
 	if err != nil {
 		return nil, err
 	}

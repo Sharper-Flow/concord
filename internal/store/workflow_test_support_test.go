@@ -25,7 +25,7 @@ func mustActorRef(t *testing.T, actor WorkflowActor) string {
 // law folder, so a pre-transaction verification reads a real snapshot from it.
 // Source proof is established separately by the caller before opening its
 // workflow transaction.
-func bindWorkflowFixtureKnowledgeSource(t *testing.T, s *Store, home KnowledgeHome) {
+func bindWorkflowFixtureKnowledgeSource(t *testing.T, home KnowledgeHome) {
 	t.Helper()
 	writeFixtureLawSource(t, home, "spec:one")
 }

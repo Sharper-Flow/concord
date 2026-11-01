@@ -147,7 +147,7 @@ func TestTerminalCleanupPreservesReferencedResearch(t *testing.T) {
 			}
 			pinResearch(t, s, "research-consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true})
 			if owned {
-				content := strings.Replace(canonicalWorkNote("work-done", "2026-08-07T00:00:00Z"), "terminal_state: completed", "terminal_state: cancelled", 1)
+				content := strings.Replace(canonicalWorkNote("work-done"), "terminal_state: completed", "terminal_state: cancelled", 1)
 				version := readWorkVersion(t, s, "work-done")
 				cancel := workflowEventWithActor("cancel-research-owner", "work.transitioned", "work-done", "operator", map[string]any{
 					"from": "needed", "to": "cancelled", "reason": "reviewed research owner closure", "evidence_refs": []string{nativeDigest([]byte(content))}, "expected_version": version, "resulting_version": version + 1,
@@ -254,7 +254,7 @@ func terminalCleanupFixture(t *testing.T) (*Store, KnowledgeHome) {
 
 func terminalCleanupFixtureForKind(t *testing.T, kind string, beforeCancel ...func(*Store)) (*Store, KnowledgeHome) {
 	t.Helper()
-	content := canonicalWorkNote("work-done", "2026-08-07T00:00:00Z")
+	content := canonicalWorkNote("work-done")
 	if kind != "research" {
 		content = strings.Replace(content, "terminal_state: completed", "terminal_state: cancelled", 1)
 	}
@@ -376,7 +376,7 @@ func TestTerminalCleanupRetiresLegacyDomainShapeReading(t *testing.T) {
 }
 
 func lawCleanupContent(id, lifecycle string) string {
-	return strings.NewReplacer("prod-alpha", "product", "proj-web", "project", "[auth]", "[agent-surface]", "terminal_state: completed", "terminal_state: "+lifecycle).Replace(canonicalWorkNote(id, "2026-08-07T00:00:00Z"))
+	return strings.NewReplacer("prod-alpha", "product", "proj-web", "project", "[auth]", "[agent-surface]", "terminal_state: completed", "terminal_state: "+lifecycle).Replace(canonicalWorkNote(id))
 }
 
 // Commit and link the exact reviewed bytes without replacing the synthetic law
@@ -632,7 +632,7 @@ func TestTerminalCleanupRetiresUnreadKnowledgeTables(t *testing.T) {
 func TestTerminalCleanupPublishedIdentityCannotBeCapturedAgain(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
-	note := canonicalWorkNote("closed-work", "2026-08-07T00:00:00Z")
+	note := canonicalWorkNote("closed-work")
 	writeKnowledgeFile(t, repo, ".concord/docs/work/closed-work.md", note)
 	commit := commitKnowledgeRepo(t, repo, "canonical work outcome")
 	s := openTemp(t)
@@ -659,7 +659,7 @@ func TestTerminalCleanupPublishedIdentityCannotBeCapturedAgain(t *testing.T) {
 func TestTerminalCleanupLegacyComponentsDoNotBecomeDomains(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
-	content := strings.Replace(canonicalWorkNote("legacy-work", "2026-08-07T00:00:00Z"), "domain_ids: [auth]", "component_ids: [auth]", 1)
+	content := strings.Replace(canonicalWorkNote("legacy-work"), "domain_ids: [auth]", "component_ids: [auth]", 1)
 	writeKnowledgeFile(t, repo, ".concord/docs/work/legacy-work.md", content)
 	commit := commitKnowledgeRepo(t, repo, "canonical work outcome")
 	s := openTemp(t)

@@ -469,7 +469,7 @@ func attachWorkflowLawPin(t *testing.T, s *Store, workID, hash string) {
 func cutoverLawProjection(t *testing.T, s *Store) {
 	t.Helper()
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
-	removeCommittedFixtureLaw(t, home, "spec:one")
+	removeCommittedFixtureLaw(t, home)
 	commitFixtureLawFile(t, home, "spec:two", fixtureLawFolderLaw("spec:two"))
 }
 

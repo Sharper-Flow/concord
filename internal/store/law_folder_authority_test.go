@@ -40,7 +40,7 @@ func TestLawFolderAuthorityFolderLawSatisfiesMandate(t *testing.T) {
 	if err := checkMandatedLawsTxAtHome(ctx, tx, home.HomeProjectID, home.HomeLocatorID, []string{lawFolderAuthorityLawID}, nil, false); err != nil {
 		t.Fatalf("committed folder law did not satisfy the mandate: %v", err)
 	}
-	resolved, missing, err := resolveLawReferences(ctx, tx, "check_mandated_laws", []KnowledgeHome{home}, []string{lawFolderAuthorityLawID})
+	resolved, missing, err := resolveLawReferences(ctx, "check_mandated_laws", []KnowledgeHome{home}, []string{lawFolderAuthorityLawID})
 	if err != nil || len(missing) != 0 {
 		t.Fatalf("resolve accepted folder law: missing=%v, err=%v", missing, err)
 	}
@@ -66,7 +66,7 @@ func TestLawFolderAuthorityOutsideFileDoesNotSatisfyMandate(t *testing.T) {
 	if !strings.Contains(err.Error(), lawFolderAuthorityOutsideID) {
 		t.Fatalf("wrong refusal for a document outside the law folder: %v", err)
 	}
-	resolved, missing, err := resolveLawReferences(ctx, tx, "check_mandated_laws", []KnowledgeHome{home}, []string{lawFolderAuthorityOutsideID})
+	resolved, missing, err := resolveLawReferences(ctx, "check_mandated_laws", []KnowledgeHome{home}, []string{lawFolderAuthorityOutsideID})
 	if err != nil || len(resolved) != 0 || len(missing) != 1 || missing[0] != lawFolderAuthorityOutsideID {
 		t.Fatalf("outside-folder document resolved as law: resolved=%v missing=%v err=%v", resolved, missing, err)
 	}

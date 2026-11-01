@@ -35,7 +35,7 @@ func TestInvokeContractRequestCorrection(t *testing.T) {
 				t.Fatal(err)
 			}
 			commitAgentFixtureLaw(t, home.RepoPath, ".concord/law/decisions/CD-0002-fixture-derived-law.md",
-				agentFixtureLawFrontmatter("CD-0002", "derived", "law-home", ""))
+				agentFixtureLawFrontmatter("CD-0002", "law-home", ""))
 			env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
 			workID := captureCompositionWork(t, ctx, s, service, env, "Correct a bounded contract request", "task", "workflow.implementation", "correction-capture")
 			version := advanceCapturedWorkToContract(t, s, service, env, workID, "correction")

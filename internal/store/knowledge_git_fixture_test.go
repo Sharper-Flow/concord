@@ -77,24 +77,24 @@ func fixtureLawFolderLaw(id string) string {
 // into a synthetic home, so a later pre-transaction verification reads a
 // real committed snapshot from it instead of a seeded projection watermark.
 // Laws land under decisions/.
-func writeFixtureLawSource(t *testing.T, home KnowledgeHome, lawIDs ...string) string {
+func writeFixtureLawSource(t *testing.T, home KnowledgeHome, lawIDs ...string) {
 	t.Helper()
-	return writeFixtureTierLawSource(t, home, "decisions", lawIDs...)
+	writeFixtureTierLawSource(t, home, "decisions", lawIDs...)
 }
 
 // writeFixtureSpecLawSource commits the fixture laws under the specs tier.
-func writeFixtureSpecLawSource(t *testing.T, home KnowledgeHome, lawIDs ...string) string {
+func writeFixtureSpecLawSource(t *testing.T, home KnowledgeHome, lawIDs ...string) {
 	t.Helper()
-	return writeFixtureTierLawSource(t, home, "specs", lawIDs...)
+	writeFixtureTierLawSource(t, home, "specs", lawIDs...)
 }
 
-func writeFixtureTierLawSource(t *testing.T, home KnowledgeHome, tier string, lawIDs ...string) string {
+func writeFixtureTierLawSource(t *testing.T, home KnowledgeHome, tier string, lawIDs ...string) {
 	t.Helper()
 	writeKnowledgeFile(t, home.RepoPath, ".concord/docs/knowledge/domain-registry.json", fixtureLawFolderRegistry)
 	for _, lawID := range lawIDs {
 		writeKnowledgeFile(t, home.RepoPath, ".concord/law/"+tier+"/"+strings.ReplaceAll(strings.ReplaceAll(lawID, ":", "-"), "/", "-")+"-fixture.md", fixtureLawFolderLaw(lawID))
 	}
-	return commitKnowledgeRepo(t, home.RepoPath, "fixture law folder source")
+	commitKnowledgeRepo(t, home.RepoPath, "fixture law folder source")
 }
 
 func authorizeKnowledgeLocator(t *testing.T, s *Store, home KnowledgeHome) {
@@ -172,12 +172,12 @@ func requireFailureKind(t *testing.T, err error, want FailureKind, label string)
 	}
 }
 
-func canonicalWorkNote(id, completed string) string {
+func canonicalWorkNote(id string) string {
 	return "---\n" +
 		"concord_work_id: " + id + "\n" +
 		"work_type: implementation\n" +
 		"title: Auth release\n" +
-		"completed_at: " + completed + "\n" +
+		"completed_at: 2026-08-07T00:00:00Z\n" +
 		"outcome_tag: shipped\n" +
 		"lesson_tags: [sqlite, state-authority]\n" +
 		"terminal_state: completed\n" +

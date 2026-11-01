@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 
 BASE = "a8b034bdc99948c23d8938d183e95d2946434501"
@@ -118,11 +119,16 @@ def record_runtime(root):
     require(bun == "1.4.0", "unexpected Bun version")
     for key in ("GOFLAGS", "GODEBUG"):
         require(not os.environ.get(key), f"unexpected implicit Go input: {key}")
+    command(subject, "go", "clean", "-testcache")
+    setup_elapsed = time.time() - int(os.environ["DIAGNOSIS_STARTED_AT"])
+    require(0 <= setup_elapsed <= 90, "setup exceeded 90s; shard execution is not admitted")
     runtime = {
         "go_environment": go,
         "go_version": command(subject, "go", "version").decode().strip(),
         "bun_version": bun,
         "poison_environment": POISON,
+        "test_cache_expiration_command": ["go", "clean", "-testcache"],
+        "setup_elapsed_seconds_at_admission": setup_elapsed,
         "runner": {key: os.environ.get(key) for key in (
             "RUNNER_OS", "RUNNER_ARCH", "ImageOS", "ImageVersion", "GO_SETUP_CACHE_HIT", "GOMAXPROCS"
         )},

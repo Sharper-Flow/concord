@@ -428,7 +428,6 @@ func TestCoordinatorConfirmationTerminalEngineering(t *testing.T) {
 		// The executing coordinator completes through the real public complete
 		// store action; the registered terminal fold and the lifecycle fold
 		// close both projections under the same actor.
-		bindCompletionClosure(t, s, workID, owner)
 		if err := runCoordinatorActionTx(t, s, registry, workID, "complete", owner, `{"impact_verdict":"non-breaking"}`); err != nil {
 			t.Fatalf("public complete action refused for engineering work: %v", err)
 		}

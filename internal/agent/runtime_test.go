@@ -73,7 +73,7 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 
 func TestRetiredPlanningOperationsRefuseBeforeEffects(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_define", "work_transition", "work_relate"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -104,6 +104,10 @@ func TestRetiredPlanningOperationsRefuseBeforeEffects(t *testing.T) {
 		{"concord_work_relate", "restore_superseded"},
 		{"concord_product_view", "portfolio"},
 		{"concord_work_compact", "lesson_publish"},
+		{"concord_work_compact", "publish"},
+		{"concord_work_compact", "reconcile"},
+		{"concord_work_transition", "outside_repair"},
+		{"concord_work_transition", "outside_repair_reconcile"},
 		{"concord_knowledge", "unprocessed"},
 		{"concord_knowledge", "search"},
 		{"concord_knowledge", "resolve_note"},

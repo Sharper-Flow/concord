@@ -166,9 +166,6 @@ func TestPublicResearchCompletionJourney(t *testing.T) {
 	}) {
 		t.Fatal("premise consent boundary failed")
 	}
-	if response := action(env, rcaID, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}, "defect-journey-closure"); response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("bind reviewed closure=%+v", response.Error)
-	}
 	completed := approvedAction(env, map[string]any{"work_id": rcaID, "expected_version": workVersion(t, s, rcaID), "action_id": "complete", "fields": map[string]any{"impact_verdict": "non-breaking"}, "idempotency_key": "defect-journey-complete"}, "defect-journey-complete")
 	if completed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("complete=%+v", completed.Error)

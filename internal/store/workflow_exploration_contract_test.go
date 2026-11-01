@@ -307,7 +307,6 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 					}
 				}
 				if actionID == "complete" {
-					bindCompletionClosure(t, s, workID, livenessActor())
 				}
 				apply(actionID, map[string]string{})
 			}

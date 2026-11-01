@@ -659,33 +659,6 @@ func TestCutoverAdmitsEarlierLiveFamilyPinAtReadiness(t *testing.T) {
 	defer func() { _ = s.Close() }()
 }
 
-// TestCutoverBlocksOutsideRepairArchivedPin proves an outside-repair
-// disposition is a held state, not a terminal one: an archived pin under an
-// outside-repair instance still blocks activation while the work item stays
-// nonterminal.
-func TestCutoverBlocksOutsideRepairArchivedPin(t *testing.T) {
-	ctx := context.Background()
-	path := copyTestDatabase(t)
-	workID := seedCutoverPin(t, path, "outside-repair-cutover", "workflow.ops_runbook")
-	s, err := Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	execInFold(t, s, `UPDATE workflow_instances SET instance_state='outside_repair' WHERE work_id='`+workID+`'`)
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = PlanUpgradeReadiness(ctx, path)
-	failure, ok := err.(*Failure)
-	if !ok || failure.Kind != KindSchemaUnsupported {
-		t.Fatalf("readiness with an outside-repair archived pin = %v, want %s", err, KindSchemaUnsupported)
-	}
-	if !strings.Contains(failure.Detail, "workflow.ops_runbook (digest "+mustBuiltinDefinition(t, "workflow.implementation").Digest+")") {
-		t.Fatalf("cutover refusal %q must name the held archived pin", failure.Detail)
-	}
-}
-
 // TestCutoverAllowsExactCanonicalHeadsAtReadiness proves the gate leaves the
 // current authoring surface live: a store whose nonterminal work items pin
 // the exact canonical heads admits activation.
@@ -1038,32 +1011,6 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	}
 	if _, err := PlanUpgradeReadiness(ctx, s.Path()); err != nil {
 		t.Fatalf("readiness after disposition: %v", err)
-	}
-}
-
-func TestCutoverDispositionOutsideRepairRefusalRollsBackEveryCancellation(t *testing.T) {
-	ctx := context.Background()
-	s := seedCutoverDispositionFixture(t)
-	// The held item sorts second, so the first cancellation must roll back.
-	execInFold(t, s, `INSERT INTO outside_repair_dispositions(work_id,state,reason,evidence_json,recorded_at)
-		VALUES('b-contract-only','active','synthetic outside repair','{}','now')`)
-	before := cutoverTableSnapshot(t, s, "work_items")
-	eventsBefore := countRows(t, s, "effect_receipts")
-	options := UpgradeOptions{CancelCutoverPinnedWork: true}
-	plan, err := PlanUpgradeReadiness(ctx, s.Path(), options)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !plan.ActivationBlocked || len(plan.Blockers) != 1 || !strings.Contains(plan.Blockers[0], "b-contract-only") || !strings.Contains(plan.Blockers[0], "outside-repair") {
-		t.Fatalf("held-item plan = %+v", plan)
-	}
-	_, err = Upgrade(ctx, s.Path(), nil, options)
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindOutsideRepairActive || !strings.Contains(err.Error(), "b-contract-only") {
-		t.Fatalf("held-item disposition = %v", err)
-	}
-	if after := cutoverTableSnapshot(t, s, "work_items"); after != before || countRows(t, s, "effect_receipts") != eventsBefore {
-		t.Fatal("atomic refusal changed lifecycle, version, or event log")
 	}
 }
 

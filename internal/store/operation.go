@@ -177,7 +177,6 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work_project.added":                      registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, workMembershipEdge.foldAdded, nil),
 	"work_project.removed":                    registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, workMembershipEdge.foldRemoved, nil),
 	"work_project.role_changed":               registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, workMembershipEdge.foldRoleChanged, nil),
-	"compaction_link.published":               registerEventKind[compactionLinkPayload](3, EventAppendAuthorityGeneric, foldCompactionLinkPublished, nil),
 	"domain.observation_recorded":             registerEventKind[domainObservationRecordedPayload](1, EventAppendAuthorityGeneric, foldDomainObservationRecorded, nil),
 	"domain.observation_dismissed":            registerEventKind[domainObservationDismissedPayload](1, EventAppendAuthorityGeneric, foldDomainObservationDismissed, nil),
 	WorkflowDefinitionSelected:                workflowScopedRegistration[workflowDefinitionSelectedPayload](1, foldWorkflowDefinitionSelected),
@@ -203,9 +202,6 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowDiagnosisRecorded:                 workflowRegistration[workflowDiagnosisRecordedPayload](1, foldWorkflowDiagnosisRecorded),
 	WorkflowDeliveryCorrected:                 workflowRegistration[workflowDeliveryCorrectedPayload](2, foldWorkflowDeliveryCorrected),
 	WorkflowCompleted:                         workflowScopedRegistration[workflowCompletedPayload](2, foldWorkflowCompleted),
-	WorkflowOutsideRepairDispositionSet:       workflowRegistration[workflowOutsideRepairDispositionPayload](1, foldOutsideRepairDispositionSet),
-	WorkflowOutsideRepairReconciled:           registerScopedEventKind[workflowOutsideRepairReconcilePayload](1, EventAppendAuthorityWorkflow, foldOutsideRepairReconciled, validateWorkflowPayload[workflowOutsideRepairReconcilePayload]),
-	WorkflowOutsideRepairResumed:              workflowRegistration[workflowOutsideRepairResumePayload](1, foldOutsideRepairResumed),
 }
 
 // validateEventKindRegistry checks one registration map. It takes the map as a
@@ -390,7 +386,7 @@ func applyOperationEventTx(ctx context.Context, tx *sql.Tx, event Event, expecte
 		if err := refuseRemovedWorkTx(ctx, tx, event.SubjectID, "apply_operation"); err != nil {
 			return err
 		}
-		if err := refusePublishedWorkTx(ctx, tx, event.SubjectID, "apply_operation"); err != nil {
+		if err := publishedWorkAbsenceQ(ctx, tx, event.SubjectID, "apply_operation"); err != nil {
 			return err
 		}
 	}

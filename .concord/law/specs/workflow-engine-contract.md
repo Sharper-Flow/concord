@@ -205,20 +205,20 @@ drift. No fallback definition or response-wording path is accepted.
 |---|---|---|---|
 | absent | `planned` | definition selected and capture/planning recorded | internal-inline |
 | `planned` | `ready` | contract, spec mandate, and definition approved | internal-inline |
-| `ready` | `running` | first action claimed | internal-inline for SQLite-only; fenced for cross-authority/external |
-| `running` | `running` | action checkpoint or successful action | inline or current `attempt_epoch` fence |
+| `ready` | `running` | first action recorded | one expected-version-checked transaction |
+| `running` | `running` | action checkpoint or successful action | one expected-version-checked transaction |
 | `running` | `blocked` | unresolved dependency discovered | internal-inline |
 | `running` | `verifying` | all execution steps are complete and verdict is requested | internal-inline |
 | `verifying` | `completed` | ordered completion gate succeeds | one internal transaction |
-| `running`, `blocked`, `verifying` | `cancelled` | explicit authorized cancellation | fenced when an attempt is owned |
+| `running`, `blocked`, `verifying` | `cancelled` | explicit authorized cancellation | one expected-version-checked transaction |
 
 An action failure records its typed failure result; it does not invent a state.
 Recoverable failures leave the instance in `running` or `blocked` according to the
-definition edge. A completed, cancelled, or superseded instance is immutable.
-Internal SQLite-only actions are one domain transaction.
-Cross-authority and external-effect actions claim an epoch in
-`durable_operations`, then record start, checkpoint, and result under the
-current epoch.
+definition edge. Each action is one expected-version-checked, idempotent domain
+transaction with its operation result and effect receipts. There is no separate
+step claim, takeover or claim/settle protocol. Native authorities own external
+execution. Completion keeps terminal work identity and reported delivery links,
+not workflow step records, under [PM6 §1](canonical-git-note-placement.md#1-decision).
 
 ## 4. Typed mutation records
 
@@ -412,7 +412,7 @@ Workflow state is current rows written by each mutation in one transaction, and 
 | verdict recorded | retain the verdict for the subject and expose it through the instance's verification view |
 | premise confirmed | insert operator confirmation |
 | successor linked | write the existing `forward_link` relation; workflow state remains independent |
-| completed | set terminal state and completed timestamp only after the completion transaction's prior clauses pass |
+| completed | retain terminal current-state identity and reported delivery links and dispose workflow step records atomically after the completion transaction's prior clauses pass; no publication, closure hash or deferred cleanup |
 | work item terminal (`work.transitioned` to `completed` or `cancelled`, `work.superseded`) | close a live instance in the same transaction: `superseded` mirrors the lifecycle, `cancelled` and completed-by-lifecycle both record `cancelled` because the completion gate never ran; an instance already terminal keeps its record |
 
 ## 6. Outcome evaluation and strength
@@ -576,11 +576,11 @@ dispatcher performs this order:
    `unauthorized`.
 4. Resolve required evidence and validate authorization. A cross-scope action
    requires `cross_scope`; otherwise the core returns `unauthorized`.
-5. Claim/check the durable idempotency identity. A replay of the same operation
+5. Check the durable idempotency identity. A replay of the same operation
    returns the original envelope without a second effect; a conflicting payload
    returns `idempotency_conflict`.
-6. Execute the graph action inline for `internal_sqlite`, or claim the current
-   attempt epoch for `cross_authority`/`external_effect` before side effects.
+6. Execute the admitted graph mutation in one SQLite transaction, recording its
+   operation result and effect receipts. External execution remains native-owned.
 7. Construct the existing TS7 envelope with `outcome`, `authority`, typed evidence,
    warnings, and recovery metadata. Refusals are `error`; no fallback advancement
    path exists.
@@ -606,7 +606,7 @@ validation rather than being downgraded to prose or generic success.
 
 ### Scenarios that bind production routes
 
-WF09, WF22, and WF25 each bind their criterion to a production route.
+WF09 and WF22 each bind their criterion to a production route.
 
 - WF09 sends `approve_contract`, the declared action for initial contract
   recording, at the `execution` step. The step does not declare the
@@ -617,16 +617,12 @@ WF09, WF22, and WF25 each bind their criterion to a production route.
   transaction, and reads the resume
   state through the continuity read (CD-0016). Its resume step is `proposal`,
   a step of the pinned `workflow.implementation` definition.
-- WF25 leaves a compaction publication claim pending, then takes over the
-  stuck claim. The new holder advances the attempt epoch; the stale holder
-  cannot complete the publication. The exact content, home, and no-second-effect
-  checks remain required.
 
 ## 12. Live-family graphs and declared action mappings
 
 Every live family has typed action execution modes. `record_review` records the
 coordinator's subject-bound typed Review outcome without starting or attesting
-a subagent. `record_delivery` remains the producing-step exit after a fenced
+a subagent. `record_delivery` remains the producing-step exit after a recorded
 start. The table lists family actions. Break-fix and implementation carry a mandatory `refine`
 external-effect step between the producing step and its verdict step
 (CD-0242 D4; CD-0229 D4).
@@ -651,9 +647,8 @@ actions from archived definitions. It grants no new-execution permission:
 CD-0218 D1 limits new execution to the three live families, and §11 requires the
 selected definition and current step to declare the action. Each
 `action_definitions` entry carries one closed `execution_mode`: `advance`,
-`hold`, `fenced`, or `checkpoint`. An internal action records its listed result;
-a fenced action records its start under the current attempt epoch and then its
-terminal result
+`hold`, `fenced`, or `checkpoint`. Each is a versioned current-state mutation;
+`fenced` names the action's guarded start, not a separate claim/settle operation
 ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 No result record is invented for a graph step.
 
@@ -676,7 +671,7 @@ No result record is invented for a graph step.
 | `record_research` | `workflow.action_completed` plus bound research evidence |
 | `record_decision` | `workflow.action_checkpointed` with the typed decision-record payload, then `workflow.action_completed`, which advances to `review`; the accepted record is bound in the outcome payload |
 | `accept_decision` | `workflow.evidence_bound` for operator acceptance plus `workflow.action_completed`, which advances `review` to `acceptance` |
-| `record_delivery` | `workflow.action_completed`, which advances the external-effect step after its fenced start and the complete delivery admission |
+| `record_delivery` | `workflow.action_completed`, which advances the external-effect step after its recorded start and the complete delivery admission |
 | `discard_poc` | `workflow.action_completed` with a discard artifact reference; no POC bytes become workflow authority |
 | `approve_operation` | approval evidence binding plus `workflow.action_completed` |
 | `rollback_run` | fenced `workflow.action_started` → `workflow.action_completed`/`workflow.action_failed`, with rollback evidence |

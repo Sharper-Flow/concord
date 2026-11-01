@@ -137,47 +137,5 @@ func durableNeighborOperations() []neighborOperation {
 			}
 		}},
 	)
-	for _, name := range []string{"ClaimStepAuthorized", "CompleteStep"} {
-		rows = append(rows, neighborOperation{name, func(t *testing.T) (*Store, func() error, func()) {
-			s := openTemp(t)
-			claim := testClaim("neighbor-fence", "neighbor-claim")
-			var epoch int64
-			if name == "CompleteStep" {
-				claimed, err := ClaimStepAuthorized(ctx, s, claim, nil)
-				if err != nil {
-					t.Fatal(err)
-				}
-				epoch = claimed.AttemptEpoch
-			}
-			called := false
-			run := func() error {
-				if name == "ClaimStepAuthorized" {
-					_, err := ClaimStepAuthorized(ctx, s, claim, func(tx *Transaction) error {
-						called = true
-						var count int
-						return tx.tx.QueryRowContext(ctx, "SELECT count(*) FROM effect_receipts").Scan(&count)
-					})
-					return err
-				}
-				_, err := CompleteStep(ctx, s, completionRequest(claim.OpID, epoch, "neighbor-complete", `{"ok":true}`))
-				return err
-			}
-			return s, run, func() {
-				result, err := Step(ctx, s, claim.OpID)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if result.AttemptEpoch != 1 {
-					t.Fatalf("epoch=%d", result.AttemptEpoch)
-				}
-				if name == "ClaimStepAuthorized" && !called {
-					t.Fatal("authorization not called")
-				}
-				if name == "CompleteStep" && result.ResultKind != ResultCompleted {
-					t.Fatalf("result=%s", result.ResultKind)
-				}
-			}
-		}})
-	}
 	return rows
 }

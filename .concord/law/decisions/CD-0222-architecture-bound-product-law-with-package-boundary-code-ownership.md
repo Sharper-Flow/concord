@@ -294,12 +294,12 @@ Architecture and law checks run inside the `BEGIN IMMEDIATE` transaction that
 owns each authoritative workflow mutation. They apply at:
 
 - contract approval and revision;
-- execution claim or dispatch;
+- execution action;
 - checkpoint and evidence binding;
 - recorded candidate results and attributed verification reports;
 - verdict and premise confirmation;
 - any Concord-authorized merge/ship decision or acceptance of its result; and
-- completion and compaction.
+- completion.
 
 The preflight validates local attachment versions and relation grammar.
 Contract approval and revision also validate the architecture binding against
@@ -531,7 +531,7 @@ graph. Product law approval does not authorize live-state cutover.
 - Committed law-folder snapshot validation proves record identity, folder
   placement, and the relation graph.
 - `python3 scripts/test-check-domain-registry.py` proves the referential checks without a participation rule.
-- `internal/store.TestConsequentialBoundariesAdmitASharedDomainPeer` and `internal/store.TestExecutionClaimAdmitsASharedDomainPeer` prove D6: a shared-Domain peer blocks no boundary.
+- `internal/store.TestConsequentialBoundariesAdmitASharedDomainPeer` proves D6: a shared-Domain peer blocks no boundary.
 - `internal/store.TestResolveOverlapRecordsRoutineRelations` and `internal/store.TestResolveOverlapMergeAndSupersessionAreAtomic` prove the `resolve_overlap` relation writer.
 - `internal/store.TestLawFolderSnapshotRefusesInvalidLawFiles` proves the
   carried one-home invariant: applicability without exactly one declared home

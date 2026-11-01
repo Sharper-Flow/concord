@@ -388,8 +388,7 @@ func workflowEvidenceBindingEvents(request WorkflowActionExecutionRequest, actor
 	return events, nil
 }
 
-// workflowEvidenceBindingKinds is the producer's ordered, distinct kind
-// inventory, shared with admission of reviewed closure bindings.
+// workflowEvidenceBindingKinds is the producer's ordered, distinct kind inventory.
 func workflowEvidenceBindingKinds(actionID string, evidenceKinds []string, fields map[string]json.RawMessage, subject string) ([]string, error) {
 	declaredRef := workflowFieldStringDefault(fields, "immutable_subject_ref", workflowFieldStringDefault(fields, "evidence_ref", ""))
 	defaultKind := workflowFieldStringDefault(fields, "evidence_kind", "verification")

@@ -14,7 +14,6 @@ permission:
   task:
     "*": deny
   concord_work_transition: deny
-  concord_work_compact: deny
 ---
 
 # Concord — 0 (intake)

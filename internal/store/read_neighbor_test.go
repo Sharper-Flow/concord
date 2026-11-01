@@ -44,7 +44,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 	seedWorkflowLaw(t, s)
 	insertInvestigationGateObservation(t, s, "neighbor-work", "obs:"+strings.Repeat("3", 16), []string{"root", "blocker"})
 	pack := createSimplePack(t, s, "neighbor-pack", "neighbor-research")
-	if _, err := ClaimStepAuthorized(ctx, s, testClaim("neighbor-fence", "neighbor-fence-key"), nil); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO durable_operations(op_id,work_id,workflow_type_ref,step_id,accepted_inputs_digest,principal_ref,request_id,observed_at,contract_digest) VALUES('neighbor-result','work-1','fixture.atomic','execute',?,'agent-1','request:neighbor','2026-08-07T00:00:00Z',?)`, testDigest("inputs"), testManifestDigest); err != nil {
 		t.Fatal(err)
 	}
 	neighborClient := TrustedClientRecord{ClientRef: "neighbor-client", Status: "active", PrincipalRef: "neighbor-principal", CapabilitiesJSON: `["product_read"]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`, AgentScopeJSON: `[]`}
@@ -132,18 +132,8 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			return nil
 		}},
 		{name: "TerminalWorkVersion", absent: KindProjectionNotFound, run: func() error { _, err := s.TerminalWorkVersion(ctx, "blocker"); return err }},
-		{name: "PendingOperationForWork", run: func() error {
-			operation, err := s.PendingOperationForWork(ctx, "work-1")
-			if err != nil {
-				return err
-			}
-			if operation.OperationID != "neighbor-fence" {
-				return fmt.Errorf("op=%q, want neighbor-fence", operation.OperationID)
-			}
-			return nil
-		}},
 		{name: "AcceptedInputsDigest", run: func() error {
-			digest, err := s.AcceptedInputsDigest(ctx, "neighbor-fence")
+			digest, err := s.AcceptedInputsDigest(ctx, "neighbor-result")
 			if err != nil {
 				return err
 			}
@@ -315,14 +305,13 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			return nil
 		}},
 
-		// Fence and scope reads.
-		{name: "Step", run: func() error {
-			result, err := Step(ctx, s, "neighbor-fence")
+		{name: "OperationResult", run: func() error {
+			result, err := readOperationResult(ctx, s.db, "neighbor-result")
 			if err != nil {
 				return err
 			}
-			if result.AttemptEpoch != 1 {
-				return fmt.Errorf("epoch=%d, want 1", result.AttemptEpoch)
+			if result.ResultKind != "completed" || result.OpID != "neighbor-result" {
+				return fmt.Errorf("atomic result=%+v", result)
 			}
 			return nil
 		}},

@@ -146,7 +146,7 @@ describe("CON-913 closed adapter error tuples", () => {
       error: { kind: "operation_conflict", retry_safe: false, recovery_action: { kind: recovery }, effect_state: "partial" },
     })
     expect(validateGeneratedEnvelope(partial("retry_same_request")), "partial operation_conflict retry must be refused").toBe(false)
-    expect(validateGeneratedEnvelope(partial("reconcile_operation"))).toBe(true)
+    expect(validateGeneratedEnvelope(partial("reconcile_operation")), "retired partial outcome must be refused").toBe(false)
     const adapterBase = { ...envelope({}), origin: "adapter", authority: "unreachable" }
     const transport = (kind: string, effect: string) => ({ ...adapterBase, tool: "concord_work_browse", operation: "list", ...queryID("concord_work_browse", "list"), error: errorMember({ kind, adapter_reason: "malformed_core_response", effect_state: effect }) })
     expect(validateGeneratedEnvelope(transport("transport_failure", "possible")), "adapter transport + possible must be refused").toBe(false)

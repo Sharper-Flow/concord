@@ -22,7 +22,6 @@ import {
   domain,
   work_transition,
   work_relate,
-  work_compact,
   publishRequestDefinition,
 } from "./concord"
 import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
@@ -53,7 +52,6 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
     concord_domain: domain,
     concord_work_transition: work_transition,
     concord_work_relate: work_relate,
-    concord_work_compact: work_compact,
   })
   return {
     tool: tools,

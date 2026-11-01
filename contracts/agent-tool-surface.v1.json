@@ -3,15 +3,13 @@
   "schema_version": "1.0",
   "surface": {
     "name": "concord-agent-tool-surface",
-    "tool_count": 8
+    "tool_count": 7
   },
   "envelope": {
     "schema_version": "1.0",
     "schema_ref": "contracts/agent-tool-envelope.schema.json",
     "outcomes": [
       "ok",
-      "pending",
-      "partial",
       "error"
     ],
     "origins": [
@@ -79,9 +77,7 @@
         "concord_work_transition.workflow_action",
         "concord_work_transition.project_handoff_record",
         "concord_work_transition.project_handoff_consume",
-        "concord_work_transition.correct_delivery",
-        "concord_work_transition.outside_repair",
-        "concord_work_transition.outside_repair_reconcile"
+        "concord_work_transition.correct_delivery"
       ]
     },
     {
@@ -92,14 +88,6 @@
         "concord_work_relate.message_send",
         "concord_work_relate.message_withdraw",
         "concord_work_relate.resolve_overlap"
-      ]
-    },
-    {
-      "id": "concord_work_compact",
-      "description": "Publish or reconcile canonical durable knowledge.",
-      "operations": [
-        "concord_work_compact.publish",
-        "concord_work_compact.reconcile"
       ]
     },
     {
@@ -794,46 +782,6 @@
       "supported_budget_seconds": 300
     },
     {
-      "id": "concord_work_compact.publish",
-      "tool": "concord_work_compact",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_compact_publish_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_compact",
-      "consequence": "publication",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_compact.reconcile",
-      "tool": "concord_work_compact",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_compact_reconcile_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_compact",
-      "consequence": "recovery",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
       "id": "concord_domain.list",
       "tool": "concord_domain",
       "kind": "read",
@@ -892,46 +840,6 @@
         ]
       },
       "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_transition.outside_repair",
-      "tool": "concord_work_transition",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_transition_outside_repair_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_transition",
-      "consequence": "recovery",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_transition.outside_repair_reconcile",
-      "tool": "concord_work_transition",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_transition_outside_repair_reconcile_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_transition",
-      "consequence": "recovery",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
     }
   ],
   "schemas": {
@@ -957,10 +865,6 @@
     },
     "blocked_work_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/blocked_work_page",
-      "closed": true
-    },
-    "canonical_note_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/canonical_note_result",
       "closed": true
     },
     "continuity_read_result": {
@@ -1045,14 +949,6 @@
     },
     "work_browse_scope_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_scope_input",
-      "closed": true
-    },
-    "work_compact_publish_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_compact_publish_input",
-      "closed": true
-    },
-    "work_compact_reconcile_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_compact_reconcile_input",
       "closed": true
     },
     "work_define_capture_input": {
@@ -1198,21 +1094,12 @@
     "project_retirement_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/project_retirement_result",
       "closed": true
-    },
-    "work_transition_outside_repair_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_outside_repair_input",
-      "closed": true
-    },
-    "work_transition_outside_repair_reconcile_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_outside_repair_reconcile_input",
-      "closed": true
     }
   },
   "capabilities": [
     "cross_scope",
     "product_read",
     "research",
-    "work_compact",
     "work_define",
     "work_relate",
     "work_transition"
@@ -1225,10 +1112,8 @@
     "scope",
     "relation",
     "supersession",
-    "publication",
     "recovery",
-    "research",
-    "claim"
+    "research"
   ],
   "bounds": {
     "max_output_bytes": 51200,
@@ -1257,6 +1142,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:db28a65663369f38ca96fae71463ba87114fa7efe566470df882bee31fab5fb7",
-  "digest": "sha256:e4ef8161f7c3510ffc2484861f033ed89736486ef13399cfd77b14545f78972d"
+  "payload_digest": "sha256:d73f6b52a91e53195062aeee28e508035eb91f9176fdd15bcecd90bb4224fb8d",
+  "digest": "sha256:3e142fe781adde546cf69bb2a15754c6cda301d4c19e4bcb36c7c8b1b3919eb3"
 }

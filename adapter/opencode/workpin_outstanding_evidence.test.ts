@@ -22,15 +22,10 @@ test("work pin validators accept bounded kind debt and legacy absence", () => {
     expect(validateGeneratedPayload("work_pin", pin)).toBe(false)
   }
   for (const state of ["active", "completed"]) {
-    const held: Record<string, unknown> = { ...pin, outside_repair_disposition: {
+    const held: Record<string, unknown> = { ...pin, outstanding_evidence_kinds: [], outside_repair_disposition: {
       work_id: "work-debt", reason: "repair", state,
       recorded_at: "2026-10-17T00:00:00Z",
     } }
-    delete held.workflow_definition_digest
-    delete held.obligations
-    delete held.outstanding_evidence_kinds
-    expect(validateGeneratedPayload("work_pin", held)).toBe(true)
-    held.outstanding_evidence_kinds = []
     expect(validateGeneratedPayload("work_pin", held)).toBe(false)
   }
 })

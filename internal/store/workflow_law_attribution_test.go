@@ -47,19 +47,19 @@ func attributionItem(t *testing.T, s *Store, id string, laws, domains []string, 
 	}
 }
 
-func attributionCompletion(t *testing.T, s *Store, id string, closureHashes ...string) Event {
+func attributionCompletion(t *testing.T, s *Store, id string) Event {
 	t.Helper()
-	return attributionCompletionWith(t, s, id, nil, closureHashes...)
+	return attributionCompletionWith(t, s, id, nil)
 }
 
 // attributionCompletionWith lets candidate edit the repository before
 // its HEAD becomes the reviewed candidate.
-func attributionCompletionWith(t *testing.T, s *Store, id string, candidate func(repo string), closureHashes ...string) Event {
+func attributionCompletionWith(t *testing.T, s *Store, id string, candidate func(repo string)) Event {
 	t.Helper()
-	return attributionCompletionWithConfirmation(t, s, id, candidate, nil, closureHashes...)
+	return attributionCompletionWithConfirmation(t, s, id, candidate, nil)
 }
 
-func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, candidate func(repo string), confirm func(acceptanceRecoveryFixture) error, closureHashes ...string) Event {
+func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, candidate func(repo string), confirm func(acceptanceRecoveryFixture) error) Event {
 	t.Helper()
 	fixture := workContextFixture{store: s, workID: id, owner: lawChangeConstructorActor}
 	repo, _ := reviewSubjectClaim(t, s, id)
@@ -98,11 +98,6 @@ func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, ca
 		t.Fatal(err)
 	}
 	if err := advanceWorkflowTestInstanceToStep(t.Context(), s, id, "release", owner); err != nil {
-		t.Fatal(err)
-	}
-	if len(closureHashes) == 0 {
-		bindCompletionClosure(t, s, id, lawChangeConstructorActor)
-	} else if err := closureBind(t, workflowReturnRouteFixture{store: s, owner: lawChangeConstructorActor}, id, "review", closureHashes[0]); err != nil {
 		t.Fatal(err)
 	}
 	v := readWorkVersion(t, s, id)
@@ -501,7 +496,7 @@ func TestLawAttributionMissingBaselineRecovery(t *testing.T) {
 	s := seedLawChangeFixture(t, "historic-law-free")
 	err := enactLawChange(t, s, "historic-law-free", nil, nil)
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.RecoveryAction, "cancel and re-capture") || !strings.Contains(failure.RecoveryAction, "boundary-authenticated outside repair") || strings.Contains(failure.RecoveryAction, "before editing law") {
+	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.RecoveryAction, "cancel and re-capture") || strings.Contains(failure.RecoveryAction, "outside repair") || strings.Contains(failure.RecoveryAction, "before editing law") {
 		t.Fatalf("missing-baseline recovery does not name the real law-free exits: %v", err)
 	}
 }

@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -36,26 +35,12 @@ func TestWorkflowContentIdentityMigration152PreservesRetainedState(t *testing.T)
 		t.Fatal(err)
 	}
 
-	// A pending claim carries real result/evidence bytes before the old schema
-	// loses its unrecorded definition digest. Migration must not invent one.
 	entry := mustBuiltinDefinition(t, "workflow.break_fix")
-	claim := compactionClaimRequest(work)
-	claim.OpID, claim.IdempotencyKey, claim.RequestID = "content-claim", "content-claim", "request:content-claim"
-	claim.WorkflowTypeRef, claim.WorkflowTypeDigest, claim.StepID = entry.Definition.Ref, entry.Digest, "repair"
-	claimed, err := ClaimStepAuthorized(ctx, s, claim, nil)
-	if err != nil {
+	if _, err := s.db.Exec(`INSERT INTO durable_operations(op_id,work_id,workflow_type_ref,workflow_type_digest,step_id,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,result_payload,evidence_refs,changed_refs) VALUES('content-result',?,?,?,'repair',?,'{}','operator','request:content-result','2026-08-07T00:00:00Z',?,'{"retained":true,"workflow_definition_version":26}','["evidence:migration"]','["ref:migration"]')`, work, entry.Definition.Ref, entry.Digest, testDigest("inputs"), testManifestDigest); err != nil {
 		t.Fatal(err)
 	}
-	complete := CompleteRequest{
-		OpID: claim.OpID, AttemptEpoch: claimed.AttemptEpoch, ResultKind: ResultPending,
-		ResultPayload: "{\n  \"retained\": true, \"workflow_definition_version\": 26\n}", EvidenceRefs: []string{"evidence:migration"}, ChangedRefs: []string{"ref:migration"}, ResumeCursor: "cursor:migration",
-		PrincipalRef: claim.PrincipalRef, Tool: claim.Tool, IdempotencyKey: "content-pending", RequestID: "request:content-pending", ObservedAt: claim.ObservedAt,
-	}
-	if _, err := CompleteStep(ctx, s, complete); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,first_observed_at,last_observed_at) VALUES('operator','transition','workflow_action','content-result',?,'content-result','2026-08-07T00:00:00Z','2026-08-07T00:00:00Z')`, testDigest("content-result")); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := Step(ctx, s, claim.OpID); err != nil {
-		t.Fatalf("exact-digest claim before migration: %v", err)
 	}
 	wantSchema := contentIdentity152Schema(t, openMigratedTo(t, filepath.Join(t.TempDir(), "empty-152.db"), 152))
 
@@ -84,13 +69,14 @@ ORDER BY CASE name WHEN 'projects' THEN 0 WHEN 'project_locators' THEN 1 ELSE 2 
 		t.Fatal(err)
 	}
 	oldValues := map[string]map[string]string{
-		"durable_operations":             {"workflow_type_version": "26"},
+		"durable_operations":             {"workflow_type_version": "26", "resume_cursor": "NULL"},
 		"workflow_contracts":             {"definition_version": "26"},
 		"workflow_architecture_bindings": {"domain_registry_content_hash": "'sha256:" + strings.Repeat("a", 64) + "'"},
 		"workflow_overlap_resolutions":   {"approval_ref": "'approval:historical'"},
 		"outside_repair_dispositions":    {"approval_ref": "'approval:historical'"},
 		"outside_repair_reconciliations": {"approval_ref": "'approval:historical'"},
 		"workflow_instances": {
+			"outside_repair_state":          "NULL",
 			"definition_version":            "26",
 			"result_disposition":            "''",
 			"latest_non_dispatch_start_seq": "0",
@@ -105,7 +91,6 @@ ORDER BY CASE name WHEN 'projects' THEN 0 WHEN 'project_locators' THEN 1 ELSE 2 
 		},
 	}
 	copyFixtureDataToPrefix(t, s, db, tables, oldValues, "write_guard")
-	source := s
 	s = &Store{db: db, path: path, Clock: s.Clock}
 	historical := contentIdentity151WorkerFixture(t, s.db, work)
 	// The knowledge index watermark is a migration-152 input that no current
@@ -147,43 +132,8 @@ ORDER BY CASE name WHEN 'projects' THEN 0 WHEN 'project_locators' THEN 1 ELSE 2 
 	}
 	contentIdentity152AssertSchema(t, s.db)
 	var digest string
-	if err := s.db.QueryRow(`SELECT workflow_type_digest FROM durable_operations WHERE op_id=?`, claim.OpID).Scan(&digest); err != nil || digest != "" {
-		t.Fatalf("pre152 claim acquired digest=%q (current=%q), err=%v", digest, entry.Digest, err)
-	}
-	beforeRefusal := contentIdentity152Snapshot(t, s.db, false)
-	for _, route := range []string{"resume", "complete"} {
-		t.Run(route+" refuses unknown claim identity", func(t *testing.T) {
-			var err error
-			if route == "resume" {
-				_, err = Step(ctx, s, claim.OpID)
-			} else {
-				request := complete
-				request.ResultKind, request.IdempotencyKey = ResultCompleted, "content-complete-after-migration"
-				_, err = CompleteStep(ctx, s, request)
-			}
-			var failure *Failure
-			if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation || failure.RecoveryAction != "reread_entities" || !strings.Contains(failure.Detail, "definition") {
-				t.Fatalf("%s unknown pre152 identity refusal=%v, want typed definition revalidation", route, err)
-			}
-			if got := contentIdentity152Snapshot(t, s.db, false); !reflect.DeepEqual(got, beforeRefusal) {
-				t.Fatalf("%s refusal changed original operations or evidence", route)
-			}
-		})
-	}
-	claim.OpID, claim.IdempotencyKey, claim.RequestID = "content-current-claim", "content-current-claim", "request:content-current-claim"
-	// Positive current claims exercise the current store, not historical worker
-	// tables whose retirement belongs to a later migration.
-	current, err := ClaimStepAuthorized(ctx, source, claim, nil)
-	if err != nil {
-		t.Fatalf("current exact-digest claim refused: %v", err)
-	}
-	complete.OpID, complete.AttemptEpoch, complete.ResultKind = claim.OpID, current.AttemptEpoch, ResultCompleted
-	complete.IdempotencyKey, complete.RequestID = "content-current-complete", "request:content-current-complete"
-	if _, err := CompleteStep(ctx, source, complete); err != nil {
-		t.Fatalf("current exact-digest completion refused: %v", err)
-	}
-	if result, err := Step(ctx, source, claim.OpID); err != nil || result.ResultKind != ResultCompleted || !reflect.DeepEqual(result.EvidenceRefs, complete.EvidenceRefs) {
-		t.Fatalf("current exact-digest resume=%+v, err=%v", result, err)
+	if err := s.db.QueryRow(`SELECT workflow_type_digest FROM durable_operations WHERE op_id='content-result'`).Scan(&digest); err != nil || digest != "" {
+		t.Fatalf("pre152 result acquired digest=%q (current=%q), err=%v", digest, entry.Digest, err)
 	}
 	t.Run("workflow writer keyed by ref and digest", func(t *testing.T) {
 		// A repeat updates the same identity; independent content and another

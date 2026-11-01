@@ -154,9 +154,9 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 	correct(last)
 	c.parents = func(t *testing.T, s *Store, guard string) {
 		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates", "durable_operations"}, map[string]map[string]string{
-			"workflow_instances": {"definition_version": "26", "current_step": "'verify'", "completion_payload": "NULL", "completion_occurred_at": "NULL", "unhealthy_verdict_seq": "0", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"},
+			"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "current_step": "'verify'", "completion_payload": "NULL", "completion_occurred_at": "NULL", "unhealthy_verdict_seq": "0", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"},
 			"workflow_contracts": {"definition_version": "26", "supersession_seq": "0", "last_healthy_seq": "0"},
-			"durable_operations": {"workflow_type_version": "26"},
+			"durable_operations": {"workflow_type_version": "26", "resume_cursor": "NULL"},
 		}, guard)
 		if _, err := s.db.Exec(`INSERT INTO ` + guard + ` VALUES(1);
 INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project/corpus','Corpus',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
@@ -189,8 +189,6 @@ DELETE FROM ` + guard); err != nil {
 			return foldWorkflowCompleted(ctx, tx, e, nil)
 		case WorkflowDeliveryCorrected:
 			return foldWorkflowDeliveryCorrected(ctx, tx, e)
-		case "compaction_link.published":
-			return foldCompactionLinkPublished(ctx, tx, e)
 		}
 		return nil
 	}
@@ -319,7 +317,7 @@ func assertEvidenceSupersession142(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := historicalFactCorpus{parents: func(t *testing.T, s *Store, guard string) {
-		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"definition_version": "26", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"}, "workflow_contracts": {"definition_version": "26"}}, guard)
+		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"}, "workflow_contracts": {"definition_version": "26"}}, guard)
 		if guard == "write_guard" {
 			// This current corpus starts without a law home. Capture that
 			// explicit state before its first effect; historical prefixes

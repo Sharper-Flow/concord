@@ -30,28 +30,26 @@ func syntheticMixedWorkerResult(worker int) WorkerResult {
 func TestDurableMixedWorkerPlanIdentitiesAreUniqueAndPaired(t *testing.T) {
 	t.Parallel()
 
-	seenOps := map[string]int{}
-	seenClaimKeys := map[string]int{}
-	seenCompletionKeys := map[string]int{}
+	seenSubjects := map[string]bool{}
+	seenEvents := map[string]bool{}
 	for worker := 0; worker < 10; worker++ {
-		claim, completion := durableMixedWorkerPlan(worker)
-		if claim.OpID != completion.OpID {
-			t.Fatalf("worker %d plan split its operation: claim %q completion %q", worker, claim.OpID, completion.OpID)
+		first, last := durableMixedWorkerPlan(worker)
+		for _, operation := range []Operation{first, last} {
+			id := operation.Events[0].SubjectID
+			if seenSubjects[id] {
+				t.Fatalf("worker %d reused subject %q", worker, id)
+			}
+			seenSubjects[id] = true
+			for _, event := range operation.Events {
+				if seenEvents[event.EventID] {
+					t.Fatalf("worker %d reused event %q", worker, event.EventID)
+				}
+				seenEvents[event.EventID] = true
+			}
 		}
-		if claim.IdempotencyKey == completion.IdempotencyKey {
-			t.Fatalf("worker %d reuses one idempotency key across claim and completion", worker)
-		}
-		if completion.AttemptEpoch != 1 || completion.ResultKind != ResultCompleted {
-			t.Fatalf("worker %d completion = epoch %d kind %q, want epoch 1 completed", worker, completion.AttemptEpoch, completion.ResultKind)
-		}
-		seenOps[claim.OpID]++
-		seenClaimKeys[claim.IdempotencyKey]++
-		seenCompletionKeys[completion.IdempotencyKey]++
 	}
-	for name, seen := range map[string]map[string]int{"op": seenOps, "claim key": seenClaimKeys, "completion key": seenCompletionKeys} {
-		if len(seen) != 10 {
-			t.Fatalf("%s identities = %d distinct, want 10", name, len(seen))
-		}
+	if len(seenSubjects) != 20 {
+		t.Fatalf("atomic subjects=%d, want 20", len(seenSubjects))
 	}
 }
 

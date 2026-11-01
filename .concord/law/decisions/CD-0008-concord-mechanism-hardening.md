@@ -21,8 +21,8 @@
 **Date:** 2026-08-06
 **Decision owner:** Operator
 **Accepted by operator:** 2026-08-06
-**Scope:** Evidence resolution, unreadable-record isolation, workflow checkpoints,
-attempt fencing, worktree topology, schema evolution, and the
+**Scope:** Evidence resolution, unreadable-record isolation, current workflow state,
+worktree topology, schema evolution, and the
 SQLite confirmation and alternative-engine trigger.
 **Research:** [`R4-competitive-mechanism-hardening.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R4-competitive-mechanism-hardening.md)
 
@@ -157,51 +157,18 @@ Examples:
 - Distinguish corrupted storage from an unreadable row or schema skew; both fail closed for safety conclusions.
 - Repair follows reconcile → repair/compensate → verified snapshot restore → operator escalation. Redrive is operator-triggered and recorded; each redrive is one admitted request.
 
-## D4. Workflow checkpoints and execution-attempt fencing
+## D4. Current workflow state and atomic mutations
 
-Every work item pins one workflow type/version. Cross-authority and external-effect steps record typed checkpoint rows as current state ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). A checkpoint row contains:
+Every work item pins its workflow definition. Each admitted mutation checks the
+expected entity version and commits current state, its operation result, and
+effect receipts in one SQLite transaction. TS5 idempotency returns the committed
+result without a second effect. Concord has no separate step claim,
+takeover, or claim/settle protocol. Native authorities own external
+execution and provider-side retry safety.
 
-```text
-work_id
-workflow_type_ref/version
-step_id
-step_kind                    # internal_sqlite | cross_authority | external_effect
-attempt_epoch
-accepted_inputs_digest
-result/evidence_refs/changed_refs
-resume_cursor
-idempotency_identity
-principal_ref/request_id/time
-```
-
-A committed step is a checkpoint; an uncommitted step is the resume point. Concord
-uses checkpoint-and-resume, not deterministic re-execution of LLM work. Internal
-SQLite-only transitions stay one inline domain operation and need no redundant
-workflow journal layer.
-
-Expected entity versions guard domain intent. A monotonically increasing attempt
-epoch guards ownership of a pending durable step:
-
-```text
-claim:
-  BEGIN IMMEDIATE
-  attempt_epoch := current_epoch + 1
-  record claim
-  COMMIT
-
-complete:
-  BEGIN IMMEDIATE
-  reject operation_conflict unless supplied epoch == current epoch
-  record step result/checkpoint
-  COMMIT
-```
-
-Provider-side idempotency is primary for external effects when available; the local
-epoch prevents stale attempts from authoritatively completing the Concord step.
-TS5 durable idempotency deduplicates retries of one logical intent; the attempt epoch
-independently fences which recovery attempt currently owns completion authority.
-There are no distributed leases, replica IDs, heartbeat daemon, or hostname-based
-ownership heuristics in v1.
+Nonterminal work resumes from its committed current state, not deterministic
+re-execution of LLM work. Completion retains no workflow step records under
+[PM6 §1](../specs/canonical-git-note-placement.md#1-decision).
 
 ## D6. Schema evolution and migration
 
@@ -244,21 +211,18 @@ such as network filesystems or multi-machine writes that this local test cannot 
 - All live Product state remains globally visible across ten agents/worktrees.
 - Evidence has named native authorities without split truth.
 - Unreadable records neither create false safety nor block unrelated work globally.
-- Interrupted and competing agents resume one durable operation without duplicate or
-  stale authoritative completion.
+- Expected versions and idempotency prevent stale mutations and duplicate effects.
 - Schema evolution is one documented cutover migration with a verified snapshot, and diagnostics stay explicit ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 ### Cost
 
-- Workflow checkpoints, attempt epochs, and unreadable sets add
-  schema and test surface.
+- Current workflow state and unreadable sets add schema and test surface.
 - Evidence consumers may re-query native producers for current truth.
 - Dependency-aware unreadable analysis requires a bounded closure query.
 
 ## Required conformance scenarios
 
 1. Ten worktrees share one Product truth; no copied/branched DB appears.
-2. Two agents claim one pending step; only the current epoch can complete it.
 3. Same-key retries create one external effect/result.
 4. PR/CI conditions do not resolve from branch push, task completion, or heuristic
    discovery; authoritative evidence resolves them.

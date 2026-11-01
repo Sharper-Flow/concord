@@ -11,7 +11,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
   "Concord-Planner": {
     "boundary": "this research and planning profile holds no Concord tool that writes work state; start or advance managed work from Concord",
     "tools": [
-      "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
       "concord_work_transition"
@@ -20,7 +19,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
   "concord-review": {
     "boundary": "this native review helper holds no Concord tool that writes work state; return findings and uncommitted repairs to the caller",
     "tools": [
-      "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
       "concord_work_transition"
@@ -29,7 +27,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
   "concord-verify": {
     "boundary": "this native test-only helper holds no Concord tool that writes work state; return test results and completed-CI findings to the caller",
     "tools": [
-      "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
       "concord_work_transition"
@@ -38,7 +35,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
   "concord-implement": {
     "boundary": "this native implementation helper holds no Concord tool that writes work state; return uncommitted changes and check results to the caller",
     "tools": [
-      "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
       "concord_work_transition"
@@ -47,7 +43,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
   "concord-design": {
     "boundary": "this native design helper holds no Concord tool that writes work state; return uncommitted changes, versioned preview material and check results to the caller; UI/UX approval stays with the operator",
     "tools": [
-      "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
       "concord_work_transition"
@@ -56,7 +51,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
   "concord-research": {
     "boundary": "this native research helper holds no Concord tool that writes work state; return cited findings, uncertainty and gaps to the caller",
     "tools": [
-      "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
       "concord_work_transition"
@@ -68,7 +62,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_domain",
       "concord_product_view",
       "concord_work_browse",
-      "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
       "concord_work_trace",
@@ -81,7 +74,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_domain",
       "concord_product_view",
       "concord_work_browse",
-      "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
       "concord_work_trace",
@@ -94,7 +86,6 @@ export const roleDeniedConcordTools: Readonly<Record<string, { readonly boundary
       "concord_domain",
       "concord_product_view",
       "concord_work_browse",
-      "concord_work_compact",
       "concord_work_define",
       "concord_work_relate",
       "concord_work_trace",

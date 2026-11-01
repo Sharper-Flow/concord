@@ -302,7 +302,6 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 		if err := f.run(ctx, "confirm_premise", "corpus-confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
 			return nil, nil, err
 		}
-		bindCompletionClosure(t, s, workID, owner)
 		if proof == "completion_rollback" {
 			if _, err := s.db.ExecContext(ctx, `CREATE TRIGGER corpus_completion_conflict BEFORE INSERT ON effect_receipts WHEN NEW.kind='workflow.completed' BEGIN SELECT RAISE(ABORT,'injected completion append conflict'); END`); err != nil {
 				return nil, nil, err
@@ -347,7 +346,6 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 			if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "release", mustActorRef(t, route.owner)); err != nil {
 				return nil, nil, err
 			}
-			bindCompletionClosure(t, s, workID, owner)
 		}
 	default:
 		return nil, nil, fmt.Errorf("current fixture has unknown proof case %q", proof)

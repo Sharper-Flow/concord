@@ -489,7 +489,6 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 		{`SELECT count(*) FROM active_research_consumers WHERE consumer_work_id=? AND required=1`, "work has a required research consumer"},
 		{`SELECT count(*) FROM active_research_consumers c JOIN active_research_packs p ON p.pack_id=c.pack_id WHERE p.owner_work_id=? AND c.required=1 AND c.consumer_work_id<>?`, "work has a required research consumer that depends on its findings"},
 		{`SELECT count(*) FROM active_research_packs WHERE owner_work_id=?`, "work still owns research packs; retire them through research_retire before removal"},
-		{`SELECT count(*) FROM durable_operations WHERE work_id=? AND (result_kind IS NULL OR result_kind IN ('pending','partial'))`, "work has an unreconciled durable operation"},
 	}
 	for _, check := range checks {
 		args := []any{req.WorkID}

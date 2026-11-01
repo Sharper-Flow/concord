@@ -33,7 +33,7 @@ func TestLawIndexSchema168RetiredLawSnapshotAndUpgrade(t *testing.T) {
 	})
 	seedLawIndexLegacyProof(t, db)
 	before := retirementUpgradeSnapshot(t, db)
-	preserved := append(append([]string{}, lawIndexPreservedTables...), "durable_operations", "workflow_evidence_bindings", "effect_receipts", "workflow_contracts", "workflow_step_completions")
+	preserved := append(append([]string{}, lawIndexPreservedTables...), "effect_receipts", "workflow_contracts", "workflow_step_completions")
 	if _, err := PlanUpgradeReadiness(t.Context(), path); err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +52,11 @@ func TestLawIndexSchema168RetiredLawSnapshotAndUpgrade(t *testing.T) {
 	for _, table := range preserved {
 		if !reflect.DeepEqual(retirementUpgradeRows(t, db, "SELECT * FROM "+table+" ORDER BY rowid"), before[table]) {
 			t.Errorf("upgrade changed preserved %s bytes", table)
+		}
+	}
+	for _, table := range []string{"durable_operations", "workflow_evidence_bindings"} {
+		if rows := retirementUpgradeRows(t, db, "SELECT * FROM "+table); len(rows) != 0 {
+			t.Errorf("retired partial-operation residue in %s: %v", table, rows)
 		}
 	}
 	verified, err := VerifyBackup(t.Context(), snapshot)

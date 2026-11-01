@@ -135,8 +135,7 @@ production-size caps, and a separate verdict actor. A completed action can
 stand in for a judgment of what remains. Recovery has repeatedly created a new,
 unrelated prerequisite.
 
-The operator approved a knowledge-first replacement: Product knowledge and
-completion receipts hold durable outcomes, and a shared local store holds
+Product knowledge and reported delivery links hold outcomes, and a shared local store holds
 resumable current work. The operator accepted the loss of exact workflow
 history, deterministic replay, and old-schema compatibility. The operator
 required that a fresh session resume in-progress work without that history.
@@ -146,8 +145,7 @@ required that a fresh session resume in-progress work without that history.
 ### D1. Each kind of state has one owner
 
 Linear owns planning. The Product's Git knowledge home owns law, the Domain
-registry, specifications, promoted findings, and one completion receipt per
-finished execution. The local SQLite store owns current setup, current work,
+registry, specifications and promoted findings. The local SQLite store owns current setup, current work,
 coordination, approvals, research, and unresolved effects. A per-execution
 artifact directory owns working evidence files for the life of that execution.
 The worktree owns code progress, both committed and uncommitted.
@@ -169,9 +167,11 @@ verified snapshot or one an unfinished recovery needs.
 
 Each retained category names its consumer, how a consumer establishes
 applicability, and the condition that makes removal safe. A category without a
-consumer is not stored. Terminal cleanup runs only after verified publication,
-release of active references and claims, and reconciliation of outstanding
-effects. A consumer of a removed artifact receives a typed absence, never a
+consumer is not stored. [PM6 §1](../specs/canonical-git-note-placement.md#1-decision)
+governs completion and disposal of workflow step records without publication,
+closure hashes or deferred terminal cleanup. Terminal work identity and reported
+delivery links remain; operations and effect receipts keep their retry and
+reconciliation consumers. A consumer of a removed artifact receives a typed absence, never a
 reference that claims the artifact is still inspectable.
 
 ### D3. Stage exits are the unit of enforcement
@@ -317,10 +317,12 @@ later change to the approved experience needs renewed approval. Substantial
 visual changes get early operator approval of a wireframe or mockup. Backend
 work has no preview gate.
 
-Closure publishes the changed Product knowledge, or a reviewed judgment that
-no knowledge changed, and a concise receipt in the canonical knowledge home.
-The receipt links the delivered subject, the accepted outcome, consequential
-decisions, and the proof that substantiates acceptance.
+Completion records the existing typed reported-delivery assertion and its links
+under [PM6 §1](../specs/canonical-git-note-placement.md#1-decision), with no Git or
+GitHub verification of that assertion. It requires no completion receipt,
+publication intent, reviewed closure hash, knowledge-publication judgement or
+post-delivery workflow step retention. Product-law changes still use their
+own reviewed enactment route; lessons use CD-0026's independent reviewed PR.
 
 ### D10. Knowledge is an input, and a law edit changes only what it changes
 
@@ -421,7 +423,7 @@ Integrated subjects are revalidated, and earlier evidence is never relabeled.
 
 The operator accepts these losses: exact workflow traces, deterministic replay
 of completed executions, repair of derived tables by replay, retrospective
-diagnosis beyond the retained receipt, mechanical size ceilings, and a final
+diagnosis beyond retained current state and external delivery records, mechanical size ceilings, and a final
 independent reviewer. No loss of Product knowledge, referenced research,
 active code progress, coordination, or fresh-session resumption is accepted.
 

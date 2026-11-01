@@ -47,6 +47,8 @@ func recordWorkflowLawEnactmentTx(ctx context.Context, tx *sql.Tx, completion Ev
 
 const completedWorkflowLawEnactmentsSQL = ` FROM workflow_law_baselines b JOIN effect_receipts r ON r.effect_seq=b.enactment_effect_seq JOIN workflow_instances i ON i.work_id=b.work_id JOIN work_items w ON w.id=b.work_id WHERE r.kind='workflow.completed' AND r.subject_type='work_item' AND r.subject_id=b.work_id AND i.instance_state='completed' AND w.lifecycle='completed'`
 
+const terminalCleanupConsumers = `(SELECT w.id FROM work_items w WHERE w.lifecycle NOT IN ('completed','cancelled','superseded') OR NOT EXISTS(SELECT 1 FROM archived_work a WHERE a.id=w.id AND a.type='work_note' AND a.terminal_state=w.lifecycle))`
+
 // The attribution reader needs the entire completion join, not only the proof
 // bytes. CD-0217 retention therefore fences deletion of any of its owners while
 // an older, source-matching execution remains an unfinished consumer.

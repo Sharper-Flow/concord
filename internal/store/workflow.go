@@ -15,37 +15,33 @@ import (
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
-	"github.com/sharper-flow/concord/internal/workflowproof"
 )
 
 // Workflow event names are deliberately closed. Adding one is a contract change.
 const (
-	WorkflowDefinitionSelected          = "workflow.definition_selected"
-	WorkflowContractApproved            = "workflow.contract_approved"
-	WorkflowOverlapResolved             = "workflow.overlap_resolved"
-	WorkflowContractSuperseded          = "workflow.contract_superseded"
-	WorkflowCandidateSetRevised         = "workflow.candidate_set_revised"
-	WorkflowActorRecorded               = "workflow.actor_recorded"
-	WorkflowActionStarted               = "workflow.action_started"
-	WorkflowActionCheckpointed          = "workflow.action_checkpointed"
-	WorkflowActionCompleted             = "workflow.action_completed"
-	WorkflowActionFailed                = "workflow.action_failed"
-	WorkflowEvidenceBound               = "workflow.evidence_bound"
-	WorkflowVerdictRecorded             = "workflow.verdict_recorded"
-	WorkflowPremiseConfirmed            = "workflow.premise_confirmed"
-	WorkflowSuccessorLinked             = "workflow.successor_linked"
-	WorkflowContextCheckpointed         = "workflow.context_checkpointed"
-	WorkflowContextBoundaryCrossed      = "workflow.context_boundary_crossed"
-	WorkflowWorkContextRecorded         = "workflow.work_context_recorded"
-	WorkflowProposalRecorded            = "workflow.proposal_recorded"
-	WorkflowDesignRecorded              = "workflow.design_recorded"
-	WorkflowBacklogAlignmentRecorded    = "workflow.backlog_alignment_recorded"
-	WorkflowDiagnosisRecorded           = "workflow.diagnosis_recorded"
-	WorkflowDeliveryCorrected           = "workflow.delivery_corrected"
-	WorkflowCompleted                   = "workflow.completed"
-	WorkflowOutsideRepairDispositionSet = "workflow.outside_repair_disposition_set"
-	WorkflowOutsideRepairReconciled     = "workflow.outside_repair_reconciled"
-	WorkflowOutsideRepairResumed        = "workflow.outside_repair_resumed"
+	WorkflowDefinitionSelected       = "workflow.definition_selected"
+	WorkflowContractApproved         = "workflow.contract_approved"
+	WorkflowOverlapResolved          = "workflow.overlap_resolved"
+	WorkflowContractSuperseded       = "workflow.contract_superseded"
+	WorkflowCandidateSetRevised      = "workflow.candidate_set_revised"
+	WorkflowActorRecorded            = "workflow.actor_recorded"
+	WorkflowActionStarted            = "workflow.action_started"
+	WorkflowActionCheckpointed       = "workflow.action_checkpointed"
+	WorkflowActionCompleted          = "workflow.action_completed"
+	WorkflowActionFailed             = "workflow.action_failed"
+	WorkflowEvidenceBound            = "workflow.evidence_bound"
+	WorkflowVerdictRecorded          = "workflow.verdict_recorded"
+	WorkflowPremiseConfirmed         = "workflow.premise_confirmed"
+	WorkflowSuccessorLinked          = "workflow.successor_linked"
+	WorkflowContextCheckpointed      = "workflow.context_checkpointed"
+	WorkflowContextBoundaryCrossed   = "workflow.context_boundary_crossed"
+	WorkflowWorkContextRecorded      = "workflow.work_context_recorded"
+	WorkflowProposalRecorded         = "workflow.proposal_recorded"
+	WorkflowDesignRecorded           = "workflow.design_recorded"
+	WorkflowBacklogAlignmentRecorded = "workflow.backlog_alignment_recorded"
+	WorkflowDiagnosisRecorded        = "workflow.diagnosis_recorded"
+	WorkflowDeliveryCorrected        = "workflow.delivery_corrected"
+	WorkflowCompleted                = "workflow.completed"
 )
 
 type WorkflowVersionFields struct {
@@ -477,20 +473,6 @@ type workflowCompletedPayload struct {
 	Warnings          []string `json:"warnings,omitempty"`
 }
 
-type workflowOutsideRepairDispositionPayload struct {
-	WorkflowVersionFields
-	Reason string `json:"reason"`
-	State  string `json:"state"`
-}
-
-type workflowOutsideRepairReconcilePayload struct {
-	workflowOutsideRepairDispositionPayload
-	Evidence       workflowproof.Evidence `json:"evidence"`
-	EvidenceSource string                 `json:"evidence_source"`
-}
-
-type workflowOutsideRepairResumePayload = workflowOutsideRepairDispositionPayload
-
 var workflowKinds = map[string]bool{
 	"implementation": true, "break_fix": true, "research": true,
 	"architecture_spike": true, "ops_runbook": true, "static_analysis": true,
@@ -707,11 +689,6 @@ func workflowDigest(value string) bool {
 }
 
 func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
-	if active, err := outsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {
-		return err
-	} else if active {
-		return workflowAdmit(WorkflowDefinition{}, WorkflowAdmissionState{OutsideRepairActive: true}, "select_definition").Failure
-	}
 	var p workflowDefinitionSelectedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -1265,9 +1242,6 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, sco
 // leaves a resumed item untouched, and the move carries no version of its
 // own: the action already advanced the work version.
 func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := requireWorkLifecycleAdmissionTx(ctx, tx, event, "in_progress", nil); err != nil {
-		return err
-	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	result, err := tx.ExecContext(ctx, `UPDATE work_items SET
 	transition_from=lifecycle,transition_reason=COALESCE(json_extract(?,'$.reason'),''),transition_actor=?,
@@ -1649,13 +1623,6 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 	}
 	if len(pending) != 0 {
 		return newFailure(KindInvalidOperation, "fold_event", "summary boundary is forbidden while operator decisions remain pending", false, "resolve pending decisions before crossing a summary boundary")
-	}
-	var active int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE work_id=? AND (result_kind IS NULL OR result_kind IN ('pending','partial'))`, event.SubjectID).Scan(&active); err != nil {
-		return workflowProjectionError(err, "cannot inspect active workflow attempts")
-	}
-	if active != 0 {
-		return newFailure(KindInvalidOperation, "fold_event", "summary boundary is forbidden during an active effect or attempt", false, "complete or reconcile the active operation first")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
@@ -2700,10 +2667,6 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	if err := requireActor(ctx, tx, p.VerdictActorRef); err != nil {
 		return err
 	}
-	// An outside-repair hold cannot acquire workflow completion evidence.
-	if err := requireNoOutsideRepairTx(ctx, tx, event.SubjectID, "fold_event"); err != nil {
-		return err
-	}
 	// A later evaluator's verdict cannot satisfy this completion's
 	// evaluator-equality rule.
 	verdict, err := latestWorkflowVerdictBefore(ctx, tx, event.SubjectID, event.Seq)
@@ -2716,7 +2679,7 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?,completed_at=?,completion_payload=?,completion_occurred_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded','outside_repair')`, p.TerminalState, event.OccurredAt.UTC().Format(time.RFC3339Nano), string(event.Payload), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
+	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?,completed_at=?,completion_payload=?,completion_occurred_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, p.TerminalState, event.OccurredAt.UTC().Format(time.RFC3339Nano), string(event.Payload), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	if err != nil {
 		return err
 	}

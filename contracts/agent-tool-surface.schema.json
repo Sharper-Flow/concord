@@ -37,7 +37,7 @@
           "const": "concord-agent-tool-surface"
         },
         "tool_count": {
-          "const": 8
+          "const": 7
         }
       }
     },
@@ -62,8 +62,6 @@
           "type": "array",
           "const": [
             "ok",
-            "pending",
-            "partial",
             "error"
           ]
         },
@@ -81,8 +79,8 @@
     },
     "tools": {
       "type": "array",
-      "minItems": 8,
-      "maxItems": 8,
+      "minItems": 7,
+      "maxItems": 7,
       "uniqueItems": true,
       "items": {
         "type": "object",
@@ -113,7 +111,7 @@
     },
     "operations": {
       "type": "array",
-      "minItems": 41,
+      "minItems": 37,
       "maxItems": 96,
       "items": {
         "type": "object",
@@ -172,7 +170,6 @@
               "cross_scope",
               "product_read",
               "research",
-              "work_compact",
               "work_define",
               "work_relate",
               "work_transition"
@@ -188,10 +185,8 @@
               "scope",
               "relation",
               "supersession",
-              "publication",
               "recovery",
-              "research",
-              "claim"
+              "research"
             ],
             "type": "string"
           },
@@ -221,7 +216,6 @@
           "cross_scope",
           "product_read",
           "research",
-          "work_compact",
           "work_define",
           "work_relate",
           "work_transition"
@@ -229,8 +223,8 @@
         "type": "string"
       },
       "uniqueItems": true,
-      "minItems": 7,
-      "maxItems": 7
+      "minItems": 6,
+      "maxItems": 6
     },
     "consequences": {
       "type": "array",
@@ -243,16 +237,14 @@
           "scope",
           "relation",
           "supersession",
-          "publication",
           "recovery",
-          "research",
-          "claim"
+          "research"
         ],
         "type": "string"
       },
       "uniqueItems": true,
-      "minItems": 11,
-      "maxItems": 11
+      "minItems": 9,
+      "maxItems": 9
     },
     "bounds": {
       "$ref": "#/$defs/bounds"

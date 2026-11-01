@@ -548,16 +548,9 @@ def step_f_workflow_evidence(binary: Path, env: dict, repo: Path, context: dict,
             'idempotency_key': 'harness-workflow-action-0001',
         },
     }, env)
-    # workflow_action may complete synchronously (ok) or land in pending (the
-    # action is queued behind an external-effect fence); either proves the
-    # workflow evidence path fired and wrote to the event log.
     outcome = invoke.get('outcome')
-    if outcome not in ('ok', 'pending', 'partial'):
+    if outcome != 'ok':
         raise HarnessError(f"workflow_action outcome={outcome}; full={json.dumps(invoke)[:300]}")
-    if outcome in ('pending', 'partial'):
-        op_ref = invoke.get('operation_ref') or {}
-        if not op_ref.get('id'):
-            raise HarnessError(f"workflow_action returned {outcome} without operation_ref.id: {json.dumps(invoke)[:300]}")
 
 
 def step_g_restart_reopen(binary: Path, env: dict, repo: Path, context: dict, manifest_digest: str, work_id: str) -> None:

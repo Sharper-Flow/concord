@@ -109,7 +109,6 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 	if err := (acceptanceRecoveryFixture{store: s, workID: workID, owner: f.owner, operator: f.operator}).run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
 		t.Fatalf("confirm successor: %v", err)
 	}
-	bindCompletionClosure(t, s, workID, f.owner)
 	j := &candidateJourney{fixture: f, s: s, workID: workID, repo: repo}
 	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err != nil {
 		t.Fatalf("complete successor: %v", err)

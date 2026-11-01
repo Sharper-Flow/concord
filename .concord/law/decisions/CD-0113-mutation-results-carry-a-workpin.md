@@ -50,7 +50,7 @@ transaction.
 Every mutation result that lists a `work_item` in `changed_refs` carries the
 pin computed inside the mutation's own transaction, so it is the post-state and
 cannot disagree with the committed write. Two kinds of work item have no pin:
-one that has no workflow instance and no held outside-repair disposition, and
+one that has no workflow instance, and
 one that the mutation removed. The result lists such an item without a pin. A
 result that lists any such item carries exactly one `work_pin_unavailable`
 notice in the envelope's `omissions`, whose `count` is the number of them. The

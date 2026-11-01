@@ -605,7 +605,6 @@ const (
 	cutoverCanonicalWork          = "cutover-canonical"
 	cutoverTerminalHistoryWork    = "cutover-terminal-history"
 	cutoverSupersededContractWork = "cutover-superseded-contract"
-	cutoverHeldWork               = "cutover-held-pin"
 )
 
 // Only an unsupported family selects nonterminal work for this disposition.
@@ -773,42 +772,6 @@ func seedCutoverPinStore(t *testing.T, path string) {
 	}}}); err != nil {
 		t.Fatalf("cannot retain the terminal item's cancellation: %v", err)
 	}
-}
-
-// holdCutoverWorkUnderOutsideRepair adds one more archived-pin item and
-// places it under an active outside-repair hold, the held disposition the
-// cancellation must refuse instead of transitioning.
-func holdCutoverWorkUnderOutsideRepair(t *testing.T, path string) {
-	t.Helper()
-	ctx := context.Background()
-	s, err := store.Open(ctx, path)
-	if err != nil {
-		t.Fatalf("seed open: %v", err)
-	}
-	defer func() { _ = s.Close() }()
-	if err := pm1fixture.SeedWorkItem(ctx, s, "cutover-project", cutoverHeldWork, "cutover pin fixture "+cutoverHeldWork, 0); err != nil {
-		t.Fatal(err)
-	}
-	canonical, err := store.LiveWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
-			WorkID:     cutoverHeldWork,
-			Definition: canonical,
-			Actor:      cutoverFixtureActor(cutoverHeldWork),
-			Now:        time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC),
-		})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	execUnderWriteGuard(t, s.DatabaseForTesting(),
-		cutoverFixtureArchivedInstance(cutoverHeldWork),
-		fmt.Sprintf(`UPDATE workflow_instances SET instance_state='outside_repair', outside_repair_state='active' WHERE work_id='%s'`, cutoverHeldWork),
-		fmt.Sprintf(`INSERT INTO outside_repair_dispositions(work_id,state,reason,evidence_json,recorded_at)
-			VALUES('%s','active','outside repair hold','{}','2026-10-12T00:00:00Z')`, cutoverHeldWork),
-	)
 }
 
 // cutoverWorkStates reads every fixture work item's lifecycle, version, and
@@ -1182,62 +1145,6 @@ func TestUpgradeWithTheCancelInputRefusesAtTheMaintenanceBoundaryBeforeAnyEffect
 	}
 	if after := cutoverWorkStates(t, path); !reflect.DeepEqual(after, statesBefore) {
 		t.Fatalf("the boundary-refused run moved work state: %+v", after)
-	}
-}
-
-// A selected item under an active outside-repair hold is a refusal the plan
-// can determine read-only: the plan names it as a blocker, and the migrating
-// run refuses before fence or snapshot with zero events and zero lifecycle
-// change on every item.
-func TestUpgradeWithTheCancelInputRefusesAHeldOutsideRepairItemBeforeFenceOrSnapshot(t *testing.T) {
-	path, root := cliStoreRoot(t)
-	seedCutoverPinStore(t, path)
-	holdCutoverWorkUnderOutsideRepair(t, path)
-	statesBefore := cutoverWorkStates(t, path)
-	eventsBefore := cutoverEventCount(t, path)
-
-	code, out, errOut := runUpgradeStdin(t, `{"plan":true,"cancel_cutover_pinned_work":true}`)
-	if code != 0 {
-		t.Fatalf("the held-item plan must report its blockers as JSON: %d %s %s", code, out, errOut)
-	}
-	var report struct {
-		store.UpgradeReadiness
-		CutoverDisposition *cutoverDispositionReport `json:"cutover_disposition"`
-	}
-	if err := json.Unmarshal([]byte(out), &report); err != nil {
-		t.Fatalf("the held-item plan output is not JSON: %v: %s", err, out)
-	}
-	if !report.ActivationBlocked {
-		t.Fatalf("a determinable cancellation refusal must block the plan: %+v", report.UpgradeReadiness)
-	}
-	if !strings.Contains(strings.Join(report.Blockers, "\n"), cutoverHeldWork) {
-		t.Fatalf("the plan blockers must name the held item: %+v", report.Blockers)
-	}
-	if report.CutoverDisposition == nil || report.CutoverDisposition.WorkCount != len(cutoverSelectedWorks)+1 {
-		t.Fatalf("the selected held item must remain in the disposition count: %+v", report.CutoverDisposition)
-	}
-
-	code, out, errOut = runUpgradeStdin(t, `{"cancel_cutover_pinned_work":true}`)
-	if code != 1 {
-		t.Fatalf("the held item must refuse the migrating run: %d %s", code, errOut)
-	}
-	if out != "" {
-		t.Fatalf("the refused run must print no report: %s", out)
-	}
-	if !strings.Contains(errOut, cutoverHeldWork) {
-		t.Fatalf("the refusal must name the held item and its refusal: %s", errOut)
-	}
-	if fence, err := hostlease.ReadFence(root); err != nil || fence != nil {
-		t.Fatalf("the refused run must leave no boundary behind: %+v %v", fence, err)
-	}
-	if snapshots := preCutoverUpgradeSnapshots(t, root); len(snapshots) != 0 {
-		t.Fatalf("the held-item refusal must come before the snapshot: %v", snapshots)
-	}
-	if after := cutoverEventCount(t, path); after != eventsBefore {
-		t.Fatalf("the held-item refusal moved the event log %d -> %d; it must write nothing", eventsBefore, after)
-	}
-	if after := cutoverWorkStates(t, path); !reflect.DeepEqual(after, statesBefore) {
-		t.Fatalf("the held-item refusal moved work state: %+v", after)
 	}
 }
 

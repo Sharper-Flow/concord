@@ -67,14 +67,6 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, err
 	}
-	active, err := outsideRepairActiveTx(ctx, s.db, workID)
-	if err != nil {
-		return RegisteredDefinition{}, WorkflowActionDefinition{}, err
-	}
-	if active {
-		decision := workflowAdmit(entry.Definition, WorkflowAdmissionState{OutsideRepairActive: true}, actionID)
-		return RegisteredDefinition{}, WorkflowActionDefinition{}, decision.Failure
-	}
 	action, found, err := workflowRouteActionDefinition(ctx, s, registry, entry, workID, actionID)
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, err
@@ -205,11 +197,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 	if err != nil {
 		return result, err
 	}
-	step, evidenceRefs, err := claimDurableWorkflowOperationTx(ctx, tx, entry, request, currentStep)
+	step, evidenceRefs, err := recordAtomicWorkflowOperationTx(ctx, tx, entry, request, currentStep)
 	if err != nil {
 		return result, err
 	}
-	if err := runWorkflowActionGuard(guards, guardPhaseClaim); err != nil {
+	if err := runWorkflowActionGuard(guards, guardPhaseOperation); err != nil {
 		return result, err
 	}
 	if err := BindResearchRelianceTx(ctx, tx, request.WorkID, request.ResearchBindings, request.Now); err != nil {

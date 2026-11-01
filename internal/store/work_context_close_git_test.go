@@ -149,7 +149,6 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "release", ownerRef); err != nil {
 		t.Fatal(err)
 	}
-	bindCompletionClosure(t, s, workID, owner)
 	version := readWorkVersion(t, s, workID)
 	completion := workflowEventWithActor("close-git-workflow-completed", WorkflowCompleted, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed",
@@ -185,17 +184,8 @@ func TestWorkContextCloseGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := continuity.WorkContext
-	if view == nil || len(view.RequiredReading) != 1 || view.RequiredReading[0].Reason != marker+"-reading" || view.RequiredReading[0].Source.CommitOID != base {
-		t.Fatalf("closed required reading changed: %+v", view)
-	}
-	retained := map[string]string{}
-	for _, finding := range view.Findings {
-		retained[finding.Statement] = finding.Status
-	}
-	for _, suffix := range []string{"rejected", "question", "observation"} {
-		if retained[marker+"-"+suffix] != WorkContextFindingStatusReported {
-			t.Errorf("closed finding %s is not retained as reported: %v", suffix, retained)
-		}
+	if view != nil && (len(view.RequiredReading) != 0 || len(view.Findings) != 0) {
+		t.Fatalf("terminal execution context was retained: %+v", view)
 	}
 	var promoted int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT

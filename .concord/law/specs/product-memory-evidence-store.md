@@ -76,10 +76,9 @@ is a general binary-evidence store.
 
 CD-0215 narrows one structured-artifact case further: research-pack text lives
 only in SQLite pack tables until explicit retirement. It never enters Git as a
-research pack and is
-deleted after proof-backed archive. Selected durable decisions/specs/lessons/reasoning
-are promoted to their existing PM6/CD-0006 homes before deletion; that promotion is
-not pack retention.
+research pack. Only explicit eligible retirement deletes a pack; completion and
+durable promotion preserve it. Selected decisions/specifications/lessons use
+their existing independently reviewed forms, not a completion-note operation.
 
 ### 1.1 Repository check output
 
@@ -99,11 +98,11 @@ promises**:
 
 - developers and agents keep using their normal test runner, CI, editor, artifact, and
   screenshot facilities without an extra upload/hash/attach protocol;
-- a work item can progress or compact without proving long-lived access to transient
+- a work item can progress or complete without proving long-lived access to transient
   bytes;
 - Concord avoids a second filesystem durability, corruption, recovery, backup, and
   deletion subsystem whose value is not currently named;
-- the store keeps current state and PM6 keeps concise reviewed knowledge
+- the store keeps current state and PM6 keeps reported delivery and historical locators
   ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)),
   which are the current post-hoc needs—not exact WIP byte replay.
 
@@ -118,8 +117,8 @@ an optional metadata field.
 |---|---|---|
 | generic test/build/log output | producer/CI retains or discards it under its own policy | ingestion, hashing, mirroring, or backup |
 | task fails | record only the bounded state/outcome needed by its owning Product-memory record | storing full command output as evidence |
-| terminal compaction | PM6 note distills outcome, decision, lesson, and normal links | copying raw WIP files into git/SQLite |
-| compaction-retention-policy projection pruning | retains authoritative current rows and durable note/index behavior (CD-0242 D2) | preserving raw WIP bytes |
+| completion | PM6 retains terminal identity and reported delivery links, not step records | publishing a note or copying raw WIP files into Git/SQLite |
+| historical reads | preserve existing note locators, content hashes and lesson tags | publishing, pruning or preserving raw WIP bytes |
 | producer output disappears | surface only an external-link failure if a user tries to follow a normal link | recovery/substitution of a Concord-held blob |
 
 No operation may report an unavailable WIP blob as an integrity incident, because
@@ -135,10 +134,8 @@ large outputs are not scanned, hashed, copied, or enrolled into Product memory.
 There is no Concord blob retention period, refcount, quarantine, backup inventory, or
 garbage collector. PM10 therefore backs up the accepted SQLite/git authority only; it
 does not inherit a CAS subtree from PM8. Accepted PM9 keeps process findings in concise
-durable knowledge when material and rejects a separate process-exhaust receipt—closure's
-one completion receipt answers
-([CD-0242 D9](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)),
-not automatic retention of raw WIP bytes.
+durable knowledge through its existing reviewed routes when material and rejects
+a separate process-exhaust or completion receipt, not automatic retention of raw WIP bytes.
 
 ## 5. Structural invariants
 
@@ -163,10 +160,6 @@ not automatic retention of raw WIP bytes.
    file-path metadata, or backup entry being created.
 2. A failed task stores a bounded failure classification/state while raw tool output
    remains with the producing environment.
-3. PM6 compaction creates a concise note with outcome/lesson/ordinary links and no raw
-   output copy or generated evidence attachment.
-4. compaction-retention-policy prunes an eligible work projection while current state and the note/index
-   remain valid without requiring any external blob.
 5. Schema and record validation reject attempts to introduce blob descriptors,
    content hashes, arbitrary filesystem paths, or raw output payloads through generic
    metadata.
@@ -232,7 +225,7 @@ direction control this decision.
 ## Acceptance criteria
 
 - Given any generic WIP test log, trace, or screenshot
-  When work completes or compacts
+  When work completes
   Then no blob table, digest, file-path metadata, or backup entry is created.
 
 - Given a failed task

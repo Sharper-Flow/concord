@@ -52,7 +52,6 @@ PRIMARY_BUILD_TOOLS = ("edit", "write", "patch")
 # in the RTE body is a regression, whatever the surrounding sentence says.
 RTE_FORBIDDEN_PATTERN = re.compile(r"coordination\s+issue", re.IGNORECASE)
 PLANNER_WRITERS = (
-    "concord_work_compact",
     "concord_work_define",
     "concord_work_relate",
     "concord_work_transition",
@@ -329,7 +328,6 @@ def check_primary_prompts(root: Path) -> list[str]:
             "patch: deny",
             "morph_edit: deny",
             "concord_work_transition: deny",
-            "concord_work_compact: deny",
         )
         if boundary not in intake_frontmatter
     )

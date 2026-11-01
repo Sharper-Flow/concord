@@ -24,7 +24,7 @@ func TestRetainedWorkflowInvokeAcrossManifestChange(t *testing.T) {
 	}
 	driftWorkPinVersion(t, r.Store, "work-1")
 	before := workflowReplayEffectCounts(t, r.Store)
-	ownerBefore, err := store.Step(ctx, r.Store, opID)
+	ownerBefore, err := readOperationResult(ctx, r.Store, opID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestRetainedWorkflowInvokeAcrossManifestChange(t *testing.T) {
 	if workflowReplayEffectCounts(t, r.Store) != before {
 		t.Fatal("workflow replay repeated effects or replaced the later work state")
 	}
-	ownerAfter, err := store.Step(ctx, r.Store, opID)
+	ownerAfter, err := readOperationResult(ctx, r.Store, opID)
 	if err != nil || !reflect.DeepEqual(ownerBefore, ownerAfter) {
 		t.Fatalf("replay rewrote producer facts: before=%+v after=%+v err=%v", ownerBefore, ownerAfter, err)
 	}

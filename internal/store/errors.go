@@ -120,14 +120,10 @@ const (
 	KindKnowledgeAmbiguous          FailureKind = "knowledge_ambiguous"
 	KindKnowledgeMissing            FailureKind = "knowledge_missing"
 	KindKnowledgeUnavailable        FailureKind = "knowledge_unavailable"
-	KindCompactionConflict          FailureKind = "compaction_conflict"
 	KindStaleAttempt                FailureKind = "stale_attempt"
 	KindIdempotencyConflict         FailureKind = "idempotency_conflict"
-	KindTakeoverRequired            FailureKind = "takeover_required"
 	KindResearchRevisionImmutable   FailureKind = "research_revision_immutable"
 	KindResearchConsumerBlocked     FailureKind = "research_consumer_blocked"
-	// KindOutsideRepairActive refuses managed moves on operator-held work.
-	KindOutsideRepairActive FailureKind = "outside_repair_active"
 	// KindDomainRegistryAbsent marks a Domain read against a Product whose Git
 	// knowledge home has not projected a Domain registry. Absent is a refusal,
 	// never an empty page: authoritative-empty requires a registry watermark.

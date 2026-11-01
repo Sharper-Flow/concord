@@ -252,9 +252,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "mutation_result",
             "observation_record",
             "observations",
-            "publish",
             "ready",
-            "reconcile",
             "relations",
             "research",
             "research_finding_record",
@@ -274,9 +272,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "correct_delivery",
             "project_handoff_consume",
             "project_handoff_record",
-            "project_retirement",
-            "outside_repair",
-            "outside_repair_reconcile"
+            "project_retirement"
           ],
           "type": "string"
         },
@@ -299,8 +295,6 @@ const GeneratedEnvelopeSchemaDocument = `{
         "outcome": {
           "enum": [
             "ok",
-            "pending",
-            "partial",
             "error"
           ],
           "type": "string"
@@ -404,8 +398,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "concord_work_define",
             "concord_domain",
             "concord_work_transition",
-            "concord_work_relate",
-            "concord_work_compact"
+            "concord_work_relate"
           ],
           "type": "string"
         },
@@ -942,9 +935,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "mutation_result",
             "observation_record",
             "observations",
-            "publish",
             "ready",
-            "reconcile",
             "relations",
             "research",
             "research_finding_record",
@@ -964,9 +955,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "correct_delivery",
             "project_handoff_consume",
             "project_handoff_record",
-            "project_retirement",
-            "outside_repair",
-            "outside_repair_reconcile"
+            "project_retirement"
           ],
           "type": "string"
         },
@@ -997,8 +986,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "concord_work_define",
             "concord_domain",
             "concord_work_transition",
-            "concord_work_relate",
-            "concord_work_compact"
+            "concord_work_relate"
           ],
           "type": "string"
         }
@@ -1104,9 +1092,7 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "remove",
                       "project_handoff_record",
                       "project_handoff_consume",
-                      "workflow_action",
-                      "outside_repair",
-                      "outside_repair_reconcile"
+                      "workflow_action"
                     ],
                     "type": "string"
                   },
@@ -1147,39 +1133,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                   },
                   "tool": {
                     "const": "concord_work_relate",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "tool",
-                  "operation"
-                ]
-              },
-              "then": {
-                "not": {
-                  "required": [
-                    "items"
-                  ]
-                },
-                "required": [
-                  "result",
-                  "changed_refs",
-                  "next_valid_intents"
-                ]
-              }
-            },
-            {
-              "if": {
-                "properties": {
-                  "operation": {
-                    "enum": [
-                      "publish",
-                      "reconcile"
-                    ],
-                    "type": "string"
-                  },
-                  "tool": {
-                    "const": "concord_work_compact",
                     "type": "string"
                   }
                 },
@@ -1322,179 +1275,6 @@ const GeneratedEnvelopeSchemaDocument = `{
               "warnings"
             ]
           }
-        }
-      ],
-      "unevaluatedProperties": false
-    },
-    "operationRef": {
-      "additionalProperties": false,
-      "properties": {
-        "current_step": {
-          "maxLength": 64,
-          "minLength": 1,
-          "type": "string"
-        },
-        "id": {
-          "maxLength": 128,
-          "minLength": 1,
-          "type": "string"
-        },
-        "kind": {
-          "maxLength": 64,
-          "minLength": 1,
-          "type": "string"
-        },
-        "state": {
-          "enum": [
-            "pending",
-            "partial",
-            "failed",
-            "completed"
-          ],
-          "type": "string"
-        },
-        "updated_at": {
-          "format": "date-time",
-          "type": "string"
-        },
-        "version": {
-          "maxLength": 128,
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "kind",
-        "version",
-        "state",
-        "current_step",
-        "updated_at"
-      ],
-      "type": "object"
-    },
-    "partial": {
-      "allOf": [
-        {
-          "$ref": "#/$defs/base"
-        },
-        {
-          "properties": {
-            "completed_steps": {
-              "items": {
-                "maxLength": 64,
-                "minLength": 1,
-                "type": "string"
-              },
-              "maxItems": 32,
-              "minItems": 1,
-              "type": "array"
-            },
-            "error": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/typedError"
-                },
-                {
-                  "not": {
-                    "required": [
-                      "adapter_reason"
-                    ]
-                  },
-                  "properties": {
-                    "effect_state": {
-                      "const": "partial"
-                    }
-                  }
-                }
-              ]
-            },
-            "failed_step": {
-              "maxLength": 64,
-              "minLength": 1,
-              "type": "string"
-            },
-            "operation_ref": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/operationRef"
-                },
-                {
-                  "properties": {
-                    "state": {
-                      "enum": [
-                        "partial",
-                        "failed"
-                      ],
-                      "type": "string"
-                    }
-                  }
-                }
-              ]
-            },
-            "outcome": {
-              "const": "partial"
-            },
-            "tool": {
-              "enum": [
-                "concord_work_compact",
-                "concord_work_transition"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "outcome",
-            "operation_ref",
-            "completed_steps",
-            "error"
-          ],
-          "type": "object"
-        }
-      ],
-      "unevaluatedProperties": false
-    },
-    "pending": {
-      "allOf": [
-        {
-          "$ref": "#/$defs/base"
-        },
-        {
-          "properties": {
-            "next_action": {
-              "$ref": "#/$defs/recoveryAction"
-            },
-            "operation_ref": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/operationRef"
-                },
-                {
-                  "properties": {
-                    "state": {
-                      "const": "pending"
-                    }
-                  }
-                }
-              ]
-            },
-            "outcome": {
-              "const": "pending"
-            },
-            "tool": {
-              "enum": [
-                "concord_work_compact",
-                "concord_work_transition"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "outcome",
-            "operation_ref",
-            "next_action"
-          ],
-          "type": "object"
         }
       ],
       "unevaluatedProperties": false
@@ -1854,9 +1634,7 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "workflow_action",
                 "correct_delivery",
                 "project_handoff_record",
-                "project_handoff_consume",
-                "outside_repair",
-                "outside_repair_reconcile"
+                "project_handoff_consume"
               ],
               "type": "string"
             },
@@ -1887,29 +1665,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             },
             "tool": {
               "const": "concord_work_relate"
-            }
-          },
-          "required": [
-            "tool",
-            "operation"
-          ]
-        },
-        {
-          "not": {
-            "required": [
-              "query_id"
-            ]
-          },
-          "properties": {
-            "operation": {
-              "enum": [
-                "publish",
-                "reconcile"
-              ],
-              "type": "string"
-            },
-            "tool": {
-              "const": "concord_work_compact"
             }
           },
           "required": [
@@ -2340,8 +2095,7 @@ const GeneratedEnvelopeSchemaDocument = `{
         "effect_state": {
           "enum": [
             "none",
-            "possible",
-            "partial"
+            "possible"
           ],
           "type": "string"
         },
@@ -2399,8 +2153,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "timeout",
             "transport_failure",
             "malformed_response",
-            "internal_error",
-            "outside_repair_active"
+            "internal_error"
           ],
           "type": "string"
         },
@@ -2494,12 +2247,6 @@ const GeneratedEnvelopeSchemaDocument = `{
   "oneOf": [
     {
       "$ref": "#/$defs/ok"
-    },
-    {
-      "$ref": "#/$defs/pending"
-    },
-    {
-      "$ref": "#/$defs/partial"
     },
     {
       "$ref": "#/$defs/errorOutcome"

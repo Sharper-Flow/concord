@@ -1,7 +1,7 @@
 ---
 {
   "id": "PM6",
-  "title": "Canonical Git note placement",
+  "title": "Reported delivery and historical note locators",
   "authority": {
     "tier": "derived"
   },
@@ -10,187 +10,78 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "scenario": "AJ6-compact-terminal-work"
+      "exemption": "Reported-link completion and execution disposal are mutation properties, not query-corpus cases. Integrated completion and upgrade preservation evidence must cover this boundary."
     },
     {
       "criterion": 2,
-      "exemption": "Canonical discovery and cleanup eligibility are operation properties, not one query-corpus case. TestValidateNotePathAdmitsLawDecisionNotes (internal/store/knowledge_note_path_test.go) is a candidate canonical-placement witness; integrated discovery and cleanup coverage remains unmeasured."
+      "exemption": "Historical locator verification is a read property. Integrated evidence must cover exact home, path, commit, content hash and lesson-tag preservation."
     },
     {
       "criterion": 3,
-      "exemption": "Orphan recovery is an operation property below scenario grain. The guarantee is proved by TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote (internal/agent/mutation_dispatch_test.go)."
-    },
-    {
-      "criterion": 4,
-      "exemption": "Git-proof verification is an operation property. The retained VerifyCommittedNote proof runs in internal/store/git_knowledge.go; its bounded-runner proof is TestVerifyCommittedNoteDefaultRunnerStaysBounded (internal/store/git_note_bounded_test.go). Hash-mismatch and unsafe-path rejection cases remain unmeasured."
-    },
-    {
-      "criterion": 5,
-      "exemption": "Ambiguous-claim detection is a verification property. The retained parser is parseKnowledgeNote in internal/store/git_knowledge.go; its dedicated rejection tests were retired with the index and the rejection cases remain unmeasured."
+      "exemption": "Typed historical uncertainty is a read property. Integrated evidence must distinguish missing, ambiguous, degraded and unreachable outcomes without rewriting a locator."
     }
   ]
 }
 ---
-# Concord Canonical Git-Note Placement (PM6)
-
-> **Status:** **Accepted — binding until superseded.**
-> **Accepted by operator:** 2026-08-05.
-> **Decision:** PM6; binding CD-0002 §2c/§2d specification.
-> **Binding inputs:** PM2 git durable-knowledge authority, PM5
-> membership/optional-primary semantics, and CD-0002 I1–I6.
-> **Operator choice:** when no deterministic git home exists, compaction blocks with
-> typed `ambiguous`; Concord does not add a global fallback knowledge repository.
-> **Research basis:** public predecessor lessons plus Fowler ADR guidance,
-> Log4brains multi-repo patterns, public cross-cutting ADR repositories, and official
-> Git content-addressing/git-notes documentation.
-> **Related accepted boundaries:** PM8 excludes WIP-byte CAS and generic screenshot
-> requirements; PM9 rejects a separate process-exhaust receipt. **Does not decide:** PM10
-> backup/restore, agent tools, or exact implementation.
+# Concord Reported Delivery and Historical Note Locators (PM6)
 
 ## Context
 
-Terminal work must leave behind exactly one durable, findable note. The
-binding inputs are PM2's git durable-knowledge authority, PM5
-membership semantics, CD-0002 invariants I1 through I6, and the compaction
-design. This record fixes canonical note placement: one eligible git home
-selected deterministically from accepted membership, in-tree markdown notes
-with bounded front matter, a typed five-field locator, and the ordered
-publish protocol with its recovery seam. New note front matter uses `domain_ids`
-under CD-0222.
+Completion records the delivered outcome, not a second publication operation.
+Existing historical notes remain readable through their recorded Git locators.
+
 ## Contract
 
-The store keeps current state and finite verified snapshots; no event log or replay exists
-([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-Operator consent follows [CD-0243 D7](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-throughout this record, including tables and acceptance criteria.
-Other admission, safety, evidence, and historical-pin requirements remain required.
+Sections 1 through 4 govern completion, knowledge ownership and historical reads.
 
-Routine canonical-note publication and proof-backed reconciliation require no operator consent under CD-0013 D11. The accepted durable publication intent, rather than an approval reference, freezes exact content, digest, home, locator, and work version until SQLite linkage. Existing terminal eligibility, salvage, Git commit verification, deterministic home selection, no-second-effect replay, and reconciliation proof remain required. This route grants no remote push, release, deletion, or legislative authority.
-
-
-The binding contract is sections 1 through 8: the one-note decision, the
-eligible-home rule with Product-home designation, the deterministic selection
-rule, the canonical note shape and typed locator, the publish protocol and
-recovery seam, discovery without copies, rename and archive semantics, and
-the note result semantics. Sections 9 through 13 record invariants,
-rejected alternatives, deferred scope, falsifiers, and sources, and carry no
-obligation.
 ## 1. Decision
 
-Every compacted work item has exactly one canonical markdown note in one eligible git
-repository. Home selection is deterministic from accepted Product/work membership;
-there are no copied notes, repo-local stubs, or free per-compaction placement choices.
+Completion accepts the existing typed reported-delivery assertion and its links.
+Concord does not verify delivery by reading Git or GitHub. The existing evidence,
+independent Review, applicable approvals, expected-version, authorization,
+idempotency and durable-commit requirements remain required.
 
-SQLite stores only a derived typed locator/index after verifying the committed git
-object. Git is durable-knowledge authority; SQLite remains live-state authority until
-the proof-backed compaction linkage is recorded.
+Completion creates no canonical work note, publication intent, compaction link,
+reviewed closure hash, publication judgement or cleanup obligation. There is no
+publish/reconcile operation, separate step claim/settlement protocol, or deferred
+terminal cleanup. Completion atomically retains the terminal current-state work
+identity and reported delivery link while disposing its workflow step records.
+It retains no post-delivery step history or replacement execution archive.
+Operations, effect receipts and successful-request idempotency remain with their
+own retry and reconciliation consumers under CD-0242 D2.
 
-## 2. Eligible git home
+The breaking upgrade uses the existing verified-snapshot route before removing
+retired publication, claim, closure, cleanup and outside-repair state. It also
+disposes completed execution that has no canonical note or cannot be compacted.
+Upgrade creates no note, Git operation, successful workflow verdict or new
+archive. It preserves active work, setup, historical `archived_work` locators,
+their `content_hash` and `lesson_tags`, and retained research with its owners and
+consumers. No new cleanup pass is required after upgrade.
 
-A note home is a stable Project identity with a designated git-backed knowledge
-locator. Each Project may designate zero or one of its typed git locators as its
-`knowledge_locator`; this is placement configuration, not a repo URL copy or a
-launcher/glance-view field. Eligibility requires:
+Research remains a separate direct-authority aggregate. Completion and upgrade
+must preserve it; only eligible explicit `research_retire` deletes it under
+[CD-0215](../decisions/CD-0215-retained-research-context.md).
 
-- Project exists and remains a member of at least one applicable Product;
-- one typed git locator is designated for durable knowledge;
-- repository is writable for compaction and supports ordinary tree markdown;
-- canonical note directory is available or can be created by the compaction commit.
+Reusable lessons follow the independent ordinary reviewed pull-request route in
+[CD-0026 D1–D2](../decisions/CD-0026-learning-capture.md).
+That route requires neither work compaction nor a completion note.
 
-The stable identity is Project/locator ID—not filesystem path, remote URL, or clone
-location. Path/remote changes update locator attributes without changing note home.
+## 2. Knowledge home
 
-### Product-home designation
+A Product's designated member Project and knowledge locator own shared law under
+[CD-0200](../decisions/CD-0200-product-knowledge-resolves-through-one-designated-git-home.md).
+Designation is explicit typed configuration, never inferred from discovery,
+the current directory, or work membership. A Project may designate zero or one
+of its typed Git locators as its knowledge locator. Product-home designation
+names a member Project and that locator; it is not a copied path or repository URL.
 
-A Product may designate zero or one member Project/knowledge locator as its durable
-knowledge home. This is a typed reference governed by PM6, not a copied repo path.
-The Project need not be a member of every work item in the Product; it is a Product-
-level cross-cutting knowledge home.
+Each Project's own knowledge stays in its `.concord/` tree. Additional member
+Project knowledge sources require explicit registration. Historical work notes
+retain their recorded home even when Product designation or membership changes.
 
-Under CD-0200 D1, the designated home is the Product's single
-shared-law home and is always a knowledge source. The operator may additionally
-register member Project canonical-path locators as knowledge sources; registration
-is explicit typed configuration, never discovery. Placement of each Project's own
-canonical notes and knowledge stays in that Project's `.concord/` tree, and the
-one-note-per-work-item rule applies.
+## 3. Historical locator
 
-## 3. Deterministic selection rule
-
-For terminal work item `W`:
-
-1. derive `Products(W)` using accepted PM5;
-2. collect unique eligible Product-home designations from those Products;
-3. if that set contains exactly one home, select it;
-4. otherwise, if W has a primary Project whose `knowledge_locator` is eligible,
-   select that Project/locator;
-5. otherwise return typed `ambiguous` with bounded candidate/reason detail and do
-   not compact.
-
-Multiple Product-home candidates are intentionally ambiguous; a per-work primary may
-disambiguate them or provide a home when no Product-home is designated. A single
-secondary Project is never silently promoted to home.
-The operator resolves ambiguity by designating/aligning Product homes or explicitly
-setting W's primary Project through PM5, then retries idempotently.
-
-This rule is rebuild-stable because Product-home, primary-Project, and Project-level
-knowledge-locator designations are typed authoritative configuration—not process cwd,
-current repo, or free-form choice. PM6 defines these placement references.
-
-## 4. Canonical note and durable locator
-
-### In-tree markdown
-
-Notes are ordinary tracked files, not `git notes`, bare blobs, database text, or
-generated stubs. Default paths remain:
-
-```text
-.concord/docs/work/YYYY-MM-DD-{slug}-{work-id-suffix}.md
-.concord/docs/lessons/YYYY-MM-DD-{slug}.md
-.concord/law/decisions/CD-NNNN-{slug}.md
-```
-
-The work note includes machine-readable identity metadata plus the concise human
-template:
-
-```yaml
----
-concord_work_id: work-...
-work_type: implementation
-title: Example outcome
-completed_at: 2026-08-05T00:00:00Z
-outcome_tag: shipped
-lesson_tags: [sqlite, state-authority]
-terminal_state: completed
-priority: {priority}
-summary: {bounded value/outcome summary}
-product_ids: [product-...]
-project_ids: [project-...]
-domain_ids: [domain-...]
-tag_ids: [tag-...]
-# successor_work_id is required only when terminal_state=superseded
----
-```
-
-The stable work ID prevents same-day slug collisions. The bounded front matter maps
-deterministically to `archived_work` identity/type/title/completion/outcome/tags;
-path and commit come from the scanned git tree. Generated metadata does not turn the
-note into a state dump. Accepted compaction-retention-policy requires these bounded historical-scope fields
-before a note's live work can become projection-prune-eligible; older notes need the
-specified backfill and proof verification first.
-
-During CD-0222 migration, a legacy `component_ids` field maps one-for-one to
-`domain_ids` with retained IDs. New compaction writes only `domain_ids`; the
-legacy field is never emitted after the manifest/Domain cutover.
-
-CD-0215 research packs are never canonical notes and do not gain a Git path. During
-archive, the reviewed work note may preserve selected enduring reasoning/source links
-alongside the normal outcome, while complete pack revisions/findings/source lists stay
-out of Git and are deleted after publish/linkage proof. A decision, spec, or lesson
-promoted from research uses its existing separate durable form.
-
-### Typed locator
-
-The `archived_work` linkage uses:
+The historical `archived_work` reader retains this locator:
 
 ```text
 home_project_id
@@ -200,239 +91,62 @@ commit_oid
 content_hash
 ```
 
-- `home_project_id`/`home_locator_id` identify the logical repository across path,
-  remote, clone, and archive changes;
-- `note_path` identifies the file within the commit tree;
-- `commit_oid` fixes the exact git tree version;
-- `content_hash` independently verifies note bytes.
+Project and locator IDs identify the logical repository across path, remote,
+clone and archive changes. The path identifies the file in the recorded commit;
+`content_hash` verifies the note bytes. Mutable paths and remotes resolve at read
+time and never replace these identity fields. A historical note hash is not a
+workflow closure hash.
 
-Current path/remote URLs are resolved from the Project locator at read time and are
-never durable identity fields in the archived index.
+Existing work metadata, including `lesson_tags`, terminal state, terminal time,
+frozen Product/Project/Domain/tag scope and any canonical successor, stays
+readable without a new publication or backfill requirement. Legacy
+`component_ids` maps to `domain_ids` with the retained IDs.
 
-## 5. Publish protocol and recovery seam
+One work ID resolves to at most one canonical historical note.
+Historical readers verify the recorded commit, path, work identity and note hash.
+They never infer a different note or silently choose between two valid notes
+claiming one work ID. Read inspection does not publish, reconcile, prune, change
+membership or mutate research. Verified PM10 recovery may reconstruct the
+existing Git-derived historical projection; it creates no law catalog or public
+rebuild surface.
 
-Git and SQLite cannot share one atomic transaction. PM6 therefore defines a
-monotonic publish protocol rather than pretending cross-store atomicity:
-
-1. resolve one eligible home using §3;
-2. draft note; salvage and evidence review fix its exact content and home (PM9);
-3. commit the note to git;
-4. verify `commit_oid:note_path` exists, contains the expected `concord_work_id`, and
-   hashes to `content_hash`;
-5. only then, in one SQLite transaction, record the compaction-link row and write
-   the derived `archived_work` locator/index state;
-6. Accepted compaction-retention-policy may later prune only verified eligible projections through a bounded
-   lazy operation; it keeps current rows and the git-rebuildable historical index
-   ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-
-PM6 proves durable linkage; compaction-retention-policy owns the bounded lazy pruning transition.
-
-Failure before the Git commit leaves only a draft.
-Failure after the commit but before the SQLite publication step settles leaves an incomplete publication operation; reconciliation finds and verifies the same note by work ID rather than creating another.
-A committed note whose identity and content proof verify already reads as the
-canonical note in Git during that interval.
-A canonical note in Git does not prove that the publication operation settled or that the closure judgement was accepted, and it does not grant cleanup eligibility.
-SQLite never records a canonical locator before verifying its Git proof.
-
-Work-note reconstruction rebuilds the derived `archived_work` linkage and its
-frozen scope populations from Git. It runs on publication and reconciliation,
-during verified PM10 recovery, or to refresh historical-work coverage required
-by [compaction-retention-policy §4](compaction-retention-policy.md#4-one-query-population-across-tiers).
-It exposes no public search or rebuild operation and creates no law catalog.
-It is proof-preserving and scopes work-note metadata only; it builds no
-registry over law, reference, or lesson documents. Two valid notes claiming one work ID are typed
-`ambiguous`; neither is silently selected. A locator whose object/hash cannot be
-verified is `missing` or `degraded`, never authoritative.
-
-## 6. Discovery without copies
-
-- The retained work surface owns proof and discovery for its work item: the
-  stored `archived_work` linkage resolves the one typed locator when its Git
-  proof is current — the recorded commit contains `note_path` and its bytes
-  hash to `content_hash`.
-- Every affected Product/Project discovers the same note through PM5 work membership
-  joins; no member repo receives a stub or duplicate markdown file.
-- Repository-local text search finds notes physically housed there; no Concord
-  query pretends every repo contains every note.
-- If the store is unavailable, an operator with the eligible git authorities can
-  read note metadata directly from Git. That is a host capability, not a Concord
-  query; PM10 owns the full restore procedure.
-
-## 7. Rename, archive, offline, and deletion
-
-- **Rename/move:** update Project locator attributes; stable IDs, commit OID, path,
-  and content hash remain unchanged.
-- **Read-only archive:** valid if git objects remain fetchable; new compaction must
-  choose another eligible writable home.
-- **Offline/unreachable:** locator identity remains known, but content reads return
-  `authority=unreachable`; never return authoritative empty.
-- **Deleted/lost remote:** return `authority=unreachable` until every applicable
-  canonical git authority can be checked. Return outcome `missing` only when
-  authority coverage is complete and the object is absent; PM10 may recover from
-  another clone/backup by commit OID and verify content hash.
-- **Home removal:** Product/Project home designation cannot be removed while it is
-  locked from content review (step 2) through SQLite linkage (step 5). Existing
-  note locators remain valid historical references even if the Project later leaves
-  Product membership.
-
-Notes are not automatically migrated when locators or Product membership change.
-Migration would create a new commit/location and must be an explicit proof-preserving
-operation; PM10 governs recovery, not silent copy-on-move behavior.
-
-## 8. Note result semantics
-
-### Outcomes
-
-Product visibility validates the note's frozen `archived_work_products`
-population. An empty frozen population does not acquire Product membership
-from later changes to its home Project. This check does not select or rewrite
-the canonical locator: the stored Project/locator IDs still resolve the
-current path, while the recorded commit OID and content hash prove the
-historical note.
+## 4. Read outcomes and authority
 
 | Outcome | Meaning |
 |---|---|
-| canonical locator | one verified note proof exists: the recorded commit contains the path and its bytes hash to the recorded content hash |
-| not_compacted | retained work has no verified canonical note in the applicable note locations; an incomplete publication operation alone does not prevent discovery of a verified note |
-| `ambiguous` | home selection failed or multiple notes claim the work ID |
-| `missing` | recorded/candidate git object cannot be found after required authorities were checked |
-
-### Common authority field
+| canonical locator | the recorded commit contains the path, work identity and bytes matching the recorded content hash |
+| `not_compacted` | no verified historical canonical note is available; this does not prevent completion |
+| `ambiguous` | multiple valid notes claim the work ID |
+| `missing` | the recorded object is absent after complete authority coverage |
 
 | Authority | Meaning |
 |---|---|
-| `authoritative` | every applicable canonical git authority/head needed for the answer is covered by the resolved commit's read |
-| `degraded` | required work-note coverage is reachable but incomplete or lagging; the result names its omissions and proves no absence |
-| `unreachable` | an applicable canonical git authority cannot currently be contacted/opened |
+| `authoritative` | every applicable authority needed for the historical answer is covered |
+| `degraded` | reachable coverage is incomplete or lagging; bounded omissions are explicit |
+| `unreachable` | a required Git authority cannot be opened or contacted |
 
-Absence is proven only when every applicable canonical git authority was read
-at one resolved commit.
-
-## 9. Structural invariants
-
-1. **One note:** one work ID resolves to at most one canonical git note.
-2. **Deterministic home:** selection uses only Product-home and primary-Project
-   designations; absent/competing inputs fail typed `ambiguous`.
-3. **Git proof first:** SQLite never records compacted knowledge before verifying the
-   committed git object/path/content hash.
-4. **Stable identity:** Project/locator IDs identify the home; mutable paths/remotes
-   never become authority.
-5. **No copies/stubs:** all memberships resolve the same locator.
-6. **Work-note reconstruction:** bounded work-note front matter plus git
-   tree/path/commit is sufficient to reconstruct the derived `archived_work`
-   linkage and detect duplicate claims during publication, reconciliation,
-   verified PM10 recovery, or historical-work coverage refresh — never as a
-   public search or a law-index rebuild.
-7. **Typed uncertainty:** missing/degraded/unreachable/ambiguous are distinct from
-   authoritative empty or success.
-8. **No destructive recovery:** orphan notes are verified/re-indexed or surfaced;
-   never deleted merely because SQLite linkage failed.
-
-## 10. Alternatives rejected
-
-### Free operator-selected member repository
-
-Rejected. Without an authoritative designation it is not rebuild-stable and makes
-cwd/current-repo accidents part of durable knowledge placement.
-
-### Concord-wide fallback knowledge repository
-
-Rejected by operator choice. It prevents a typed ambiguity from blocking compaction
-but adds another durable git authority and weakens locality.
-
-### Copy/stub in every affected repository
-
-Rejected. Copies can diverge; stubs create rename/move maintenance and violate PM1's
-one canonical locator.
-
-### Git notes or bare content objects
-
-Rejected as placement. They are not normal browsable/greppable tree markdown. Git
-content addressing remains part of the locator/proof.
-
-### SQLite as durable note authority
-
-Rejected. PM2/CD-0002 place durable knowledge in git and keep SQLite's historical
-index disposable/rebuildable.
-
-## 11. Scope deliberately deferred
-
-PM6 does not decide:
-
-- PM10 backup topology, clone inventory, wipe-machine restore, or lost-home repair;
-- tool names, adapters, authorization, or batch behavior;
-- exact git command/API implementation, branch/PR policy, or locator schema syntax.
-
-## 12. Falsifiers
-
-Reopen PM6 if:
-
-1. deterministic home selection cannot be rebuilt from accepted state;
-2. primary-less/cross-Product work blocks compaction often enough that explicit home
-   designation is operationally unreasonable;
-3. content-address verification or unique-work metadata cannot reliably detect
-   duplicate/orphan notes;
-4. Product-wide discovery requires copied repo-local notes to meet an accepted job;
-5. a legitimate work item requires multiple independently authoritative notes;
-6. repo archive/move routinely breaks stable Project/locator resolution;
-7. PM10 proves the selected locator cannot support clean-machine recovery.
-
-## 13. Primary sources
-
-- Fowler ADR guidance: https://martinfowler.com/bliki/ArchitectureDecisionRecord.html
-- Log4brains multi-repo ADR patterns: https://github.com/thomvaill/log4brains
-- Cross-cutting ADR repository example:
-  https://github.com/opinionated-digital-center/architecture-decision-records
-- Git notes: https://git-scm.com/docs/git-notes
-- Git hash transition/content addressing: https://git-scm.com/docs/hash-function-transition
-
-External sources are comparison evidence. PM1, PM2, PM5, CD-0002,
-operator choice, and the falsifiers above remain controlling.
+An offline or lost remote does not prove absence. Historical Product visibility
+uses frozen associations, not later home-Project memberships. A renamed, moved or
+read-only home does not rewrite a locator. Recovery may use another clone or
+backup to resolve the recorded commit and verify the hash under PM10.
 
 ## Acceptance criteria
 
-- Given a terminal work item with no deterministic git home
-  When compaction resolves its home
-  Then the operation blocks with typed `ambiguous` and creates no note.
+- Given accepted delivery and the other current completion requirements
+  When completion commits
+  Then terminal identity and reported links survive without a Git/GitHub read,
+  publication operation, closure hash or retained workflow step records.
 
-- Given a publish that committed to git but not yet to SQLite
-  When publication or reconciliation verifies the work item's note
-  Then the Git-first proof — path, commit OID, work ID, and content hash —
-  resolves the note as canonical, and the unsettled publication makes nothing
-  eligible for cleanup. Work with no verified note is `not_compacted`.
+- Given existing historical work and lesson tags
+  When upgrade, restore or a historical read runs
+  Then its recorded locator, note content hash and lesson tags remain unchanged.
 
-- Given an orphan canonical-looking note from an interrupted publish
-  When a retry runs
-  Then it finds and verifies the same note by work ID rather than creating a
-  second note.
-
-- Given a committed note
-  When the compaction link verifies it
-  Then path, commit OID, work ID, and content hash must all verify; a hash
-  mismatch or unsafe path fails the proof.
-
-- Given one work ID claimed by two valid notes
-  When work-note reconciliation runs
-  Then the claim is typed `ambiguous` and neither note is silently selected.
+- Given incomplete, conflicting or unreachable historical note proof
+  When the historical reader answers
+  Then it returns typed uncertainty rather than guessed authority or absence.
 
 ## Verification
 
-- Criterion 1 is proved by the bound `AJ6-compact-terminal-work` scenario of
-  `.concord/scenarios/agent-jobs.v1.json`, executed by `TestAgentJobsCorpus`
-  (`internal/agent/agent_jobs_corpus_test.go`).
-- Criterion 2's canonical-placement witness is
-  `TestValidateNotePathAdmitsLawDecisionNotes`
-  (`internal/store/knowledge_note_path_test.go`); integrated discovery and
-  cleanup coverage remains unmeasured.
-- Criterion 3 is proved by
-  `TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote`
-  (`internal/agent/mutation_dispatch_test.go`).
-- Criterion 4's retained proof is `VerifyCommittedNote`
-  (`internal/store/git_knowledge.go`), exercised by
-  `TestVerifyCommittedNoteDefaultRunnerStaysBounded`
-  (`internal/store/git_note_bounded_test.go`); hash-mismatch and unsafe-path
-  rejection cases remain unmeasured.
-- Criterion 5's retained parser is `parseKnowledgeNote`
-  (`internal/store/git_knowledge.go`); its dedicated rejection tests were
-  retired with the index and the rejection cases remain unmeasured. Section 12
-  records the falsifiers for each guarantee.
+Completion and upgrade need mutation witnesses; historical preservation and
+uncertainty need read witnesses. Criterion bindings identify those boundaries,
+not a claim of executed integration evidence.

@@ -123,18 +123,8 @@ type ContinuitySnapshot struct {
 	// time. Nil when the contract binds no law and no Domain.
 	LawContext *WorkflowLawContext `json:"law_context,omitempty"`
 	// WorkContext and WorkContextUnavailable carry the shared projection.
-	// The outside-repair early exit does not evaluate either field.
 	WorkContext            *WorkContextView        `json:"work_context,omitempty"`
 	WorkContextUnavailable *WorkContextUnavailable `json:"work_context_unavailable,omitempty"`
-	// OutsideRepairDisposition names the work's outside-repair disposition
-	// when one is recorded. The store keeps the typed evidence the boundary
-	// authenticated and refuses every managed workflow move while the
-	// disposition is active.
-	OutsideRepairDisposition *OutsideRepairDisposition `json:"outside_repair_disposition,omitempty"`
-	// OutsideRepairRoute is the declared recovery route the boundary code
-	// dispatches when the disposition holds the work. The store owns the
-	// typed route and never fabricates a workflow action list as a remedy.
-	OutsideRepairRoute []string `json:"outside_repair_route,omitempty"`
 }
 
 type ContinuityRequest struct {
@@ -193,15 +183,6 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err != nil {
 		return out, err
 	}
-	// Outside repair is readable without trusting the workflow it must repair.
-	// Establish work and Product identity first, then stop before definition,
-	// contract, admission, or managed history enrichment.
-	if err := continuityReadOutsideRepairTx(ctx, tx, req.Work, &out); err != nil {
-		return out, err
-	}
-	if disposition := out.OutsideRepairDisposition; disposition != nil && disposition.State != OutsideRepairStateResumed {
-		return continuityReadOutsideRepairIdentityTx(ctx, tx, req.Work, registry, out)
-	}
 	if err := continuityReadManagedHistoryTx(ctx, tx, req, registry, offset, &out); err != nil {
 		return out, err
 	}
@@ -252,25 +233,6 @@ func continuityReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, ou
 	return out, nil
 }
 
-func continuityReadOutsideRepairIdentityTx(ctx context.Context, tx *sql.Tx, workID string, registry DefinitionRegistry, out ContinuitySnapshot) (ContinuitySnapshot, error) {
-	pin, err := readWorkPinForRegistryTx(ctx, tx, workID, registry)
-	if err != nil {
-		return out, err
-	}
-	out.WorkPin = &pin
-	out.Watermark = pin.Watermark
-	out.WorkflowInstance = WorkflowInstanceAbsent
-	err = tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&out.WorkflowStep)
-	if err == nil {
-		out.WorkflowInstance = WorkflowInstancePresent
-	} else if err != sql.ErrNoRows {
-		return out, workflowProjectionError(err, "cannot read outside-repair workflow identity")
-	}
-	out.NativeRuns = []NativeRunReport{}
-	out.Observations = []WorkObservation{}
-	return out, nil
-}
-
 func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req ContinuityRequest, registry DefinitionRegistry, offset int, out *ContinuitySnapshot) error {
 	err := readContinuityInstanceForRegistryTx(ctx, tx, req.Work, registry, out)
 	if err != nil {
@@ -316,28 +278,6 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 		return viewErr
 	}
 	out.WorkContext, out.WorkContextUnavailable = view, unavailable
-	return nil
-}
-
-// continuityReadOutsideRepairTx exposes the work's outside-repair disposition
-// and the declared recovery route the boundary code dispatches. The route is
-// present while a disposition is active, regardless of whether the work item
-// also carries a workflow instance, so a host process can drive the reconcile
-// without rereading the workflow projection.
-func continuityReadOutsideRepairTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
-	disposition, err := outsideRepairDispositionTx(ctx, tx, work)
-	if err != nil {
-		return err
-	}
-	out.OutsideRepairDisposition = disposition
-	if disposition != nil && disposition.State == OutsideRepairStateActive {
-		out.OutsideRepairRoute = outsideRepairRouteNames()
-	}
-	if disposition != nil && disposition.State != OutsideRepairStateResumed {
-		out.StepActions = []string{}
-		out.RestartAvailable = false
-		out.RestartUnavailableReason = "outside-repair disposition owns the work"
-	}
 	return nil
 }
 

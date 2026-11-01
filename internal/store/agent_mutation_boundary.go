@@ -48,11 +48,6 @@ type WorkflowInstanceDefinition struct {
 	DefinitionDigest string
 }
 
-// DurableOperationRecord identifies the newest pending attempt for a work item.
-type DurableOperationRecord struct {
-	OperationID string
-}
-
 func (s *Store) LookupMutationIdempotency(ctx context.Context, key MutationIdempotencyKey) (MutationIdempotencyRecord, bool, error) {
 	if s == nil || s.db == nil {
 		return MutationIdempotencyRecord{}, false, newFailure(KindUnavailable, "mutation_idempotency", "store is not open", false, "open the authority database")
@@ -201,25 +196,6 @@ func terminalWorkVersion(ctx context.Context, q queryer, workID string) (int64, 
 		return 0, wrapFailure(KindUnavailable, "terminal_work", "cannot read terminal work version", true, "retry once the database is readable", err)
 	}
 	return version, nil
-}
-
-func (s *Store) PendingOperationForWork(ctx context.Context, workID string) (DurableOperationRecord, error) {
-	if s == nil || s.db == nil {
-		return DurableOperationRecord{}, newFailure(KindUnavailable, "pending_operation", "store is not open", false, "open the authority database")
-	}
-	return pendingOperationForWork(ctx, s.db, workID)
-}
-
-func pendingOperationForWork(ctx context.Context, q queryer, workID string) (DurableOperationRecord, error) {
-	var operation DurableOperationRecord
-	err := q.QueryRowContext(ctx, `SELECT op_id FROM durable_operations WHERE work_id=? AND (result_kind IS NULL OR result_kind IN ('pending','partial')) ORDER BY attempt_epoch DESC LIMIT 1`, workID).Scan(&operation.OperationID)
-	if err == sql.ErrNoRows {
-		return DurableOperationRecord{}, newFailure(KindProjectionNotFound, "pending_operation", "pending durable operation does not exist", false, "reread the work item")
-	}
-	if err != nil {
-		return DurableOperationRecord{}, wrapFailure(KindUnavailable, "pending_operation", "cannot read pending durable operation", true, "retry once the database is readable", err)
-	}
-	return operation, nil
 }
 
 func WorkLifecycleTx(ctx context.Context, transaction *Transaction, workID string) (string, error) {

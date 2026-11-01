@@ -188,8 +188,8 @@ func TestWorkflowReplayStoresCommittedResponse(t *testing.T) {
 		t.Fatal("result identity references were discarded")
 	}
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
-	owner, err := store.Step(context.Background(), s, "workflow-"+digest[7:31])
-	if err != nil || owner.ResultKind != store.ResultCompleted || len(owner.ResultPayload) == 0 || len(owner.ChangedRefs) != 1 {
+	owner, err := readOperationResult(context.Background(), s, "workflow-"+digest[7:31])
+	if err != nil || owner.ResultKind != "completed" || len(owner.ResultPayload) == 0 || len(owner.ChangedRefs) != 1 {
 		t.Fatalf("durable owner=%+v err=%v", owner, err)
 	}
 	prior, found, err := s.LookupMutationIdempotency(context.Background(), store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: "concord_work_transition", OperationKind: "workflow_action", IdempotencyKey: "no-response-copy"})
@@ -211,10 +211,7 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 		want                                         agentcontract.Outcome
 	}{
 		{name: "completed", kind: "completed", want: agentcontract.OutcomeOK},
-		{name: "pending", kind: "pending", want: agentcontract.OutcomePending},
-		{name: "partial", kind: "partial", want: agentcontract.OutcomePartial},
-		{name: "failed", kind: "failed", want: agentcontract.OutcomePartial},
-		{name: "failed_stale", kind: "failed_stale", want: agentcontract.OutcomePartial},
+		{name: "unsupported result kind", kind: "future_result", want: agentcontract.OutcomeError},
 		{name: "malformed result", kind: "completed", ownerPayload: "{}", want: agentcontract.OutcomeError},
 		{name: "different producer manifest", kind: "completed", ownerDigest: "sha256:" + strings.Repeat("0", 64), want: agentcontract.OutcomeOK},
 		{name: "incompatible result from different producer manifest", kind: "completed", ownerDigest: "sha256:" + strings.Repeat("0", 64), ownerPayload: "{}", want: agentcontract.OutcomeError},
@@ -277,7 +274,7 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 			if vector.want == agentcontract.OutcomeOK && string(transaction.Result) != string(public.Result) {
 				t.Fatalf("transaction result=%s public=%s", transaction.Result, public.Result)
 			}
-			if !sameWorkflowReplayError(transaction.Error, public.Error) || !reflect.DeepEqual(transaction.OperationRef, public.OperationRef) {
+			if !sameWorkflowReplayError(transaction.Error, public.Error) {
 				t.Fatalf("classification mismatch: transaction=%+v public=%+v", transaction, public)
 			}
 			if err := transaction.Validate(); err != nil {
@@ -361,7 +358,7 @@ func TestIdempotencyDeduplicationBackupRestore(t *testing.T) {
 	ctx := context.Background()
 	r, grant, raw, first := committedWorkflowReplay(t)
 	ownerID := "workflow-" + mutationDigest(r.Tool, r.Operation, r.Envelope, raw)[7:31]
-	ownerBefore, err := store.Step(ctx, r.Store, ownerID)
+	ownerBefore, err := readOperationResult(ctx, r.Store, ownerID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +392,7 @@ func TestIdempotencyDeduplicationBackupRestore(t *testing.T) {
 	if workflowReplayIndex(t, restored) != indexBefore {
 		t.Fatal("backup or restore changed idempotency index")
 	}
-	ownerAfter, err := store.Step(ctx, restored, ownerID)
+	ownerAfter, err := readOperationResult(ctx, restored, ownerID)
 	if err != nil || !reflect.DeepEqual(ownerBefore, ownerAfter) {
 		t.Fatalf("durable owner changed: before=%+v after=%+v err=%v", ownerBefore, ownerAfter, err)
 	}
@@ -575,17 +572,11 @@ func TestWorkflowActionAvailabilityPrecedesPayloadAndAuthorityValidation(t *test
 func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *testing.T) {
 	t.Parallel()
 	for _, vector := range []struct {
-		name           string
-		resultKind     string
-		want           agentcontract.Outcome
-		operationState agentcontract.OperationState
-		retrySafe      bool
+		name       string
+		resultKind string
+		want       agentcontract.Outcome
 	}{
 		{name: "current success", resultKind: "completed", want: agentcontract.OutcomeOK},
-		{name: "current pending", resultKind: "pending", want: agentcontract.OutcomePending, operationState: agentcontract.OperationPending},
-		{name: "partial", resultKind: "partial", want: agentcontract.OutcomePartial, operationState: agentcontract.OperationPartial, retrySafe: true},
-		{name: "current failure", resultKind: "failed", want: agentcontract.OutcomePartial, operationState: agentcontract.OperationFailed},
-		{name: "failed stale", resultKind: "failed_stale", want: agentcontract.OutcomePartial, operationState: agentcontract.OperationFailed},
 	} {
 		t.Run(vector.name, func(t *testing.T) {
 			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
@@ -615,7 +606,7 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 			if invokeErr != nil {
 				t.Fatal(invokeErr)
 			}
-			if response.Outcome != vector.want || !response.Replayed || (vector.want != agentcontract.OutcomeOK && response.OperationRef == nil) {
+			if response.Outcome != vector.want || !response.Replayed {
 				if response.Error != nil {
 					t.Fatalf("%s replay outcome=%s replayed=%t error=%s message=%s", vector.name, response.Outcome, response.Replayed, response.Error.Kind, response.Error.Message)
 				}
@@ -623,12 +614,6 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 			}
 			if vector.want == agentcontract.OutcomeOK && response.Error != nil {
 				t.Fatalf("successful replay returned error=%+v", response.Error)
-			}
-			if vector.want == agentcontract.OutcomePending && (response.OperationRef == nil || response.OperationRef.State != agentcontract.OperationPending) {
-				t.Fatalf("pending replay operation_ref=%+v", response.OperationRef)
-			}
-			if vector.want == agentcontract.OutcomePartial && (response.OperationRef == nil || response.OperationRef.State != vector.operationState || response.Error == nil || response.Error.Kind != "operation_conflict" || response.Error.RetrySafe != vector.retrySafe || response.Error.RecoveryAction.Kind != "reconcile_operation") {
-				t.Fatalf("failed replay operation_ref=%+v error=%+v", response.OperationRef, response.Error)
 			}
 			if err := response.Validate(); err != nil {
 				t.Fatalf("replay envelope validation: %v", err)
@@ -778,6 +763,16 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 		t.Fatal(err)
 	}
 	return opID
+}
+
+func readOperationResult(ctx context.Context, s *store.Store, opID string) (store.OperationResult, error) {
+	var result store.OperationResult
+	err := s.Transact(ctx, func(tx *store.Transaction) error {
+		var err error
+		result, err = store.OperationResultTx(ctx, tx, opID)
+		return err
+	})
+	return result, err
 }
 
 func countWorkflowEvents(t *testing.T, s *store.Store) int {

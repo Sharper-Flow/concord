@@ -38,8 +38,6 @@
 //   - workflow_dispatch.go, workflow_preflight.go: action admission inside the
 //     owning transaction.
 //   - workflow_domain_overlap.go: the resolve_overlap work-relation writer.
-//   - outside_repair.go: completion-receipt validation and persistence;
-//     internal/workflowproof owns the receipt model and authenticated collector.
 //   - project_handoffs.go: Project handoff record, consume, and recovery.
 //   - research_*.go, law_boundary.go, knowledge_*.go: research-pack
 //     identity, consumer pins, accepted-law lookup, derived projections.

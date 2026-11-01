@@ -102,7 +102,6 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 			t.Fatalf("the successor's confirmation: %v", err)
 		}
 		// The confirmed successor reaches its terminal on the preserved proof.
-		bindCompletionClosure(t, s, workID, owner)
 		if err := runCoordinatorActionTx(t, s, registry, workID, "complete", owner, `{"impact_verdict":"non-breaking"}`); err != nil {
 			t.Fatalf("the confirmed successor's completion: %v", err)
 		}

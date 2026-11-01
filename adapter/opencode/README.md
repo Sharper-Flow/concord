@@ -72,7 +72,7 @@ values. Operator setup commands use these closed values:
 - Membership `role`: `primary` or `secondary`.
 - Locator `kind`: `canonical_path` or `git_remote`.
 - Client capabilities: `product_read`, `work_define`,
-  `work_transition`, `work_relate`, `work_compact`, or `cross_scope`.
+  `work_transition`, `work_relate`, or `cross_scope`.
 
 ### Authorize the primary agent names before activation
 

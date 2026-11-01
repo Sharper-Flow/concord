@@ -435,9 +435,6 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *w
 	}
 	// Resolve the hold before ordinary workflow gates can fail on the state
 	// under repair. The lifecycle writer rechecks the same admission boundary.
-	if err := requireWorkLifecycleAdmissionTx(ctx, tx, event, payload.To, nil); err != nil {
-		return err
-	}
 	current, err := readWork(ctx, tx, event.SubjectID)
 	if err != nil {
 		return err
@@ -490,9 +487,6 @@ func requireWorkCompletionTx(ctx context.Context, tx *sql.Tx, workID string, reg
 			return err
 		}
 		definition = registered.Definition
-		if err := requireReviewedClosureQ(ctx, tx, workID); err != nil {
-			return err
-		}
 	}
 	// CD-0013 D4 binds a DecisionRecordRequired completion to the recorded
 	// row on the lifecycle path. A completed instance proves the ordered
@@ -588,9 +582,6 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.Reason == "" || payload.Superseded != event.SubjectID || payload.Successor == "" || payload.Successor == payload.Superseded {
 		return newFailure(KindInvalidPayload, "fold_event", "work.superseded payload does not identify two distinct work items", false,
 			"supply successor and superseded work IDs plus a non-empty reason")
-	}
-	if err := requireWorkLifecycleAdmissionTx(ctx, tx, event, "superseded", nil); err != nil {
-		return err
 	}
 	predecessor, err := readWork(ctx, tx, payload.Superseded)
 	if err != nil {
@@ -974,9 +965,6 @@ func validateWorkVersion(subjectID string, current, expected, resulting int64) e
 }
 
 func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, current, resulting int64, scope *writeScope) error {
-	if err := requireWorkLifecycleAdmissionTx(ctx, tx, event, lifecycle, scope); err != nil {
-		return err
-	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	var terminalTime any
 	if isTerminalLifecycle(lifecycle) {
@@ -1018,15 +1006,9 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 		if err := closeWorkflowInstanceForTerminalLifecycle(ctx, tx, event.SubjectID, lifecycle, now); err != nil {
 			return err
 		}
+		return discardTerminalWorkflowStepsTx(ctx, tx, event.SubjectID)
 	}
 	return nil
-}
-
-func requireWorkLifecycleAdmissionTx(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, scope *writeScope) error {
-	if scope.permitsOutsideRepairLifecycle(tx, event, lifecycle) {
-		return nil
-	}
-	return requireNoOutsideRepairTx(ctx, tx, event.SubjectID, "fold_event")
 }
 
 // refuseLiveWorkflowLifecycleCompletionTx refuses a completed lifecycle
@@ -1043,7 +1025,7 @@ func refuseLiveWorkflowLifecycleCompletionTx(ctx context.Context, tx *sql.Tx, wo
 	if err != nil {
 		return workflowProjectionError(err, "cannot read the workflow instance for lifecycle completion")
 	}
-	if state == "completed" || state == "cancelled" || state == "superseded" || state == "outside_repair" {
+	if state == "completed" || state == "cancelled" || state == "superseded" {
 		return nil
 	}
 	return newFailure(KindNotTerminal, "fold_event",
@@ -1057,15 +1039,13 @@ func refuseLiveWorkflowLifecycleCompletionTx(ctx context.Context, tx *sql.Tx, wo
 // the instance records the abandoned workflow as cancelled while the item's
 // lifecycle carries the outcome and its evidence. An instance that already
 // reached a terminal state keeps that record: workflow.completed is the only
-// fold that may mark an instance completed. An outside_repair instance closed
-// through a reconciliation event keeps its terminal state, and a transition
-// that follows the reconciliation event leaves it alone.
+// fold that may mark an instance completed.
 func closeWorkflowInstanceForTerminalLifecycle(ctx context.Context, tx *sql.Tx, workID, lifecycle, at string) error {
 	state := "cancelled"
 	if lifecycle == "superseded" {
 		state = "superseded"
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?, completed_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded','outside_repair')`, state, at, workID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?, completed_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, state, at, workID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot close the workflow instance of a terminal work item", true,
 			"retry once the database is writable", err)
 	}

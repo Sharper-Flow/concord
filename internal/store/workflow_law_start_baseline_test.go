@@ -9,8 +9,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/sharper-flow/concord/internal/workflowproof"
 )
 
 // Naming a law after editing it cannot turn the edit into before-state.
@@ -385,32 +383,15 @@ func TestLawProofStandaloneHomeKeepsLegacyRead(t *testing.T) {
 	}
 }
 
-// An older current pin remains readable. The existing outside-repair route
-// can reconcile real delivery, but cannot invent an owning-start snapshot or
-// turn a resume into ordinary completion evidence.
-func TestLawBaselineMissingCurrentPinKeepsOutsideRepairRoute(t *testing.T) {
+func TestLawBaselineMissingCurrentPinCannotInferOwningStart(t *testing.T) {
 	const id = "pre-baseline-current-pin"
 	s, _ := lawUpgradePrefixForDefinition(t, id, "proposal", 0, 0, "workflow.implementation")
 	if _, err := ReadWorkPin(t.Context(), s, id); err != nil {
 		t.Fatal(err)
 	}
 	requireFailureKind(t, enactLawChange(t, s, id, nil, nil), KindMissingEvidence, "cannot infer owning start from a current pin")
-	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, id, "hold"), WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
-		t.Fatal(err)
-	}
-	request := outsideRepairTestRequest(t, s, id, "reconcile")
-	if err := outsideRepairApply(t, s, request, WorkflowOutsideRepairReconciled, workflowproof.Evidence{}); err == nil {
-		t.Fatal("outside repair replaced missing delivery evidence with the current pin")
-	}
-	if err := outsideRepairApply(t, s, request, WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()); err != nil {
-		t.Fatal(err)
-	}
-	pin, err := ReadWorkPin(t.Context(), s, id)
-	if err != nil || pin.Lifecycle != "completed" || pin.OutsideRepairDisposition == nil || pin.OutsideRepairDisposition.State != OutsideRepairStateCompleted {
-		t.Fatalf("outside-repair disposition: %+v error=%v", pin, err)
-	}
 	var invented int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM workflow_law_baselines WHERE work_id=?)+(SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind='workflow.completed')`, id, id).Scan(&invented); err != nil || invented != 0 {
-		t.Fatalf("reconciliation invented ordinary workflow proof: count=%d error=%v", invented, err)
+		t.Fatalf("current pin invented ordinary workflow proof: count=%d error=%v", invented, err)
 	}
 }

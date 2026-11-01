@@ -175,8 +175,8 @@ func lawUpgradeRefusal(t *testing.T, s *Store, id string, clause int, run func()
 	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || failure.Clause != clause || !strings.Contains(failure.Detail, "no law before-state anchored at its owning start") {
 		t.Fatalf("route did not reach the missing owning-start clause: %v", err)
 	}
-	if !strings.Contains(failure.RecoveryAction, "cancel and re-capture") || !strings.Contains(failure.RecoveryAction, "boundary-authenticated outside repair") {
-		t.Fatalf("missing-baseline refusal lost the distinct recovery routes: %+v", failure)
+	if !strings.Contains(failure.RecoveryAction, "cancel and re-capture") || strings.Contains(failure.RecoveryAction, "outside repair") {
+		t.Fatalf("missing-baseline refusal lost the supported recovery route: %+v", failure)
 	}
 	if after := lawUpgradeSnapshot(t, s); !reflect.DeepEqual(after, before) {
 		t.Error("refusal changed the application-table snapshot")
@@ -262,11 +262,6 @@ func TestWorkflowLawUpgradeCompletionRoutes(t *testing.T) {
 		t.Run(route, func(t *testing.T) {
 			id := "upgrade-" + route
 			s, owner := lawUpgradePrefix(t, id, "complete", 1, 1)
-			// Real close-step binding supplies the exact settled action, producer,
-			// hash and phase-exit provenance required by completion clause 1.
-			if err := lawUpgradeAction(t, s, id, owner, "bind_evidence", map[string]any{"evidence_kind": "review", "immutable_subject_ref": closureTestHash}); err != nil {
-				t.Fatalf("prepare ordinary closure evidence: %v", err)
-			}
 			lawUpgradeRefusal(t, s, id, 3, func() error {
 				if route == "complete_action" {
 					return lawUpgradeAction(t, s, id, owner, "complete", map[string]any{"impact_verdict": "non-breaking"})
@@ -285,9 +280,6 @@ func TestWorkflowLawUpgradeCompletionRoutes(t *testing.T) {
 func TestWorkflowLawUpgradeLegacyCompletion(t *testing.T) {
 	const id = "upgrade-legacy-completion"
 	s, owner := lawUpgradePrefix(t, id, "complete", 1, 0)
-	if err := lawUpgradeAction(t, s, id, owner, "bind_evidence", map[string]any{"evidence_kind": "review", "immutable_subject_ref": closureTestHash}); err != nil {
-		t.Fatal(err)
-	}
 	if err := lawUpgradeAction(t, s, id, owner, "complete", map[string]any{"impact_verdict": "non-breaking"}); err != nil {
 		t.Fatalf("retained boundary-0 completion: %v", err)
 	}
@@ -325,12 +317,12 @@ func TestWorkflowLawUpgradeCancellationRecapture(t *testing.T) {
 	if err := lawUpgradeAction(t, s, fresh, owner, "approve_contract", lawUpgradeContractFields(false)); err != nil {
 		t.Fatalf("genuine new start did not admit ordinary approval: %v", err)
 	}
-	var completed, reconciled int
+	var completed int
 	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind='workflow.completed'`, old).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM outside_repair_reconciliations WHERE work_id=?`, old).Scan(&reconciled); err != nil || completed != 0 || reconciled != 0 {
-		t.Fatalf("cancellation became ordinary completion or outside repair: completed=%d reconciled=%d error=%v", completed, reconciled, err)
+	if completed != 0 {
+		t.Fatalf("cancellation became ordinary completion: completed=%d", completed)
 	}
 	var lifecycle string
 	if err := s.db.QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, old).Scan(&lifecycle); err != nil || lifecycle != "cancelled" {

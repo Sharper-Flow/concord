@@ -40,10 +40,7 @@ func TestWorkRemovalRetainsConsumedLawEnactment(t *testing.T) {
 	}
 	_, err = s.RemoveWork(t.Context(), producer)
 	assertFailureKind(t, err, KindInvalidOperation)
-	if err := s.CleanupPublishedTerminalWork(t.Context(), "cleanup-producer"); err != nil {
-		t.Fatal(err)
-	}
-	requireLawCleanupJoin(t, s, 0)
+	requireLawCleanupJoin(t, s, 1)
 }
 
 func removalTestRequest() WorkRemovalRequest {

@@ -858,31 +858,6 @@ func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]ma
 	return out
 }
 
-func TestSchemaFixtureWorkPinRespectsOutsideRepairState(t *testing.T) {
-	for _, state := range []string{"active", "completed", "resumed"} {
-		t.Run(state, func(t *testing.T) {
-			defs := payloadSchemaDefs(t)
-			properties := defs["outside_repair_disposition"]["properties"].(map[string]any)
-			properties["state"] = map[string]any{"const": state}
-			value := schemaFixtureValue(t, defs["work_pin"], defs, 0).(map[string]any)
-			data, err := json.Marshal(value)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := payloadschema.Validate("work_pin", data); err != nil {
-				t.Fatalf("fixture for %s disposition is invalid: %v", state, err)
-			}
-			want := 0
-			if state == "resumed" {
-				want = 1
-			}
-			if got := len(value["next_valid_intents"].([]any)); got != want {
-				t.Fatalf("fixture for %s carries %d managed intents, want %d", state, got, want)
-			}
-		})
-	}
-}
-
 // TestSchemaFixtureUnionArmsRespectSiblingConstraints pins the union rules the
 // fixture builder keeps: a typeless anyOf union selects its first non-null
 // arm without dropping the node's siblings, a typed node with an anyOf sibling

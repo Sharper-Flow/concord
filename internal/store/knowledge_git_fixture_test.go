@@ -277,10 +277,7 @@ func seedKnowledgeWorkLifecycle(t *testing.T, s *Store, id, title string, comple
 	}
 }
 
-// seedArchivedWorkNote writes the archived linkage rows the compaction-link
-// fold writes for one committed note, from the note's own parsed metadata.
-// The retired note rebuild used to write these rows from the same bytes; the
-// compaction publication route is the retained writer.
+// seedArchivedWorkNote seeds a historical locator from the note's parsed metadata.
 func seedArchivedWorkNote(t *testing.T, s *Store, home KnowledgeHome, commitOID, notePath, content string) string {
 	t.Helper()
 	note, err := parseKnowledgeNote([]byte(content))
@@ -293,7 +290,7 @@ func seedArchivedWorkNote(t *testing.T, s *Store, home KnowledgeHome, commitOID,
 	memberMigrationExec(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
 	defer memberMigrationExec(t, db, `DELETE FROM write_guard`)
 	memberMigrationExec(t, db, `INSERT OR REPLACE INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		note.ID, note.Kind, note.Title, note.CompletedAt, note.OutcomeTag, marshalStrings(note.LessonTags), note.TerminalState, note.Priority, note.Summary, nullableText(note.SuccessorID), home.HomeProjectID, home.HomeLocatorID, notePath, commitOID, hash, note.ScopeMode, "")
+		note.ID, note.Kind, note.Title, note.CompletedAt, note.OutcomeTag, marshalStrings(note.LessonTags), note.TerminalState, note.Priority, note.Summary, nullableWorkflowText(note.SuccessorID), home.HomeProjectID, home.HomeLocatorID, notePath, commitOID, hash, note.ScopeMode, "")
 	for table, values := range map[string][]string{"archived_work_products": note.ProductIDs, "archived_work_projects": note.ProjectIDs, "archived_work_domains": note.DomainIDs, "archived_work_tags": note.TagIDs} {
 		column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_domains": "domain_id", "archived_work_tags": "tag_id"}[table]
 		for _, value := range values {

@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"reflect"
@@ -115,46 +114,6 @@ func TestIdempotentResponseMissingFactsKeepPossibleEffects(t *testing.T) {
 		response := r.recordedMutationResult(base, prior)
 		if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "malformed_response" || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RecoveryAction.Kind != "contact_operator" || response.Error.RetrySafe {
 			t.Fatalf("missing facts became success or a no-effect retry: %+v", response)
-		}
-	}
-}
-
-func TestIdempotentResponseCompactionCannotInventAnOmission(t *testing.T) {
-	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}}
-	r := runtime{Tool: "concord_work_compact", Operation: "publish"}
-	_, _, _, err := r.replayMutationPayload(mutationPayload(changed, nil), changed)
-	if err == nil {
-		t.Fatal("a missing retained pin became a successful omission")
-	}
-	response := failureEnvelope(agentcontract.NewBase("compaction", r.Tool, r.Operation), err)
-	if response.Error == nil || response.Error.Kind != "operation_conflict" || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RecoveryAction.Kind != "reconcile_operation" || response.Error.RetrySafe {
-		t.Fatalf("missing omission fact lost effect truth: %+v", response)
-	}
-}
-
-func TestIdempotentResponseCompactionReplaysItsRetainedOmission(t *testing.T) {
-	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}}
-	r := runtime{Tool: "concord_work_compact", Operation: "publish"}
-	wire := mutationPayload(changed, nil)
-	replayed, _, pinless, err := r.replayMutationPayload(retainCompactionPinless(wire, []string{"work-1"}), changed)
-	if err != nil || !reflect.DeepEqual(pinless, []string{"work-1"}) {
-		t.Fatalf("retained omission did not replay: pinless=%v err=%v", pinless, err)
-	}
-	if !bytes.Equal(replayed, wire) {
-		t.Fatalf("replay changed the wire payload or leaked the retained fact: %s", replayed)
-	}
-	other := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-2", Version: "3"}}
-	if _, _, _, err := r.replayMutationPayload(retainCompactionPinless(mutationPayload(other, nil), []string{"work-1"}), other); err == nil {
-		t.Fatal("another item's retained omission covered a missing pin")
-	}
-}
-
-func TestIdempotentResponseWorkflowUnresolvedClassification(t *testing.T) {
-	r := runtime{Tool: "concord_work_transition", Operation: "workflow_action", Authority: &Service{}}
-	for _, kind := range []store.ResultKind{store.ResultPending, store.ResultPartial, store.ResultFailed, store.ResultFailedStale} {
-		response, err := r.replayWorkflowAction(agentcontract.NewBase("unresolved", r.Tool, r.Operation), store.FenceResult{OpID: "retained-operation", AttemptEpoch: 1, StepID: "execute", ResultKind: kind}, store.MutationIdempotencyRecord{})
-		if err != nil || response.Outcome == agentcontract.OutcomeOK || response.OperationRef == nil || response.OperationRef.ID != "retained-operation" {
-			t.Fatalf("kind=%s response=%+v err=%v", kind, response, err)
 		}
 	}
 }

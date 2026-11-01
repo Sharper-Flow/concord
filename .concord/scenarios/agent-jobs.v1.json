@@ -55,7 +55,6 @@
   "retry_safe": "replaying the same intent does not duplicate effects",
   "bounded_context": "outputs are bounded and distinguish empty, ambiguous, degraded, and unreachable",
   "no_silent_scope_cut": "accepted obligations are not omitted without explicit human direction",
-  "ordered_cross_authority": "git or external steps are ordered, attributed, retry-safe, and expose partial outcomes with reconciliation",
   "stable_evolution": "recorded contract versions remain interpretable"
  },
  "jobs": [
@@ -78,10 +77,6 @@
   {
    "id": "AJ5",
    "name": "relate_and_scope_work"
-  },
-  {
-   "id": "AJ6",
-   "name": "compact_and_reconcile_terminal_work"
   },
   {
    "id": "AJ8",
@@ -647,112 +642,6 @@
     "invariants": [
      "atomic_core_effect",
      "evidence_authority",
-     "canonical_authority"
-    ]
-   }
-  },
-  {
-   "id": "AJ6-compact-terminal-work",
-   "job_id": "AJ6",
-   "instruction": "Publish the durable note for terminal work-cancelled and reconcile its canonical locator.",
-   "initial_state": {
-    "fixture": "PM1"
-   },
-   "expected": {
-    "assertions": [
-     {
-      "target": "authority",
-      "path": "git.commit_oid",
-      "op": "nonempty"
-     },
-     {
-      "target": "state",
-      "path": "work.work-cancelled.canonical_note_locator",
-      "op": "nonempty"
-     },
-     {
-      "target": "effects",
-      "path": "publication_order",
-      "op": "eq",
-      "value": [
-       "git_publish",
-       "verify_commit",
-       "record_locator"
-      ]
-     },
-     {
-      "target": "effects",
-      "path": "canonical_notes.count",
-      "op": "eq",
-      "value": 1
-     },
-     {
-      "target": "effects",
-      "path": "durable_tier.markdown_only",
-      "op": "eq",
-      "value": true
-     },
-     {
-      "target": "effects",
-      "path": "durable_tier.note_extension",
-      "op": "eq",
-      "value": ".md"
-     },
-     {
-      "target": "effects",
-      "path": "durable_tier.budget_passed",
-      "op": "eq",
-      "value": true
-     }
-    ],
-    "invariants": [
-     "ordered_cross_authority",
-     "retry_safe",
-     "canonical_authority"
-    ]
-   }
-  },
-  {
-   "id": "AJ6-partial-publication",
-   "job_id": "AJ6",
-   "instruction": "Publish and reconcile the durable note for work-cancelled.",
-   "initial_state": {
-    "fixture": "PM1",
-    "fault": "git_write_succeeded_commit_verification_failed"
-   },
-   "expected": {
-    "assertions": [
-     {
-      "target": "state",
-      "path": "work.work-cancelled.canonical_note_locator",
-      "op": "absent"
-     },
-     {
-      "target": "communication",
-      "path": "outcome",
-      "op": "eq",
-      "value": "partial"
-     },
-     {
-      "target": "communication",
-      "path": "completed_steps",
-      "op": "contains",
-      "value": "git_write"
-     },
-     {
-      "target": "communication",
-      "path": "recovery_action",
-      "op": "nonempty"
-     },
-     {
-      "target": "effects",
-      "path": "success_verdict",
-      "op": "absent"
-     }
-    ],
-    "invariants": [
-     "ordered_cross_authority",
-     "honest_recovery",
      "canonical_authority"
     ]
    }

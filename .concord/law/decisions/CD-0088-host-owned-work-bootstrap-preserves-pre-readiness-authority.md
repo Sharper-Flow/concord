@@ -33,8 +33,8 @@ belong to host tools, not a second Concord entry route.
 
 ### D2. Ownership does not gate Product-state cleanup
 
-Concord work removal and terminal cleanup do not require worktree claims,
-occupancy, native retirement, restoration debt, or Git deletion proof. Cleanup
+Concord work removal and completion do not require worktree claims,
+occupancy, native retirement, restoration debt, or Git deletion proof. Completion
 does not remove a host worktree or branch. Existing non-ownership eligibility,
 scope, version, evidence, handoff, and receipt requirements remain.
 
@@ -85,7 +85,7 @@ establish workflow readiness or remove current verification and review duties.
   their authored manifests.
 - `internal/store.TestWorktreeRetirementFreshAbsence` and
   `internal/store.TestWorktreeRetirementVerifiedSnapshotUpgrade` assert that
-  current stores contain no ownership tables. Work removal and terminal cleanup
+  current stores contain no ownership tables. Work removal and completion
   retain their non-ownership refusals without those tables.
 - The verified-snapshot upgrade removes worktree metadata without dropping
   active work, knowledge, research, Project handoffs, or artifacts.

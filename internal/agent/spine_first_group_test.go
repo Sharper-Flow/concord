@@ -33,9 +33,6 @@ func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 		}
 	}
 	assertHeld()
-	f.administrativeRecovery(t)
-	before = f.read(t).Pinned.Pin
-	assertHeld()
 	database := f.s.Path()
 	if err := f.s.Close(); err != nil {
 		t.Fatal(err)

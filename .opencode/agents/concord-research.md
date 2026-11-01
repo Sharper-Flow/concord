@@ -58,7 +58,6 @@ permission:
     "*": deny
     "concord-explore": allow
     "concord-lookup": allow
-  concord_work_compact: deny
   concord_work_define: deny
   concord_work_relate: deny
   concord_work_transition: deny

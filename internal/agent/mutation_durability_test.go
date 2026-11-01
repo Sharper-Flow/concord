@@ -83,17 +83,13 @@ func TestMutationDurabilityDeclarations(t *testing.T) {
 	t.Parallel()
 
 	durableInitial := map[string]bool{
-		"concord_work_transition.remove":                   true,
-		"concord_work_relate.resolve_overlap":              true,
-		"concord_work_compact.publish":                     true,
-		"concord_work_transition.correct_delivery":         true,
-		"concord_work_transition.outside_repair":           true,
-		"concord_work_transition.outside_repair_reconcile": true,
+		"concord_work_transition.remove":           true,
+		"concord_work_relate.resolve_overlap":      true,
+		"concord_work_transition.correct_delivery": true,
 	}
 	replayBaseline := func(op agentcontract.ContractOperation) bool {
 		return durableInitial[op.ID] ||
-			op.ID == "concord_work_transition.workflow_action" ||
-			op.ID == "concord_work_compact.reconcile"
+			op.ID == "concord_work_transition.workflow_action"
 	}
 
 	declared := map[string]bool{}

@@ -357,8 +357,8 @@ func seedWorkRelations(ctx context.Context, s *store.Store, c Corpus, versions m
 }
 
 // SeedKnowledge initializes a throwaway git repository containing the
-// canonical work note, registers it as prod-alpha's designated home, and links
-// the completed work item to its canonical note. The returned GitKnowledge
+// historical work note, registers it as prod-alpha's designated home, and seeds
+// its historical locator. The returned GitKnowledge
 // exposes the resolved home.
 //
 // dir must be a caller-owned directory whose lifetime the caller controls, so
@@ -386,12 +386,29 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 	if err := authorizeKnowledgeProductHome(ctx, s, "prod-alpha", home); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: authorize product home: %w", err)
 	}
-	var version int64
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id = 'work-done'`).Scan(&version); err != nil {
-		return GitKnowledge{}, fmt.Errorf("pm1fixture: read work-done version: %w", err)
+	note, err := store.VerifyCommittedNote(ctx, repo, commit, workPath, "")
+	if err != nil {
+		return GitKnowledge{}, err
 	}
-	if err := store.PublishCompactionLink(ctx, s, store.CompactionLinkRequest{EventID: "corpus-compaction-work-done", WorkID: "work-done", ExpectedVersion: version, Actor: "operator", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Home: home, CommitOID: commit, NotePath: workPath, Reason: "accepted corpus fixture"}); err != nil {
-		return GitKnowledge{}, fmt.Errorf("pm1fixture: publish compaction link: %w", err)
+	lessonTags, _ := json.Marshal(note.LessonTags)
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); DELETE FROM write_guard`, note.ID, note.Kind, note.Title, note.CompletedAt, note.OutcomeTag, string(lessonTags), note.TerminalState, note.Priority, note.Summary, note.SuccessorID, home.HomeProjectID, home.HomeLocatorID, note.NotePath, note.CommitOID, note.ContentHash); err != nil {
+		return GitKnowledge{}, fmt.Errorf("pm1fixture: seed historical locator: %w", err)
+	}
+	for _, scope := range []struct {
+		table, column string
+		ids           []string
+	}{
+		{"archived_work_products", "product_id", note.ProductIDs},
+		{"archived_work_projects", "project_id", note.ProjectIDs},
+		{"archived_work_domains", "domain_id", note.DomainIDs},
+		{"archived_work_tags", "tag_id", note.TagIDs},
+	} {
+		for _, id := range scope.ids {
+			query := "INSERT INTO write_guard VALUES(1); INSERT INTO " + scope.table + "(home_project_id,home_locator_id,work_id," + scope.column + ") VALUES(?,?,?,?); DELETE FROM write_guard"
+			if _, err := s.DatabaseForTesting().ExecContext(ctx, query, home.HomeProjectID, home.HomeLocatorID, note.ID, id); err != nil {
+				return GitKnowledge{}, fmt.Errorf("pm1fixture: seed historical scope: %w", err)
+			}
+		}
 	}
 	return GitKnowledge{Home: home}, nil
 }

@@ -30,9 +30,5 @@ func TestUnopenedStoreWorkItemMethods(t *testing.T) {
 			_, err := s.TerminalWorkVersion(ctx, "work-1")
 			return err
 		}},
-		{"PendingOperationForWork", func(s *Store) error {
-			_, err := s.PendingOperationForWork(ctx, "work-1")
-			return err
-		}},
 	})
 }

@@ -41,7 +41,6 @@ func smallImplementationAtRelease(t *testing.T) acceptDeliveryCandidate {
 		t.Fatal(err)
 	}
 	reviewGateRequireStep(t, c.f.store, c.f.workID, "release")
-	bindCompletionClosure(t, c.f.store, c.f.workID, c.f.owner)
 	return c
 }
 

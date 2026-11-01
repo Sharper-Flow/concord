@@ -1,4 +1,4 @@
-import { domain, product_view, publishRequestDefinition, work_browse, work_compact, work_define, work_relate, work_trace, work_transition } from "./concord"
+import { domain, product_view, publishRequestDefinition, work_browse, work_define, work_relate, work_trace, work_transition } from "./concord"
 
 // Live probe: submit every published Concord tool schema to the Moonshot-backed
 // opencode-go provider and fail when its flavored validator refuses any of them.
@@ -20,7 +20,6 @@ const coreTools: Record<string, any> = {
   concord_domain: domain,
   concord_work_transition: work_transition,
   concord_work_relate: work_relate,
-  concord_work_compact: work_compact,
 }
 
 function publishedArgsSchema(args: Record<string, unknown>): Record<string, unknown> {

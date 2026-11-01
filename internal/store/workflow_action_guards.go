@@ -18,7 +18,7 @@ const (
 	guardPhaseRecovery workflowActionGuardPhase = iota
 	guardPhaseBoundary
 	guardPhasePostValidation
-	guardPhaseClaim
+	guardPhaseOperation
 )
 
 // workflowActionGuardContext carries one action's execution state through the
@@ -63,8 +63,8 @@ var workflowActionGuards = map[string]workflowActionGuard{
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
 	"record_verdict":         {guardPhaseBoundary, guardRecordVerdictArtifactFreshness},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
-	"cross_context_boundary": {guardPhaseClaim, guardNoRestartDispatch},
-	"record_delivery":        {guardPhaseClaim, guardDeliveryAdmission},
+	"cross_context_boundary": {guardPhaseOperation, guardNoRestartDispatch},
+	"record_delivery":        {guardPhaseOperation, guardDeliveryAdmission},
 }
 
 // Historical oracle metadata does not require a new worker finding report.
@@ -275,18 +275,6 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 	reference := workflowFieldStringDefault(fields, "evidence_ref", "")
 	reference = workflowFieldStringDefault(fields, "immutable_subject_ref", reference)
 	kind := workflowFieldStringDefault(fields, "evidence_kind", "verification")
-	if stepDeclaresAction(definition, currentStep, "bind_evidence") && stepDeclaresAction(definition, currentStep, "complete") && reviewedClosureSubject(kind, reference) {
-		kinds, err := workflowEvidenceBindingKinds("bind_evidence", evidenceKinds, fields, reference)
-		if err != nil {
-			return false, err
-		}
-		for _, emittedKind := range kinds {
-			if !reviewedClosureSubject(emittedKind, reference) {
-				return false, newFailure(KindIllegalLifecycleTransition, subject, "reviewed closure binding cannot include ordinary evidence kinds", false, "bind ordinary evidence separately through recovery before binding reviewed closure")
-			}
-		}
-		return false, nil
-	}
 	_, _, _, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if inputsErr != nil {
 		return false, inputsErr
@@ -568,17 +556,16 @@ func normalizeWorkflowActionRequest(request *WorkflowActionExecutionRequest) err
 	return nil
 }
 
-// claimDurableWorkflowOperationTx resolves the current step, claims the
-// durable operation, and prepares its evidence authority. The returned step
-// and evidence refs feed event assembly.
-func claimDurableWorkflowOperationTx(ctx context.Context, tx *sql.Tx, entry RegisteredDefinition, request WorkflowActionExecutionRequest, currentStep string) (*WorkflowStep, []string, error) {
+// recordAtomicWorkflowOperationTx prepares the result and evidence authority
+// in the same transaction that applies the action's effects.
+func recordAtomicWorkflowOperationTx(ctx context.Context, tx *sql.Tx, entry RegisteredDefinition, request WorkflowActionExecutionRequest, currentStep string) (*WorkflowStep, []string, error) {
 	step := workflowStep(entry.Definition, currentStep)
 	if step == nil {
 		return nil, nil, newFailure(KindInvariantViolation, "workflow_action", "current workflow step is not registered", false, "reread_entities")
 	}
-	durableStepKind := string(step.Kind)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, request.OperationID, 1, request.WorkID, entry.Definition.Ref, entry.Digest, currentStep, durableStepKind, request.AcceptedInputsDigest, nullableWorkflowText(request.AcceptedScope), request.PrincipalRef, request.RequestID, request.Now.UTC().Format(time.RFC3339Nano), request.ContractDigest); err != nil {
-		return nil, nil, wrapFailure(KindIdempotencyConflict, "workflow_action", "durable workflow operation identity is already claimed: "+err.Error(), false, "retry the same request or reconcile the operation", err)
+	durableStepKind := "internal_sqlite"
+	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,result_kind) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'completed')`, request.OperationID, 1, request.WorkID, entry.Definition.Ref, entry.Digest, currentStep, durableStepKind, request.AcceptedInputsDigest, nullableWorkflowText(request.AcceptedScope), request.PrincipalRef, request.RequestID, request.Now.UTC().Format(time.RFC3339Nano), request.ContractDigest); err != nil {
+		return nil, nil, wrapFailure(KindIdempotencyConflict, "workflow_action", "atomic workflow operation identity is already recorded: "+err.Error(), false, "retry the same canonical request or use a new operation identity", err)
 	}
 	evidenceRefs := append([]string(nil), request.EvidenceRefs...)
 	if len(evidenceRefs) == 0 {

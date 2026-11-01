@@ -1473,13 +1473,14 @@ def validate(manifest: dict) -> str:
     expected_top = {"$schema", "schema_version", "surface", "envelope", "tools", "operations", "schemas", "capabilities", "consequences", "bounds", "generation", "payload_digest", "digest"}
     if set(manifest) != expected_top:
         fail("manifest has unknown or missing top-level sections")
-    if manifest.get("schema_version") != "1.0" or manifest.get("surface", {}).get("tool_count") != 8:
+    expected_tools = 7
+    if manifest.get("schema_version") != "1.0" or manifest.get("surface", {}).get("tool_count") != expected_tools:
         fail("manifest schema or tool count is invalid")
     capabilities = set(manifest.get("capabilities", []))
     consequences = set(manifest.get("consequences", []))
     tools = manifest.get("tools", [])
-    if len(tools) != 8 or len({t.get("id") for t in tools}) != 8:
-        fail("manifest must contain exactly eight unique tools")
+    if len(tools) != expected_tools or len({t.get("id") for t in tools}) != expected_tools:
+        fail(f"manifest must contain exactly {expected_tools} unique tools")
     for tool in tools:
         if set(tool) != {"id", "description", "operations"} or not tool["operations"]:
             fail(f"tool section is not closed: {tool.get('id')}")
@@ -1487,7 +1488,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 41
+    expected_operations = 37
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}

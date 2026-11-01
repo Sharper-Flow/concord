@@ -928,10 +928,9 @@ func boundedErrorMessage(message string) string {
 		return message
 	}
 	// A producer that must keep refusal content whole renders it inside this
-	// budget before the message reaches the boundary (see
-	// store.recurrenceRefusalDetail). When a producer exceeds the budget
-	// anyway, the cut is marked rather than silent, so a shortened refusal
-	// never reads as the complete decision it is not.
+	// budget before the message reaches the boundary. When a producer exceeds
+	// the budget anyway, the cut is marked rather than silent, so a shortened
+	// refusal never reads as the complete decision it is not.
 	const marker = "… [truncated]"
 	cut := maxBytes - len(marker)
 	if cut < 0 {

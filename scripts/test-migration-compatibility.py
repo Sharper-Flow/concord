@@ -4743,6 +4743,26 @@ for name, sql in (
 # The earlier compound-CHECK rebuilds stay breaking too.
 with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
     live_source = handle.read()
+retirement_version, retirement_sql = next(
+    (version, sql) for version, declaration, sql in check.migrations(live_source)
+    if check.field_run(declaration, "Name")[0].text == '"retire_defect_intake"'
+)
+data_only_sql = ";\n".join(
+    statement for statement in check.statements(retirement_sql)
+    if not check.destructive_json_write(statement)
+) + ";"
+expect_evaluate(
+    "collected-remnant deletes alone remain data-only",
+    check.migrations(fold_source(entry(retirement_version, data_only_sql))),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "JSON removal still requires breaking beside collected-remnant deletes",
+    check.migrations(fold_source(entry(retirement_version, retirement_sql))),
+    failures=1,
+    breaking=[retirement_version],
+)
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")

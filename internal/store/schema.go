@@ -8434,6 +8434,25 @@ END;
 		Breaking: true,
 		SQL: `
 INSERT INTO write_guard(active) VALUES(1);
+DELETE FROM workflow_instances WHERE work_id IN (
+    SELECT w.id FROM work_items w
+    WHERE (w.kind='bug' OR (w.kind='research' AND coalesce(json_extract(w.intent_json,'$.defect.failure_shape'),'')<>''))
+      AND w.lifecycle IN ('completed','cancelled','superseded')
+      AND NOT EXISTS(SELECT 1 FROM effect_receipts r WHERE r.subject_type='work_item' AND r.subject_id=w.id)
+      AND NOT EXISTS(SELECT 1 FROM durable_operations d WHERE d.work_id=w.id)
+);
+DELETE FROM work_projects WHERE work_id IN (
+    SELECT w.id FROM work_items w
+    WHERE (w.kind='bug' OR (w.kind='research' AND coalesce(json_extract(w.intent_json,'$.defect.failure_shape'),'')<>''))
+      AND w.lifecycle IN ('completed','cancelled','superseded')
+      AND NOT EXISTS(SELECT 1 FROM effect_receipts r WHERE r.subject_type='work_item' AND r.subject_id=w.id)
+      AND NOT EXISTS(SELECT 1 FROM durable_operations d WHERE d.work_id=w.id)
+);
+DELETE FROM work_items AS w
+WHERE (w.kind='bug' OR (w.kind='research' AND coalesce(json_extract(w.intent_json,'$.defect.failure_shape'),'')<>''))
+  AND w.lifecycle IN ('completed','cancelled','superseded')
+  AND NOT EXISTS(SELECT 1 FROM effect_receipts r WHERE r.subject_type='work_item' AND r.subject_id=w.id)
+  AND NOT EXISTS(SELECT 1 FROM durable_operations d WHERE d.work_id=w.id);
 UPDATE work_items SET intent_json=json_remove(intent_json,'$.defect')
 WHERE json_type(intent_json,'$.defect') IS NOT NULL;
 DELETE FROM write_guard;

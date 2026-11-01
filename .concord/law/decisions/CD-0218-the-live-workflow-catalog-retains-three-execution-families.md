@@ -227,7 +227,7 @@ set at the D5 boundary.
 - Criterion4 distinguishes retained-state readback from collected-state absence under CD-0242 D2 and D14.
   Retained definitions, digests, actors, subjects and evidence are read as recorded, without replay or relabeling.
   Collected execution state returns typed absence and its canonical outcome locator.
-  `internal/store.TestPublishedExecutionAbsenceReaders` and `internal/store.TestPublishedClassificationOnlyAbsenceReaders` bind the collected-state witnesses; retained-definition witnesses remain required.
+  `internal/store.TestPublishedExecutionAbsenceReaders` and `internal/store.TestDefectRetirementCollectedAbsenceReaders` bind the collected-state witnesses; retained-definition witnesses remain required.
 - Criterion 5 is covered by
   `internal/store.TestCutoverRefusesNonterminalArchivedPinAtReadiness` and
   `internal/store.TestCutoverAllowsTerminalHistoricalPinsAtReadiness`.

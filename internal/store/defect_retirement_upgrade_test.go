@@ -130,6 +130,9 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 func TestDefectRetirementAtomicRollback(t *testing.T) {
 	useStampedBuild(t)
 	db, path := defectRetirementFixture(t)
+	for _, kind := range []string{"bug", "research"} {
+		seedDefectRetirementWork(t, db, "collected-"+kind, kind, "completed", `{"defect":{"failure_shape":"checksum-mismatch"}}`, "project-upgrade")
+	}
 	retirementUpgradeExec(t, db, `CREATE TRIGGER defect_retirement_failure BEFORE UPDATE OF intent_json ON work_items WHEN OLD.id='work-research' BEGIN SELECT RAISE(ABORT,'defect retirement rollback witness'); END`)
 	before := retirementUpgradeSnapshot(t, db)
 	_, err := Upgrade(t.Context(), path, nil)
@@ -144,4 +147,157 @@ func TestDefectRetirementAtomicRollback(t *testing.T) {
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatalf("retry after rollback: %v", err)
 	}
+}
+
+func seedDefectRetirementWork(t *testing.T, db *sql.DB, id, kind, lifecycle, intent, project string) {
+	t.Helper()
+	retirementUpgradeExec(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
+	retirementUpgradeExec(t, db, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,intent_json) VALUES(?,?,'Terminal witness',?,1,7,?,?,?)`, id, kind, lifecycle, retirementUpgradeTime, retirementUpgradeTime, intent)
+	retirementUpgradeExec(t, db, `INSERT INTO work_projects(work_id,project_id,role) VALUES(?,?,'primary')`, id, project)
+	state := lifecycle
+	if state == "needed" {
+		state = "planned"
+	} else if state == "in_progress" {
+		state = "running"
+	}
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES(?,'workflow.break_fix',?,'closure',?)`, id, "sha256:"+strings.Repeat("a", 64), state)
+	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+}
+
+func TestDefectRetirementCollectedAbsenceReaders(t *testing.T) {
+	useStampedBuild(t)
+	for _, test := range []struct{ name, kind, intent string }{
+		{"bug", "bug", `{"defect":{"failure_shape":"checksum-mismatch"}}`},
+		{"unclassified bug", "bug", `{}`},
+		{"research", "research", `{"defect":{"failure_shape":"checksum-mismatch"}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, path := defectRetirementFixture(t)
+			repo := initKnowledgeRepo(t)
+			notePath := ".concord/docs/work/work-published.md"
+			content := canonicalWorkNote("work-published")
+			writeKnowledgeFile(t, repo, notePath, content)
+			commit := commitKnowledgeRepo(t, repo, "published outcome")
+			home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
+			retirementUpgradeExec(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
+			retirementUpgradeExec(t, db, `INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('prod-alpha','Published witness','prototype','operator_only',1,?,?)`, retirementUpgradeTime, retirementUpgradeTime)
+			retirementUpgradeExec(t, db, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('proj-web','Published witness',1,?,?)`, retirementUpgradeTime, retirementUpgradeTime)
+			retirementUpgradeExec(t, db, `INSERT INTO product_projects VALUES('prod-alpha','proj-web','primary')`)
+			retirementUpgradeExec(t, db, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('repo-alpha-web','proj-web','canonical_path',?,?,?,?)`, repo, repo, retirementUpgradeTime, retirementUpgradeTime)
+			retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+			seedDefectRetirementWork(t, db, "work-published", test.kind, "completed", test.intent, "proj-web")
+			hash := seedArchivedWorkNote(t, &Store{db: db}, home, commit, notePath, content)
+			beforeArchive := retirementUpgradeRows(t, db, `SELECT * FROM archived_work ORDER BY rowid`)
+			if _, err := Upgrade(t.Context(), path, nil); err != nil {
+				t.Fatal(err)
+			}
+			s, err := Open(t.Context(), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			t.Run("published absence", func(t *testing.T) {
+				assertPublishedAbsence(t, publishedWorkAbsenceQ(t.Context(), s.db, "work-published", "upgrade_test"), home, commit, hash)
+			})
+			assertPublishedExecutionAbsenceReaders(t, s, home, commit, hash)
+			for _, table := range []string{"workflow_instances", "work_projects", "work_items"} {
+				column := "work_id"
+				if table == "work_items" {
+					column = "id"
+				}
+				if rows := retirementUpgradeRows(t, db, `SELECT * FROM `+table+` WHERE `+column+`='work-published'`); len(rows) != 0 {
+					t.Errorf("collected %s survived upgrade: %v", table, rows)
+				}
+			}
+			if got := retirementUpgradeRows(t, db, `SELECT * FROM archived_work ORDER BY rowid`); !reflect.DeepEqual(got, beforeArchive) {
+				t.Error("upgrade changed the published outcome")
+			}
+			retirementUpgradeHealthy(t, db)
+		})
+	}
+}
+
+func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
+	useStampedBuild(t)
+	db, path := defectRetirementFixture(t)
+	classified := `{"task":"Preserve instructions","defect":{"failure_shape":"checksum-mismatch"}}`
+	tests := []struct {
+		id, kind, lifecycle, intent, receipt, operation string
+		retained                                        bool
+	}{
+		{"cancelled-bug", "bug", "cancelled", classified, "", "", false},
+		{"superseded-research", "research", "superseded", classified, "", "", false},
+		{"other-subject-receipt", "bug", "completed", classified, "project", "", false},
+		{"needed-bug", "bug", "needed", classified, "", "", true},
+		{"running-research", "research", "in_progress", classified, "", "", true},
+		{"receipt-bug", "bug", "completed", classified, "work_item", "", true},
+		{"receipt-research", "research", "cancelled", classified, "work_item", "", true},
+		{"operation-bug", "bug", "superseded", classified, "", "completed", true},
+		{"operation-research", "research", "completed", classified, "", "pending", true},
+		{"unclassified-research", "research", "completed", `{}`, "", "", true},
+		{"empty-classification", "research", "completed", `{"defect":{"failure_shape":""}}`, "", "", true},
+		{"unrelated-task", "task", "completed", classified, "", "", true},
+	}
+	for i, test := range tests {
+		seedDefectRetirementWork(t, db, test.id, test.kind, test.lifecycle, test.intent, "project-upgrade")
+		retirementUpgradeExec(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
+		if test.receipt != "" {
+			retirementUpgradeExec(t, db, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) SELECT ?,?,'work.updated',?,?,actor,payload_version,payload_digest FROM effect_receipts WHERE event_id='event-upgrade-4'`, "receipt-"+test.id, 100+i, test.receipt, test.id)
+		}
+		if test.operation != "" {
+			digest := "sha256:" + strings.Repeat("d", 64)
+			retirementUpgradeExec(t, db, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,result_kind,evidence_refs,contract_digest) VALUES(?,1,?,'workflow.break_fix',?,'closure','internal_sqlite',?,'{}','operator-upgrade',?,?,?,'[]',?)`, "operation-"+test.id, test.id, digest, digest, "request-"+test.id, retirementUpgradeTime, test.operation, digest)
+		}
+		retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+	}
+	var intentColumn int
+	if err := db.QueryRow(`SELECT cid FROM pragma_table_info('work_items') WHERE name='intent_json'`).Scan(&intentColumn); err != nil {
+		t.Fatal(err)
+	}
+	want := make(map[string]map[string][][]any)
+	for _, test := range tests {
+		want[test.id] = make(map[string][][]any)
+		for _, table := range []string{"workflow_instances", "work_projects", "work_items"} {
+			column := "work_id"
+			if table == "work_items" {
+				column = "id"
+			}
+			rows := retirementUpgradeRows(t, db, `SELECT * FROM `+table+` WHERE `+column+`=? ORDER BY rowid`, test.id)
+			if table == "work_items" {
+				rows[0][intentColumn] = retirementUpgradeRows(t, db, `SELECT json_remove(intent_json,'$.defect') FROM work_items WHERE id=?`, test.id)[0][0]
+			}
+			if test.retained {
+				want[test.id][table] = rows
+			} else {
+				want[test.id][table] = nil
+			}
+		}
+	}
+	before := retirementUpgradeSnapshot(t, db)
+	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range tests {
+		t.Run(test.id, func(t *testing.T) {
+			for table, expected := range want[test.id] {
+				column := "work_id"
+				if table == "work_items" {
+					column = "id"
+				}
+				if got := retirementUpgradeRows(t, db, `SELECT * FROM `+table+` WHERE `+column+`=? ORDER BY rowid`, test.id); !reflect.DeepEqual(got, expected) {
+					t.Errorf("%s rows = %v, want %v", table, got, expected)
+				}
+			}
+		})
+	}
+	for table, expected := range before {
+		switch table {
+		case "schema", "schema_migrations", "store_revision", "workflow_instances", "work_projects", "work_items":
+			continue
+		}
+		if got := retirementUpgradeRows(t, db, `SELECT * FROM "`+table+`" ORDER BY rowid`); !reflect.DeepEqual(got, expected) {
+			t.Errorf("unrelated table %s changed", table)
+		}
+	}
+	retirementUpgradeHealthy(t, db)
 }

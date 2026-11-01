@@ -13,11 +13,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Start bounded allocation
-        timeout-minutes: 1
-        run: |
-          mkdir "$RUNNER_TEMP/con-1610-allocation"
-          echo "DIAGNOSIS_STARTED_AT=$(date +%s)" | tee "$RUNNER_TEMP/con-1610-allocation/start.txt" >> "$GITHUB_ENV"
       - name: Check out reviewed harness
         timeout-minutes: 2
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -82,7 +77,6 @@ jobs:
           name: con-1610-wal-diagnosis-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/go-test-results
-            ${{ runner.temp }}/con-1610-allocation
             diagnosis
           if-no-files-found: error
           retention-days: 90

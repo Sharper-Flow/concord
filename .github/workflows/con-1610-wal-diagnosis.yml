@@ -1,0 +1,75 @@
+name: CON-1610 one-shot WAL diagnosis
+
+on:
+  push:
+    branches: [diag/con-1610-wal-one-shot]
+
+permissions:
+  contents: read
+
+jobs:
+  wal-diagnosis:
+    if: github.event.created == true && github.event.deleted == false && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out reviewed harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check out frozen original subject
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: a8b034bdc99948c23d8938d183e95d2946434501
+          path: subject
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify fixed inputs and apply only reporting delta
+        run: python3 .github/diagnostics/con-1610.py prepare
+      - name: Set up Go
+        id: go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: 1.26.10
+          cache: true
+          cache-dependency-path: subject/go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Download Go modules
+        working-directory: subject
+        run: go mod download
+      - name: Execute original shard once
+        timeout-minutes: 16
+        working-directory: subject
+        env:
+          GO_SETUP_CACHE_HIT: ${{ steps.go.outputs.cache-hit }}
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
+        run: |
+          python3 "$GITHUB_WORKSPACE/.github/diagnostics/con-1610.py" runtime
+          python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(<"$GITHUB_WORKSPACE/diagnosis/pattern.txt")" ./internal/store
+      - name: Record post-execution subject identity
+        if: always()
+        run: python3 .github/diagnostics/con-1610.py finish
+      - name: Retain native results and diagnosis identity
+        if: always()
+        timeout-minutes: 1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: con-1610-wal-diagnosis-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/go-test-results
+            diagnosis
+          if-no-files-found: error
+          retention-days: 90

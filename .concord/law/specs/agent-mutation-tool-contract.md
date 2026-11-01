@@ -327,8 +327,11 @@ or storage method is not sufficient evidence.
   Then one typed relation of the resolved kind is created atomically with the
   resolution; `supersedes` and `merged_into` terminalize the predecessor in
   the same transaction, a resolution that would close a cycle or add a
-  second successor is refused, and `merged_into` or `supersedes` demands
-  the operator approval pinned to both work and contract versions.
+  second successor is refused. Both work versions, both workflow-contract
+  versions, and scope checks remain required, including `cross_scope` for
+  `merged_into` or `supersedes` when the cut discards declared governing
+  requirements. The agent asks the operator in conversation only when a
+  CD-0243 D2 approval class applies, subject to D3's Concord deletion exemption.
 
 ## Verification
 

@@ -931,6 +931,7 @@ class CurrentSkillReferenceTests(unittest.TestCase):
             self.CURRENT.replace(".concord/law/", ".concord/docs/"),
             self.CURRENT.replace("/main/", "/release/"),
             self.CURRENT.replace("/law/decisions/", "/law/../decisions/"),
+            "https://github.com/Sharper-Flow/concord/tree/" + "a" * 40 + "/.concord/docs/priorities.md",
         ):
             for content in (f"[Law]({target})", f"[law]: {target}", f"<{target}>", target):
                 with self.subTest(content=content):

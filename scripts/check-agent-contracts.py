@@ -780,7 +780,7 @@ def shipped_skill_reference_findings(root: Path, content: str) -> list[str]:
     """Check current law URLs against repository files, including README citations."""
     findings: list[str] = []
     for target in skill_reference_targets(content):
-        if ".concord/law" not in target and ".concord/docs/decisions" not in target:
+        if ".concord/" not in target:
             continue
         match = SKILL_REFERENCE.fullmatch(target)
         if not match:

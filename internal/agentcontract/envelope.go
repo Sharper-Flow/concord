@@ -110,12 +110,6 @@ type RecoveryAction struct {
 	RequiredRefs []string `json:"required_refs,omitempty"`
 }
 
-type StaleLawRevision struct {
-	OldLawID        string   `json:"old_law_id"`
-	OldContentHash  string   `json:"old_content_hash"`
-	RecoveryActions []string `json:"recovery_actions"`
-}
-
 type ExternalRefConflict struct {
 	ExistingWorkID string `json:"existing_work_id"`
 	ExternalRef    string `json:"external_ref"`
@@ -150,7 +144,6 @@ type TypedError struct {
 	Candidates          []string             `json:"candidates,omitempty"`
 	Violations          []string             `json:"violations,omitempty"`
 	Options             []string             `json:"options,omitempty"`
-	StaleLawRevision    *StaleLawRevision    `json:"stale_law_revision,omitempty"`
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
 	// SupportedBudgetSeconds is the CD-0038 D3 typed ceiling. It rides every
 	// budget_refused error — seconds refusal, result-size overrun, and the
@@ -686,7 +679,7 @@ func PublicRecovery(kind, proposed string) string {
 		return "correct_request"
 	case "invalid_transition", "invalid_relation", "invariant_violation":
 		return "reread_entities"
-	case "not_terminal", "stale_requires_review", "stale_law_revision", "idempotency_conflict", "degraded_not_allowed":
+	case "not_terminal", "stale_requires_review", "idempotency_conflict", "degraded_not_allowed":
 		// The caller acts on state it can reread: a lifecycle, a review
 		// pin, a conflicting key, an index it may opt into degraded for.
 		return "reread_entities"
@@ -732,11 +725,6 @@ func validateError(err TypedError) error {
 }
 
 func validateErrorReferenceCouplings(err TypedError) error {
-	if err.Kind == "stale_law_revision" {
-		if x := validateStaleLawRevisionCoupling(err.StaleLawRevision); x != nil {
-			return x
-		}
-	}
 	if err.ExternalRefConflict != nil {
 		if err.Kind != "operation_conflict" || !BoundedBytes(err.ExternalRefConflict.ExistingWorkID, 1, 128) || !BoundedBytes(err.ExternalRefConflict.ExternalRef, 1, 256) {
 			return errors.New("external reference conflict coupling violated")
@@ -785,16 +773,6 @@ func validateErrorRecoveryCouplings(err TypedError) error {
 	}
 	if x := validateOptions(err); x != nil {
 		return x
-	}
-	return nil
-}
-
-// validateStaleLawRevisionCoupling validates the stale-law-revision payload
-// the kind requires: the deleted law's bounded ID and pinned hash, and one to four
-// bounded recovery actions.
-func validateStaleLawRevisionCoupling(revision *StaleLawRevision) error {
-	if revision == nil || !BoundedBytes(revision.OldLawID, 2, 256) || !ValidSHA256Proof(revision.OldContentHash) || len(revision.RecoveryActions) == 0 || len(revision.RecoveryActions) > 4 || !boundedStrings(revision.RecoveryActions, 128) {
-		return errors.New("stale law revision coupling violated")
 	}
 	return nil
 }

@@ -65,7 +65,7 @@ func duplicateRecoveryEventFields(workID string, version int64) map[string]any {
 				"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:recovery", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 			}},
 			"required_evidence": []string{"verification", "review", "artifact"}, "route_conventions": []string{}, "spec_mandate": []string{},
-			"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
+			"law_modifies": []string{}, "law_boundary_version": 1,
 			"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		},
 	}
@@ -136,7 +136,6 @@ func TestRoutineRecovery(t *testing.T) {
 		ctx := context.Background()
 		fixture := routineRecoveryAtCompleteStep(t, workID)
 		s := fixture.store
-		attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 		// A clone keeps the deleted mandate; complete successors may drop it
 		// or bind any current accepted law (CD-0036 D3). The clone's contract
 		// mandates the pinned law, and the mandated law retires by deleting
@@ -159,9 +158,9 @@ func TestRoutineRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		err = validateClonedWorkflowContractLawRevisionsTx(ctx, tx, workID, []int64{1})
+		err = checkMandatedLawsTx(ctx, tx, workID, []string{"spec:one"}, []string{}, true)
 		var failure *Failure
-		if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "retain a deleted mandated law") {
+		if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound {
 			t.Fatalf("clone recovery retaining deleted law returned %v, want the wall refusal", err)
 		}
 	})

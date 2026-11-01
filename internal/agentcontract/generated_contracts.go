@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:73531fe4363d0d96c0ed6627e01d96b777e22f48b5be81d4ce31cba81a365268"
+const ManifestDigest = "sha256:d309b7333fcc9659a0c5db4ed317a7d0316f111bf88982e2a537d60fec9372f6"
 
 type OperationKind string
 
@@ -99,7 +99,6 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"architecture_binding":                                  {Required: []string{"home_domain_id", "affected_domain_ids", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"}, Properties: []string{"home_domain_id", "affected_domain_ids", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"}},
 	"blocked_work_page":                                     {Required: []string{"items", "nodes", "edges"}, Properties: []string{"items", "nodes", "edges", "next_cursor"}},
 	"canonical_note_result":                                 {Required: []string{"state"}, Properties: []string{"commit_oid", "content_hash", "home_project_id", "home_locator_id", "publication", "state", "locator", "candidates", "status", "successor_id"}},
-	"compatible_law_amendment":                              {Required: []string{"law_id", "pinned_hash", "current_hash"}, Properties: []string{"law_id", "pinned_hash", "current_hash"}},
 	"continuity_boot_projection_reference":                  {Required: []string{"work_id", "workflow_instance", "workflow_step", "watermark", "digest", "total_bytes", "projection_omitted", "read_pointer"}, Properties: []string{"work_id", "work_version", "workflow_instance", "workflow_step", "watermark", "digest", "total_bytes", "projection_omitted", "read_pointer"}},
 	"continuity_boundary":                                   {Required: []string{"boundary_id", "sequence", "kind", "checkpoint_id", "checkpoint_sequence", "summary", "recorded_at"}, Properties: []string{"boundary_id", "sequence", "kind", "checkpoint_id", "checkpoint_sequence", "summary", "recorded_at"}},
 	"continuity_checkpoint":                                 {Required: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}, Properties: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}},
@@ -265,7 +264,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_oracle_law_binding":                             {Required: []string{"source", "clause"}, Properties: []string{"source", "clause"}},
 	"workflow_backlog_alignment":                            {Required: []string{"searched", "outcome", "related_ids"}, Properties: []string{"searched", "outcome", "related_ids"}},
 	"workflow_completion_payload":                           {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
-	"workflow_contract":                                     {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding", "approved_at", "approved_by", "superseded_by", "definition_pin", "decision_domains"}},
+	"workflow_contract":                                     {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding", "approved_at", "approved_by", "superseded_by", "definition_pin", "decision_domains"}},
 	"workflow_correction_context":                           {Required: []string{"disposition", "predicate_ids", "evidence_refs", "source_event_id", "source_event_seq"}, Properties: []string{"disposition", "predicate_ids", "evidence_refs", "diagnosis", "strategy", "source_event_id", "source_event_seq"}},
 	"workflow_delivery_assertion":                           {Required: []string{"event_id", "seq", "target_payload_version", "artifact", "state", "actor_ref", "asserted_at", "effective_artifact"}, Properties: []string{"event_id", "seq", "target_payload_version", "artifact", "state", "actor_ref", "asserted_at", "effective_artifact", "correction"}},
 	"workflow_delivery_correction":                          {Required: []string{"event_id", "reason", "artifact", "evidence_source", "corrected_at"}, Properties: []string{"event_id", "reason", "artifact", "evidence_source", "corrected_at"}},
@@ -282,7 +281,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_outcome_exists":                               {Required: []string{"kind", "surface", "subjects"}, Properties: []string{"kind", "surface", "subjects"}},
 	"workflow_outcome_outcome":                              {Required: []string{"kind", "allowed"}, Properties: []string{"kind", "allowed"}},
 	"workflow_proposal_record":                              {Required: []string{"problem", "user_outcomes", "constraints"}, Properties: []string{"problem", "user_outcomes", "constraints"}},
-	"workflow_read":                                         {Required: []string{"work_id", "state", "current_step", "definition", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "candidate_ids", "completion_warnings", "parked_delivery", "stale_law_revision", "delivery_assertion", "backlog_alignment"}},
+	"workflow_read":                                         {Required: []string{"work_id", "state", "current_step", "definition", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "candidate_ids", "completion_warnings", "parked_delivery", "delivery_assertion", "backlog_alignment"}},
 	"workflow_retained_decision_record":                     {Required: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "reviewer_actor_ref"}, Properties: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref"}},
 	"workflow_retained_outcome":                             {Required: []string{"kind", "allowed"}, Properties: []string{"kind", "allowed", "decision_record"}},
 	"workflow_review_candidate_view":                        {Required: []string{"commit"}, Properties: []string{"project_id", "commit", "tree"}},

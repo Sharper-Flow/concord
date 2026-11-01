@@ -202,18 +202,6 @@ func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definit
 	if len(lawModifies) == 0 && !productChanging {
 		delete(contract, "law_modifies")
 	}
-	revisionMandate := spec
-	var revisionErr error
-	if productChanging {
-		revisionMandate, revisionErr = architectureBindingRevisionMandate(spec, binding.LawAdditions)
-	}
-	if revisionErr != nil {
-		return nil, revisionErr
-	}
-	revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, request.WorkID, revisionMandate, lawModifies)
-	if revisionErr != nil {
-		return nil, revisionErr
-	}
 	decisionDomains, decisionDomainErr := workflowSubmittedDecisionDomains(definition, "approval", fields)
 	if decisionDomainErr != nil {
 		return nil, decisionDomainErr
@@ -228,7 +216,6 @@ func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definit
 	if lawChange != nil {
 		contract["law_change"] = lawChange
 	}
-	contract["law_revisions"] = revisions
 	contract["law_boundary_version"] = 1
 	approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
 	approvalEvent.PayloadVersion = workflowContractLawChangePayloadVersion
@@ -329,18 +316,6 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	if bindingErr != nil {
 		return nil, bindingErr
 	}
-	revisionMandate := specMandate
-	var revisionErr error
-	if productChanging {
-		revisionMandate, revisionErr = architectureBindingRevisionMandate(specMandate, binding.LawAdditions)
-		if revisionErr != nil {
-			return nil, revisionErr
-		}
-	}
-	revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, request.WorkID, revisionMandate, lawModifies)
-	if revisionErr != nil {
-		return nil, revisionErr
-	}
 	decisionDomains, decisionDomainErr := workflowSubmittedDecisionDomains(definition, "successor", fields)
 	if decisionDomainErr != nil {
 		return nil, decisionDomainErr
@@ -350,7 +325,7 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 		"contract_version": next, "premise": premise, "outcome_predicates": workflowFieldRaw(fields, "outcome_predicates"), "outcome_kind": workflowFieldStringDefault(fields, "outcome_kind", ""),
 		"outcome_payload": workflowFieldRaw(fields, "outcome_payload"), "required_evidence": workflowFieldStrings(fields, "required_evidence"),
 		"route_conventions": workflowFieldStrings(fields, "route_conventions"), "spec_mandate": specMandate, "law_modifies": lawModifies,
-		"law_revisions": revisions, "law_boundary_version": 1, "rigor_class": workflowFieldStringDefault(fields, "rigor_class", ""), "consequence_class": string(ActionInternalSQLite),
+		"law_boundary_version": 1, "rigor_class": workflowFieldStringDefault(fields, "rigor_class", ""), "consequence_class": string(ActionInternalSQLite),
 	}
 	if decisionDomains != nil {
 		successor["decision_domains"] = decisionDomains

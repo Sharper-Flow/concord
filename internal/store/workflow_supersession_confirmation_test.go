@@ -34,7 +34,6 @@ func TestSupersessionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 		"required_evidence":  []string{"verification"}, "route_conventions": []string{workflowCompleteStepCorrectionRoute}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
 		"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
 	}
-	fields["law_revisions"] = []WorkflowLawRevision{}
 	fields["law_boundary_version"] = 1
 	fields["consequence_class"] = "internal_sqlite"
 	recordCompleteStepContradictionObservation(t, s, workID, f.owner)

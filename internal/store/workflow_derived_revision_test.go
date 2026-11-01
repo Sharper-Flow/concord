@@ -243,20 +243,6 @@ func TestTierAdmittedConflictRecordsTheContractRevisionLine(t *testing.T) {
 		if len(lines) != 1 || lines[0] != "spec:one" {
 			t.Fatalf("the approved contract does not carry the derived revision line: %s", stored)
 		}
-		revisions, err := readWorkflowLawRevisions(context.Background(), s.DatabaseForTesting(), workID, 1)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Each pin is the committed whole-file digest of the mandated law at
-		// the approved revision, read back from the home's checkout.
-		repo := workflowLawFixtureRepo(t, s)
-		want := []WorkflowLawRevision{
-			{LawID: "spec:legislated", ContentHash: committedLawFileHash(t, repo, workflowFixtureDecisionsLawPath("spec:legislated"))},
-			{LawID: "spec:one", ContentHash: workflowFixtureLawPin(t, repo, "spec:one")},
-		}
-		if len(revisions) != len(want) || revisions[0] != want[0] || revisions[1] != want[1] {
-			t.Fatalf("the approved contract pins %v, want %v", revisions, want)
-		}
 	})
 
 	t.Run("leaving the conflict unrevised meets the conflict refusal", func(t *testing.T) {

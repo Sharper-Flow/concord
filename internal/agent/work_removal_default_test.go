@@ -255,8 +255,7 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	}
 	// The contract's mandated law is committed content at the work's resolved
 	// canonical home (law-folder-authority.md, Committed reads): the fixture
-	// commits the independent registry and the pinned law into the home's
-	// repository, then pins the committed whole-file revision.
+	// commits the independent registry and law into the home's repository.
 	registry := store.KnowledgeDomainRegistry{
 		SchemaVersion: "1.0",
 		ProductKey:    "shelving-fixture",
@@ -270,12 +269,11 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	// pm1fixture writes the registry at its existing repository path but leaves
 	// it unstaged; the law commit below carries both into the committed state.
 	gitRun(t, root, "add", "--", ".concord/docs/knowledge/domain-registry.json")
-	lawHash := commitAgentFixtureLaw(t, root, ".concord/law/specs/shelving-fixture.md",
+	commitAgentFixtureLaw(t, root, ".concord/law/specs/shelving-fixture.md",
 		agentFixtureLawFrontmatter("spec:shelving-fixture", registry.RootDomainID, "The shelving fixture registry declares no child Domain, so this law has no child home available."))
 	execProjection(t, s, []string{
 		`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) SELECT 'work-1',1,'Preserve the planning goal','internal_sqlite','[]','[]','2026-08-08T12:00:00Z',execution_actor_ref,'["spec:shelving-fixture"]','[]',1,'prototype_internal' FROM workflow_instances WHERE work_id='work-1'`,
-		`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES('work-1',1,'spec:shelving-fixture',?)`,
-	}, [][]any{nil, {lawHash}})
+	}, [][]any{nil})
 	var definitionPin string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&definitionPin); err != nil {
 		t.Fatal(err)
@@ -296,8 +294,8 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 		t.Fatalf("managed cancellation: %+v %v", cancelled.Error, err)
 	}
 	var cancellation string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_object('lifecycle',w.lifecycle,'workflow_state',i.instance_state,'definition',i.definition_digest,'reason',w.transition_reason,'actor',w.transition_actor,'evidence',json(w.transition_evidence_refs),'law',l.law_id,'law_hash',l.content_hash) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id JOIN workflow_contract_law_revisions l ON l.work_id=w.id WHERE w.id='work-1' AND w.lifecycle='cancelled' AND i.instance_state='cancelled' AND i.definition_digest=? AND l.content_hash=?`, definitionPin, lawHash).Scan(&cancellation); err != nil {
-		t.Fatalf("cancellation lost workflow/law pins: %v", err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_object('lifecycle',w.lifecycle,'workflow_state',i.instance_state,'definition',i.definition_digest,'reason',w.transition_reason,'actor',w.transition_actor,'evidence',json(w.transition_evidence_refs),'laws',json(c.spec_mandate)) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id JOIN workflow_contracts c ON c.work_id=w.id WHERE w.id='work-1' AND w.lifecycle='cancelled' AND i.instance_state='cancelled' AND i.definition_digest=? AND c.spec_mandate='["spec:shelving-fixture"]'`, definitionPin).Scan(&cancellation); err != nil {
+		t.Fatalf("cancellation lost workflow definition or law mandate: %v", err)
 	}
 	if !strings.Contains(cancellation, "evidence:managed-cancellation") || !strings.Contains(cancellation, "Preserve planning while retiring execution") {
 		t.Fatalf("missing cancellation reason/evidence: %s", cancellation)

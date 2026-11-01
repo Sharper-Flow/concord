@@ -61,7 +61,7 @@ func seedRootWriterPeer(t *testing.T, s *Store, peerID, approverRef string) {
 	setExecutionStartedForTesting(t, s, peerID, true)
 	execInFold(t, s,
 		`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('`+peerID+`',1,'peer contract','internal_sqlite','[]','[]','2026-09-27T00:00:00Z','`+approverRef+`','[]','[]',1,'prototype_internal')`,
-		`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES('`+peerID+`',1,'product','`+registryFixtureHash()+`','root','`+registryFixtureHash()+`')`,
+		`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES('`+peerID+`',1,'product','root','`+registryFixtureHash()+`')`,
 		`INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES('`+peerID+`',1,'root')`,
 		`INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('`+peerID+`',1,'root')`,
 	)

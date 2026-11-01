@@ -49,7 +49,7 @@ An ordinary independently reviewed pull request, with required checks,
 enacts a law by adding its file to the default branch and retires it by
 deleting the file. Compatible amendment keeps its ID; a replacement that
 requires consumers to reconsider their contract deletes the old law and
-uses a new ID. Revision pins, scoped staleness and recovery follow
+uses a new ID. Contract law identity and Git reconciliation follow
 [CD-0036](../decisions/CD-0036-breaking-law-cutovers.md).
 
 ## Committed reads
@@ -70,8 +70,9 @@ projections, rebuild and publication-observation operations confer no
 authority and are not retained as a replacement service. No law-search
 wrapper replaces `concord_knowledge`.
 
-Workflow law pins, Domain organization and research packs retain their
-owning semantics. A committed compaction note retains its verified home,
+Workflow mandates, Domain organization and research packs retain their
+owning semantics. Workflow contracts store no law or registry freshness hashes.
+A committed compaction note retains its verified home,
 path, commit and content-hash linkage on the compaction/work surface; it
 does not require a law index.
 

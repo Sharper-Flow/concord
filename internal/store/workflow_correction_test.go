@@ -979,7 +979,6 @@ func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
 	const workID = "complete-correction-stale-law-gate"
 	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
 	s := fixture.store
-	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	// The stale-law condition is committed state now: the pinned law retires
 	// by deleting its file, and the successor law enacts by adding its file
 	// (law-folder-authority.md, Identity and change).
@@ -1212,7 +1211,6 @@ func TestCompleteStepCorrectionKeepsSuccessorVerdictsFresh(t *testing.T) {
 func seedOffShapeCompletedInstance(t *testing.T, workID string) workflowReturnRouteFixture {
 	t.Helper()
 	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
-	attachWorkflowLawPin(t, fixture.store, workID, "sha256:"+strings.Repeat("a", 64))
 	// The stale-law condition is committed state: the pinned law retires by
 	// deleting its file, and the successor law enacts by adding its file
 	// (law-folder-authority.md, Identity and change).

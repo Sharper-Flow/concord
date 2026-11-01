@@ -57,15 +57,12 @@ an explicit conflict may pass planning only when the endpoint whose record
 declares it is in `law_modifies`. Completion reruns the check without that
 exception, so only a Git-authorized law delta can resolve the conflict.
 
-CD-0036 records each current contract's bounded `law_revisions` pins as
-`(law_id, content_hash)`. A changed hash under the same accepted ID is a
-compatible amendment. A new accepted ID that supersedes a mandated old ID is
-a breaking cutover: the old consumer receives typed `stale_law_revision` and
-workflow-authority actions, claims, Review outcome recording, and completion
-stop until one operator-approved `supersede_contract` action atomically installs
-a fully supplied successor contract, or the work reaches a terminal
-cancellation/supersession. Commit OIDs remain audit context only; recovery pins
-the accepted successor law and preserves the current nonterminal workflow step.
+CD-0036 binds contracts to law IDs without law or Domain registry freshness
+hashes. Later amendments, deletions and registry edits reconcile through Git;
+they produce no stale-law refusal or compatible-amendment hash projection.
+Current mandate, Domain, modification, addition and obligation membership
+checks remain. Same-operation law snapshots and exact enactment before-states
+retain their separate proof requirements.
 
 CD-0016 governs V22 context-continuity projections and the two closed workflow
 events `workflow.context_checkpointed` and `workflow.context_boundary_crossed`.
@@ -241,8 +238,8 @@ the rows below do not repeat this pair.
 | Record | Exact payload fields and bounds |
 |---|---|
 | `workflow.definition_selected` | `work_id`, `ref`, `version`, `digest`, `work_kind` (closed family enum) |
-| `workflow.contract_approved` | `work_id`, `contract_version`, `premise` (1–4096), `outcome_kind`, `outcome_payload` (strict outcome schema), `required_evidence` (0–7 unique), `route_conventions` (0–16 unique refs), `spec_mandate` (0–32 unique refs), `law_revisions` (one `{law_id, content_hash}` pin per mandated ID ), `rigor_class` (1–64), `consequence_class` (`internal_sqlite`, `cross_authority`, or `external_effect`) |
-| `workflow.contract_superseded` | `work_id`, `previous_contract_version`, optional unique `predecessor_contract_versions` (1–32), `new_contract_version`, `supersede_reason` (1–4096), `audit_evidence` (1–32 evidence refs), and optional `successor_contract` containing the fully validated contract fields and one current `law_revisions` pin per mandated law; recovery installs this successor and marks every named predecessor superseded in one transaction |
+| `workflow.contract_approved` | `work_id`, `contract_version`, `premise` (1–4096), `outcome_kind`, `outcome_payload` (strict outcome schema), `required_evidence` (0–7 unique), `route_conventions` (0–16 unique refs), `spec_mandate` (0–32 unique refs), `rigor_class` (1–64), `consequence_class` (`internal_sqlite`, `cross_authority`, or `external_effect`) |
+| `workflow.contract_superseded` | `work_id`, `previous_contract_version`, optional unique `predecessor_contract_versions` (1–32), `new_contract_version`, `supersede_reason` (1–4096), `audit_evidence` (1–32 evidence refs), and optional `successor_contract` containing the fully validated contract fields; recovery installs this successor and marks every named predecessor superseded in one transaction |
 | `workflow.candidate_set_revised` | `work_id`, `contract_version`, `candidate_kind` (exactly `work_item`, `product`, or `project`), `candidate_ref`, `added` (0–100 refs), `removed` (0–100 refs); `added` and `removed` are disjoint and not both empty |
 | `workflow.actor_recorded` | `work_id`, `actor_ref`, `principal_ref`, `client_ref`, `agent_ref`, `session_ref`, `actor_class` (`agent` or `operator`) |
 | `workflow.action_started` | `work_id`, `step_id`, `action_id`, `attempt_epoch`, `accepted_inputs_digest`, `idempotency_identity` (2–128), `actor_ref` |
@@ -275,7 +272,6 @@ Definition identity in these rows is the stable `ref` and content digest ([CD-02
 |---|---|---|
 | `workflow_instances` | `work_id TEXT`, `definition_ref TEXT`, `definition_digest TEXT`, `current_step TEXT`, `instance_state TEXT`, `execution_actor_ref TEXT NULL`, `started_at TEXT NULL`, `completed_at TEXT NULL`, `last_checkpoint_at TEXT NULL` | PK `work_id`; FK work; FK actor nullable; checks digest, state enum |
 | `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `premise TEXT`, `outcome_kind TEXT`, `outcome_payload TEXT`, `consequence_class TEXT`, `required_evidence TEXT`, `route_conventions TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT`, `definition_ref TEXT`, `definition_digest TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract; checks nonempty premise, closed outcome/evidence/consequence; every contract records the exact selected definition pin |
-| `workflow_contract_law_revisions` | `work_id TEXT`, `contract_version INTEGER`, `law_id TEXT`, `content_hash TEXT` | PK `(work_id,contract_version,law_id)`; FK contract; reverse index by law ID; current rows written only by the contract-approval mutation ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) |
 | `workflow_candidate_sets` | `work_id TEXT`, `contract_version INTEGER`, `candidate_kind TEXT`, `candidate_ref TEXT`, `candidate_role TEXT`, `candidate_scope TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,contract_version,candidate_kind,candidate_ref)`; composite FK contract; FK actor; checks closed candidate kind/role |
 | `workflow_backlog_alignment` | `work_id TEXT`, `related_work_id TEXT NULL`, `searched TEXT`, `outcome TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,related_work_id)`; FK work for both ids; checks closed outcome, a `none_found` work records no match rows, and no self-match; the declaration row carries a null `related_work_id`. Work removal clears rows naming the removed item in either column, because both foreign keys are `RESTRICT`. It does not reuse `workflow_candidate_sets`, whose composite FK binds to `workflow_contracts(work_id,contract_version)` and which therefore cannot hold a row before planning approves a contract |
 | `workflow_actors` | `actor_ref TEXT`, `principal_ref TEXT`, `client_ref TEXT`, `agent_ref TEXT`, `session_ref TEXT`, `actor_class TEXT`, `first_seen_at TEXT` | PK `actor_ref`; UNIQUE tuple `(principal_ref,client_ref,agent_ref,session_ref)`; checks nonempty tuple and `actor_class IN ('agent','operator')` |
@@ -329,7 +325,7 @@ Workflow state is current rows written by each mutation in one transaction, and 
 | Record | Current-row effect |
 |---|---|
 | definition selected | upsert the one instance definition pin; reject a change once an action has started |
-| contract approved/superseded | insert the immutable contract version and its recorded law and definition pins; mark every exact predecessor named by a recovery record superseded |
+| contract approved/superseded | insert the immutable contract version and its definition pin; mark every exact predecessor named by a recovery record superseded |
 | candidate set revised | insert added candidates and delete only the named removed candidates for that contract; premise and outcome bytes are untouched |
 | backlog alignment recorded | insert the declaration row and, when the outcome is `related_found`, one row per named work id; the alignment action records the candidate set only and creates no relation, so work-to-work relation creation stays with `resolve_overlap`, capture's `raised_from` provenance, and the workflow `link_successor` action |
 | actor recorded | insert once; a different tuple for an existing `actor_ref` is refused |

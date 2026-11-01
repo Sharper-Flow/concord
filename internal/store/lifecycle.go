@@ -428,11 +428,6 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *w
 			return err
 		}
 	}
-	if payload.To == "in_progress" {
-		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, event.SubjectID); err != nil {
-			return err
-		}
-	}
 	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}

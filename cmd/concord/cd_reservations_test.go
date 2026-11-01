@@ -51,9 +51,9 @@ func seedReservationAuthority(t *testing.T, s *store.Store, repo string) {
 	step("contracts", `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES
 			('work-wl',1,'reservation fixture','internal_sqlite','[]','[]','now',?,'[]','[]',1,'prototype_internal'),
 			('work-other',1,'reservation fixture','internal_sqlite','[]','[]','now',?,'[]','[]',1,'prototype_internal')`, actorRef, actorRef)
-	step("bindings", `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES
-			('work-wl',1,'product-wl',?,'root',?),
-			('work-other',1,'product-wl',?,'root',?)`, ownerDigest, ownerDigest, otherDigest, otherDigest)
+	step("bindings", `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES
+			('work-wl',1,'product-wl','root',?),
+			('work-other',1,'product-wl','root',?)`, ownerDigest, otherDigest)
 	step("reservations", `INSERT INTO workflow_law_addition_reservations(product_id,law_id,owner_work_id,owner_contract_version,home_domain_id) VALUES
 			('product-wl','CD-0189','work-wl',1,'root'),
 			('product-wl','CD-0190','work-other',1,'root')`)

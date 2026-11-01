@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -106,11 +105,6 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 				want := workflowJSON(scenario.modifies)
 				if stored != want {
 					t.Errorf("active successor law_modifies=%s, want %s", stored, want)
-				}
-				revisions, err := readWorkflowLawRevisions(ctx, s.DatabaseForTesting(), workID, 2)
-				wantPins := []WorkflowLawRevision{{LawID: "spec:two", ContentHash: fixtureLawFolderLawHash("spec:two")}}
-				if err != nil || !slices.Equal(revisions, wantPins) {
-					t.Fatalf("successor pins=%v, want %v: %v", revisions, wantPins, err)
 				}
 				var supersededBy int64
 				if err := s.DatabaseForTesting().QueryRow(`SELECT superseded_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&supersededBy); err != nil || supersededBy != 2 {

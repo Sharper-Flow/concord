@@ -49,7 +49,6 @@ func TestEnvelopeModelHasOneExclusiveOwner(t *testing.T) {
 		"Outcome", "Origin", "AuthorityLevel", "EffectState", "OperationState",
 		"Envelope", "Scope", "Freshness", "Watermark", "Notice", "EvidenceRef",
 		"ChangedRef", "NextIntent", "OperationRef", "RecoveryAction", "TypedError",
-		"StaleLawRevision",
 		"ExternalRefConflict", "InterveningAction",
 		"NewBase", "NewOKMutation", "NewPending", "NewPartial", "NewCoreError",
 		"MaxResultEnvelopeBytes", "MaxNotices", "MaxChangedRefs",

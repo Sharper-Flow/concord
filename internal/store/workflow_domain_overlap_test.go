@@ -10,7 +10,8 @@ import (
 func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*Store, string) {
 	t.Helper()
 	ctx := context.Background()
-	s, _, _, _, _, hash := architectureValidationFixture(t, left)
+	s, _, binding, _ := architectureValidationFixture(t, left)
+	hash := architectureBindingProjectionHash(binding)
 	seedWork(t, s, right)
 	pinned, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 	if !ok {
@@ -57,7 +58,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 			tx.Rollback()
 			t.Fatal(err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,?,?,?,?,?)`, workID, 1, "product", hash, "child", hash); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,?,?,?,?)`, workID, 1, "product", "child", hash); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}
@@ -156,7 +157,7 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 		"premise": "coordinate Product-changing overlap", "outcome_kind": "check",
 		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:" + workID, "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{},
-		"law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: fixtureLawFolderLawHash("spec:one")}}, "law_boundary_version": 1,
+		"law_boundary_version": 1,
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
 	contract = pOverlapContractFacts(t, s, contract)

@@ -111,7 +111,7 @@ func unsignedDeliveryCorrectionRequest(t *testing.T, s *Store, workID string, ve
 
 func overlapContentFixture(t *testing.T) (*Store, WorkflowArchitectureBinding, string) {
 	t.Helper()
-	s, _, binding, _, _, _ := architectureValidationFixture(t, "content-left")
+	s, _, binding, _ := architectureValidationFixture(t, "content-left")
 	// The fixture registry gains its extra child Domain through a committed
 	// registry revision: the committed registry is the only Domain read.
 	commitWorkflowFixtureRegistry(t, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}, overlapFixtureRegistry(t))

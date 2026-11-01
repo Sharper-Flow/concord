@@ -25,7 +25,7 @@
 - **Date:** 2026-10-01
 - **Scope:** Workflow action admission in the store; the workflow liveness
   checks
-- **Preserves:** every other route refusal keeps its own scope (CD-0186);
+- **Preserves:** every other route refusal keeps its own scope;
   payload and identity checks stay in the guards; no generated contract
   changes
 - **Related:** CD-0043, CD-0143, CD-0166, CD-0173, CD-0197
@@ -69,7 +69,7 @@ invariant). Request payload checks stay in the guards. Admission binds the
 recorded Review to its exact subject and dependencies before it decides.
 
 The derived admission state covers every condition the five sites read: the step and lifecycle, the instance state, the active
-contract count, the law and registry pin staleness, the breaking impact
+contract count, the breaking impact
 notices, design currency, the accepted Review disposition of the
 current candidate, recovery routes, evidence-binding recovery and
 the correction classifications. A duplicated contract projection follows the

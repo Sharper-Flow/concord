@@ -2380,20 +2380,8 @@ func (m *compactionMutation) publish(ctx context.Context) (agentcontract.Envelop
 	m.base = base
 	// CD-0243 D7: the durable intent locks exact content and home; it is not
 	// operator consent. ClaimStepAuthorized retains the publication fence.
-	// The claim's consequential boundary compares the contract's law pins
-	// with committed law verified before the claim transaction opens.
-	ctx, proofErr := r.Store.PrepareWorkLawProof(ctx, workID)
-	if proofErr != nil {
-		return failureEnvelope(base, proofErr), nil
-	}
 	claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: m.acceptedScope, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ContractDigest: agentcontract.ManifestDigest}
 	claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
-		// CD-0222 D7: publication is consequential, so the claim refuses
-		// before any git note is written when the contract's law revision
-		// pins or its active Domain overlaps no longer validate.
-		if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
-			return err
-		}
 		if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
 			return err
 		}
@@ -2524,10 +2512,7 @@ func (m *compactionMutation) reconcilePending(ctx context.Context, reconcile com
 	m.workID = reconcile.WorkID
 	base.ResolvedScope = &agentcontract.Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{reconcile.WorkID}, ScopeVersion: r.Envelope.ScopeVersion}
 	m.base = base
-	// Reconcile is the closed recovery choice for an orphaned note, so its link
-	// is exempt from the CD-0222 D7 boundary check. Guarding it would refuse the
-	// only way out of a pending compaction.
-	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note", Boundary: store.CompactionBoundaryRecoveryExempt, WithinTx: func(tx *store.Transaction) error { return m.captureResultTx(ctx, tx) }}); linkErr != nil {
+	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note", WithinTx: func(tx *store.Transaction) error { return m.captureResultTx(ctx, tx) }}); linkErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "sqlite_link", []string{"operation_claimed", "git_proof"}, linkErr), nil
 	}
 	changedJSON, _ := json.Marshal(m.changed[0])
@@ -3020,23 +3005,15 @@ func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelop
 	if hostErr != nil {
 		return agentcontract.Envelope{}, hostErr
 	}
-	// The consequential boundary and the result's work pin compare each
-	// scoped work's law pins with current committed law, read before the
-	// transaction opens (CD-0195 D2). A verification failure is held for the
-	// consequential boundary, after exact replay; any other mutation keeps its
-	// effect, and its pin reports law currency unverified.
-	var proofErr error
+	// Read current law before opening the transaction (CD-0195 D2). Consumers
+	// requiring verified law reject a missing proof; other mutations need none.
 	for _, workID := range mutationScopeWorkIDs(scope) {
 		verified, err := r.Store.PrepareWorkLawProof(ctx, workID)
-		if err != nil {
-			if proofErr == nil {
-				proofErr = err
-			}
-			continue
+		if err == nil {
+			ctx = verified
 		}
-		ctx = verified
 	}
-	execution := mutationExecution{runtime: r, base: base, raw: raw, digest: digest, scope: scope, intents: intents, effect: effect, host: host, contractOp: contractOp, lawProofErr: proofErr}
+	execution := mutationExecution{runtime: r, base: base, raw: raw, digest: digest, scope: scope, intents: intents, effect: effect, host: host, contractOp: contractOp}
 	mutation := func(tx *store.Transaction) error {
 		return execution.executeTx(ctx, tx, durable)
 	}
@@ -3062,9 +3039,6 @@ type mutationExecution struct {
 	effect     mutationEffect
 	host       store.ResolvedProjectHost
 	contractOp agentcontract.ContractOperation
-	// lawProofErr is the scoped works' pre-transaction law verification
-	// failure; only the consequential boundary consumes it.
-	lawProofErr    error
 	response       agentcontract.Envelope
 	resultRejected bool
 }
@@ -3123,25 +3097,10 @@ func (m *mutationExecution) replayTx(ctx context.Context, tx *store.Transaction,
 }
 
 func (m *mutationExecution) admitTx(ctx context.Context, tx *store.Transaction, inv Invocation, grant Authority) error {
-	r, raw, base, scope := m.runtime, m.raw, m.base, m.scope
+	r, base := m.runtime, m.base
 	if grant.MainWorktree && m.contractOp.ID == "concord_work_transition.remove" {
 		if grant.ScopeVersion != r.Envelope.ScopeVersion {
 			return newRuntimeFailure("stale_context", "shelving scope changed after planning", "refresh_context", false)
-		}
-	}
-	// CD-0222 D7: every consequential boundary validates the contract's law
-	// revision pins and its active Domain overlaps. The guarded set is the
-	// action classes D7 names, and no wider: D7 also holds that read-only
-	// inspection remains available, and an operation that records no
-	// workflow state sits outside every class it lists.
-	if mutationRequiresConsequentialBoundary(r.Tool, r.Operation, raw) {
-		if m.lawProofErr != nil {
-			return m.lawProofErr
-		}
-		for _, workID := range mutationScopeWorkIDs(scope) {
-			if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
-				return err
-			}
 		}
 	}
 	// CD-0038 D3: the seconds ceiling is admitted after the idempotency
@@ -3254,103 +3213,6 @@ func mutationScopeWorkIDs(scope map[string]any) []string {
 		}
 	}
 	return out
-}
-
-// mutationRequiresConsequentialBoundary answers whether one mutation belongs to
-// an action class CD-0222 D7 names. The generated operation manifest already
-// classifies every operation's consequence, so the answer derives from that
-// declaration rather than from a second list beside it that can drift.
-//
-// The consequences below record intent, a work-to-work relation, research, or
-// project scope. None advances the pinned workflow, and D7 names none of them,
-// so an unresolved overlap must not close them: they carry the only way a
-// blocked item can state that it is blocked.
-func mutationRequiresConsequentialBoundary(tool, operation string, raw []byte) bool {
-	if mutationIsOverlapRecovery(tool, operation, raw) {
-		return false
-	}
-	// The external variant is the exception inside an otherwise unguarded
-	// operation. It accepts an attributed merge or ship result, which is the
-	// sixth class D7 names, so it keeps the full preflight.
-	if tool == "concord_work_define" && operation == "observation_record" {
-		var input struct {
-			External json.RawMessage `json:"external"`
-		}
-		if json.Unmarshal(raw, &input) != nil {
-			return true
-		}
-		return len(input.External) != 0
-	}
-	switch mutationConsequence(tool, operation) {
-	case "intent", "relation", "research", "scope":
-		return false
-	}
-	return true
-}
-
-// mutationConsequence reports the consequence the generated manifest declares
-// for one operation. An unknown operation reports the empty string, which the
-// caller treats as guarded.
-func mutationConsequence(tool, operation string) agentcontract.OperationConsequence {
-	for _, op := range agentcontract.ContractOperations {
-		if op.Tool == tool && op.Operation == operation {
-			return op.Consequence
-		}
-	}
-	return ""
-}
-
-func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {
-	// The outside-repair route (CD-0122 D2, CD-0210) must be enterable while
-	// an overlap stands exactly on the blocked item it recovers, so no
-	// Domain-overlap gate and no law pin may close the hold, the reconcile,
-	// and the resume.
-	if tool == "concord_work_transition" && (operation == "outside_repair" || operation == "outside_repair_reconcile") {
-		return true
-	}
-	if tool == "concord_work_relate" && (operation == "resolve_overlap") {
-		return true
-	}
-	// A statement observation asserts no Product change: it records prose
-	// against the work item and moves neither the contract, the Domain binding,
-	// nor the workflow step. Guarding it means a blocked item cannot record why
-	// it is blocked, which is how the diagnosis of a refusal ends up outside
-	// Concord. The external form is not exempt — it binds verification and
-	// capture evidence with digests, so it owes the full boundary.
-	if tool == "concord_work_define" && operation == "observation_record" {
-		var input struct {
-			Statement *string         `json:"statement"`
-			External  json.RawMessage `json:"external"`
-		}
-		if json.Unmarshal(raw, &input) == nil {
-			return input.Statement != nil && len(input.External) == 0
-		}
-		return false
-	}
-	// supersede_contract is the contract-correction recovery every overlap
-	// advertises, and it is the one action that can dissolve the overlap by
-	// changing what the contract modifies. Guarding it leaves a blocking pair
-	// resolvable only by the other party, so the gate refuses the escape it
-	// names. No other workflow action is exempt: the rest advance the pinned
-	// workflow, which is what CD-0222 D7 holds behind the boundary.
-	if tool == "concord_work_transition" && operation == "workflow_action" {
-		var input struct {
-			ActionID string `json:"action_id"`
-		}
-		if json.Unmarshal(raw, &input) == nil {
-			return input.ActionID == "supersede_contract"
-		}
-		return false
-	}
-	if tool == "concord_work_transition" && operation == "lifecycle" {
-		var input struct {
-			Target string `json:"target"`
-		}
-		if json.Unmarshal(raw, &input) == nil {
-			return input.Target == "completed" || input.Target == "cancelled"
-		}
-	}
-	return false
 }
 
 // probeInvocationHost resolves the invoking git identity with no transaction

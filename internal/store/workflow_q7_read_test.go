@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 )
@@ -142,24 +141,16 @@ func TestQ7ProjectsCandidatesAndWarnings(t *testing.T) {
 	}
 }
 
-func TestQ7ProjectsStaleLawRevision(t *testing.T) {
+func TestQ7ReadsContractAfterLawDeletion(t *testing.T) {
 	t.Parallel()
 	const workID = "q7-stale-law"
-	// The seeded contract already mandates spec:one, so the mandate is the
-	// read's verification demand and the pinned law is the mandated law the
-	// committed cutover retires.
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	pinnedHash := "sha256:" + strings.Repeat("a", 64)
-	attachWorkflowLawPin(t, s, workID, pinnedHash)
 	cutoverLawProjection(t, s)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	full, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if full.StaleLawRevision == nil || full.StaleLawRevision.OldLawID != "spec:one" || full.StaleLawRevision.OldContentHash != pinnedHash || !reflect.DeepEqual(full.StaleLawRevision.RecoveryActions, []string{"supersede_contract", "terminal_work"}) {
-		t.Fatalf("fixture did not populate the full reader's stale law revision: %+v", full.StaleLawRevision)
 	}
 	out, err := s.QueryQ7(ctx, Q7Request{Work: workID})
 	if err != nil {
@@ -168,12 +159,9 @@ func TestQ7ProjectsStaleLawRevision(t *testing.T) {
 	if out.Result == nil || out.Result.Workflow == nil {
 		t.Fatal("Q7 omitted the recorded workflow")
 	}
-	stale := out.Result.Workflow.StaleLawRevision
-	if !reflect.DeepEqual(stale, full.StaleLawRevision) {
-		t.Fatalf("Q7 stale law revision = %+v, want deleted spec:one at pinned hash %s with closed recovery actions", stale, pinnedHash)
+	if !reflect.DeepEqual(out.Result.Workflow.Contract, full.Contract) {
+		t.Fatalf("Q7 contract = %+v, want %+v", out.Result.Workflow.Contract, full.Contract)
 	}
-	// The stale-law check belongs to the active contract: a selected
-	// contract version, even the active one, omits it.
 	if out.Result.Workflow.Contract == nil {
 		t.Fatal("Q7 omitted the active contract")
 	}
@@ -181,7 +169,7 @@ func TestQ7ProjectsStaleLawRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selected.Result == nil || selected.Result.Workflow == nil || selected.Result.Workflow.Contract == nil || selected.Result.Workflow.StaleLawRevision != nil {
-		t.Fatalf("selected Q7 workflow = %+v, want the contract without a stale law revision", selected.Result)
+	if selected.Result == nil || selected.Result.Workflow == nil || selected.Result.Workflow.Contract == nil {
+		t.Fatalf("selected Q7 workflow = %+v, want the recorded contract", selected.Result)
 	}
 }

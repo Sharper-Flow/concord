@@ -53,17 +53,6 @@ func TestTypedErrorKindsMatchEnvelopeSchema(t *testing.T) {
 	}
 }
 
-// stale_law_revision is a required member of the typed-error vocabulary:
-// TypedErrorKindAllowed must accept it.
-func TestPreviouslyOmittedKindsAreAccepted(t *testing.T) {
-	t.Parallel()
-	for _, kind := range []string{"stale_law_revision"} {
-		if !payloadschema.TypedErrorKindAllowed(kind) {
-			t.Errorf("%q must be accepted; the store fold omitted it while the agent layer accepted it", kind)
-		}
-	}
-}
-
 // Every TS7 kind should be reachable through a named constant rather than a
 // bare string literal at the call site. The generated projection stays the
 // source of membership; this asserts the constants cover it exactly, so a kind
@@ -79,7 +68,6 @@ func TestEveryTypedErrorKindHasANamedConstant(t *testing.T) {
 		"invalid_relation":   KindInvalidRelation, "invariant_violation": KindInvariantViolation,
 		"missing_evidence": KindMissingEvidence, "not_terminal": KindNotTerminal,
 		"outcome_mismatch": KindOutcomeMismatch, "stale_requires_review": KindStaleRequiresReview,
-		"stale_law_revision":    KindStaleLawRevision,
 		"outside_repair_active": KindOutsideRepairActive,
 		"degraded_not_allowed":  KindDegradedNotAllowed, "unreachable": KindUnreachable,
 		"invalid_cursor": KindInvalidCursor, "limit_exceeded": KindLimitExceeded,

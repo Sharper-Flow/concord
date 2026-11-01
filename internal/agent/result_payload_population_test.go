@@ -47,7 +47,6 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			RouteConventions:    []string{"route-1"},
 			SpecMandate:         []string{"spec-1"},
 			LawModifies:         []string{"spec-1"},
-			LawRevisions:        []store.WorkflowLawRevision{{LawID: "spec-1", ContentHash: "sha256:" + repeatHex()}},
 			RigorClass:          "prototype_internal",
 			ChangesProductTruth: new(true),
 			ArchitectureBinding: &store.WorkflowArchitectureBinding{
@@ -60,10 +59,6 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			},
 		},
 		SpecMandate: []string{"spec-1"},
-		StaleLawRevision: &store.StaleLawRevision{
-			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(),
-			RecoveryActions: []string{"supersede_contract", "terminal_work"},
-		},
 		LatestCheckpoint: &store.ContextCheckpoint{
 			CheckpointID:     "checkpoint-1",
 			WorkVersion:      2,
@@ -103,7 +98,6 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			RecordedAt:    "2026-01-01T00:00:00Z",
 		}},
 		ChangesProductTruth:     true,
-		CompatibleLawAmendments: []store.CompatibleLawAmendment{{LawID: "spec-1", PinnedHash: "sha256:" + repeatHex(), CurrentHash: "sha256:" + strings.Repeat("b", 64)}},
 	}
 }
 
@@ -325,16 +319,12 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 			Version: 2, Premise: "the approved premise",
 			OutcomePredicates: []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "check", OutcomePayload: `{"kind":"check"}`}},
 			RequiredEvidence:  []string{"verification"}, RouteConventions: []string{"workflow_action"}, SpecMandate: []string{"spec-1"},
-			LawModifies: []string{"spec-1"}, LawRevisions: []store.WorkflowLawRevision{{LawID: "spec-1", ContentHash: "sha256:" + repeatHex()}},
+			LawModifies: []string{"spec-1"},
 			RigorClass: "prototype_internal", ChangesProductTruth: new(true), ArchitectureBinding: binding,
 		},
 		CandidateIDs:       []string{"work-2", "work-3"},
 		BacklogAlignment:   &store.WorkflowReadBacklogAlignment{Searched: "Searched open work for duplicate objectives.", Outcome: "related_found", RelatedIDs: []string{"work-2", "work-3"}},
 		CompletionWarnings: []string{"a warning"},
-		StaleLawRevision: &store.StaleLawRevision{
-			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(),
-			RecoveryActions: []string{"supersede_contract"},
-		},
 		ChangesProductTruth: true,
 		ArchitectureBinding: binding,
 		ProposalRecord: &store.WorkflowProposalRecord{
@@ -419,9 +409,6 @@ func TestPublishedReadsQualifiedContractLaw(t *testing.T) {
 	}{
 		{field: "workflow_read contract.spec_mandate", validate: func(t *testing.T) error {
 			return workflowRead(t, func(p *store.WorkflowReadProjection) { p.Contract.SpecMandate = []string{qualified} })
-		}},
-		{field: "workflow_read contract.law_revisions[].law_id", validate: func(t *testing.T) error {
-			return workflowRead(t, func(p *store.WorkflowReadProjection) { p.Contract.LawRevisions[0].LawID = qualified })
 		}},
 		{field: "workflow_read contract.law_modifies", validate: func(t *testing.T) error {
 			return workflowRead(t, func(p *store.WorkflowReadProjection) { p.Contract.LawModifies = []string{qualified} })

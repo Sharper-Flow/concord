@@ -18,10 +18,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0186"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0201"
     },
     {
@@ -38,7 +34,7 @@
 - **Scope:** Declared correction routes, artifact staleness, current work pins,
   registration, liveness and conformance
 - **Related:** CD-0013, CD-0122, CD-0124, CD-0138, CD-0143,
-  CD-0166, CD-0172, CD-0186, CD-0201, CD-0204, CD-0242
+  CD-0166, CD-0172, CD-0201, CD-0204, CD-0242
 
 ## Context
 
@@ -117,7 +113,7 @@ verdict or premise action. Noncomplete contract supersession holds the step;
 a retained fresh unhealthy verdict still needs its declared correction.
 
 Complete-step supersession remains limited to implementation and break-fix
-under CD-0172 and CD-0186. It binds the exact successor and route convention,
+under CD-0172. It binds the exact successor and route convention,
 holds while the successor lands and returns to the declared producer.
 An unhealthy verdict is not the disproved-premise trigger; neither trigger
 grants the other's authority. No other family or step gains that route.

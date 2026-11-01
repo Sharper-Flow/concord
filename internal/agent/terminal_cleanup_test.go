@@ -239,7 +239,7 @@ func TestTerminalCleanupReconcileRejectsUnreviewedCommittedBytes(t *testing.T) {
 		t.Fatalf("refused reconciliation settled the pending operation: step=%+v err=%v", step, err)
 	}
 	_, version := readWorkFromStore(t, s, "work-cancelled")
-	err = store.PublishCompactionLink(t.Context(), s, store.CompactionLinkRequest{EventID: "wrong-proof-direct-link", WorkID: "work-cancelled", ExpectedVersion: version, Actor: "operator", OccurredAt: fixedTime(), Home: home, CommitOID: wrong.CommitOID, NotePath: wrong.NotePath, ExpectedHash: wrongHash, Reason: "reconcile wrong bytes", Boundary: store.CompactionBoundaryRecoveryExempt})
+	err = store.PublishCompactionLink(t.Context(), s, store.CompactionLinkRequest{EventID: "wrong-proof-direct-link", WorkID: "work-cancelled", ExpectedVersion: version, Actor: "operator", OccurredAt: fixedTime(), Home: home, CommitOID: wrong.CommitOID, NotePath: wrong.NotePath, ExpectedHash: wrongHash, Reason: "reconcile wrong bytes"})
 	var failure *store.Failure
 	if !errors.As(err, &failure) || failure.Kind != store.KindOutcomeMismatch || archivedCancelledWorkCount(t, s) != 0 {
 		t.Fatalf("atomic link owner admitted unreviewed bytes: %v", err)
@@ -255,7 +255,7 @@ func TestTerminalCleanupLinkRejectsUnreviewedCommittedBytes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			req := store.CompactionLinkRequest{EventID: "wrong-link-receipt", WorkID: "work-cancelled", ExpectedVersion: receipt.ExpectedVersion, Actor: "operator", OccurredAt: fixedTime(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, Reason: "verified committed note", Boundary: store.CompactionBoundaryRecoveryExempt}
+			req := store.CompactionLinkRequest{EventID: "wrong-link-receipt", WorkID: "work-cancelled", ExpectedVersion: receipt.ExpectedVersion, Actor: "operator", OccurredAt: fixedTime(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, Reason: "verified committed note"}
 			if indexed {
 				if err := store.PublishCompactionLink(t.Context(), s, req); err != nil {
 					t.Fatal(err)

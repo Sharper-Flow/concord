@@ -321,7 +321,6 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:evidence", "immutable_subject_ref": "commit:evidence", "expected_result": "pass"},
 		"required_evidence": []string{"verification"}, "route_conventions": []string{},
 		"spec_mandate": []string{"spec:one"}, "law_modifies": []string{},
-		"law_revisions":        []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)}},
 		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 	})
 	approval.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractApproved)
@@ -425,7 +424,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		"work_id": contextWork, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:evidence-context", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:evidence-context", "immutable_subject_ref": "commit:" + workContextTestCommit(), "expected_result": "pass"}}},
 		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"architecture_binding": WorkflowArchitectureBinding{
 			HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
@@ -551,7 +550,6 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		{"work_context_state", `SELECT work_id,source_frontier,declaration_seq,declaration_id,declaration_payload FROM work_context_state ORDER BY work_id`},
 		{"workflow_instances", `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,completed_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`},
 		{"workflow_contracts", `SELECT work_id,contract_version,premise,spec_mandate,law_boundary_version,definition_ref,definition_digest FROM workflow_contracts ORDER BY work_id,contract_version`},
-		{"law_pins", `SELECT work_id,contract_version,law_id,content_hash FROM workflow_contract_law_revisions ORDER BY work_id,law_id`},
 		{"workflow_review_state", `SELECT work_id,state FROM workflow_review_state ORDER BY work_id`},
 		{"linear_issue_links", `SELECT work_id,remote_issue_uuid,human_key,url,created_at,updated_at FROM linear_issue_links ORDER BY work_id`},
 		{"research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at FROM active_research_packs ORDER BY pack_id`},

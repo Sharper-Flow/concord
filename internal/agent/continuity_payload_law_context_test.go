@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -81,42 +80,5 @@ func TestContinuityPayloadOmitsUnboundLawContext(t *testing.T) {
 	}
 	if bytes.Contains(raw, []byte("law_context")) || bytes.Contains(raw, []byte("proposal_record")) {
 		t.Fatalf("unbound law context or proposal leaked into the payload: %s", raw)
-	}
-}
-
-func TestContinuityPayloadPreservesStaleLawRevisionAgainstSchema(t *testing.T) {
-	t.Parallel()
-	snapshot := store.ContinuitySnapshot{
-		WorkID: "work-stale-law", ProductIdentity: []string{"product"}, WorkflowStep: "execution",
-		SpecMandate:              []string{"source/spec:one"},
-		RestartUnavailableReason: "dispatch window closed", Boundaries: []store.ContextBoundary{}, Watermark: "seq:1",
-		StaleLawRevision: &store.StaleLawRevision{
-			OldLawID: "source/spec:one", OldContentHash: "sha256:" + repeatHex(),
-			RecoveryActions: []string{"supersede_contract", "terminal_work"},
-		},
-	}
-	payload := ContinuityPayload(snapshot)
-	if payload["pinned"].(map[string]any)["stale_law_revision"] != snapshot.StaleLawRevision {
-		t.Fatal("continuity lost the recorded stale-law identity or recovery actions")
-	}
-	raw, _, err := ContinuityCanonicalDocument(snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := payloadschema.Validate("continuity_snapshot", raw); err != nil {
-		t.Fatalf("stale-law continuity document rejected: %v", err)
-	}
-	if err := agentcontract.ValidateOperationPayload("concord_work_trace", "continuity", raw, true); err != nil {
-		t.Fatalf("stale-law continuity result rejected: %v", err)
-	}
-	payload["pinned"].(map[string]any)["stale_law_revision"] = map[string]any{
-		"old_law_id": "source/spec:one", "old_content_hash": "not-a-digest", "recovery_actions": []string{"supersede_contract"},
-	}
-	invalid, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := payloadschema.Validate("continuity_snapshot", invalid); err == nil {
-		t.Fatal("continuity admitted malformed stale-law identity")
 	}
 }

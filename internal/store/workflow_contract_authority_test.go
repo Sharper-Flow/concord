@@ -90,7 +90,7 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 			"successor_contract": map[string]any{
 				"contract_version": 3, "premise": "recovered premise", "outcome_predicates": recoveryFields["outcome_predicates"],
 				"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
-				"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
+				"law_modifies": []string{}, "law_boundary_version": 1,
 				"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 			},
 		}

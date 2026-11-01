@@ -1860,27 +1860,6 @@
             "$ref": "#/$defs/law_id"
           }
         },
-        "law_revisions": {
-          "type": "array",
-          "maxItems": 32,
-          "uniqueItems": true,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "law_id",
-              "content_hash"
-            ],
-            "properties": {
-              "law_id": {
-                "$ref": "#/$defs/law_id"
-              },
-              "content_hash": {
-                "$ref": "#/$defs/digest"
-              }
-            }
-          }
-        },
         "law_modifies": {
           "type": "array",
           "maxItems": 32,
@@ -2159,42 +2138,12 @@
             }
           }
         },
-        "stale_law_revision": {
-          "$ref": "#/$defs/workflow_stale_law_revision"
-        },
         "delivery_assertion": {
           "$ref": "#/$defs/workflow_delivery_assertion"
         },
         "backlog_alignment": {
           "$ref": "#/$defs/workflow_backlog_alignment",
           "description": "The recorded backlog search. Absent when no search was recorded; none_found carries an empty related_ids list."
-        }
-      }
-    },
-    "workflow_stale_law_revision": {
-      "type": [
-        "object",
-        "null"
-      ],
-      "additionalProperties": false,
-      "required": [
-        "old_law_id",
-        "old_content_hash",
-        "recovery_actions"
-      ],
-      "properties": {
-        "old_law_id": {
-          "$ref": "#/$defs/law_id"
-        },
-        "old_content_hash": {
-          "$ref": "#/$defs/digest"
-        },
-        "recovery_actions": {
-          "type": "array",
-          "maxItems": 4,
-          "items": {
-            "$ref": "#/$defs/id"
-          }
         }
       }
     },
@@ -2776,26 +2725,6 @@
         "recorded_at": {
           "type": "string",
           "maxLength": 64
-        }
-      }
-    },
-    "compatible_law_amendment": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "law_id",
-        "pinned_hash",
-        "current_hash"
-      ],
-      "properties": {
-        "law_id": {
-          "$ref": "#/$defs/law_id"
-        },
-        "pinned_hash": {
-          "$ref": "#/$defs/digest"
-        },
-        "current_hash": {
-          "$ref": "#/$defs/digest"
         }
       }
     },
@@ -3760,19 +3689,8 @@
             "work_pin": {
               "$ref": "#/$defs/work_pin"
             },
-            "compatible_law_amendments": {
-              "type": "array",
-              "maxItems": 32,
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/compatible_law_amendment"
-              }
-            },
             "law_context": {
               "$ref": "#/$defs/retained_workflow_law_context"
-            },
-            "stale_law_revision": {
-              "$ref": "#/$defs/workflow_stale_law_revision"
             },
             "proposal_record": {
               "$ref": "#/$defs/workflow_proposal_record"

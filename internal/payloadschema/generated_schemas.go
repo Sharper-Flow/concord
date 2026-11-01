@@ -323,26 +323,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "compatible_law_amendment": {
-      "additionalProperties": false,
-      "properties": {
-        "current_hash": {
-          "$ref": "#/$defs/digest"
-        },
-        "law_id": {
-          "$ref": "#/$defs/law_id"
-        },
-        "pinned_hash": {
-          "$ref": "#/$defs/digest"
-        }
-      },
-      "required": [
-        "law_id",
-        "pinned_hash",
-        "current_hash"
-      ],
-      "type": "object"
-    },
     "continuity_boot_projection_reference": {
       "additionalProperties": false,
       "description": "CD-0031: the deterministic boot projection reference for an oversized continuity projection. It carries the exact small identity header, the complete captured boot projection's digest and byte length, and the canonical initial continuity read pointer. It is not the projection and cannot carry complete authority: reconstruction through the referenced authenticated pages precedes use, and a later read may describe newer state than this captured snapshot.",
@@ -959,14 +939,6 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "properties": {
-            "compatible_law_amendments": {
-              "items": {
-                "$ref": "#/$defs/compatible_law_amendment"
-              },
-              "maxItems": 32,
-              "type": "array",
-              "uniqueItems": true
-            },
             "contract": {
               "oneOf": [
                 {
@@ -1022,9 +994,6 @@ const GeneratedPayloadSchemaDocument = `{
               "maxItems": 32,
               "type": "array",
               "uniqueItems": true
-            },
-            "stale_law_revision": {
-              "$ref": "#/$defs/workflow_stale_law_revision"
             },
             "step_actions": {
               "items": {
@@ -15925,27 +15894,6 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
-        "law_revisions": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "content_hash": {
-                "$ref": "#/$defs/digest"
-              },
-              "law_id": {
-                "$ref": "#/$defs/law_id"
-              }
-            },
-            "required": [
-              "law_id",
-              "content_hash"
-            ],
-            "type": "object"
-          },
-          "maxItems": 32,
-          "type": "array",
-          "uniqueItems": true
-        },
         "outcome_predicates": {
           "items": {
             "additionalProperties": false,
@@ -16826,9 +16774,6 @@ const GeneratedPayloadSchemaDocument = `{
           ],
           "type": "object"
         },
-        "stale_law_revision": {
-          "$ref": "#/$defs/workflow_stale_law_revision"
-        },
         "state": {
           "$ref": "#/$defs/short"
         },
@@ -17213,33 +17158,6 @@ const GeneratedPayloadSchemaDocument = `{
         "detail"
       ],
       "type": "object"
-    },
-    "workflow_stale_law_revision": {
-      "additionalProperties": false,
-      "properties": {
-        "old_content_hash": {
-          "$ref": "#/$defs/digest"
-        },
-        "old_law_id": {
-          "$ref": "#/$defs/law_id"
-        },
-        "recovery_actions": {
-          "items": {
-            "$ref": "#/$defs/id"
-          },
-          "maxItems": 4,
-          "type": "array"
-        }
-      },
-      "required": [
-        "old_law_id",
-        "old_content_hash",
-        "recovery_actions"
-      ],
-      "type": [
-        "object",
-        "null"
-      ]
     },
     "workflow_verdict_batch_entry": {
       "additionalProperties": false,

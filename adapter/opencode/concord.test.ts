@@ -1198,7 +1198,7 @@ test("every declared query id passes the generated envelope contract", () => {
   }
 })
 
-test("overlap resolution and stale-law refusal pass the generated adapter boundary", async () => {
+test("overlap resolution passes the generated adapter boundary", async () => {
   const success = coreEnvelope("concord_work_relate", "resolve_overlap", "ok", {
     result: { changed_refs: [], next_valid_intents: [] },
     changed_refs: [],
@@ -1215,31 +1215,6 @@ test("overlap resolution and stale-law refusal pass the generated adapter bounda
   }), contextFor()))
   expect(resolved.outcome).toBe("ok")
 
-  const staleLaw = coreEnvelope("concord_work_transition", "lifecycle", "error", {
-    error: {
-      kind: "stale_law_revision", retry_safe: false,
-      recovery_action: { kind: "use_declared_route", required_refs: ["supersede_contract", "terminal_work"] }, effect_state: "none",
-      stale_law_revision: {
-        old_law_id: "law-old", old_content_hash: `sha256:${"a".repeat(64)}`,
-        recovery_actions: ["supersede_contract", "terminal_work"],
-      },
-    },
-  })
-  expect(validateGeneratedEnvelope(staleLaw)).toBe(true)
-  const stale: any = await runTransition(runnerWithContext(staleLaw))
-  expect(stale.error.kind).toBe("stale_law_revision")
-  expect(stale.error.stale_law_revision).toEqual({
-    old_law_id: "law-old", old_content_hash: `sha256:${"a".repeat(64)}`,
-    recovery_actions: ["supersede_contract", "terminal_work"],
-  })
-  const withRevision = (revision: unknown) => ({ ...staleLaw, error: { ...staleLaw.error, stale_law_revision: revision } })
-  for (const extra of [
-    { accepted_successor_law_id: "law-current" },
-    { accepted_successor_content_hash: `sha256:${"b".repeat(64)}` },
-  ]) {
-    expect(validateGeneratedEnvelope(withRevision({ ...stale.error.stale_law_revision, ...extra }))).toBe(false)
-  }
-  expect(validateGeneratedEnvelope(withRevision({ ...stale.error.stale_law_revision, old_content_hash: "sha256:not-a-proof" }))).toBe(false)
 })
 
 test("generated and adapter validators reject unknown top-level fields for every outcome", async () => {

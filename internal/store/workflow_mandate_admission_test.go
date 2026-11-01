@@ -27,7 +27,7 @@ func mandateFixtureAdmission(ctx context.Context, q queryer, workID string, defi
 	return nil
 }
 
-func setAdmissionMandate(t *testing.T, s *Store, workID string, law WorkflowLawRevision) {
+func setAdmissionMandate(t *testing.T, s *Store, workID, lawID string) {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -38,10 +38,7 @@ func setAdmissionMandate(t *testing.T, s *Store, workID string, law WorkflowLawR
 	if err := enterWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`UPDATE workflow_contracts SET spec_mandate=? WHERE work_id=? AND superseded_by IS NULL`, string(mustJSONValue([]string{law.LawID})), workID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,?,?)`, workID, law.LawID, law.ContentHash); err != nil {
+	if _, err := tx.Exec(`UPDATE workflow_contracts SET spec_mandate=? WHERE work_id=? AND superseded_by IS NULL`, string(mustJSONValue([]string{lawID})), workID); err != nil {
 		t.Fatal(err)
 	}
 	if err := leaveWrite(ctx, tx); err != nil {
@@ -57,10 +54,7 @@ func TestMandateAdmissionAgreement(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
 	s := fixture.store
 	ctx := context.Background()
-	// The pinned law revision names the committed fixture law's real whole-file
-	// digest, so the pin-vs-current comparison answers current, and the
-	// mandate dimension is what the gate answers on.
-	setAdmissionMandate(t, s, workID, WorkflowLawRevision{LawID: "spec:one", ContentHash: workflowFixtureLawPin(t, workflowLawFixtureRepo(t, s), "spec:one")})
+	setAdmissionMandate(t, s, workID, "spec:one")
 	for _, bound := range []bool{false, true} {
 		if bound {
 			payload := json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"spec:one"}`)
@@ -115,15 +109,13 @@ func TestReadyReviewCannotBypassMandate(t *testing.T) {
 			workID := "mandate-ready-review-" + disposition
 			j, _ := descendantReviewFixture(t, workID)
 			s := j.s
-			// The mandate is pinned before Review judges it: a pin added after
-			// the report would stale that Review (CD-0242 D10).
-			law := WorkflowLawRevision{LawID: j.fixture.sources.lawProject + "/" + j.fixture.sources.lawID, ContentHash: j.fixture.sources.lawHash}
+			law := j.fixture.sources.lawProject + "/" + j.fixture.sources.lawID
 			setAdmissionMandate(t, s, workID, law)
 			report := currentReviewBlockForTest(t, s, workID, disposition)
 			payload := map[string]any{"review": report}
 			for _, bound := range []bool{false, true} {
 				if bound {
-					if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": law.LawID}, j.fixture.owner); err != nil {
+					if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": law}, j.fixture.owner); err != nil {
 						t.Fatalf("bind mandated law: %v", err)
 					}
 				}
@@ -159,7 +151,7 @@ func TestReadyReviewCannotBypassMandate(t *testing.T) {
 					!failureAs(preflightErr, &preflightFailure) || !failureAs(executionErr, &executionFailure) ||
 					preflightFailure.Kind != KindMissingEvidence || executionFailure.Kind != KindMissingEvidence ||
 					decision.Failure.Detail != preflightFailure.Detail || decision.Failure.Detail != executionFailure.Detail ||
-					!strings.Contains(executionFailure.Detail, law.LawID) {
+					!strings.Contains(executionFailure.Detail, law) {
 					t.Fatalf("ready review bypasses unbound mandate: admission=%+v, advertised=%v, preflight=%v, execution=%v", decision, advertised, preflightErr, executionErr)
 				}
 				if after := j.effects(t); after != before || string(mustJSONValue(accepted.Review)) != beforeReview {

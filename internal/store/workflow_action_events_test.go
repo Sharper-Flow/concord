@@ -228,9 +228,9 @@ func TestWorkflowContractApprovalPinsLawBoundaryForLegacySurface(t *testing.T) {
 	if boundaryVersion != 1 {
 		t.Fatalf("law boundary version=%d, want 1 for a new contract submitted through the legacy surface", boundaryVersion)
 	}
-	var pinnedHash string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=1 AND law_id='spec:one'`, workID).Scan(&pinnedHash); err != nil || pinnedHash != fixtureLawFolderLawHash("spec:one") {
-		t.Fatalf("legacy-surface approval law pin=%q err=%v", pinnedHash, err)
+	var mandate string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&mandate); err != nil || mandate != `["spec:one"]` {
+		t.Fatalf("approval law mandate=%q err=%v", mandate, err)
 	}
 	if version == 0 {
 		t.Fatal("approval route did not produce a resulting version")

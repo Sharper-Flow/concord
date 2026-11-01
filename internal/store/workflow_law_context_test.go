@@ -61,22 +61,9 @@ func approveLawContextContract(t *testing.T, s *Store, workID string, mandate, m
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo := workflowFixtureKnowledgeRepo(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:law-context", ClientRef: "client:law-context", AgentRef: "agent:law-context", SessionRef: "session:law-context", ActorClass: ActorAgent}
-	revisions := []WorkflowLawRevision{}
-	for _, lawID := range mandate {
-		if path, committed := workflowFixtureLawPaths[lawID]; committed {
-			if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(path))); err != nil {
-				if !os.IsNotExist(err) {
-					t.Fatal(err)
-				}
-				continue
-			}
-			revisions = append(revisions, WorkflowLawRevision{LawID: lawID, ContentHash: workflowFixtureLawPin(t, repo, lawID)})
-		}
-	}
 	event := workflowEventWithActor("law-context-approval-"+workID, WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
-		"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": int64(1), "premise": "bind Product law", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law-context", "immutable_subject_ref": "commit:law-context", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": modifies, "law_revisions": revisions, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
+		"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": int64(1), "premise": "bind Product law", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law-context", "immutable_subject_ref": "commit:law-context", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": modifies, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
 	event = pOverlapContractFacts(t, s, event)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
@@ -239,10 +226,7 @@ func TestContinuityContractWithoutBoundLawCarriesDomainsOnly(t *testing.T) {
 	}
 }
 
-// Deleting a pinned modified law's committed file stops mutation, not
-// read-only inspection (CD-0036 D3/D6). Continuity must still expose the
-// contract and its stale pin.
-func TestContinuityKeepsDeletedModifiedLawInspectable(t *testing.T) {
+func TestContinuityRefusesUnreadableDeletedModifiedLaw(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -250,22 +234,12 @@ func TestContinuityKeepsDeletedModifiedLawInspectable(t *testing.T) {
 	seedLawContextFixture(t, s, workID)
 	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{"spec:one", "law:new"}, []string{"spec:one"}, binding)
-	pinnedHash := workflowFixtureLawPin(t, workflowLawFixtureRepo(t, s), "spec:one")
 	removeCommittedFixtureLaw(t, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"})
-	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	if err != nil {
-		t.Fatalf("read-only continuity of deleted modified law: %v", err)
-	}
-	if snapshot.Contract == nil || snapshot.Contract.Version != 1 {
-		t.Fatalf("continuity lost active contract: %+v", snapshot.Contract)
-	}
-	if snapshot.StaleLawRevision == nil || snapshot.StaleLawRevision.OldLawID != "spec:one" || snapshot.StaleLawRevision.OldContentHash != pinnedHash {
-		t.Fatalf("deleted modified law diagnosis = %+v", snapshot.StaleLawRevision)
-	}
+	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	requireFailureKind(t, err, KindProjectionNotFound, "deleted modified law context")
 }
 
-// An obligation's deleted law remains inspectable with the same stale pin.
-func TestContinuityKeepsDeletedObligationLawInspectable(t *testing.T) {
+func TestContinuityRefusesUnreadableDeletedObligationLaw(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -273,18 +247,9 @@ func TestContinuityKeepsDeletedObligationLawInspectable(t *testing.T) {
 	seedLawContextFixture(t, s, workID)
 	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
 	approveLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
-	pinnedHash := workflowFixtureLawPin(t, workflowLawFixtureRepo(t, s), "spec:one")
 	removeCommittedFixtureLaw(t, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"})
-	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	if err != nil {
-		t.Fatalf("read-only continuity of deleted obligation law: %v", err)
-	}
-	if snapshot.Contract == nil || snapshot.Contract.Version != 1 {
-		t.Fatalf("continuity lost active contract: %+v", snapshot.Contract)
-	}
-	if snapshot.StaleLawRevision == nil || snapshot.StaleLawRevision.OldLawID != "spec:one" || snapshot.StaleLawRevision.OldContentHash != pinnedHash {
-		t.Fatalf("deleted obligation law diagnosis = %+v", snapshot.StaleLawRevision)
-	}
+	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	requireFailureKind(t, err, KindProjectionNotFound, "deleted obligation law context")
 }
 
 // The law context carries the mandated spec's criteria bound to the reading

@@ -138,23 +138,15 @@ func workflowReviewDependencies(ctx context.Context, q queryer, work string) (Re
 	if err != nil {
 		return result, err
 	}
-	pins, err := readWorkflowLawRevisions(ctx, q, work, version)
-	if err != nil {
-		return result, err
-	}
-	if design == nil && len(pins) == 0 {
+	if design == nil {
 		result.ArchitectureNotApplicable = true
 		return result, nil
-	}
-	if design == nil {
-		design = &WorkflowDesignRecord{}
 	}
 	result.ArchitectureDigest = reviewDigest(struct {
 		Approach    string                   `json:"approach"`
 		Decisions   []WorkflowDesignDecision `json:"decisions"`
 		TouchedRefs []string                 `json:"touched_refs"`
-		LawPins     []WorkflowLawRevision    `json:"law_pins,omitempty"`
-	}{design.Approach, design.Decisions, design.TouchedRefs, pins})
+	}{design.Approach, design.Decisions, design.TouchedRefs})
 	return result, nil
 }
 

@@ -181,10 +181,6 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	}
 	if family == "workflow.break_fix" {
 		capture["kind"] = "bug"
-		capture["defect_intake"] = map[string]any{
-			"failure_shape": "spine-value", "reproduction": "The declared value check needs a verified repair.",
-			"searched": "The isolated fixture has no earlier defect of this shape.", "related_defect_ids": []string{},
-		}
 	}
 	captured := spineOK(t, f.call(t, "concord_work_define", "capture", capture))
 	if captured.ChangedRefs == nil || len(*captured.ChangedRefs) != 1 {

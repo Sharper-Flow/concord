@@ -8,7 +8,7 @@ func TestBuiltinWorkflowDefinitionCanonicalDigests(t *testing.T) {
 	want := map[string]string{
 		"workflow.implementation": "sha256:4a8482030e531fdbd2908159497e41a6e6b512665f8dde1afd123aee7b1e216c",
 		"workflow.break_fix":      "sha256:970a721a90e9536e93dd5bc30180828a98da44186c40894b6a13fa3cedcb7335",
-		"workflow.research":       "sha256:2b4d0eb79e4f801cf73fa8730498345769dfe025d7abd04da80c3c68cd67502b",
+		"workflow.research":       "sha256:a4e299e75b26865219f2a790d6c3c53e221df256ffaa91ed4d3ac5ec4c797a08",
 	}
 	definitions := BuiltinWorkflowDefinitions()
 	if len(definitions) != len(want) {

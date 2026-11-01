@@ -207,9 +207,7 @@ func deleteTerminalExecutionTx(ctx context.Context, tx *sql.Tx, workID string) e
 		`DELETE FROM workflow_contracts WHERE work_id=?1`,
 		`DELETE FROM workflow_design_records WHERE work_id=?1`,
 		`DELETE FROM workflow_proposal_records WHERE work_id=?1`,
-		`DELETE FROM workflow_instances WHERE work_id=?1 AND NOT EXISTS(SELECT 1 FROM work_items w WHERE w.id=?1 AND ` + retainedDefectClassificationSQL + `)`,
-		// A retained classification keeps work_items, so its cascade-owned
-		// execution children are deleted explicitly.
+		`DELETE FROM workflow_instances WHERE work_id=?1`,
 		`DELETE FROM workflow_evidence_bindings WHERE work_id=?1`,
 		`DELETE FROM workflow_step_completions WHERE work_id=?1`,
 		`DELETE FROM workflow_phase_exits WHERE work_id=?1`,
@@ -229,8 +227,8 @@ func deleteTerminalExecutionTx(ctx context.Context, tx *sql.Tx, workID string) e
 		`DELETE FROM outside_repair_reconciliations WHERE work_id=?1`,
 		`DELETE FROM outside_repair_dispositions WHERE work_id=?1`,
 		`DELETE FROM durable_operations WHERE work_id=?1`,
-		`DELETE FROM work_projects WHERE work_id=?1 AND NOT EXISTS(SELECT 1 FROM work_items w WHERE w.id=?1 AND ` + retainedDefectClassificationSQL + `)`,
-		`DELETE FROM work_items AS w WHERE id=?1 AND NOT ` + retainedDefectClassificationSQL,
+		`DELETE FROM work_projects WHERE work_id=?1`,
+		`DELETE FROM work_items WHERE id=?1`,
 		`DELETE FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?1`,
 	} {
 		if _, err := tx.ExecContext(ctx, query, workID); err != nil {

@@ -227,7 +227,6 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     value_statement: "The bounded handoff crosses Projects without operator copying.",
     kind: "bug", task: "Exercise the handoff route.", project_ids: [SOURCE_PROJECT],
     idempotency_key: "handoff-e2e-capture",
-    defect_intake: { failure_shape: "handoff-e2e-route", reproduction: "run the synthetic handoff route", searched: "the synthetic store", related_defect_ids: [] },
   }
   const capture = await invoke("concord_work_define", "capture", captureInput, contextFor(SOURCE_SESSION, repoSource))
   expect(capture.outcome, JSON.stringify(capture)).toBe("ok")

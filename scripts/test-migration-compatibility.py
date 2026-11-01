@@ -4632,7 +4632,80 @@ finally:
     connection.close()
 
 
-# Law index retirement (174) sets the live compatibility floor: older
+# Destructive JSON writes are enforced only after the published schema 174.
+JSON_REMOVAL_SQL = "UPDATE existing SET payload=json_remove(payload, '$.retired');"
+for version in (103, 174):
+    expect_evaluate(
+        f"historical JSON removal keeps its additive declaration at {version}",
+        check.migrations(fold_source(entry(version, JSON_REMOVAL_SQL))),
+        failures=0,
+        breaking=[],
+    )
+for version in (175, 176, 200):
+    for declared in (False, True):
+        expect_evaluate(
+            f"JSON removal requires breaking at {version}, declared={declared}",
+            check.migrations(fold_source(entry(version, JSON_REMOVAL_SQL, breaking=declared))),
+            failures=0 if declared else 1,
+            breaking=[version],
+        )
+
+for name, sql in (
+    ("insert value", "INSERT INTO existing VALUES(json_remove('{}', '$.retired'));"),
+    ("insert select", "INSERT INTO existing SELECT json_remove(payload, '$.retired') FROM source;"),
+    ("replace", "REPLACE INTO existing VALUES(json_remove('{}', '$.retired'));"),
+    ("nested call", "UPDATE existing SET payload=coalesce(json_remove(payload, '$.retired'), '{}');"),
+    ("case and comments", "/* head */ UPDATE existing SET payload=JsOn_ReMoVe /* call */ (payload, '$.retired');"),
+    ("quoted function", 'UPDATE existing SET payload="json_remove"(payload, \'$.retired\');'),
+    ("bracketed function", "UPDATE existing SET payload=[json_remove](payload, '$.retired');"),
+    ("CTE writer", "WITH data AS (SELECT json_remove(payload, '$.retired') AS payload FROM source) INSERT INTO existing SELECT payload FROM data;"),
+    ("dynamic path", "UPDATE existing SET payload=json_remove(payload, path_column);"),
+):
+    expect_evaluate(
+        f"destructive JSON write: {name}",
+        check.migrations(fold_source(entry(175, sql, breaking=True))),
+        failures=0,
+        breaking=[175],
+    )
+
+for name, sql in (
+    ("read only", "SELECT json_remove(payload, '$.retired') FROM existing;"),
+    ("read-only CTE", "WITH data AS (SELECT json_remove(payload, '$.retired') FROM existing) SELECT * FROM data;"),
+    ("string", "UPDATE existing SET payload='json_remove(payload, ''$.retired'')';"),
+    ("line comment", "UPDATE existing SET payload='{}' -- json_remove(payload, '$.retired')\n;"),
+    ("block comment", "UPDATE existing SET payload='{}' /* json_remove(payload, '$.retired') */;"),
+    ("quoted identifier", 'UPDATE existing SET payload="json_remove(payload, path)";'),
+    ("similar name", "UPDATE existing SET payload=not_json_remove(payload, '$.retired');"),
+    ("column", "UPDATE existing SET json_remove=1;"),
+    ("insert target", "INSERT INTO json_remove(payload, other) VALUES('{}', 1);"),
+    ("qualified target", "INSERT INTO main.json_remove(payload) VALUES('{}');"),
+    ("CTE name", "WITH json_remove(a, b) AS (SELECT 1, 2) INSERT INTO existing SELECT a FROM json_remove;"),
+    ("insert-source CTE name", "INSERT INTO existing WITH json_remove(a, b) AS NOT MATERIALIZED (SELECT 1, 2) SELECT a FROM json_remove;"),
+    ("insert alias", "INSERT INTO existing AS json_remove(a, b) VALUES(1, 2);"),
+    ("no removal paths", "UPDATE existing SET payload=json_remove(payload);"),
+    ("nested argument comma", "UPDATE existing SET payload=json_remove(json_object('a', 1));"),
+    ("ordinary JSON write", "UPDATE existing SET payload=json_set(payload, '$.new', 1);"),
+):
+    expect_evaluate(
+        f"harmless JSON syntax: {name}",
+        check.migrations(fold_source(entry(175, sql))),
+        failures=0,
+        breaking=[],
+    )
+
+for name, sql in (
+    ("explain", "EXPLAIN UPDATE existing SET payload=json_remove(payload, '$.retired');"),
+    ("replace target", "REPLACE json_remove(payload) VALUES('{}');"),
+):
+    expect_evaluate(
+        f"unclassified statement stays conservative: {name}",
+        check.migrations(fold_source(entry(175, sql, breaking=True))),
+        failures=0,
+        breaking=[175],
+    )
+
+# JSON member retirement (175) sets the live compatibility floor. Law index
+# retirement (174) also constrains older binaries: older
 # binaries still read and rebuild the dropped law index, publication
 # observation and Domain registry projection tables.
 # Worktree ownership retirement (173) also constrains older binaries, which
@@ -4673,7 +4746,13 @@ with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174}
+required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175}
+historical_declared = {
+    version for version, declaration, _ in check.migrations(live_source)
+    if version <= 174 and check.declares_breaking(declaration)
+}
+if {version for version in live_breaking if version <= 174} != historical_declared:
+    FAILURES.append("JSON-removal enforcement changed historical compatibility declarations")
 if max(live_breaking, default=0) != max(required_breaking):
     FAILURES.append(
         f"live compatibility floor moved: {max(live_breaking, default=0)}")

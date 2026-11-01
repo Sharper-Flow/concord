@@ -8428,6 +8428,17 @@ BEGIN
 END;
 `,
 	},
+	{
+		Version:  175,
+		Name:     "retire_defect_intake",
+		Breaking: true,
+		SQL: `
+INSERT INTO write_guard(active) VALUES(1);
+UPDATE work_items SET intent_json=json_remove(intent_json,'$.defect')
+WHERE json_type(intent_json,'$.defect') IS NOT NULL;
+DELETE FROM write_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -333,7 +333,7 @@ func main() {
                     self.assertRegex(row["digest"], r"^sha256:[0-9a-f]{64}$")
                     self.assertNotIn("version", row["manifest"])
                     self.assertIn("capabilities", row["manifest"])
-                    self.assertTrue(row["manifest"]["capabilities"])
+                    self.assertEqual(bool(row["manifest"]["capabilities"]), ref != "workflow.research")
                     self.assertEqual(row["rejected"], [old for old in previous.get(ref, []) if old != row["digest"]])
                 print(f"{name} digests: {json.dumps({ref: row['digest'] for ref, row in states[name].items()}, sort_keys=True)}", flush=True)
                 for ref, row in states[name].items():

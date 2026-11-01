@@ -14,32 +14,31 @@ import (
 )
 
 type workCreatedPayload struct {
-	WorkID                string        `json:"work_id,omitempty"`
-	WorkKind              string        `json:"work_kind"`
-	Title                 string        `json:"title"`
-	Task                  string        `json:"task,omitempty"`
-	From                  string        `json:"from,omitempty"`
-	To                    string        `json:"to,omitempty"`
-	ValueStatement        string        `json:"value_statement,omitempty"`
-	Priority              *int64        `json:"priority"`
-	Urgency               string        `json:"urgency,omitempty"`
-	Tags                  []string      `json:"tags,omitempty"`
-	ComponentID           string        `json:"component_id,omitempty"`
-	WorkflowTypeRef       string        `json:"workflow_type_ref,omitempty"`
-	ExternalRef           string        `json:"external_ref,omitempty"`
-	RaisedFromWorkID      string        `json:"raised_from_work_id,omitempty"`
-	DefectIntake          *DefectIntake `json:"defect_intake,omitempty"`
-	GoverningRequirements *[]string     `json:"governing_requirements,omitempty"`
+	WorkID                string    `json:"work_id,omitempty"`
+	WorkKind              string    `json:"work_kind"`
+	Title                 string    `json:"title"`
+	Task                  string    `json:"task,omitempty"`
+	From                  string    `json:"from,omitempty"`
+	To                    string    `json:"to,omitempty"`
+	ValueStatement        string    `json:"value_statement,omitempty"`
+	Priority              *int64    `json:"priority"`
+	Urgency               string    `json:"urgency,omitempty"`
+	Tags                  []string  `json:"tags,omitempty"`
+	ComponentID           string    `json:"component_id,omitempty"`
+	WorkflowTypeRef       string    `json:"workflow_type_ref,omitempty"`
+	ExternalRef           string    `json:"external_ref,omitempty"`
+	RaisedFromWorkID      string    `json:"raised_from_work_id,omitempty"`
+	GoverningRequirements *[]string `json:"governing_requirements,omitempty"`
 }
 
-// validateWorkCreatedPayload enforces capture fact bounds and defect kind rules.
+// validateWorkCreatedPayload enforces capture fact bounds.
 func validateWorkCreatedPayload(event Event, payload workCreatedPayload) error {
 	if payload.GoverningRequirements != nil {
 		if err := validateDeclaredGoverningRequirements(*payload.GoverningRequirements); err != nil {
 			return err
 		}
 	}
-	return ValidateDefectIntake(payload.WorkKind, payload.DefectIntake)
+	return nil
 }
 
 type workTransitionPayload struct {
@@ -69,21 +68,20 @@ type workIntentPayload struct {
 
 // workIntentProjection is the stored intent_json shape. Creation and revision
 // both encode exactly this block: the closed mutable intent plus the
-// capture-owned external reference, governing scope and defect classification. Event
+// capture-owned external reference and governing scope. Event
 // bookkeeping (reason, versions) never enters the projection, and revision
 // carries those capture facts forward unchanged.
 type workIntentProjection struct {
-	Title           string                `json:"title"`
-	Task            string                `json:"task,omitempty"`
-	ValueStatement  string                `json:"value_statement"`
-	Kind            string                `json:"kind"`
-	Priority        int64                 `json:"priority"`
-	Urgency         string                `json:"urgency"`
-	Tags            []string              `json:"tags"`
-	ComponentID     string                `json:"component_id"`
-	WorkflowTypeRef string                `json:"workflow_type_ref"`
-	ExternalRef     string                `json:"external_ref"`
-	Defect          *DefectClassification `json:"defect,omitempty"`
+	Title           string   `json:"title"`
+	Task            string   `json:"task,omitempty"`
+	ValueStatement  string   `json:"value_statement"`
+	Kind            string   `json:"kind"`
+	Priority        int64    `json:"priority"`
+	Urgency         string   `json:"urgency"`
+	Tags            []string `json:"tags"`
+	ComponentID     string   `json:"component_id"`
+	WorkflowTypeRef string   `json:"workflow_type_ref"`
+	ExternalRef     string   `json:"external_ref"`
 	// nil is unknown historical scope; a non-nil empty set is a known capture.
 	GoverningRequirements *[]string `json:"governing_requirements,omitempty"`
 }
@@ -222,7 +220,6 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		Title: payload.Title, Task: payload.Task, ValueStatement: payload.ValueStatement, Kind: payload.WorkKind,
 		Priority: *payload.Priority, Urgency: urgency, Tags: payload.Tags,
 		ComponentID: payload.ComponentID, WorkflowTypeRef: payload.WorkflowTypeRef, ExternalRef: payload.ExternalRef,
-		Defect:                defectIntakeFromProjection(payload.DefectIntake),
 		GoverningRequirements: payload.GoverningRequirements,
 	})
 	if err != nil {
@@ -323,25 +320,7 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 		return wrapFailure(KindInvariantViolation, "fold_event", "stored work intent is not readable", false,
 			"restore the current rows from a verified snapshot", err)
 	}
-	// A live revision cannot change the kind of an item that carries a
-	// captured defect classification: a research item converting to bug
-	// would bypass recurrence admission, and a bug converting away would
-	// hide a prior defect from the sibling matching query, which reads the
-	// stored kind. An unclassified item still cannot convert INTO the bug
-	// kind, because revise_intent carries no intake and the conversion would
-	// bypass capture admission entirely.
-	if payload.Kind != current.kind {
-		if intent.Defect != nil {
-			return newFailure(KindInvalidPayload, "fold_event", "work intent kind is immutable while the item carries a captured defect classification", false,
-				"capture a new work item of the target kind instead of converting this one")
-		}
-		if payload.Kind == "bug" {
-			return newFailure(KindInvalidPayload, "fold_event", "work intent cannot be revised into the bug kind without a captured defect classification", false,
-				"capture a new bug with a defect_intake record instead of converting this work item")
-		}
-	}
 	// external_ref is capture-owned; revision carries it forward unchanged.
-	// The defect classification is capture-owned the same way.
 	intent.Title = payload.Title
 	if payload.Task != nil {
 		intent.Task = *payload.Task
@@ -412,15 +391,6 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 	for _, membership := range payload.Memberships {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO work_projects(work_id,project_id,role) VALUES(?,?,?)`, event.SubjectID, membership.ProjectID, membership.Role); err != nil {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot replace work memberships", true, "retry once the database is writable", err)
-		}
-	}
-	// The capture membership (expected version 1) is the point both public
-	// capture paths share where Product scope is known, so the defect intake
-	// admission owner runs here, inside the capture's own transaction: a
-	// refusal rolls the capture back before any durable or native effect.
-	if payload.ExpectedVersion == 1 {
-		if err := admitDefectIntakeTx(ctx, tx, event.SubjectID); err != nil {
-			return err
 		}
 	}
 	if err := updateWorkVersion(ctx, tx, event, current.version, payload.ResultingVersion); err != nil {

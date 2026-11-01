@@ -1089,10 +1089,6 @@ func init() {
 	registerOutputBound("/$defs/blocked_work_page/properties/items/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 	registerOutputBound("/$defs/blocked_work_page/properties/nodes/maxItems", goConstantBound("internal/store/query.go", "q4MaxNodeLimit", boundItems))
 
-	registerOutputBound("/$defs/defect_classification/properties/failure_shape/maxLength", goConstantBound("internal/store/defect_intake.go", "MaxDefectFailureShapeLength", boundBytes))
-	registerOutputBound("/$defs/defect_classification/properties/reproduction/maxLength", goConstantBound("internal/store/defect_intake.go", "MaxDefectTextLength", boundBytes))
-	registerOutputBound("/$defs/defect_classification/properties/root_cause_work_id/maxLength", goPatternBound("internal/store/defect_intake.go", "defectWorkIDPattern"))
-	registerOutputBound("/$defs/defect_classification/properties/searched/maxLength", goConstantBound("internal/store/defect_intake.go", "MaxDefectTextLength", boundBytes))
 
 	// The folds store the caller text that parseRFC3339 admitted: the Go
 	// standard library takes any number of fractional-second digits

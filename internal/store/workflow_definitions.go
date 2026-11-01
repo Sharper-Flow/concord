@@ -80,7 +80,7 @@ func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 		},
 		{
 			Ref: "workflow.research", WorkKind: WorkKindResearch, ChangesProductTruth: &noTruthChange,
-			Capabilities: []WorkflowCapability{WorkflowCapabilityRootCauseAnalysis},
+			Capabilities: []WorkflowCapability{},
 			StepGraph: WorkflowStepGraph{
 				StartStep: "frame", TerminalSteps: []string{"complete"},
 				Steps: []WorkflowStep{

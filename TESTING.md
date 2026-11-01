@@ -30,8 +30,9 @@ in native results or full verbose output. Compile-only checks are a distinct cla
 
 ## Admission and plans
 
-`bin/oc-test targeted` accepts explicit Go packages with finite anchored top-level
-names, explicit adapter test files, or one repository Python check/test script.
+`bin/oc-test targeted` accepts explicit Go packages with finite literal name
+fragments or anchored top-level names, explicit adapter test files, or one
+repository Python check/test script with its native arguments.
 This command-shape guard prevents accidental broad runs; it is not a cost bound,
 changed-file analysis, or proof that the selection exists. A named integration test
 can still need heavy admission. Use `broad` whenever the workload is expensive.
@@ -40,11 +41,27 @@ can still need heavy admission. Use `broad` whenever the workload is expensive.
 bin/oc-test plan targeted -- go test -run '^TestMainCheckoutLifecyclePreservesTerminalGates$' ./internal/agent
 bin/oc-test targeted -- go test -run '^TestMainCheckoutLifecyclePreservesTerminalGates$' ./internal/agent -v
 bin/oc-test targeted -- python3 scripts/test-oc-test.py
+bin/oc-test plan targeted -- go test -run 'Overlap|Sequenc' ./internal/store
+bin/oc-test targeted -- python3 scripts/check-script-tests.py --root .
 ```
 
+Go fragments contain only letters, digits and underscores, separated by `|` for
+alternatives; each alternative must be nonempty. They can select many tests or
+none. Anchored full-name alternatives must stay grouped, such as
+`'^(TestOne|TestTwo)$'`; `'^TestOne|TestTwo$'` is not supported. Arbitrary regex
+operators and subtest patterns still require `broad`.
+
+Python admission checks one `scripts/check-*.py` or `scripts/test-*.py` entry
+point, not a per-script argument catalog. Arguments pass unchanged to Python,
+without shell interpretation; the script owns their meaning and validation.
+Aggregate commands such as `scripts/check-json.py` and
+`scripts/run-script-tests.py` still require `broad`, even with arguments.
+
 `plan` only parses arguments. It never runs `go test -list`, TestMain, test
-initialization, dependency discovery or tests. It shows expected names, command,
-admission and its limited evidence claim. Unknown command grammars, shell scripts,
+initialization, dependency discovery or tests. It shows command, admission and
+its limited evidence claim. Only anchored full-name Go selections populate
+`expected_tests`; fragment selections leave it empty, not an invented list of
+full names or a claim that no tests will run. Unknown command grammars, shell scripts,
 whole packages, wildcard packages, benchmarks, fuzzing, regex subtest selection
 and suite/shard execution use the explicit `broad` tier:
 

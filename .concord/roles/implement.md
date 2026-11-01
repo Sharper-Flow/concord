@@ -13,6 +13,10 @@ and report the gap to the caller. If the test does not pass after, report the ga
 Run the named check and any other checks needed for the change. Follow the
 repository's test and editing instructions.
 
+Load `concord-law-writing` when placing or authoring Product knowledge, including
+Product law. Load `concord-codebase-design` when adding, changing or reviewing a
+repository check. These methods do not expand the assigned scope.
+
 Resolve Product-law state through the workflow's resolved law context. You may delegate bounded
 repository investigation to `concord-explore` and external investigation to
 `concord-lookup`; neither may delegate further. Keep implementation judgment.

@@ -7,8 +7,9 @@ description: Write, edit, or prune agent instructions. Use for agent and role pr
 
 This portable method guides wording and organization. It adds no authority,
 approval, or workflow gate under [method admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md).
-For Product law, also load the shipped `concord-law-writing` skill for ownership,
-meaning review, approval and publication.
+For Product knowledge placement or authoring, including Product law, also load
+the shipped `concord-law-writing` skill. It guides placement, law metadata,
+meaning review, approval and publication; this skill owns the writing method.
 
 ## Find the instruction's owner
 

@@ -8,8 +8,8 @@ model, or private source.
 
 ## Skills that operate Concord structure
 
-Load [Law writing](concord-law-writing/SKILL.md) to draft, amend, or prune Product
-law in Concord's knowledge structure. It guides wording and meaning review;
+Load [Law writing](concord-law-writing/SKILL.md) to place or author Product
+knowledge, or draft, amend, or prune Product law. It guides placement and meaning review;
 the Product's existing authority and checks still own acceptance and publication.
 
 ## Portable engineering methods
@@ -19,11 +19,11 @@ the Product's existing authority and checks still own acceptance and publication
 - [Diagnosis](concord-diagnosis/SKILL.md): a defect or regression whose cause is
   not yet proven.
 - [Codebase design](concord-codebase-design/SKILL.md): an interface, seam, or
-  abstraction that must earn its place.
+  abstraction that must earn its place, or a repository check's authority.
 - [Work shaping](concord-work-shaping/SKILL.md): triage a request and decompose
   it into independently verifiable outcomes.
 - [Retrospective](concord-retrospective/SKILL.md): move a recurring correction
-  to the instruction, check, or document that can hold it.
+  to the instruction, check, or document that can hold it; publish a Product lesson.
 - [Review](concord-review/SKILL.md): review a step or change against repository
   standards and the ticket's end state or plan, including a final clean review.
 
@@ -52,9 +52,7 @@ session on the machine can load a skill on demand. A skill calls only Concord
 operations and the commands the Product declares in `.concord/tooling.v1.json`,
 and names no machine, private repository, or host tool.
 
-A dispatched worker never depends on a skill for its method. Dispatch does not
-record a skill loaded during an attempt, so the method a lane's purpose uses is
-carried in its generated lane definition, which dispatch binds by content hash.
+Host sessions and native subagents load methods from the shipped skill path.
 Procedure that depends on a host's tools, models, or configuration stays
 host-owned and reaches a worker through the
 [CD-0043 D1](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0043-host-owned-lane-methodology.md)

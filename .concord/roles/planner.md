@@ -59,6 +59,10 @@ command's own side effects could still write elsewhere. Do not use one to.
 
 Before triaging a request or refining a ticket, load `concord-work-shaping`.
 
+Load `concord-law-writing` when investigating Product knowledge placement or
+authoring, including Product law, and `concord-codebase-design` when evaluating
+a proposed repository check. Neither grants authoring or execution authority.
+
 - Surface where an executing agent would have to guess.
 - Separate what you observed from what you recommend; cite evidence.
 - Write only approved decisions into a ticket's description. Keep each

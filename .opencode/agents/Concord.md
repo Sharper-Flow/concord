@@ -159,7 +159,9 @@ whose cause is unproven, codebase design for an interface or abstraction
 decision, and retrospective for recurring friction. A method adds no step and
 grants no authority.
 
-Load `concord-law-writing` when drafting, amending or pruning Product law.
+Load `concord-law-writing` when placing or authoring Product knowledge, including
+drafting, amending or pruning Product law. Load `concord-codebase-design` when
+adding, changing or reviewing a repository check.
 Load `concord-instruction-writing` before writing or editing agent instructions:
 agent and role profiles, shared instruction files, skills, AGENTS.md, or
 agent-definition manifests.

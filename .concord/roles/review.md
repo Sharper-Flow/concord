@@ -9,6 +9,10 @@ scope and verify the repairs; there is no read-only review mode. Leave changes
 uncommitted: the caller commits and owns delivery. Return missing inputs,
 out-of-scope findings and reserved decisions to the caller, never the operator.
 
+Load `concord-law-writing` when reviewing Product knowledge placement or
+authoring, including Product law. Load `concord-codebase-design` when adding,
+changing or reviewing a repository check.
+
 Resolve Product-law state through the workflow's resolved law context. You may delegate bounded
 repository investigation to `concord-explore` and external investigation to
 `concord-lookup`; neither may delegate further. Keep the review judgment yourself.

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/hostlease"
@@ -131,22 +132,29 @@ func TestVerificationRetirementOwnerObservation(t *testing.T) {
 		observed                       uint64
 		processErr, statErr            error
 		selfErr                        error
-		retirable                      bool
+		// recovery is a substring of the refusal's recovery; empty means
+		// the lease is retirable.
+		recovery string
 	}{
-		{name: "dead-owner", lifecycle: "completed", pid: 123, started: "42", processErr: fmt.Errorf("wrapped: %w", os.ErrNotExist), retirable: true},
-		{name: "reused-pid", lifecycle: "cancelled", pid: 123, started: "42", observed: 43, retirable: true},
-		{name: "live-owner", lifecycle: "superseded", pid: 123, started: "42", observed: 42},
-		{name: "unreadable-owner", lifecycle: "completed", pid: 123, started: "42", processErr: os.ErrPermission},
-		{name: "malformed-proc", lifecycle: "completed", pid: 123, started: "42", processErr: errors.New("malformed stat")},
-		{name: "missing-proc-mount", lifecycle: "completed", pid: 123, started: "42", processErr: os.ErrNotExist, selfErr: os.ErrNotExist},
-		{name: "legacy-missing", lifecycle: "superseded", path: "/synthetic/removed", statErr: os.ErrNotExist, retirable: true},
-		{name: "legacy-unreadable", lifecycle: "completed", path: "/synthetic/removed", statErr: os.ErrPermission},
-		{name: "legacy-relative", lifecycle: "completed", path: "removed", statErr: os.ErrNotExist},
-		{name: "legacy-existing", lifecycle: "completed", path: "/synthetic/existing"},
-		{name: "partial-start", lifecycle: "completed", started: "42"},
-		{name: "malformed-start", lifecycle: "completed", pid: 123, started: "not-a-number"},
-		{name: "zero-start", lifecycle: "completed", pid: 123, started: "0"},
-		{name: "missing-work", pid: 123, started: "42", processErr: os.ErrNotExist},
+		{name: "dead-owner", lifecycle: "completed", pid: 123, started: "42", processErr: fmt.Errorf("wrapped: %w", os.ErrNotExist)},
+		{name: "reused-pid", lifecycle: "cancelled", pid: 123, started: "42", observed: 43},
+		{name: "live-owner", lifecycle: "superseded", pid: 123, started: "42", observed: 42, recovery: "wait for verification owner pid 123"},
+		{name: "live-nonterminal-owner", lifecycle: "in_progress", pid: 123, started: "42", observed: 42, recovery: "wait for verification owner pid 123"},
+		{name: "dead-nonterminal-owner", lifecycle: "in_progress", pid: 123, started: "42", processErr: os.ErrNotExist, recovery: "complete or cancel"},
+		{name: "legacy-nonterminal", lifecycle: "needed", path: "/synthetic/removed", statErr: os.ErrNotExist, recovery: "complete or cancel"},
+		{name: "unreadable-owner", lifecycle: "completed", pid: 123, started: "42", processErr: os.ErrPermission, recovery: "/proc entry readable"},
+		{name: "malformed-proc", lifecycle: "completed", pid: 123, started: "42", processErr: errors.New("malformed stat"), recovery: "/proc entry readable"},
+		{name: "missing-proc-mount", lifecycle: "completed", pid: 123, started: "42", processErr: os.ErrNotExist, selfErr: os.ErrNotExist, recovery: "with /proc readable"},
+		{name: "legacy-missing", lifecycle: "superseded", path: "/synthetic/removed", statErr: os.ErrNotExist},
+		{name: "legacy-parent-file", lifecycle: "completed", path: "/synthetic/parent-file/removed", statErr: syscall.ENOTDIR},
+		{name: "legacy-unreadable", lifecycle: "completed", path: "/synthetic/removed", statErr: os.ErrPermission, recovery: "worktree path readable"},
+		{name: "legacy-relative", lifecycle: "completed", path: "removed", statErr: os.ErrNotExist, recovery: "unused worktree"},
+		{name: "legacy-existing", lifecycle: "completed", path: "/synthetic/existing", recovery: "unused worktree"},
+		{name: "partial-start", lifecycle: "completed", started: "42", recovery: "maintainer"},
+		{name: "partial-nonterminal", lifecycle: "in_progress", pid: 123, recovery: "maintainer"},
+		{name: "malformed-start", lifecycle: "completed", pid: 123, started: "not-a-number", recovery: "maintainer"},
+		{name: "zero-start", lifecycle: "completed", pid: 123, started: "0", recovery: "maintainer"},
+		{name: "missing-work", pid: 123, started: "42", processErr: os.ErrNotExist, recovery: "complete or cancel"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			probe := func(pid int) (uint64, error) {
@@ -157,8 +165,8 @@ func TestVerificationRetirementOwnerObservation(t *testing.T) {
 			}
 			stat := func(string) (os.FileInfo, error) { return nil, tc.statErr }
 			got := verificationRetirementRecovery(tc.lifecycle, tc.path, tc.pid, tc.started, probe, stat)
-			if (got == "") != tc.retirable {
-				t.Fatalf("recovery = %q, want retirable=%v", got, tc.retirable)
+			if (got == "") != (tc.recovery == "") || !strings.Contains(got, tc.recovery) {
+				t.Fatalf("recovery = %q, want %q", got, tc.recovery)
 			}
 		})
 	}

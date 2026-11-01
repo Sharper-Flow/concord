@@ -326,7 +326,7 @@ or storage method is not sufficient evidence.
   When `concord_work_relate.resolve_overlap` resolves one
   Then one typed relation of the resolved kind is created atomically with the
   resolution; `supersedes` and `merged_into` terminalize the predecessor in
-  the same transaction, a resolution that would close a cycle or add a
+  the same transaction; a resolution that would close a cycle or add a
   second successor is refused. Both work versions, both workflow-contract
   versions, and scope checks remain required, including `cross_scope` for
   `merged_into` or `supersedes` when the cut discards declared governing

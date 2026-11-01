@@ -11,6 +11,9 @@ This validator classifies each migration's statements and compares the result
 with its declared Breaking field. A migration that removes or renames a schema
 object, or constrains an existing one, must declare Breaking: true. One that
 only creates objects or adds a nullable or defaulted column must not.
+Above JSON_REMOVAL_RULE_FLOOR, a data write that calls json_remove with removal
+paths also requires a breaking declaration. Published compatibility declarations
+remain immutable, so this responsibility applies only after that boundary.
 
 The classification is deliberately conservative: an unrecognized statement
 counts as breaking. Being wrong toward breaking costs a refusal that a newer
@@ -164,6 +167,10 @@ SCHEMA = Path(__file__).resolve().parent.parent / "internal" / "store" / "schema
 # 108 was the last fold-maintained column admitted without a declaration; its
 # repair, migration 109, is the first version the rules could have bound.
 RULE_FLOOR = 108
+
+# Published declarations are immutable. Earlier JSON metadata cleanups keep
+# their recorded compatibility; data-removal enforcement starts after 174.
+JSON_REMOVAL_RULE_FLOOR = 174
 
 FOLD_VOCABULARY = ("advance", "origin")
 # What fold_maintained returns for a field whose value is not on the field's
@@ -1969,6 +1976,67 @@ def shape_widens_only(old: TableShape, new: TableShape, affinity_of) -> bool:
         return False
     return checks_widen(old.table_checks, new.table_checks, affinity_of)
 
+def destructive_json_write(statement: str) -> bool:
+    """Recognize removal calls in writes, using comment-free SQL tokens."""
+    tokens = sql_tokens(statement)
+    if not tokens:
+        return False
+    writes = {"insert", "update", "delete", "replace"}
+    operation = fold_ascii(tokens[0])
+    operation_at = 0
+    if word_is(tokens[0], "WITH"):
+        depth = 0
+        for at, token in enumerate(tokens[1:], 1):
+            if token == "(":
+                depth += 1
+            elif token == ")":
+                depth -= 1
+            elif depth == 0 and is_bare_word(token) and fold_ascii(token) in writes | {"select"}:
+                operation, operation_at = fold_ascii(token), at
+                break
+    if operation not in writes:
+        return False
+    depth = 0
+    for at, token in enumerate(tokens[:-1]):
+        if token == "(":
+            depth += 1
+        elif token == ")":
+            depth -= 1
+        if at < operation_at and depth == 0:
+            continue  # CTE names and their column lists are not calls.
+        if bare_name(token) != "json_remove" or tokens[at + 1] != "(":
+            continue
+        if at and (
+            tokens[at - 1] == "."
+            or any(word_is(tokens[at - 1], word) for word in ("INTO", "REPLACE", "AS"))
+        ):
+            continue  # Write targets, aliases and CAST type names.
+        call_depth = 0
+        removal_path = False
+        for end in range(at + 1, len(tokens)):
+            argument = tokens[end]
+            if argument == "(":
+                call_depth += 1
+            elif argument == ")":
+                call_depth -= 1
+                if call_depth == 0:
+                    # INSERT sources can introduce their own CTE column lists.
+                    following = end + 1
+                    if following < len(tokens) and word_is(tokens[following], "AS"):
+                        following += 1
+                        for keyword in ("NOT", "MATERIALIZED"):
+                            if following < len(tokens) and word_is(tokens[following], keyword):
+                                following += 1
+                        if following < len(tokens) and tokens[following] == "(":
+                            break
+                    if removal_path:
+                        return True
+                    break
+            elif argument == "," and call_depth == 1:
+                removal_path = True
+    return False
+
+
 def classify(sql: str, world: World | None = None) -> list[str]:
     """Return the reasons this migration breaks an older binary, if any.
 
@@ -2185,6 +2253,10 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
             # cannot vouch for the schema its successors prove against.
             world.poisoned = True
         reasons = classify(sql, world)
+        if version > JSON_REMOVAL_RULE_FLOOR and any(
+            destructive_json_write(statement) for statement in statements(sql)
+        ):
+            reasons.append("removes JSON members in a data-write expression")
         if version > RULE_FLOOR:
             adds_column = adds_preexisting_column(sql, world)
             creates_table = any(CREATE_TABLE.match(statement) for statement in statements(sql))

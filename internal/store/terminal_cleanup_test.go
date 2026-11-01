@@ -191,38 +191,23 @@ func TestTerminalCleanupPreservesReferencedResearch(t *testing.T) {
 	}
 }
 
-func TestTerminalCleanupRetainsDefectAdmissionClassification(t *testing.T) {
+func TestTerminalCleanupRemovesBugAndResearchExecution(t *testing.T) {
 	for _, kind := range []string{"bug", "research"} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
 			s, _ := terminalCleanupFixtureForKind(t, kind)
-			shape := "shape-fixture"
-			var siblings []string
-			if kind == "research" {
-				if err := captureDefectWork(t, s, "earlier-bug", "bug", defectIntakeJSON(shape, nil, ""), "proj-web"); err != nil {
-					t.Fatal(err)
-				}
-				siblings = []string{"earlier-bug"}
-			}
-			intent, _ := json.Marshal(map[string]any{"defect": map[string]any{"failure_shape": shape, "sibling_ids": siblings}})
-			terminalCleanupSQL(t, s, `UPDATE work_items SET kind='`+kind+`',intent_json='`+string(intent)+`' WHERE id='work-done'`)
+			terminalCleanupSQL(t, s, `UPDATE work_items SET kind='`+kind+`' WHERE id='work-done'`)
 			if err := s.CleanupPublishedTerminalWork(t.Context(), "work-done"); err != nil {
 				t.Fatal(err)
 			}
-			for _, table := range []string{"work_items", "work_projects", "workflow_instances"} {
+			for _, table := range []string{"work_items", "work_projects", "workflow_instances", "workflow_evidence_bindings", "workflow_law_baselines"} {
 				owner := "work_id"
 				if table == "work_items" {
 					owner = "id"
 				}
 				var count int
-				if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM `+table+` WHERE `+owner+`='work-done'`).Scan(&count); err != nil || count != 1 {
-					t.Fatalf("admission classification lost from %s: count=%d err=%v", table, count, err)
-				}
-			}
-			for _, table := range []string{"workflow_evidence_bindings", "workflow_law_baselines"} {
-				var count int
-				if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM `+table+` WHERE work_id='work-done'`).Scan(&count); err != nil || count != 0 {
-					t.Fatalf("retained classification kept %s: count=%d err=%v", table, count, err)
+				if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM `+table+` WHERE `+owner+`='work-done'`).Scan(&count); err != nil || count != 0 {
+					t.Fatalf("execution survives in %s: count=%d err=%v", table, count, err)
 				}
 			}
 			assertFailureKind(t, publishedWorkAbsenceQ(t.Context(), s.db, "work-done", "test"), KindProjectionNotFound)
@@ -231,17 +216,7 @@ func TestTerminalCleanupRetainsDefectAdmissionClassification(t *testing.T) {
 			_, summaryErr := s.ReadWorkItemSummary(t.Context(), "work-done")
 			assertFailureKind(t, summaryErr, KindProjectionNotFound)
 			if err := s.CleanupPublishedTerminalWork(t.Context(), "work-done"); err != nil {
-				t.Fatalf("classification-only re-entry: %v", err)
-			}
-			rootCause := ""
-			if kind == "research" {
-				rootCause = "work-done"
-			}
-			err := captureDefectWork(t, s, "later-bug", "bug", defectIntakeJSON(shape, nil, rootCause), "proj-web")
-			if kind == "bug" {
-				assertFailureKind(t, err, KindInvalidOperation)
-			} else if err != nil {
-				t.Fatalf("retained RCA no longer admits its covered cluster: %v", err)
+				t.Fatalf("cleanup re-entry: %v", err)
 			}
 		})
 	}

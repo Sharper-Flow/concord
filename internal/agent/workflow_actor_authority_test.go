@@ -107,7 +107,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 	}
 	// Every dispatch re-reads the scope version first: each accepted capture
 	// bumps it, so a stale envelope would refuse a later capture.
-	capture := func(kind, ref, key string, defectIntake bool) agentcontract.Envelope {
+	capture := func(kind, ref, key string) agentcontract.Envelope {
 		t.Helper()
 		freshScope, _, scopeErr := s.ScopeVersion(context.Background(), "project-1")
 		if scopeErr != nil {
@@ -117,9 +117,6 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 		raw := `{"title":"Live authoring probe","value_statement":"Probe the live authoring selector","kind":"` + kind + `","project_ids":["project-1"],`
 		if ref != "" {
 			raw += `"workflow_type_ref":"` + ref + `",`
-		}
-		if defectIntake {
-			raw += `"defect_intake":{"failure_shape":"live-authoring-selector-probe","reproduction":"Capture with kind bug pins the break-fix head through the live selector.","searched":"Searched the fixture store for an earlier same-shape capture; none exists.","related_defect_ids":[]},`
 		}
 		raw += `"idempotency_key":"` + key + `"}`
 		captured, dispatchErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(raw)}, freshEnv)
@@ -131,7 +128,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 	baseline := snapshot()
 
 	for _, ref := range []string{"workflow.architecture_spike", "workflow.ops_runbook", "workflow.static_analysis", "workflow.generic_one_off"} {
-		refused := capture("task", ref, "retired-"+ref, false)
+		refused := capture("task", ref, "retired-"+ref)
 		// The boundary renders the authoring refusal as invariant_violation;
 		// the message is the typed answer and must name the family.
 		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invariant_violation" {
@@ -148,7 +145,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 	// Decision and other work carries no implicit family: the unnamed kind
 	// refuses with the typed workflow_authoring answer and commits nothing.
 	for _, kind := range []string{"decision", "other"} {
-		refused := capture(kind, "", "unnamed-"+kind, false)
+		refused := capture(kind, "", "unnamed-"+kind)
 		// The boundary renders the unnamed-kind authoring refusal as
 		// invalid_input; the message is the typed workflow_authoring answer.
 		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" {
@@ -164,23 +161,21 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 
 	// The kind defaults pin their family's current head; an explicit retained
 	// family captures exactly what the caller named. The operator kind stays
-	// its own vocabulary: a decision work item is still kind decision. The
-	// bug capture carries its defect intake admission.
+	// its own vocabulary: a decision work item is still kind decision.
 	capturedWorks := map[string]string{}
 	for _, happy := range []struct {
 		kind, ref, wantRef string
 		wantDigest         string
-		defectIntake       bool
 	}{
 		{kind: "task", ref: "", wantRef: "workflow.implementation", wantDigest: liveHeadDigest(t, "workflow.implementation")},
-		{kind: "bug", ref: "", wantRef: "workflow.break_fix", wantDigest: liveHeadDigest(t, "workflow.break_fix"), defectIntake: true},
+		{kind: "bug", ref: "", wantRef: "workflow.break_fix", wantDigest: liveHeadDigest(t, "workflow.break_fix")},
 		{kind: "research", ref: "", wantRef: "workflow.research", wantDigest: liveHeadDigest(t, "workflow.research")},
 		{kind: "decision", ref: "workflow.break_fix", wantRef: "workflow.break_fix", wantDigest: liveHeadDigest(t, "workflow.break_fix")},
 		{kind: "other", ref: "workflow.research", wantRef: "workflow.research", wantDigest: liveHeadDigest(t, "workflow.research")},
 	} {
 		happy := happy
 		t.Run("capture-"+happy.kind+"-"+happy.ref, func(t *testing.T) {
-			captured := capture(happy.kind, happy.ref, "happy-"+happy.kind+"-"+happy.ref, happy.defectIntake)
+			captured := capture(happy.kind, happy.ref, "happy-"+happy.kind+"-"+happy.ref)
 			if captured.Outcome != agentcontract.OutcomeOK || len(*captured.ChangedRefs) != 1 {
 				t.Fatalf("capture kind=%s ref=%q response=%+v err=%v", happy.kind, happy.ref, captured, captured.Error)
 			}

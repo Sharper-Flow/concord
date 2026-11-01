@@ -5,13 +5,9 @@ import (
 	"fmt"
 )
 
-// Recurrence admission owns these classifications and their Product/workflow
-// family scope even after execution collection (CD-0211 D2–D4).
-const retainedDefectClassificationSQL = `(w.kind='bug' OR (w.kind='research' AND coalesce(json_extract(w.intent_json,'$.defect.failure_shape'),'')<>''))`
-
 func retainedExecutionExistsQ(ctx context.Context, q queryer, workID string) (bool, error) {
 	var retained bool
-	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_items w WHERE w.id=?1 AND NOT (`+retainedDefectClassificationSQL+` AND w.lifecycle IN ('completed','cancelled','superseded') AND NOT EXISTS(SELECT 1 FROM effect_receipts r WHERE r.subject_type='work_item' AND r.subject_id=w.id) AND NOT EXISTS(SELECT 1 FROM durable_operations d WHERE d.work_id=w.id)))`, workID).Scan(&retained)
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_items WHERE id=?)`, workID).Scan(&retained)
 	return retained, err
 }
 
@@ -64,13 +60,6 @@ func publishedWorkAbsenceForScopeQ(ctx context.Context, q queryer, workID, produ
 		}
 		if linked {
 			return newFailure(KindProjectionNotFound, op, "work "+workID+" execution state is not retained; canonical outcome is not indexed", false, "resolve the canonical knowledge home for work "+workID+"; preserve its recorded issue identity")
-		}
-		classification, err := workExistsCore(ctx, q, workID)
-		if err != nil {
-			return err
-		}
-		if classification {
-			return newFailure(KindUnavailable, op, "execution state is not retained and its canonical outcome is not indexed", false, "refresh the canonical knowledge home before resolving the outcome")
 		}
 		return nil
 	}

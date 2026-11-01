@@ -44,15 +44,6 @@ func TestPublishedExecutionAbsenceReaders(t *testing.T) {
 	assertPublishedExecutionAbsenceReaders(t, s, home, commit, hash)
 }
 
-func TestPublishedClassificationOnlyAbsenceReaders(t *testing.T) {
-	s, home, commit, hash := publishedAbsenceFixture(t)
-	terminalCleanupSQL(t, s,
-		`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time,intent_json) VALUES('work-published','bug','Classified bug','completed',0,3,'now','now','now','{"defect":{"failure_shape":"shape-fixture"}}')`,
-		`INSERT INTO work_projects(work_id,project_id,role) VALUES('work-published','proj-web','primary')`,
-	)
-	assertPublishedExecutionAbsenceReaders(t, s, home, commit, hash)
-}
-
 func assertPublishedExecutionAbsenceReaders(t *testing.T, s *Store, home KnowledgeHome, commit, hash string) {
 	t.Helper()
 	ctx := t.Context()

@@ -73,7 +73,7 @@ A verified committed canonical note is discoverable without a retained publicati
 Cleanup of completed, cancelled or superseded execution requires the settled canonical publication and the closure stage's reviewed judgement under CD-0242 D9.
 The receipt links the delivered subject, accepted outcome, consequential decisions and acceptance proof in its body, without new front matter.
 Active references and claims must be released, and outstanding effects must be reconciled, before the cleanup transaction removes execution state.
-Each retained category keeps its documented consumer and removal condition; recurrence-admission classification remains readable under CD-0211 D2–D4.
+Each retained category keeps its documented consumer and removal condition.
 Consumers of collected execution state receive typed absence and the canonical outcome locator, never a reference claiming that the removed artifact remains inspectable.
 
 Cleanup never shelves or cancels work, removes nonterminal execution, deletes code or worktrees, or deletes canonical Git knowledge or shared setup.
@@ -185,7 +185,6 @@ Authorized owner reopen before retirement removes eligibility without reconstruc
 | canonical Git note | retain | distilled knowledge | publication and reconciliation; work-note-only recovery; the typed-absence outcome locator | the note commit verifies from Git | none in Concord; Git owns the note |
 | canonical publication proof | verify from Git; the settled operation and closure judgement gate cleanup | PM6 and CD-0242 D9 | terminal cleanup | Git proof verified before cleanup; version, lifecycle, and home re-read in the cleanup transaction | removed with its terminal execution |
 | terminal execution and owned membership/relation rows | collect only after verified closure and release of every consuming category | CD-0242 D2; CD-0088 D2 | live executions that reference it; unsettled effects, workflow steps, Project handoffs, messages, findings, and owned research; not worktree ownership or verification leases | the cleanup blocker list in `internal/store/terminal_cleanup.go` | terminal, its published note matches the lifecycle, and no blocker holds |
-| defect recurrence classification and required Product/workflow scope | retain until work or Product removal | CD-0211 D2–D4 | recurrence admission of later defect captures | same-shape lookup at capture | work or Product removal |
 | historical index and scope edges | retain or rebuild | verified Git-derived projections | historical queries | rebuilt against the current Git head watermark | replaced by the rebuild; never a source of truth |
 | research packs and dependent content | retain until explicit eligible retirement | direct tables | active pins and the owning execution | pin and owner checks in `research_retire` | explicit `research_retire` with no active pin |
 | WIP logs, traces, screenshots, binary output | producer-owned process exhaust | no Concord retention | none in Concord | none | the producer's own policy |

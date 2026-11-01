@@ -51,7 +51,6 @@ func TestPublishedExecutionAbsenceUnresolvedLocatorWire(t *testing.T) {
 		name, sql, kind string
 	}{
 		{"ambiguous", `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('other-locator','stored-project','canonical_path','/synthetic/other','/synthetic/other','now','now'); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) SELECT id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,'other-locator',note_path,commit_oid,content_hash,scope_mode FROM archived_work`, "ambiguous_scope"},
-		{"unindexed classification", `DELETE FROM archived_work_products; DELETE FROM archived_work; INSERT INTO work_items(id,kind,title,lifecycle,version,priority,created_at,updated_at,intent_json) VALUES('work-published','bug','Classified bug','completed',3,0,'now','now','{}')`, "unreachable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := runtimeKnowledgeStore(t, "work-published", "work_note", []string{"product-a"}, map[string]string{"product-a": "member"})

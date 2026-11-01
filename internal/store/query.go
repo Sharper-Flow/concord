@@ -192,12 +192,6 @@ type WorkItem struct {
 	Liveness        *WorkLiveness       `json:"liveness,omitempty"`
 	Blockers        []WorkItem          `json:"blockers,omitempty"`
 	WorkPin         *WorkPin            `json:"work_pin,omitempty"`
-	// DefectIntake is the read-only projection of the persisted defect
-	// classification: the immutable intake fields plus the core's sibling
-	// snapshot. It rides the same authoritative intent reads as the task
-	// and value statement (the scope read and the full-detail list); bounded
-	// summary reads keep their column-only shape.
-	DefectIntake *DefectClassification `json:"defect_intake,omitempty"`
 }
 
 type Q4Result struct {
@@ -847,9 +841,7 @@ func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) err
 
 // decodeRecordedIntent projects the intent fields a carrying revision needs
 // onto one item. It reads the same shape the capture and revise folds store,
-// so every revisable value the fold can persist the read can expose, and it
-// is the one owner of the public defect classification view: the immutable
-// intake fields and the core's sibling snapshot ride with the intent.
+// so every revisable value the fold can persist the read can expose.
 func decodeRecordedIntent(item *WorkItem, intentJSON string) error {
 	var intent workIntentProjection
 	if err := json.Unmarshal([]byte(intentJSON), &intent); err != nil {
@@ -859,7 +851,6 @@ func decodeRecordedIntent(item *WorkItem, intentJSON string) error {
 	item.ValueStatement = intent.ValueStatement
 	item.Tags = intent.Tags
 	item.WorkflowTypeRef = intent.WorkflowTypeRef
-	item.DefectIntake = intent.Defect
 	return nil
 }
 

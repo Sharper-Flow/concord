@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
@@ -52,50 +51,31 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			}
 			// Re-pin to the other existing derived law without enacting an
 			// unrelated deletion of the predecessor's mandate.
-			fields["contract_version"] = 2
+			fields = pContractSuccessor(t, s, workID, "Revise the derived record inside this contract.")
 			fields["spec_mandate"] = []string{"spec:two"}
 			fields["law_modifies"] = scenario.modifies
-			fields["required_evidence"] = []string{"verification"}
-			fields["route_conventions"] = []string{}
-			fields["rigor_class"] = "prototype_internal"
-			fields["supersede_reason"] = "Revise the contract under the accepted successor law."
-			fields["audit_evidence"] = []string{"evidence:law-successor"}
 			fields["decision_domains"] = []string{}
-			if len(scenario.modifies) == 0 {
-				delete(fields, "law_change_reason")
+			if len(scenario.modifies) != 0 {
+				fields["law_change_reason"] = "Move the derived revision into this contract."
 			}
 			if scenario.refused {
 				fields["spec_mandate"] = []string{"spec:two", "spec:legislated"}
 			}
 			version = readWorkVersion(t, s, workID)
-			ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer tx.Rollback()
-			_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-				WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(fields), Actor: actor,
-				AcceptedInputsDigest: "sha256:derived-successor", IdempotencyIdentity: "supersede-derived", OperationID: "supersede-derived",
-				PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "supersede-derived",
-				RequestID: "request:supersede-derived", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC),
-			})
+			before := contractRecordEffectSnapshot(t, s, workID)
+			err := reviseContractRecord(t, s, workID, actor, fields, version, nil)
 			if scenario.refused {
-				tx.Rollback()
 				var failure *Failure
 				if !failureAs(err, &failure) || !strings.Contains(failure.Detail, "may revise only derived law") {
 					t.Fatalf("legislated successor did not meet the tier refusal: %v", err)
+				}
+				if after := contractRecordEffectSnapshot(t, s, workID); after != before {
+					t.Fatal("refused legislated revision changed the record")
 				}
 				return
 			}
 			if err != nil {
 				t.Fatalf("live successor action: %v", err)
-			}
-			if err := tx.Commit(); err != nil {
-				t.Fatal(err)
 			}
 			assertSuccessor := func() {
 				t.Helper()

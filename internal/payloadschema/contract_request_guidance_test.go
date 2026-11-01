@@ -41,17 +41,15 @@ func approveFieldsWithPredicate(payload string) string {
 	}`
 }
 
-func supersedeFieldsWithPredicate(payload string) string {
+func revisionContractWithPredicate(payload string) string {
 	return `{
-		"contract_version": 1,
+		"contract_version": 2,
 		"premise": "The premise states the bounded replacement.",
 		"required_evidence": [],
 		"route_conventions": [],
 		"spec_mandate": [],
 		"law_modifies": [],
 		"rigor_class": "prototype_internal",
-		"supersede_reason": "The reason states the bounded replacement.",
-		"audit_evidence": ["audit-reference-1"],
 		"decision_domains": [],
 		"outcome_predicates": [
 			{"predicate_id": "predicate:two", "ordinal": 0, "outcome_kind": "absent",
@@ -82,7 +80,7 @@ func TestContractRequestFailureSelectsTheApplicableVariant(t *testing.T) {
 	if strings.Contains(got, "unknown property $.fields.decision_domains") {
 		t.Errorf("a branch-local unknown-property refusal reached the caller as global: %s", got)
 	}
-	if strings.Contains(got, "supersede_contract") {
+	if strings.Contains(got, "record_verdict") {
 		t.Errorf("an unrelated action variant consumes the message budget: %s", got)
 	}
 	if len(got) > 1000 {
@@ -90,19 +88,19 @@ func TestContractRequestFailureSelectsTheApplicableVariant(t *testing.T) {
 	}
 }
 
-func TestSupersedeRequestFailureSelectsTheApplicableVariant(t *testing.T) {
-	data := contractGuidanceInput(t, "supersede_contract", "select-supersede-1",
-		supersedeFieldsWithPredicate(`{"kind": "absent", "surface": "go_source", "subjects": ["internal-store-workpin"], "distinguish_from": ["deleted"]}`))
+func TestContractRevisionFailureSelectsTheApplicableVariant(t *testing.T) {
+	data := []byte(`{"work_id":"work-1","expected_version":1,"title":"Updated plan","value_statement":"Current criteria","kind":"task","reason":"Revise the plan","idempotency_key":"select-revision-1","contract":` +
+		revisionContractWithPredicate(`{"kind": "absent", "surface": "go_source", "subjects": ["internal-store-workpin"], "distinguish_from": ["deleted"]}`) + `}`)
 
-	err := ValidateInDocument(Document(), "work_transition_action_input", data)
+	err := ValidateInDocument(Document(), "work_define_revise_input", data)
 	if err == nil {
 		t.Fatal("a distinguish_from value outside its enum was accepted")
 	}
 	got := err.Error()
-	if !strings.Contains(got, "enum mismatch at $.fields.outcome_predicates[0].outcome_payload.distinguish_from[0]") {
+	if !strings.Contains(got, "enum mismatch at $.contract.outcome_predicates[0].outcome_payload.distinguish_from[0]") {
 		t.Errorf("refusal does not select the true leaf failure: %s", got)
 	}
-	if strings.Contains(got, "unknown property $.fields.decision_domains") {
+	if strings.Contains(got, "unknown property $.contract.decision_domains") {
 		t.Errorf("a branch-local unknown-property refusal reached the caller as global: %s", got)
 	}
 	if strings.Contains(got, "approve_contract") {

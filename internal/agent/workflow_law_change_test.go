@@ -92,7 +92,7 @@ func TestWorkflowLawRemovalAdmission(t *testing.T) {
 func testWorkflowLawChangeAdmission(t *testing.T, tier string, removing bool) {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -152,8 +152,9 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string, removing bool) {
 		fields["law_change_removals"] = []string{lawID}
 	}
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}}
-	for _, action := range []string{"approve_contract", "supersede_contract"} {
-		if action == "supersede_contract" {
+	for _, action := range []string{"approve_contract", "revise_intent"} {
+		var response agentcontract.Envelope
+		if action == "revise_intent" {
 			var evidence, routes, rigor string
 			if err := db.QueryRow(`SELECT required_evidence,route_conventions,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&evidence, &routes, &rigor); err != nil {
 				t.Fatal(err)
@@ -162,16 +163,16 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string, removing bool) {
 			fields["route_conventions"] = json.RawMessage(routes)
 			fields["rigor_class"] = rigor
 			fields["contract_version"] = 2
-			fields["supersede_reason"] = "The drafted law text needs another revision."
-			fields["audit_evidence"] = []string{"audit:law-revision"}
 			delete(fields, "route_convention")
+			response, _ = dispatchContractRevisionResult(t, s, service, env, "work-1", workVersion(t, s, "work-1"), fields, "law-revise-intent")
+		} else {
+			response = invoke(action, "law-"+action, fields)
 		}
-		response := invoke(action, "law-"+action, fields)
 		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("%s of %s law: %+v", action, tier, response.Error)
 		}
 		var eventActor, changeJSON string
-		if err := db.QueryRow(`SELECT actor FROM effect_receipts WHERE subject_id='work-1' AND kind IN (?,?) ORDER BY effect_seq DESC LIMIT 1`, store.WorkflowContractApproved, store.WorkflowContractSuperseded).Scan(&eventActor); err != nil {
+		if err := db.QueryRow(`SELECT actor FROM effect_receipts WHERE subject_id='work-1' AND kind IN (?,?) ORDER BY effect_seq DESC LIMIT 1`, store.WorkflowContractApproved, "work.intent_revised").Scan(&eventActor); err != nil {
 			t.Fatal(err)
 		}
 		wantActor := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)

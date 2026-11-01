@@ -3,9 +3,7 @@
   "id": "CD-0036",
   "title": "Deleting a pinned law marks dependent contracts stale",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "product-memory",
   "applies_to_domain_ids": [
@@ -20,7 +18,7 @@
 - **Scope:** Product-law evolution; workflow contracts; stale-work refusal
 - **Approval:** Operator approval for CD-0036
 - **Related:** CD-0006 D5/D10/R3, CD-0012, CD-0013, CD-0015,
-  CD-0016, CD-0027, CD-0033
+  CD-0016, CD-0027
 
 ## Context
 
@@ -61,9 +59,9 @@ Read-only inspection remains available.
 
 The closed recovery paths are:
 
-1. use the `supersede_contract` action to atomically supply and install a
-   fully validated successor contract whose mandate resolves wholly to current
-   accepted law; or
+1. use the ordinary `revise_intent` record update to atomically supply a
+   complete validated contract whose mandate resolves wholly to current
+   accepted law, under [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates); or
 2. cancel or supersede the work item.
 
 The workflow that makes the deletion receives no bypass. Its approved
@@ -88,9 +86,10 @@ Every later mutating preflight compares the active contract with the current
 law projection inside its owning `BEGIN IMMEDIATE` transaction. A deletion and
 a stale result therefore have one committed order across processes: a result
 that commits first preceded the deletion; a result that observes it refuses.
-Recovery installs the successor and marks the prior active contract superseded
+Recovery appends the next retained contract version and makes it current
 inside that same transaction, so no committed state exposes two active
-contracts.
+contracts. It preserves the workflow step and retained evidence; current
+validity follows the ordinary update contract.
 
 ### D6. Typed refusal and continuity
 

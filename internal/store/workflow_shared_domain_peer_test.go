@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -158,63 +156,6 @@ func attemptD7BoundaryAction(ctx context.Context, s *Store, workID, actionID str
 		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), execution)
 		return err
 	})
-}
-
-// supersedeRecoveryPayload is the typed successor contract the recovery
-// payload checks require, shaped for the non-Product-changing fixture family.
-// A Product-changing pinned definition requires the successor architecture
-// binding, and a duplicated active-contract projection must name the exact
-// active versions the supersession retires; the successor version follows the
-// highest one.
-func supersedeRecoveryPayload(t *testing.T, workID string, successor int64, binding map[string]any, predecessors ...int64) json.RawMessage {
-	t.Helper()
-	fields := map[string]any{
-		"contract_version": successor,
-		"premise":          "The successor contract carries the work past the refused state.",
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:" + workID, "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		}},
-		"required_evidence": []string{"verification"},
-		"route_conventions": []string{},
-		"spec_mandate":      []string{},
-		"law_modifies":      []string{},
-		"rigor_class":       "prototype_internal",
-		"supersede_reason":  "the operator recovered the refused state",
-		"audit_evidence":    []string{"evidence:" + workID},
-	}
-	if len(predecessors) != 0 {
-		fields["predecessor_contract_versions"] = predecessors
-	}
-	if binding != nil {
-		fields["architecture_binding"] = binding
-	}
-	return mustJSONValue(fields)
-}
-
-// runSupersedeRecoveryFold drives one supersede_contract request through the
-// dispatch fold the owning boundary runs. The recovery's operator approval is
-// the mutation boundary's wall, not the fold's, so the request carries the
-// work actor alone.
-func runSupersedeRecoveryFold(t *testing.T, s *Store, workID string, payload json.RawMessage, actor WorkflowActor) error {
-	t.Helper()
-	version := readWorkVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	operationID := "supersede-recovery-" + workID + "-" + strconv.FormatInt(version, 10)
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: payload, Actor: actor,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
-		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
-		ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC(),
-	})
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 // Two executing items that modify the same Domain and the same law do not block

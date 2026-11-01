@@ -176,17 +176,9 @@ func TestArchivedFamilyTerminalHistoryStaysReadable(t *testing.T) {
 	if !strings.Contains(decision.Failure.Detail, "terminal workflow instance is immutable") {
 		t.Fatalf("completed archived refusal = %q, want the terminal immutability answer", decision.Failure.Detail)
 	}
-	// A completed archived instance under a still-live work item admits one
-	// route today: the complete-step correction. The retirement refuses it
-	// before mutation too.
-	correction := WorkflowAdmissionState{InstanceState: "completed", Step: "complete"}
-	decision = workflowAdmit(definition, correction, "supersede_contract")
-	if decision.Admitted || decision.Failure == nil || decision.Failure.Kind != KindInvalidOperation {
-		t.Fatalf("archived complete-step correction = %+v, want the archived-family refusal", decision)
-	}
 }
 
-func TestLiveAuthoringActionUnionTargets26WithRecovery(t *testing.T) {
+func TestLiveAuthoringActionUnionTargets25(t *testing.T) {
 	t.Parallel()
 	declared := map[string]bool{}
 	for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
@@ -198,8 +190,6 @@ func TestLiveAuthoringActionUnionTargets26WithRecovery(t *testing.T) {
 			declared[action] = true
 		}
 	}
-	// The recovery action the engine admits off the pinned steps.
-	declared["supersede_contract"] = true
 	names := make([]string, 0, len(declared))
 	for name := range declared {
 		names = append(names, name)
@@ -212,7 +202,7 @@ func TestLiveAuthoringActionUnionTargets26WithRecovery(t *testing.T) {
 		"link_successor", "record_alignment", "record_conclusion", "record_delivery", "record_design",
 		"record_diagnosis", "record_finding", "record_proposal", "record_report", "record_review", "record_verdict",
 		"record_work_context", "request_correction",
-		"revise_candidates", "start_execution", "supersede_contract",
+		"revise_candidates", "start_execution",
 	}
 	if !slices.Equal(names, want) {
 		t.Fatalf("live authoring union = %v, want %v", names, want)
@@ -226,6 +216,7 @@ func TestLiveAuthoringActionUnionTargets26WithRecovery(t *testing.T) {
 		"record_reproduction", "record_root_cause", "start_repair", "start_refine",
 		"record_worker_failure", "record_discovery", "accept_worker_evidence", "accept_worker_result",
 		"dispatch_worker", "record_worker_job", "reject_worker_result",
+		"supersede_contract",
 	}
 	for _, action := range retired {
 		if declared[action] {
@@ -461,33 +452,37 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 	}
 }
 
-func TestCanonicalSupersedeRequiresExplicitOutcomePredicates(t *testing.T) {
+func TestCanonicalContractUpdateRequiresExplicitOutcomePredicates(t *testing.T) {
 	t.Parallel()
 	canonical, err := LiveWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
 		t.Fatal(err)
 	}
-	predicates := func() string {
-		return `"outcome_predicates":[{"predicate_id":"predicate:successor","ordinal":0,"outcome_kind":"absent","outcome_payload":{"kind":"absent","subjects":["regression"],"surface":"repository_file","distinguish_from":["archived"]}}]`
+	const workID = "canonical-contract-update"
+	f := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, canonical, "repair", []string{}, nil)
+	contract := pContractSuccessor(t, f.store, workID, "Continue with explicit corrected criteria.")
+	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, readWorkVersion(t, f.store, workID), nil); err != nil {
+		t.Fatalf("canonical contract update with explicit predicates: %v", err)
 	}
-	base := `{"contract_version":2,"premise":"the corrected successor premise",` +
-		`"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],` +
-		`"rigor_class":"prototype_internal","supersede_reason":"correct the accepted premise","audit_evidence":["evidence:canonical-supersede"],`
-	// The live head answers consent under consequence_v1, so its successor
-	// declares the explicit engineering decision fact.
-	live := base + `"decision_domains":[],`
-	valid := json.RawMessage(live + predicates() + "}")
-	if err := validateWorkflowContractRecoveryPayload(canonical.Definition, valid); err != nil {
-		t.Fatalf("canonical successor with explicit predicates: %v", err)
-	}
-	for name, raw := range map[string]json.RawMessage{
-		"outcome pair": json.RawMessage(live + `"outcome_kind":"absent","outcome_payload":{"kind":"absent","subjects":["regression"],"surface":"repository_file","distinguish_from":["archived"]}}`),
-		"no outcome":   json.RawMessage(live + "}"),
-		"empty array":  json.RawMessage(live + `"outcome_predicates":[]}`),
-	} {
-		if err := validateWorkflowContractRecoveryPayload(canonical.Definition, raw); !hasFailureKind(err, KindInvalidPayload) {
-			t.Fatalf("canonical successor with %s = %v, want %s", name, err, KindInvalidPayload)
-		}
+	for _, name := range []string{"outcome pair", "no outcome", "empty array"} {
+		t.Run(name, func(t *testing.T) {
+			contract := pContractSuccessor(t, f.store, workID, "Require explicit outcome predicates.")
+			delete(contract, "outcome_predicates")
+			switch name {
+			case "outcome pair":
+				contract["outcome_kind"] = "absent"
+				contract["outcome_payload"] = map[string]any{"kind": "absent", "subjects": []string{"regression"}, "surface": "repository_file", "distinguish_from": []string{"archived"}}
+			case "empty array":
+				contract["outcome_predicates"] = []any{}
+			}
+			version := readWorkVersion(t, f.store, workID)
+			if err := reviseContractRecord(t, f.store, workID, f.owner, contract, version, nil); !hasFailureKind(err, KindInvalidPayload) {
+				t.Fatalf("canonical contract update with %s = %v, want %s", name, err, KindInvalidPayload)
+			}
+			if got := readWorkVersion(t, f.store, workID); got != version {
+				t.Fatalf("refused contract update changed work version from %d to %d", version, got)
+			}
+		})
 	}
 }
 

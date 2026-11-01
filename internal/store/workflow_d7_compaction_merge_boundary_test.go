@@ -81,7 +81,7 @@ func assertStaleLawRefusal(t *testing.T, err error) {
 	if failure.StaleLawRevision == nil {
 		t.Fatalf("stale-law refusal carries no typed revision detail: %#v", failure)
 	}
-	if failure.StaleLawRevision.OldLawID != "spec:one" || failure.StaleLawRevision.OldContentHash != "sha256:"+strings.Repeat("a", 64) || strings.Join(failure.StaleLawRevision.RecoveryActions, ",") != "supersede_contract,terminal_work" {
+	if failure.StaleLawRevision.OldLawID != "spec:one" || failure.StaleLawRevision.OldContentHash != "sha256:"+strings.Repeat("a", 64) || strings.Join(failure.StaleLawRevision.RecoveryActions, ",") != "revise_intent,terminal_work" {
 		t.Fatalf("stale-law refusal = %+v, want deleted spec:one, its pinned hash, and closed recovery actions", failure.StaleLawRevision)
 	}
 }

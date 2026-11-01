@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -55,7 +54,7 @@ DELETE FROM write_guard`, workID, workID); err != nil {
 	}
 }
 
-func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
+func TestContractRecordUpdateRefusesDuplicateActiveProjection(t *testing.T) {
 	t.Parallel()
 	const workID = "duplicate-active-recovery"
 	s, owner, _ := seedItemAtAcceptance(t, workID)
@@ -64,57 +63,22 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := s.DatabaseForTesting()
+	contract := pContractSuccessor(t, s, workID, "Revise the recorded plan")
 	seedDuplicateContractProjection(t, s, workID, ownerRef)
 	version := readWorkVersion(t, s, workID)
-	if _, action, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil || action.ID != "supersede_contract" {
-		t.Fatalf("duplicate recovery action = %q, error = %v", action.ID, err)
+	before := contractRecordEffectSnapshot(t, s, workID)
+	err = reviseContractRecord(t, s, workID, owner, contract, version, nil)
+	if !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "multiple active contracts") {
+		t.Fatalf("duplicate active revision = %v", err)
 	}
-	recoveryFields := map[string]any{
-		"contract_version": 3, "predecessor_contract_versions": []int64{1, 2}, "premise": "recovered premise",
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:recovery", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		}}, "required_evidence": []string{"verification"}, "route_conventions": []string{},
-		"spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
-		"supersede_reason": "repair the duplicate projection", "audit_evidence": []string{"evidence:duplicate-recovery"},
+	if after := contractRecordEffectSnapshot(t, s, workID); after != before {
+		t.Fatal("refused duplicate revision changed the record")
 	}
-	recoveryPayload, err := json.Marshal(recoveryFields)
-	if err != nil {
-		t.Fatal(err)
-	}
-	makeRecoveryEventFields := func(expectedVersion int64) map[string]any {
-		return map[string]any{
-			"work_id": workID, "expected_version": expectedVersion, "resulting_version": expectedVersion + 1,
-			"previous_contract_version": int64(1), "predecessor_contract_versions": []int64{1, 2}, "new_contract_version": int64(3),
-			"supersede_reason": "repair the duplicate projection", "audit_evidence": []string{"evidence:duplicate-recovery"},
-			"successor_contract": map[string]any{
-				"contract_version": 3, "premise": "recovered premise", "outcome_predicates": recoveryFields["outcome_predicates"],
-				"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
-				"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-				"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-			},
-		}
-	}
-	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: recoveryPayload, Actor: owner,
-	}); err != nil {
-		t.Fatalf("duplicate recovery preflight refused the reachable route: %v", err)
-	}
-	event := workflowEventWithActor("duplicate-recovery", WorkflowContractSuperseded, workID, ownerRef, makeRecoveryEventFields(version))
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatal(err)
-	}
-	var active, successor, superseded int
+	var active int
 	if err := db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&active); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=3`, workID).Scan(&successor); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by=3`, workID).Scan(&superseded); err != nil {
-		t.Fatal(err)
-	}
-	if active != 1 || successor != 1 || superseded != 2 {
-		t.Fatalf("recovery projection active=%d successor=%d superseded=%d", active, successor, superseded)
+	if active != 2 || decisionContractCount(t, s, workID) != 2 {
+		t.Fatalf("refused revision changed duplicate contracts: active=%d", active)
 	}
 }

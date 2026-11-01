@@ -78,7 +78,7 @@ func wantMandateRefusal(t *testing.T, err error) *Failure {
 // A mandated law the contract itself adds cannot decide branch authorship in
 // the store: another merge may hold the same id, and the store cannot read
 // branch contents. At a confirmation step the refusal stays conditional —
-// bind_evidence only when the branch adds the id, otherwise supersede_contract.
+// bind_evidence only when the branch adds the id, otherwise revise_intent.
 func TestMandateRecoveryKeepsConditionalGuidanceForAnUnseenCollision(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -94,8 +94,8 @@ func TestMandateRecoveryKeepsConditionalGuidanceForAnUnseenCollision(t *testing.
 	if !strings.Contains(failure.RecoveryAction, `bind_evidence on step "repair" before record_verdict only when the branch adds "CD-0189"`) {
 		t.Fatalf("recovery=%q, want conditional bind_evidence guidance", failure.RecoveryAction)
 	}
-	if !strings.Contains(failure.RecoveryAction, `otherwise run supersede_contract on step "repair"`) {
-		t.Fatalf("recovery=%q, want the checkpoint correction route", failure.RecoveryAction)
+	if !strings.Contains(failure.RecoveryAction, "otherwise use revise_intent with the complete contract") {
+		t.Fatalf("recovery=%q, want the ordinary contract update route", failure.RecoveryAction)
 	}
 }
 
@@ -120,8 +120,8 @@ func TestMandateRecoveryTreatsAPublishedAdditionLikeAnUnseenOne(t *testing.T) {
 	if strings.Contains(failure.RecoveryAction, "projection") || strings.Contains(failure.Detail, "projection") {
 		t.Fatalf("detail=%q recovery=%q, want no projection-based claim", failure.Detail, failure.RecoveryAction)
 	}
-	if !strings.Contains(failure.RecoveryAction, `otherwise run supersede_contract on step "repair"`) {
-		t.Fatalf("recovery=%q, want the checkpoint correction route", failure.RecoveryAction)
+	if !strings.Contains(failure.RecoveryAction, "otherwise use revise_intent with the complete contract") {
+		t.Fatalf("recovery=%q, want the ordinary contract update route", failure.RecoveryAction)
 	}
 }
 
@@ -147,7 +147,7 @@ func TestMandateRecoveryStaysWithPlainBindingOutsideTheContractAdditions(t *test
 }
 
 // The complete gate keeps its invariant kind while carrying the conditional
-// guidance and the correction route the checkpoint step admits.
+// guidance and the ordinary contract update route.
 func TestMandateRecoveryCompleteGateKeepsTheInvariantKind(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -160,8 +160,8 @@ func TestMandateRecoveryCompleteGateKeepsTheInvariantKind(t *testing.T) {
 	if failure.Kind != KindInvariantViolation {
 		t.Fatalf("kind=%q, want %q for a complete gate", failure.Kind, KindInvariantViolation)
 	}
-	if !strings.Contains(failure.RecoveryAction, "only when the branch adds") || !strings.Contains(failure.RecoveryAction, `supersede_contract on step "repair"`) {
-		t.Fatalf("recovery=%q, want conditional guidance with the checkpoint correction route", failure.RecoveryAction)
+	if !strings.Contains(failure.RecoveryAction, "only when the branch adds") || !strings.Contains(failure.RecoveryAction, "otherwise use revise_intent with the complete contract") {
+		t.Fatalf("recovery=%q, want conditional guidance with the ordinary contract update route", failure.RecoveryAction)
 	}
 }
 

@@ -653,8 +653,8 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 			variantNames = append(variantNames, name)
 		}
 	}
-	if len(variantNames) < 26 {
-		t.Fatalf("corpus found only %d action variants", len(variantNames))
+	if len(variantNames) != 25 {
+		t.Fatalf("corpus found %d action variants, want 25", len(variantNames))
 	}
 	for _, variantName := range variantNames {
 		// The public variant replaces the core payload only at the agent

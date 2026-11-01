@@ -32,13 +32,9 @@ func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string,
 		return result, nil
 	}
 	result.Present = true
-	cutoff, err := workflowCompleteStepCorrectionEvidenceCutoff(ctx, q, workID, version)
-	if err != nil {
-		return result, err
-	}
 	result.BindingStep = workflowEvidenceBindingStep(definition, step)
 	for _, lawID := range mandates {
-		bound, err := workflowEvidenceReferenceBound(ctx, q, workID, lawID, subject, cutoff)
+		bound, err := workflowEvidenceReferenceBound(ctx, q, workID, lawID, subject, 0)
 		if err != nil {
 			return result, err
 		}
@@ -52,9 +48,7 @@ func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string,
 		if result.LawID == "" {
 			result.LawID, result.AddedByContract = lawID, added
 			if added {
-				if state.ContractCorrectionAvailable {
-					result.CorrectionAction = "supersede_contract"
-				} else if state.CorrectionRequestRecovery {
+				if state.CorrectionRequestRecovery {
 					result.CorrectionAction = "request_correction"
 				}
 			}
@@ -68,7 +62,7 @@ func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string,
 }
 
 func workflowAdmitMandate(definition WorkflowDefinition, step string, state workflowMandateAdmission, actionID, subject string, reviewOnly bool) *Failure {
-	if actionID == "supersede_contract" || actionID == "bind_evidence" {
+	if actionID == "bind_evidence" {
 		return nil
 	}
 	terminalGate := actionID == "record_review" || actionID == "record_verdict" || actionID == "confirm_premise" || actionID == "complete"
@@ -101,10 +95,10 @@ func workflowAdmitMandate(definition WorkflowDefinition, step string, state work
 		detail = fmt.Sprintf("spec mandate law %q is one of the contract's own law additions; bind it only when the branch adds that id", state.LawID)
 		recovery += fmt.Sprintf(" only when the branch adds %q", state.LawID)
 		switch state.CorrectionAction {
-		case "supersede_contract":
-			recovery += fmt.Sprintf("; otherwise run supersede_contract on step %q", step)
 		case "request_correction":
-			recovery += fmt.Sprintf("; otherwise run %s, then supersede_contract, before %s", state.CorrectionAction, actionID)
+			recovery += fmt.Sprintf("; otherwise run %s, then revise_intent with the complete contract, before %s", state.CorrectionAction, actionID)
+		default:
+			recovery += "; otherwise use revise_intent with the complete contract"
 		}
 	}
 	kind := KindMissingEvidence

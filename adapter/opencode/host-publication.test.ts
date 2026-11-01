@@ -150,9 +150,8 @@ test("published workflow transition teaches every approve_contract admission rul
 
 test("delivery-decidable-rule: the published schema teaches it and the gap check detects its removal", () => {
   const schema = adapter.publishedRequestSchema("concord_work_transition") as any
-  // CD-0184 teaches the rule at its surviving authoring point: the
-  // outcome_predicates array on approve_contract, shared with
-  // supersede_contract. Every fields branch
+  // CD-0184 teaches the rule on initial approval and ordinary contract
+  // updates. Every fields branch
   // that carries the array must carry the teaching.
   const approveFieldsBranches = actionFieldsBranches(actionInputBranch(schema, "approve_contract"))
     .filter((fields: any) => fields.properties?.outcome_predicates)
@@ -180,6 +179,19 @@ test("delivery-decidable-rule: the published schema teaches it and the gap check
   for (const holder of approveOutcomePredicateHolders(reducedRules)) holder.description = "decidable at delivery; raised_from"
   expect(advertisedAdmissionTeachingGaps(reducedRules)).toContain(
     "outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action approve_contract",
+  )
+
+  const revision = inlineExpanded(adapter.publishedRequestSchema("concord_work_define"))
+  const input = revision.oneOf.find((branch: any) => branch.properties.operation.const === "revise_intent").properties.input
+  const contracts = actionFieldsBranches(input, "contract")
+  expect(contracts.length).toBeGreaterThan(0)
+  expect(advertisedAdmissionTeachingGaps(revision)).toEqual([])
+  for (const contract of contracts) {
+    expect(contract.properties.outcome_predicates.description).toContain("decidable at delivery")
+    delete contract.properties.outcome_predicates.description
+  }
+  expect(advertisedAdmissionTeachingGaps(revision)).toContain(
+    "outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action revise_intent",
   )
 })
 

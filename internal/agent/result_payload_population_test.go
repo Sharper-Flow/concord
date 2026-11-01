@@ -62,7 +62,7 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 		SpecMandate: []string{"spec-1"},
 		StaleLawRevision: &store.StaleLawRevision{
 			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(),
-			RecoveryActions: []string{"supersede_contract", "terminal_work"},
+			RecoveryActions: []string{"revise_intent", "terminal_work"},
 		},
 		LatestCheckpoint: &store.ContextCheckpoint{
 			CheckpointID:     "checkpoint-1",
@@ -333,7 +333,7 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 		CompletionWarnings: []string{"a warning"},
 		StaleLawRevision: &store.StaleLawRevision{
 			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(),
-			RecoveryActions: []string{"supersede_contract"},
+			RecoveryActions: []string{"revise_intent"},
 		},
 		ChangesProductTruth: true,
 		ArchitectureBinding: binding,

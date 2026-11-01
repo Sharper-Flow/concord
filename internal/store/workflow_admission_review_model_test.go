@@ -240,11 +240,10 @@ func TestAdmissionModelGateReturnFollowsInapplicableReview(t *testing.T) {
 }
 
 func TestAdmissionModelReviewCurrencyFollowsDependencyContent(t *testing.T) {
-	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
 	before := admissionModelState{step: "repair", contracts: 1,
 		review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true}}
 	changed, unchanged := false, false
-	for _, next := range admissionSupersedeSuccessors(definition, before) {
+	for _, next := range admissionContractUpdateSuccessors(before) {
 		if next.contracts != 1 {
 			continue
 		}
@@ -254,7 +253,7 @@ func TestAdmissionModelReviewCurrencyFollowsDependencyContent(t *testing.T) {
 			changed = true
 		}
 		if next.review.accepted != before.review.accepted || !next.review.candidate {
-			t.Fatalf("supersession erased the attributed report or candidate: %s", next)
+			t.Fatalf("contract revision erased the attributed report or candidate: %s", next)
 		}
 	}
 	if !changed || !unchanged {

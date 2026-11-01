@@ -50,7 +50,7 @@ func freshPayloadDocument(t *testing.T) map[string]any {
 }
 
 const guidanceNames = "work_transition_action_variant_approve_contract"
-const guidanceNamesBoth = guidanceNames + ",work_transition_action_variant_supersede_contract"
+const guidanceNamesBoth = guidanceNames + ",work_define_revise_input"
 
 func annotateGuidanceNames(t *testing.T, names string) map[string]any {
 	t.Helper()
@@ -599,28 +599,14 @@ func TestAnnotateGuidanceBuildsTrulyMinimalShapes(t *testing.T) {
 	}
 
 	// evidence: no minItems → empty array, no sampled entry.
-	var evidenceNode map[string]any
-	supersede := defs["work_transition_action_variant_supersede_contract"].(map[string]any)
-	fieldsBranches := supersede["properties"].(map[string]any)["fields"].(map[string]any)["oneOf"].([]any)
-	for _, raw := range fieldsBranches {
-		branch := raw.(map[string]any)
-		props := branch["properties"].(map[string]any)
-		if node, ok := props["audit_evidence"].(map[string]any); ok {
-			evidenceNode = node
-		}
-	}
-	if evidenceNode == nil {
-		t.Fatal("audit_evidence not found on the supersede fields branch")
-	}
-	if encoded, _ := json.Marshal(evidenceNode); !strings.Contains(string(encoded), `"minItems":1`) {
-		t.Fatalf("audit_evidence lost its minimum: %s", encoded)
-	}
+	update := defs["workflow_contract_update"].(map[string]any)
+	evidenceNode := update["properties"].(map[string]any)["required_evidence"].(map[string]any)
 	entries, ok := evidenceNode["examples"].([]any)
 	if !ok || len(entries) != 1 {
-		t.Fatalf("audit_evidence carries %v, want one one-entry example", evidenceNode["examples"])
+		t.Fatalf("required_evidence carries %v, want one empty-list example", evidenceNode["examples"])
 	}
-	if list, ok := entries[0].([]any); !ok || len(list) != 1 {
-		t.Fatalf("audit_evidence example = %v, want exactly one entry for minItems 1", entries[0])
+	if list, ok := entries[0].([]any); !ok || len(list) != 0 {
+		t.Fatalf("required_evidence example = %v, want no entries for minItems 0", entries[0])
 	}
 }
 
@@ -683,7 +669,7 @@ func TestAnnotateGuidanceCoversEveryConstrainedReachableNode(t *testing.T) {
 		}
 	}
 	defs := root["$defs"].(map[string]any)
-	for _, name := range []string{"work_transition_action_variant_approve_contract", "work_transition_action_variant_supersede_contract"} {
+	for _, name := range []string{"work_transition_action_variant_approve_contract", "work_define_revise_input"} {
 		walk(defs[name].(map[string]any), name, false)
 	}
 	t.Logf("covered %d constrained nodes with %d allowed skips", covered, skipped)

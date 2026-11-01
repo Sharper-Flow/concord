@@ -158,7 +158,7 @@ func TestQ7ProjectsStaleLawRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if full.StaleLawRevision == nil || full.StaleLawRevision.OldLawID != "spec:one" || full.StaleLawRevision.OldContentHash != pinnedHash || !reflect.DeepEqual(full.StaleLawRevision.RecoveryActions, []string{"supersede_contract", "terminal_work"}) {
+	if full.StaleLawRevision == nil || full.StaleLawRevision.OldLawID != "spec:one" || full.StaleLawRevision.OldContentHash != pinnedHash || !reflect.DeepEqual(full.StaleLawRevision.RecoveryActions, []string{"revise_intent", "terminal_work"}) {
 		t.Fatalf("fixture did not populate the full reader's stale law revision: %+v", full.StaleLawRevision)
 	}
 	out, err := s.QueryQ7(ctx, Q7Request{Work: workID})

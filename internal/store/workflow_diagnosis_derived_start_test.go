@@ -602,29 +602,20 @@ func TestConcurrentFirstQualifyingActionsYieldOneFence(t *testing.T) {
 	}
 }
 
-// TestCorrectedContractLivenessThroughProducerReturn proves the producer
-// absorb: after the declared producer return of a complete-step contract
-// correction, the corrected contract is live — source-qualified context, a
-// derived repair start, fresh check evidence, and the successor's verdict
-// reach completion — while the pre-correction bindings satisfy nothing.
-func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
+// A revised contract remains live through source-qualified context, a derived
+// repair start, current evidence, independent verdict and completion.
+func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	t.Parallel()
 	const workID = "corrected-contract-liveness"
-	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	current := workContextFixture{store: s, workID: workID, owner: fixture.owner, operator: fixture.operator}
 	journey := &candidateJourney{fixture: current, s: s, workID: workID, repo: reviewFixtureDirectory(t, s, workID), acceptor: fixture.owner}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner); err != nil {
-		t.Fatalf("supersede the contract at the complete step: %v", err)
+	if err := reviseContractRecord(t, s, workID, fixture.owner, pContractSuccessor(t, s, workID, "The repaired subject has current proof."), readWorkVersion(t, s, workID), nil); err != nil {
+		t.Fatalf("revise the contract at the producer step: %v", err)
 	}
 	if step := currentStep(t, s, workID); step != "repair" {
-		t.Fatalf("instance after the declared producer return = %q, want repair", step)
-	}
-
-	// The stale half: the successor's own gate refuses a completion built on
-	// pre-correction facts — the ordinary stale recovery stays unchanged.
-	if err := pConfirmReceiptPremise(t, current); err == nil {
-		t.Fatal("confirm_premise admitted behind the successor's outstanding fresh evidence")
+		t.Fatalf("instance after the contract revision = %q, want repair", step)
 	}
 
 	// Source-qualified context: the declared reading binds an original

@@ -195,26 +195,11 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		if err := s.DatabaseForTesting().QueryRow(`SELECT confirmed_by FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1`, workID).Scan(&coordinatorRef); err != nil {
 			t.Fatalf("engineering confirmation row genuinely missing: %v", err)
 		}
-		successor := map[string]any{
-			"contract_version": int64(2), "premise": "the decision-bearing successor premise",
-			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:research-report-exit", "ordinal": 0, "outcome_kind": "outcome",
-				"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}},
-			"required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{},
-			"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-			"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-			"decision_domains": []string{"product"},
-		}
-		supersede := workflowEventWithActor("engineering-upgrade-supersede", WorkflowContractSuperseded, workID, coordinatorRef, map[string]any{
-			"work_id": workID, "expected_version": version + 2, "resulting_version": version + 3,
-			"previous_contract_version": 1, "new_contract_version": 2,
-			"supersede_reason": "upgrade to decision-bearing work", "audit_evidence": []string{"evidence:upgrade-audit"},
-			"successor_contract": successor,
-		})
-		supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
+		successor := pContractSuccessor(t, s, workID, "the decision-bearing successor premise")
+		successor["decision_domains"] = []string{"product"}
 		currentVersion := readWorkVersion(t, s, workID)
-		supersede.Payload = mustJSONValue(map[string]any{"work_id": workID, "expected_version": currentVersion, "resulting_version": currentVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "upgrade to decision-bearing work", "audit_evidence": []string{"evidence:upgrade-audit"}, "successor_contract": successor})
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): currentVersion}}); err != nil {
-			t.Fatalf("class upgrade supersession refused: %v", err)
+		if err := reviseContractRecord(t, s, workID, coordinator, successor, currentVersion, nil); err != nil {
+			t.Fatalf("class upgrade revision refused: %v", err)
 		}
 		// The v1 confirmation row survives as history, but the active
 		// contract is now v2 and the stale v1 confirmation cannot satisfy it:

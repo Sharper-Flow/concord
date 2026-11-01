@@ -62,8 +62,8 @@ CD-0036 records each current contract's bounded `law_revisions` pins as
 compatible amendment. A new accepted ID that supersedes a mandated old ID is
 a breaking cutover: the old consumer receives typed `stale_law_revision` and
 workflow-authority actions, claims, Review outcome recording, and completion
-stop until one operator-approved `supersede_contract` action atomically installs
-a fully supplied successor contract, or the work reaches a terminal
+stop until an ordinary `revise_intent` update atomically installs
+a fully supplied current contract under §4.1, or the work reaches a terminal
 cancellation/supersession. Commit OIDs remain audit context only; recovery pins
 the accepted successor law and preserves the current nonterminal workflow step.
 
@@ -97,7 +97,7 @@ dispatch, and the built-in family graphs.
 
 ## Contract
 
-CD-0013 D11 qualifies every operator-only contract, premise, verdict, correction, supersession, and completion clause in this contract, including their actor mappings. Engineering records a valid contract and coordinator confirmation; review records verdicts, and Implement cannot accept its own result ([CD-0242 D5](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)); coordinators record completion against those verdicts. No synthetic operator identity is created. Decision-bearing checkpoints retain human authority through CD-0243's conversational classes. Generated definitions derive from one source, and every evidence, recovery, source, and liveness obligation remains required ([CD-0242 D14](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+CD-0013 D11 qualifies every operator-only contract, premise, verdict, correction, update, and completion clause in this contract, including their actor mappings. Engineering records a valid contract and coordinator confirmation; review records verdicts, and Implement cannot accept its own result ([CD-0242 D5](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)); coordinators record completion against those verdicts. No synthetic operator identity is created. Decision-bearing checkpoints retain human authority through CD-0243's conversational classes. Generated definitions derive from one source, and every evidence, recovery, source, and liveness obligation remains required ([CD-0242 D14](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 The binding contract is sections 1 through 12: the common representation and
 bounds, the definition registry, the instance state machine, current workflow
@@ -214,7 +214,6 @@ drift. No fallback definition or response-wording path is accepted.
 | `running` | `verifying` | all execution steps are complete and verdict is requested | internal-inline |
 | `verifying` | `completed` | ordered completion gate succeeds | one internal transaction |
 | `running`, `blocked`, `verifying` | `cancelled` | explicit authorized cancellation | fenced when an attempt is owned |
-| `planned`, `ready`, `running`, `verifying` | `superseded` | operator-approved `supersede_contract` supersedes the contract | internal-inline with successor link |
 
 An action failure records its typed failure result; it does not invent a state.
 Recoverable failures leave the instance in `running` or `blocked` according to the
@@ -242,7 +241,6 @@ the rows below do not repeat this pair.
 |---|---|
 | `workflow.definition_selected` | `work_id`, `ref`, `version`, `digest`, `work_kind` (closed family enum) |
 | `workflow.contract_approved` | `work_id`, `contract_version`, `premise` (1–4096), `outcome_kind`, `outcome_payload` (strict outcome schema), `required_evidence` (0–7 unique), `route_conventions` (0–16 unique refs), `spec_mandate` (0–32 unique refs), `law_revisions` (one `{law_id, content_hash}` pin per mandated ID ), `rigor_class` (1–64), `consequence_class` (`internal_sqlite`, `cross_authority`, or `external_effect`) |
-| `workflow.contract_superseded` | `work_id`, `previous_contract_version`, optional unique `predecessor_contract_versions` (1–32), `new_contract_version`, `supersede_reason` (1–4096), `audit_evidence` (1–32 evidence refs), and optional `successor_contract` containing the fully validated contract fields and one current `law_revisions` pin per mandated law; recovery installs this successor and marks every named predecessor superseded in one transaction |
 | `workflow.candidate_set_revised` | `work_id`, `contract_version`, `candidate_kind` (exactly `work_item`, `product`, or `project`), `candidate_ref`, `added` (0–100 refs), `removed` (0–100 refs); `added` and `removed` are disjoint and not both empty |
 | `workflow.actor_recorded` | `work_id`, `actor_ref`, `principal_ref`, `client_ref`, `agent_ref`, `session_ref`, `actor_class` (`agent` or `operator`) |
 | `workflow.action_started` | `work_id`, `step_id`, `action_id`, `attempt_epoch`, `accepted_inputs_digest`, `idempotency_identity` (2–128), `actor_ref` |
@@ -258,6 +256,56 @@ the rows below do not repeat this pair.
 | `workflow.premise_confirmed` | `work_id`, `contract_version`, `confirming_actor_ref` |
 | `workflow.successor_linked` | `work_id`, `successor_work_id`, `relation_kind` (`forward_link`) |
 | `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `final_verdict_kind`, `verdict_actor_ref`, `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
+
+### 4.1 Ordinary contract updates
+
+An authenticated coordinator changes a nonterminal work item's contract through
+`concord_work_define.revise_intent`, the ordinary record-update operation. The
+request carries the complete replacement intent, the expected work version,
+a reason, and an optional complete `contract` object. Omitting `contract`
+leaves contract content unchanged. Supplying it appends the next retained
+contract version atomically with the intent update. It does not edit an older
+version in place or create another work item.
+
+The complete contract passes the existing contract validation, authority,
+scope, law-pin, and definition checks. A refusal leaves the intent, contract,
+evidence, and work version unchanged. Operator decisions remain ordinary
+questions whose answers are recorded in the work record under
+[CD-0243 D2](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
+The update grants no legislative authority, overlap exemption, or approval
+waiver. Initial contract recording remains `approve_contract`.
+
+Retained contract content, candidate sets, attribution, verdicts, and evidence
+remain addressable by the versions and subjects they originally named. The
+update preserves the current workflow step, instance state, checkpoints, and
+attempts; version retention is provenance, not another correction route.
+
+Retention does not establish current validity. Prior verdicts remain eligible
+only across consecutive versions with unchanged predicate identity, kind,
+and canonical payload, and only when their evidence still proves the current
+candidate. Changed or removed criteria gain no proof from retained verdicts.
+Evidence for a different candidate does not prove the current candidate.
+Version-bound premise confirmations stay bound to their recorded version.
+Current evidence, Review, confirmation, and completion checks remain required;
+unchanged valid proof needs no replacement merely because a contract version
+was appended ([CD-0242 D7](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)).
+
+The separate `supersede_contract` action and its payload, admission, discovery,
+clone/reset path, and tests of that separate route are retired. CD-0172's
+complete-step correction and CD-0186's route distinction are retired, including
+the `complete_step_correction` convention, `disproved_premise_at_complete`
+trigger, post-verdict observation gate, special completed-instance reopening,
+producer-step reset, and ancestry evidence/verdict cutoffs. Tests requiring
+those special admissions, refusals, returns, or destructive cutoffs are retired
+with them. CD-0033's supersession-only write authority is retired; ordinary
+premise-confirmation validity remains required. No update discards accepted
+evidence solely to change the plan.
+
+Tests of ordinary contract validation, atomic refusals, provenance retention,
+unchanged-proof reuse, changed-criterion or candidate validity, current law
+pins, operator approval boundaries, and completion remain required.
+`request_correction` keeps its existing unhealthy-verdict recovery obligations;
+this section changes neither that route nor workflow stage or step-plan policy.
 
 ## 5. V15 projections, constraints, and state tables
 
@@ -311,7 +359,7 @@ workflow-only metadata or an operation from another work item
 
 A verification report's producer is the `bind_evidence` operation that
 submits it. A report stays bound to its work item across contract
-supersession, so unchanged dependencies reuse it (CD-0242 D7). Reports are
+updates, so unchanged dependencies reuse it (CD-0242 D7). Reports are
 claims, not producer attestations. Consumers compare recorded commits and
 refuse failed, unresolved or mixed candidates. No Git or GitHub read validates
 a report or establishes live candidate freshness. Independent Review judges
@@ -329,7 +377,7 @@ Workflow state is current rows written by each mutation in one transaction, and 
 | Record | Current-row effect |
 |---|---|
 | definition selected | upsert the one instance definition pin; reject a change once an action has started |
-| contract approved/superseded | insert the immutable contract version and its recorded law and definition pins; mark every exact predecessor named by a recovery record superseded |
+| contract recorded/updated | insert the immutable contract version and its recorded law and definition pins; an ordinary update atomically makes the next version current under §4.1 |
 | candidate set revised | insert added candidates and delete only the named removed candidates for that contract; premise and outcome bytes are untouched |
 | backlog alignment recorded | insert the declaration row and, when the outcome is `related_found`, one row per named work id; the alignment action records the candidate set only and creates no relation, so work-to-work relation creation stays with `resolve_overlap`, capture's `raised_from` provenance, and the workflow `link_successor` action |
 | actor recorded | insert once; a different tuple for an existing `actor_ref` is refused |
@@ -418,13 +466,9 @@ verification step and only for an active-contract predicate whose latest eligibl
 verdict is missing, non-`ok`, or incomparable. An `ok` comparable verdict cannot
 be replaced. The action holds the current step and preserves attempts and evidence.
 
-At a nonterminal step that declares `confirm_premise`, `supersede_contract`
-revises the contract. The action requires a complete consecutive successor
-contract. It records the successor and keeps the current
-checkpoint. Prior verdicts remain eligible only across every consecutive contract
-version where predicate identity, kind, and canonical payload are unchanged.
-Prior premise confirmations and verdicts for changed or removed predicates do not
-satisfy the successor contract.
+Contract changes use the ordinary update in §4.1, without moving the workflow
+step or discarding retained proof. Current acceptance still requires proof of
+the current criteria and candidate.
 
 ## 8. Actor tuple and verdict recording
 
@@ -538,8 +582,8 @@ validation rather than being downgraded to prose or generic success.
 
 WF09, WF22, and WF25 each bind their criterion to a production route.
 
-- WF09 sends `approve_contract`, the only declared action that writes an
-  approved end-state, at the `execution` step. The step does not declare the
+- WF09 sends `approve_contract`, the declared action for initial contract
+  recording, at the `execution` step. The step does not declare the
   action, so the graph's declared-action check refuses it with
   `invalid_transition` before actor authorization, and no contract event is
   written.

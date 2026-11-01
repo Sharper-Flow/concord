@@ -127,15 +127,7 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 	}
 
-	// The complete-step correction's supersession bounds the evidence history
-	// the completion clauses read: the successor accepts only bindings
-	// recorded after the supersession that approved it.
-	evidenceCutoff, err := workflowCompleteStepCorrectionEvidenceCutoff(ctx, tx, event.SubjectID, contract.Version)
-	if err != nil {
-		return err
-	}
-
-	if err := verifyWorkflowCompletionEvidenceAndScopeTx(ctx, tx, event.SubjectID, contract, definition, evidenceCutoff); err != nil {
+	if err := verifyWorkflowCompletionEvidenceAndScopeTx(ctx, tx, event.SubjectID, contract, definition, 0); err != nil {
 		return err
 	}
 	if err := verifyWorkflowCompletionVerdictsTx(ctx, tx, event.SubjectID, contract); err != nil {
@@ -553,11 +545,7 @@ func workflowEvidenceRequirementInputs(ctx context.Context, q queryer, workID st
 	if err := rows.Close(); err != nil {
 		return nil, nil, nil, 0, wrapFailure(KindUnavailable, "workflow_action", "cannot close workflow verification obligations", true, "retry once the workflow contract is readable", err)
 	}
-	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, q, workID, contractVersion)
-	if cutoffErr != nil {
-		return nil, nil, nil, 0, cutoffErr
-	}
-	return required, mandates, obligations, cutoff, nil
+	return required, mandates, obligations, 0, nil
 }
 
 // outstandingWorkflowEvidenceRequirements returns every declared requirement
@@ -654,11 +642,7 @@ func requireAcceptanceDeliverables(ctx context.Context, tx queryer, definition W
 			return err
 		}
 	}
-	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, tx, workID, contract.Version)
-	if cutoffErr != nil {
-		return cutoffErr
-	}
-	requirements, err := outstandingWorkflowEvidenceRequirements(ctx, tx, workID, contract.RequiredEvidence, contract.SpecMandate, definition, contract.VerificationObligations, cutoff)
+	requirements, err := outstandingWorkflowEvidenceRequirements(ctx, tx, workID, contract.RequiredEvidence, contract.SpecMandate, definition, contract.VerificationObligations, 0)
 	if err != nil {
 		return err
 	}
@@ -899,24 +883,12 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 	if err := rows.Close(); err != nil {
 		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot close workflow verdicts", true, "retry once the database is readable", err)
 	}
-	// A contract whose ancestry carries the complete-step correction route
-	// accepts no verdict recorded at or before the cutoff, however identical
-	// the predicate payloads remain: the route exists because durable evidence
-	// disproved the predecessor's premise. The cutoff persists across later
-	// ordinary successors, so no descendant inherits the disproved verdicts.
-	cutoff, err := workflowCompleteStepCorrectionEvidenceCutoff(ctx, q, workID, contractVersion)
-	if err != nil {
-		return nil, err
-	}
 	result := make([]workflowVerdictRecordedPayload, 0)
 	seen := make(map[string]bool)
 	for _, collectedVerdict := range collected {
 		var verdict workflowVerdictRecordedPayload
 		if err := json.Unmarshal(collectedVerdict.raw, &verdict); err != nil {
 			return nil, newFailure(KindInvariantViolation, "complete_workflow", "workflow verdict payload is malformed", false, "reread_entities")
-		}
-		if collectedVerdict.seq <= cutoff {
-			continue
 		}
 		if verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion || seen[verdict.PredicateID] {
 			continue

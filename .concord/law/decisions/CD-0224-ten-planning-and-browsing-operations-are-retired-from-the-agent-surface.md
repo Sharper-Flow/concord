@@ -56,8 +56,8 @@
   the surviving Domain reads, and the closed relation kinds;
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927)
 - **Preserves:** The PM1.Q4 and PM1.Q5 readiness gates, the relation
-  vocabulary, the `domain_observations` store, and contract supersession
-  through `supersede_contract`; relation writes are current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
+  vocabulary, the `domain_observations` store, and ordinary contract updates
+  through `revise_intent`; relation writes are current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
 - **Related:** CD-0005, CD-0030, CD-0213,
   [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md), and
   [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)

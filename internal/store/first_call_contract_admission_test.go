@@ -11,8 +11,8 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-// First-call admission fixtures for approve_contract and supersede_contract
-// (CON-412). Each valid call is assembled from the PUBLISHED closed action
+// First-call admission fixtures for approve_contract and revise_intent.contract.
+// Each valid call is assembled from the published closed input
 // variant — the same artifact contracts/agent-tool-surface-payloads.schema.json
 // host publication consumes — by walking the variant's own required set and
 // bounds. Live values the schema cannot encode (the pinned definition's
@@ -150,7 +150,7 @@ func firstCallActionInput(t *testing.T, defs map[string]any, variant string, wor
 			// Every fixture here pins a consequence_v1 live head, whose
 			// contract actions carry the explicit engineering decision
 			// fact the published consequence_v1 branch requires.
-			if variant == "work_transition_action_variant_approve_contract" || variant == "work_transition_action_variant_supersede_contract" {
+			if variant == "work_transition_action_variant_approve_contract" {
 				fields["decision_domains"] = []string{}
 			}
 			for key, value := range overrides {
@@ -458,8 +458,8 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	}
 }
 
-// firstCallBreakFixSeed drives the real break-fix admission path to a state
-// one supersede away from an approved Product-changing contract: the
+// firstCallBreakFixSeed drives the real break-fix admission path to an
+// approved Product-changing contract: the
 // alignment step records the legal none_found combination the published
 // variant admits, and the approve step assembles the same Product-changing
 // binding the approve first-call test proves.
@@ -516,9 +516,9 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor) 
 	return s, actor
 }
 
-func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
+func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 	t.Parallel()
-	const workID = "work-first-call-supersede"
+	const workID = "work-first-call-update"
 	s, owner := firstCallBreakFixSeed(t, workID)
 	defer s.Close()
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
@@ -536,6 +536,10 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 		t.Fatalf("pinned break-fix definition identity does not verify: %v", err)
 	}
 	defs := firstCallPublishedDefs(t)
+	var workKind string
+	if err := s.db.QueryRow(`SELECT kind FROM work_items WHERE id=?`, workID).Scan(&workKind); err != nil {
+		t.Fatal(err)
+	}
 	successorBinding := func() map[string]any {
 		return map[string]any{
 			"home_domain_id":           "root",
@@ -546,7 +550,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 			"verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": (*pin.Obligations)[0]}},
 		}
 	}
-	supersedeInput := func(mutate func(fields map[string]any)) map[string]any {
+	updateInput := func(mutate func(fields map[string]any)) map[string]any {
 		overrides := map[string]any{
 			"contract_version": 2,
 			"outcome_predicates": []map[string]any{{
@@ -557,138 +561,111 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 			"spec_mandate":         []string{"spec:one", "law:successor"},
 			"architecture_binding": successorBinding(),
 		}
-		input := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, pin.Version, overrides)
+		input := firstCallObject(defs, firstCallResolve(defs, map[string]any{"$ref": "#/$defs/work_define_revise_input"}))
+		fields := firstCallObject(defs, firstCallResolve(defs, map[string]any{"$ref": "#/$defs/workflow_contract_update"}))
+		fields["decision_domains"] = []string{}
+		for key, value := range overrides {
+			fields[key] = value
+		}
+		fields[workflowLawChangeReasonField] = "Add the law for the bounded contract."
+		input["work_id"], input["expected_version"], input["contract"] = workID, readWorkVersion(t, s, workID), fields
+		input["kind"] = workKind
 		if mutate != nil {
-			mutate(input["fields"].(map[string]any))
+			mutate(fields)
 		}
 		encoded, err := json.Marshal(input)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := payloadschema.Validate("work_transition_action_variant_supersede_contract", encoded); err != nil {
-			t.Fatalf("published supersede variant refused the assembled successor: %v", err)
+		if err := payloadschema.Validate("work_define_revise_input", encoded); err != nil {
+			t.Fatalf("published update input refused the assembled contract: %v", err)
 		}
 		return input
 	}
-	fieldsOf := func(input map[string]any) json.RawMessage {
-		encoded, err := json.Marshal(input["fields"])
-		if err != nil {
-			t.Fatal(err)
+	applyUpdate := func(input map[string]any) error {
+		before := contractRecordEffectSnapshot(t, s, workID)
+		err := reviseContractRecord(t, s, workID, owner, input["contract"].(map[string]any), readWorkVersion(t, s, workID), nil)
+		if err != nil && contractRecordEffectSnapshot(t, s, workID) != before {
+			t.Fatal("refused first-call update changed durable state")
 		}
-		return encoded
+		return err
+	}
+	withoutContract := updateInput(nil)
+	delete(withoutContract, "contract")
+	if err := payloadschema.Validate("work_define_revise_input", mustJSONRaw(t, withoutContract)); err != nil {
+		t.Fatalf("contract is not optional in the published update input: %v", err)
 	}
 
 	// Positional ordinal mutant: the successor predicate at position 0
 	// declares ordinal 1.
-	ordinal := supersedeInput(func(fields map[string]any) {
+	ordinal := updateInput(func(fields map[string]any) {
 		predicates := fields["outcome_predicates"].([]map[string]any)
 		predicates[0]["ordinal"] = 1
 	})
-	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(ordinal), 0, owner)
+	err = applyUpdate(ordinal)
 	firstCallRequireRefusal(t, err, "declares ordinal 1 at position 0")
 
 	// Unauthorized-addition mutant: the successor addition sits outside
 	// spec_mandate while every mandated law stays accepted, so the refusal
 	// is the addition-subset guard, not the mandate guard.
-	unauthorized := supersedeInput(func(fields map[string]any) {
+	unauthorized := updateInput(func(fields map[string]any) {
 		fields["spec_mandate"] = []string{"spec:one"}
 		binding := fields["architecture_binding"].(map[string]any)
 		binding["law_additions"] = []map[string]any{{"law_id": "law:unauthorized", "home_domain_id": "root"}}
 	})
-	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(unauthorized), 0, owner)
+	err = applyUpdate(unauthorized)
 	firstCallRequireRefusal(t, err, "law addition is outside spec_mandate")
 
 	// Undeclared-obligation mutant: the successor verification obligation
 	// names an ID the pinned workflow definition does not declare.
-	undeclared := supersedeInput(func(fields map[string]any) {
+	undeclared := updateInput(func(fields map[string]any) {
 		binding := fields["architecture_binding"].(map[string]any)
 		binding["verification_obligations"] = []map[string]any{{"law_id": "spec:one", "obligation_id": "undeclared-obligation"}}
 	})
-	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(undeclared), 0, owner)
+	err = applyUpdate(undeclared)
 	firstCallRequireRefusal(t, err, "verification obligation is not declared by the pinned workflow definition")
 
 	// Affected-Domain membership mutant: the successor binding names a
 	// Domain the pinned registry does not declare.
-	unknownDomain := supersedeInput(func(fields map[string]any) {
+	unknownDomain := updateInput(func(fields map[string]any) {
 		binding := fields["architecture_binding"].(map[string]any)
 		binding["affected_domain_ids"] = []string{"root", "ghost"}
 	})
-	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(unknownDomain), 0, owner)
+	err = applyUpdate(unknownDomain)
 	firstCallRequireRefusal(t, err, "architecture_binding.affected_domain_ids names an unknown Domain: ghost")
 
 	// Version mutant: the successor version does not immediately follow the
 	// active contract.
-	versionSkip := supersedeInput(func(fields map[string]any) {
+	versionSkip := updateInput(func(fields map[string]any) {
 		fields["contract_version"] = 4
 	})
-	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(versionSkip), 0, owner)
-	firstCallRequireRefusal(t, err, "immediately follow")
+	err = applyUpdate(versionSkip)
+	firstCallRequireRefusal(t, err, "next retained version")
 
-	// Nested kind-equality mutants (CON-412): outcome_kind and
-	// outcome_payload.kind are payload-only values that must hold one
-	// value. The canonical supersede authoring surface carries the
-	// outcome_predicates array alone, whose published items branches close
-	// per kind; the pair fields survive only on the engine recovery
-	// declaration that retained-pin replay reads, whose kind-match rule
-	// owns the pair equality there.
-
-	// Item mismatch: outcome_kind exists beside a check outcome_payload.
-	// Built outside supersedeInput because the published per-kind items
-	// refuse it — that refusal is the assertion.
-	itemMismatch := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, pin.Version, map[string]any{
-		"contract_version": 2,
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:first-call-supersede", "ordinal": 0, "outcome_kind": "exists",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:first-call-supersede", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		}},
-		"required_evidence":    *pin.Obligations,
-		"spec_mandate":         []string{"spec:one", "law:successor"},
-		"architecture_binding": successorBinding(),
-	})
-	if err := payloadschema.Validate("work_transition_action_variant_supersede_contract", mustJSONRaw(t, itemMismatch)); err == nil {
-		t.Fatal("published supersede variant admitted an outcome_predicates item whose outcome_kind and outcome_payload.kind disagree")
+	itemMismatch := updateInput(nil)
+	itemMismatch["contract"].(map[string]any)["outcome_predicates"].([]map[string]any)[0]["outcome_kind"] = "exists"
+	if err := payloadschema.Validate("work_define_revise_input", mustJSONRaw(t, itemMismatch)); err == nil {
+		t.Fatal("published update input admitted an outcome kind mismatch")
 	}
-	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(itemMismatch), 0, owner)
+	err = applyUpdate(itemMismatch)
 	firstCallRequireRefusal(t, err, `does not satisfy its declared schema "workflow_action_outcome_predicates"`)
 
-	// Pair mismatch: the retired outcome pair group with outcome_kind
-	// exists beside a check outcome_payload. On the canonical head the pair
-	// fields are no longer declared, so the canonical field guard owns the
-	// whole-store refusal; the engine tier still binds the pair for
-	// retained-pin replay, and its kind-match rule owns the pair equality
-	// there.
-	pairMismatch := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, pin.Version, map[string]any{
-		"contract_version":     2,
-		"required_evidence":    *pin.Obligations,
-		"spec_mandate":         []string{"spec:one", "law:successor"},
-		"architecture_binding": successorBinding(),
-	})
-	pairFields := pairMismatch["fields"].(map[string]any)
+	pairMismatch := updateInput(nil)
+	pairFields := pairMismatch["contract"].(map[string]any)
 	delete(pairFields, "outcome_predicates")
 	pairFields["outcome_kind"] = "exists"
 	pairFields["outcome_payload"] = map[string]any{"kind": "check", "check_ref": "check:pair-mismatch", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}
-	if err := payloadschema.Validate("work_transition_action_variant_supersede_contract", mustJSONRaw(t, pairMismatch)); err == nil {
-		t.Fatal("published supersede variant admitted an outcome pair whose outcome_kind and outcome_payload.kind disagree")
+	if err := payloadschema.Validate("work_define_revise_input", mustJSONRaw(t, pairMismatch)); err == nil {
+		t.Fatal("published update input admitted the undeclared outcome pair")
 	}
-	err = runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(pairMismatch), 0, owner)
-	firstCallRequireRefusal(t, err, "successor contract contains an undeclared or invalid field")
-	// A retained pin predates decision and law-change facts, so its replay
-	// shape omits both.
-	delete(pairFields, "decision_domains")
-	for _, field := range workflowLawChangeFields() {
-		delete(pairFields, field.Name)
-	}
-	if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, fieldsOf(pairMismatch)); err == nil {
-		t.Fatal("the engine recovery validator admitted a retained-pin outcome pair whose outcome_kind and outcome_payload.kind disagree")
-	} else {
-		firstCallRequireRefusal(t, err, `carries kind "check"`)
-	}
+	err = applyUpdate(pairMismatch)
+	firstCallRequireRefusal(t, err, "not declared")
 
 	// The unchanged successor admits on its first submission after every
 	// mutant was refused without effect.
-	valid := supersedeInput(nil)
-	if err := runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(valid), 0, owner); err != nil {
-		t.Fatalf("first-call supersede_contract refused after the mutants were refused without effect: %v", err)
+	valid := updateInput(nil)
+	if err := applyUpdate(valid); err != nil {
+		t.Fatalf("first-call contract update refused after the mutants: %v", err)
 	}
 	var successorVersion int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&successorVersion); err != nil || successorVersion != 2 {
@@ -699,42 +676,28 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	// beside a check outcome_payload — refuses on both boundaries without
 	// durable effect: the pair left canonical authoring (CD-0218 D1/D2),
 	// and no synthetic outcome fallback is authorable.
-	pairValid := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, readWorkVersion(t, s, workID), map[string]any{
-		"contract_version":     3,
-		"required_evidence":    *pin.Obligations,
-		"spec_mandate":         []string{"spec:one", "law:successor"},
-		"architecture_binding": successorBinding(),
+	pairValid := updateInput(func(fields map[string]any) {
+		fields["contract_version"] = 3
 	})
-	pairValidFields := pairValid["fields"].(map[string]any)
+	pairValidFields := pairValid["contract"].(map[string]any)
 	delete(pairValidFields, "outcome_predicates")
 	pairValidFields["outcome_kind"] = "check"
 	pairValidFields["outcome_payload"] = map[string]any{"kind": "check", "check_ref": "check:pair-valid", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}
-	if err := payloadschema.Validate("work_transition_action_variant_supersede_contract", mustJSONRaw(t, pairValid)); err == nil {
-		t.Fatal("published supersede variant admitted the retired outcome pair form")
+	if err := payloadschema.Validate("work_define_revise_input", mustJSONRaw(t, pairValid)); err == nil {
+		t.Fatal("published update input admitted the undeclared outcome pair")
 	}
-	if err := runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(pairValid), 0, owner); err == nil {
+	if err := applyUpdate(pairValid); err == nil {
 		t.Fatal("whole-store admission admitted the retired outcome pair form")
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&successorVersion); err != nil || successorVersion != 2 {
 		t.Fatalf("retired pair refusal changed durable state: successor contract version=%d err=%v, want 2", successorVersion, err)
 	}
 
-	// The canonical array form carries the second supersession the pair
-	// form used to: a matching-kind outcome_predicates item records the
-	// contract version 3 successor on the first submission assembled from
-	// the published variant.
-	second := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, readWorkVersion(t, s, workID), map[string]any{
-		"contract_version": 3,
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:first-call-supersede", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:first-call-supersede", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		}},
-		"required_evidence":    *pin.Obligations,
-		"spec_mandate":         []string{"spec:one", "law:successor"},
-		"architecture_binding": successorBinding(),
+	second := updateInput(func(fields map[string]any) {
+		fields["contract_version"] = 3
 	})
-	if err := runVerdictActionAs(t, s, workID, "supersede_contract", fieldsOf(second), 0, owner); err != nil {
-		t.Fatalf("second canonical supersede_contract refused: %v", err)
+	if err := applyUpdate(second); err != nil {
+		t.Fatalf("second ordinary contract update refused: %v", err)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&successorVersion); err != nil || successorVersion != 3 {
 		t.Fatalf("active canonical successor contract version=%d err=%v, want 3", successorVersion, err)

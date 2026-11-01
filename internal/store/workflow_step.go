@@ -163,68 +163,7 @@ func advanceWorkflowInstanceStepTx(ctx context.Context, tx *sql.Tx, workID, step
 	return nil
 }
 
-// resetWorkflowInstanceToContractStepTx returns an instance to its
-// definition's contract step after a contract is superseded without a
-// successor.
-func resetWorkflowInstanceToContractStepTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) error {
-	definition, err := pinnedWorkflowDefinitionTx(ctx, tx, registry, workID)
-	if err != nil {
-		return err
-	}
-	step, err := workflowDefinitionContractStep(definition.Definition)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='planned',current_step=? WHERE work_id=?`, step, workID); err != nil {
-		return workflowProjectionError(err, "cannot return workflow to its contract step after supersession")
-	}
-	return nil
-}
-
-// workflowCompletedInstanceActionImmutable reports whether a workflow
-// instance state refuses the action outright. A completed instance whose work
-// item is still nonterminal admits one action: supersede_contract, the
-// complete-step correction route that reopens it (CD-0172). That route's own
-// admission decides; every other completed-instance action, and every
-// cancelled or superseded instance, stays immutable.
-func workflowCompletedInstanceActionImmutable(state, actionID, lifecycle string) bool {
-	if state == "cancelled" || state == "superseded" || state == "outside_repair" {
-		return true
-	}
-	if state != "completed" {
-		return false
-	}
-	if actionID != "supersede_contract" {
-		return true
-	}
-	return lifecycle == "completed" || lifecycle == "cancelled" || lifecycle == "superseded"
-}
-
-// returnWorkflowInstanceFromCompleteStepTx returns an instance to its declared
-// complete-step correction target — the producer step the
-// disproved_premise_at_complete route names — after a typed contract
-// supersession folded at the pinned complete step, and reopens the instance so
-// the successor contract runs under the unchanged pinned definition. Any other
-// current step or shape leaves the instance unchanged.
-func returnWorkflowInstanceFromCompleteStepTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) error {
-	definition, err := pinnedWorkflowDefinitionTx(ctx, tx, registry, workID)
-	if err != nil {
-		return err
-	}
-	var currentStep string
-	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
-		return workflowProjectionError(err, "cannot read the workflow step for the contract correction return")
-	}
-	target := workflowDisprovedPremiseAtCompleteRouteTarget(definition.Definition, currentStep)
-	if target == "" {
-		return nil
-	}
-	step, err := workflowDeclaredStep(definition.Definition, target)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET current_step=?,instance_state='running' WHERE work_id=?`, step, workID); err != nil {
-		return workflowProjectionError(err, "cannot return the workflow to its producer step after contract correction")
-	}
-	return nil
+// workflowCompletedInstanceActionImmutable reports terminal workflow instances.
+func workflowCompletedInstanceActionImmutable(state string) bool {
+	return state == "completed" || state == "cancelled" || state == "superseded" || state == "outside_repair"
 }

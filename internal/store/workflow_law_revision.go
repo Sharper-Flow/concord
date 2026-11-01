@@ -9,20 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/sharper-flow/concord/internal/payloadschema"
 )
-
-type workflowContractSupersessionContextKey struct{}
-
-func workflowContractSupersessionContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, workflowContractSupersessionContextKey{}, true)
-}
-
-func inWorkflowContractSupersessionContext(ctx context.Context) bool {
-	value, _ := ctx.Value(workflowContractSupersessionContextKey{}).(bool)
-	return value
-}
 
 // WorkflowLawRevision is the immutable law proof captured when a workflow
 // contract is approved. The Git commit is deliberately absent: it is audit
@@ -48,51 +35,7 @@ type StaleLawRevision struct {
 	RecoveryActions []string `json:"recovery_actions"`
 }
 
-const staleLawRecoveryActions = "supersede_contract,terminal_work"
-
-func workflowContractRecoveryActionDefinition() WorkflowActionDefinition {
-	return WorkflowActionDefinition{
-		ID: "supersede_contract", Consequence: ActionInternalSQLite, ExecutionMode: ActionAdvance,
-		// The successor outcome shape — the successor supplies exactly one
-		// outcome group — is engine-owned typed data resolved through
-		// workflowActionCrossField("supersede_contract"), not digest-covered
-		// definition content: core validation and the generated published
-		// supersede variant derive their oneOf branches from that one
-		// declaration.
-		Payload: WorkflowPayloadDefinition{Closed: true, Fields: workflowContractRecoveryPayloadFields()},
-	}
-}
-
-func workflowContractRecoveryPayloadFields() []WorkflowPayloadField {
-	return []WorkflowPayloadField{
-		actionIntegerField("contract_version", true),
-		actionArrayField("predecessor_contract_versions", false, 32, "workflow_contract_version"),
-		actionPremiseField(),
-		actionArrayField("outcome_predicates", false, 8, "workflow_action_outcome_predicates"),
-		actionEnumField("outcome_kind", false, "exists", "absent", "outcome", "check"),
-		actionObjectField("outcome_payload", false, "workflow_action_outcome"),
-		actionEnumListField("required_evidence", true, 0, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
-		actionListField("route_conventions", true, 0, 16),
-		actionLawListField("spec_mandate", true),
-		actionLawListField("law_modifies", true),
-		actionEnumField("rigor_class", true, "prototype_internal", "prototype_trusted", "prototype_public", "prototype_safety_critical", "production_internal", "production_trusted", "production_public", "production_safety_critical", "critical_internal", "critical_trusted", "critical_public", "critical_safety_critical"),
-		actionStringField("supersede_reason", true, 4096),
-		actionListField("audit_evidence", true, 1, 32),
-		actionObjectField("architecture_binding", false, "architecture_binding"),
-		actionObjectField("design_record", false, "workflow_design_content"),
-	}
-}
-
-// workflowDecisionFactRecoveryActionDefinition selects the copied decision-fact
-// declaration onto the engine-owned recovery definition for the pinned
-// definition: a consequence_v1 successor contract declares the required
-// decision_domains fact, and a legacy pin keeps the released recovery
-// declaration byte-identical.
-func workflowDecisionFactRecoveryActionDefinition(definition WorkflowDefinition) WorkflowActionDefinition {
-	action := workflowContractRecoveryActionDefinition()
-	action.Payload.Fields = workflowDecisionFactPayloadFields(definition, action.Payload.Fields)
-	return action
-}
+const staleLawRecoveryActions = "revise_intent,terminal_work"
 
 func validateWorkflowLawRevisions(mandated []string, revisions []WorkflowLawRevision) error {
 	if len(mandated) > 32 || len(revisions) > 32 {
@@ -347,10 +290,7 @@ func readWorkflowLawRevisions(ctx context.Context, q queryer, workID string, con
 	return revisions, nil
 }
 
-// workflowContractRecoveryStaleness reports whether a staleness refusal
-// admits operator-approved contract recovery: only a CD-0036 deleted-law pin
-// does. guardSupersedeContractRecovery and both workflow_action preflights
-// share it, so no surface can widen the recovery admission on its own.
+// workflowContractRecoveryStaleness identifies a deleted-law pin refusal.
 func workflowContractRecoveryStaleness(err error) bool {
 	var failure *Failure
 	return failureAs(err, &failure) && failure.Kind == KindStaleLawRevision
@@ -367,12 +307,6 @@ func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx queryer, workID
 	// evaluate. An ambiguous item also reaches no implementation-bearing
 	// action while it stays ambiguous, so admitting it here surrenders no
 	// guard that another one is not already holding.
-	//
-	// Refusing the ambiguous projection instead makes the duplicate-contract
-	// recovery unreachable. Every mutation path runs this boundary first, so
-	// supersede_contract is refused before resolveWorkflowContractPredecessors
-	// can retire the versions it replaces, and the refusal protects the state
-	// it exists to clear.
 	activeVersions, err := activeWorkflowContractVersions(ctx, tx, workID)
 	if err != nil {
 		return err
@@ -830,83 +764,4 @@ func resolveLawContextDomains(ctx context.Context, tx *sql.Tx, productID string,
 		domains = append(domains, domain)
 	}
 	return domains, nil
-}
-
-// validateWorkflowContractRecoveryPayload enforces the successor contract
-// payload against its one registry declaration: the field list, the required
-// set, and the exactly-one outcome group all come from the definition's
-// selected recovery declaration (workflowDecisionFactRecoveryActionDefinition),
-// so no handwritten field-name list or outcome-shape branch can drift from
-// the declaration the published variant generates from, and a consequence_v1
-// successor's required decision fact is declared beside the released fields.
-// On a canonical authoring head the outcome group is the explicit predicate
-// array alone: the legacy outcome pair refuses and the array is required, so
-// the successor's end state is always the one the caller supplied.
-func validateWorkflowContractRecoveryPayload(definition WorkflowDefinition, raw json.RawMessage) error {
-	fields, err := workflowActionObject(raw)
-	if err != nil {
-		return err
-	}
-	declaration := workflowDecisionFactRecoveryActionDefinition(definition).Payload
-	if workflowCanonicalAuthoringActive(definition) {
-		declaration.Fields = workflowCanonicalContractRecoveryPayloadFields(declaration.Fields)
-	}
-	crossField := workflowActionCrossField("supersede_contract")
-	allowed := make(map[string]WorkflowPayloadField)
-	for _, field := range declaration.Fields {
-		allowed[field.Name] = field
-	}
-	for name, value := range fields {
-		field, ok := allowed[name]
-		if !ok || !validateWorkflowPayloadValue(field, value) {
-			return newFailure(KindInvalidPayload, "workflow_action", "successor contract contains an undeclared or invalid field", false, "supply the typed successor contract")
-		}
-		// The declared schema refs bind here exactly as the action payload
-		// preflight binds them: the per-kind outcome_predicates items and
-		// the closed object fields the published successor variant projects
-		// refuse at this boundary, not first at the fold. The successor
-		// contract is a current engine declaration, so it resolves through
-		// the public authoring document.
-		if err := validateWorkflowPayloadSchema(payloadschema.Document(), field, value); err != nil {
-			return err
-		}
-	}
-	for _, field := range declaration.Fields {
-		if !field.Required {
-			continue
-		}
-		if _, ok := fields[field.Name]; !ok {
-			return newFailure(KindInvalidPayload, "workflow_action", "successor contract requires a fully supplied contract", false, "supply every successor contract field")
-		}
-	}
-	// The submitted fact keeps its semantic contract beside the declared
-	// field: workflowSubmittedDecisionDomains refuses absence, null, and any
-	// noncanonical array the per-field value check cannot see. A legacy
-	// declaration carries no fact, so the call stays a no-op there.
-	if _, err := workflowSubmittedDecisionDomains(definition, "successor", fields); err != nil {
-		return err
-	}
-	switch complete, partial := workflowPayloadAlternativeGroups(crossField.Alternatives, fields); {
-	case complete == 1 && !partial:
-	case complete == 0 && !partial:
-		return newFailure(KindInvalidPayload, "workflow_action", "successor contract requires outcome_predicates or the outcome pair", false, "supply the complete successor outcome")
-	case complete >= 2:
-		return newFailure(KindInvalidPayload, "workflow_action", "successor contract must supply one outcome shape", false, "supply outcome_predicates or the outcome pair")
-	default:
-		// A partially supplied second outcome group: the published closed
-		// branches refuse it, so the engine guard refuses it too
-		// (CON-412).
-		return newFailure(KindInvalidPayload, "workflow_action", "successor contract must supply one outcome shape: a field of the other outcome group is present without its complete group", false, "complete the started outcome group or remove its fields")
-	}
-	if workflowFieldInt(fields, "contract_version", 0) <= 0 || workflowFieldStringDefault(fields, "premise", "") == "" || workflowFieldStringDefault(fields, "rigor_class", "") == "" || workflowFieldStringDefault(fields, "supersede_reason", "") == "" {
-		return newFailure(KindInvalidPayload, "workflow_action", "successor contract has an empty required field", false, "supply the complete successor contract")
-	}
-	// The nested discriminator equality the declaration carries: a successor
-	// outcome pair whose outcome_kind and outcome_payload.kind disagree is
-	// refused here, at the same declaration the published pair branches
-	// close per kind (CON-412). The fold keeps its deeper decode guard.
-	if match, fieldKind, objectKind, violated := workflowPayloadKindMatchViolation(crossField, fields); violated {
-		return workflowPayloadKindMatchRefusal("supersede_contract", match, fieldKind, objectKind)
-	}
-	return nil
 }

@@ -6,26 +6,29 @@ import (
 )
 
 // Every contract declares its decision fact. The initial approve_contract
-// schema requires it in one closed fields object; the supersede_contract
-// fact is definition-conditional, so the advertised fields is one closed
-// union whose fact branch serves the families that declare the fact while
-// the store validates each call against the pinned family.
+// schema and complete contract updates both require the fact while the store
+// validates each call against the pinned family.
 func TestDecisionFactContractUnion(t *testing.T) {
 	for _, action := range []struct {
 		name              string
+		schema            string
+		field             string
 		factBranches      int
 		noFactBranches    int
 		noFactSchemaValid bool
 	}{
-		{name: "approve_contract", factBranches: 1, noFactBranches: 0},
-		{name: "supersede_contract", factBranches: 1, noFactBranches: 1, noFactSchemaValid: true},
+		{name: "approve_contract", schema: "work_transition_action_variant_approve_contract", field: "fields", factBranches: 1},
+		{name: "revise_intent", schema: "work_define_revise_input", field: "contract", factBranches: 1},
 	} {
 		t.Run(action.name, func(t *testing.T) {
-			name := "work_transition_action_variant_" + action.name
+			name := action.schema
 			document := Document()
 			defs := document["$defs"].(map[string]any)
 			variant := defs[name].(map[string]any)
-			fieldsNode := variant["properties"].(map[string]any)["fields"].(map[string]any)
+			fieldsNode := variant["properties"].(map[string]any)[action.field].(map[string]any)
+			if ref, ok := fieldsNode["$ref"].(string); ok {
+				fieldsNode = defs[ref[len("#/$defs/"):]].(map[string]any)
+			}
 			fieldsRequired := map[string]bool{}
 			if fieldsNodeRequired, ok := fieldsNode["required"].([]any); ok {
 				for _, field := range fieldsNodeRequired {
@@ -54,6 +57,7 @@ func TestDecisionFactContractUnion(t *testing.T) {
 				t.Fatalf("fact branches=%d no-fact branches=%d, want %d/%d", factBranches, noFactBranches, action.factBranches, action.noFactBranches)
 			}
 			base := corpusSample(document, variant).(map[string]any)
+			base[action.field] = corpusSample(document, fieldsNode)
 			for _, test := range []struct {
 				name     string
 				decision bool
@@ -66,7 +70,7 @@ func TestDecisionFactContractUnion(t *testing.T) {
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					input := corpusCopy(base).(map[string]any)
-					fields := input["fields"].(map[string]any)
+					fields := input[action.field].(map[string]any)
 					if test.decision {
 						fields["decision_domains"] = []string{}
 					} else {
@@ -92,9 +96,11 @@ func TestDecisionFactContractUnion(t *testing.T) {
 func TestSixClassDecisionFactSchemas(t *testing.T) {
 	document := Document()
 	defs := document["$defs"].(map[string]any)
-	for _, action := range []string{"approve_contract", "supersede_contract"} {
-		name := "work_transition_action_variant_" + action
+	for _, test := range []struct{ name, field string }{{"work_transition_action_variant_approve_contract", "fields"}, {"work_define_revise_input", "contract"}} {
+		name := test.name
 		base := corpusSample(document, defs[name].(map[string]any)).(map[string]any)
+		base[test.field] = corpusSample(document, defs[name].(map[string]any)["properties"].(map[string]any)[test.field].(map[string]any))
+		field := test.field
 		for _, test := range []struct {
 			domains any
 			valid   bool
@@ -114,13 +120,13 @@ func TestSixClassDecisionFactSchemas(t *testing.T) {
 			{domains: []bool{true}},
 		} {
 			input := corpusCopy(base).(map[string]any)
-			input["fields"].(map[string]any)["decision_domains"] = test.domains
+			input[field].(map[string]any)["decision_domains"] = test.domains
 			raw, err := json.Marshal(input)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if err := Validate(name, raw); (err == nil) != test.valid {
-				t.Errorf("%s domains %v: valid=%v, want %v: %v", action, test.domains, err == nil, test.valid, err)
+				t.Errorf("%s domains %v: valid=%v, want %v: %v", name, test.domains, err == nil, test.valid, err)
 			}
 		}
 	}

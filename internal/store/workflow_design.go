@@ -45,27 +45,6 @@ func workflowDesignRecordedEvents(definition WorkflowDefinition, request Workflo
 	})}, nil
 }
 
-func appendWorkflowDesignCorrection(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, eventID string, expected int64, events []Event) ([]Event, error) {
-	if raw == nil {
-		return events, nil
-	}
-	var recorded int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_design_records WHERE work_id=?`, request.WorkID).Scan(&recorded); err != nil {
-		return nil, workflowProjectionError(err, "cannot inspect design correction ownership")
-	}
-	if recorded == 0 {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "design correction requires an existing typed design", false, "omit design_record for work without a typed design")
-	}
-	if err := validateWorkflowActionPayload(definition, "record_design", raw); err != nil {
-		return nil, err
-	}
-	designEvents, err := workflowDesignRecordedEvents(definition, request, actor, raw, eventID+":design", expected+1)
-	if err != nil {
-		return nil, err
-	}
-	return append(events, designEvents...), nil
-}
-
 // The latest recorded design owns architecture content. Contract counters do
 // not invalidate unchanged architecture; Review compares its content digest.
 func readCurrentWorkflowDesign(ctx context.Context, q queryer, workID string) (*WorkflowDesignRecord, error) {

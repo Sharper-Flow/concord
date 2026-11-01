@@ -4,7 +4,7 @@ import "slices"
 
 // One declared recovery-route table per workflow definition is the only owner
 // of cross-step correction (CD-0201 D1). The table names, for the step that
-// records a bad evaluation or completes under a disproved contract, the
+// records a bad evaluation, the
 // trigger that opens the return, the action the route admits, and the one
 // target step that re-produces the artifact the evaluator judges.
 // Registration refuses a missing, ambiguous, or non-producer route (D4), so
@@ -21,22 +21,19 @@ import "slices"
 // its graph declares evaluator steps.
 
 // WorkflowRecoveryTrigger is the closed trigger enum a recovery route may
-// declare. unhealthy_verdict opens the return a bad evaluation takes;
-// disproved_premise_at_complete opens the pinned complete-step contract
-// correction (CD-0172). Same-step attempt recovery has no target to declare
+// declare. unhealthy_verdict opens the return a bad evaluation takes.
+// Same-step attempt recovery has no target to declare
 // and stays with its existing owner.
 type WorkflowRecoveryTrigger string
 
 const (
-	WorkflowRecoveryTriggerUnhealthyVerdict           WorkflowRecoveryTrigger = "unhealthy_verdict"
-	WorkflowRecoveryTriggerDisprovedPremiseAtComplete WorkflowRecoveryTrigger = "disproved_premise_at_complete"
+	WorkflowRecoveryTriggerUnhealthyVerdict WorkflowRecoveryTrigger = "unhealthy_verdict"
 )
 
 // WorkflowRecoveryRoute declares one cross-step correction path.
 type WorkflowRecoveryRoute struct {
 	// Step is the step the route returns from: the step that declares
-	// record_verdict or confirm_premise for an unhealthy verdict, or the
-	// step that declares complete for a premise disproved at completion.
+	// record_verdict or confirm_premise for an unhealthy verdict.
 	Step string `json:"step"`
 	// Trigger is the closed condition that opens the route.
 	Trigger WorkflowRecoveryTrigger `json:"trigger"`
@@ -48,30 +45,27 @@ type WorkflowRecoveryRoute struct {
 }
 
 // workflowRecoveryRouteActions is the closed action enum a route may admit.
-// Both members are engine-owned recovery actions resolvable off a pinned step
+// It names engine-owned recovery actions resolvable off a pinned step
 // through workflowRecoveryActionDefinition; a definition does not need to
 // list them at root for a route to name them.
-var workflowRecoveryRouteActions = []string{"request_correction", "supersede_contract"}
+var workflowRecoveryRouteActions = []string{"request_correction"}
 
 func workflowRecoveryRouteActionDeclared(actionID string) bool {
 	return slices.Contains(workflowRecoveryRouteActions, actionID)
 }
 
 func validWorkflowRecoveryTrigger(trigger WorkflowRecoveryTrigger) bool {
-	return trigger == WorkflowRecoveryTriggerUnhealthyVerdict || trigger == WorkflowRecoveryTriggerDisprovedPremiseAtComplete
+	return trigger == WorkflowRecoveryTriggerUnhealthyVerdict
 }
 
 // workflowRecoveryRouteActionForTrigger pairs each trigger with the one
 // correction action it admits: an unhealthy verdict opens request_correction
-// (CD-0143), and a premise disproved at the pinned complete step opens
-// supersede_contract (CD-0172 D1/D2). A route that crosses the pairing
+// (CD-0143). A route that crosses the pairing
 // refuses at registration.
 func workflowRecoveryRouteActionForTrigger(trigger WorkflowRecoveryTrigger) string {
 	switch trigger {
 	case WorkflowRecoveryTriggerUnhealthyVerdict:
 		return "request_correction"
-	case WorkflowRecoveryTriggerDisprovedPremiseAtComplete:
-		return "supersede_contract"
 	}
 	return ""
 }
@@ -79,7 +73,7 @@ func workflowRecoveryRouteActionForTrigger(trigger WorkflowRecoveryTrigger) stri
 // workflowRecoveryRoutes is the one reader every recovery decision feeds
 // from: the admission fold, workflowAdmit, the action guards, the folds, the
 // work-pin intents, the correction counting and three-attempt wall,
-// the CD-0172 complete-step return, and the liveness model. A definition that
+// and the liveness model. A definition that
 // declares a table resolves it; a released version without one resolves the
 // quarantined data for its (ref, version). The returned slice is a defensive
 // copy and the definition is not mutated.
@@ -114,14 +108,6 @@ func workflowLateCriterionAssociationStep(definition WorkflowDefinition, stepID 
 	return !stepDeclaresAction(definition, stepID, "record_verdict") &&
 		workflowLateVerdictServesVerdictStep(definition, stepID) &&
 		workflowUnhealthyVerdictRouteTarget(definition, stepID) != ""
-}
-
-// workflowDisprovedPremiseAtCompleteRouteTarget resolves the producer step the
-// pinned complete step's CD-0172 contract-correction route returns to. Only a
-// step that declares the complete action may carry the route, so the resolved
-// target is also the one shape test for the complete-step correction family.
-func workflowDisprovedPremiseAtCompleteRouteTarget(definition WorkflowDefinition, stepID string) string {
-	return workflowRecoveryRouteTarget(definition, stepID, WorkflowRecoveryTriggerDisprovedPremiseAtComplete)
 }
 
 // workflowDeliveryGateCorrectionTarget resolves the corrective return a parked
@@ -354,9 +340,6 @@ func validateWorkflowRecoveryRoutePlacement(definition WorkflowDefinition, route
 		if !slices.Contains(routeStep.Actions, "record_verdict") && !slices.Contains(routeStep.Actions, "confirm_premise") && !terminals[route.Step] && !reviewLoop {
 			return definitionFailure(KindInvalidDefinition, "unhealthy_verdict recovery route sits on a step with no criterion, premise, or execution Review: "+route.Step)
 		}
-	}
-	if route.Trigger == WorkflowRecoveryTriggerDisprovedPremiseAtComplete && !slices.Contains(routeStep.Actions, "complete") {
-		return definitionFailure(KindInvalidDefinition, "disproved_premise_at_complete recovery route sits on a step that declares no complete action: "+route.Step)
 	}
 	if route.Target == route.Step && !(reviewLoop && route.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict) {
 		return definitionFailure(KindInvalidDefinition, "recovery route target is the route step: "+route.Step)

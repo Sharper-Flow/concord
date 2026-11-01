@@ -16,7 +16,7 @@ import (
 // producer through the evidence-bearing correction route.
 
 func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	ctx := context.Background()
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatal(err)
@@ -162,20 +162,13 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("ready Review does not cover the current candidate: %+v (%v)", reviewed.Review, err)
 	}
 
-	// Seed the contract-correction checkpoint for the successor's store-owned
-	// setup, then park its unchanged candidate at the delivery gate below.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1';
-		DELETE FROM write_guard`); err != nil {
-		t.Fatalf("seed contract-correction checkpoint: %v", err)
-	}
-	spineOK(t, oAgentAction(t, fixture, "supersede_contract", map[string]any{
+	revised, _ := dispatchContractRevisionResult(t, s, service, env, "work-1", version(), map[string]any{
 		"contract_version": 2, "premise": "approved gate return objective",
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:gate-recovery", "immutable_subject_ref": "commit:gate-recovery", "expected_result": "fail"}}},
 		"required_evidence":  []string{"review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "decision_domains": []string{},
 		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
-		"supersede_reason":     "the expected criterion result changed", "audit_evidence": []string{"evidence:gate-review"},
-	}))
+	}, "gate-revise-criterion")
+	spineOK(t, revised)
 	stale, err := store.ReadWorkPin(ctx, s, "work-1")
 	if err != nil || stale.Review == nil || stale.Review.Accepted == nil || stale.Review.Candidate == nil || stale.Review.Dependencies == nil || stale.Review.DependenciesCurrent || *stale.Review.Candidate != *reviewed.Review.Candidate || stale.Review.Accepted.ReportRef != reviewed.Review.Accepted.ReportRef {
 		t.Fatalf("successor did not stale the standing Review on the unchanged candidate: %+v (%v)", stale.Review, err)

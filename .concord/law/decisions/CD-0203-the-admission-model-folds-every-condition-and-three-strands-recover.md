@@ -1,7 +1,7 @@
 ---
 {
   "id": "CD-0203",
-  "title": "The admission model derives every condition and two strands recover",
+  "title": "The admission model derives every condition and research cannot skip its contract",
   "authority": {
     "tier": "derived"
   },
@@ -11,23 +11,19 @@
     {
       "kind": "refines",
       "target_id": "CD-0201"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0172"
     }
   ]
 }
 ---
-# CD-0203: The admission model derives every condition and two strands recover
+# CD-0203: The admission model derives every condition and research cannot skip its contract
 
 - **Status:** Accepted
 - **Date:** 2026-10-04
 - **Scope:** The workflow liveness, well-formed-exit, and conformance checks;
-  two store admission routes those checks proved stranded
+  the contract-step admission those checks proved stranded
 - **Preserves:** CD-0201 D2, the liveness law; CD-0112 D1, continuity actions never move
-  the step; every other route refusal keeps its scope (CD-0186)
-- **Related:** CD-0016, CD-0166, CD-0173, CD-0186
+  the step; every other route refusal keeps its scope
+- **Related:** CD-0016, CD-0166, CD-0173
 - **Approval:** The operator directed in session chat on 2026-10-02 that the
   checks stay strict, with no named exception, and that the engine routes
   change until the law holds.
@@ -43,33 +39,20 @@ subset could not reach was not checked.
 The checks now derive every condition `workflowAdmit` reads, over the
 registered definitions
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
-The widened checks found two strands in the engine:
-
-1. A duplicated contract projection at the pinned complete step refused every
-   recovery. CD-0172 D1 admitted the complete-step correction only with
-   exactly one active contract, and the supersede admission refused duplicate
-   recovery at that step.
-2. Version-1 research declares `frame_research` in advance mode beside
-   `approve_contract` on its frame step. A contractless advance moved the
-   work past the only step that binds a contract, and completion refuses
-   without one.
+Research declares `frame_research` in advance mode beside `approve_contract`
+on its frame step. A contractless advance can move the work past the only
+step that binds a contract, and completion refuses without one.
 
 ## Decision
 
-The same derived admission state owns premise confirmation and correction/supersession routes and preserves investigation, evidence, recovery targets, and non-hold exits. CD-0013 D11 requires the authenticated coordinator for premise confirmation; operator decisions follow CD-0243 in conversation.
+The same derived admission state owns premise confirmation and correction routes and preserves investigation, evidence, recovery targets, and non-hold exits. CD-0013 D11 requires the authenticated coordinator for premise confirmation; operator decisions follow CD-0243 in conversation.
 
-### D1. The contract step and the complete step keep their contract routes
+### D1. The contract step requires contract recording
 
 An advancing action with no active contract refuses at the contract step,
 except `approve_contract`. The refusal kind is an illegal lifecycle
 transition. A work item leaves the contract step only through the approval
 it hosts.
-
-The complete-step correction admits one or more active contracts. A
-duplicated projection at the complete step takes the same shared gate as a
-single stale contract. The successor names every active version, so one
-supersession repairs the projection and returns the instance to its
-external-effect step.
 
 ### D2. Premise confirmation uses the authenticated coordinator
 
@@ -97,14 +80,10 @@ Admission code and definition content have separate owners.
 - Rewrite a step's kind at read time.
   Rejected: a read-time rewrite would make runtime behavior diverge from the
   generated source (CD-0242 D14).
-- Keep the duplicate refusal and require recovery on an earlier step.
-  Rejected: the pinned complete step declares no earlier route, so the
-  refusal leaves no exit.
 
 ## Consequences
 
-A duplicated projection at the complete step recovers through one attributed
-supersession. Research cannot skip its contract. A future change that
+Research cannot skip its contract. A future change that
 strands any registered definition fails the widened checks with a witness.
 
 ## Verification
@@ -116,11 +95,6 @@ Scenario: A contractless advance at the contract step refuses
   Then admission refuses with an illegal lifecycle transition
   And approve_contract stays admitted
 
-Scenario: A duplicated projection at the complete step recovers
-  Given a completed break-fix item with two active contracts and a later contradiction observation
-  When the authenticated coordinator records a supersession that names every active version
-  Then the projection holds one active contract and the instance returns to repair
-
 Scenario: Every registered definition stays live under the full model
   Given the registered definitions
   When the checks enumerate the full abstract admission state
@@ -128,7 +102,6 @@ Scenario: Every registered definition stays live under the full model
 ```
 
 - `go test ./internal/store/ -run TestContractStepAdvancesOnlyThroughItsApproval` proves the first scenario.
-- `go test ./internal/store/ -run TestCompleteStepCorrectionRecoversDuplicateProjection` proves the second scenario.
 - `TestCurrentDefinitionsHaveOneSourcePerLiveFamily` checks the current family set.
 - `go test ./internal/store/ -run TestRegisteredNonTerminalStepsCanAdvance` checks advancing exits across the registered current definitions.
 - `go test ./internal/store/ -run 'TestWellFormedAdmissionStateHasNonContinuityExit|TestReachableAdmissionStateReachesTerminal|TestAdmissionConformanceLocalJobAcceptHolds|TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition'` proves the final scenario over current definitions and Review admission.

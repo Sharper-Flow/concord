@@ -353,25 +353,6 @@ func TestStaleArtifactRefusesOkVerdictAndPremise(t *testing.T) {
 	}
 }
 
-// TestCompleteStepReturnReadsTheRouteTable pins the CD-0172 return against the
-// table: implementation release returns to execution and break_fix complete to
-// repair, and no other family resolves a complete-step route.
-func TestCompleteStepReturnReadsTheRouteTable(t *testing.T) {
-	t.Parallel()
-	implementation := mustBuiltinDefinition(t, "workflow.implementation").Definition
-	if target := workflowDisprovedPremiseAtCompleteRouteTarget(implementation, "release"); target != "execution" {
-		t.Fatalf("implementation release complete-step target = %q, want execution", target)
-	}
-	breakFix := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	if target := workflowDisprovedPremiseAtCompleteRouteTarget(breakFix, "complete"); target != "repair" {
-		t.Fatalf("break_fix complete-step target = %q, want repair", target)
-	}
-	research := mustBuiltinDefinition(t, "workflow.research").Definition
-	if target := workflowDisprovedPremiseAtCompleteRouteTarget(research, "complete"); target != "" {
-		t.Fatalf("research complete-step target = %q, want none: the route is not broadened to other families", target)
-	}
-}
-
 // A version-only supersession opens no unhealthy-verdict route (CD-0242 D7).
 // A subsequent unhealthy judgment opens the producer's declared return.
 func TestStaleOkVerdictNeedsUnhealthyVerdictForDeclaredRoute(t *testing.T) {

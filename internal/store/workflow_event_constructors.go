@@ -20,7 +20,7 @@ import (
 // workflow_design.go.
 
 // workflowContractProductGuard enforces the Product-truth boundary the
-// approve_contract and supersede_contract arms share: the architecture
+// initial approval and ordinary contract updates share: the architecture
 // binding must parse, a Product-changing contract requires one, and a
 // non-Product-changing contract carries none. A non-Product-changing contract
 // may name law_modifies only when every named law is derived (CD-0222 D5);
@@ -103,6 +103,21 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	if err := requireResearchForPendingQuestions(ctx, tx, request.WorkID); err != nil {
 		return nil, err
 	}
+	contract, err := workflowContractContent(ctx, tx, definition, request.WorkID, fields, request.LawModifies)
+	if err != nil {
+		return nil, err
+	}
+	required, err := workflowApprovalRequiredEvidence(definition, fields)
+	if err != nil {
+		return nil, err
+	}
+	contract["required_evidence"] = required
+	approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
+	approvalEvent.PayloadVersion = workflowContractLawChangePayloadVersion
+	return []Event{approvalEvent}, nil
+}
+
+func workflowContractContent(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID string, fields map[string]json.RawMessage, requestedLawModifies []string) (map[string]any, error) {
 	outcomePredicates, err := workflowContractOutcomePredicates(definition, fields)
 	if err != nil {
 		return nil, err
@@ -124,9 +139,13 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	}
 	contractVersion := workflowFieldInt(fields, "contract_version", 1)
 	premise, _ := workflowFieldString(fields, "premise")
-	required, err := workflowApprovalRequiredEvidence(definition, fields)
+	_, err = workflowApprovalRequiredEvidence(definition, fields)
 	if err != nil {
 		return nil, err
+	}
+	required := workflowFieldStrings(fields, "required_evidence")
+	if required == nil {
+		required = []string{}
 	}
 	routes := workflowFieldStrings(fields, "route_conventions")
 	if routes == nil {
@@ -137,12 +156,12 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 		spec = []string{}
 	}
 	lawModifies := workflowFieldStrings(fields, "law_modifies")
-	if len(lawModifies) == 0 && len(request.LawModifies) != 0 {
-		lawModifies = append([]string(nil), request.LawModifies...)
+	if len(lawModifies) == 0 && len(requestedLawModifies) != 0 {
+		lawModifies = append([]string(nil), requestedLawModifies...)
 	}
 	rigor := workflowFieldStringDefault(fields, "rigor_class", "prototype_internal")
 	contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_predicates": outcomePredicates, "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
-	return workflowApproveBoundContractEvents(ctx, tx, definition, request, actor, fields, eventID, expected, contract, spec, lawModifies)
+	return workflowBoundContractContent(ctx, tx, definition, workID, fields, contract, spec, lawModifies)
 }
 
 func workflowApprovalRequiredEvidence(definition WorkflowDefinition, fields map[string]json.RawMessage) ([]string, error) {
@@ -172,7 +191,7 @@ func workflowApprovalRequiredEvidence(definition WorkflowDefinition, fields map[
 	return required, nil
 }
 
-func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64, contract map[string]any, spec, lawModifies []string) ([]Event, error) {
+func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID string, fields map[string]json.RawMessage, contract map[string]any, spec, lawModifies []string) (map[string]any, error) {
 	// On a canonical authoring head the contract records the explicit
 	// predicate array alone: the legacy outcome pair stays off the event, and
 	// the fold resolves the end state through the predicates whenever they
@@ -186,7 +205,7 @@ func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definit
 		contract["outcome_payload"] = outcome
 	}
 	productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
-	binding, bindingErr := workflowContractProductGuard(ctx, tx, request.WorkID, fields, lawModifies, productChanging, "approval", "supply the complete architecture binding")
+	binding, bindingErr := workflowContractProductGuard(ctx, tx, workID, fields, lawModifies, productChanging, "contract", "supply the complete architecture binding")
 	if bindingErr != nil {
 		return nil, bindingErr
 	}
@@ -210,7 +229,7 @@ func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definit
 	if revisionErr != nil {
 		return nil, revisionErr
 	}
-	revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, request.WorkID, revisionMandate, lawModifies)
+	revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, workID, revisionMandate, lawModifies)
 	if revisionErr != nil {
 		return nil, revisionErr
 	}
@@ -221,7 +240,7 @@ func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definit
 	if decisionDomains != nil {
 		contract["decision_domains"] = decisionDomains
 	}
-	lawChange, lawChangeErr := deriveWorkflowLawChangeTx(ctx, tx, definition, request.WorkID, fields, lawModifies, productBinding(productChanging, binding))
+	lawChange, lawChangeErr := deriveWorkflowLawChangeTx(ctx, tx, definition, workID, fields, lawModifies, productBinding(productChanging, binding))
 	if lawChangeErr != nil {
 		return nil, lawChangeErr
 	}
@@ -230,9 +249,7 @@ func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definit
 	}
 	contract["law_revisions"] = revisions
 	contract["law_boundary_version"] = 1
-	approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
-	approvalEvent.PayloadVersion = workflowContractLawChangePayloadVersion
-	return []Event{approvalEvent}, nil
+	return contract, nil
 }
 
 func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
@@ -304,71 +321,6 @@ func workflowRecordDiagnosisEvents(ctx context.Context, tx *sql.Tx, request Work
 		values["related_ids"] = relatedIDs
 	}
 	return []Event{workflowTypedEvent(eventID, WorkflowDiagnosisRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
-}
-
-func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	if err := validateWorkflowContractRecoveryPayload(definition, raw); err != nil {
-		return nil, err
-	}
-	predecessors, previous, predecessorErr := resolveWorkflowContractPredecessors(ctx, tx, request.WorkID, fields)
-	if predecessorErr != nil {
-		return nil, predecessorErr
-	}
-	next := workflowFieldInt(fields, "contract_version", 0)
-	if next != maxInt64(predecessors)+1 {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "successor contract version must immediately follow the active contract", false, "supply the next contract version")
-	}
-	audit := workflowFieldStrings(fields, "audit_evidence")
-	if len(audit) == 0 {
-		audit = []string{"audit:" + request.OperationID}
-	}
-	lawModifies := workflowFieldStrings(fields, "law_modifies")
-	specMandate := workflowFieldStrings(fields, "spec_mandate")
-	productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
-	binding, bindingErr := workflowContractProductGuard(ctx, tx, request.WorkID, fields, lawModifies, productChanging, "successor", "supply the complete successor architecture binding")
-	if bindingErr != nil {
-		return nil, bindingErr
-	}
-	revisionMandate := specMandate
-	var revisionErr error
-	if productChanging {
-		revisionMandate, revisionErr = architectureBindingRevisionMandate(specMandate, binding.LawAdditions)
-		if revisionErr != nil {
-			return nil, revisionErr
-		}
-	}
-	revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, request.WorkID, revisionMandate, lawModifies)
-	if revisionErr != nil {
-		return nil, revisionErr
-	}
-	decisionDomains, decisionDomainErr := workflowSubmittedDecisionDomains(definition, "successor", fields)
-	if decisionDomainErr != nil {
-		return nil, decisionDomainErr
-	}
-	premise, _ := workflowFieldString(fields, "premise")
-	successor := map[string]any{
-		"contract_version": next, "premise": premise, "outcome_predicates": workflowFieldRaw(fields, "outcome_predicates"), "outcome_kind": workflowFieldStringDefault(fields, "outcome_kind", ""),
-		"outcome_payload": workflowFieldRaw(fields, "outcome_payload"), "required_evidence": workflowFieldStrings(fields, "required_evidence"),
-		"route_conventions": workflowFieldStrings(fields, "route_conventions"), "spec_mandate": specMandate, "law_modifies": lawModifies,
-		"law_revisions": revisions, "law_boundary_version": 1, "rigor_class": workflowFieldStringDefault(fields, "rigor_class", ""), "consequence_class": string(ActionInternalSQLite),
-	}
-	if decisionDomains != nil {
-		successor["decision_domains"] = decisionDomains
-	}
-	lawChange, lawChangeErr := deriveWorkflowLawChangeTx(ctx, tx, definition, request.WorkID, fields, lawModifies, productBinding(productChanging, binding))
-	if lawChangeErr != nil {
-		return nil, lawChangeErr
-	}
-	if lawChange != nil {
-		successor["law_change"] = lawChange
-	}
-	if productChanging {
-		successor["architecture_binding"] = binding
-	} else if len(lawModifies) == 0 {
-		delete(successor, "law_modifies")
-	}
-	events := []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "predecessor_contract_versions": predecessors, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "successor_contract": successor})}
-	return appendWorkflowDesignCorrection(ctx, tx, definition, request, actor, fields["design_record"], eventID, expected, events)
 }
 
 func workflowRecordedReviewEvents(request WorkflowActionExecutionRequest, actor, eventID string, expected int64) ([]Event, error) {

@@ -23,7 +23,7 @@
   CD-0077, CD-0156, CD-0198. The D5 owner must resolve its current successor
   identities before cutover.
 - **Related:** CD-0007, CD-0012, CD-0013, CD-0036, CD-0039, CD-0077,
-  CD-0156, CD-0172, CD-0186, CD-0198, CD-0215
+  CD-0156, CD-0198, CD-0215
 
 [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 governs D1: Product-law changes require approval only under its six classes. Workflow-family and repository-law-route requirements remain required.
@@ -83,18 +83,18 @@ pins, and operation/idempotency keys remain executable admission facts.
 One admission owner serves dispatch, delivery, correction, and closure; admission validates current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Host preauthorization remains at its own
 boundaries. No caller-supplied echo replaces dispatch-owned provenance.
 
-Complete-step contract correction remains confined to implementation and
-break-fix under CD-0172 and CD-0186. The declared producer return supplies fresh
-design and proof after correction. Evidence binding can discharge an unverdicted
+Contract content changes use the ordinary record update in
+[workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates),
+preserving version-addressed provenance and current-proof validity without a
+step reset. Unhealthy-verdict correction retains its declared producer return.
+Evidence binding can discharge an unverdicted
 active predicate through its existing owner. No acceptance-step bypass, stale
 design heuristic, or weakened evidence-kind check replaces that route.
 
 Ordinary stale-law and stale-Domain re-pinning keeps its existing admission at
 eligible running steps of every retained workflow family, including research.
-Duplicate-contract recovery and currently eligible earlier-step correction also
-keep their existing admission. CD-0186 limits the complete-step disproved-premise
-correction route, not ordinary stale recovery. Preserve both independently; an
-ordinary re-pin does not manufacture a producer return or evade the correction
+Currently eligible unhealthy-verdict correction also keeps its existing admission.
+An ordinary re-pin does not manufacture a producer return or evade that correction
 gate. Cancellation does not replace an existing admitted re-pin exit.
 
 Exact shared-write conflicts, exclusive step claims, host-owned session/worktree
@@ -171,8 +171,8 @@ than publish competing overrides.
 
 ```gherkin
   Given a running retained-family item has an ordinary stale-law recovery route
-  When the operator approves its exact successor contract at an eligible step
-  Then the ordinary re-pin commits without requiring disproved-premise correction
+  When the authenticated coordinator supplies its complete contract through revise_intent
+  Then the ordinary re-pin commits without moving the step or discarding retained evidence
 ```
 
 ## Alternatives considered
@@ -234,9 +234,9 @@ set at the D5 boundary.
   Readiness refuses the nonterminal archived pin without a live store mutation; terminal items return unchanged retained state or typed collected-state absence under CD-0242 D2.
 - Criterion 6 keeps its completion anchor:
   `go test ./internal/store/ -run TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict`.
-- Criterion 7 keeps its ordinary-recovery anchors:
-  `go test ./internal/store/ -run TestStaleLawHoldsLateVerdictUntilRePin`
-  and `go test ./internal/store/ -run TestCompleteStepCorrectionStaleLawStaysBehindTheGate`.
+- Criterion 7 requires ordinary-update recovery coverage under
+  [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates),
+  including unchanged stale-pin admission and retained evidence.
 
 Retained research failure derivation is covered by
 `internal/store.TestResearchDerivedFailureRetriesAndRebuilds`.

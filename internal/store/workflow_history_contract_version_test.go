@@ -10,14 +10,13 @@ import (
 
 var historyRecordKinds = []string{"lifecycle", "phase_exit"}
 
-// historyContractFixture is a work item whose contract v1 was superseded by
-// v2 through the folded supersession event.
+// historyContractFixture retains two versions through an ordinary record update.
 func historyContractFixture(t *testing.T, name string) (*Store, string) {
 	t.Helper()
 	fixture := seedWorkContextFixture(t, name)
 	t.Cleanup(func() { fixture.store.Close() })
 	successor := pContractSuccessor(t, fixture.store, fixture.workID, "retain a successor contract for historical reads")
-	if err := runVerdictActionAs(t, fixture.store, fixture.workID, "supersede_contract", mustJSONValue(successor), 0, fixture.owner); err != nil {
+	if err := reviseContractRecord(t, fixture.store, fixture.workID, fixture.owner, successor, readWorkVersion(t, fixture.store, fixture.workID), nil); err != nil {
 		t.Fatal(err)
 	}
 	return fixture.store, fixture.workID

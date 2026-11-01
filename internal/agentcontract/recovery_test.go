@@ -160,7 +160,7 @@ func TestCoordinationRecoveryPreservesSupportedOwnerAction(t *testing.T) {
 			typed := TypedError{Kind: "stale_law_revision", RecoveryAction: RecoveryAction{Kind: action}, EffectState: EffectNone}
 			companionFields(&typed)
 			if action == "use_declared_route" {
-				typed.RecoveryAction.RequiredRefs = []string{"supersede_contract"}
+				typed.RecoveryAction.RequiredRefs = []string{"revise_intent"}
 			}
 			out := NewCoreError(NewBase("owner-action", "concord_work_transition", "workflow_action"), typed)
 			if _, err := out.Encode(); err != nil {
@@ -181,7 +181,7 @@ func coupledStaleLawRevision() *StaleLawRevision {
 	return &StaleLawRevision{
 		OldLawID:        "law-old",
 		OldContentHash:  hash,
-		RecoveryActions: []string{"supersede_contract"},
+		RecoveryActions: []string{"revise_intent"},
 	}
 }
 

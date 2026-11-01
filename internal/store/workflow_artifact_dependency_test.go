@@ -2,10 +2,10 @@ package store
 
 import "testing"
 
-// CD-0242 D7: supersession invalidates proof only through the digests captured
+// CD-0242 D7: contract revision invalidates proof only through the digests captured
 // by its owners (Review dependencies and criterion associations). Reassessment
 // of an unchanged candidate must not demand another implementation delivery.
-func TestArtifactSupersessionUsesRecordedProofDependencies(t *testing.T) {
+func TestArtifactContractRevisionUsesRecordedProofDependencies(t *testing.T) {
 	for _, changed := range []bool{false, true} {
 		name := "unchanged dependency"
 		if changed {
@@ -30,7 +30,7 @@ func TestArtifactSupersessionUsesRecordedProofDependencies(t *testing.T) {
 				predicate := successor["outcome_predicates"].([]any)[0].(map[string]any)
 				predicate["outcome_payload"].(map[string]any)["check_ref"] = "check:reassessed"
 			}
-			if err := runVerdictActionAs(t, s, f.workID, "supersede_contract", mustJSONValue(successor), 0, f.owner); err != nil {
+			if err := reviseContractRecord(t, s, f.workID, f.owner, successor, readWorkVersion(t, s, f.workID), nil); err != nil {
 				t.Fatal(err)
 			}
 			after, err := loadWorkflowReviewState(t.Context(), s.db, f.workID)

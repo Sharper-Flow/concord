@@ -13,7 +13,6 @@ type workflowHealthVerdict struct {
 
 type workflowHealthBasis struct {
 	version int64
-	cutoff  int64
 	history workflowContractPredicateHistoryData
 	pins    workflowContractDefinitionPinsData
 }
@@ -27,8 +26,7 @@ func loadWorkflowHealthBasis(ctx context.Context, q queryer, workID string, vers
 	if basis.pins, err = workflowContractDefinitionPins(ctx, q, workID, version); err != nil {
 		return basis, err
 	}
-	basis.cutoff, err = workflowCompleteStepCorrectionEvidenceCutoff(ctx, q, workID, version)
-	return basis, err
+	return basis, nil
 }
 
 func (basis workflowHealthBasis) healthySequence(candidates []workflowHealthVerdict) int64 {
@@ -39,7 +37,7 @@ func (basis workflowHealthBasis) healthySequence(candidates []workflowHealthVerd
 	latest := make(map[string]workflowHealthVerdict, len(predicates))
 	for _, candidate := range candidates {
 		v := candidate.verdict
-		if _, active := predicates[v.PredicateID]; !active || v.ContractVersion <= 0 || v.ContractVersion > basis.version || candidate.seq <= basis.cutoff {
+		if _, active := predicates[v.PredicateID]; !active || v.ContractVersion <= 0 || v.ContractVersion > basis.version {
 			continue
 		}
 		if v.ContractVersion < basis.version && (!workflowPredicateHistoryCompatible(basis.history, v.ContractVersion, basis.version, v.PredicateID, v) || !workflowContractDefinitionPinsCompatible(basis.pins, v.ContractVersion, basis.version)) {
@@ -80,7 +78,7 @@ func readWorkflowHealthVerdicts(rows *sql.Rows) ([]workflowHealthVerdict, error)
 }
 
 // A verdict advances health only when the whole current compatible set is
-// healthy. A contract change instead recomputes that set, including its cutoff.
+// healthy. A contract change instead recomputes that set.
 func refreshWorkflowHealthySequence(ctx context.Context, q migrationRunner, workID string, version int64, contractChanged bool) error {
 	basis, err := loadWorkflowHealthBasis(ctx, q, workID, version)
 	if err != nil {

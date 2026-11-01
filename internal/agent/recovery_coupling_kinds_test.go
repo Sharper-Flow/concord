@@ -25,7 +25,7 @@ func storeStaleLawFailure(proposed string) *store.Failure {
 		StaleLawRevision: &store.StaleLawRevision{
 			OldLawID:        "law-old",
 			OldContentHash:  hash,
-			RecoveryActions: []string{"supersede_contract"},
+			RecoveryActions: []string{"revise_intent"},
 		},
 	}
 }
@@ -43,7 +43,7 @@ func TestCarrierRefusalsAreDeliverableWhateverTheStoreProposes(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				failure := build(proposed)
 				if proposed == "use_declared_route" {
-					failure.RecoveryRefs = []string{"supersede_contract"}
+					failure.RecoveryRefs = []string{"revise_intent"}
 				}
 				out := failureEnvelope(agentcontract.NewBase("coupling-1", "concord_work_transition", "workflow_action"), failure)
 				if out.Error == nil || out.Error.Kind != kind {
@@ -59,7 +59,7 @@ func TestCarrierRefusalsAreDeliverableWhateverTheStoreProposes(t *testing.T) {
 				if out.Error.RecoveryAction.Kind != want {
 					t.Fatalf("store proposed %q and the envelope kept %q, want %q", proposed, out.Error.RecoveryAction.Kind, want)
 				}
-				if proposed == "use_declared_route" && strings.Join(out.Error.RecoveryAction.RequiredRefs, ",") != "supersede_contract" {
+				if proposed == "use_declared_route" && strings.Join(out.Error.RecoveryAction.RequiredRefs, ",") != "revise_intent" {
 					t.Fatalf("declared route refs lost: %+v", out.Error.RecoveryAction)
 				}
 				if proposed == "free operator prose" && out.Error.Details["recovery_detail"] != proposed {

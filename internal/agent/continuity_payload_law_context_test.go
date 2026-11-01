@@ -92,7 +92,7 @@ func TestContinuityPayloadPreservesStaleLawRevisionAgainstSchema(t *testing.T) {
 		RestartUnavailableReason: "dispatch window closed", Boundaries: []store.ContextBoundary{}, Watermark: "seq:1",
 		StaleLawRevision: &store.StaleLawRevision{
 			OldLawID: "source/spec:one", OldContentHash: "sha256:" + repeatHex(),
-			RecoveryActions: []string{"supersede_contract", "terminal_work"},
+			RecoveryActions: []string{"revise_intent", "terminal_work"},
 		},
 	}
 	payload := ContinuityPayload(snapshot)
@@ -110,7 +110,7 @@ func TestContinuityPayloadPreservesStaleLawRevisionAgainstSchema(t *testing.T) {
 		t.Fatalf("stale-law continuity result rejected: %v", err)
 	}
 	payload["pinned"].(map[string]any)["stale_law_revision"] = map[string]any{
-		"old_law_id": "source/spec:one", "old_content_hash": "not-a-digest", "recovery_actions": []string{"supersede_contract"},
+		"old_law_id": "source/spec:one", "old_content_hash": "not-a-digest", "recovery_actions": []string{"revise_intent"},
 	}
 	invalid, err := json.Marshal(payload)
 	if err != nil {

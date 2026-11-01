@@ -146,41 +146,6 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 		}
 	})
 
-	t.Run("the acceptance fold stays total under a duplicated active count", func(t *testing.T) {
-		t.Parallel()
-		// Direct state over real seeds: the duplicated count claims the
-		// ambiguous projection the supersede recovery owns, so the acceptance
-		// fold must skip its singular active-contract read and the confirmation
-		// prerequisites — never fail the loader before workflowAdmitSupersede
-		// classifies the recovery.
-		const engineeringID = "approval-duplicate-count-engineering"
-		const decisionID = "approval-duplicate-count-decision"
-		s, _, definition, _ := seedApprovalItemAtAcceptance(t, engineeringID, []string{})
-		s2, _, _, _ := seedApprovalItemAtAcceptance(t, decisionID, []string{"product"})
-		for name, seed := range map[string]struct {
-			store  *Store
-			workID string
-		}{"engineering": {s, engineeringID}, "decision": {s2, decisionID}} {
-			ctx := context.Background()
-			tx, txErr := seed.store.DatabaseForTesting().BeginTx(ctx, nil)
-			if txErr != nil {
-				t.Fatal(txErr)
-			}
-			state := WorkflowAdmissionState{ActiveContracts: 2, Step: "acceptance"}
-			if err := loadWorkflowAcceptanceAdmission(ctx, tx, seed.workID, definition, &state); err != nil {
-				tx.Rollback()
-				t.Fatalf("%s acceptance fold under the duplicated count refused: %v", name, err)
-			}
-			decision := workflowAdmitSupersede(definition, state, WorkflowAdmissionDecision{})
-			if !decision.RecoveryRoute || !decision.Admitted {
-				tx.Rollback()
-				t.Fatalf("%s duplicated projection lost the supersede recovery: %+v", name, decision)
-			}
-			if err := tx.Rollback(); err != nil {
-				t.Fatal(err)
-			}
-		}
-	})
 }
 
 // approvalContinuitySnapshot seats one continuity snapshot through the

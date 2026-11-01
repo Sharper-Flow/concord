@@ -6878,6 +6878,10 @@ const GeneratedPayloadSchemaDocument = `{
     "work_define_revise_input": {
       "additionalProperties": false,
       "properties": {
+        "contract": {
+          "$ref": "#/$defs/workflow_contract_update",
+          "description": "Bounds: <=32 properties inclusive"
+        },
         "evidence": {
           "description": "Bounds: <=32 items inclusive",
           "items": {
@@ -8913,9 +8917,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_start_execution"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_supersede_contract"
         }
       ],
       "properties": {
@@ -9064,9 +9065,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_start_execution"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_supersede_contract"
         }
       ],
       "properties": {
@@ -12968,1797 +12966,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "work_transition_action_variant_supersede_contract": {
-      "additionalProperties": false,
-      "description": "Accepted shape: object; example: {\"action_id\":\"supersede_contract\",\"expected_version\":1,\"fields\":{\"audit_evidence\":[\"aa\"],\"contract_version\":1,\"law_modifies\":[],\"outcome_predicates\":[{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}],\"premise\":\"a\",\"required_evidence\":[],\"rigor_class\":\"prototype_internal\",\"route_conventions\":[],\"spec_mandate\":[],\"supersede_reason\":\"a\"},\"idempotency_key\":\"a\",\"work_id\":\"a\"}",
-      "examples": [
-        {
-          "action_id": "supersede_contract",
-          "expected_version": 1,
-          "fields": {
-            "audit_evidence": [
-              "aa"
-            ],
-            "contract_version": 1,
-            "law_modifies": [],
-            "outcome_predicates": [
-              {
-                "ordinal": 0,
-                "outcome_kind": "exists",
-                "outcome_payload": {
-                  "kind": "exists",
-                  "subjects": [
-                    "aa"
-                  ],
-                  "surface": "aa"
-                },
-                "predicate_id": "a"
-              }
-            ],
-            "premise": "a",
-            "required_evidence": [],
-            "rigor_class": "prototype_internal",
-            "route_conventions": [],
-            "spec_mandate": [],
-            "supersede_reason": "a"
-          },
-          "idempotency_key": "a",
-          "work_id": "a"
-        }
-      ],
-      "properties": {
-        "action_id": {
-          "const": "supersede_contract",
-          "description": "Accepted shape: exactly \"supersede_contract\"; example: \"supersede_contract\"",
-          "examples": [
-            "supersede_contract"
-          ],
-          "type": "string"
-        },
-        "evidence": {
-          "description": "Accepted shape: array of object; Bounds: <=32 items inclusive; example: []",
-          "examples": [
-            []
-          ],
-          "items": {
-            "$ref": "#/$defs/evidence",
-            "description": "Accepted shape: object; example: {\"authority\":\"a\",\"kind\":\"verification\",\"locator\":\"a\",\"locator_kind\":\"a\"}",
-            "examples": [
-              {
-                "authority": "a",
-                "kind": "verification",
-                "locator": "a",
-                "locator_kind": "a"
-              }
-            ]
-          },
-          "maxItems": 32,
-          "type": "array"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Accepted shape: integer; Bounds: >=1 value inclusive; example: 1",
-          "examples": [
-            1
-          ]
-        },
-        "fields": {
-          "description": "Accepted shape: oneOf (object; object); example: {\"audit_evidence\":[\"aa\"],\"contract_version\":1,\"law_modifies\":[],\"outcome_predicates\":[{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}],\"premise\":\"a\",\"required_evidence\":[],\"rigor_class\":\"prototype_internal\",\"route_conventions\":[],\"spec_mandate\":[],\"supersede_reason\":\"a\"}",
-          "examples": [
-            {
-              "audit_evidence": [
-                "aa"
-              ],
-              "contract_version": 1,
-              "law_modifies": [],
-              "outcome_predicates": [
-                {
-                  "ordinal": 0,
-                  "outcome_kind": "exists",
-                  "outcome_payload": {
-                    "kind": "exists",
-                    "subjects": [
-                      "aa"
-                    ],
-                    "surface": "aa"
-                  },
-                  "predicate_id": "a"
-                }
-              ],
-              "premise": "a",
-              "required_evidence": [],
-              "rigor_class": "prototype_internal",
-              "route_conventions": [],
-              "spec_mandate": [],
-              "supersede_reason": "a"
-            }
-          ],
-          "oneOf": [
-            {
-              "additionalProperties": false,
-              "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {\"audit_evidence\":[\"aa\"],\"contract_version\":1,\"law_modifies\":[],\"outcome_predicates\":[{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}],\"premise\":\"a\",\"required_evidence\":[],\"rigor_class\":\"prototype_internal\",\"route_conventions\":[],\"spec_mandate\":[],\"supersede_reason\":\"a\"}",
-              "examples": [
-                {
-                  "audit_evidence": [
-                    "aa"
-                  ],
-                  "contract_version": 1,
-                  "law_modifies": [],
-                  "outcome_predicates": [
-                    {
-                      "ordinal": 0,
-                      "outcome_kind": "exists",
-                      "outcome_payload": {
-                        "kind": "exists",
-                        "subjects": [
-                          "aa"
-                        ],
-                        "surface": "aa"
-                      },
-                      "predicate_id": "a"
-                    }
-                  ],
-                  "premise": "a",
-                  "required_evidence": [],
-                  "rigor_class": "prototype_internal",
-                  "route_conventions": [],
-                  "spec_mandate": [],
-                  "supersede_reason": "a"
-                }
-              ],
-              "maxProperties": 32,
-              "properties": {
-                "architecture_binding": {
-                  "$ref": "#/$defs/architecture_binding",
-                  "description": "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
-                  "examples": [
-                    {
-                      "affected_domain_ids": [
-                        "a"
-                      ],
-                      "domain_modifies": [],
-                      "domain_relation_modifies": [],
-                      "home_domain_id": "a",
-                      "law_additions": [],
-                      "verification_obligations": []
-                    }
-                  ]
-                },
-                "audit_evidence": {
-                  "description": "Accepted shape: array of string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..32 items inclusive; example: [\"aa\"]",
-                  "examples": [
-                    [
-                      "aa"
-                    ]
-                  ],
-                  "items": {
-                    "$ref": "#/$defs/reference",
-                    "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
-                    "examples": [
-                      "aa"
-                    ]
-                  },
-                  "maxItems": 32,
-                  "minItems": 1,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "contract_version": {
-                  "description": "Accepted shape: integer; Bounds: 1..2147483647 value inclusive; example: 1",
-                  "examples": [
-                    1
-                  ],
-                  "maximum": 2147483647,
-                  "minimum": 1,
-                  "type": "integer"
-                },
-                "design_record": {
-                  "$ref": "#/$defs/workflow_design_content",
-                  "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {\"approach\":\"av\",\"decisions\":[{\"choice\":\"a\",\"id\":\"aa\",\"question\":\"a\",\"rationale\":\"a\",\"rejected\":[]}],\"touched_refs\":[\"aa\"]}",
-                  "examples": [
-                    {
-                      "approach": "av",
-                      "decisions": [
-                        {
-                          "choice": "a",
-                          "id": "aa",
-                          "question": "a",
-                          "rationale": "a",
-                          "rejected": []
-                        }
-                      ],
-                      "touched_refs": [
-                        "aa"
-                      ]
-                    }
-                  ]
-                },
-                "law_modifies": {
-                  "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
-                  "examples": [
-                    []
-                  ],
-                  "items": {
-                    "$ref": "#/$defs/law_id",
-                    "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
-                    "examples": [
-                      "aa"
-                    ]
-                  },
-                  "maxItems": 32,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "outcome_predicates": {
-                  "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed. Accepted shape: array of oneOf (object; object; object; object); Bounds: 1..8 items inclusive; example: [{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}]",
-                  "examples": [
-                    [
-                      {
-                        "ordinal": 0,
-                        "outcome_kind": "exists",
-                        "outcome_payload": {
-                          "kind": "exists",
-                          "subjects": [
-                            "aa"
-                          ],
-                          "surface": "aa"
-                        },
-                        "predicate_id": "a"
-                      }
-                    ]
-                  ],
-                  "items": {
-                    "description": "Accepted shape: oneOf (object; object; object; object); example: {\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
-                    "examples": [
-                      {
-                        "ordinal": 0,
-                        "outcome_kind": "exists",
-                        "outcome_payload": {
-                          "kind": "exists",
-                          "subjects": [
-                            "aa"
-                          ],
-                          "surface": "aa"
-                        },
-                        "predicate_id": "a"
-                      }
-                    ],
-                    "oneOf": [
-                      {
-                        "additionalProperties": false,
-                        "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
-                        "examples": [
-                          {
-                            "ordinal": 0,
-                            "outcome_kind": "exists",
-                            "outcome_payload": {
-                              "kind": "exists",
-                              "subjects": [
-                                "aa"
-                              ],
-                              "surface": "aa"
-                            },
-                            "predicate_id": "a"
-                          }
-                        ],
-                        "properties": {
-                          "ordinal": {
-                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                            "examples": [
-                              0
-                            ],
-                            "maximum": 7,
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "outcome_kind": {
-                            "const": "exists",
-                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"exists\"; example: \"exists\"",
-                            "examples": [
-                              "exists"
-                            ],
-                            "type": "string"
-                          },
-                          "outcome_payload": {
-                            "additionalProperties": false,
-                            "description": "Accepted shape: object; example: {\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"}",
-                            "examples": [
-                              {
-                                "kind": "exists",
-                                "subjects": [
-                                  "aa"
-                                ],
-                                "surface": "aa"
-                              }
-                            ],
-                            "properties": {
-                              "kind": {
-                                "const": "exists",
-                                "description": "Accepted shape: exactly \"exists\"; example: \"exists\"",
-                                "examples": [
-                                  "exists"
-                                ]
-                              },
-                              "subjects": {
-                                "description": "Accepted shape: array of string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 1..100 items inclusive; example: [\"aa\"]",
-                                "examples": [
-                                  [
-                                    "aa"
-                                  ]
-                                ],
-                                "items": {
-                                  "$ref": "#/$defs/workflow_outcome_subject",
-                                  "description": "Accepted shape: string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                                  "examples": [
-                                    "aa"
-                                  ]
-                                },
-                                "maxItems": 100,
-                                "minItems": 1,
-                                "type": "array",
-                                "uniqueItems": true
-                              },
-                              "surface": {
-                                "$ref": "#/$defs/workflow_outcome_surface",
-                                "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                                "examples": [
-                                  "aa"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "kind",
-                              "surface",
-                              "subjects"
-                            ],
-                            "type": "object"
-                          },
-                          "predicate_id": {
-                            "$ref": "#/$defs/id",
-                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                            "examples": [
-                              "a"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "predicate_id",
-                          "ordinal",
-                          "outcome_kind",
-                          "outcome_payload"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"absent\",\"outcome_payload\":{\"distinguish_from\":[\"archived\"],\"kind\":\"absent\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
-                        "examples": [
-                          {
-                            "ordinal": 0,
-                            "outcome_kind": "absent",
-                            "outcome_payload": {
-                              "distinguish_from": [
-                                "archived"
-                              ],
-                              "kind": "absent",
-                              "subjects": [
-                                "aa"
-                              ],
-                              "surface": "aa"
-                            },
-                            "predicate_id": "a"
-                          }
-                        ],
-                        "properties": {
-                          "ordinal": {
-                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                            "examples": [
-                              0
-                            ],
-                            "maximum": 7,
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "outcome_kind": {
-                            "const": "absent",
-                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"absent\"; example: \"absent\"",
-                            "examples": [
-                              "absent"
-                            ],
-                            "type": "string"
-                          },
-                          "outcome_payload": {
-                            "additionalProperties": false,
-                            "description": "Accepted shape: object; example: {\"distinguish_from\":[\"archived\"],\"kind\":\"absent\",\"subjects\":[\"aa\"],\"surface\":\"aa\"}",
-                            "examples": [
-                              {
-                                "distinguish_from": [
-                                  "archived"
-                                ],
-                                "kind": "absent",
-                                "subjects": [
-                                  "aa"
-                                ],
-                                "surface": "aa"
-                              }
-                            ],
-                            "properties": {
-                              "distinguish_from": {
-                                "description": "Accepted shape: array of one of \"archived\", \"relocated\", \"renamed\", \"disabled\"; Bounds: 1..4 items inclusive; example: [\"archived\"]",
-                                "examples": [
-                                  [
-                                    "archived"
-                                  ]
-                                ],
-                                "items": {
-                                  "description": "Accepted shape: one of \"archived\", \"relocated\", \"renamed\", \"disabled\"; example: \"archived\"",
-                                  "enum": [
-                                    "archived",
-                                    "relocated",
-                                    "renamed",
-                                    "disabled"
-                                  ],
-                                  "examples": [
-                                    "archived"
-                                  ],
-                                  "type": "string"
-                                },
-                                "maxItems": 4,
-                                "minItems": 1,
-                                "type": "array",
-                                "uniqueItems": true
-                              },
-                              "kind": {
-                                "const": "absent",
-                                "description": "Accepted shape: exactly \"absent\"; example: \"absent\"",
-                                "examples": [
-                                  "absent"
-                                ]
-                              },
-                              "subjects": {
-                                "description": "Accepted shape: array of string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 1..100 items inclusive; example: [\"aa\"]",
-                                "examples": [
-                                  [
-                                    "aa"
-                                  ]
-                                ],
-                                "items": {
-                                  "$ref": "#/$defs/workflow_outcome_subject",
-                                  "description": "Accepted shape: string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                                  "examples": [
-                                    "aa"
-                                  ]
-                                },
-                                "maxItems": 100,
-                                "minItems": 1,
-                                "type": "array",
-                                "uniqueItems": true
-                              },
-                              "surface": {
-                                "$ref": "#/$defs/workflow_outcome_surface",
-                                "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                                "examples": [
-                                  "aa"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "kind",
-                              "surface",
-                              "subjects",
-                              "distinguish_from"
-                            ],
-                            "type": "object"
-                          },
-                          "predicate_id": {
-                            "$ref": "#/$defs/id",
-                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                            "examples": [
-                              "a"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "predicate_id",
-                          "ordinal",
-                          "outcome_kind",
-                          "outcome_payload"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"outcome\",\"outcome_payload\":{\"allowed\":[\"no_change\"],\"kind\":\"outcome\"},\"predicate_id\":\"a\"}",
-                        "examples": [
-                          {
-                            "ordinal": 0,
-                            "outcome_kind": "outcome",
-                            "outcome_payload": {
-                              "allowed": [
-                                "no_change"
-                              ],
-                              "kind": "outcome"
-                            },
-                            "predicate_id": "a"
-                          }
-                        ],
-                        "properties": {
-                          "ordinal": {
-                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                            "examples": [
-                              0
-                            ],
-                            "maximum": 7,
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "outcome_kind": {
-                            "const": "outcome",
-                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"outcome\"; example: \"outcome\"",
-                            "examples": [
-                              "outcome"
-                            ],
-                            "type": "string"
-                          },
-                          "outcome_payload": {
-                            "additionalProperties": false,
-                            "description": "Accepted shape: object; example: {\"allowed\":[\"no_change\"],\"kind\":\"outcome\"}",
-                            "examples": [
-                              {
-                                "allowed": [
-                                  "no_change"
-                                ],
-                                "kind": "outcome"
-                              }
-                            ],
-                            "properties": {
-                              "allowed": {
-                                "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation admit no outcome tokens (only exists, absent and check predicate kinds). Accepted shape: array of one of \"no_change\", \"report_recorded\", \"resolved\"; Bounds: 1..3 items inclusive; example: [\"no_change\"]",
-                                "examples": [
-                                  [
-                                    "no_change"
-                                  ]
-                                ],
-                                "items": {
-                                  "description": "Accepted shape: one of \"no_change\", \"report_recorded\", \"resolved\"; example: \"no_change\"",
-                                  "enum": [
-                                    "no_change",
-                                    "report_recorded",
-                                    "resolved"
-                                  ],
-                                  "examples": [
-                                    "no_change"
-                                  ],
-                                  "type": "string"
-                                },
-                                "maxItems": 3,
-                                "minItems": 1,
-                                "type": "array",
-                                "uniqueItems": true
-                              },
-                              "kind": {
-                                "const": "outcome",
-                                "description": "Accepted shape: exactly \"outcome\"; example: \"outcome\"",
-                                "examples": [
-                                  "outcome"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "kind",
-                              "allowed"
-                            ],
-                            "type": "object"
-                          },
-                          "predicate_id": {
-                            "$ref": "#/$defs/id",
-                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                            "examples": [
-                              "a"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "predicate_id",
-                          "ordinal",
-                          "outcome_kind",
-                          "outcome_payload"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"check\",\"outcome_payload\":{\"check_ref\":\"check:aa\",\"expected_result\":\"true\",\"immutable_subject_ref\":\"aa\",\"kind\":\"check\"},\"predicate_id\":\"a\"}",
-                        "examples": [
-                          {
-                            "ordinal": 0,
-                            "outcome_kind": "check",
-                            "outcome_payload": {
-                              "check_ref": "check:aa",
-                              "expected_result": "true",
-                              "immutable_subject_ref": "aa",
-                              "kind": "check"
-                            },
-                            "predicate_id": "a"
-                          }
-                        ],
-                        "properties": {
-                          "ordinal": {
-                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                            "examples": [
-                              0
-                            ],
-                            "maximum": 7,
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "outcome_kind": {
-                            "const": "check",
-                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"check\"; example: \"check\"",
-                            "examples": [
-                              "check"
-                            ],
-                            "type": "string"
-                          },
-                          "outcome_payload": {
-                            "additionalProperties": false,
-                            "description": "Accepted shape: object; example: {\"check_ref\":\"check:aa\",\"expected_result\":\"true\",\"immutable_subject_ref\":\"aa\",\"kind\":\"check\"}",
-                            "examples": [
-                              {
-                                "check_ref": "check:aa",
-                                "expected_result": "true",
-                                "immutable_subject_ref": "aa",
-                                "kind": "check"
-                              }
-                            ],
-                            "properties": {
-                              "check_ref": {
-                                "description": "Accepted shape: string matching ^check:[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 7..134 code points inclusive; example: \"check:aa\"",
-                                "examples": [
-                                  "check:aa"
-                                ],
-                                "maxLength": 134,
-                                "minLength": 7,
-                                "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
-                                "type": "string"
-                              },
-                              "expected_result": {
-                                "description": "Accepted shape: one of \"true\", \"false\", \"pass\", \"fail\", \"present\", \"absent\", \"healthy\", \"unhealthy\", \"accepted\", \"rejected\"; example: \"true\"",
-                                "enum": [
-                                  "true",
-                                  "false",
-                                  "pass",
-                                  "fail",
-                                  "present",
-                                  "absent",
-                                  "healthy",
-                                  "unhealthy",
-                                  "accepted",
-                                  "rejected"
-                                ],
-                                "examples": [
-                                  "true"
-                                ],
-                                "type": "string"
-                              },
-                              "immutable_subject_ref": {
-                                "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,255}$; Bounds: 2..256 code points inclusive; example: \"aa\"",
-                                "examples": [
-                                  "aa"
-                                ],
-                                "maxLength": 256,
-                                "minLength": 2,
-                                "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
-                                "type": "string"
-                              },
-                              "kind": {
-                                "const": "check",
-                                "description": "Accepted shape: exactly \"check\"; example: \"check\"",
-                                "examples": [
-                                  "check"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "kind",
-                              "check_ref",
-                              "immutable_subject_ref",
-                              "expected_result"
-                            ],
-                            "type": "object"
-                          },
-                          "predicate_id": {
-                            "$ref": "#/$defs/id",
-                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                            "examples": [
-                              "a"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "predicate_id",
-                          "ordinal",
-                          "outcome_kind",
-                          "outcome_payload"
-                        ],
-                        "type": "object"
-                      }
-                    ]
-                  },
-                  "maxItems": 8,
-                  "minItems": 1,
-                  "type": "array"
-                },
-                "predecessor_contract_versions": {
-                  "description": "Accepted shape: array of integer; Bounds: 1..32 items inclusive; example: [1]",
-                  "examples": [
-                    [
-                      1
-                    ]
-                  ],
-                  "items": {
-                    "$ref": "#/$defs/workflow_contract_version",
-                    "description": "Accepted shape: integer; Bounds: >=1 value inclusive; example: 1",
-                    "examples": [
-                      1
-                    ]
-                  },
-                  "maxItems": 32,
-                  "minItems": 1,
-                  "type": "array"
-                },
-                "premise": {
-                  "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection. Accepted shape: string matching \\S; Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive; example: \"a\"",
-                  "examples": [
-                    "a"
-                  ],
-                  "maxLength": 4096,
-                  "minLength": 1,
-                  "not": {
-                    "description": "Accepted shape: one of \"workflow premise\"; example: \"workflow premise\"",
-                    "enum": [
-                      "workflow premise"
-                    ],
-                    "examples": [
-                      "workflow premise"
-                    ],
-                    "type": "string"
-                  },
-                  "pattern": "\\S",
-                  "type": "string",
-                  "x-maxBytes": 4096
-                },
-                "required_evidence": {
-                  "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership. Accepted shape: array of one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; Bounds: 0..7 items inclusive; example: []",
-                  "examples": [
-                    []
-                  ],
-                  "items": {
-                    "description": "Accepted shape: one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; example: \"verification\"",
-                    "enum": [
-                      "verification",
-                      "review",
-                      "approval",
-                      "commit",
-                      "durable_note",
-                      "native_run",
-                      "artifact"
-                    ],
-                    "examples": [
-                      "verification"
-                    ],
-                    "type": "string"
-                  },
-                  "maxItems": 7,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "rigor_class": {
-                  "description": "Accepted shape: one of \"prototype_internal\", \"prototype_trusted\", \"prototype_public\", \"prototype_safety_critical\", \"production_internal\", \"production_trusted\", \"production_public\", \"production_safety_critical\", \"critical_internal\", \"critical_trusted\", \"critical_public\", \"critical_safety_critical\"; example: \"prototype_internal\"",
-                  "enum": [
-                    "prototype_internal",
-                    "prototype_trusted",
-                    "prototype_public",
-                    "prototype_safety_critical",
-                    "production_internal",
-                    "production_trusted",
-                    "production_public",
-                    "production_safety_critical",
-                    "critical_internal",
-                    "critical_trusted",
-                    "critical_public",
-                    "critical_safety_critical"
-                  ],
-                  "examples": [
-                    "prototype_internal"
-                  ],
-                  "type": "string"
-                },
-                "route_conventions": {
-                  "description": "Accepted shape: array of string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 0..16 items inclusive; example: []",
-                  "examples": [
-                    []
-                  ],
-                  "items": {
-                    "$ref": "#/$defs/reference",
-                    "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
-                    "examples": [
-                      "aa"
-                    ]
-                  },
-                  "maxItems": 16,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "spec_mandate": {
-                  "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
-                  "examples": [
-                    []
-                  ],
-                  "items": {
-                    "$ref": "#/$defs/law_id",
-                    "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
-                    "examples": [
-                      "aa"
-                    ]
-                  },
-                  "maxItems": 32,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "supersede_reason": {
-                  "description": "Accepted shape: string matching \\S; Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive; example: \"a\"",
-                  "examples": [
-                    "a"
-                  ],
-                  "maxLength": 4096,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "type": "string",
-                  "x-maxBytes": 4096
-                }
-              },
-              "required": [
-                "contract_version",
-                "premise",
-                "outcome_predicates",
-                "required_evidence",
-                "route_conventions",
-                "spec_mandate",
-                "law_modifies",
-                "rigor_class",
-                "supersede_reason",
-                "audit_evidence"
-              ],
-              "type": "object"
-            },
-            {
-              "additionalProperties": false,
-              "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {\"audit_evidence\":[\"aa\"],\"contract_version\":1,\"decision_domains\":[],\"law_modifies\":[],\"outcome_predicates\":[{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}],\"premise\":\"a\",\"required_evidence\":[],\"rigor_class\":\"prototype_internal\",\"route_conventions\":[],\"spec_mandate\":[],\"supersede_reason\":\"a\"}",
-              "examples": [
-                {
-                  "audit_evidence": [
-                    "aa"
-                  ],
-                  "contract_version": 1,
-                  "decision_domains": [],
-                  "law_modifies": [],
-                  "outcome_predicates": [
-                    {
-                      "ordinal": 0,
-                      "outcome_kind": "exists",
-                      "outcome_payload": {
-                        "kind": "exists",
-                        "subjects": [
-                          "aa"
-                        ],
-                        "surface": "aa"
-                      },
-                      "predicate_id": "a"
-                    }
-                  ],
-                  "premise": "a",
-                  "required_evidence": [],
-                  "rigor_class": "prototype_internal",
-                  "route_conventions": [],
-                  "spec_mandate": [],
-                  "supersede_reason": "a"
-                }
-              ],
-              "maxProperties": 32,
-              "properties": {
-                "architecture_binding": {
-                  "$ref": "#/$defs/architecture_binding",
-                  "description": "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
-                  "examples": [
-                    {
-                      "affected_domain_ids": [
-                        "a"
-                      ],
-                      "domain_modifies": [],
-                      "domain_relation_modifies": [],
-                      "home_domain_id": "a",
-                      "law_additions": [],
-                      "verification_obligations": []
-                    }
-                  ]
-                },
-                "audit_evidence": {
-                  "description": "Accepted shape: array of string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..32 items inclusive; example: [\"aa\"]",
-                  "examples": [
-                    [
-                      "aa"
-                    ]
-                  ],
-                  "items": {
-                    "$ref": "#/$defs/reference",
-                    "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
-                    "examples": [
-                      "aa"
-                    ]
-                  },
-                  "maxItems": 32,
-                  "minItems": 1,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "contract_version": {
-                  "description": "Accepted shape: integer; Bounds: 1..2147483647 value inclusive; example: 1",
-                  "examples": [
-                    1
-                  ],
-                  "maximum": 2147483647,
-                  "minimum": 1,
-                  "type": "integer"
-                },
-                "decision_domains": {
-                  "description": "Accepted shape: array of one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; Bounds: 0..6 items inclusive; example: []",
-                  "examples": [
-                    []
-                  ],
-                  "items": {
-                    "description": "Accepted shape: one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; example: \"increased_spending\"",
-                    "enum": [
-                      "increased_spending",
-                      "legal",
-                      "product",
-                      "production_data",
-                      "security",
-                      "ui_ux"
-                    ],
-                    "examples": [
-                      "increased_spending"
-                    ],
-                    "type": "string"
-                  },
-                  "maxItems": 6,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "design_record": {
-                  "$ref": "#/$defs/workflow_design_content",
-                  "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {\"approach\":\"av\",\"decisions\":[{\"choice\":\"a\",\"id\":\"aa\",\"question\":\"a\",\"rationale\":\"a\",\"rejected\":[]}],\"touched_refs\":[\"aa\"]}",
-                  "examples": [
-                    {
-                      "approach": "av",
-                      "decisions": [
-                        {
-                          "choice": "a",
-                          "id": "aa",
-                          "question": "a",
-                          "rationale": "a",
-                          "rejected": []
-                        }
-                      ],
-                      "touched_refs": [
-                        "aa"
-                      ]
-                    }
-                  ]
-                },
-                "law_change_reason": {
-                  "description": "Accepted shape: string matching \\S; Bounds: 1..1024 code points inclusive; <=1024 UTF-8 bytes inclusive; example: \"a\"",
-                  "examples": [
-                    "a"
-                  ],
-                  "maxLength": 1024,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "type": "string",
-                  "x-maxBytes": 1024
-                },
-                "law_change_removals": {
-                  "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"aa\"]",
-                  "examples": [
-                    [
-                      "aa"
-                    ]
-                  ],
-                  "items": {
-                    "$ref": "#/$defs/law_id",
-                    "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
-                    "examples": [
-                      "aa"
-                    ]
-                  },
-                  "maxItems": 64,
-                  "minItems": 1,
-                  "type": "array"
-                },
-                "law_modifies": {
-                  "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
-                  "examples": [
-                    []
-                  ],
-                  "items": {
-                    "$ref": "#/$defs/law_id",
-                    "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
-                    "examples": [
-                      "aa"
-                    ]
-                  },
-                  "maxItems": 32,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "outcome_predicates": {
-                  "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed. Accepted shape: array of oneOf (object; object; object; object); Bounds: 1..8 items inclusive; example: [{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}]",
-                  "examples": [
-                    [
-                      {
-                        "ordinal": 0,
-                        "outcome_kind": "exists",
-                        "outcome_payload": {
-                          "kind": "exists",
-                          "subjects": [
-                            "aa"
-                          ],
-                          "surface": "aa"
-                        },
-                        "predicate_id": "a"
-                      }
-                    ]
-                  ],
-                  "items": {
-                    "description": "Accepted shape: oneOf (object; object; object; object); example: {\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
-                    "examples": [
-                      {
-                        "ordinal": 0,
-                        "outcome_kind": "exists",
-                        "outcome_payload": {
-                          "kind": "exists",
-                          "subjects": [
-                            "aa"
-                          ],
-                          "surface": "aa"
-                        },
-                        "predicate_id": "a"
-                      }
-                    ],
-                    "oneOf": [
-                      {
-                        "additionalProperties": false,
-                        "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
-                        "examples": [
-                          {
-                            "ordinal": 0,
-                            "outcome_kind": "exists",
-                            "outcome_payload": {
-                              "kind": "exists",
-                              "subjects": [
-                                "aa"
-                              ],
-                              "surface": "aa"
-                            },
-                            "predicate_id": "a"
-                          }
-                        ],
-                        "properties": {
-                          "ordinal": {
-                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                            "examples": [
-                              0
-                            ],
-                            "maximum": 7,
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "outcome_kind": {
-                            "const": "exists",
-                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"exists\"; example: \"exists\"",
-                            "examples": [
-                              "exists"
-                            ],
-                            "type": "string"
-                          },
-                          "outcome_payload": {
-                            "additionalProperties": false,
-                            "description": "Accepted shape: object; example: {\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"}",
-                            "examples": [
-                              {
-                                "kind": "exists",
-                                "subjects": [
-                                  "aa"
-                                ],
-                                "surface": "aa"
-                              }
-                            ],
-                            "properties": {
-                              "kind": {
-                                "const": "exists",
-                                "description": "Accepted shape: exactly \"exists\"; example: \"exists\"",
-                                "examples": [
-                                  "exists"
-                                ]
-                              },
-                              "subjects": {
-                                "description": "Accepted shape: array of string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 1..100 items inclusive; example: [\"aa\"]",
-                                "examples": [
-                                  [
-                                    "aa"
-                                  ]
-                                ],
-                                "items": {
-                                  "$ref": "#/$defs/workflow_outcome_subject",
-                                  "description": "Accepted shape: string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                                  "examples": [
-                                    "aa"
-                                  ]
-                                },
-                                "maxItems": 100,
-                                "minItems": 1,
-                                "type": "array",
-                                "uniqueItems": true
-                              },
-                              "surface": {
-                                "$ref": "#/$defs/workflow_outcome_surface",
-                                "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                                "examples": [
-                                  "aa"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "kind",
-                              "surface",
-                              "subjects"
-                            ],
-                            "type": "object"
-                          },
-                          "predicate_id": {
-                            "$ref": "#/$defs/id",
-                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                            "examples": [
-                              "a"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "predicate_id",
-                          "ordinal",
-                          "outcome_kind",
-                          "outcome_payload"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"absent\",\"outcome_payload\":{\"distinguish_from\":[\"archived\"],\"kind\":\"absent\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
-                        "examples": [
-                          {
-                            "ordinal": 0,
-                            "outcome_kind": "absent",
-                            "outcome_payload": {
-                              "distinguish_from": [
-                                "archived"
-                              ],
-                              "kind": "absent",
-                              "subjects": [
-                                "aa"
-                              ],
-                              "surface": "aa"
-                            },
-                            "predicate_id": "a"
-                          }
-                        ],
-                        "properties": {
-                          "ordinal": {
-                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                            "examples": [
-                              0
-                            ],
-                            "maximum": 7,
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "outcome_kind": {
-                            "const": "absent",
-                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"absent\"; example: \"absent\"",
-                            "examples": [
-                              "absent"
-                            ],
-                            "type": "string"
-                          },
-                          "outcome_payload": {
-                            "additionalProperties": false,
-                            "description": "Accepted shape: object; example: {\"distinguish_from\":[\"archived\"],\"kind\":\"absent\",\"subjects\":[\"aa\"],\"surface\":\"aa\"}",
-                            "examples": [
-                              {
-                                "distinguish_from": [
-                                  "archived"
-                                ],
-                                "kind": "absent",
-                                "subjects": [
-                                  "aa"
-                                ],
-                                "surface": "aa"
-                              }
-                            ],
-                            "properties": {
-                              "distinguish_from": {
-                                "description": "Accepted shape: array of one of \"archived\", \"relocated\", \"renamed\", \"disabled\"; Bounds: 1..4 items inclusive; example: [\"archived\"]",
-                                "examples": [
-                                  [
-                                    "archived"
-                                  ]
-                                ],
-                                "items": {
-                                  "description": "Accepted shape: one of \"archived\", \"relocated\", \"renamed\", \"disabled\"; example: \"archived\"",
-                                  "enum": [
-                                    "archived",
-                                    "relocated",
-                                    "renamed",
-                                    "disabled"
-                                  ],
-                                  "examples": [
-                                    "archived"
-                                  ],
-                                  "type": "string"
-                                },
-                                "maxItems": 4,
-                                "minItems": 1,
-                                "type": "array",
-                                "uniqueItems": true
-                              },
-                              "kind": {
-                                "const": "absent",
-                                "description": "Accepted shape: exactly \"absent\"; example: \"absent\"",
-                                "examples": [
-                                  "absent"
-                                ]
-                              },
-                              "subjects": {
-                                "description": "Accepted shape: array of string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 1..100 items inclusive; example: [\"aa\"]",
-                                "examples": [
-                                  [
-                                    "aa"
-                                  ]
-                                ],
-                                "items": {
-                                  "$ref": "#/$defs/workflow_outcome_subject",
-                                  "description": "Accepted shape: string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                                  "examples": [
-                                    "aa"
-                                  ]
-                                },
-                                "maxItems": 100,
-                                "minItems": 1,
-                                "type": "array",
-                                "uniqueItems": true
-                              },
-                              "surface": {
-                                "$ref": "#/$defs/workflow_outcome_surface",
-                                "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                                "examples": [
-                                  "aa"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "kind",
-                              "surface",
-                              "subjects",
-                              "distinguish_from"
-                            ],
-                            "type": "object"
-                          },
-                          "predicate_id": {
-                            "$ref": "#/$defs/id",
-                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                            "examples": [
-                              "a"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "predicate_id",
-                          "ordinal",
-                          "outcome_kind",
-                          "outcome_payload"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"outcome\",\"outcome_payload\":{\"allowed\":[\"no_change\"],\"kind\":\"outcome\"},\"predicate_id\":\"a\"}",
-                        "examples": [
-                          {
-                            "ordinal": 0,
-                            "outcome_kind": "outcome",
-                            "outcome_payload": {
-                              "allowed": [
-                                "no_change"
-                              ],
-                              "kind": "outcome"
-                            },
-                            "predicate_id": "a"
-                          }
-                        ],
-                        "properties": {
-                          "ordinal": {
-                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                            "examples": [
-                              0
-                            ],
-                            "maximum": 7,
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "outcome_kind": {
-                            "const": "outcome",
-                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"outcome\"; example: \"outcome\"",
-                            "examples": [
-                              "outcome"
-                            ],
-                            "type": "string"
-                          },
-                          "outcome_payload": {
-                            "additionalProperties": false,
-                            "description": "Accepted shape: object; example: {\"allowed\":[\"no_change\"],\"kind\":\"outcome\"}",
-                            "examples": [
-                              {
-                                "allowed": [
-                                  "no_change"
-                                ],
-                                "kind": "outcome"
-                              }
-                            ],
-                            "properties": {
-                              "allowed": {
-                                "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation admit no outcome tokens (only exists, absent and check predicate kinds). Accepted shape: array of one of \"no_change\", \"report_recorded\", \"resolved\"; Bounds: 1..3 items inclusive; example: [\"no_change\"]",
-                                "examples": [
-                                  [
-                                    "no_change"
-                                  ]
-                                ],
-                                "items": {
-                                  "description": "Accepted shape: one of \"no_change\", \"report_recorded\", \"resolved\"; example: \"no_change\"",
-                                  "enum": [
-                                    "no_change",
-                                    "report_recorded",
-                                    "resolved"
-                                  ],
-                                  "examples": [
-                                    "no_change"
-                                  ],
-                                  "type": "string"
-                                },
-                                "maxItems": 3,
-                                "minItems": 1,
-                                "type": "array",
-                                "uniqueItems": true
-                              },
-                              "kind": {
-                                "const": "outcome",
-                                "description": "Accepted shape: exactly \"outcome\"; example: \"outcome\"",
-                                "examples": [
-                                  "outcome"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "kind",
-                              "allowed"
-                            ],
-                            "type": "object"
-                          },
-                          "predicate_id": {
-                            "$ref": "#/$defs/id",
-                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                            "examples": [
-                              "a"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "predicate_id",
-                          "ordinal",
-                          "outcome_kind",
-                          "outcome_payload"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"check\",\"outcome_payload\":{\"check_ref\":\"check:aa\",\"expected_result\":\"true\",\"immutable_subject_ref\":\"aa\",\"kind\":\"check\"},\"predicate_id\":\"a\"}",
-                        "examples": [
-                          {
-                            "ordinal": 0,
-                            "outcome_kind": "check",
-                            "outcome_payload": {
-                              "check_ref": "check:aa",
-                              "expected_result": "true",
-                              "immutable_subject_ref": "aa",
-                              "kind": "check"
-                            },
-                            "predicate_id": "a"
-                          }
-                        ],
-                        "properties": {
-                          "ordinal": {
-                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                            "examples": [
-                              0
-                            ],
-                            "maximum": 7,
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "outcome_kind": {
-                            "const": "check",
-                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"check\"; example: \"check\"",
-                            "examples": [
-                              "check"
-                            ],
-                            "type": "string"
-                          },
-                          "outcome_payload": {
-                            "additionalProperties": false,
-                            "description": "Accepted shape: object; example: {\"check_ref\":\"check:aa\",\"expected_result\":\"true\",\"immutable_subject_ref\":\"aa\",\"kind\":\"check\"}",
-                            "examples": [
-                              {
-                                "check_ref": "check:aa",
-                                "expected_result": "true",
-                                "immutable_subject_ref": "aa",
-                                "kind": "check"
-                              }
-                            ],
-                            "properties": {
-                              "check_ref": {
-                                "description": "Accepted shape: string matching ^check:[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 7..134 code points inclusive; example: \"check:aa\"",
-                                "examples": [
-                                  "check:aa"
-                                ],
-                                "maxLength": 134,
-                                "minLength": 7,
-                                "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
-                                "type": "string"
-                              },
-                              "expected_result": {
-                                "description": "Accepted shape: one of \"true\", \"false\", \"pass\", \"fail\", \"present\", \"absent\", \"healthy\", \"unhealthy\", \"accepted\", \"rejected\"; example: \"true\"",
-                                "enum": [
-                                  "true",
-                                  "false",
-                                  "pass",
-                                  "fail",
-                                  "present",
-                                  "absent",
-                                  "healthy",
-                                  "unhealthy",
-                                  "accepted",
-                                  "rejected"
-                                ],
-                                "examples": [
-                                  "true"
-                                ],
-                                "type": "string"
-                              },
-                              "immutable_subject_ref": {
-                                "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,255}$; Bounds: 2..256 code points inclusive; example: \"aa\"",
-                                "examples": [
-                                  "aa"
-                                ],
-                                "maxLength": 256,
-                                "minLength": 2,
-                                "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
-                                "type": "string"
-                              },
-                              "kind": {
-                                "const": "check",
-                                "description": "Accepted shape: exactly \"check\"; example: \"check\"",
-                                "examples": [
-                                  "check"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "kind",
-                              "check_ref",
-                              "immutable_subject_ref",
-                              "expected_result"
-                            ],
-                            "type": "object"
-                          },
-                          "predicate_id": {
-                            "$ref": "#/$defs/id",
-                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                            "examples": [
-                              "a"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "predicate_id",
-                          "ordinal",
-                          "outcome_kind",
-                          "outcome_payload"
-                        ],
-                        "type": "object"
-                      }
-                    ]
-                  },
-                  "maxItems": 8,
-                  "minItems": 1,
-                  "type": "array"
-                },
-                "predecessor_contract_versions": {
-                  "description": "Accepted shape: array of integer; Bounds: 1..32 items inclusive; example: [1]",
-                  "examples": [
-                    [
-                      1
-                    ]
-                  ],
-                  "items": {
-                    "$ref": "#/$defs/workflow_contract_version",
-                    "description": "Accepted shape: integer; Bounds: >=1 value inclusive; example: 1",
-                    "examples": [
-                      1
-                    ]
-                  },
-                  "maxItems": 32,
-                  "minItems": 1,
-                  "type": "array"
-                },
-                "premise": {
-                  "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection. Accepted shape: string matching \\S; Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive; example: \"a\"",
-                  "examples": [
-                    "a"
-                  ],
-                  "maxLength": 4096,
-                  "minLength": 1,
-                  "not": {
-                    "description": "Accepted shape: one of \"workflow premise\"; example: \"workflow premise\"",
-                    "enum": [
-                      "workflow premise"
-                    ],
-                    "examples": [
-                      "workflow premise"
-                    ],
-                    "type": "string"
-                  },
-                  "pattern": "\\S",
-                  "type": "string",
-                  "x-maxBytes": 4096
-                },
-                "required_evidence": {
-                  "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership. Accepted shape: array of one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; Bounds: 0..7 items inclusive; example: []",
-                  "examples": [
-                    []
-                  ],
-                  "items": {
-                    "description": "Accepted shape: one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; example: \"verification\"",
-                    "enum": [
-                      "verification",
-                      "review",
-                      "approval",
-                      "commit",
-                      "durable_note",
-                      "native_run",
-                      "artifact"
-                    ],
-                    "examples": [
-                      "verification"
-                    ],
-                    "type": "string"
-                  },
-                  "maxItems": 7,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "rigor_class": {
-                  "description": "Accepted shape: one of \"prototype_internal\", \"prototype_trusted\", \"prototype_public\", \"prototype_safety_critical\", \"production_internal\", \"production_trusted\", \"production_public\", \"production_safety_critical\", \"critical_internal\", \"critical_trusted\", \"critical_public\", \"critical_safety_critical\"; example: \"prototype_internal\"",
-                  "enum": [
-                    "prototype_internal",
-                    "prototype_trusted",
-                    "prototype_public",
-                    "prototype_safety_critical",
-                    "production_internal",
-                    "production_trusted",
-                    "production_public",
-                    "production_safety_critical",
-                    "critical_internal",
-                    "critical_trusted",
-                    "critical_public",
-                    "critical_safety_critical"
-                  ],
-                  "examples": [
-                    "prototype_internal"
-                  ],
-                  "type": "string"
-                },
-                "route_conventions": {
-                  "description": "Accepted shape: array of string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 0..16 items inclusive; example: []",
-                  "examples": [
-                    []
-                  ],
-                  "items": {
-                    "$ref": "#/$defs/reference",
-                    "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
-                    "examples": [
-                      "aa"
-                    ]
-                  },
-                  "maxItems": 16,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "spec_mandate": {
-                  "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
-                  "examples": [
-                    []
-                  ],
-                  "items": {
-                    "$ref": "#/$defs/law_id",
-                    "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
-                    "examples": [
-                      "aa"
-                    ]
-                  },
-                  "maxItems": 32,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "supersede_reason": {
-                  "description": "Accepted shape: string matching \\S; Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive; example: \"a\"",
-                  "examples": [
-                    "a"
-                  ],
-                  "maxLength": 4096,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "type": "string",
-                  "x-maxBytes": 4096
-                }
-              },
-              "required": [
-                "contract_version",
-                "premise",
-                "outcome_predicates",
-                "required_evidence",
-                "route_conventions",
-                "spec_mandate",
-                "law_modifies",
-                "rigor_class",
-                "supersede_reason",
-                "audit_evidence",
-                "decision_domains"
-              ],
-              "type": "object"
-            }
-          ]
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-          "examples": [
-            "a"
-          ]
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Accepted shape: integer; Bounds: >=1 value inclusive; example: 1",
-          "examples": [
-            1
-          ]
-        },
-        "research_bindings": {
-          "description": "Accepted shape: array of object; Bounds: 1..16 items inclusive; example: [{\"pack_id\":\"a\",\"required\":false,\"revision\":1,\"use_role\":\"context\"}]",
-          "examples": [
-            [
-              {
-                "pack_id": "a",
-                "required": false,
-                "revision": 1,
-                "use_role": "context"
-              }
-            ]
-          ],
-          "items": {
-            "additionalProperties": false,
-            "description": "Accepted shape: object; example: {\"pack_id\":\"a\",\"required\":false,\"revision\":1,\"use_role\":\"context\"}",
-            "examples": [
-              {
-                "pack_id": "a",
-                "required": false,
-                "revision": 1,
-                "use_role": "context"
-              }
-            ],
-            "properties": {
-              "pack_id": {
-                "$ref": "#/$defs/id",
-                "description": "Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                "examples": [
-                  "a"
-                ]
-              },
-              "required": {
-                "description": "Accepted shape: boolean; example: false",
-                "examples": [
-                  false
-                ],
-                "type": "boolean"
-              },
-              "revision": {
-                "description": "Accepted shape: integer; Bounds: >=1 value inclusive; example: 1",
-                "examples": [
-                  1
-                ],
-                "minimum": 1,
-                "type": "integer"
-              },
-              "use_role": {
-                "description": "Accepted shape: one of \"context\", \"design_input\", \"verification_basis\", \"decision_basis\"; example: \"context\"",
-                "enum": [
-                  "context",
-                  "design_input",
-                  "verification_basis",
-                  "decision_basis"
-                ],
-                "examples": [
-                  "context"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "pack_id",
-              "revision",
-              "use_role",
-              "required"
-            ],
-            "type": "object"
-          },
-          "maxItems": 16,
-          "minItems": 1,
-          "type": "array"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-          "examples": [
-            "a"
-          ]
-        }
-      },
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key",
-        "fields"
-      ],
-      "type": "object"
-    },
     "work_transition_correct_delivery_input": {
       "additionalProperties": false,
       "properties": {
@@ -16025,12 +14232,748 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "workflow_contract_version": {
-      "$ref": "#/$defs/version",
-      "description": "Accepted shape: integer; Bounds: >=1 value inclusive; example: 1",
+    "workflow_contract_update": {
+      "additionalProperties": false,
+      "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {\"contract_version\":1,\"decision_domains\":[],\"law_modifies\":[],\"outcome_predicates\":[{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}],\"premise\":\"a\",\"required_evidence\":[],\"rigor_class\":\"prototype_internal\",\"route_conventions\":[],\"spec_mandate\":[]}",
       "examples": [
-        1
-      ]
+        {
+          "contract_version": 1,
+          "decision_domains": [],
+          "law_modifies": [],
+          "outcome_predicates": [
+            {
+              "ordinal": 0,
+              "outcome_kind": "exists",
+              "outcome_payload": {
+                "kind": "exists",
+                "subjects": [
+                  "aa"
+                ],
+                "surface": "aa"
+              },
+              "predicate_id": "a"
+            }
+          ],
+          "premise": "a",
+          "required_evidence": [],
+          "rigor_class": "prototype_internal",
+          "route_conventions": [],
+          "spec_mandate": []
+        }
+      ],
+      "maxProperties": 32,
+      "properties": {
+        "architecture_binding": {
+          "$ref": "#/$defs/architecture_binding",
+          "description": "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
+          "examples": [
+            {
+              "affected_domain_ids": [
+                "a"
+              ],
+              "domain_modifies": [],
+              "domain_relation_modifies": [],
+              "home_domain_id": "a",
+              "law_additions": [],
+              "verification_obligations": []
+            }
+          ]
+        },
+        "contract_version": {
+          "description": "Accepted shape: integer; Bounds: 1..2147483647 value inclusive; example: 1",
+          "examples": [
+            1
+          ],
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "decision_domains": {
+          "description": "Accepted shape: array of one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; Bounds: 0..6 items inclusive; example: []",
+          "examples": [
+            []
+          ],
+          "items": {
+            "description": "Accepted shape: one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; example: \"increased_spending\"",
+            "enum": [
+              "increased_spending",
+              "legal",
+              "product",
+              "production_data",
+              "security",
+              "ui_ux"
+            ],
+            "examples": [
+              "increased_spending"
+            ],
+            "type": "string"
+          },
+          "maxItems": 6,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "law_change_reason": {
+          "description": "Accepted shape: string matching \\S; Bounds: 1..1024 code points inclusive; <=1024 UTF-8 bytes inclusive; example: \"a\"",
+          "examples": [
+            "a"
+          ],
+          "maxLength": 1024,
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string",
+          "x-maxBytes": 1024
+        },
+        "law_change_removals": {
+          "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"aa\"]",
+          "examples": [
+            [
+              "aa"
+            ]
+          ],
+          "items": {
+            "$ref": "#/$defs/law_id",
+            "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+            "examples": [
+              "aa"
+            ]
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "law_modifies": {
+          "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
+          "examples": [
+            []
+          ],
+          "items": {
+            "$ref": "#/$defs/law_id",
+            "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+            "examples": [
+              "aa"
+            ]
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "outcome_predicates": {
+          "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed. Accepted shape: array of oneOf (object; object; object; object); Bounds: 1..8 items inclusive; example: [{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}]",
+          "examples": [
+            [
+              {
+                "ordinal": 0,
+                "outcome_kind": "exists",
+                "outcome_payload": {
+                  "kind": "exists",
+                  "subjects": [
+                    "aa"
+                  ],
+                  "surface": "aa"
+                },
+                "predicate_id": "a"
+              }
+            ]
+          ],
+          "items": {
+            "description": "Accepted shape: oneOf (object; object; object; object); example: {\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
+            "examples": [
+              {
+                "ordinal": 0,
+                "outcome_kind": "exists",
+                "outcome_payload": {
+                  "kind": "exists",
+                  "subjects": [
+                    "aa"
+                  ],
+                  "surface": "aa"
+                },
+                "predicate_id": "a"
+              }
+            ],
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
+                "examples": [
+                  {
+                    "ordinal": 0,
+                    "outcome_kind": "exists",
+                    "outcome_payload": {
+                      "kind": "exists",
+                      "subjects": [
+                        "aa"
+                      ],
+                      "surface": "aa"
+                    },
+                    "predicate_id": "a"
+                  }
+                ],
+                "properties": {
+                  "ordinal": {
+                    "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
+                    "examples": [
+                      0
+                    ],
+                    "maximum": 7,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "outcome_kind": {
+                    "const": "exists",
+                    "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"exists\"; example: \"exists\"",
+                    "examples": [
+                      "exists"
+                    ],
+                    "type": "string"
+                  },
+                  "outcome_payload": {
+                    "additionalProperties": false,
+                    "description": "Accepted shape: object; example: {\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"}",
+                    "examples": [
+                      {
+                        "kind": "exists",
+                        "subjects": [
+                          "aa"
+                        ],
+                        "surface": "aa"
+                      }
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "exists",
+                        "description": "Accepted shape: exactly \"exists\"; example: \"exists\"",
+                        "examples": [
+                          "exists"
+                        ]
+                      },
+                      "subjects": {
+                        "description": "Accepted shape: array of string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 1..100 items inclusive; example: [\"aa\"]",
+                        "examples": [
+                          [
+                            "aa"
+                          ]
+                        ],
+                        "items": {
+                          "$ref": "#/$defs/workflow_outcome_subject",
+                          "description": "Accepted shape: string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
+                          "examples": [
+                            "aa"
+                          ]
+                        },
+                        "maxItems": 100,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "surface": {
+                        "$ref": "#/$defs/workflow_outcome_surface",
+                        "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
+                        "examples": [
+                          "aa"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "surface",
+                      "subjects"
+                    ],
+                    "type": "object"
+                  },
+                  "predicate_id": {
+                    "$ref": "#/$defs/id",
+                    "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
+                    "examples": [
+                      "a"
+                    ]
+                  }
+                },
+                "required": [
+                  "predicate_id",
+                  "ordinal",
+                  "outcome_kind",
+                  "outcome_payload"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"absent\",\"outcome_payload\":{\"distinguish_from\":[\"archived\"],\"kind\":\"absent\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
+                "examples": [
+                  {
+                    "ordinal": 0,
+                    "outcome_kind": "absent",
+                    "outcome_payload": {
+                      "distinguish_from": [
+                        "archived"
+                      ],
+                      "kind": "absent",
+                      "subjects": [
+                        "aa"
+                      ],
+                      "surface": "aa"
+                    },
+                    "predicate_id": "a"
+                  }
+                ],
+                "properties": {
+                  "ordinal": {
+                    "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
+                    "examples": [
+                      0
+                    ],
+                    "maximum": 7,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "outcome_kind": {
+                    "const": "absent",
+                    "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"absent\"; example: \"absent\"",
+                    "examples": [
+                      "absent"
+                    ],
+                    "type": "string"
+                  },
+                  "outcome_payload": {
+                    "additionalProperties": false,
+                    "description": "Accepted shape: object; example: {\"distinguish_from\":[\"archived\"],\"kind\":\"absent\",\"subjects\":[\"aa\"],\"surface\":\"aa\"}",
+                    "examples": [
+                      {
+                        "distinguish_from": [
+                          "archived"
+                        ],
+                        "kind": "absent",
+                        "subjects": [
+                          "aa"
+                        ],
+                        "surface": "aa"
+                      }
+                    ],
+                    "properties": {
+                      "distinguish_from": {
+                        "description": "Accepted shape: array of one of \"archived\", \"relocated\", \"renamed\", \"disabled\"; Bounds: 1..4 items inclusive; example: [\"archived\"]",
+                        "examples": [
+                          [
+                            "archived"
+                          ]
+                        ],
+                        "items": {
+                          "description": "Accepted shape: one of \"archived\", \"relocated\", \"renamed\", \"disabled\"; example: \"archived\"",
+                          "enum": [
+                            "archived",
+                            "relocated",
+                            "renamed",
+                            "disabled"
+                          ],
+                          "examples": [
+                            "archived"
+                          ],
+                          "type": "string"
+                        },
+                        "maxItems": 4,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "kind": {
+                        "const": "absent",
+                        "description": "Accepted shape: exactly \"absent\"; example: \"absent\"",
+                        "examples": [
+                          "absent"
+                        ]
+                      },
+                      "subjects": {
+                        "description": "Accepted shape: array of string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 1..100 items inclusive; example: [\"aa\"]",
+                        "examples": [
+                          [
+                            "aa"
+                          ]
+                        ],
+                        "items": {
+                          "$ref": "#/$defs/workflow_outcome_subject",
+                          "description": "Accepted shape: string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
+                          "examples": [
+                            "aa"
+                          ]
+                        },
+                        "maxItems": 100,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "surface": {
+                        "$ref": "#/$defs/workflow_outcome_surface",
+                        "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
+                        "examples": [
+                          "aa"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "surface",
+                      "subjects",
+                      "distinguish_from"
+                    ],
+                    "type": "object"
+                  },
+                  "predicate_id": {
+                    "$ref": "#/$defs/id",
+                    "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
+                    "examples": [
+                      "a"
+                    ]
+                  }
+                },
+                "required": [
+                  "predicate_id",
+                  "ordinal",
+                  "outcome_kind",
+                  "outcome_payload"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"outcome\",\"outcome_payload\":{\"allowed\":[\"no_change\"],\"kind\":\"outcome\"},\"predicate_id\":\"a\"}",
+                "examples": [
+                  {
+                    "ordinal": 0,
+                    "outcome_kind": "outcome",
+                    "outcome_payload": {
+                      "allowed": [
+                        "no_change"
+                      ],
+                      "kind": "outcome"
+                    },
+                    "predicate_id": "a"
+                  }
+                ],
+                "properties": {
+                  "ordinal": {
+                    "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
+                    "examples": [
+                      0
+                    ],
+                    "maximum": 7,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "outcome_kind": {
+                    "const": "outcome",
+                    "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"outcome\"; example: \"outcome\"",
+                    "examples": [
+                      "outcome"
+                    ],
+                    "type": "string"
+                  },
+                  "outcome_payload": {
+                    "additionalProperties": false,
+                    "description": "Accepted shape: object; example: {\"allowed\":[\"no_change\"],\"kind\":\"outcome\"}",
+                    "examples": [
+                      {
+                        "allowed": [
+                          "no_change"
+                        ],
+                        "kind": "outcome"
+                      }
+                    ],
+                    "properties": {
+                      "allowed": {
+                        "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation admit no outcome tokens (only exists, absent and check predicate kinds). Accepted shape: array of one of \"no_change\", \"report_recorded\", \"resolved\"; Bounds: 1..3 items inclusive; example: [\"no_change\"]",
+                        "examples": [
+                          [
+                            "no_change"
+                          ]
+                        ],
+                        "items": {
+                          "description": "Accepted shape: one of \"no_change\", \"report_recorded\", \"resolved\"; example: \"no_change\"",
+                          "enum": [
+                            "no_change",
+                            "report_recorded",
+                            "resolved"
+                          ],
+                          "examples": [
+                            "no_change"
+                          ],
+                          "type": "string"
+                        },
+                        "maxItems": 3,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "kind": {
+                        "const": "outcome",
+                        "description": "Accepted shape: exactly \"outcome\"; example: \"outcome\"",
+                        "examples": [
+                          "outcome"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "allowed"
+                    ],
+                    "type": "object"
+                  },
+                  "predicate_id": {
+                    "$ref": "#/$defs/id",
+                    "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
+                    "examples": [
+                      "a"
+                    ]
+                  }
+                },
+                "required": [
+                  "predicate_id",
+                  "ordinal",
+                  "outcome_kind",
+                  "outcome_payload"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"check\",\"outcome_payload\":{\"check_ref\":\"check:aa\",\"expected_result\":\"true\",\"immutable_subject_ref\":\"aa\",\"kind\":\"check\"},\"predicate_id\":\"a\"}",
+                "examples": [
+                  {
+                    "ordinal": 0,
+                    "outcome_kind": "check",
+                    "outcome_payload": {
+                      "check_ref": "check:aa",
+                      "expected_result": "true",
+                      "immutable_subject_ref": "aa",
+                      "kind": "check"
+                    },
+                    "predicate_id": "a"
+                  }
+                ],
+                "properties": {
+                  "ordinal": {
+                    "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
+                    "examples": [
+                      0
+                    ],
+                    "maximum": 7,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "outcome_kind": {
+                    "const": "check",
+                    "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"check\"; example: \"check\"",
+                    "examples": [
+                      "check"
+                    ],
+                    "type": "string"
+                  },
+                  "outcome_payload": {
+                    "additionalProperties": false,
+                    "description": "Accepted shape: object; example: {\"check_ref\":\"check:aa\",\"expected_result\":\"true\",\"immutable_subject_ref\":\"aa\",\"kind\":\"check\"}",
+                    "examples": [
+                      {
+                        "check_ref": "check:aa",
+                        "expected_result": "true",
+                        "immutable_subject_ref": "aa",
+                        "kind": "check"
+                      }
+                    ],
+                    "properties": {
+                      "check_ref": {
+                        "description": "Accepted shape: string matching ^check:[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 7..134 code points inclusive; example: \"check:aa\"",
+                        "examples": [
+                          "check:aa"
+                        ],
+                        "maxLength": 134,
+                        "minLength": 7,
+                        "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                        "type": "string"
+                      },
+                      "expected_result": {
+                        "description": "Accepted shape: one of \"true\", \"false\", \"pass\", \"fail\", \"present\", \"absent\", \"healthy\", \"unhealthy\", \"accepted\", \"rejected\"; example: \"true\"",
+                        "enum": [
+                          "true",
+                          "false",
+                          "pass",
+                          "fail",
+                          "present",
+                          "absent",
+                          "healthy",
+                          "unhealthy",
+                          "accepted",
+                          "rejected"
+                        ],
+                        "examples": [
+                          "true"
+                        ],
+                        "type": "string"
+                      },
+                      "immutable_subject_ref": {
+                        "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,255}$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+                        "examples": [
+                          "aa"
+                        ],
+                        "maxLength": 256,
+                        "minLength": 2,
+                        "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
+                        "type": "string"
+                      },
+                      "kind": {
+                        "const": "check",
+                        "description": "Accepted shape: exactly \"check\"; example: \"check\"",
+                        "examples": [
+                          "check"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "check_ref",
+                      "immutable_subject_ref",
+                      "expected_result"
+                    ],
+                    "type": "object"
+                  },
+                  "predicate_id": {
+                    "$ref": "#/$defs/id",
+                    "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
+                    "examples": [
+                      "a"
+                    ]
+                  }
+                },
+                "required": [
+                  "predicate_id",
+                  "ordinal",
+                  "outcome_kind",
+                  "outcome_payload"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        },
+        "premise": {
+          "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection. Accepted shape: string matching \\S; Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive; example: \"a\"",
+          "examples": [
+            "a"
+          ],
+          "maxLength": 4096,
+          "minLength": 1,
+          "not": {
+            "description": "Accepted shape: one of \"workflow premise\"; example: \"workflow premise\"",
+            "enum": [
+              "workflow premise"
+            ],
+            "examples": [
+              "workflow premise"
+            ],
+            "type": "string"
+          },
+          "pattern": "\\S",
+          "type": "string",
+          "x-maxBytes": 4096
+        },
+        "required_evidence": {
+          "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership. Accepted shape: array of one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; Bounds: 0..7 items inclusive; example: []",
+          "examples": [
+            []
+          ],
+          "items": {
+            "description": "Accepted shape: one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; example: \"verification\"",
+            "enum": [
+              "verification",
+              "review",
+              "approval",
+              "commit",
+              "durable_note",
+              "native_run",
+              "artifact"
+            ],
+            "examples": [
+              "verification"
+            ],
+            "type": "string"
+          },
+          "maxItems": 7,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "rigor_class": {
+          "description": "Accepted shape: one of \"prototype_internal\", \"prototype_trusted\", \"prototype_public\", \"prototype_safety_critical\", \"production_internal\", \"production_trusted\", \"production_public\", \"production_safety_critical\", \"critical_internal\", \"critical_trusted\", \"critical_public\", \"critical_safety_critical\"; example: \"prototype_internal\"",
+          "enum": [
+            "prototype_internal",
+            "prototype_trusted",
+            "prototype_public",
+            "prototype_safety_critical",
+            "production_internal",
+            "production_trusted",
+            "production_public",
+            "production_safety_critical",
+            "critical_internal",
+            "critical_trusted",
+            "critical_public",
+            "critical_safety_critical"
+          ],
+          "examples": [
+            "prototype_internal"
+          ],
+          "type": "string"
+        },
+        "route_conventions": {
+          "description": "Accepted shape: array of string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 0..16 items inclusive; example: []",
+          "examples": [
+            []
+          ],
+          "items": {
+            "$ref": "#/$defs/reference",
+            "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
+            "examples": [
+              "aa"
+            ]
+          },
+          "maxItems": 16,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "spec_mandate": {
+          "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
+          "examples": [
+            []
+          ],
+          "items": {
+            "$ref": "#/$defs/law_id",
+            "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+            "examples": [
+              "aa"
+            ]
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "contract_version",
+        "premise",
+        "outcome_predicates",
+        "required_evidence",
+        "route_conventions",
+        "spec_mandate",
+        "law_modifies",
+        "rigor_class",
+        "decision_domains"
+      ],
+      "type": "object"
     },
     "workflow_correction_context": {
       "additionalProperties": false,
@@ -16169,154 +15112,35 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "workflow_design_content": {
-      "additionalProperties": false,
-      "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {\"approach\":\"av\",\"decisions\":[{\"choice\":\"a\",\"id\":\"aa\",\"question\":\"a\",\"rationale\":\"a\",\"rejected\":[]}],\"touched_refs\":[\"aa\"]}",
-      "examples": [
-        {
-          "approach": "av",
-          "decisions": [
-            {
-              "choice": "a",
-              "id": "aa",
-              "question": "a",
-              "rationale": "a",
-              "rejected": []
-            }
-          ],
-          "touched_refs": [
-            "aa"
-          ]
-        }
-      ],
-      "maxProperties": 32,
-      "properties": {
-        "approach": {
-          "description": "Accepted shape: string matching \\S; Bounds: 1..4096 code points inclusive; 2..4096 UTF-8 bytes inclusive; example: \"av\"",
-          "examples": [
-            "av"
-          ],
-          "maxLength": 4096,
-          "minLength": 1,
-          "pattern": "\\S",
-          "type": "string",
-          "x-maxBytes": 4096,
-          "x-minBytes": 2
-        },
-        "decisions": {
-          "description": "Accepted shape: array of object; Bounds: 1..16 items inclusive; example: [{\"choice\":\"a\",\"id\":\"aa\",\"question\":\"a\",\"rationale\":\"a\",\"rejected\":[]}]",
-          "examples": [
-            [
-              {
-                "choice": "a",
-                "id": "aa",
-                "question": "a",
-                "rationale": "a",
-                "rejected": []
-              }
-            ]
-          ],
-          "items": {
-            "$ref": "#/$defs/workflow_design_decision",
-            "description": "Accepted shape: object; example: {\"choice\":\"a\",\"id\":\"aa\",\"question\":\"a\",\"rationale\":\"a\",\"rejected\":[]}",
-            "examples": [
-              {
-                "choice": "a",
-                "id": "aa",
-                "question": "a",
-                "rationale": "a",
-                "rejected": []
-              }
-            ]
-          },
-          "maxItems": 16,
-          "minItems": 1,
-          "type": "array"
-        },
-        "touched_refs": {
-          "description": "Accepted shape: array of string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..64 items inclusive; example: [\"aa\"]",
-          "examples": [
-            [
-              "aa"
-            ]
-          ],
-          "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
-            "examples": [
-              "aa"
-            ]
-          },
-          "maxItems": 64,
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        }
-      },
-      "required": [
-        "approach",
-        "decisions",
-        "touched_refs"
-      ],
-      "type": "object"
-    },
     "workflow_design_decision": {
       "additionalProperties": false,
-      "description": "Accepted shape: object; example: {\"choice\":\"a\",\"id\":\"aa\",\"question\":\"a\",\"rationale\":\"a\",\"rejected\":[]}",
-      "examples": [
-        {
-          "choice": "a",
-          "id": "aa",
-          "question": "a",
-          "rationale": "a",
-          "rejected": []
-        }
-      ],
       "properties": {
         "choice": {
-          "description": "Accepted shape: string; Bounds: 1..1024 code points inclusive; example: \"a\"",
-          "examples": [
-            "a"
-          ],
+          "description": "Bounds: 1..1024 code points inclusive",
           "maxLength": 1024,
           "minLength": 1,
           "type": "string"
         },
         "id": {
           "$ref": "#/$defs/reference",
-          "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
-          "examples": [
-            "aa"
-          ]
+          "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
         },
         "question": {
-          "description": "Accepted shape: string; Bounds: 1..512 code points inclusive; example: \"a\"",
-          "examples": [
-            "a"
-          ],
+          "description": "Bounds: 1..512 code points inclusive",
           "maxLength": 512,
           "minLength": 1,
           "type": "string"
         },
         "rationale": {
-          "description": "Accepted shape: string; Bounds: 1..1024 code points inclusive; example: \"a\"",
-          "examples": [
-            "a"
-          ],
+          "description": "Bounds: 1..1024 code points inclusive",
           "maxLength": 1024,
           "minLength": 1,
           "type": "string"
         },
         "rejected": {
-          "description": "Accepted shape: array of string; Bounds: <=8 items inclusive; example: []",
-          "examples": [
-            []
-          ],
+          "description": "Bounds: <=8 items inclusive",
           "items": {
-            "description": "Accepted shape: string; Bounds: 1..1024 code points inclusive; example: \"a\"",
-            "examples": [
-              "a"
-            ],
+            "description": "Bounds: 1..1024 code points inclusive",
             "maxLength": 1024,
             "minLength": 1,
             "type": "string"

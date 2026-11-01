@@ -161,7 +161,7 @@ func (s *Store) PrepareWorkflowActionProof(ctx context.Context, actionID, workID
 		return ctx, nil
 	}
 	switch actionID {
-	case "approve_contract", "supersede_contract", "complete", "record_work_context", "confirm_premise":
+	case "approve_contract", "complete", "record_work_context", "confirm_premise":
 		return s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	}
 	return s.PrepareWorkLawProof(ctx, workID)
@@ -259,7 +259,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 }
 
 func workflowActionConsequence(definition WorkflowDefinition, actionID string) ActionConsequence {
-	if actionID == "supersede_contract" || actionID == "record_verdict" || actionID == "request_correction" {
+	if actionID == "record_verdict" || actionID == "request_correction" {
 		return ActionInternalSQLite
 	}
 	for _, action := range definition.ActionDefinitions {
@@ -306,23 +306,13 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := validateWorkflowReviewRequest(ctx, tx, request.WorkID, request.ActionID, request.Payload); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	staleRecovery := decision.RecoveryRoute
-	if request.ActionID == "supersede_contract" {
-		if err := validateWorkflowCompleteCorrectionRoute(entry.Definition, currentStep, request.Payload); err != nil {
-			return RegisteredDefinition{}, err
-		}
-	}
 	if err := ValidateWorkflowActor(request.Actor); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	if _, err := WorkflowActorRef(request.Actor); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	if staleRecovery {
-		if err := validateWorkflowContractRecoveryPayload(entry.Definition, request.Payload); err != nil {
-			return RegisteredDefinition{}, err
-		}
-	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
+	if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	// The folded admission owns step legality, applied here — the engine's
@@ -339,25 +329,6 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	// See the note in the non-transactional preflight: recording a new actor is
 	// the action guard's job, and refusing here would prevent it.
 	return entry, nil
-}
-
-func validateWorkflowCompleteCorrectionRoute(definition WorkflowDefinition, currentStep string, payload json.RawMessage) error {
-	fields, err := workflowActionObject(payload)
-	if err != nil {
-		return err
-	}
-	atCompleteStep := workflowCompleteStepCorrectionStep(definition, currentStep)
-	declaresRoute := slices.Contains(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
-	if declaresRoute && !atCompleteStep {
-		return newFailure(KindInvalidPayload, "workflow_action_preflight", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
-	}
-	if atCompleteStep && !declaresRoute {
-		// The payload satisfies its own declaration; what refuses is the
-		// step state, so the refusal is an operation refusal, not a
-		// payload one.
-		return newFailure(KindInvalidPayload, "workflow_action_preflight", "complete-step correction requires complete_step_correction in fields.route_conventions", false, "declare complete_step_correction in the successor route conventions")
-	}
-	return nil
 }
 
 func preflightWorkflowActionStepTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest, decision WorkflowAdmissionDecision) error {

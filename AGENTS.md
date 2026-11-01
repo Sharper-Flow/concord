@@ -48,11 +48,9 @@ Linux amd64 is the only release platform.
 - Push normally: the shared pre-push hook runs the gates. Fix a failing gate; never
   bypass the hook. A clone without it needs the [one-time setup](CONTRIBUTING.md#required-pre-push-preflight).
 - Do not place any of the following in the repository, even temporarily:
-  private Product or customer names and data; personal filesystem paths, machine
-  names, private network details, or local service addresses; credentials,
-  tokens, private environment paths, or copied private logs; unreachable
-  private-source citations or private predecessor history. Use synthetic
-  scenarios and reachable public sources.
+  personal filesystem paths, machine names, private network details, local
+  service addresses, private environment paths, copied private logs, or private
+  predecessor history. Use synthetic scenarios and reachable public sources.
 
 ## The store connection invariant
 

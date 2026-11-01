@@ -1,3 +1,23 @@
+---
+{
+  "id": "CD-0147",
+  "title": "Self-repair route for workflow-blocking defects",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0122"
+    }
+  ],
+  "product_wide_rationale": "A code-first repair route must govern every Concord Domain without adding capability or weakening typed refusals, and its record must carry the full reconciliation that makes the repair legitimate."
+}
+---
 # CD-0147: Self-repair route for workflow-blocking defects
 
 - **Status:** Accepted

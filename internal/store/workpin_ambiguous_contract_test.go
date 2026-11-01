@@ -175,7 +175,6 @@ func TestContractlessInvestigatedCheckpointAdmitsNoContractRoute(t *testing.T) {
 	seedWork(t, s, workID)
 	seedWork(t, s, otherID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	seedContractlessVerifyWorkflow(t, s, workID)
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("7", 16), []string{"root", otherID})
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM workflow_contracts WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {

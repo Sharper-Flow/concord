@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,7 +15,6 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
-	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -107,6 +105,9 @@ func TestRetiredPlanningOperationsRefuseBeforeEffects(t *testing.T) {
 		{"concord_product_view", "portfolio"},
 		{"concord_work_compact", "lesson_publish"},
 		{"concord_knowledge", "unprocessed"},
+		{"concord_knowledge", "search"},
+		{"concord_knowledge", "resolve_note"},
+		{"concord_knowledge", "observe_publication"},
 	} {
 		t.Run(pair.tool+"."+pair.operation, func(t *testing.T) {
 			if _, ok := agentcontract.ValidateContractOperation(pair.tool, pair.operation); ok {
@@ -297,165 +298,28 @@ func TestBudgetObjectIsRetiredEverywhereOnTheSurface(t *testing.T) {
 	}
 }
 
-func TestKnowledgeReferenceHonorsSelectedProductContainment(t *testing.T) {
-	t.Parallel()
-	s, err := storetest.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1);
-		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES ('home','home',1,'t','t');
-		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES ('anchor-home','anchor-home','prototype','operator_only',1,'t','t');
-		INSERT INTO product_projects(product_id,project_id,role) VALUES ('anchor-home','home','primary');
-		INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES ('locator','home','canonical_path','/test/locator','/test/locator','t','t');
-		INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES ('knowledge-b','lesson','B','2026-08-07T00:00:00Z','published','[]','completed',1,'summary','home','locator','note.md','commit','hash'); INSERT INTO archived_work_products(home_project_id,home_locator_id,work_id,product_id) VALUES ('home','locator','knowledge-b','product-b'); DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	request := InvokeRequest{Input: json.RawMessage(`{"knowledge_id":"knowledge-b"}`)}
-	err = validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Authority{ProductScope: []string{"product-a", "product-b"}}, request, agentcontract.OperationRead)
-	var failure *runtimeFailure
-	if !errors.As(err, &failure) || failure.kind != "unauthorized" {
-		t.Fatalf("knowledge outside selected Product accepted: %v", err)
-	}
-}
-
-func TestKnowledgeResolveNoteDelegatesHomeScopeToQ10(t *testing.T) {
-	t.Parallel()
-	s := runtimeKnowledgeStore(t, "home-knowledge", "lesson", nil, map[string]string{"product-a": "member"})
-	defer s.Close()
-	request := InvokeRequest{Tool: "concord_knowledge", Operation: "resolve_note", Input: json.RawMessage(`{"knowledge_id":"home-knowledge"}`)}
-	if err := validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Authority{ProductScope: []string{"product-a"}}, request, agentcontract.OperationRead); err != nil {
-		t.Fatalf("Q10 runtime pre-scope validation rejected home record: %v", err)
-	}
-	response := runtimeResolveNote(t, s, "product-a", request.Input)
-	assertRuntimeKnowledgeState(t, response, "canonical")
-}
-
-func TestKnowledgeResolveNoteUnscopedUsesRecordedLocator(t *testing.T) {
-	t.Parallel()
-	s := runtimeKnowledgeStore(t, "unscoped-knowledge", "lesson", nil, nil)
-	defer s.Close()
-	response := runtimeResolveNote(t, s, "", json.RawMessage(`{"knowledge_id":"unscoped-knowledge"}`))
-	assertRuntimeKnowledgeState(t, response, "canonical")
-}
-
-func TestConcurrentKnowledgeResolveNoteFailuresStayTyped(t *testing.T) {
-	t.Parallel()
-	s := runtimeKnowledgeStore(t, "drifted-knowledge", "lesson", nil, nil)
-	defer s.Close()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='drifted-knowledge'; DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-
-	const calls = 8
-	type result struct {
-		response agentcontract.Envelope
-		err      error
-	}
-	results := make(chan result, calls)
-	for i := range calls {
-		go func() {
-			r := runtime{Store: s, Tool: "concord_knowledge", Operation: "resolve_note", Envelope: CallEnvelope{}}
-			response, err := r.read(context.Background(), agentcontract.NewBase(fmt.Sprintf("runtime-q10-%d", i), r.Tool, r.Operation), json.RawMessage(`{"knowledge_id":"drifted-knowledge"}`), "PM1.Q10")
-			results <- result{response: response, err: err}
-		}()
-	}
-	for range calls {
-		got := <-results
-		if got.err != nil {
-			t.Fatalf("concurrent read returned an adapter error: %v", got.err)
-		}
-		if got.response.Outcome != agentcontract.OutcomeError || got.response.Error == nil || got.response.Error.Kind != "invalid_input" {
-			t.Fatalf("concurrent read lost the typed core failure: %+v", got.response)
-		}
-		if _, err := json.Marshal(got.response); err != nil {
-			t.Fatalf("concurrent failure response is not a valid envelope: %v", err)
-		}
-	}
-}
-
-func TestKnowledgeResolveNotePreservesFrozenWorkNoteScope(t *testing.T) {
-	t.Parallel()
-	s := runtimeKnowledgeStore(t, "frozen-work", "work_note", []string{"product-a"}, map[string]string{"product-b": "member"})
-	defer s.Close()
-	request := json.RawMessage(`{"work_id":"frozen-work"}`)
-	assertRuntimeKnowledgeState(t, runtimeResolveNote(t, s, "product-a", request), "canonical")
-	response := runtimeResolveNote(t, s, "product-b", request)
-	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" {
-		t.Fatalf("frozen work note followed current membership: %+v", response)
-	}
-}
-
-func TestKnowledgeResolveNoteRejectsUnrelatedSelectedProduct(t *testing.T) {
-	t.Parallel()
-	s := runtimeKnowledgeStore(t, "scoped-knowledge", "lesson", nil, map[string]string{"product-a": "member"})
-	defer s.Close()
-	response := runtimeResolveNote(t, s, "product-b", json.RawMessage(`{"knowledge_id":"scoped-knowledge"}`))
-	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" {
-		t.Fatalf("unrelated Product was not typed unknown_scope: %+v", response)
-	}
-}
-
-func runtimeResolveNote(t *testing.T, s *store.Store, product string, input json.RawMessage) agentcontract.Envelope {
-	t.Helper()
-	r := runtime{Store: s, Tool: "concord_knowledge", Operation: "resolve_note", Envelope: CallEnvelope{SelectedProductID: product}}
-	response, err := r.read(context.Background(), agentcontract.NewBase("runtime-q10", r.Tool, r.Operation), input, "PM1.Q10")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return response
-}
-
-func assertRuntimeKnowledgeState(t *testing.T, response agentcontract.Envelope, want string) {
-	t.Helper()
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("Q10 response=%+v error=%#v", response, response.Error)
-	}
-	var result struct {
-		State string `json:"state"`
-	}
-	if err := json.Unmarshal(response.Result, &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.State != want {
-		t.Fatalf("Q10 state=%q want %q response=%+v", result.State, want, response)
-	}
-}
-
-// recordAuthorityForKind gives a manifest fixture the authority object the
-// record shape requires. A law-bearing kind is legislated and names the
-// contract that fixed its standing; every other kind is derived.
-func recordAuthorityForKind(kind string) map[string]any {
-	if kind == "constitution" || kind == "decision" {
-		return map[string]any{"tier": "legislated", "legislated_by": "work-0f1e2d3c4b5a6978", "contract_version": 1}
-	}
-	return map[string]any{"tier": "derived"}
-}
-
+// runtimeKnowledgeStore seeds one archived work note under a committed home,
+// the state the published-execution absence wire reads. The lesson-record
+// branch of this helper served the retired knowledge resolve family.
 func runtimeKnowledgeStore(t *testing.T, id, kind string, frozenProducts []string, memberships map[string]string) *store.Store {
 	t.Helper()
 	repo := t.TempDir()
-	notePath := ".concord/docs/lessons/" + id + ".md"
-	content := "Durable knowledge.\n"
-	if kind == "work_note" {
-		notePath = ".concord/docs/work/" + id + ".md"
-		content = "---\n" +
-			"concord_work_id: " + id + "\n" +
-			"work_type: implementation\n" +
-			"title: Auth release\n" +
-			"completed_at: 2026-08-10T00:00:00Z\n" +
-			"outcome_tag: shipped\n" +
-			"lesson_tags: [sqlite, state-authority]\n" +
-			"terminal_state: completed\n" +
-			"priority: 2\n" +
-			"summary: Bounded summary\n" +
-			"product_ids: [product-a]\n" +
-			"project_ids: [stored-project]\n" +
-			"domain_ids: [auth]\n" +
-			"tag_ids: [auth, release]\n" +
-			"---\n\nDurable note.\n"
-	}
+	notePath := ".concord/docs/work/" + id + ".md"
+	content := "---\n" +
+		"concord_work_id: " + id + "\n" +
+		"work_type: implementation\n" +
+		"title: Auth release\n" +
+		"completed_at: 2026-08-10T00:00:00Z\n" +
+		"outcome_tag: shipped\n" +
+		"lesson_tags: [sqlite, state-authority]\n" +
+		"terminal_state: completed\n" +
+		"priority: 2\n" +
+		"summary: Bounded summary\n" +
+		"product_ids: [product-a]\n" +
+		"project_ids: [stored-project]\n" +
+		"domain_ids: [auth]\n" +
+		"tag_ids: [auth, release]\n" +
+		"---\n\nDurable note.\n"
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(repo, filepath.FromSlash(notePath))), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -464,35 +328,6 @@ func runtimeKnowledgeStore(t *testing.T, id, kind string, frozenProducts []strin
 	}
 	hash := sha256.Sum256([]byte(content))
 	contentHash := "sha256:" + hex.EncodeToString(hash[:])
-	if kind != "work_note" {
-		manifest := map[string]any{
-			"schema_version":  "1.2",
-			"supported_kinds": []string{"work_note", "decision", "spec", "lesson", "research"},
-			"indexed_kinds":   []string{"work_note", "decision", "spec", "lesson"},
-			"domain_registry": map[string]any{
-				"schema_version": "1.0", "product_key": "runtime-product", "root_domain_id": "product-root:runtime-product",
-				"domains": []any{map[string]any{"domain_id": "product-root:runtime-product", "name": "Runtime product", "purpose": "Product-wide runtime fixture law", "status": "current", "architecture_relations": []any{}}},
-			},
-			"records": []any{map[string]any{
-				"id": id, "kind": kind, "path": notePath, "status": "published", "date": "2026-08-10T00:00:00Z",
-				"title": "Durable lesson", "summary": "Durable summary", "tags": []string{},
-				"authority": recordAuthorityForKind(kind),
-				"scopes":    map[string]any{"mode": "home", "product_ids": []string{}, "project_ids": []string{}, "domain_ids": []string{}, "tag_ids": []string{}},
-				"sha256":    contentHash,
-			}},
-		}
-		manifestBytes, err := json.Marshal(manifest)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var seed store.KnowledgeManifest
-		if err := json.Unmarshal(manifestBytes, &seed); err != nil {
-			t.Fatal(err)
-		}
-		if err := pm1fixture.WriteKnowledgeShards(repo, seed); err != nil {
-			t.Fatal(err)
-		}
-	}
 	runRuntimeGit(t, repo, "init", "-q")
 	runRuntimeGit(t, repo, "config", "user.email", "test@example.com")
 	runRuntimeGit(t, repo, "config", "user.name", "Concord Test")

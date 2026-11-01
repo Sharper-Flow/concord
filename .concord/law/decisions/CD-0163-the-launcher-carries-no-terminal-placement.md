@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0163",
+  "title": "Concord carries no terminal placement",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0078"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0108"
+    }
+  ]
+}
+---
 # CD-0163: Concord carries no terminal placement
 
 - **Status:** Accepted
@@ -47,5 +68,5 @@ a terminal session identifier.
 
 - `go test ./cmd/concord/ -run TestLauncherAndCommandCarryNoMultiplexerKnowledge`
   proves D1 structurally through the command-source scan.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
-  `python3 scripts/check-knowledge-index.py` pass.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass.

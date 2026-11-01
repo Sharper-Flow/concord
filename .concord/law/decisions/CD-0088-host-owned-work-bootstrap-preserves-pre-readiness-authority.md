@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0088",
+  "title": "Host tools own worktree isolation; capability does not establish self-host readiness",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0088: Host tools own worktree isolation; capability does not establish self-host readiness
 
 - **Status:** Accepted

@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0191",
+  "title": "Installation names retained-release holders",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0111"
+    }
+  ]
+}
+---
 # CD-0191: Installation names retained-release holders
 
 - **Status:** Accepted

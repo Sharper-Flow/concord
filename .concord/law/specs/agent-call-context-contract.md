@@ -1,3 +1,35 @@
+---
+{
+  "id": "TS5",
+  "title": "agent call context contract",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-call-boundary",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-contract"
+  ],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The corpus scenario AJ1-ambiguous-product proves read-side refusal through TestAgentJobsCorpus (internal/agent/agent_jobs_corpus_test.go). TestAmbiguousProductRefusesMutationBeforeEffects (internal/agent/product_project_authority_test.go) proves mutation refusal before effects."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Context freshness is an envelope property below scenario grain. The guarantee is proved by TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect (internal/agent/context_freshness_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Replay across scope drift is a dispatch property. The guarantee is proved by TestDispatchIdempotentReplaySurvivesAmbientScopeDrift (internal/agent/mutation_dispatch_test.go)."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Cross-scope authorization is an envelope property. The guarantee is proved by TestDispatchCrossProductCaptureKeepsCapabilityWithoutConsent (internal/agent/mutation_dispatch_test.go)."
+    }
+  ]
+}
+---
 # Concord Agent Call Context, Authorization, and Idempotency (TS5)
 
 > **Status:** **Accepted — binding until superseded.**

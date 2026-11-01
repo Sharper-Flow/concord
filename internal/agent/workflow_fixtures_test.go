@@ -2,7 +2,11 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -32,12 +36,8 @@ func mustScopeVersion(t *testing.T, s *store.Store) string {
 func seedCurrentWorkflowDomainFixture(t *testing.T, s *store.Store) {
 	t.Helper()
 	ctx := context.Background()
-	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
-	if err != nil {
+	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)
-	}
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -57,13 +57,71 @@ func agentWorkflowSourceProof(t *testing.T, ctx context.Context, s *store.Store,
 // shared store never double-seed the law locator.
 func seedCurrentWorkflowDomainOnce(t *testing.T, s *store.Store) {
 	t.Helper()
-	var registries int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_registries WHERE product_id='product-1'`).Scan(&registries); err != nil {
+	var homes int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM product_knowledge_homes WHERE product_id='product-1'`).Scan(&homes); err != nil {
 		t.Fatal(err)
 	}
-	if registries == 0 {
+	if homes == 0 {
 		seedCurrentWorkflowDomainFixture(t, s)
 	}
+}
+
+// committedProductRegistry reads product-1's committed Domain registry
+// through the production Domain read.
+func committedProductRegistry(t *testing.T, s *store.Store) store.DomainRegistryView {
+	t.Helper()
+	list, err := s.QueryDomainList(context.Background(), store.DomainListRequest{Product: "product-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list.Registry == nil {
+		t.Fatal("product-1 has no committed Domain registry")
+	}
+	return *list.Registry
+}
+
+// agentFixtureLawFrontmatter builds one derived fixture law file's closed
+// JSON frontmatter from the retained metadata only. Only a root-homed law may
+// state the product-wide rationale, so a child-homed fixture law passes an
+// empty one and omits the field.
+func agentFixtureLawFrontmatter(id, homeDomainID, productWideRationale string) string {
+	authority := `{"tier":"derived"}`
+	frontmatter := `{"id":"` + id + `","title":"Fixture law","authority":` + authority +
+		`,"home_domain_id":"` + homeDomainID + `","applies_to_domain_ids":[]`
+	if productWideRationale != "" {
+		frontmatter += `,"product_wide_rationale":"` + productWideRationale + `"`
+	}
+	return frontmatter + "}"
+}
+
+// commitAgentFixtureLaw amends a seeded home's committed law folder with one
+// law file and commits it. It returns the committed bytes' SHA-256, the same
+// whole-file digest the law-folder snapshot records, so a fixture can pin the
+// exact revision it committed. Anything already staged in the repository's
+// index rides the same commit.
+func commitAgentFixtureLaw(t *testing.T, repo, relativePath, frontmatter string) string {
+	t.Helper()
+	full := filepath.Join(repo, filepath.FromSlash(relativePath))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\n" + frontmatter + "\n---\n\nDurable fixture law.\n"
+	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repo, "add", "--", relativePath)
+	gitRun(t, repo, "commit", "--quiet", "-m", "fixture law "+relativePath)
+	sum := sha256.Sum256([]byte(content))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// retireAgentFixtureLaw commits the removal of one committed law file: the
+// CD-0036 D2 cutover a stale contract pin refers to. The pin outlives the law,
+// exactly as a production cutover leaves it.
+func retireAgentFixtureLaw(t *testing.T, repo, relativePath string) {
+	t.Helper()
+	gitRun(t, repo, "rm", "--quiet", "--", relativePath)
+	gitRun(t, repo, "commit", "--quiet", "-m", "retire fixture law "+relativePath)
 }
 
 func workflowArchitectureBindingFixture() map[string]any {
@@ -82,10 +140,7 @@ func workflowArchitectureBindingFixture() map[string]any {
 // registry the store validates against.
 func workflowArchitectureBindingForSeededRegistry(t *testing.T, s *store.Store) map[string]any {
 	t.Helper()
-	var root string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&root); err != nil {
-		t.Fatal(err)
-	}
+	root := committedProductRegistry(t, s).RootDomainID
 	binding := workflowArchitectureBindingFixture()
 	binding["home_domain_id"] = root
 	binding["affected_domain_ids"] = []string{root}

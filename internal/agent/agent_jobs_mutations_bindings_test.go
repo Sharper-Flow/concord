@@ -818,12 +818,8 @@ func TestCaptureAcceptsRequirementFromSiblingProjectOfTheProduct(t *testing.T) {
 func TestCaptureAcceptsAcceptedLawID(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	home, err := pm1fixture.SeedCommittedProductDomain(context.Background(), s, "prod-alpha", "proj-web", t.TempDir())
-	if err != nil {
+	if _, err := pm1fixture.SeedCommittedProductDomain(context.Background(), s, "prod-alpha", "proj-web", t.TempDir()); err != nil {
 		t.Fatalf("seed accepted law: %v", err)
-	}
-	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
-		t.Fatal(err)
 	}
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 

@@ -33,30 +33,22 @@ func openMigratedTo(t *testing.T, path string, n int) *sql.DB {
 	return db
 }
 
-// openV51 migrates a v51 database the rest of the way, so the binding's
-// refusals can be exercised against the current schema.
-func openV51(t *testing.T, name string) *sql.DB {
-	t.Helper()
-	ctx := context.Background()
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), name), 51)
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
-			t.Errorf("remove write guard: %v", err)
-		}
-	})
-	return db
-}
-
 func TestMigrateV51ToV52BindsKnowledgeHomePairsToProjectLocators(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db := openV51(t, "concord-v51.db")
+	// Migration 52 owns this binding; the fixture stays at the schema 52
+	// prefix. Later retirements (schema 174) drop most bound tables, so the
+	// pre-retirement schema is the only place the trigger set still exists.
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "concord-v51.db"), 51)
+	advanceHistoricalPrefix(t, db, migrations[51].Version)
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	})
 	if _, err := db.ExecContext(ctx, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('p','P',1,'t','t')`); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +85,7 @@ func TestMigrateV51ToV52BindsKnowledgeHomePairsToProjectLocators(t *testing.T) {
 	}
 
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != CurrentSchemaVersion() {
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != migrations[51].Version {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 }
@@ -164,7 +156,10 @@ func TestRemovingAKnowledgeReferencedLocatorIsRefusedWithATypedFailure(t *testin
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('law-project','law-locator','CD-0001','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err != nil {
+	// archived_work is the retained Git-derived knowledge the locator delete
+	// guard protects (schema 174 retired the law-index projections from the
+	// guard's table list).
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('law-archive','lesson','Anchored lesson','2026-08-27T00:00:00Z','published','[]','completed',0,'S','law-project','law-locator','.concord/docs/lessons/t.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM write_guard`); err != nil {

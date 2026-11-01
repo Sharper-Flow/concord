@@ -94,7 +94,7 @@ func catalogUpgradeRows(t *testing.T, db *sql.DB, tables ...string) map[string][
 	return result
 }
 
-func assertRetirementUpgrade(t *testing.T, db *sql.DB, retired, preserved []string, before map[string][]string) {
+func assertRetirementUpgrade(t *testing.T, db *sql.DB, retired, preserved []string, before map[string][]string, wantVersion int) {
 	t.Helper()
 	for _, table := range retired {
 		var count int
@@ -113,8 +113,12 @@ func assertRetirementUpgrade(t *testing.T, db *sql.DB, retired, preserved []stri
 	if err := db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != CurrentSchemaVersion() {
-		t.Fatalf("schema head=%d, want %d", version, CurrentSchemaVersion())
+	// Each retirement test pins the migration prefix it targets: later
+	// breaking migrations retire further objects (schema 174 drops the legacy
+	// law index and Domain projection), so the preservation boundary belongs
+	// to the targeted schema version, not the moving head.
+	if version != wantVersion {
+		t.Fatalf("schema head=%d, want %d", version, wantVersion)
 	}
 	if err := db.QueryRow(`SELECT breaking FROM schema_migrations WHERE version=165 AND name='managed_resource_catalog_retirement'`).Scan(&breaking); err != nil || !breaking {
 		t.Fatalf("catalog retirement migration breaking=%v, err=%v", breaking, err)
@@ -125,10 +129,8 @@ func TestMigrateV162ToV165RetiresCatalogAndPreservesCurrentState(t *testing.T) {
 	t.Parallel()
 	db := seedV162CatalogDatabase(t, filepath.Join(t.TempDir(), "concord-v162.db"))
 	before := catalogUpgradeRows(t, db, catalogCurrentTables...)
-	if err := Migrate(context.Background(), db); err != nil {
-		t.Fatalf("upgrade to v165: %v", err)
-	}
-	assertRetirementUpgrade(t, db, catalogRetiredTables, catalogCurrentTables, before)
+	advanceHistoricalPrefix(t, db, migrations[164].Version)
+	assertRetirementUpgrade(t, db, catalogRetiredTables, catalogCurrentTables, before, migrations[164].Version)
 }
 
 func TestMigrateV162ToV165FailedStepRollsBack(t *testing.T) {
@@ -145,10 +147,8 @@ INSERT INTO catalog_drop_blocker(resource_id) VALUES('upgrade-queue')`); err != 
 	if _, err := db.Exec(`DROP TABLE catalog_drop_blocker`); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(context.Background(), db); err != nil {
-		t.Fatalf("clean upgrade after failed Migrate: %v", err)
-	}
-	assertRetirementUpgrade(t, db, catalogRetiredTables, catalogCurrentTables, current)
+	advanceHistoricalPrefix(t, db, migrations[164].Version)
+	assertRetirementUpgrade(t, db, catalogRetiredTables, catalogCurrentTables, current, migrations[164].Version)
 }
 
 func assertMigrationForeignKeyRollback(t *testing.T, db *sql.DB, tables []string, failure string) {

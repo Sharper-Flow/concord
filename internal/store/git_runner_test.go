@@ -69,21 +69,6 @@ func TestExecGitRunnerNormalOutputDrainage(t *testing.T) {
 	}
 }
 
-func TestResolveCommitSHANormalDrainageDoesNotRefuseUnreachable(t *testing.T) {
-	bin := t.TempDir()
-	want := strings.Repeat("a", 40)
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(delayedGitOutputShim(want)), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	sha, err := resolveCommitSHARunner(ctx, ExecGitRunner{}, t.TempDir(), "HEAD")
-	if err != nil || sha != want {
-		t.Fatalf("reachable commit refused: sha=%q error=%v", sha, err)
-	}
-}
-
 func TestGitOutputNormalDrainagePreservesStderr(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -260,41 +260,17 @@ func validateWorkflowLawChangeRemovals(change *WorkflowLawChange, op string) err
 	return nil
 }
 
-// readWorkflowLawDomainsTx reads the Domains one resolved law is homed in or
-// applies to, sorted and unique, the root included.
-func readWorkflowLawDomainsTx(ctx context.Context, q queryer, resolution lawReferenceResolution) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT domain_id FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=?
-UNION SELECT domain_id FROM law_domain_applicability WHERE home_project_id=? AND home_locator_id=? AND law_id=? ORDER BY domain_id`,
-		resolution.source.HomeProjectID, resolution.source.HomeLocatorID, resolution.lawID,
-		resolution.source.HomeProjectID, resolution.source.HomeLocatorID, resolution.lawID)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot read the changed law's Domains", true, "retry once the law projection is readable", err)
-	}
-	defer func() { _ = rows.Close() }()
-	domains := []string{}
-	for rows.Next() {
-		var domainID string
-		if err := rows.Scan(&domainID); err != nil {
-			return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot decode the changed law's Domains", true, "retry once the law projection is readable", err)
-		}
-		domains = append(domains, domainID)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_law_change", "cannot finish reading the changed law's Domains", true, "retry once the law projection is readable", err)
-	}
-	return domains, nil
-}
-
 // resolveWorkflowChangedLawsTx resolves changed law references through the
-// same Project-qualified identity as the mandated-law boundary. A law the projection
-// no longer holds, such as one the change removed, resolves to nothing; the
-// approval path has already refused an unknown modified law.
-func resolveWorkflowChangedLawsTx(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, laws []string) (map[string]lawReferenceResolution, error) {
+// same Project-qualified identity as the mandated-law boundary, against the
+// verified law-folder snapshot. A law the committed folder no longer holds,
+// such as one the change removed, resolves to nothing; the approval path has
+// already refused an unknown modified law.
+func resolveWorkflowChangedLawsTx(ctx context.Context, homeProjectID, homeLocatorID string, laws []string) (map[string]lawReferenceResolution, error) {
 	if len(laws) == 0 {
 		return nil, nil
 	}
 	sources := []KnowledgeHome{{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID}}
-	resolutions, _, err := resolveLawReferences(ctx, q, "workflow_law_change", sources, laws)
+	resolutions, _, err := resolveLawReferences(ctx, "workflow_law_change", sources, laws)
 	return resolutions, err
 }
 
@@ -416,14 +392,14 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 			return err
 		}
 		if _, present := current[canonical]; present {
-			return newFailure(KindOutcomeMismatch, "complete_workflow", "law declared for removal is still present in the Git projection: "+reference, false, "publish and rebuild the declared law removal")
+			return newFailure(KindOutcomeMismatch, "complete_workflow", "law declared for removal is still present in the Git projection: "+reference, false, "merge the reviewed pull request that deletes the declared law file from the law folder, then retry")
 		}
 	}
 	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
-	resolutions, err := resolveWorkflowChangedLawsTx(ctx, tx, homeProjectID, homeLocatorID, change.LawIDs)
+	resolutions, err := resolveWorkflowChangedLawsTx(ctx, homeProjectID, homeLocatorID, change.LawIDs)
 	if err != nil {
 		return err
 	}
@@ -433,7 +409,7 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 		}
 		resolution, ok := resolutions[reference]
 		if !ok {
-			return newFailure(KindMissingEvidence, "complete_workflow", "the enacted law revision is missing from the Git projection: "+reference, false, "publish and rebuild the enacted law revision, or supersede the contract to declare its intended law_change_removals")
+			return newFailure(KindMissingEvidence, "complete_workflow", "the enacted law revision is missing from the Git projection: "+reference, false, "merge the reviewed pull request that commits the enacted law file under the law folder, or supersede the contract to declare its intended law_change_removals")
 		}
 		if resolution.tier != "derived" {
 			return newFailure(KindMissingEvidence, "complete_workflow", fmt.Sprintf("law %s must carry the derived tier, not %s (CD-0230 D4)", reference, resolution.tier), false, "record authority.tier derived on the changed law")

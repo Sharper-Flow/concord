@@ -1,12 +1,8 @@
 package store
 
 import (
-	"bufio"
 	"context"
 	"errors"
-	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -15,11 +11,20 @@ import (
 func TestWorkflowLawRevisionSameIDAmendmentRemainsCompatible(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
+	repo := initKnowledgeRepo(t)
 	seedWork(t, s, "law-amendment")
+	home := anchorCommittedLawHome(t, s, repo)
+	// The committed folder carries the amended spec:stable revision while the
+	// pin below names the revision the contract approved, so the check sees a
+	// same-ID amendment, never a deletion.
+	commitWorkflowFixtureLaw(t, home, "spec:stable", fixtureLawFolderLaw("spec:stable"))
 	insertLawRevisionFixture(t, s, "law-amendment", "spec:stable", "sha256:"+strings.Repeat("a", 64))
-	insertAcceptedLaw(t, s, "spec:stable", "sha256:"+strings.Repeat("b", 64))
+	ctx, err := s.EstablishKnowledgeSourceSetProofForProject(context.Background(), "p")
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	got, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-amendment", 1, []string{"spec:stable"})
+	got, err := findStaleWorkflowLawRevision(ctx, s.DatabaseForTesting(), "p", "l", "law-amendment", 1, []string{"spec:stable"})
 	if err != nil {
 		t.Fatalf("same-ID amendment check: %v", err)
 	}
@@ -68,15 +73,23 @@ func TestWorkflowPredicateHistoryCompatibilityRequiresUnchangedPayload(t *testin
 func TestWorkflowLawRevisionDeletionRefusesPinnedConsumer(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
+	repo := initKnowledgeRepo(t)
 	seedWork(t, s, "law-deletion")
+	home := anchorCommittedLawHome(t, s, repo)
 	oldHash := "sha256:" + strings.Repeat("a", 64)
+	// The accepted law is the committed file, and the pin names the revision
+	// the contract approved.
+	commitWorkflowFixtureLaw(t, home, "spec:old", fixtureLawFolderLaw("spec:old"))
 	insertLawRevisionFixture(t, s, "law-deletion", "spec:old", oldHash)
-	insertAcceptedLaw(t, s, "spec:old", oldHash)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM law_subjects WHERE law_id='spec:old'; DELETE FROM write_guard`); err != nil {
+	// The law retires by deleting its committed file: folder membership is
+	// the acceptance authority, so the deletion is the retirement.
+	removeWorkflowFixtureLaw(t, home, "spec:old")
+	ctx, err := s.EstablishKnowledgeSourceSetProofForProject(context.Background(), "p")
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-deletion", 1, []string{"spec:old"})
+	got, err := findStaleWorkflowLawRevision(ctx, s.DatabaseForTesting(), "p", "l", "law-deletion", 1, []string{"spec:old"})
 	if err != nil {
 		t.Fatalf("deletion check: %v", err)
 	}
@@ -88,19 +101,31 @@ func TestWorkflowLawRevisionDeletionRefusesPinnedConsumer(t *testing.T) {
 func TestWorkflowLawRevisionDeletionFailsClosedForLegacyUnpinnedConsumer(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
+	repo := initKnowledgeRepo(t)
 	seedWork(t, s, "law-legacy")
+	home := anchorCommittedLawHome(t, s, repo)
+	commitWorkflowFixtureLaw(t, home, "spec:legacy", fixtureLawFolderLaw("spec:legacy"))
 	insertLawRevisionFixture(t, s, "law-legacy", "spec:legacy", "sha256:"+strings.Repeat("a", 64))
-	insertAcceptedLaw(t, s, "spec:legacy", "sha256:"+strings.Repeat("a", 64))
+	// The legacy consumer approved before revision pins existed: its contract
+	// carries no pin row.
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM workflow_contract_law_revisions; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := findStaleWorkflowLawRevision(t.Context(), s.db, "p", "l", "law-legacy", 1, []string{"spec:legacy"}); err != nil || got != nil {
-		t.Fatalf("accepted legacy unpinned law = %+v err=%v, want compatible", got, err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM law_subjects WHERE law_id='spec:legacy'; DELETE FROM write_guard`); err != nil {
+	ctx, err := s.EstablishKnowledgeSourceSetProofForProject(context.Background(), "p")
+	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-legacy", 1, []string{"spec:legacy"})
+	if got, err := findStaleWorkflowLawRevision(ctx, s.DatabaseForTesting(), "p", "l", "law-legacy", 1, []string{"spec:legacy"}); err != nil || got != nil {
+		t.Fatalf("accepted legacy unpinned law = %+v err=%v, want compatible", got, err)
+	}
+	// The unpinned consumer's law then retires through the ordinary deletion,
+	// and the check fails closed without inventing a pin.
+	removeWorkflowFixtureLaw(t, home, "spec:legacy")
+	ctx, err = s.EstablishKnowledgeSourceSetProofForProject(context.Background(), "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := findStaleWorkflowLawRevision(ctx, s.DatabaseForTesting(), "p", "l", "law-legacy", 1, []string{"spec:legacy"})
 	var failure *Failure
 	if got != nil || !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:legacy" {
 		t.Fatalf("legacy deletion diagnosis = %+v err=%v, want projection_not_found without an invented pin", got, err)
@@ -110,9 +135,17 @@ func TestWorkflowLawRevisionDeletionFailsClosedForLegacyUnpinnedConsumer(t *test
 func TestWorkflowLawRevisionMissingPinnedProjectionIsStale(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
+	repo := initKnowledgeRepo(t)
 	seedWork(t, s, "law-missing")
+	// The anchored home commits only its registry: the pin names a law the
+	// folder never accepted.
+	anchorCommittedLawHome(t, s, repo)
 	insertLawRevisionFixture(t, s, "law-missing", "spec:missing", "sha256:"+strings.Repeat("a", 64))
-	got, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-missing", 1, []string{"spec:missing"})
+	ctx, err := s.EstablishKnowledgeSourceSetProofForProject(context.Background(), "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := findStaleWorkflowLawRevision(ctx, s.DatabaseForTesting(), "p", "l", "law-missing", 1, []string{"spec:missing"})
 	if err != nil || got == nil || got.OldLawID != "spec:missing" || got.OldContentHash != "sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("missing pinned law diagnosis = %+v err=%v, want stale deleted law and pinned hash", got, err)
 	}
@@ -170,9 +203,6 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 			}
 			binding, err := readWorkflowArchitectureBinding(t.Context(), s.db, workID, 1)
 			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','product',?,'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test'); DELETE FROM write_guard`, binding.HomeDomainID); err != nil {
 				t.Fatal(err)
 			}
 			successor := map[string]any{
@@ -236,7 +266,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 			if len(pins) != len(tc.mandate) {
 				t.Fatalf("successor pins=%+v, want mandate %v", pins, tc.mandate)
 			}
-			if len(pins) == 1 && (pins[0].LawID != "spec:two" || pins[0].ContentHash != "sha256:"+strings.Repeat("b", 64)) {
+			if len(pins) == 1 && (pins[0].LawID != "spec:two" || pins[0].ContentHash != workflowFixtureLawPin(t, workflowLawFixtureRepo(t, s), "spec:two")) {
 				t.Fatalf("successor contract pins=%+v, want current accepted spec:two", pins)
 			}
 			var activeCount, oldConfirmationCount, successorConfirmationCount int
@@ -253,17 +283,21 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 				t.Fatalf("recontracted workflow step=%q, want unchanged execution step", got)
 			}
 			version = result.ResultingVersion
-			tx, err = s.DatabaseForTesting().BeginTx(context.Background(), nil)
+			startCtx, err := s.PrepareWorkflowActionProof(context.Background(), "start_execution", workID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			scope2, err := beginWrite(context.Background(), tx)
+			tx, err = s.DatabaseForTesting().BeginTx(startCtx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scope2, err := beginWrite(startCtx, tx)
 			if err != nil {
 				tx.Rollback()
 				t.Fatal(err)
 			}
-			startResult, err := applyWorkflowActionRawTx(context.Background(), tx, scope2, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "start_execution", Payload: mustJSONValue(map[string]any{}), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "recontract-start", OperationID: "recontract-start", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-start", RequestID: "request:recontract-start", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
-			_ = scope2.close(context.Background())
+			startResult, err := applyWorkflowActionRawTx(startCtx, tx, scope2, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "start_execution", Payload: mustJSONValue(map[string]any{}), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "recontract-start", OperationID: "recontract-start", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-start", RequestID: "request:recontract-start", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+			_ = scope2.close(startCtx)
 			if err != nil {
 				tx.Rollback()
 				t.Fatalf("ordinary post-recovery action: %v", err)
@@ -310,7 +344,13 @@ func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
 	t.Parallel()
 	const workID = "law-deletion-execution-recovery"
 	s := seedLawRevisionPendingReview(t, workID)
-	if err := checkWorkflowLawRevisionStalenessTx(t.Context(), s.db, workID); err != nil {
+	// The staleness read consumes committed law, so the pre-transaction proof
+	// is verified before the raw read opens.
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkWorkflowLawRevisionStalenessTx(ctx, s.db, workID); err != nil {
 		t.Fatalf("healthy execution has a stale law pin: %v", err)
 	}
 	var approvedBy string
@@ -349,12 +389,18 @@ func TestWorkflowLawRevisionCloneRecoveryRefusesDeletedMandate(t *testing.T) {
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	cutoverLawProjection(t, s)
-	currentVersion := readWorkVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	// The clone wall reads committed law, so the proof is verified after the
+	// cutover and before the transaction opens.
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = validateClonedWorkflowContractLawRevisionsTx(t.Context(), tx, workID, []int64{1})
+	currentVersion := readWorkVersion(t, s, workID)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = validateClonedWorkflowContractLawRevisionsTx(ctx, tx, workID, []int64{1})
 	_ = tx.Rollback()
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "retain a deleted mandated law") {
@@ -385,225 +431,6 @@ func TestWorkflowLawRevisionAllowsTerminalLifecycleMutationAfterCutover(t *testi
 	}
 }
 
-func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *testing.T) {
-	t.Parallel()
-	workID := "law-cross-connection-order"
-	s1 := seedLawRevisionPendingReview(t, workID)
-	acceptancePayload := mustJSONValue(lawRevisionAcceptancePayload(t, s1, workID))
-	s2, err := Open(context.Background(), s1.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = s2.Close() })
-	acceptanceCtx, err := prepareTerminalTestContext(context.Background(), s2, workID, "record_review")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	locked := make(chan struct{})
-	release := make(chan struct{})
-	cutoverErr := make(chan error, 1)
-	crossVersion := readWorkVersion(t, s1, workID)
-	go func() {
-		tx, beginErr := s1.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if beginErr != nil {
-			cutoverErr <- beginErr
-			return
-		}
-		if foldErr := enterWrite(context.Background(), tx); foldErr != nil {
-			tx.Rollback()
-			cutoverErr <- foldErr
-			return
-		}
-		if _, execErr := tx.Exec(`DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`); execErr != nil {
-			tx.Rollback()
-			cutoverErr <- execErr
-			return
-		}
-		close(locked)
-		<-release
-		_ = leaveWrite(context.Background(), tx)
-		cutoverErr <- tx.Commit()
-	}()
-	select {
-	case <-locked:
-	case err := <-cutoverErr:
-		t.Fatalf("cutover before lock: %v", err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("cutover did not reach its transaction lock")
-	}
-
-	acceptanceDone := make(chan error, 1)
-	acceptanceStarted := make(chan struct{})
-	go func() {
-		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-		close(acceptanceStarted)
-		tx, beginErr := s2.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if beginErr != nil {
-			acceptanceDone <- beginErr
-			return
-		}
-		_, actionErr := applyWorkflowActionRawTx(acceptanceCtx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: crossVersion, ActionID: "record_review", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-accept", OperationID: "cross-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-accept", RequestID: "request:cross-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
-		if actionErr == nil {
-			tx.Rollback()
-			acceptanceDone <- nil
-			return
-		}
-		tx.Rollback()
-		acceptanceDone <- actionErr
-	}()
-	select {
-	case <-acceptanceStarted:
-	case <-time.After(5 * time.Second):
-		t.Fatal("cross-connection acceptance did not start before cutover release")
-	}
-	close(release)
-	if err := <-cutoverErr; err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case err := <-acceptanceDone:
-		var failure *Failure
-		if !failureAs(err, &failure) || failure.Kind != KindStaleLawRevision {
-			t.Fatalf("cross-connection acceptance=%v, want stale_law_revision after committed cutover", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("cross-connection acceptance did not finish")
-	}
-}
-
-func TestWorkflowLawRevisionCutoverCommitsBeforeCrossProcessAcceptance(t *testing.T) {
-	t.Parallel()
-	workID := "law-cross-process-order"
-	s := seedLawRevisionPendingReview(t, workID)
-	version := readWorkVersion(t, s, workID)
-
-	cutover := exec.Command(os.Args[0], "-test.run=^TestWorkflowLawRevisionCrossProcessWorker$", "-test.v=false")
-	cutover.Env = append(os.Environ(), "TEST_CONCORD_LAW_RACE_ROLE=cutover", "TEST_CONCORD_LAW_RACE_DB="+s.Path(), "TEST_CONCORD_LAW_RACE_WORK="+workID)
-	cutoverOut, err := cutover.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cutoverIn, err := cutover.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cutover.Stderr = os.Stderr
-	acceptance := exec.Command(os.Args[0], "-test.run=^TestWorkflowLawRevisionCrossProcessWorker$", "-test.v=false")
-	acceptance.Env = append(os.Environ(), "TEST_CONCORD_LAW_RACE_ROLE=acceptance", "TEST_CONCORD_LAW_RACE_DB="+s.Path(), "TEST_CONCORD_LAW_RACE_WORK="+workID, fmt.Sprintf("TEST_CONCORD_LAW_RACE_VERSION=%d", version))
-	acceptanceOut, err := acceptance.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	acceptanceIn, err := acceptance.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	acceptance.Stderr = os.Stderr
-	if err := acceptance.Start(); err != nil {
-		t.Fatal(err)
-	}
-	acceptanceScanner := bufio.NewScanner(acceptanceOut)
-	t.Cleanup(func() { _ = acceptance.Process.Kill() })
-	if !acceptanceScanner.Scan() || acceptanceScanner.Text() != "acceptance=ready" {
-		t.Fatalf("acceptance worker did not become ready before cutover commit: %q", acceptanceScanner.Text())
-	}
-	if err := cutover.Start(); err != nil {
-		t.Fatal(err)
-	}
-	cutoverScanner := bufio.NewScanner(cutoverOut)
-	t.Cleanup(func() { _ = cutover.Process.Kill() })
-	if !cutoverScanner.Scan() || cutoverScanner.Text() != "cutover=locked" {
-		t.Fatalf("cutover worker did not establish its transaction lock: %q", cutoverScanner.Text())
-	}
-	if _, err := fmt.Fprintln(acceptanceIn, "accept"); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := fmt.Fprintln(cutoverIn, "release"); err != nil {
-		t.Fatal(err)
-	}
-	if !cutoverScanner.Scan() || cutoverScanner.Text() != "cutover=committed" {
-		t.Fatalf("cutover worker did not commit: %q", cutoverScanner.Text())
-	}
-	if err := cutover.Wait(); err != nil {
-		t.Fatalf("cutover worker: %v", err)
-	}
-	if !acceptanceScanner.Scan() || acceptanceScanner.Text() != "acceptance=stale_law_revision" {
-		t.Fatalf("acceptance worker result = %q, want stale_law_revision", acceptanceScanner.Text())
-	}
-	if err := acceptance.Wait(); err != nil {
-		t.Fatalf("acceptance worker: %v", err)
-	}
-}
-
-func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
-	t.Parallel()
-	role := os.Getenv("TEST_CONCORD_LAW_RACE_ROLE")
-	if role == "" {
-		return
-	}
-	s, err := Open(context.Background(), os.Getenv("TEST_CONCORD_LAW_RACE_DB"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	workID := os.Getenv("TEST_CONCORD_LAW_RACE_WORK")
-
-	switch role {
-	case "cutover":
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := enterWrite(context.Background(), tx); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		if _, err := tx.Exec(`DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		fmt.Println("cutover=locked")
-		if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		if err := leaveWrite(context.Background(), tx); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		if err := tx.Commit(); err != nil {
-			t.Fatal(err)
-		}
-		fmt.Println("cutover=committed")
-	case "acceptance":
-		acceptancePayload := mustJSONValue(lawRevisionAcceptancePayload(t, s, workID))
-		acceptanceCtx, err := prepareTerminalTestContext(context.Background(), s, workID, "record_review")
-		if err != nil {
-			t.Fatal(err)
-		}
-		fmt.Println("acceptance=ready")
-		if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
-			t.Fatal(err)
-		}
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-		_, actionErr := applyWorkflowActionRawTx(acceptanceCtx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "TEST_CONCORD_LAW_RACE_VERSION"), ActionID: "record_review", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
-		tx.Rollback()
-		var failure *Failure
-		if !failureAs(actionErr, &failure) || failure.Kind != KindStaleLawRevision {
-			t.Fatalf("acceptance error = %v, want stale_law_revision", actionErr)
-		}
-		fmt.Println("acceptance=stale_law_revision")
-	default:
-		t.Fatalf("unknown race worker role %q", role)
-	}
-}
-
 func seedLawRevisionPendingReview(t *testing.T, workID string) *Store {
 	t.Helper()
 	j := pReturnReviewFixture(t, workID, "workflow.implementation", "")
@@ -628,15 +455,6 @@ func lawRevisionAcceptancePayload(t *testing.T, s *Store, workID string) map[str
 	return map[string]any{"review": state.Accepted.Report}
 }
 
-func mustEnvInt64(t *testing.T, name string) int64 {
-	t.Helper()
-	var value int64
-	if _, err := fmt.Sscan(os.Getenv(name), &value); err != nil {
-		t.Fatalf("parse %s: %v", name, err)
-	}
-	return value
-}
-
 func attachWorkflowLawPin(t *testing.T, s *Store, workID, hash string) {
 	t.Helper()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,?,?,?); DELETE FROM write_guard`, workID, 1, "spec:one", hash); err != nil {
@@ -644,21 +462,15 @@ func attachWorkflowLawPin(t *testing.T, s *Store, workID, hash string) {
 	}
 }
 
+// cutoverLawProjection retires the mandated committed law and enacts its
+// successor through the ordinary pull-request route: the committed file is
+// deleted and the successor law file lands in the same commit series, so the
+// next verified read carries the cutover.
 func cutoverLawProjection(t *testing.T, s *Store) {
 	t.Helper()
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id=?`, "spec:one"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator',?,'spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test')`, "spec:two"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
+	removeCommittedFixtureLaw(t, home)
+	commitFixtureLawFile(t, home, "spec:two", fixtureLawFolderLaw("spec:two"))
 }
 
 func TestWorkflowLawRevisionPinsFoldWithoutConsultingCurrentLaw(t *testing.T) {
@@ -666,8 +478,13 @@ func TestWorkflowLawRevisionPinsFoldWithoutConsultingCurrentLaw(t *testing.T) {
 	s := openTemp(t)
 	workID := "law-pinned-rebuild"
 	seedWork(t, s, workID)
-	seedEventDerivedLocator(t, s, "p", "l", t.TempDir())
-	insertAcceptedLaw(t, s, "spec:one", "sha256:"+strings.Repeat("a", 64))
+	// The anchor home carries a real committed spec:one at a revision the pin
+	// below does not name, so the fold demonstrably consults neither the
+	// committed folder nor its digests.
+	repo := initKnowledgeRepo(t)
+	home := KnowledgeHome{HomeProjectID: "p", HomeLocatorID: "l", RepoPath: repo, HeadRef: "HEAD"}
+	commitWorkflowFixtureLaw(t, home, "spec:one", fixtureLawFolderLaw("spec:one"))
+	seedEventDerivedLocator(t, s, "p", "l", repo)
 	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/runner", "session/law-pinned")
 	events := []Event{
 		workflowEventWithActor("law-pinned-actor", WorkflowActorRecorded, workID, actor, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": actor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/runner", "session_ref": "session/law-pinned", "actor_class": "agent"}),
@@ -684,15 +501,30 @@ func TestWorkflowLawRevisionPinsFoldWithoutConsultingCurrentLaw(t *testing.T) {
 	}
 }
 
+// A proof read before a law cutover never feeds a later transaction: the
+// transaction revalidates the committed law content the snapshot was read
+// from and refuses once the cutover moved it.
+func TestWorkflowLawRevisionRefusesProofReadBeforeCutover(t *testing.T) {
+	t.Parallel()
+	const workID = "law-proof-before-cutover"
+	s := seedLawRevisionPendingReview(t, workID)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cutoverLawProjection(t, s)
+	err = checkWorkflowLawRevisionStalenessTx(ctx, s.db, workID)
+	requireFailureKind(t, err, KindInvalidOperation, "proof read before the cutover")
+	if !strings.Contains(err.Error(), "moved its committed law content after its verification") {
+		t.Fatalf("stale proof refusal does not name the moved law content: %v", err)
+	}
+}
+
 func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterCutover(t *testing.T) {
 	t.Parallel()
 	workID := "law-stale-in-flight"
 	s := seedLawRevisionPendingReview(t, workID)
 	acceptancePayload := mustJSONValue(lawRevisionAcceptancePayload(t, s, workID))
-	acceptanceCtx, err := prepareTerminalTestContext(context.Background(), s, workID, "record_review")
-	if err != nil {
-		t.Fatal(err)
-	}
 	var definitionRef string
 	var definitionDigest string
 	if err := s.db.QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionDigest); err != nil {
@@ -708,6 +540,12 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 		t.Fatalf("claim before cutover: %v", err)
 	}
 	cutoverLawProjection(t, s)
+	// The acceptance verifies the committed law folder before its transaction
+	// opens, so the verification reads the committed cutover.
+	acceptanceCtx, err := prepareTerminalTestContext(context.Background(), s, workID, "record_review")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err = CompleteStep(context.Background(), s, CompleteRequest{
 		OpID: claim.OpID, AttemptEpoch: claim.AttemptEpoch, ResultKind: ResultCompleted, PrincipalRef: "principal/in-flight", Tool: "workflow-test",
@@ -742,9 +580,26 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 	}
 }
 
+// anchorCommittedLawHome seeds the project and canonical-path locator pair
+// ("p"/"l") the raw staleness reads name against a real committed law-folder
+// home, and designates that home as the anchor Product's knowledge home, so a
+// pre-transaction proof binds the folder the check reads. Call it after
+// seedWork: the work fixture must create the shared Project first.
+func anchorCommittedLawHome(t *testing.T, s *Store, repo string) KnowledgeHome {
+	t.Helper()
+	home := KnowledgeHome{HomeProjectID: "p", HomeLocatorID: "l", RepoPath: repo, HeadRef: "HEAD"}
+	// A designated home's law reads need its committed Domain registry.
+	writeFixtureLawSource(t, home)
+	seedEventDerivedLocator(t, s, "p", "l", repo)
+	authorizeKnowledgeProductHome(t, s, "anchor-product-p", home, "p")
+	return home
+}
+
+// insertLawRevisionFixture records one approved contract and its law revision
+// pin for a seeded work item. The caller anchors the committed law home the
+// mandate resolves against.
 func insertLawRevisionFixture(t *testing.T, s *Store, workID, lawID, hash string) {
 	t.Helper()
-	anchorHomePair(t, s, "p", "l")
 	specMandate := "[\"" + lawID + "\"]"
 	actorRef := "actor:" + strings.Repeat("a", 64)
 	db := s.DatabaseForTesting()
@@ -761,14 +616,6 @@ func insertLawRevisionFixture(t *testing.T, s *Store, workID, lawID, hash string
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func insertAcceptedLaw(t *testing.T, s *Store, lawID, hash string) {
-	t.Helper()
-	anchorHomePair(t, s, "p", "l")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'spec','accepted','.concord/docs/law.md',?,?, 'commit'); DELETE FROM write_guard`, lawID, lawID, hash); err != nil {
 		t.Fatal(err)
 	}
 }

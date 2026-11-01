@@ -331,7 +331,7 @@ func copyResearchRevisionContent(ctx context.Context, tx *sql.Tx, pack string, f
 }
 
 // validateResearchScopes mirrors the durable-knowledge scope invariant in
-// knowledge_manifest.go: mode is closed, and home carries no explicit IDs. An
+// knowledge_record.go: mode is closed, and home carries no explicit IDs. An
 // empty mode defaults to home so a caller declaring nothing gets the meaning it
 // intends rather than a rejected write.
 func validateResearchScopes(scopes *ResearchScopes) error {

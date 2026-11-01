@@ -1,3 +1,17 @@
+---
+{
+  "id": "CD-0006",
+  "title": "Concord root Product policy",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "product_wide_rationale": "Establishes the root Product identity, the single-operator rule, and the human-approval constitution. Every child Domain operates inside those constraints; none of them owns the constraint itself."
+}
+---
 # CD-0006: Concord Root Product Policy
 
 **Status:** Accepted

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -252,12 +253,29 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_law_baselines WHERE work_id='work-1'`) != 1 {
 		t.Fatal("fixture lacks its owning-start law baseline")
 	}
-	const lawHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	// The contract's mandated law is committed content at the work's resolved
+	// canonical home (law-folder-authority.md, Committed reads): the fixture
+	// commits the independent registry and the pinned law into the home's
+	// repository, then pins the committed whole-file revision.
+	registry := store.KnowledgeDomainRegistry{
+		SchemaVersion: "1.0",
+		ProductKey:    "shelving-fixture",
+		RootDomainID:  "product-root:shelving-fixture",
+		Domains: []store.KnowledgeDomain{{DomainID: "product-root:shelving-fixture", Name: "Shelving fixture root",
+			Purpose: "Product law fixture", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}}},
+	}
+	if err := pm1fixture.WriteKnowledgeShards(root, registry); err != nil {
+		t.Fatal(err)
+	}
+	// pm1fixture writes the registry at its existing repository path but leaves
+	// it unstaged; the law commit below carries both into the committed state.
+	gitRun(t, root, "add", "--", ".concord/docs/knowledge/domain-registry.json")
+	lawHash := commitAgentFixtureLaw(t, root, ".concord/law/specs/shelving-fixture.md",
+		agentFixtureLawFrontmatter("spec:shelving-fixture", registry.RootDomainID, "The shelving fixture registry declares no child Domain, so this law has no child home available."))
 	execProjection(t, s, []string{
-		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project-1','path-1','spec:shelving-fixture','spec','accepted','.concord/docs/shelving-fixture.md','Synthetic shelving law',?,'fixture')`,
 		`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) SELECT 'work-1',1,'Preserve the planning goal','internal_sqlite','[]','[]','2026-08-08T12:00:00Z',execution_actor_ref,'["spec:shelving-fixture"]','[]',1,'prototype_internal' FROM workflow_instances WHERE work_id='work-1'`,
 		`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES('work-1',1,'spec:shelving-fixture',?)`,
-	}, [][]any{{lawHash}, nil, {lawHash}})
+	}, [][]any{nil, {lawHash}})
 	var definitionPin string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&definitionPin); err != nil {
 		t.Fatal(err)

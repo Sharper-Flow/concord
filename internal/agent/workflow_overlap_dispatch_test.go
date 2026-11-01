@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -30,8 +31,17 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []agentcontract.Capa
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	repo := t.TempDir()
-	hash := "sha256:" + strings.Repeat("c", 64)
+	// The pair's contracts bind the committed Domain registry at product-1's
+	// designated knowledge home (law-folder-authority.md, Committed reads):
+	// the fixture seeds the same committed home a fresh operator store
+	// carries, then reads the committed registry through the production
+	// Domain read for the binding's content hash and home Domain.
+	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	registry := committedProductRegistry(t, s)
+	root := registry.RootDomainID
+	hash := registry.ContentHash
 	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-1")
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
@@ -43,15 +53,11 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []agentcontract.Capa
 		args  []any
 	}{
 		{"write guard", `INSERT INTO write_guard(active) VALUES(1)`, nil},
-		{"locator", `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('overlap-locator','project-1','canonical_path',?,?,'now','now')`, []any{repo, repo}},
-		{"knowledge home", `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-1','project-1','overlap-locator')`, nil},
-		{"registry", `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product-1','project-1','overlap-locator','product-1','root','1.0',?,'test')`, []any{hash}},
-		{"domain", `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project-1','overlap-locator','product-1','root','Root','Product law','current',?,'test')`, []any{hash}},
 		{"actor", `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-1','operator','now')`, []any{actorRef}},
 		{"work-1 contract", `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'overlap','internal_sqlite','[]','[]','now',?,'[]','[]',1,'prototype_internal')`, []any{actorRef}},
 		{"work-2 contract", `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-2',1,'overlap','internal_sqlite','[]','[]','now',?,'[]','[]',1,'prototype_internal')`, []any{actorRef}},
-		{"bindings", `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES('work-1',1,'product-1',?,'root',?),('work-2',1,'product-1',?,'root',?)`, []any{hash, hash, hash, hash}},
-		{"affected domains", `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES('work-1',1,'root'),('work-2',1,'root')`, nil},
+		{"bindings", `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES('work-1',1,'product-1',?,?,?),('work-2',1,'product-1',?,?,?)`, []any{hash, root, hash, hash, root, hash}},
+		{"affected domains", `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES('work-1',1,?),('work-2',1,?)`, []any{root, root}},
 		// CD-0183: a contract holds its Domain claim once the item's workflow
 		// instance carries the execution-start fact, so the fixture gives both
 		// sides a started instance. Without this the pair claims nothing and
@@ -60,7 +66,7 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []agentcontract.Capa
 		{"started lifecycles", `UPDATE work_items SET lifecycle='in_progress' WHERE id IN ('work-1','work-2')`, nil},
 		// Only a write intersection blocks, so the pair must modify the same
 		// Domain. A shared affected Domain alone derives no overlap.
-		{"shared Domain writes", `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('work-1',1,'root'),('work-2',1,'root')`, nil},
+		{"shared Domain writes", `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('work-1',1,?),('work-2',1,?)`, []any{root, root}},
 		{"leave write", `DELETE FROM write_guard`, nil},
 	}
 	for _, statement := range statements {

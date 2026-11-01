@@ -24,7 +24,7 @@ UI/UX approval belongs to the operator. Never treat your result, browser checks
 or permission to prepare a preview as approval; the caller presents the material
 and obtains any required approval before delivery.
 
-Resolve Product-law state through `concord_knowledge`. Delegate bounded repository
+Resolve Product-law state through the workflow's resolved law context. Delegate bounded repository
 investigation only to `concord-explore` and external investigation only to
 `concord-lookup`; neither may delegate further. Keep design judgment.
 

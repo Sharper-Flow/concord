@@ -109,12 +109,34 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 	if s == nil || s.db == nil {
 		return pin, newFailure(KindUnavailable, "work_pin", "store is not open", false, "open the authority database")
 	}
+	// The pin is advisory: when the verification is unavailable the read
+	// proceeds without a proof, and the folds report law currency and the
+	// confirmation unverified instead of failing the pin.
+	if verified, err := s.PrepareWorkLawProof(ctx, workID); err == nil {
+		ctx = verified
+	}
 	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot open a consistent work pin snapshot", true, "retry once the database is readable", err)
 	}
 	defer tx.Rollback()
 	return ReadWorkPinTx(ctx, tx, workID)
+}
+
+// workStepFoldsRegistry reports whether the work's current step declares
+// confirm_premise, whose fold checks the investigation artifact's Domain refs
+// against the committed registry. An unresolvable definition or step folds
+// nothing here; its owning path answers that refusal.
+func (s *Store) workStepFoldsRegistry(ctx context.Context, workID string) bool {
+	entry, err := VerifyWorkflowInstanceDefinition(ctx, s, nil, workID)
+	if err != nil {
+		return false
+	}
+	var step string
+	if err := s.db.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+		return false
+	}
+	return stepDeclaresAction(entry.Definition, step, "confirm_premise")
 }
 
 // ReadMutationWorkPinTxForRegistry is the registry-threaded opaque-Tx pin: a

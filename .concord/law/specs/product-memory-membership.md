@@ -1,3 +1,32 @@
+---
+{
+  "id": "PM5",
+  "title": "Concord Product-memory membership (PM5)",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "work-coordination",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "Q6-cross-project"
+    },
+    {
+      "criterion": 2,
+      "scenario": "Q1-project-to-product"
+    },
+    {
+      "criterion": 3,
+      "scenario": "Q6-project-to-work"
+    },
+    {
+      "criterion": 4,
+      "exemption": "No corpus scenario covers membership replacement atomicity; the guarantee is proved by the store lifecycle suite whose memberships_replaced fold asserts one event replacing the whole set, and by PM1's deduplicated populations."
+    }
+  ]
+}
+---
 # Concord Product-Memory Membership (PM5)
 
 > **Status:** **Accepted — binding until superseded.**

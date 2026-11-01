@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0024",
+  "title": "Epic agent surface and narrow TS9 exception",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-evolution",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0024: Epic Agent Surface and Narrow TS9 Exception
 
 **Status:** Accepted under operator approval.

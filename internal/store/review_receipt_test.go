@@ -72,7 +72,7 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 				f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 				pack := seedResearchContextPack(t, f, "receipt-batch-pack")
 				bindResearchPack(t, f, pack.PackID, 1, true)
-				selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
+				selection := researchSelectionEntry(pack.PackID, 1, "f2", "product-root:product")
 				selection["product_wide_rationale"] = "The selected finding supports the Product-wide research criteria."
 				if err := f.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
 					t.Fatal(err)
@@ -238,7 +238,7 @@ func TestCriterionReceiptResearchRequiresSelectedSourcedFindingWithoutGit(t *tes
 			f := workContextFixture{store: route.store, workID: "research-receipt", owner: route.owner, operator: route.operator}
 			pack := seedResearchContextPack(t, f, "receipt-pack")
 			bindResearchPack(t, f, pack.PackID, 1, true)
-			selection := researchSelectionEntry(pack.PackID, 1, tc.finding, "root")
+			selection := researchSelectionEntry(pack.PackID, 1, tc.finding, "product-root:product")
 			selection["product_wide_rationale"] = "The selected research supports the Product-wide investigation."
 			if err := f.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
 				t.Fatal(err)

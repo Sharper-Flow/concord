@@ -1,3 +1,36 @@
+---
+{
+  "id": "CD-0229",
+  "title": "Plain workflow definitions without work-item size classification",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0006"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0138"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0213"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0218"
+    }
+  ]
+}
+---
 # CD-0229: Plain workflow definitions without work-item size classification
 
 - **Status:** Accepted

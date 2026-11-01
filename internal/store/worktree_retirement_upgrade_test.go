@@ -72,16 +72,26 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{173}) {
-		t.Fatalf("applied migrations = %v, want [173]", report.Applied)
+	// The upgrade runs from the v172 predecessor to the current head, so the
+	// applied list is the complete pending tail starting at the worktree
+	// retirement.
+	var wantApplied []int
+	for _, m := range migrations {
+		if m.Version > 172 {
+			wantApplied = append(wantApplied, m.Version)
+		}
+	}
+	if !reflect.DeepEqual(report.Applied, wantApplied) {
+		t.Fatalf("applied migrations = %v, want %v", report.Applied, wantApplied)
 	}
 	assertWorktreeTablesAbsent(t, db)
+	assertLawIndexRetired(t, db)
 	for table, want := range before {
 		if table == "schema" || table == "schema_migrations" || table == "store_revision" {
 			continue
 		}
 		retired := false
-		for _, name := range retiredWorktreeTables {
+		for _, name := range append(append([]string(nil), retiredWorktreeTables...), lawIndexRetiredPrefixes...) {
 			retired = retired || table == name
 		}
 		if !retired {

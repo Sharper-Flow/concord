@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strconv"
@@ -287,7 +288,6 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 		}
 		if proof == "planning_without_outcome" {
 			seedWorkflowLaw(t, s)
-			seedIssue31DomainRegistry(t, s)
 			version := readWorkVersion(t, s, workID)
 			for _, action := range []string{"record_proposal", "record_alignment"} {
 				version = issue31WorkflowAction(t, s, workID, version, action, "corpus:"+action, actor)
@@ -597,7 +597,6 @@ func TestCorpusCaptureObservationReadsApprovedContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	grant := scenario.Request.Grant
 	actor := WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: ActorAgent}
 	workID := scenario.Setup.FixtureRefs.WorkItem
@@ -617,11 +616,18 @@ func TestCorpusCaptureObservationReadsApprovedContract(t *testing.T) {
 		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, actor)
 	}
 	binding := corpusArchitectureBinding()
-	var root string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT root_domain_id FROM domain_registries WHERE product_id='product'`).Scan(&root); err != nil {
+	// The binding names the committed registry's root Domain: the fixture
+	// home carries the registry file, and the approval validates against the
+	// registry that file declares.
+	registryJSON, err := os.ReadFile(filepath.Join(workflowLawFixtureRepo(t, s), filepath.FromSlash(knowledgeRegistryPath)))
+	if err != nil {
 		t.Fatal(err)
 	}
-	binding["home_domain_id"], binding["affected_domain_ids"] = root, []string{root}
+	var registry KnowledgeDomainRegistry
+	if err := json.Unmarshal(registryJSON, &registry); err != nil {
+		t.Fatal(err)
+	}
+	binding["home_domain_id"], binding["affected_domain_ids"] = registry.RootDomainID, []string{registry.RootDomainID}
 	payload, err := json.Marshal(map[string]any{"spec_mandate": []string{}, "law_modifies": []string{}, "architecture_binding": binding})
 	if err != nil {
 		t.Fatal(err)
@@ -644,7 +650,6 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:corpus", ClientRef: "client:corpus", AgentRef: "agent:corpus-main", SessionRef: "session:corpus-inline", ActorClass: ActorAgent}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {

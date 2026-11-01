@@ -1,3 +1,26 @@
+---
+{
+  "id": "CD-0210",
+  "title": "Outside defect repair has an explicit disposition and reconciliation",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-08569117ae9c39355b793793",
+    "contract_version": 1
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0183"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0122"
+    }
+  ]
+}
+---
 # CD-0210: Outside defect repair has an explicit disposition and reconciliation
 
 - **Status:** Accepted

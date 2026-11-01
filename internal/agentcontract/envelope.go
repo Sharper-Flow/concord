@@ -489,7 +489,7 @@ func (e Envelope) validateError() error {
 
 func validateEnvelopeCollections(e Envelope) error {
 	for _, watermark := range e.SourceVersionWatermark {
-		if !slices.Contains([]string{"product_memory", "git_knowledge", "native_authority", "adapter"}, watermark.SourceKind) || !BoundedBytes(watermark.SourceID, 1, 256) || !BoundedBytes(watermark.Version, 1, 256) {
+		if !slices.Contains([]string{"product_memory", "native_authority", "adapter"}, watermark.SourceKind) || !BoundedBytes(watermark.SourceID, 1, 256) || !BoundedBytes(watermark.Version, 1, 256) {
 			return errors.New("invalid source watermark")
 		}
 	}

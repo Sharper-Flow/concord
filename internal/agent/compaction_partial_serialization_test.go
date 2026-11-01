@@ -199,20 +199,17 @@ func TestCompactionPublishReconcileSerializedRecovery(t *testing.T) {
 	if dirty := gitRun(t, home.RepoPath, "status", "--porcelain"); dirty != "" {
 		t.Fatalf("recovery left another write in the knowledge home: %s", dirty)
 	}
-	resolved := requireCompactionWire(t, dispatchRead(t, s, service, InvokeRequest{Tool: "concord_knowledge", Operation: "resolve_note", Input: json.RawMessage(`{"work_id":"work-cancelled"}`)}, env))
-	var canonical struct {
-		State         string `json:"state"`
-		Locator       string `json:"locator"`
-		CommitOID     string `json:"commit_oid"`
-		ContentHash   string `json:"content_hash"`
-		HomeProjectID string `json:"home_project_id"`
-		HomeLocatorID string `json:"home_locator_id"`
+	// The public knowledge resolve family is retired; the retained proof is the
+	// verified committed note itself (compaction/work surface, exact bytes).
+	recovered, proofErr := store.FindVerifiedWorkNote(context.Background(), home, content.WorkID, content.ContentDigest)
+	if proofErr != nil {
+		t.Fatalf("recovered publication does not verify at the committed home: %v", proofErr)
 	}
-	if err := json.Unmarshal(resolved.Result, &canonical); err != nil {
-		t.Fatal(err)
+	if recovered.NotePath != note.NotePath || recovered.CommitOID != note.CommitOID || recovered.ContentHash != content.ContentDigest {
+		t.Fatalf("recovery changed the exact canonical proof: %+v, want %s %s", recovered, note.NotePath, note.CommitOID)
 	}
-	if resolved.Outcome != agentcontract.OutcomeOK || canonical.State != "canonical" || canonical.Locator != note.NotePath || canonical.CommitOID != note.CommitOID || canonical.ContentHash != content.ContentDigest || canonical.HomeProjectID != home.HomeProjectID || canonical.HomeLocatorID != home.HomeLocatorID {
-		t.Fatalf("resolve_note did not return the recovered exact canonical proof: %s, %+v", resolved.Result, resolved.Error)
+	if home.HomeProjectID == "" || home.HomeLocatorID == "" {
+		t.Fatal("recovery lost the recorded home identity")
 	}
 }
 

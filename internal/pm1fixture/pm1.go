@@ -9,10 +9,7 @@ package pm1fixture
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -56,13 +53,7 @@ type Corpus struct {
 			Source string `json:"source"`
 			Target string `json:"target"`
 		} `json:"relations"`
-		Events    []Event `json:"events"`
-		Knowledge []struct {
-			ID          string `json:"id"`
-			Path        string `json:"path"`
-			Commit      string `json:"commit"`
-			ContentHash string `json:"content_hash"`
-		} `json:"knowledge"`
+		Events []Event `json:"events"`
 	} `json:"fixtures"`
 	Scenarios []struct {
 		ID              string         `json:"id"`
@@ -96,92 +87,54 @@ type Event struct {
 	EvidenceRefs []string `json:"evidence_refs"`
 }
 
-// GitKnowledge carries the resolved KnowledgeHome plus commit/content-hash
-// aliases that fixture expected-value placeholders resolve against.
+// GitKnowledge carries the resolved compaction home of the seeded corpus.
 type GitKnowledge struct {
-	Home        store.KnowledgeHome
-	CommitAlias map[string]string
-	HashAlias   map[string]string
+	Home store.KnowledgeHome
 }
 
 const (
 	FixtureDomainRegistryContentHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	FixtureRootDomainID              = "root"
+	// FixtureRootDomainID is the root Domain SeedCommittedProductDomain
+	// commits for product-1, the Product nearly every caller seeds.
+	FixtureRootDomainID = "product-root:fixture-product-1"
 )
 
-// SeedCurrentProductDomain adds the minimal current Domain projection needed
-// by Product-changing workflow fixtures. homeDir is the fixture knowledge
-// home's checkout: the seeder registers it as the canonical path and writes
-// the canonical-layout Domain registry shard into it, plus a manifest head
-// when the checkout carries none, so the workflow law context selects the
-// canonical layout and resolves its registry locator against a file that
-// opens.
-// The projection is deliberately reusable so agent fixtures exercise the same
-// current registry lookup as the authority without duplicating SQL in each
-// test package.
-func SeedCurrentProductDomain(ctx context.Context, s *store.Store, productID, homeProjectID, homeDir string) error {
-	registry := fmt.Sprintf(`{"schema_version":"1.0","product_key":"fixture-%s","root_domain_id":%q,"domains":[]}`, productID, FixtureRootDomainID)
-	if err := writeKnowledgeFile(homeDir, knowledgeRegistryPath, registry+"\n"); err != nil {
-		return fmt.Errorf("pm1fixture: write fixture Domain registry shard: %w", err)
+// SeedCommittedProductDomain designates a real git knowledge home for a
+// Product and commits its Domain registry and fixture law without building
+// any projection. The registry then exists only as committed content, which
+// is the state a fresh operator store is in: the production path derives it
+// from the committed home, or a Product-changing approval refuses for a
+// registry nobody has read. It returns the home so a test can move its head
+// or inspect the derived hash.
+func SeedCommittedProductDomain(ctx context.Context, s *store.Store, productID, homeProjectID, dir string) (store.KnowledgeHome, error) {
+	// A registry's root Domain is named for its Product key.
+	root := "product-root:fixture-" + productID
+	registry := store.KnowledgeDomainRegistry{
+		SchemaVersion: "1.0",
+		ProductKey:    "fixture-" + productID,
+		RootDomainID:  root,
+		Domains: []store.KnowledgeDomain{{DomainID: root, Name: "Fixture root",
+			Purpose: "Product law fixture", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}}},
 	}
-	if _, err := os.Stat(filepath.Join(homeDir, filepath.FromSlash(knowledgeHeadPath))); errors.Is(err, os.ErrNotExist) {
-		if err := writeKnowledgeFile(homeDir, knowledgeHeadPath, "{}\n"); err != nil {
-			return fmt.Errorf("pm1fixture: write fixture knowledge manifest head: %w", err)
-		}
-	} else if err != nil {
-		return fmt.Errorf("pm1fixture: inspect fixture knowledge manifest head: %w", err)
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("pm1fixture: begin Domain fixture transaction: %w", err)
-	}
-	defer tx.Rollback()
-	homeLocatorID := "domain-locator-" + productID
-	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		return fmt.Errorf("pm1fixture: enable Domain fixture fold guard: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,?,?,?,'fixture','fixture')`, homeLocatorID, homeProjectID, "canonical_path", homeDir, homeDir); err != nil {
-		return fmt.Errorf("pm1fixture: seed Product law locator: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, productID, homeProjectID, homeLocatorID); err != nil {
-		return fmt.Errorf("pm1fixture: seed Product law home: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,'1.0',?,'fixture')`, productID, homeProjectID, homeLocatorID, "fixture-"+productID, FixtureRootDomainID, FixtureDomainRegistryContentHash); err != nil {
-		return fmt.Errorf("pm1fixture: seed Domain registry: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?,?)`, homeProjectID, homeLocatorID, productID, FixtureRootDomainID, "Fixture root", "Product law fixture", nil, "current", FixtureDomainRegistryContentHash, "fixture"); err != nil {
-		return fmt.Errorf("pm1fixture: seed root Domain: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
-		return fmt.Errorf("pm1fixture: disable Domain fixture fold guard: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("pm1fixture: commit Domain fixture: %w", err)
-	}
-	return nil
+	return SeedProductDomainRegistry(ctx, s, productID, homeProjectID, dir, registry)
 }
 
-// SeedCommittedProductDomain designates a real git knowledge home for a
-// Product and commits a manifest that carries a Domain registry, without
-// building any projection. The Domain registry then exists only as committed
-// content, which is the state a fresh operator store is in: the production
-// path must derive it on demand, or a Product-changing approval refuses for
-// a registry nobody has read. It returns the home so a test can move its
-// head or inspect the derived hash.
-func SeedCommittedProductDomain(ctx context.Context, s *store.Store, productID, homeProjectID, dir string) (store.KnowledgeHome, error) {
+// SeedProductDomainRegistry is SeedCommittedProductDomain with the caller's
+// committed registry: the same designated home, the same committed fixture
+// law, and no projection rows, for fixtures that need Domains beyond the
+// single current root (deprecated or wrong-Domain refusal cases).
+func SeedProductDomainRegistry(ctx context.Context, s *store.Store, productID, homeProjectID, dir string, registry store.KnowledgeDomainRegistry) (store.KnowledgeHome, error) {
 	repo, err := initKnowledgeRepo(dir)
 	if err != nil {
 		return store.KnowledgeHome{}, err
 	}
 	const decisionPath = ".concord/law/decisions/CD-0001-fixture-law.md"
-	decision := canonicalKnowledgeNote("CD-0001", "decision", "2026-08-04T12:00:00Z", []string{"governance"})
+	decision := canonicalKnowledgeNote("CD-0001", registry.RootDomainID)
 	if err := writeKnowledgeFile(repo, decisionPath, decision); err != nil {
 		return store.KnowledgeHome{}, fmt.Errorf("pm1fixture: write fixture decision: %w", err)
 	}
-	records := make([]store.KnowledgeRecord, 0, 1)
-	records = append(records, manifestRecordFromFile("CD-0001", "decision", decisionPath, "accepted", "2026-08-04T12:00:00Z", "Fixture law", "Fixture summary", []string{"governance"}, store.KnowledgeRecordScopes{Mode: "home"}, []byte(decision)))
-	if err := writeKnowledgeManifest(repo, records); err != nil {
-		return store.KnowledgeHome{}, fmt.Errorf("pm1fixture: write knowledge manifest: %w", err)
+	if err := WriteKnowledgeShards(repo, registry); err != nil {
+		return store.KnowledgeHome{}, fmt.Errorf("pm1fixture: write domain registry: %w", err)
 	}
 	if _, err := commitKnowledgeRepo(repo, "committed Product Domain registry"); err != nil {
 		return store.KnowledgeHome{}, fmt.Errorf("pm1fixture: commit knowledge repo: %w", err)
@@ -403,11 +356,10 @@ func seedWorkRelations(ctx context.Context, s *store.Store, c Corpus, versions m
 	return nil
 }
 
-// SeedKnowledge initializes a throwaway git repository containing the canonical
-// work note, lesson, and decision referenced by c, registers it as the
-// KnowledgeHome for prod-alpha, and links the completed work item to its
-// canonical note. The returned GitKnowledge exposes the resolved aliases used
-// by expected-value resolution.
+// SeedKnowledge initializes a throwaway git repository containing the
+// canonical work note, registers it as prod-alpha's designated home, and links
+// the completed work item to its canonical note. The returned GitKnowledge
+// exposes the resolved home.
 //
 // dir must be a caller-owned directory whose lifetime the caller controls, so
 // the throwaway repository is reclaimed with it; test callers pass t.TempDir().
@@ -420,28 +372,11 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 	if err := writeKnowledgeFile(repo, workPath, canonicalWorkNote("work-done", "2026-08-03T12:00:00Z")); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: write work note: %w", err)
 	}
-	lessonPath := ".concord/docs/lessons/2026-08-04-state-authority.md"
-	decisionPath := ".concord/law/decisions/CD-0002-state-authority.md"
-	if err := writeKnowledgeFile(repo, lessonPath, canonicalKnowledgeNote("knowledge-lesson", "lesson", "2026-08-05T12:00:00Z", []string{"state-authority", "sqlite"})); err != nil {
-		return GitKnowledge{}, fmt.Errorf("pm1fixture: write lesson note: %w", err)
+	if err := writeKnowledgeFile(repo, ".concord/law/decisions/CD-0002-state-authority.md", canonicalKnowledgeNote("CD-0002", "product-root:fixture-product")); err != nil {
+		return GitKnowledge{}, fmt.Errorf("pm1fixture: write fixture law: %w", err)
 	}
-	if err := writeKnowledgeFile(repo, decisionPath, canonicalKnowledgeNote("knowledge-decision", "decision", "2026-08-04T12:00:00Z", []string{"sqlite", "governance"})); err != nil {
-		return GitKnowledge{}, fmt.Errorf("pm1fixture: write decision note: %w", err)
-	}
-	lessonContent, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(lessonPath))) //nolint:gosec // repo is a fresh fixture repository and lessonPath is a fixed internal path.
-	if err != nil {
-		return GitKnowledge{}, fmt.Errorf("pm1fixture: read lesson note: %w", err)
-	}
-	decisionContent, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(decisionPath))) //nolint:gosec // repo is a fresh fixture repository and decisionPath is a fixed internal path.
-	if err != nil {
-		return GitKnowledge{}, fmt.Errorf("pm1fixture: read decision note: %w", err)
-	}
-	records := []store.KnowledgeRecord{
-		manifestRecordFromFile("knowledge-lesson", "lesson", lessonPath, "published", "2026-08-05T12:00:00Z", "Durable lesson", "Governance summary", []string{"state-authority", "sqlite"}, store.KnowledgeRecordScopes{Mode: "home"}, lessonContent),
-		manifestRecordFromFile("knowledge-decision", "decision", decisionPath, "accepted", "2026-08-04T12:00:00Z", "Durable decision", "Durable summary", []string{"sqlite", "governance"}, store.KnowledgeRecordScopes{Mode: "home"}, decisionContent),
-	}
-	if err := writeKnowledgeManifest(repo, records); err != nil {
-		return GitKnowledge{}, fmt.Errorf("pm1fixture: write knowledge manifest: %w", err)
+	if err := writeFixtureRegistry(repo); err != nil {
+		return GitKnowledge{}, err
 	}
 	commit, err := commitKnowledgeRepo(repo, "accepted PM1 corpus")
 	if err != nil {
@@ -451,9 +386,6 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 	if err := authorizeKnowledgeProductHome(ctx, s, "prod-alpha", home); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: authorize product home: %w", err)
 	}
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		return GitKnowledge{}, fmt.Errorf("pm1fixture: rebuild knowledge index: %w", err)
-	}
 	var version int64
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id = 'work-done'`).Scan(&version); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: read work-done version: %w", err)
@@ -461,61 +393,20 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 	if err := store.PublishCompactionLink(ctx, s, store.CompactionLinkRequest{EventID: "corpus-compaction-work-done", WorkID: "work-done", ExpectedVersion: version, Actor: "operator", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Home: home, CommitOID: commit, NotePath: workPath, Reason: "accepted corpus fixture"}); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: publish compaction link: %w", err)
 	}
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		return GitKnowledge{}, fmt.Errorf("pm1fixture: rebuild knowledge index after compaction: %w", err)
-	}
-	commitAlias := map[string]string{}
-	hashAlias := map[string]string{}
-	for _, fixture := range c.Fixtures.Knowledge {
-		verified, err := store.VerifyCommittedNote(ctx, repo, commit, fixture.Path, "")
-		if err != nil {
-			return GitKnowledge{}, fmt.Errorf("pm1fixture: fixture knowledge %q does not resolve to a committed note: %w", fixture.ID, err)
-		}
-		if existing := commitAlias[fixture.Commit]; existing != "" && existing != commit {
-			return GitKnowledge{}, fmt.Errorf("pm1fixture: fixture commit alias %q resolves ambiguously", fixture.Commit)
-		}
-		if existing := hashAlias[fixture.ContentHash]; existing != "" && existing != verified.ContentHash {
-			return GitKnowledge{}, fmt.Errorf("pm1fixture: fixture content hash alias %q resolves ambiguously", fixture.ContentHash)
-		}
-		commitAlias[fixture.Commit] = commit
-		hashAlias[fixture.ContentHash] = verified.ContentHash
-	}
-	return GitKnowledge{Home: home, CommitAlias: commitAlias, HashAlias: hashAlias}, nil
+	return GitKnowledge{Home: home}, nil
 }
 
-// SeedLaggingKnowledge commits one further indexable decision into an already
-// seeded knowledge home and deliberately does not rebuild the SQLite index. The
-// projection is then behind the git head by exactly one accepted decision, which
-// is the deterministic form of the TS1 `knowledge_index_lagging` fault.
-//
-// It returns the stable ID of the decision the index cannot yet see. A caller
-// asserting honest degradation needs that ID: the omission is only real when
-// there is a specific accepted record the answer is missing, so a query that
-// silently reported completeness would be making a false claim rather than an
-// unlucky one.
-func SeedLaggingKnowledge(home store.KnowledgeHome) (string, error) {
-	const id = "knowledge-decision-lagging"
-	const path = ".concord/law/decisions/CD-0003-lagging-authority.md"
-	manifest, err := readKnowledgeShards(home.RepoPath)
-	if err != nil {
-		return "", err
+// writeFixtureRegistry commits the fixture Domain registry shard the retained
+// Domain resolution reads at its existing repository path.
+func writeFixtureRegistry(repo string) error {
+	registry := store.KnowledgeDomainRegistry{
+		SchemaVersion: "1.0",
+		ProductKey:    "fixture-product",
+		RootDomainID:  "product-root:fixture-product",
+		Domains: []store.KnowledgeDomain{{DomainID: "product-root:fixture-product", Name: "Fixture product",
+			Purpose: "Product-wide fixture law", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}}},
 	}
-	if err := writeKnowledgeFile(home.RepoPath, path, canonicalKnowledgeNote(id, "decision", "2026-08-06T12:00:00Z", []string{"sqlite", "governance"})); err != nil {
-		return "", fmt.Errorf("pm1fixture: write lagging decision: %w", err)
-	}
-	content, err := os.ReadFile(filepath.Join(home.RepoPath, filepath.FromSlash(path)))
-	if err != nil {
-		return "", fmt.Errorf("pm1fixture: read lagging decision: %w", err)
-	}
-	records := append(append([]store.KnowledgeRecord{}, manifest.Records...),
-		manifestRecordFromFile(id, "decision", path, "accepted", "2026-08-06T12:00:00Z", "Lagging decision", "Unscanned summary", []string{"sqlite", "governance"}, store.KnowledgeRecordScopes{Mode: "home"}, content))
-	if err := writeKnowledgeManifest(home.RepoPath, records); err != nil {
-		return "", fmt.Errorf("pm1fixture: write extended knowledge manifest: %w", err)
-	}
-	if _, err := commitKnowledgeRepo(home.RepoPath, "accepted decision the index has not scanned"); err != nil {
-		return "", fmt.Errorf("pm1fixture: commit lagging decision: %w", err)
-	}
-	return id, nil
+	return WriteKnowledgeShards(repo, registry)
 }
 
 // SeedGoverningRequirement declares one CD-0035 governing requirement against a
@@ -652,97 +543,9 @@ func CanonicalWorkNote(id, completed, terminalState, project string) string {
 		"---\n\nDurable note.\n"
 }
 
-func canonicalKnowledgeNote(id, kind, completed string, tags []string) string {
-	tagList := joinTags(tags)
-	return "---\n" +
-		"id: " + id + "\n" +
-		"type: " + kind + "\n" +
-		"title: Durable " + kind + "\n" +
-		"completed_at: " + completed + "\n" +
-		"outcome_tag: published\n" +
-		"lesson_tags: [" + tagList + "]\n" +
-		"terminal_state: completed\n" +
-		"priority: 0\n" +
-		"summary: Durable summary\n" +
-		"product_ids: [prod-alpha]\n" +
-		"project_ids: []\n" +
-		"domain_ids: [state]\n" +
-		"tag_ids: [" + tagList + "]\n" +
-		"---\n\nDurable knowledge.\n"
-}
-
-func joinTags(tags []string) string {
-	if len(tags) == 0 {
-		return ""
-	}
-	out := tags[0]
-	for _, t := range tags[1:] {
-		out += ", " + t
-	}
-	return out
-}
-
-func manifestRecordFromFile(id, kind, path, status, date, title, summary string, tags []string, scopes store.KnowledgeRecordScopes, content []byte) store.KnowledgeRecord {
-	sum := sha256.Sum256(content)
-	scopes.ProductIDs = append([]string{}, scopes.ProductIDs...)
-	scopes.ProjectIDs = append([]string{}, scopes.ProjectIDs...)
-	scopes.DomainIDs = append([]string{}, scopes.DomainIDs...)
-	scopes.TagIDs = append([]string{}, scopes.TagIDs...)
-	authority := store.KnowledgeAuthority{Tier: "derived"}
-	if kind == "constitution" || kind == "decision" {
-		authority = store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1}
-	}
-	return store.KnowledgeRecord{
-		ID:        id,
-		Kind:      kind,
-		Path:      path,
-		Status:    status,
-		Date:      date,
-		Title:     title,
-		Summary:   summary,
-		Tags:      append([]string{}, tags...),
-		Authority: authority,
-		Scopes:    scopes,
-		SHA256:    "sha256:" + hex.EncodeToString(sum[:]),
-	}
-}
-
-func writeKnowledgeManifest(repo string, records []store.KnowledgeRecord) error {
-	const productKey = "fixture-product"
-	const rootDomainID = "product-root:" + productKey
-	domains := []store.KnowledgeDomain{{DomainID: rootDomainID, Name: "Fixture product", Purpose: "Product-wide fixture law", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}}}
-	declared := map[string]bool{rootDomainID: true}
-	for index := range records {
-		records[index].Scopes.ProductIDs = nonNil(records[index].Scopes.ProductIDs)
-		records[index].Scopes.ProjectIDs = nonNil(records[index].Scopes.ProjectIDs)
-		records[index].Scopes.DomainIDs = nonNil(records[index].Scopes.DomainIDs)
-		records[index].Scopes.TagIDs = nonNil(records[index].Scopes.TagIDs)
-		for _, domainID := range records[index].Scopes.DomainIDs {
-			if !declared[domainID] {
-				declared[domainID] = true
-				domains = append(domains, store.KnowledgeDomain{DomainID: domainID, Name: domainID, Purpose: "Fixture scope Domain", ParentDomainID: rootDomainID, Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}})
-			}
-		}
-		if records[index].Status == "accepted" && (records[index].Kind == "decision" || records[index].Kind == "spec" || records[index].Kind == "constitution") {
-			records[index].HomeDomainID = rootDomainID
-			records[index].ProductWideRationale = "Fixture law binds every child Domain."
-		}
-	}
-	manifest := store.KnowledgeManifest{
-		SchemaVersion:  "1.2",
-		SupportedKinds: []string{"work_note", "decision", "spec", "lesson", "research"},
-		IndexedKinds:   []string{"work_note", "decision", "spec", "lesson"},
-		DomainRegistry: store.KnowledgeDomainRegistry{SchemaVersion: "1.0", ProductKey: productKey, RootDomainID: rootDomainID, Domains: domains},
-		Records:        records,
-	}
-	return writeKnowledgeShards(repo, manifest)
-}
-
-func nonNil(values []string) []string {
-	if values == nil {
-		return []string{}
-	}
-	return values
+func canonicalKnowledgeNote(id, homeDomainID string) string {
+	front := `{"id":"` + id + `","title":"Fixture law","authority":{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1},"home_domain_id":"` + homeDomainID + `","applies_to_domain_ids":[],"product_wide_rationale":"The fixture registry declares no child Domain, so this law has no child home available."}`
+	return "---\n" + front + "\n---\n\nDurable fixture law.\n"
 }
 
 func authorizeKnowledgeLocator(ctx context.Context, s *store.Store, home store.KnowledgeHome) (err error) {

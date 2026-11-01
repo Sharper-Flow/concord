@@ -23,7 +23,6 @@ func TestWorkflowDeclaredDocumentEffects(t *testing.T) {
 				seedWork(t, s, workID)
 				if actionID == "record_design" {
 					seedWorkflowLaw(t, s)
-					seedIssue31DomainRegistry(t, s)
 				}
 				ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
 				if err != nil {

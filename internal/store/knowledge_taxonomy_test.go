@@ -1,123 +1,42 @@
 package store
 
+// The retained record taxonomy rules the committed law read still enforces:
+// a non-law record authors no law-home fields, and law_relations stay a
+// decision/spec graph. Status and dispositions retired with the manifest
+// document: the law folder derives status from placement and knows nothing
+// of dispositions.
+
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
-// The record taxonomy splits six kinds into two status tiers: a law-bearing
-// record is accepted, every other kind is published. These tests exercise both
-// directions of that rule, and of the record/disposition exclusion, so a tier
-// that silently collapses is a failure rather than a quieter manifest.
-
-type taxonomyManifest struct {
-	SchemaVersion  string            `json:"schema_version"`
-	SupportedKinds []string          `json:"supported_kinds"`
-	IndexedKinds   []string          `json:"indexed_kinds"`
-	DomainRegistry json.RawMessage   `json:"domain_registry"`
-	Dispositions   []json.RawMessage `json:"dispositions,omitempty"`
-	Records        []json.RawMessage `json:"records"`
-}
-
-const taxonomyRegistry = `{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]}`
-
-func taxonomyRecord(t *testing.T, id, kind, path, status string, extra map[string]any) json.RawMessage {
+func taxonomyLawRecord(t *testing.T, front string) KnowledgeRecord {
 	t.Helper()
-	authority := map[string]any{"tier": "derived"}
-	if kind == "constitution" || kind == "decision" {
-		authority = map[string]any{"tier": "legislated", "legislated_by": "work-0f1e2d3c4b5a6978", "contract_version": 1}
-	}
-	record := map[string]any{
-		"id": id, "kind": kind, "path": path, "status": status,
-		"date": "2026-08-22T00:00:00Z", "title": "Record", "summary": "Summary",
-		"tags":      []string{},
-		"authority": authority,
-		"scopes":    map[string]any{"mode": "home", "product_ids": []string{}, "project_ids": []string{}, "domain_ids": []string{}, "tag_ids": []string{}},
-		"sha256":    "sha256:" + strings.Repeat("a", 64),
-	}
-	for key, value := range extra {
-		record[key] = value
-	}
-	encoded, err := json.Marshal(record)
-	if err != nil {
+	var record KnowledgeRecord
+	if err := json.Unmarshal([]byte(front), &record); err != nil {
 		t.Fatal(err)
 	}
-	return encoded
+	return record
 }
 
-func taxonomyManifestBytes(t *testing.T, manifest taxonomyManifest) []byte {
-	t.Helper()
-	manifest.SchemaVersion = "1.2"
-	manifest.DomainRegistry = json.RawMessage(taxonomyRegistry)
-	manifest.SupportedKinds = []string{"work_note", "constitution", "decision", "spec", "lesson", "reference", "research"}
-	manifest.IndexedKinds = manifest.SupportedKinds
-	encoded, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return encoded
-}
-
-// TestRecordStatusFollowsTheKindTier is the invariant in both directions: the
-// status a kind may carry is decided by its tier, so accepted is unavailable to
-// a non-law kind and published is unavailable to a law-bearing one.
-func TestRecordStatusFollowsTheKindTier(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		kind      string
-		path      string
-		lawHome   bool
-		valid     string
-		forbidden string
-	}{
-		{kind: "constitution", path: ".concord/docs/constitution.md", lawHome: true, valid: "accepted", forbidden: "published"},
-		{kind: "decision", path: ".concord/docs/decisions/CD-0001.md", lawHome: true, valid: "accepted", forbidden: "published"},
-		{kind: "spec", path: ".concord/docs/spec.md", lawHome: true, valid: "accepted", forbidden: "published"},
-		{kind: "lesson", path: ".concord/docs/lessons/one.md", valid: "published", forbidden: "accepted"},
-		{kind: "reference", path: ".concord/docs/installation.md", valid: "published", forbidden: "accepted"},
-		{kind: "research", path: ".concord/docs/market-landscape.md", valid: "published", forbidden: "accepted"},
-	}
-	for _, test := range cases {
-		t.Run(test.kind, func(t *testing.T) {
-			extra := map[string]any{}
-			if test.lawHome {
-				extra["home_domain_id"] = "product-root:concord"
-				extra["product_wide_rationale"] = "Fixture law binds every child Domain."
-			}
-			valid := taxonomyManifestBytes(t, taxonomyManifest{
-				Records: []json.RawMessage{taxonomyRecord(t, "record-1", test.kind, test.path, test.valid, extra)},
-			})
-			if _, err := parseKnowledgeManifest(valid); err != nil {
-				t.Fatalf("%s with status %q rejected: %v", test.kind, test.valid, err)
-			}
-			forbidden := taxonomyManifestBytes(t, taxonomyManifest{
-				Records: []json.RawMessage{taxonomyRecord(t, "record-1", test.kind, test.path, test.forbidden, extra)},
-			})
-			if _, err := parseKnowledgeManifest(forbidden); err == nil {
-				t.Fatalf("%s accepted the status of the opposite tier: %q", test.kind, test.forbidden)
-			}
-		})
+func taxonomyRegistry() KnowledgeDomainRegistry {
+	return KnowledgeDomainRegistry{
+		SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
+		Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide Concord law and architecture", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}},
 	}
 }
 
-// A non-law record carries no law-home fields, whatever its kind. The rule used
-// to name lessons; reference and research are non-law for the same reason and
-// must inherit it rather than acquire a law home by omission.
+// A non-law record carries no law-home fields, whatever its kind. The rule
+// used to name lessons; reference and research are non-law for the same
+// reason and must inherit it rather than acquire a law home by omission.
 func TestNonLawRecordsCannotAuthorLawHomeFields(t *testing.T) {
 	t.Parallel()
-	for kind, path := range map[string]string{
-		"lesson":    ".concord/docs/lessons/one.md",
-		"reference": ".concord/docs/installation.md",
-		"research":  ".concord/docs/market-landscape.md",
-	} {
+	for _, kind := range []string{"lesson", "reference", "research"} {
 		t.Run(kind, func(t *testing.T) {
-			raw := taxonomyManifestBytes(t, taxonomyManifest{
-				Records: []json.RawMessage{taxonomyRecord(t, "record-1", kind, path, "published", map[string]any{
-					"home_domain_id": "product-root:concord",
-				})},
-			})
-			if _, err := parseKnowledgeManifest(raw); err == nil {
+			front := `{"id":"record-1","title":"Record","authority":{"tier":"derived"},"kind":"` + kind + `","home_domain_id":"product-root:concord","applies_to_domain_ids":[]}`
+			record := taxonomyLawRecord(t, front)
+			if err := validateManifestLawHome(record, taxonomyRegistry()); err == nil {
 				t.Fatalf("%s authored a law home", kind)
 			}
 		})
@@ -125,95 +44,21 @@ func TestNonLawRecordsCannotAuthorLawHomeFields(t *testing.T) {
 }
 
 // law_relations stay a decision/spec graph. A constitution is law-bearing for
-// status purposes without joining that graph, so authoring a relation on one is
-// a failure rather than an unremarked extension of the law model.
+// status purposes without joining that graph, so authoring a relation on one
+// is a failure rather than an unremarked extension of the law model.
 func TestLawRelationsRemainDecisionAndSpecOnly(t *testing.T) {
 	t.Parallel()
-	raw := taxonomyManifestBytes(t, taxonomyManifest{
-		Records: []json.RawMessage{
-			taxonomyRecord(t, "CO-0001", "constitution", ".concord/docs/constitution.md", "accepted", map[string]any{
-				"home_domain_id":         "product-root:concord",
-				"product_wide_rationale": "Fixture law binds every child Domain.",
-				"law_relations":          []map[string]string{{"kind": "refines", "target_id": "CD-0001"}},
-			}),
-			taxonomyRecord(t, "CD-0001", "decision", ".concord/docs/decisions/CD-0001.md", "accepted", map[string]any{
-				"home_domain_id":         "product-root:concord",
-				"product_wide_rationale": "Fixture law binds every child Domain.",
-			}),
-		},
-	})
-	if _, err := parseKnowledgeManifest(raw); err == nil {
+	constitution := taxonomyLawRecord(t, `{"id":"CO-0001","title":"Constitution","authority":{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1},"kind":"constitution","home_domain_id":"product-root:concord","applies_to_domain_ids":[],"product_wide_rationale":"Fixture law binds every child Domain.","law_relations":[{"kind":"refines","target_id":"CD-0001"}]}`)
+	decision := taxonomyLawRecord(t, `{"id":"CD-0001","title":"Decision","authority":{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1},"kind":"decision","home_domain_id":"product-root:concord","applies_to_domain_ids":[],"product_wide_rationale":"Fixture law binds every child Domain."}`)
+	byID := map[string]KnowledgeRecord{"CO-0001": constitution, "CD-0001": decision}
+	seen := map[string]bool{}
+	graph := map[string][]string{}
+	if err := validateManifestRecordRelations(constitution, byID, seen, graph); err == nil {
 		t.Fatal("a constitution authored a law relation")
 	}
-}
-
-func TestDispositionsAreBoundedAndExcludeRecordPaths(t *testing.T) {
-	t.Parallel()
-	disposition := func(path, kind, reason string) json.RawMessage {
-		encoded, err := json.Marshal(map[string]string{"path": path, "disposition": kind, "reason": reason})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return encoded
+	seen = map[string]bool{}
+	graph = map[string][]string{}
+	if err := validateManifestRecordRelations(decision, byID, seen, graph); err != nil {
+		t.Fatalf("a decision's own relation was refused: %v", err)
 	}
-	record := taxonomyRecord(t, "CD-0001", "decision", ".concord/docs/decisions/CD-0001.md", "accepted", map[string]any{
-		"home_domain_id":         "product-root:concord",
-		"product_wide_rationale": "Fixture law binds every child Domain.",
-	})
-
-	valid := taxonomyManifestBytes(t, taxonomyManifest{
-		Records:      []json.RawMessage{record},
-		Dispositions: []json.RawMessage{disposition(".concord/docs/scratch.md", "archived", "Superseded working note kept for provenance only.")},
-	})
-	manifest, err := parseKnowledgeManifest(valid)
-	if err != nil {
-		t.Fatalf("valid disposition rejected: %v", err)
-	}
-	if len(manifest.Dispositions) != 1 || manifest.Dispositions[0].Path != ".concord/docs/scratch.md" {
-		t.Fatalf("disposition did not survive the parse: %+v", manifest.Dispositions)
-	}
-
-	for name, entry := range map[string]json.RawMessage{
-		"record path":       disposition(".concord/docs/decisions/CD-0001.md", "archived", "Already recorded."),
-		"empty reason":      disposition(".concord/docs/scratch.md", "archived", ""),
-		"unclosed kind":     disposition(".concord/docs/scratch.md", "ignored", "Not a closed disposition."),
-		"non markdown path": disposition(".concord/docs/scratch.txt", "archived", "The closure walk only sees markdown."),
-		"absolute path":     disposition("/docs/scratch.md", "archived", "Absolute paths escape the repository."),
-		"traversal path":    disposition(".concord/docs/../scratch.md", "archived", "Traversal escapes the knowledge roots."),
-	} {
-		t.Run(name, func(t *testing.T) {
-			raw := taxonomyManifestBytes(t, taxonomyManifest{
-				Records: []json.RawMessage{record}, Dispositions: []json.RawMessage{entry},
-			})
-			if _, err := parseKnowledgeManifest(raw); err == nil {
-				t.Fatalf("invalid disposition accepted: %s", name)
-			}
-		})
-	}
-
-	t.Run("duplicate path", func(t *testing.T) {
-		entry := disposition(".concord/docs/scratch.md", "archived", "Superseded working note.")
-		raw := taxonomyManifestBytes(t, taxonomyManifest{
-			Records: []json.RawMessage{record}, Dispositions: []json.RawMessage{entry, entry},
-		})
-		if _, err := parseKnowledgeManifest(raw); err == nil {
-			t.Fatal("the same path was disposed of twice")
-		}
-	})
-
-	// The disposition decoder drops an undeclared field instead of refusing
-	// the document (CD-0177); the modeled fields still read through.
-	t.Run("unknown field", func(t *testing.T) {
-		raw := taxonomyManifestBytes(t, taxonomyManifest{
-			Records:      []json.RawMessage{record},
-			Dispositions: []json.RawMessage{json.RawMessage(`{"path":".concord/docs/scratch.md","disposition":"archived","reason":"Reason.","owner":"operator"}`)},
-		})
-		manifest, err := parseKnowledgeManifest(raw)
-		if err != nil {
-			t.Fatalf("a disposition carrying an additive field was refused: %v", err)
-		}
-		if got := manifest.Dispositions[0].Reason; got != "Reason." {
-			t.Fatalf("disposition reason = %q", got)
-		}
-	})
 }

@@ -37,12 +37,6 @@ class RenumberTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)
-        for directory in (".concord/docs/decisions", ".concord/docs/knowledge/records"):
-            (self.root / directory).mkdir(parents=True)
-        self.write(
-            ".concord/docs/knowledge/manifest.json",
-            json.dumps({"schema_version": "1.2", "supported_kinds": [], "indexed_kinds": []}) + "\n",
-        )
         git(self.root, "init", "--quiet", "--initial-branch=main")
         git(self.root, "config", "user.name", "renumber tests")
         git(self.root, "config", "user.email", "renumber-tests@example.invalid")
@@ -55,65 +49,54 @@ class RenumberTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tempdir.cleanup()
 
-    def seed(self, identifier: str, slug: str) -> None:
-        document = self.root / f".concord/docs/decisions/{identifier}-{slug}.md"
-        document.parent.mkdir(parents=True, exist_ok=True)
-        document.write_text(
-            f"# {identifier}: {slug}\n\nThis decision is {identifier}.\n", encoding="utf-8"
-        )
-        record = self.root / f".concord/docs/knowledge/records/{identifier}.json"
-        record.parent.mkdir(parents=True, exist_ok=True)
-        record.write_text(
-            json.dumps(
-                {
-                    "id": identifier,
-                    "kind": "decision",
-                    "path": f".concord/docs/decisions/{identifier}-{slug}.md",
-                    "sha256": "sha256:" + "0" * 64,
-                },
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-
-    def seed_law(self, identifier: str, slug: str, with_shard: bool = True) -> None:
-        """Seed a decision document in the law decisions tree."""
+    def seed(
+        self,
+        identifier: str,
+        slug: str,
+        title: str | None = None,
+        authority: dict | None = None,
+    ) -> Path:
+        """Seed one law decision document with its authored frontmatter."""
         document = self.root / f".concord/law/decisions/{identifier}-{slug}.md"
         document.parent.mkdir(parents=True, exist_ok=True)
+        record: dict = {"id": identifier, "title": title or f"The {slug} rule"}
+        if authority is not None:
+            record["authority"] = authority
+        front = json.dumps(record, indent=2)
         document.write_text(
-            f"# {identifier}: {slug}\n\nThis decision is {identifier}.\n", encoding="utf-8"
+            f"---\n{front}\n---\n\n# {identifier}: {slug}\n\nThis decision is {identifier}.\n",
+            encoding="utf-8",
         )
-        if with_shard:
-            record = self.root / f".concord/docs/knowledge/records/{identifier}.json"
-            record.parent.mkdir(parents=True, exist_ok=True)
-            record.write_text(
-                json.dumps(
-                    {
-                        "id": identifier,
-                        "kind": "decision",
-                        "path": f".concord/law/decisions/{identifier}-{slug}.md",
-                        "sha256": "sha256:" + "0" * 64,
-                    },
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
+        return document
+
+    def seed_legislated(self, identifier: str, slug: str, title: str, legislated_by: str) -> Path:
+        return self.seed(
+            identifier,
+            slug,
+            title=title,
+            authority={"tier": "legislated", "legislated_by": legislated_by, "contract_version": 1},
+        )
+
+    def amend_legislated(self, identifier: str, slug: str, title: str, legislated_by: str) -> Path:
+        """Rewrite one seeded law document's frontmatter in place."""
+        path = self.root / f".concord/law/decisions/{identifier}-{slug}.md"
+        record = {
+            "id": identifier,
+            "title": title,
+            "authority": {"tier": "legislated", "legislated_by": legislated_by, "contract_version": 1},
+        }
+        front = json.dumps(record, indent=2)
+        path.write_text(f"---\n{front}\n---\n\n# {identifier}: {slug}\n", encoding="utf-8")
+        return path
 
     def write(self, relative: str, text: str) -> None:
         path = self.root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
-    def write_record(self, identifier: str) -> None:
-        self.write(f".concord/docs/knowledge/records/{identifier}.json", json.dumps({"id": identifier}) + "\n")
-
     def commit(self) -> None:
         git(self.root, "add", "-A")
-        git(self.root, "commit", "--quiet", "-m", "seed")
+        git(self.root, "commit", "--quiet", "-m", "seed", "--allow-empty")
 
     def move(
         self, old: str = "CD-0061", new: str = "CD-0062", against: str = "missing-ref"
@@ -124,67 +107,17 @@ class RenumberTests(unittest.TestCase):
         assert prepared is not None
         return renumber.apply(self.root, prepared, generate=False)
 
-    def test_moves_document_and_shard(self) -> None:
+    def test_moves_the_document_and_its_frontmatter_id(self) -> None:
         self.assertEqual(self.move(), [])
 
         self.assertFalse(
-            (self.root / ".concord/docs/decisions/CD-0061-root-home-states-its-claim.md").exists()
+            (self.root / ".concord/law/decisions/CD-0061-root-home-states-its-claim.md").exists()
         )
-        self.assertTrue(
-            (self.root / ".concord/docs/decisions/CD-0062-root-home-states-its-claim.md").exists()
+        moved = (
+            self.root / ".concord/law/decisions/CD-0062-root-home-states-its-claim.md"
         )
-        self.assertFalse((self.root / ".concord/docs/knowledge/records/CD-0061.json").exists())
-        self.assertTrue((self.root / ".concord/docs/knowledge/records/CD-0062.json").exists())
-
-    def test_moves_a_document_that_lives_in_the_law_tree(self) -> None:
-        """The canonical decisions home includes the law tree; a
-        law-tree document moves inside it and its shard path follows."""
-        self.seed_law("CD-0071", "law-tree-seed")
-        self.commit()
-
-        self.assertEqual(self.move(old="CD-0071", new="CD-0072"), [])
-
-        self.assertFalse(
-            (self.root / ".concord/law/decisions/CD-0071-law-tree-seed.md").exists()
-        )
-        self.assertTrue(
-            (self.root / ".concord/law/decisions/CD-0072-law-tree-seed.md").exists()
-        )
-        record = json.loads(
-            (self.root / ".concord/docs/knowledge/records/CD-0072.json").read_text()
-        )
-        self.assertEqual(record["path"], ".concord/law/decisions/CD-0072-law-tree-seed.md")
-
-    def test_refuses_when_the_target_exists_in_the_other_tree(self) -> None:
-        """A target number occupied in either decisions tree is taken. The
-        occupant's body carries no literal id, so only tree occupancy can
-        produce the refusal."""
-        occupant = self.root / ".concord/law/decisions/CD-0062-law-tree-occupant.md"
-        occupant.parent.mkdir(parents=True, exist_ok=True)
-        occupant.write_text("# Another decision\n\nUnrelated prose.\n", encoding="utf-8")
-        self.commit()
-
-        findings = self.move()
-
-        self.assertTrue(any("already has a decision document" in finding for finding in findings), findings)
-
-    def test_refuses_a_source_duplicated_across_trees(self) -> None:
-        """One CD id in both decisions trees is ambiguous and refuses, the
-        same as two files in one tree."""
-        self.seed_law("CD-0061", "root-home-states-its-claim")
-        self.commit()
-
-        findings = self.move()
-
-        self.assertTrue(any("matches more than one decision document" in finding for finding in findings), findings)
-        self.assertTrue((self.root / ".concord/docs/knowledge/records/CD-0061.json").exists())
-
-    def test_record_id_and_path_follow_the_move(self) -> None:
-        self.assertEqual(self.move(), [])
-
-        record = json.loads((self.root / ".concord/docs/knowledge/records/CD-0062.json").read_text())
-        self.assertEqual(record["id"], "CD-0062")
-        self.assertEqual(record["path"], ".concord/docs/decisions/CD-0062-root-home-states-its-claim.md")
+        self.assertTrue(moved.exists())
+        self.assertIn('"id": "CD-0062"', moved.read_text())
 
     def test_body_and_scattered_references_move(self) -> None:
         self.write(".concord/docs/priorities.md", "See CD-0061 for the root home rule.\n")
@@ -195,7 +128,7 @@ class RenumberTests(unittest.TestCase):
 
         self.assertIn(
             "This decision is CD-0062.",
-            (self.root / ".concord/docs/decisions/CD-0062-root-home-states-its-claim.md").read_text(),
+            (self.root / ".concord/law/decisions/CD-0062-root-home-states-its-claim.md").read_text(),
         )
         self.assertIn("CD-0062", (self.root / ".concord/docs/priorities.md").read_text())
         self.assertIn("CD-0062", (self.root / "internal/store/law.go").read_text())
@@ -224,22 +157,40 @@ class RenumberTests(unittest.TestCase):
         self.assertIsNone(prepared)
         self.assertTrue(any("already references CD-0062" in finding for finding in findings))
 
-    def test_refuses_when_the_target_number_is_taken(self) -> None:
-        self.seed("CD-0062", "another-decision")
+    def test_refuses_when_the_target_document_exists(self) -> None:
+        """A target number occupied by a decision document is taken. The
+        occupant's body carries no literal id, so only tree occupancy can
+        produce the refusal."""
+        occupant = self.root / ".concord/law/decisions/CD-0062-law-tree-occupant.md"
+        occupant.parent.mkdir(parents=True, exist_ok=True)
+        occupant.write_text("# Another decision\n\nUnrelated prose.\n", encoding="utf-8")
         self.commit()
 
         findings = self.move()
 
-        self.assertTrue(findings)
-        self.assertTrue(any("already has a shard" in finding for finding in findings))
+        self.assertTrue(any("already has a decision document" in finding for finding in findings), findings)
 
-    def test_refuses_when_the_target_is_referenced_elsewhere(self) -> None:
-        self.write(".concord/docs/priorities.md", "CD-0062 is mentioned already.\n")
+    def test_refuses_when_another_law_file_claims_the_id(self) -> None:
+        """The stable ID lives in frontmatter, so a file whose stem differs
+        still occupies the identifier."""
+        self.seed("CD-0062", "unrelated-stem").rename(
+            self.root / ".concord/law/decisions/CD-0070-unrelated-stem.md"
+        )
         self.commit()
 
         findings = self.move()
 
-        self.assertTrue(any("already references CD-0062" in finding for finding in findings))
+        self.assertTrue(any("already carries law id CD-0062" in finding for finding in findings), findings)
+
+    def test_refuses_a_source_duplicated_in_the_tree(self) -> None:
+        """One CD number matching two decision documents is ambiguous and
+        refuses, the same as a missing document."""
+        self.seed("CD-0061", "a-second-match")
+        self.commit()
+
+        findings = self.move()
+
+        self.assertTrue(any("matches more than one decision document" in finding for finding in findings), findings)
 
     def test_refuses_an_unknown_identifier(self) -> None:
         findings = self.move(old="CD-0999")
@@ -258,13 +209,16 @@ class RenumberTests(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertIn("same identifier", findings[0])
 
-    def test_refuses_when_a_shard_is_missing(self) -> None:
-        (self.root / ".concord/docs/knowledge/records/CD-0061.json").unlink()
+    def test_refuses_an_incomplete_record(self) -> None:
+        """A decision document whose frontmatter names another identifier is
+        not a complete record."""
+        path = self.root / ".concord/law/decisions/CD-0061-root-home-states-its-claim.md"
+        path.write_text(path.read_text().replace("CD-0061", "CD-0062", 1), encoding="utf-8")
         self.commit()
 
         findings = self.move()
 
-        self.assertTrue(any("is not a complete record" in finding for finding in findings))
+        self.assertTrue(any("is not a complete record" in finding for finding in findings), findings)
 
     def test_refuses_an_unowned_generated_file(self) -> None:
         self.write(
@@ -306,14 +260,6 @@ class RenumberTests(unittest.TestCase):
         self.assertTrue(any("durable law" in finding for finding in findings))
         self.assertTrue(any("has not landed" in finding for finding in findings))
 
-    def seed_legislated(self, identifier: str, slug: str, title: str, legislated_by: str) -> None:
-        self.seed(identifier, slug)
-        shard = self.root / f".concord/docs/knowledge/records/{identifier}.json"
-        record = json.loads(shard.read_text(encoding="utf-8"))
-        record["title"] = title
-        record["authority"] = {"tier": "legislated", "legislated_by": legislated_by, "contract_version": 1}
-        shard.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
     def test_moves_a_branch_local_cd_that_collided_with_a_different_landed_record(self) -> None:
         # The comparison ref claimed CD-0061 for another record after this
         # branch diverged from a base that carries no CD-0061 at all, so
@@ -328,7 +274,9 @@ class RenumberTests(unittest.TestCase):
         self.commit()
 
         self.assertEqual(self.move(against="landed"), [])
-        self.assertTrue((self.root / ".concord/docs/knowledge/records/CD-0062.json").exists())
+        self.assertTrue(
+            (self.root / ".concord/law/decisions/CD-0062-root-home-states-its-claim.md").exists()
+        )
 
     def test_refuses_to_move_a_landed_cd_whose_title_changed(self) -> None:
         # The branch carries the landed record with a locally changed title.
@@ -336,13 +284,15 @@ class RenumberTests(unittest.TestCase):
         # is descended from durable law, and a mutated title does not make it
         # branch-local: moving it would move the landed law.
         git(self.root, "branch", "landed")
-        self.seed_legislated("CD-0061", "the-amended-title", "The amended title", "work-1111111111111111")
+        path = self.amend_legislated(
+            "CD-0061", "root-home-states-its-claim", "The amended title", "work-2222222222222222"
+        )
         self.commit()
 
         findings = self.move(against="landed")
 
         self.assertTrue(any("descends from the landed record" in finding for finding in findings))
-        self.assertTrue((self.root / ".concord/docs/knowledge/records/CD-0061.json").exists())
+        self.assertTrue(path.exists())
 
     def test_refuses_to_move_a_landed_cd_both_sides_edited(self) -> None:
         # The merge base carried the landed record. The comparison ref
@@ -351,25 +301,33 @@ class RenumberTests(unittest.TestCase):
         # carrying the identifier proves the lineage, so the renumber
         # refuses even though the tree copy matches neither landed copy.
         git(self.root, "checkout", "--quiet", "-b", "landed")
-        self.seed_legislated("CD-0061", "the-upstream-amendment", "The upstream amendment", "work-1111111111111111")
+        self.amend_legislated(
+            "CD-0061", "root-home-states-its-claim", "The upstream amendment", "work-1111111111111111"
+        )
         self.commit()
         git(self.root, "checkout", "--quiet", "main")
-        self.seed_legislated("CD-0061", "the-local-edit", "The local edit", "work-2222222222222222")
+        self.amend_legislated(
+            "CD-0061", "root-home-states-its-claim", "The local edit", "work-2222222222222222"
+        )
         self.commit()
 
         findings = self.move(against="landed")
 
         self.assertTrue(any("descends from the landed record" in finding for finding in findings))
-        self.assertTrue((self.root / ".concord/docs/knowledge/records/CD-0061.json").exists())
-        self.assertFalse((self.root / ".concord/docs/knowledge/records/CD-0062.json").exists())
+        self.assertTrue(
+            (self.root / ".concord/law/decisions/CD-0061-root-home-states-its-claim.md").exists()
+        )
+        self.assertFalse(
+            (self.root / ".concord/law/decisions/CD-0062-root-home-states-its-claim.md").exists()
+        )
 
     def test_refuses_a_target_that_landed(self) -> None:
         git(self.root, "checkout", "--quiet", "before-seed")
-        self.write_record("CD-0062")
+        self.seed("CD-0062", "the-landed-target")
         self.commit()
         git(self.root, "branch", "landed")
         git(self.root, "checkout", "--quiet", "main")
-        (self.root / ".concord/docs/knowledge/records/CD-0062.json").unlink(missing_ok=True)
+        (self.root / ".concord/law/decisions/CD-0062-the-landed-target.md").unlink(missing_ok=True)
 
         findings = self.move(against="landed")
 
@@ -377,7 +335,9 @@ class RenumberTests(unittest.TestCase):
 
     def test_branch_local_cd_moves_against_a_landed_ref(self) -> None:
         self.assertEqual(self.move(against="before-seed"), [])
-        self.assertTrue((self.root / ".concord/docs/knowledge/records/CD-0062.json").exists())
+        self.assertTrue(
+            (self.root / ".concord/law/decisions/CD-0062-root-home-states-its-claim.md").exists()
+        )
 
     def test_unreachable_ref_does_not_block(self) -> None:
         self.assertEqual(self.move(against="no-such-ref"), [])
@@ -390,8 +350,12 @@ class RenumberTests(unittest.TestCase):
         self.assertEqual(findings, [])
         assert prepared is not None
         self.assertIn("CD-0061 -> CD-0062", renumber.describe(prepared))
-        self.assertTrue((self.root / ".concord/docs/knowledge/records/CD-0061.json").exists())
-        self.assertFalse((self.root / ".concord/docs/knowledge/records/CD-0062.json").exists())
+        self.assertTrue(
+            (self.root / ".concord/law/decisions/CD-0061-root-home-states-its-claim.md").exists()
+        )
+        self.assertFalse(
+            (self.root / ".concord/law/decisions/CD-0062-root-home-states-its-claim.md").exists()
+        )
 
 
 if __name__ == "__main__":

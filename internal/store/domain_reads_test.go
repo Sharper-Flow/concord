@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -26,46 +24,37 @@ func seedDomainReadStoreWithLawIDs(t *testing.T, lawIDs []string) *Store {
 
 func seedDomainReadStoreWithRelation(t *testing.T, lawIDs []string, relation KnowledgeArchitectureRelation) *Store {
 	t.Helper()
-	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	lawContent := "domain law\n"
-	sum := sha256.Sum256([]byte(lawContent))
-	manifest := KnowledgeManifest{
-		SchemaVersion:  "1.2",
-		SupportedKinds: []string{"decision"},
-		IndexedKinds:   []string{"decision"},
-		DomainRegistry: KnowledgeDomainRegistry{
-			SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
-			Domains: []KnowledgeDomain{
-				{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
-				{DomainID: "sync", Name: "Sync", Purpose: "Synchronization", Status: "current", ParentDomainID: "product-root:concord",
-					ArchitectureRelations: []KnowledgeArchitectureRelation{relation}},
-				{DomainID: "legacy-sync", Name: "Legacy Sync", Purpose: "Retired scope", Status: "deprecated", ParentDomainID: "product-root:concord", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
-			},
+	registry := KnowledgeDomainRegistry{
+		SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
+		Domains: []KnowledgeDomain{
+			{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+			{DomainID: "sync", Name: "Sync", Purpose: "Synchronization", Status: "current", ParentDomainID: "product-root:concord",
+				ArchitectureRelations: []KnowledgeArchitectureRelation{relation}},
+			{DomainID: "legacy-sync", Name: "Legacy Sync", Purpose: "Retired scope", Status: "deprecated", ParentDomainID: "product-root:concord", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
 		},
 	}
-	for i, lawID := range lawIDs {
-		path := fmt.Sprintf(".concord/docs/decisions/CD-%04d.md", i+1)
-		writeKnowledgeFile(t, repo, path, lawContent)
-		manifest.Records = append(manifest.Records, KnowledgeRecord{
-			ID: lawID, Kind: "decision", Path: path, Status: "accepted", Date: "2026-08-18T00:00:00Z",
-			Title: "Domain law", Summary: "A domain law", Tags: []string{},
-			Authority:    KnowledgeAuthority{Tier: "derived"},
-			Scopes:       KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{"sync"}, TagIDs: []string{}},
-			HomeDomainID: "sync", AppliesToDomainIDs: []string{"product-root:concord"}, SHA256: "sha256:" + hex.EncodeToString(sum[:])})
-	}
-	manifestBytes, err := json.Marshal(manifest)
+	registryBytes, err := json.Marshal(registry)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(manifestBytes)+"\n")
-	commitKnowledgeRepo(t, repo, "domain knowledge")
+	writeKnowledgeFile(t, repo, ".concord/docs/knowledge/domain-registry.json", string(registryBytes)+"\n")
+	for i, lawID := range lawIDs {
+		front, err := json.Marshal(map[string]any{
+			"id": lawID, "title": "Domain law", "authority": map[string]string{"tier": "derived"},
+			"home_domain_id": "sync", "applies_to_domain_ids": []string{"product-root:concord"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := fmt.Sprintf(".concord/law/decisions/CD-%04d.md", i+1)
+		writeKnowledgeFile(t, repo, path, "---\n"+string(front)+"\n---\n\n"+lawContent)
+	}
+	commitKnowledgeRepo(t, repo, "domain law folder")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "concord", home)
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		t.Fatal(err)
-	}
 	return s
 }
 
@@ -92,9 +81,9 @@ func TestDomainListCoversCurrentDomainsWithRegistryWatermark(t *testing.T) {
 
 	absent, err := s.QueryDomainList(ctx, DomainListRequest{Product: "other-product"})
 	if err == nil {
-		t.Fatalf("absent registry returned a page: %#v", absent)
+		t.Fatalf("homeless Product returned a page: %#v", absent)
 	}
-	assertFailureKind(t, err, KindDomainRegistryAbsent)
+	assertFailureKind(t, err, KindUnknownScope)
 }
 
 func TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown(t *testing.T) {

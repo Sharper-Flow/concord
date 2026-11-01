@@ -1,3 +1,28 @@
+---
+{
+  "id": "PM8",
+  "title": "product memory evidence store",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The absence of a store cannot be exercised by a positive scenario. The guarantee is proved structurally by the exhaustive BLOB column allow-list of TestPM8AndPM9DeclareNoEvidenceOrReceiptStore (internal/store/pm8_pm9_absence_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Bounded failure classification is a dispatch property. The guarantee is proved by the event-registry sweep of TestPM8AndPM9DeclareNoEvidenceOrReceiptStore (internal/store/pm8_pm9_absence_test.go) and TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence (internal/agent/agent_defects_regression_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Schema-boundary rejection is structural. The guarantee is proved by TestOpenAppliesSchemaManifest (internal/store/schema_test.go) and the BLOB allow-list of TestPM8AndPM9DeclareNoEvidenceOrReceiptStore (internal/store/pm8_pm9_absence_test.go)."
+    }
+  ]
+}
+---
 # Concord WIP Evidence and Blob Scope (PM8)
 
 > **Status:** **Accepted — binding until superseded.**

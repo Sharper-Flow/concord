@@ -2,10 +2,11 @@ package store
 
 import "context"
 
-// checkMandatedLawsAtHome runs the production law boundary for one resolved
-// home: the pre-transaction source-set proof, then the transaction-scoped
-// check.
-func checkMandatedLawsAtHome(ctx context.Context, s *Store, homeProjectID, homeLocatorID string, mandated, modified []string, allowAmendment bool) error {
+// checkMandatedLawsAtHome runs the production law boundary for the fixture
+// home (Project "p", locator "l"): the pre-transaction source-set proof, then
+// the transaction-scoped check.
+func checkMandatedLawsAtHome(ctx context.Context, s *Store, mandated, modified []string, allowAmendment bool) error {
+	const homeProjectID, homeLocatorID = "p", "l"
 	ctx, err := s.establishKnowledgeSourceSetProofAtHome(ctx, homeProjectID, homeLocatorID)
 	if err != nil {
 		return err

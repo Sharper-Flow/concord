@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,39 +15,78 @@ import (
 )
 
 const (
-	externalLawStartText = "# Outside law\n\nThe start text.\n"
-	externalLawMainText  = "# Outside law\n\nEdited on main by another change.\n"
-	externalLawOwnText   = "# Outside law\n\nEdited by the item itself.\n"
+	externalLawStartBody = "# Outside law\n\nThe start text.\n"
+	externalLawMainBody  = "# Outside law\n\nEdited on main by another change.\n"
+	externalLawOwnBody   = "# Outside law\n\nEdited by the item itself.\n"
 )
+
+// externalRegistryPath is the independent Domain registry's committed path,
+// the one file the candidate proof's registry fingerprints compare.
+const externalRegistryPath = knowledgeRegistryPath
 
 func externalLawHash(text string) string {
 	sum := sha256.Sum256([]byte(text))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// reviseExternalLaw moves one law's projected text as a scan of main would,
-// keeping its tier and Domains.
-func reviseExternalLaw(t *testing.T, s *Store, lawID, hash string) {
+func externalLawHome(t *testing.T, s *Store) KnowledgeHome {
 	t.Helper()
-	tx := lawChangeTx(t, s)
-	for _, query := range []string{`PRAGMA defer_foreign_keys=ON`, `INSERT INTO write_guard(active) VALUES(1)`, `UPDATE law_subjects SET content_hash=? WHERE law_id=?`, `UPDATE law_domain_homes SET law_content_hash=? WHERE law_id=?`, `DELETE FROM write_guard`} {
-		var args []any
-		if strings.HasPrefix(query, "UPDATE") {
-			args = []any{hash, lawID}
+	return lawChangeFixtureHome(t, s)
+}
+
+// externalFixtureLaw renders the outside fixture law's committed bytes.
+func externalFixtureLaw(lawID, tier, body string) string {
+	return lawChangeFixtureLawBody(lawID, tier, "agent-surface", body)
+}
+
+// externalCommit commits the named repository's current tree, empty or not:
+// a registry head movement with unchanged bytes is still a revision the
+// candidate proof must see.
+func externalCommit(t *testing.T, repo, message string) {
+	t.Helper()
+	runKnowledgeGit(t, repo, "add", "--", ".")
+	runKnowledgeGit(t, repo, "commit", "--quiet", "--allow-empty", "-m", message)
+}
+
+// externalApplyFiles writes (or deletes, on empty content) files relative to
+// a repository root and commits them.
+func externalApplyFiles(t *testing.T, repo string, files map[string]string, message string) {
+	t.Helper()
+	for path, text := range files {
+		full := filepath.Join(repo, filepath.FromSlash(path))
+		if text == "" {
+			if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			continue
 		}
-		if _, err := tx.Exec(query, args...); err != nil {
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(text), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	externalCommit(t, repo, message)
 }
 
+// seedExternalLaw commits the outside law to the knowledge home's main
+// branch, the scanned main commit the verified snapshot reads.
 func seedExternalLaw(t *testing.T, s *Store, lawID string) {
 	t.Helper()
-	seedLawChangeLaw(t, s, lawID, "derived", "agent-surface")
-	reviseExternalLaw(t, s, lawID, externalLawHash(externalLawStartText))
+	commitWorkflowFixtureLaw(t, externalLawHome(t, s), lawID, externalFixtureLaw(lawID, "derived", externalLawStartBody))
+}
+
+// reviseExternalLaw moves one law's committed bytes on main, keeping its
+// stable ID, tier, and Domain homes.
+func reviseExternalLaw(t *testing.T, s *Store, lawID, body string) {
+	t.Helper()
+	commitWorkflowFixtureLaw(t, externalLawHome(t, s), lawID, externalFixtureLaw(lawID, "derived", body))
+}
+
+func removeExternalLaw(t *testing.T, s *Store, lawID string) {
+	t.Helper()
+	removeWorkflowFixtureLaw(t, externalLawHome(t, s), lawID)
 }
 
 // The shapes an item's branch can take against main's law edit.
@@ -62,108 +102,119 @@ const (
 	historyMainFirst = "main-first"
 )
 
-// lawHistory builds main and the item's candidate in the claimed repository
-// and points the law's projection at main's commit.
+const externalCandidateBranch = "review-candidate"
+
+// externalForkCandidate forks the review repository's branch from the
+// knowledge home's main branch, so the candidate and the verified snapshot
+// commit share one history the attribution proof can walk.
+func externalForkCandidate(t *testing.T, home KnowledgeHome, repo string) {
+	t.Helper()
+	runKnowledgeGit(t, repo, "fetch", "-q", home.RepoPath, "main")
+	runKnowledgeGit(t, repo, "checkout", "-q", "-B", externalCandidateBranch, "FETCH_HEAD")
+}
+
+// externalSyncMain merges the home's current main into the candidate branch.
+// firstParentMain detaches to main first, so the sync merge's first parent is
+// main and the item branch lands on the sync commit.
+func externalSyncMain(t *testing.T, home KnowledgeHome, repo string, firstParentMain bool) {
+	t.Helper()
+	runKnowledgeGit(t, repo, "fetch", "-q", home.RepoPath, "main")
+	if firstParentMain {
+		main := strings.TrimSpace(runKnowledgeGit(t, repo, "rev-parse", "FETCH_HEAD"))
+		runKnowledgeGit(t, repo, "checkout", "-q", "--detach", main)
+		runKnowledgeGit(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", externalCandidateBranch)
+		sync := strings.TrimSpace(runKnowledgeGit(t, repo, "rev-parse", "HEAD"))
+		runKnowledgeGit(t, repo, "checkout", "-q", "-B", externalCandidateBranch, sync)
+		return
+	}
+	runKnowledgeGit(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", "FETCH_HEAD")
+}
+
+func externalUnrelatedCommit(t *testing.T, repo, tag string) {
+	t.Helper()
+	externalApplyFiles(t, repo, map[string]string{"unrelated.txt": tag + "\n"}, "unrelated item change: "+tag)
+}
+
+// externalItemLawEdit commits the item's own law revision on the candidate
+// branch.
+func externalItemLawEdit(t *testing.T, repo, lawID string) {
+	t.Helper()
+	externalApplyFiles(t, repo, map[string]string{
+		workflowFixtureDecisionsLawPath(lawID): externalFixtureLaw(lawID, "derived", externalLawOwnBody),
+	}, "item law edit")
+}
+
+// lawHistory builds the item's candidate branch in the review repository and,
+// where the shape says main carried the change first, the outside or squashed
+// revision on the knowledge home's main branch. The candidate's merge base
+// with the scanned main commit, the byte-identical files both sides hold, and
+// the commits between them are what the attribution proof reads.
 func lawHistory(t *testing.T, s *Store, lawID, shape string) func(string) {
+	t.Helper()
+	home := externalLawHome(t, s)
+	commitLawBody := func(content, message string) {
+		t.Helper()
+		externalApplyFiles(t, home.RepoPath, map[string]string{workflowFixtureDecisionsLawPath(lawID): content}, message)
+	}
+	// Each outside revision carries a distinct body, so an outside edit always
+	// moves the committed law content even when a shape revises it twice.
+	editOutside := func(message string) {
+		t.Helper()
+		path := filepath.Join(home.RepoPath, filepath.FromSlash(workflowFixtureDecisionsLawPath(lawID)))
+		current, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		revision := strings.Count(string(current), "Outside revision ") + 1
+		commitLawBody(externalFixtureLaw(lawID, "derived", externalLawMainBody+fmt.Sprintf("\nOutside revision %d.\n", revision)), message)
+	}
+	// The item's own revision reaches main byte-identical to its branch commit,
+	// which is what a squash merge of the item produces.
+	squashOwn := func(message string) {
+		t.Helper()
+		commitLawBody(externalFixtureLaw(lawID, "derived", externalLawOwnBody), message)
+	}
 	return func(repo string) {
 		t.Helper()
-		path := filepath.Join(".concord", "docs", "decisions", lawID+".md")
-		write := func(text, message string) {
-			// A text edit moves the record's pinned hash with the document.
-			record := `{"id":"` + lawID + `","path":".concord/docs/decisions/` + lawID + `.md","sha256":"` + externalLawHash(text) + `"}` + "\n"
-			for file, content := range map[string]string{path: text, ".concord/docs/knowledge/manifest.json": "{}\n", externalRecordPath(lawID): record} {
-				if err := os.MkdirAll(filepath.Join(repo, filepath.Dir(file)), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(repo, file), []byte(content), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
-			gitRunStore(t, repo, "add", "-A")
-			gitRunStore(t, repo, "commit", "-q", "--allow-empty", "-m", message)
-		}
-		edits := 0
-		unrelated := func() {
-			edits++
-			if err := os.WriteFile(filepath.Join(repo, "unrelated.txt"), []byte(strings.Repeat(shape+"\n", edits)), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			gitRunStore(t, repo, "add", "-A")
-			gitRunStore(t, repo, "commit", "-q", "-m", "unrelated item change")
-		}
-		write(externalLawStartText, "law start text")
-		gitRunStore(t, repo, "branch", "main-line")
+		externalForkCandidate(t, home, repo)
 		switch shape {
-		case historyKept, historyRebased, historyMergeSynced:
-			if shape == historyMergeSynced {
-				unrelated()
-			}
-			gitRunStore(t, repo, "checkout", "-q", "main-line")
-			write(externalLawMainText, "outside law edit")
-			gitRunStore(t, repo, "checkout", "-q", "-")
-			switch shape {
-			case historyRebased:
-				gitRunStore(t, repo, "merge", "-q", "--ff-only", "main-line")
-			case historyMergeSynced:
-				gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", "main-line")
-			}
-			unrelated()
+		case historyKept:
+			editOutside("outside law edit")
+			externalUnrelatedCommit(t, repo, shape)
+		case historyRebased:
+			editOutside("outside law edit")
+			runKnowledgeGit(t, repo, "fetch", "-q", home.RepoPath, "main")
+			runKnowledgeGit(t, repo, "merge", "-q", "--ff-only", "FETCH_HEAD")
+			externalUnrelatedCommit(t, repo, shape)
+		case historyMergeSynced:
+			externalUnrelatedCommit(t, repo, "before-sync")
+			externalSyncMain(t, home, repo, false)
+			externalUnrelatedCommit(t, repo, shape)
 		case historyOwn:
-			write(externalLawOwnText, "item law edit")
-			gitRunStore(t, repo, "checkout", "-q", "main-line")
-			write(externalLawOwnText, "squash of the item")
-			gitRunStore(t, repo, "checkout", "-q", "-")
+			externalItemLawEdit(t, repo, lawID)
+			squashOwn("squash of the item")
 		case historySynced:
-			write(externalLawOwnText, "item law edit")
-			gitRunStore(t, repo, "checkout", "-q", "main-line")
-			write(externalLawOwnText, "squash of the item")
-			gitRunStore(t, repo, "checkout", "-q", "-")
-			gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", "main-line")
-			unrelated()
+			externalItemLawEdit(t, repo, lawID)
+			squashOwn("squash of the item")
+			externalSyncMain(t, home, repo, false)
+			externalUnrelatedCommit(t, repo, shape)
 		case historyMainFirst:
-			write(externalLawOwnText, "item law edit")
-			item := strings.TrimSpace(string(mustGit(t, repo, "rev-parse", "HEAD")))
-			branch := strings.TrimSpace(string(mustGit(t, repo, "rev-parse", "--abbrev-ref", "HEAD")))
-			gitRunStore(t, repo, "checkout", "-q", "main-line")
-			write(externalLawOwnText, "squash of the item")
-			gitRunStore(t, repo, "checkout", "-q", "--detach")
-			gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", item)
-			sync := strings.TrimSpace(string(mustGit(t, repo, "rev-parse", "HEAD")))
-			gitRunStore(t, repo, "checkout", "-q", branch)
-			gitRunStore(t, repo, "reset", "-q", "--hard", sync)
-			unrelated()
+			externalItemLawEdit(t, repo, lawID)
+			squashOwn("squash of the item")
+			externalSyncMain(t, home, repo, true)
+			externalUnrelatedCommit(t, repo, shape)
 		case historyMerged:
-			write(externalLawOwnText, "item law edit")
-			item := strings.TrimSpace(string(mustGit(t, repo, "rev-parse", "HEAD")))
-			gitRunStore(t, repo, "checkout", "-q", "main-line")
-			gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "merge the item", item)
-			gitRunStore(t, repo, "checkout", "-q", "-")
+			externalItemLawEdit(t, repo, lawID)
+			runKnowledgeGit(t, home.RepoPath, "fetch", "-q", repo, externalCandidateBranch)
+			runKnowledgeGit(t, home.RepoPath, "merge", "-q", "--no-ff", "-m", "merge the item", "FETCH_HEAD")
+		default:
+			t.Fatalf("unknown history shape %q", shape)
 		}
-		scanMain(t, s, repo)
+		// The proof resolves the scanned main commit inside the candidate
+		// repository, so the candidate holds every main revision it compares.
+		runKnowledgeGit(t, repo, "fetch", "-q", home.RepoPath, "main")
 	}
 }
-
-// scanMain points the source's whole projection at main's commit, as one
-// rebuild of main would.
-func scanMain(t *testing.T, s *Store, repo string) {
-	t.Helper()
-	main := strings.TrimSpace(string(mustGit(t, repo, "rev-parse", "main-line")))
-	lawChangeFold(t, s, `UPDATE law_subjects SET scanned_commit_oid=?`, main)
-	lawChangeFold(t, s, `UPDATE domain_registries SET scanned_commit_oid=?`, main)
-}
-
-func mustGit(t *testing.T, repo string, args ...string) []byte {
-	t.Helper()
-	out, err := ExecGitRunner{}.Run(context.Background(), repo, args...)
-	if err != nil {
-		t.Fatalf("git %v: %v", args, err)
-	}
-	return out
-}
-
-// Each reviewSubjectClaim registers another canonical locator, and a later
-// claim resolves only when its item sorts first, so items claim in descending
-// order.
 
 func externalLawEnactment(t *testing.T, s *Store, workID string) (string, bool) {
 	t.Helper()
@@ -186,7 +237,7 @@ func TestLawAttributionExternalEditDoesNotBlock(t *testing.T) {
 	attributionItem(t, s, "outside-y-rebased", []string{}, []string{})
 	attributionItem(t, s, "outside-x-merge-synced", []string{}, []string{})
 	attributionItem(t, s, "outside-peer", []string{}, []string{})
-	reviseExternalLaw(t, s, "law-outside", externalLawHash(externalLawMainText))
+	reviseExternalLaw(t, s, "law-outside", externalLawMainBody)
 	requireFailureKind(t, enactLawChange(t, s, "outside-z-kept", nil, nil), KindOutcomeMismatch, "no reviewed candidate proves the edit external")
 	for _, item := range []struct{ id, shape string }{{"outside-z-kept", historyKept}, {"outside-y-rebased", historyRebased}, {"outside-x-merge-synced", historyMergeSynced}} {
 		if err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, lawHistory(t, s, "law-outside", item.shape))); err != nil {
@@ -213,13 +264,15 @@ func TestLawAttributionOwnEditStillRefuses(t *testing.T) {
 	attributionItem(t, s, "own-c-synced", []string{}, []string{})
 	attributionItem(t, s, "own-b-merged", []string{}, []string{})
 	for _, item := range []struct{ id, law, shape string }{{"own-d-squash", "law-own", historyOwn}, {"own-c2-main-first", "law-main-first", historyMainFirst}, {"own-c-synced", "law-synced", historySynced}, {"own-b-merged", "law-merged", historyMerged}} {
-		reviseExternalLaw(t, s, item.law, externalLawHash(externalLawOwnText))
+		// Each item branches from the start revision; the shape carries its
+		// own revision to main afterwards, then restores the start revision
+		// for the next item.
 		err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, lawHistory(t, s, item.law, item.shape)))
 		requireFailureKind(t, err, KindOutcomeMismatch, item.shape+" own undeclared edit")
 		if !strings.Contains(err.Error(), "project/"+item.law+" changed outside the active contract") {
 			t.Fatalf("%s: refusal does not name the item's own law: %v", item.shape, err)
 		}
-		reviseExternalLaw(t, s, item.law, externalLawHash(externalLawStartText))
+		reviseExternalLaw(t, s, item.law, externalLawStartBody)
 	}
 }
 
@@ -246,7 +299,7 @@ func TestLawAttributionReplayKeepsRecordedResult(t *testing.T) {
 	seedExternalLaw(t, s, "law-outside")
 	attributionItem(t, s, "replay-z", []string{}, []string{})
 	attributionItem(t, s, "replay-b", []string{}, []string{})
-	reviseExternalLaw(t, s, "law-outside", externalLawHash(externalLawMainText))
+	reviseExternalLaw(t, s, "law-outside", externalLawMainBody)
 	event := attributionCompletionWith(t, s, "replay-z", lawHistory(t, s, "law-outside", historyRebased))
 	if err := CompleteWorkflow(t.Context(), s, event); err != nil {
 		t.Fatal(err)
@@ -268,76 +321,20 @@ func TestLawAttributionReplayKeepsRecordedResult(t *testing.T) {
 	}
 }
 
-const (
-	externalRegistryPath = ".concord/docs/knowledge/domain-registry.json"
-	externalRegistryText = `{"root_domain_id":"root","domains":[]}` + "\n"
-)
-
-func externalRecordPath(lawID string) string {
-	return ".concord/docs/knowledge/records/" + lawID + ".json"
-}
-
-func externalLawRecord(lawID, tier string) string {
-	return `{"id":"` + lawID + `","path":".concord/docs/decisions/` + lawID + `.md","authority":{"tier":"` + tier + `"}}` + "\n"
-}
-
-// shardHistory commits the start knowledge tree, then the edit: on main by
-// another change (kept, rebased), or by the item and squash-merged to main
-// (own). An empty value deletes the file.
+// shardHistory moves the knowledge home's main branch through the named start
+// and outside-edit revisions and forks the candidate from the edited main, so
+// the item's own history carries none of the change it must prove external.
+// An empty value deletes the file.
 func shardHistory(t *testing.T, s *Store, start, edit map[string]string, shape string) func(string) {
+	t.Helper()
+	home := externalLawHome(t, s)
 	return func(repo string) {
 		t.Helper()
-		apply := func(files map[string]string, message string) {
-			for path, text := range files {
-				full := filepath.Join(repo, path)
-				if text == "" {
-					if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
-						t.Fatal(err)
-					}
-					continue
-				}
-				if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(full, []byte(text), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
-			gitRunStore(t, repo, "add", "-A")
-			gitRunStore(t, repo, "commit", "-q", "--allow-empty", "-m", message)
-		}
-		apply(map[string]string{".concord/docs/knowledge/manifest.json": "{}\n"}, "knowledge head")
-		apply(start, "start knowledge")
-		gitRunStore(t, repo, "branch", "main-line")
-		unrelated := map[string]string{"unrelated.txt": shape + "\n"}
-		switch shape {
-		case historyKept, historyRebased:
-			gitRunStore(t, repo, "checkout", "-q", "main-line")
-			apply(edit, "outside knowledge edit")
-			gitRunStore(t, repo, "checkout", "-q", "-")
-			if shape == historyRebased {
-				gitRunStore(t, repo, "merge", "-q", "--ff-only", "main-line")
-			}
-			apply(unrelated, "unrelated item change")
-		case historyOwn, historySynced:
-			apply(edit, "item knowledge edit")
-			gitRunStore(t, repo, "checkout", "-q", "main-line")
-			apply(edit, "squash of the item")
-			gitRunStore(t, repo, "checkout", "-q", "-")
-			if shape == historySynced {
-				gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", "main-line")
-			}
-		default:
-			t.Fatalf("unknown history shape %q", shape)
-		}
-		scanMain(t, s, repo)
-	}
-}
-
-func removeExternalLaw(t *testing.T, s *Store, lawID string) {
-	t.Helper()
-	for _, table := range []string{"law_domain_applicability", "law_domain_homes", "law_subjects"} {
-		lawChangeFold(t, s, `DELETE FROM `+table+` WHERE law_id=?`, lawID)
+		externalApplyFiles(t, home.RepoPath, start, "start knowledge")
+		externalApplyFiles(t, home.RepoPath, edit, "outside knowledge edit")
+		externalForkCandidate(t, home, repo)
+		externalUnrelatedCommit(t, repo, shape)
+		runKnowledgeGit(t, repo, "fetch", "-q", home.RepoPath, "main")
 	}
 }
 
@@ -351,33 +348,28 @@ func TestLawAttributionExternalInventoryChangeDoesNotBlock(t *testing.T) {
 	for _, id := range []string{"inventory-z-added", "inventory-y-removed", "inventory-x-retiered", "inventory-w-registry"} {
 		attributionItem(t, s, id, []string{}, []string{})
 	}
+	added := externalFixtureLaw("law-added", "derived", externalLawMainBody)
+	retiered := externalFixtureLaw("law-retiered", "legislated", externalLawStartBody)
 	cases := []struct {
 		id, shape string
-		start     map[string]string
 		edit      map[string]string
-		project   func()
 		reset     func()
 	}{
-		{"inventory-z-added", historyKept, map[string]string{}, map[string]string{externalRecordPath("law-added"): externalLawRecord("law-added", "derived"), ".concord/docs/decisions/law-added.md": externalLawMainText},
-			func() { seedExternalLaw(t, s, "law-added") }, func() { removeExternalLaw(t, s, "law-added") }},
-		{"inventory-y-removed", historyRebased, map[string]string{externalRecordPath("law-removed"): externalLawRecord("law-removed", "derived"), ".concord/docs/decisions/law-removed.md": externalLawStartText}, map[string]string{externalRecordPath("law-removed"): "", ".concord/docs/decisions/law-removed.md": ""},
-			func() { removeExternalLaw(t, s, "law-removed") }, func() { seedExternalLaw(t, s, "law-removed") }},
-		{"inventory-x-retiered", historyKept, map[string]string{externalRecordPath("law-retiered"): externalLawRecord("law-retiered", "derived")}, map[string]string{externalRecordPath("law-retiered"): externalLawRecord("law-retiered", "legislated")},
-			func() {
-				lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='legislated' WHERE law_id='law-retiered'`)
-			}, func() {
-				lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='derived' WHERE law_id='law-retiered'`)
-			}},
-		{"inventory-w-registry", historyRebased, map[string]string{externalRegistryPath: externalRegistryText}, map[string]string{externalRegistryPath: `{"root_domain_id":"root","domains":["edited"]}` + "\n"},
-			func() {
-				lawChangeFold(t, s, `UPDATE domains SET purpose='edited on main' WHERE domain_id='workflow-engine'`)
-			}, func() {
-				lawChangeFold(t, s, `UPDATE domains SET purpose='test domain' WHERE domain_id='workflow-engine'`)
-			}},
+		{"inventory-z-added", historyKept, map[string]string{
+			workflowFixtureDecisionsLawPath("law-added"): added,
+		}, func() { removeExternalLaw(t, s, "law-added") }},
+		{"inventory-y-removed", historyRebased, map[string]string{
+			workflowFixtureDecisionsLawPath("law-removed"): "",
+		}, func() { seedExternalLaw(t, s, "law-removed") }},
+		{"inventory-x-retiered", historyKept, map[string]string{
+			workflowFixtureDecisionsLawPath("law-retiered"): retiered,
+		}, func() { reviseExternalLaw(t, s, "law-retiered", externalLawStartBody) }},
+		{"inventory-w-registry", historyRebased, map[string]string{
+			externalRegistryPath: lawChangeRegistryWithPurpose(t, "workflow-engine", "edited on main"),
+		}, func() { commitWorkflowFixtureRegistry(t, externalLawHome(t, s), lawChangeFixtureRegistry) }},
 	}
 	for _, item := range cases {
-		item.project()
-		if err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, shardHistory(t, s, item.start, item.edit, item.shape))); err != nil {
+		if err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, shardHistory(t, s, nil, item.edit, item.shape))); err != nil {
 			t.Fatalf("%s: a change the item never made blocked completion: %v", item.id, err)
 		}
 		if proof, recorded := externalLawEnactment(t, s, item.id); recorded {
@@ -401,43 +393,23 @@ func externalRemovalWithOwnLawEdit(t *testing.T, shape string) {
 	seedExternalLaw(t, s, "law-own")
 	attributionItem(t, s, "removal-with-own-edit", []string{"law-own"}, []string{"agent-surface"})
 	baseline := attributionBaseline(t, s, "removal-with-own-edit")
+	// Main removed one law before the item's candidate forked.
 	removeExternalLaw(t, s, "law-removed")
-	reviseExternalLaw(t, s, "law-own", externalLawHash(externalLawOwnText))
-	start := map[string]string{
-		externalRecordPath("law-removed"):        externalLawRecord("law-removed", "derived"),
-		".concord/docs/decisions/law-removed.md": externalLawStartText,
-		externalRecordPath("law-own"):            externalLawRecord("law-own", "derived"),
-		".concord/docs/decisions/law-own.md":     externalLawStartText,
-	}
-	removed := map[string]string{externalRecordPath("law-removed"): "", ".concord/docs/decisions/law-removed.md": ""}
+	home := externalLawHome(t, s)
 	event := attributionCompletionWith(t, s, "removal-with-own-edit", func(repo string) {
-		// The merge shape keeps main's removal off the item's branch until a
-		// merge whose other parent still holds the removed record.
-		imported := historyRebased
+		t.Helper()
+		externalForkCandidate(t, home, repo)
+		// The item's own declared edit is the only change its branch makes.
+		externalItemLawEdit(t, repo, "law-own")
+		own := externalFixtureLaw("law-own", "derived", externalLawOwnBody)
+		externalApplyFiles(t, home.RepoPath, map[string]string{
+			workflowFixtureDecisionsLawPath("law-own"): own,
+		}, "squash of the item's own edit")
 		if shape == historyMergeSynced {
-			imported = historyKept
+			externalSyncMain(t, home, repo, false)
 		}
-		shardHistory(t, s, start, removed, imported)(repo)
-		editOwn := func() {
-			for path, text := range map[string]string{
-				externalRecordPath("law-own"):        `{"id":"law-own","path":".concord/docs/decisions/law-own.md","sha256":"` + externalLawHash(externalLawOwnText) + `"}` + "\n",
-				".concord/docs/decisions/law-own.md": externalLawOwnText,
-			} {
-				if err := os.WriteFile(filepath.Join(repo, path), []byte(text), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
-			gitRunStore(t, repo, "add", "-A")
-			gitRunStore(t, repo, "commit", "-q", "-m", "own law edit")
-		}
-		editOwn()
-		gitRunStore(t, repo, "checkout", "-q", "main-line")
-		editOwn()
-		gitRunStore(t, repo, "checkout", "-q", "-")
-		if shape == historyMergeSynced {
-			gitRunStore(t, repo, "merge", "-q", "--no-ff", "-m", "sync main", "main-line")
-		}
-		scanMain(t, s, repo)
+		externalUnrelatedCommit(t, repo, shape)
+		runKnowledgeGit(t, repo, "fetch", "-q", home.RepoPath, "main")
 	})
 	previous := workflowLawExternalGit
 	workflowLawExternalGit = failingLawRecordHistoryGit{}
@@ -469,13 +441,24 @@ func TestLawAttributionOwnRemovalStillRefuses(t *testing.T) {
 			s := seedLawChangeFixture(t, "inventory-seed")
 			seedExternalLaw(t, s, "law-removed")
 			attributionItem(t, s, "own-removal", []string{}, []string{})
-			removeExternalLaw(t, s, "law-removed")
-			start := map[string]string{
-				externalRecordPath("law-removed"):        externalLawRecord("law-removed", "derived"),
-				".concord/docs/decisions/law-removed.md": externalLawStartText,
-			}
-			removed := map[string]string{externalRecordPath("law-removed"): "", ".concord/docs/decisions/law-removed.md": ""}
-			err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, "own-removal", shardHistory(t, s, start, removed, shape)))
+			home := externalLawHome(t, s)
+			err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, "own-removal", func(repo string) {
+				t.Helper()
+				externalForkCandidate(t, home, repo)
+				// The item's own branch removes the law; the same removal
+				// reaches main afterwards.
+				externalApplyFiles(t, repo, map[string]string{
+					workflowFixtureDecisionsLawPath("law-removed"): "",
+				}, "item law removal")
+				externalApplyFiles(t, home.RepoPath, map[string]string{
+					workflowFixtureDecisionsLawPath("law-removed"): "",
+				}, "squash of the item's removal")
+				if shape == historySynced {
+					externalSyncMain(t, home, repo, false)
+				}
+				externalUnrelatedCommit(t, repo, shape)
+				runKnowledgeGit(t, repo, "fetch", "-q", home.RepoPath, "main")
+			}))
 			requireFailureKind(t, err, KindOutcomeMismatch, "own undeclared removal")
 			if !strings.Contains(err.Error(), "law project/law-removed changed outside the active contract") {
 				t.Fatalf("refusal does not name the item's own removal: %v", err)
@@ -488,49 +471,81 @@ func TestLawAttributionOwnRemovalStillRefuses(t *testing.T) {
 }
 
 // The item's own undeclared addition, tier change, registry edit, or text
-// change made by pointing a record at an existing document is still refused
-// after it is squash-merged to main.
+// change is still refused after it is squash-merged to main.
 func TestLawAttributionOwnInventoryChangeStillRefuses(t *testing.T) {
 	s := seedLawChangeFixture(t, "inventory-seed")
 	seedExternalLaw(t, s, "law-own-tier")
-	seedExternalLaw(t, s, "law-own-repointed")
-	const existingDocument = ".concord/docs/notes/existing.md"
-	for _, id := range []string{"own-inventory-z-added", "own-inventory-y-tier", "own-inventory-x-registry", "own-inventory-w-repointed"} {
+	seedExternalLaw(t, s, "law-own-amended")
+	for _, id := range []string{"own-inventory-z-added", "own-inventory-y-tier", "own-inventory-x-registry", "own-inventory-w-amended"} {
 		attributionItem(t, s, id, []string{}, []string{})
 	}
+	added := externalFixtureLaw("law-own-added", "derived", externalLawOwnBody)
+	retiered := externalFixtureLaw("law-own-tier", "legislated", externalLawStartBody)
+	amended := externalFixtureLaw("law-own-amended", "derived", externalLawOwnBody)
 	cases := []struct {
-		id, want    string
-		start, edit map[string]string
-		project     func()
-		reset       func()
+		id, want string
+		edit     func(repo string)
+		squash   func()
+		reset    func()
 	}{
-		{"own-inventory-z-added", "law project/law-own-added changed outside the active contract", map[string]string{}, map[string]string{externalRecordPath("law-own-added"): externalLawRecord("law-own-added", "derived"), ".concord/docs/decisions/law-own-added.md": externalLawOwnText},
-			func() { seedExternalLaw(t, s, "law-own-added") }, func() { removeExternalLaw(t, s, "law-own-added") }},
-		{"own-inventory-y-tier", "law project/law-own-tier changed outside the active contract", map[string]string{externalRecordPath("law-own-tier"): externalLawRecord("law-own-tier", "derived")}, map[string]string{externalRecordPath("law-own-tier"): externalLawRecord("law-own-tier", "legislated")},
+		{"own-inventory-z-added", "law project/law-own-added changed outside the active contract",
+			func(repo string) {
+				externalApplyFiles(t, repo, map[string]string{
+					workflowFixtureDecisionsLawPath("law-own-added"): added,
+				}, "item law addition")
+			},
 			func() {
-				lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='legislated' WHERE law_id='law-own-tier'`)
-			}, func() {
-				lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='derived' WHERE law_id='law-own-tier'`)
-			}},
-		{"own-inventory-x-registry", "outside the declared scope", map[string]string{externalRegistryPath: externalRegistryText}, map[string]string{externalRegistryPath: `{"root_domain_id":"root","domains":["own"]}` + "\n"},
+				externalApplyFiles(t, externalLawHome(t, s).RepoPath, map[string]string{
+					workflowFixtureDecisionsLawPath("law-own-added"): added,
+				}, "squash of the item's addition")
+			},
+			func() { removeExternalLaw(t, s, "law-own-added") }},
+		{"own-inventory-y-tier", "law project/law-own-tier changed outside the active contract",
+			func(repo string) {
+				externalApplyFiles(t, repo, map[string]string{
+					workflowFixtureDecisionsLawPath("law-own-tier"): retiered,
+				}, "item law retier")
+			},
 			func() {
-				lawChangeFold(t, s, `UPDATE domains SET purpose='edited by the item' WHERE domain_id='workflow-engine'`)
-			}, func() {
-				lawChangeFold(t, s, `UPDATE domains SET purpose='test domain' WHERE domain_id='workflow-engine'`)
-			}},
-		{"own-inventory-w-repointed", "law project/law-own-repointed changed outside the active contract",
-			map[string]string{externalRecordPath("law-own-repointed"): externalLawRecord("law-own-repointed", "derived"), ".concord/docs/decisions/law-own-repointed.md": externalLawStartText, existingDocument: externalLawOwnText},
-			map[string]string{externalRecordPath("law-own-repointed"): `{"id":"law-own-repointed","path":"` + existingDocument + `","authority":{"tier":"derived"}}` + "\n"},
+				externalApplyFiles(t, externalLawHome(t, s).RepoPath, map[string]string{
+					workflowFixtureDecisionsLawPath("law-own-tier"): retiered,
+				}, "squash of the item's retier")
+			},
+			func() { reviseExternalLaw(t, s, "law-own-tier", externalLawStartBody) }},
+		{"own-inventory-x-registry", "outside the declared scope",
+			func(repo string) {
+				externalApplyFiles(t, repo, map[string]string{
+					externalRegistryPath: lawChangeRegistryWithPurpose(t, "workflow-engine", "edited by the item"),
+				}, "item registry edit")
+			},
 			func() {
-				reviseExternalLaw(t, s, "law-own-repointed", externalLawHash(externalLawOwnText))
-				lawChangeFold(t, s, `UPDATE law_subjects SET path=? WHERE law_id='law-own-repointed'`, existingDocument)
-			}, func() {
-				reviseExternalLaw(t, s, "law-own-repointed", externalLawHash(externalLawStartText))
-			}},
+				externalApplyFiles(t, externalLawHome(t, s).RepoPath, map[string]string{
+					externalRegistryPath: lawChangeRegistryWithPurpose(t, "workflow-engine", "edited by the item"),
+				}, "squash of the item's registry edit")
+			},
+			func() { commitWorkflowFixtureRegistry(t, externalLawHome(t, s), lawChangeFixtureRegistry) }},
+		{"own-inventory-w-amended", "law project/law-own-amended changed outside the active contract",
+			func(repo string) {
+				externalApplyFiles(t, repo, map[string]string{
+					workflowFixtureDecisionsLawPath("law-own-amended"): amended,
+				}, "item law amendment")
+			},
+			func() {
+				externalApplyFiles(t, externalLawHome(t, s).RepoPath, map[string]string{
+					workflowFixtureDecisionsLawPath("law-own-amended"): amended,
+				}, "squash of the item's amendment")
+			},
+			func() { reviseExternalLaw(t, s, "law-own-amended", externalLawStartBody) }},
 	}
 	for _, item := range cases {
-		item.project()
-		err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, shardHistory(t, s, item.start, item.edit, historyOwn)))
+		home := externalLawHome(t, s)
+		err := CompleteWorkflow(t.Context(), s, attributionCompletionWith(t, s, item.id, func(repo string) {
+			t.Helper()
+			externalForkCandidate(t, home, repo)
+			item.edit(repo)
+			item.squash()
+			runKnowledgeGit(t, repo, "fetch", "-q", home.RepoPath, "main")
+		}))
 		requireFailureKind(t, err, KindOutcomeMismatch, item.id+" own undeclared change")
 		if !strings.Contains(err.Error(), item.want) {
 			t.Fatalf("%s: refusal does not name the item's own change: %v", item.id, err)

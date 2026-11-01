@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0124",
+  "title": "Workflow verify evidence recovery",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    }
+  ]
+}
+---
 # CD-0124: Workflow verify evidence recovery
 
 - **Status:** Accepted

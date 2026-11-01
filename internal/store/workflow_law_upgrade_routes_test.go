@@ -67,18 +67,20 @@ func lawUpgradePrefixForDefinition(t *testing.T, id, step string, contract, boun
 }
 
 // Build the ordinary report, research association and coordinator confirmation
-// before migration. The remote locator identifies retained registry data; it is
-// not a canonical knowledge home and supplies no source-verification proof.
+// before migration. The ordinary pre-migration history records against the
+// Product's designated canonical home and its committed registry, exactly as
+// live recording does; the migration assertions below stay about the retained
+// workflow facts.
 func lawUpgradeCompletionHistory(t *testing.T, s *Store, id string, owner WorkflowActor) {
 	t.Helper()
-	lawUpgradeRegistry(t, s)
+	seedWorkflowLaw(t, s)
 	execSixClassSQL(t, s.db, `INSERT INTO write_guard(active) VALUES(1)`)
 	execSixClassSQL(t, s.db, `UPDATE workflow_instances SET current_step='findings' WHERE work_id=?`, id)
 	execSixClassSQL(t, s.db, `DELETE FROM write_guard`)
 	f := workContextFixture{store: s, workID: id, owner: owner}
 	pack := seedResearchContextPack(t, f, "upgrade-proof")
 	bindResearchPack(t, f, pack.PackID, 1, true)
-	selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
+	selection := researchSelectionEntry(pack.PackID, 1, "f2", "product-root:product")
 	selection["product_wide_rationale"] = "The research result supports the whole bounded Product question."
 	if err := lawUpgradeAction(t, s, id, owner, "record_work_context", map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
 		t.Fatalf("record ordinary research selection before upgrade: %v", err)
@@ -110,7 +112,6 @@ func lawUpgradeRegistry(t *testing.T, s *Store) {
 	execSixClassSQL(t, s.db, `INSERT INTO write_guard(active) VALUES(1)`)
 	execSixClassSQL(t, s.db, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-law-locator','project','git_remote','https://example.invalid/research.git','https://example.invalid/research.git','t','t')`)
 	execSixClassSQL(t, s.db, `DELETE FROM write_guard`)
-	seedIssue31DomainRegistry(t, s)
 }
 
 func lawUpgradeNoBaseline(t *testing.T, s *Store, id string) {

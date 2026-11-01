@@ -153,6 +153,12 @@ func claimStepAuthorizedWithRegistry(ctx context.Context, s *Store, req ClaimReq
 	if s == nil || s.db == nil {
 		return FenceResult{}, newFailure(KindUnavailable, "claim_step", "store is not open", false, "open a store before claiming a step")
 	}
+	// The claim preflight checks the contract's law pins against current
+	// committed law, read before the transaction opens (CD-0195 D2).
+	ctx, err := s.PrepareWorkLawProof(ctx, req.WorkID)
+	if err != nil {
+		return FenceResult{}, err
+	}
 	tx, err := s.beginStoreWriteTx(ctx, durable)
 	if err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot begin claim", true, "retry once the database is writable", err)

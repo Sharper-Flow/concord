@@ -1004,9 +1004,6 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	manifest := lawTestManifest()
-	manifest.Records = []KnowledgeRecord{}
-	writeAggregateAsShards(t, repo, mustJSONValue(manifest))
 	peerID := livenessPeerWorkID
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
 		{EventID: peerID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: peerID, Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Peer work","priority":1}`)},
@@ -1022,20 +1019,12 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	hash := livenessDigest
 	for _, statement := range []struct {
 		query string
 		args  []any
 	}{
 		{`INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('liveness-locator','project-s','canonical_path',?,?,'t','t')`, []any{repo, repo}},
 		{`INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-s','project-s','liveness-locator')`, nil},
-		{`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product-s','project-s','liveness-locator','liveness','root','1.0',?,'liveness')`, []any{hash}},
-		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project-s','liveness-locator','product-s','root','Root','Product law','current',?,'liveness')`, []any{hash}},
-		// The explorer synthesizes "liveness" for an unconstrained string, so a
-		// Domain of that id must exist for a synthesized architecture binding to
-		// resolve. Without it the binding refuses on the registry join and reads
-		// as a stranding that no agent would meet.
-		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project-s','liveness-locator','product-s','liveness','Liveness','Explorer domain','current',?,'liveness')`, []any{hash}},
 	} {
 		if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
 			tx.Rollback()
@@ -1054,8 +1043,21 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	bindWorkflowFixtureKnowledgeSource(t, s, KnowledgeHome{HomeProjectID: "project-s", HomeLocatorID: "liveness-locator", RepoPath: repo, HeadRef: "HEAD"})
+	home := KnowledgeHome{HomeProjectID: "project-s", HomeLocatorID: "liveness-locator", RepoPath: repo, HeadRef: "HEAD"}
+	bindWorkflowFixtureKnowledgeSource(t, home)
+	// The explorer synthesizes "liveness" for an unconstrained string, so a
+	// Domain of that id must exist in the committed registry for a synthesized
+	// architecture binding to resolve. Without it the binding refuses on the
+	// registry join and reads as a stranding that no agent would meet.
+	writeKnowledgeFile(t, repo, knowledgeRegistryPath, livenessFixtureRegistry)
+	commitKnowledgeRepo(t, repo, "liveness explorer registry")
 }
+
+// livenessFixtureRegistry is the committed Domain registry the liveness
+// explorer's Product reads: the Product root the registry schema derives from
+// the product key, the current "root" Domain the investigation artifacts
+// name, and the "liveness" Domain the synthesized bindings home to.
+const livenessFixtureRegistry = `{"schema_version":"1.0","product_key":"liveness","root_domain_id":"product-root:liveness","domains":[{"domain_id":"product-root:liveness","name":"Liveness Product","purpose":"Governs the liveness explorer fixture.","status":"current","architecture_relations":[]},{"domain_id":"root","name":"Root","purpose":"Current liveness fixture Domain.","status":"current","parent_domain_id":"product-root:liveness","architecture_relations":[]},{"domain_id":"liveness","name":"Liveness","purpose":"Explorer domain for synthesized bindings.","status":"current","parent_domain_id":"product-root:liveness","architecture_relations":[]}]}` + "\n"
 
 // livenessStateMoves builds every action variant the step declares.
 func livenessStateMoves(t *testing.T, definition WorkflowDefinition, stepID string) []livenessMove {

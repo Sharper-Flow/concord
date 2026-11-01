@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0077",
+  "title": "Storage vocabularies have one machine-readable authority",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0077: Storage vocabularies have one machine-readable authority
 
 - **Status:** Accepted

@@ -128,6 +128,10 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
+	ctx, err := s.PrepareWorkflowActionProof(ctx, request.ActionID, request.WorkID)
+	if err != nil {
+		return err
+	}
 	if _, _, err := WorkflowActionDefinitionFor(ctx, s, registry, request.WorkID, request.ActionID); err != nil {
 		return err
 	}
@@ -138,6 +142,29 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	defer func() { _ = readTx.Rollback() }()
 	_, err = workflowActionPreflightTx(ctx, readTx, registry, request)
 	return err
+}
+
+// PrepareWorkflowActionProof establishes, before any transaction for the
+// action opens, the knowledge-source proof the action reads inside it.
+// Approval, supersession, and completion verify the law and Domains the
+// contract binds, including a proposed contract that is not active yet;
+// record_work_context and confirm_premise validate Domain refs against the
+// committed registry; every other action follows the work's own demand
+// (PrepareWorkLawProof). Git runs only here, outside the pool (CD-0195 D2).
+// The agent boundary, the preflight, and the owning transaction share this one
+// rule, so none refuses for a missing proof another would hold. An
+// unreachable or invalid law home refuses: a law or registry boundary has no
+// degraded form. A context that already carries a proof passes through; the
+// transaction revalidates it against the live heads.
+func (s *Store) PrepareWorkflowActionProof(ctx context.Context, actionID, workID string) (context.Context, error) {
+	if knowledgeSourceSetProofFrom(ctx) != nil {
+		return ctx, nil
+	}
+	switch actionID {
+	case "approve_contract", "supersede_contract", "complete", "record_work_context", "confirm_premise":
+		return s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	}
+	return s.PrepareWorkLawProof(ctx, workID)
 }
 
 // AuthorizeWorkflowActionAtBoundaryTx is the owning-action transaction
@@ -167,6 +194,10 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 	}
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
+	}
+	ctx, err := s.PrepareWorkflowActionProof(ctx, request.ActionID, request.WorkID)
+	if err != nil {
+		return err
 	}
 	tx, err := s.beginDurableTx(ctx)
 	if err != nil {

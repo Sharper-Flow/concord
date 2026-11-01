@@ -1030,9 +1030,6 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_work_trace.mutation_result":       `{"source_tool":"concord_work_relate","source_operation":"message_send","idempotency_key":"population-message","digest":"` + mutationDocumentDigest([]byte(record.ResultPayload)) + `"}`,
 		"concord_work_trace.project_retirement":    `{"work_id":"` + fx.workID + `"}`,
 		"concord_work_trace.research":              `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","result_version":2,"page":{"cursor":null,"limit":20}}`,
-		"concord_knowledge.search":                 `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
-		"concord_knowledge.resolve_note":           `{"work_id":"` + fx.workID + `"}`,
-		"concord_knowledge.observe_publication":    `{"product_id":"prod-alpha","source_project_id":"proj-knowledge","source_locator_id":"population-knowledge-locator"}`,
 		"concord_domain.list":                      `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.detail":                    `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 	}
@@ -1107,7 +1104,6 @@ var readPopulationRows = map[string][]string{
 	"concord_work_trace.continuity":            {"boundaries.items"},
 	"concord_work_trace.project_retirement":    {"blockers"},
 	"concord_work_trace.research":              {"packs"},
-	"concord_knowledge.search":                 {"items"},
 	"concord_domain.list":                      {"domains"},
 	"concord_domain.detail":                    {"current_law", "relations", "observations"},
 }
@@ -1117,9 +1113,7 @@ var readPopulationRows = map[string][]string{
 // cannot apply: its answer is a scalar summary, or its only arrays populate on
 // states the probed input cannot reach.
 var readPopulationRowExemptions = map[string]string{
-	"concord_work_trace.mutation_result":    "one exact retained document answers a scalar JSON fragment; its content and digest are checked by the witness",
-	"concord_knowledge.resolve_note":        "an unambiguous resolution answers one located note; candidates populate only when resolution is ambiguous",
-	"concord_knowledge.observe_publication": "one designated home answers a scalar provenance record, not a row collection",
+	"concord_work_trace.mutation_result": "one exact retained document answers a scalar JSON fragment; its content and digest are checked by the witness",
 }
 
 // populationRowPathLength decodes one dotted JSON path against a dispatched

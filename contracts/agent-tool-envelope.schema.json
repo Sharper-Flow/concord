@@ -298,53 +298,9 @@
             "operation": {
               "const": "messages"
             },
-            "query_id": {
+             "query_id": {
               "const": "PM1.Q14"
             }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_knowledge"
-            },
-            "operation": {
-              "const": "search"
-            },
-            "query_id": {
-              "const": "PM1.Q9"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_knowledge"
-            },
-            "operation": {
-              "const": "resolve_note"
-            },
-            "query_id": {
-              "const": "PM1.Q10"
-            }
-          }
-        },
-        {
-          "required": ["tool", "operation", "query_id"],
-          "properties": {
-            "tool": {"const": "concord_knowledge"},
-            "operation": {"const": "observe_publication"},
-            "query_id": {"const": "CD-0020.R1"}
           }
         },
         {
@@ -539,7 +495,6 @@
             "concord_product_view",
             "concord_work_browse",
             "concord_work_trace",
-            "concord_knowledge",
             "concord_work_define",
             "concord_domain",
             "concord_work_transition",
@@ -578,12 +533,9 @@
             "research_revision_append",
             "research_source_record",
             "resolve",
-            "resolve_note",
-            "observe_publication",
             "resolve_overlap",
             "revise_intent",
             "scope",
-            "search",
             "set_memberships",
             "snapshot",
             "remove",
@@ -705,7 +657,6 @@
               "source_kind": {
                 "enum": [
                   "product_memory",
-                  "git_knowledge",
                   "native_authority",
                   "adapter"
                 ],
@@ -1007,7 +958,6 @@
             "concord_product_view",
             "concord_work_browse",
             "concord_work_trace",
-            "concord_knowledge",
             "concord_work_define",
             "concord_domain",
             "concord_work_transition",
@@ -1045,12 +995,9 @@
             "research_revision_append",
             "research_source_record",
             "resolve",
-            "resolve_note",
-            "observe_publication",
             "resolve_overlap",
             "revise_intent",
             "scope",
-            "search",
             "set_memberships",
             "snapshot",
             "remove",

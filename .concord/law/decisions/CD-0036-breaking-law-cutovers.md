@@ -1,3 +1,18 @@
+---
+{
+  "id": "CD-0036",
+  "title": "Deleting a pinned law marks dependent contracts stale",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [
+    "workflow-engine"
+  ]
+}
+---
 # CD-0036: Deleting a pinned law marks dependent contracts stale
 
 - **Status:** Accepted

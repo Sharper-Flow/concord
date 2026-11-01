@@ -1,3 +1,28 @@
+---
+{
+  "id": "PM2",
+  "title": "product memory authority scope",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The corpus scenarios are query-shaped and prove no physical-scope claim. The guarantee is proved by TestDefaultPathHonorsDataHome and TestDefaultPathFallsBackToHome (internal/store/store_test.go), which fix the per-user data home, and by TestDatabaseOverrideRefusesRepositoryLocalPath (cmd/concord/main_test.go), which refuses a repository-local authority."
+    },
+    {
+      "criterion": 2,
+      "exemption": "The corpus scenarios are query-shaped and prove no configuration claim. The guarantee is proved by TestOpenAppliesRequiredPragmas (internal/store/store_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "The corpus scenarios are query-shaped and prove no backup claim. The guarantee is proved by TestBackupAndRestoreRoundTripViaCLI (cmd/concord/main_test.go)."
+    }
+  ]
+}
+---
 # Concord Product-Memory Authority Scope (PM2)
 
 > **Status:** **Accepted — binding until superseded.**
@@ -35,8 +60,11 @@ machine.
   `~/.local/share/concord/concord.db`).
 - **Logical boundaries remain first-class:** Product and Project scope are enforced
   by the domain model and authorization, not by separate database files.
-- **Repo-local durable knowledge remains separate:** completed-work notes,
-  decisions, and lessons live in git; SQLite holds only a derived knowledge index.
+- **Repo-local durable knowledge remains separate:** completed-work notes and
+  lessons live in git. SQLite retains verified work-note linkage, not a
+  lesson registry or law catalog. Product law is the default-branch
+  `.concord/law/` folder, which the store reads into one explicit committed
+  in-memory snapshot.
 - **Research remains local:** CD-0215 pack tables live in this same SQLite
   database, never become Git knowledge, and are deleted only by explicit retirement.
 - **Product portability uses logical export:** an export is a versioned,
@@ -57,7 +85,7 @@ Accepted PM1 requires direct, bounded answers for:
 - Product-wide work snapshots and lists,
 - shared-Project ownership ambiguity,
 - one canonical work item spanning Projects,
-- dependencies/history and durable-knowledge retrieval.
+- dependencies and history.
 
 PM1 explicitly rejects application fan-out across authority stores. A global file
 answers each job within one authority and one query planner. Physical sharding

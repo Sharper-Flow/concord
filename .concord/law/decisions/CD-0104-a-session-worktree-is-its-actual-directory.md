@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0104",
+  "title": "A session's worktree is its actual directory",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0104: A session's worktree is its actual directory
 
 - **Status:** Accepted
@@ -52,5 +63,5 @@ lease or editor exclusion.
   literal refusal sites against the public recovery coupling.
 - Session preparation records no placement; continuity carries no verification
   lease or effective target.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
-  `python3 scripts/check-knowledge-index.py` pass on this record.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass on this record.

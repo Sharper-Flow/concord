@@ -27,7 +27,9 @@ func seedCriterionAssociationAtStep(t *testing.T, workID string, definition Regi
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 	pack := seedResearchContextPack(t, f, "late-association-pack")
 	bindResearchPack(t, f, pack.PackID, 1, true)
-	selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
+	// The fixture registry's Product root is "product-root:product"; the
+	// Product-wide rationale is valid only on that root Domain.
+	selection := researchSelectionEntry(pack.PackID, 1, "f2", "product-root:product")
 	selection["product_wide_rationale"] = "The selected finding supports the Product-wide research criteria."
 	if err := f.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
 		t.Fatal(err)

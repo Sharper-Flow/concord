@@ -1,3 +1,18 @@
+---
+{
+  "id": "CD-0035",
+  "title": "Governing requirements are scope-bound and refused at capture",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-contract",
+  "applies_to_domain_ids": [
+    "product-memory"
+  ]
+}
+---
 # CD-0035: Governing requirements are scope-bound and refused at capture
 
 - **Status:** Accepted

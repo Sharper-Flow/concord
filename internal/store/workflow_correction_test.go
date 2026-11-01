@@ -231,7 +231,7 @@ func issue1013Pin(t *testing.T, s *Store, workID string) WorkPin {
 // required evidence names every kind the predecessor bound, so the successor
 // refuses completion until each kind is freshly bound after the supersession.
 func completeStepSuccessorPayload(workID string) json.RawMessage {
-	binding := `{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
+	binding := `{"home_domain_id":"root","affected_domain_ids":["root","product-root:product"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	return json.RawMessage(`{"contract_version":2,"premise":"the delivered subject the durable evidence names","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":["complete_step_correction"],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","decision_domains":[],"supersede_reason":"durable evidence contradicted the approved premise","audit_evidence":["evidence:complete-correction-` + workID + `"],"architecture_binding":` + binding + `}`)
 }
 
@@ -879,7 +879,7 @@ func TestCorrectionSourceSurvivesContractSupersession(t *testing.T) {
 // supersession approves after the complete-step correction: identical
 // predicate payloads, no reserved convention, version 3.
 func laterOrdinarySuccessorPayload(workID string) json.RawMessage {
-	binding := `{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
+	binding := `{"home_domain_id":"root","affected_domain_ids":["root","product-root:product"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	return json.RawMessage(`{"contract_version":3,"premise":"the delivered subject the durable evidence names","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","decision_domains":[],"architecture_binding":` + binding + `,"supersede_reason":"the corrected contract premise moved again","audit_evidence":["evidence:later-successor-` + workID + `"]}`)
 }
 
@@ -965,7 +965,7 @@ func completeStepPinnedDefinition(t *testing.T, s *Store, workID string) (Regist
 // staleLawSuccessorPayload mandates a current accepted law. The composed
 // successor derives current pins without a relation to the deleted law.
 func staleLawSuccessorPayload(workID string) json.RawMessage {
-	binding := `{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
+	binding := `{"home_domain_id":"root","affected_domain_ids":["root","product-root:product"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	return json.RawMessage(`{"contract_version":2,"premise":"the delivered subject under the successor law","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":["complete_step_correction"],"spec_mandate":["spec:two"],"law_modifies":[],"rigor_class":"prototype_internal","decision_domains":[],"architecture_binding":` + binding + `,"supersede_reason":"the approved premise moved to the successor law","audit_evidence":["evidence:complete-correction-` + workID + `"]}`)
 }
 
@@ -980,12 +980,16 @@ func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
 	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
 	s := fixture.store
 	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
+	// The stale-law condition is committed state now: the pinned law retires
+	// by deleting its file, and the successor law enacts by adding its file
+	// (law-folder-authority.md, Identity and change).
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
+	removeCommittedFixtureLaw(t, home)
+	commitFixtureLawFile(t, home, "spec:two", "---\n"+
+		`{"id":"spec:two","title":"Synthetic successor law","authority":{"tier":"derived"},"home_domain_id":"root","applies_to_domain_ids":[]}`+"\n"+
+		"---\n\nSynthetic successor fixture law body.\n")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
-		DELETE FROM law_domain_homes WHERE law_id='spec:one';
-		DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
-		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
-		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
 		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
@@ -1031,7 +1035,6 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedDuplicateContractProjection(t, s, workID, ownerRef)
-	seedWorkflowLawProjection(t, s)
 	var activeCount int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil {
 		t.Fatal(err)
@@ -1210,13 +1213,17 @@ func seedOffShapeCompletedInstance(t *testing.T, workID string) workflowReturnRo
 	t.Helper()
 	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
 	attachWorkflowLawPin(t, fixture.store, workID, "sha256:"+strings.Repeat("a", 64))
+	// The stale-law condition is committed state: the pinned law retires by
+	// deleting its file, and the successor law enacts by adding its file
+	// (law-folder-authority.md, Identity and change).
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, fixture.store), HeadRef: "HEAD"}
+	removeCommittedFixtureLaw(t, home)
+	commitFixtureLawFile(t, home, "spec:two", "---\n"+
+		`{"id":"spec:two","title":"Synthetic successor law","authority":{"tier":"derived"},"home_domain_id":"root","applies_to_domain_ids":[]}`+"\n"+
+		"---\n\nSynthetic successor fixture law body.\n")
 	if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='verify', instance_state='completed' WHERE work_id=?;
 		UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
-		DELETE FROM law_domain_homes WHERE law_id='spec:one';
-		DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
-		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
-		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
 		DELETE FROM write_guard`, workID, workID); err != nil {
 		t.Fatal(err)
 	}

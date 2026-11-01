@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0186",
+  "title": "CD-0172 D1 limits only its correction route",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-15adb078e543f95d1540874e",
+    "contract_version": 1
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0172"
+    }
+  ]
+}
+---
 # CD-0186: CD-0172 D1 limits only its correction route
 
 - **Status:** Accepted
@@ -71,5 +90,5 @@ changes.
 - `internal/store.TestCompleteStepCorrectionStaleLawStaysBehindTheGate` proves
   the gated shape: the complete-step correction route refuses outside
   break-fix and implementation and outside the D1 gate.
-- `python3 scripts/check-knowledge-index.py` proves this record registers
-  with a current content hash.
+- Committed law-folder snapshot validation registers the record; its content
+  digest is derived from the committed bytes at every read.

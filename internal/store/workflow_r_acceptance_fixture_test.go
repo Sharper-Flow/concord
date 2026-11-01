@@ -50,9 +50,10 @@ func rReviseContract(t *testing.T, s *Store, workID, actorRef string, domains []
 		"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"decision_domains": domains,
-		// The same Domain write authority the seeded contract carries.
+		// The same Domain write authority the seeded contract carries, plus
+		// the committed registry's Product root for root-scope selections.
 		"architecture_binding": WorkflowArchitectureBinding{
-			HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+			HomeDomainID: "root", AffectedDomainIDs: []string{"root", "product-root:product"},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		},

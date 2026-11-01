@@ -99,18 +99,6 @@
       "reason": "These pure generator functions derive and validate canonical contract-field shapes and illustrative examples for scripts/schema-guidance, called by scripts/generate-agent-contracts.py. They share the runtime schema validator rather than maintaining a second example validator. The analysis roots ./cmd/... only and cannot see these build-time edges. CI runs generate-agent-contracts.py --check and the annotation tests to prove the projection; runtime refusals consume the generated descriptions without generating examples. No new operator command is warranted."
     },
     {
-      "id": "knowledge-manifest-current-tier-bindings",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.manifestIneligibleHint",
-        "internal/store.manifestPathIneligible",
-        "internal/store.parseKnowledgeManifest",
-        "internal/store.validateKnowledgeManifest",
-        "internal/store.validateManifestPath"
-      ],
-      "reason": "Current-placement entry points the knowledge-manifest bindings call. The path prefix became a parameter (CD-0194 D5) so history composes under the tier its revision carries, and these zero-argument forms pin the tier authored law uses: TestKnowledgeManifestIneligiblePathsMatchSchema and the vocabulary tests bind them to contracts/concord-knowledge-index.v1.schema.json, so the schema keeps one validated restatement per tier instead of each test restating the prefix."
-    },
-    {
       "id": "store-test-and-durable-introspection-seams",
       "state": "out_of_scope",
       "functions": [

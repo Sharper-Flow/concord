@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0078",
+  "title": "Terminal placement belongs to the host",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0078: Terminal placement belongs to the host
 
 - **Status:** Accepted
@@ -119,5 +130,5 @@ evidence that the implication was not enough.
 - `go test ./cmd/concord/ -run TestLauncherAndCommandCarryNoMultiplexerKnowledge`
   proves D1 structurally by scanning the command package for multiplexer
   identifiers.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
-  `python3 scripts/check-knowledge-index.py` pass.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass.

@@ -145,6 +145,9 @@ func TestQ7ProjectsCandidatesAndWarnings(t *testing.T) {
 func TestQ7ProjectsStaleLawRevision(t *testing.T) {
 	t.Parallel()
 	const workID = "q7-stale-law"
+	// The seeded contract already mandates spec:one, so the mandate is the
+	// read's verification demand and the pinned law is the mandated law the
+	// committed cutover retires.
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	pinnedHash := "sha256:" + strings.Repeat("a", 64)
 	attachWorkflowLawPin(t, s, workID, pinnedHash)

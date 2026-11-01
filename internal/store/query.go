@@ -863,16 +863,6 @@ func decodeRecordedIntent(item *WorkItem, intentJSON string) error {
 	return nil
 }
 
-func nonEmptyStrings(values []string) []string {
-	out := values[:0]
-	for _, v := range values {
-		if v != "" {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
 func terminalOnlyQ3(states []string) bool {
 	if len(states) == 0 {
 		return false

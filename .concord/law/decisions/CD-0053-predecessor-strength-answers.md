@@ -1,3 +1,23 @@
+---
+{
+  "id": "CD-0053",
+  "title": "The three un-mandated predecessor strengths are answered",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [
+    "agent-call-boundary",
+    "agent-contract",
+    "agent-surface",
+    "product-memory",
+    "workflow-engine"
+  ],
+  "product_wide_rationale": "Answers the three predecessor strengths CD-0019 D3 left open, distributing the outcomes across workflow-engine, agent-surface, and product-memory. It closes a Product-wide mandate rather than governing any single Domain."
+}
+---
 # CD-0053: The three un-mandated predecessor strengths are answered
 
 - **Status:** Accepted
@@ -87,11 +107,10 @@ The predecessor promoted per-change wisdom into durable, searchable project
 learnings. Concord's shape already shipped as CD-0026 and is not standalone —
 it is part of the knowledge authority:
 
-- **Lessons are a first-class knowledge kind**, authored as files with their
-  record shards and published through a reviewed pull request (CD-0026 D1),
-  landing in the Product's git knowledge home and indexed by the knowledge
-  manifest
-  (`TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof`).
+- **Lessons are a first-class knowledge kind**, authored as files under
+  `.concord/docs/lessons/` and published through a reviewed pull request
+  (CD-0026 D1); the route survives the index retirement
+  ([law-folder-authority](../constitution/law-folder-authority.md)).
 - **Deliberately not carried:** unpromoted per-change wisdom — the transient
   working layer. CD-0215 already fixes research working context as bounded and
   non-durable; the predecessor's two-tier split is collapsed to one durable
@@ -151,6 +170,6 @@ Answering after shadow would mean shadow evaluated an unspecified system.
 - Each D-section cites a mechanism that exists and evidence that executes in
   the required workflow: workflow-registry tests, `WF02`/`WF04` scenarios,
   lesson publication and manifest rebuild tests.
-- The record shard `.concord/docs/knowledge/records/CD-0053.json` records CD-0053 once.
-- `python3 scripts/check-json.py`, `check-doc-links.py`, and
-  `check-knowledge-index.py` pass.
+- The law record `.concord/law/decisions/CD-0053-predecessor-strength-answers.md`
+  records CD-0053 once.
+- `python3 scripts/check-json.py` and `check-doc-links.py` pass.

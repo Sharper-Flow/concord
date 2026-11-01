@@ -213,7 +213,6 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 			seedWork(t, s, workID)
 			seedWork(t, s, livenessPeerWorkID)
 			seedWorkflowLaw(t, s)
-			seedIssue31DomainRegistry(t, s)
 			livenessInitialize(t, s, workID, definition)
 			insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("c", 16), []string{"root", livenessPeerWorkID})
 			seedWorkflowAuthority(t, s, "liveness-authority", workID, livenessActor().PrincipalRef, "request/liveness", []string{livenessSubjectRef})
@@ -303,8 +302,8 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 					fixture := workContextFixture{store: s, workID: workID, owner: livenessActor()}
 					pack := seedResearchContextPack(t, fixture, "liveness-research")
 					bindResearchPack(t, fixture, pack.PackID, 1, true)
+					// The selection's child Domain carries no product-wide rationale.
 					selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
-					selection["product_wide_rationale"] = "The selected finding supports the Product-wide research criterion."
 					if err := fixture.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
 						t.Fatal(err)
 					}

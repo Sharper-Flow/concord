@@ -1,3 +1,15 @@
+---
+{
+  "id": "CD-0082",
+  "title": "Migration and replacement controls are demand-driven",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "product_wide_rationale": "Keeps migration and correction demand-driven without a predecessor-replacement mission, while preserving current release, maturity, and data-integrity requirements across Domains."
+}
+---
 # CD-0082: Migration and replacement controls are demand-driven
 
 - **Status:** Accepted

@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"strings"
 	"testing"
 )
 
@@ -30,31 +29,12 @@ func acceptanceOracleFieldsWithoutPreparationsForTest(t *testing.T, s *Store, wo
 	if err := db.QueryRow(`SELECT wp.project_id,pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' LIMIT 1`, workID).Scan(&project, &product); err != nil {
 		t.Fatal(err)
 	}
-	var domain string
-	err = db.QueryRow(`SELECT root_domain_id FROM domain_registries WHERE product_id=?`, product).Scan(&domain)
-	if err == sql.ErrNoRows {
-		domain = "root"
-		hash := "sha256:" + strings.Repeat("b", 64)
-		if err := s.Transact(t.Context(), func(tx *Transaction) error {
-			scope, err := beginWrite(t.Context(), tx.tx)
-			if err != nil {
-				return err
-			}
-			if _, err := tx.tx.Exec(`INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('oracle-fixture-locator',?,'canonical_path','/fixture/oracle-registry','/fixture/oracle-registry','now','now')`, project); err != nil {
-				return err
-			}
-			if _, err := tx.tx.Exec(`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,'oracle-fixture-locator',?,'root','1.0',?,'test')`, product, project, product+"-key", hash); err != nil {
-				return err
-			}
-			if _, err := tx.tx.Exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES(?,'oracle-fixture-locator',?,'root','Root','oracle fixture','current',?,'test')`, project, product, hash); err != nil {
-				return err
-			}
-			return scope.close(t.Context())
-		}); err != nil {
-			t.Fatal(err)
-		}
-	} else if err != nil {
-		t.Fatal(err)
+	// The owner's Domain is the committed registry root when the Product has
+	// a designated home, else a synthetic root: owner Domains are recorded,
+	// not resolved against the registry.
+	domain := "root"
+	if list, err := s.QueryDomainList(t.Context(), DomainListRequest{Product: product}); err == nil && list.Registry != nil {
+		domain = list.Registry.RootDomainID
 	}
 	var affected string
 	err = db.QueryRow(`SELECT d.domain_id FROM workflow_contract_affected_domains d JOIN workflow_architecture_bindings a ON a.work_id=d.work_id AND a.contract_version=d.contract_version WHERE d.work_id=? AND d.contract_version=? ORDER BY d.domain_id LIMIT 1`, workID, version).Scan(&affected)

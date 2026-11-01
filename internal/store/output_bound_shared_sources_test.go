@@ -40,9 +40,9 @@ import (
 //     retained_project_id defs and are unbounded, byte-ceiling only.
 
 // id primitive scope note (constraint, recorded because it bounds the row's
-// family claim): the knowledge index admits IDs of up to 256 code points
-// with internal spaces (contracts/concord-knowledge-index.v1.schema.json
-// $defs/id), while these domain outputs type the same stored values as this
+// family claim): the committed law read admits IDs of up to 256 code points
+// with internal spaces (validManifestID in knowledge_record.go), while these
+// domain outputs type the same stored values as this
 // 128-code-point ASCII-pattern def:
 //   - contracts/agent-tool-surface-payloads.schema.json
 //     /$defs/domain_law_record/properties/law_id
@@ -57,7 +57,7 @@ import (
 
 func init() {
 	registerOutputBound("/$defs/knowledge_id/maxLength",
-		schemaBound("contracts/concord-knowledge-index.v1.schema.json", "/$defs/id/maxLength"))
+		goConstantBound("internal/store/knowledge_record.go", "maxManifestID", boundCharacters))
 	// digest: every output value is a boundary-admitted digest (<=128 code
 	// points, hex pattern — the admission is a full-string bound), a
 	// Go-minted sha256 form (64 bare hex, 71 with the sha256: prefix;
@@ -135,7 +135,7 @@ func init() {
 	// byte guards.
 	registerOutputBound("/$defs/law_id/maxLength", maxBound(
 		goCallBound("internal/store/workflow.go", "workflowList", "workflowString", "", 1, boundBytes),
-		goConstantBound("internal/store/knowledge_manifest.go", "maxManifestID", boundCharacters),
+		goConstantBound("internal/store/knowledge_record.go", "maxManifestID", boundCharacters),
 	))
 
 	// next_valid_intent.required_fields: the pin projects the Required

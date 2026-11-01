@@ -113,6 +113,13 @@ func recordResearchDeclarationTx(t *testing.T, f workContextFixture, fields map[
 func recordResearchDeclarationTxReceipt(t *testing.T, f workContextFixture, fields map[string]any, bindings []ResearchBindingDeclaration, receipt *MutationIdempotencyKey) error {
 	t.Helper()
 	ctx := context.Background()
+	// The registry-reading constructor resolves the proof-bound committed
+	// registry; the proof is established before the mirror tx opens.
+	verified, proofErr := f.store.EstablishKnowledgeSourceSetProof(ctx, f.workID)
+	if proofErr != nil {
+		t.Fatal(proofErr)
+	}
+	ctx = verified
 	version := readWorkVersion(t, f.store, f.workID)
 	ownerRef, err := WorkflowActorRef(f.owner)
 	if err != nil {

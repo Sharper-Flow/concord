@@ -9,10 +9,6 @@ func TestUnopenedStoreKnowledgeMethods(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	assertUnopenedStoreTypedFailure(t, []nilStoreCase{
-		{"KnowledgeIndexWatermark", func(s *Store) error {
-			_, err := s.KnowledgeIndexWatermark(ctx, "prod-1", "loc-1", "refs/heads/main")
-			return err
-		}},
 		{"EstablishKnowledgeSourceSetProof", func(s *Store) error {
 			_, err := s.EstablishKnowledgeSourceSetProof(ctx, "work-1")
 			return err
@@ -24,13 +20,6 @@ func TestUnopenedStoreKnowledgeMethods(t *testing.T) {
 		{"WorkflowInstanceDefinition", func(s *Store) error {
 			_, _, err := s.WorkflowInstanceDefinition(ctx, "work-1")
 			return err
-		}},
-		{"ResolveKnowledgeQueryHome", func(s *Store) error {
-			_, err := s.ResolveKnowledgeQueryHome(ctx, "", "", KnowledgeHome{}, "knowledge_home")
-			return err
-		}},
-		{"RebuildKnowledgeIndex", func(s *Store) error {
-			return s.RebuildKnowledgeIndex(ctx, KnowledgeHome{})
 		}},
 	})
 }

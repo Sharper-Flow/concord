@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0138",
+  "title": "Mandatory refinement pass before workflow verdict",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    }
+  ]
+}
+---
 # CD-0138: Mandatory refinement pass before workflow verdict
 
 - **Status:** Accepted

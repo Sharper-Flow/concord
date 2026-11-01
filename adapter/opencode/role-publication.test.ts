@@ -25,7 +25,7 @@ const utilities = JSON.parse(
   fs.readFileSync(path.resolve(import.meta.dir, "../../contracts/agent-utilities.v1.json"), "utf8"),
 ) as { utilities: Array<{ id: string; allowed_tools: string[] }> }
 const UTILITY_AGENTS = utilities.utilities.map((utility) => `concord-${utility.id}`)
-const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_domain"]
+const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_domain"]
 
 // Every registered parameter root, measured through the production
 // definition hooks exactly as the host renders them for the provider.
@@ -85,7 +85,7 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   // these numbers, which is a visible test change, never silent drift.
   // Exact catalog coverage and positive root sizes distinguish an empty
   // allowed list from a missing root.
-  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 108_305 }
+  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 105_039 }
   const registeredTotal = [...registeredBytes.values()].reduce((sum, size) => sum + size, 0)
   expect(registeredTotal).toBe(PRIMARY_BUDGET.bytes)
   expect([...registeredBytes.keys()].sort(), "registered byte accounting must cover the catalog exactly").toEqual(CATALOG)

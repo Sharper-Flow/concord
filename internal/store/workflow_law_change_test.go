@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -14,19 +16,62 @@ import (
 
 const lawChangeHashA = "sha256:" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
+// lawChangeFixtureRegistry is the committed Domain registry the law-change
+// fixtures read: the Product root plus the child Domains the contracts bind.
+// Registry root identity is derived from the product key, so a registry
+// revision changes entries and relations, never the root.
+const lawChangeFixtureRegistry = `{"schema_version":"1.0","product_key":"product","root_domain_id":"product-root:product","domains":[{"domain_id":"product-root:product","name":"Product","purpose":"Governs the synthetic fixture Product.","status":"current","architecture_relations":[]},{"domain_id":"root","name":"Root","purpose":"Fixture root child Domain.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]},{"domain_id":"agent-surface","name":"Agent surface","purpose":"Fixture agent surface Domain.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]},{"domain_id":"workflow-engine","name":"Workflow engine","purpose":"Fixture workflow engine Domain.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]},{"domain_id":"durable-authority","name":"Durable authority","purpose":"Fixture durable authority Domain.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]}]}` + "\n"
+
+// lawChangeFixtureHome resolves the synthetic Product knowledge home the
+// shared law-change fixtures read their committed law folder and registry
+// from.
+func lawChangeFixtureHome(t *testing.T, s *Store) KnowledgeHome {
+	t.Helper()
+	return KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
+}
+
+// lawChangeFixtureLaw renders one fixture law's committed bytes: the authored
+// tier, home Domain, and applicability ride the front matter, and the whole
+// file digest is the revision pin.
+func lawChangeFixtureLaw(lawID, tier, homeDomain string, appliesTo ...string) string {
+	return lawChangeFixtureLawBody(lawID, tier, homeDomain, "Synthetic fixture law body.\n", appliesTo...)
+}
+
+// lawChangeFixtureLawBody is lawChangeFixtureLaw with the authored body text,
+// so a test can commit distinct revisions of one stable law ID.
+func lawChangeFixtureLawBody(lawID, tier, homeDomain, body string, appliesTo ...string) string {
+	authority := `{"tier":"` + tier + `"`
+	if tier == "legislated" {
+		// A legislated fixture names an approving work the store does not
+		// hold, so the source verification keeps the declared tier unverified.
+		authority += `,"legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1`
+	}
+	authority += `}`
+	applies := "[]"
+	if len(appliesTo) > 0 {
+		encoded, err := json.Marshal(appliesTo)
+		if err != nil {
+			panic(err)
+		}
+		applies = string(encoded)
+	}
+	return "---\n" +
+		`{"id":"` + lawID + `","title":"Fixture law ` + lawID + `","authority":` + authority + `,"home_domain_id":"` + homeDomain + `","applies_to_domain_ids":` + applies + `}` + "\n" +
+		"---\n\n" + body
+}
+
 func seedLawChangeFixture(t *testing.T, workID string) *Store {
 	t.Helper()
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
-	hash := "sha256:" + strings.Repeat("b", 64)
-	for _, id := range []string{"agent-surface", "workflow-engine", "durable-authority"} {
-		lawChangeFold(t, s, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product',?,?,'test domain','root','current',?,'test')`, id, "Domain "+id, hash)
-	}
+	commitWorkflowFixtureRegistry(t, lawChangeFixtureHome(t, s), lawChangeFixtureRegistry)
 	return s
 }
 
+// lawChangeFold is the write-seam wrapper for retained-table fixture SQL. The
+// retired law and Domain projection rows have no replacement here: a law or
+// registry change in these fixtures is a committed file change.
 func lawChangeFold(t *testing.T, s *Store, query string, args ...any) {
 	t.Helper()
 	db := s.DatabaseForTesting()
@@ -42,19 +87,30 @@ func lawChangeFold(t *testing.T, s *Store, query string, args ...any) {
 	}
 }
 
+// seedLawChangeLaw commits one fixture law with the authored tier, home
+// Domain, and applicability. It is the retained replacement for a
+// law_subjects/law_domain_homes row pair.
 func seedLawChangeLaw(t *testing.T, s *Store, lawID, tier, home string, appliesTo ...string) {
 	t.Helper()
-	lawChangeFold(t, s, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier) VALUES('project','workflow-law-locator',?,'decision','accepted',?,?,?,'test',?)`, lawID, ".concord/docs/decisions/"+lawID+".md", lawID, lawChangeHashA, tier)
-	lawChangeFold(t, s, `INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator',?,'product',?,?,'test')`, lawID, home, lawChangeHashA)
-	setLawChangeApplicability(t, s, lawID, appliesTo...)
+	commitWorkflowFixtureLaw(t, lawChangeFixtureHome(t, s), lawID, lawChangeFixtureLaw(lawID, tier, home, appliesTo...))
 }
 
-func setLawChangeApplicability(t *testing.T, s *Store, lawID string, appliesTo ...string) {
+// editLawChangeLaw amends one committed fixture law in place: new committed
+// bytes keep the stable ID and move the whole-file digest, so the owning-start
+// inventory no longer matches the current revision.
+func editLawChangeLaw(t *testing.T, s *Store, lawID string) {
 	t.Helper()
-	lawChangeFold(t, s, `DELETE FROM law_domain_applicability WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id=?`, lawID)
-	for _, id := range appliesTo {
-		lawChangeFold(t, s, `INSERT INTO law_domain_applicability(home_project_id,home_locator_id,law_id,product_id,domain_id,scanned_commit_oid) VALUES('project','workflow-law-locator',?,'product',?,'test')`, lawID, id)
+	path := workflowFixtureDecisionsLawPath(lawID)
+	repo := lawChangeFixtureHome(t, s).RepoPath
+	content, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(path)))
+	if err != nil {
+		t.Fatal(err)
 	}
+	amended := strings.Replace(string(content), "Synthetic fixture law body.", "Synthetic fixture law body, amended in place.", 1)
+	if amended == string(content) {
+		t.Fatalf("fixture law %s carries no amendable body", lawID)
+	}
+	commitWorkflowFixtureLaw(t, lawChangeFixtureHome(t, s), lawID, amended)
 }
 
 func lawChangeTx(t *testing.T, s *Store) *sql.Tx {
@@ -65,6 +121,27 @@ func lawChangeTx(t *testing.T, s *Store) *sql.Tx {
 	}
 	t.Cleanup(func() { _ = tx.Rollback() })
 	return tx
+}
+
+// lawChangeRegistryWithPurpose renders the fixture registry revision whose
+// named Domain carries the given purpose: the committed form a registry entry
+// edit takes.
+func lawChangeRegistryWithPurpose(t *testing.T, domainID, purpose string) string {
+	t.Helper()
+	var registry KnowledgeDomainRegistry
+	if err := json.Unmarshal([]byte(lawChangeFixtureRegistry), &registry); err != nil {
+		t.Fatal(err)
+	}
+	for index := range registry.Domains {
+		if registry.Domains[index].DomainID == domainID {
+			registry.Domains[index].Purpose = purpose
+		}
+	}
+	encoded, err := json.Marshal(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded) + "\n"
 }
 
 var (
@@ -141,24 +218,6 @@ func enactLawChange(t *testing.T, s *Store, workID string, change *WorkflowLawCh
 	return err
 }
 
-func editLawChangeLaw(t *testing.T, s *Store, lawID string) {
-	t.Helper()
-	tx := lawChangeTx(t, s)
-	hash := "sha256:" + strings.Repeat("9", 64)
-	for _, query := range []string{`PRAGMA defer_foreign_keys=ON`, `INSERT INTO write_guard(active) VALUES(1)`, `UPDATE law_subjects SET content_hash=? WHERE law_id=?`, `UPDATE law_domain_homes SET law_content_hash=? WHERE law_id=?`, `DELETE FROM write_guard`} {
-		var args []any
-		if strings.HasPrefix(query, "UPDATE") {
-			args = []any{hash, lawID}
-		}
-		if _, err := tx.Exec(query, args...); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestLawChangeAgentOwnedReasonAndTier(t *testing.T) {
 	const workID = "law-agent-owned"
 	s := seedLawChangeFixture(t, workID)
@@ -175,7 +234,8 @@ func TestLawChangeAgentOwnedReasonAndTier(t *testing.T) {
 		t.Fatalf("retired consent facts: %+v", change)
 	}
 	requireFailureKind(t, enactLawChange(t, s, workID, change, nil), KindMissingEvidence, "unapproved legislated tier")
-	lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='derived' WHERE law_id='law-agent'`)
+	// A tier change is an authored record change: commit the derived revision.
+	seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
 	if err := enactLawChange(t, s, workID, change, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +289,7 @@ func TestLawChangeRegistryScopeIncludesRoot(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			lawChangeFold(t, s, `UPDATE domains SET purpose='edited' WHERE domain_id=?`, id)
+			commitWorkflowFixtureRegistry(t, lawChangeFixtureHome(t, s), lawChangeRegistryWithPurpose(t, id, "edited"))
 			requireFailureKind(t, enactLawChange(t, s, workID, change, binding), KindOutcomeMismatch, "undeclared registry entry")
 			binding.DomainModifies = append(binding.DomainModifies, id)
 			if err := enactLawChange(t, s, workID, change, binding); err != nil {
@@ -373,10 +433,6 @@ func lawChangeConstructorItem(t *testing.T, s *Store, workID string, productChan
 
 func lawChangeConstructorFields(t *testing.T, s *Store, version int, laws, domains []string) map[string]json.RawMessage {
 	t.Helper()
-	var hash string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM domain_registries WHERE product_id='product'`).Scan(&hash); err != nil {
-		t.Fatal(err)
-	}
 	values := map[string]any{"contract_version": version, "premise": "revise the fixture law", "outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law", "immutable_subject_ref": "commit:law", "expected_result": "pass"}}}, "route_conventions": []string{}, "spec_mandate": laws, "law_modifies": laws, "rigor_class": "prototype_internal", "decision_domains": []string{}, "architecture_binding": map[string]any{"home_domain_id": "root", "affected_domain_ids": []string{"root", "agent-surface"}, "domain_modifies": domains, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}}
 	if len(laws) != 0 || len(domains) != 0 {
 		values[workflowLawChangeReasonField] = "revise the fixture law"
@@ -447,14 +503,15 @@ func TestLawChangeThroughTheRealConstructors(t *testing.T) {
 		seedLawChangeLaw(t, s, "law-foreign", "derived", "agent-surface")
 		d, r, o := lawChangeConstructorItem(t, s, id, true)
 		constructLawChangeContract(t, s, d, r, id, o, lawChangeConstructorFields(t, s, 1, []string{}, []string{}))
-		lawChangeFold(t, s, `DELETE FROM law_domain_homes WHERE law_id='law-foreign'`)
-		lawChangeFold(t, s, `DELETE FROM law_subjects WHERE law_id='law-foreign'`)
-		lawChangeFold(t, s, `UPDATE domains SET purpose='foreign edit' WHERE domain_id='workflow-engine'`)
+		removeWorkflowFixtureLaw(t, lawChangeFixtureHome(t, s), "law-foreign")
+		commitWorkflowFixtureRegistry(t, lawChangeFixtureHome(t, s), lawChangeRegistryWithPurpose(t, "workflow-engine", "foreign edit"))
 		change, binding := constructLawChangeContract(t, s, d, r, id, o, lawChangeConstructorFields(t, s, 2, []string{}, []string{}))
 		if change != nil {
 			t.Fatalf("recovery adopted foreign changes: %+v", change)
 		}
 		requireFailureKind(t, enactLawChange(t, s, id, change, binding), KindOutcomeMismatch, "unattributed deletion still blocks completion with nil law change")
+		// Restore the owning-start revision: the identical committed bytes
+		// leave no law delta, so only the registry edit still blocks.
 		seedLawChangeLaw(t, s, "law-foreign", "derived", "agent-surface")
 		requireFailureKind(t, enactLawChange(t, s, id, change, binding), KindOutcomeMismatch, "unattributed registry edit still blocks completion")
 	})
@@ -465,7 +522,7 @@ func TestLawChangeThroughTheRealConstructors(t *testing.T) {
 		d, r, o := lawChangeConstructorItem(t, s, id, true)
 		v1, _ := constructLawChangeContract(t, s, d, r, id, o, lawChangeConstructorFields(t, s, 1, []string{"law-agent"}, []string{"agent-surface"}))
 		editLawChangeLaw(t, s, "law-agent")
-		lawChangeFold(t, s, `UPDATE domains SET purpose='own edit' WHERE domain_id='agent-surface'`)
+		commitWorkflowFixtureRegistry(t, lawChangeFixtureHome(t, s), lawChangeRegistryWithPurpose(t, "agent-surface", "own edit"))
 		for _, version := range []int{2, 3} {
 			fields := lawChangeConstructorFields(t, s, version, []string{}, []string{})
 			fields[workflowLawChangeReasonField] = mustJSONValue("retain already enacted own changes")
@@ -529,7 +586,7 @@ func TestLawChangeThroughTheRealConstructors(t *testing.T) {
 		seedWork(t, s, mover)
 		md, mr, mo := lawChangeConstructorItem(t, s, mover, true)
 		constructLawChangeContract(t, s, md, mr, mover, mo, lawChangeConstructorFields(t, s, 1, []string{}, []string{"agent-surface"}))
-		lawChangeFold(t, s, `UPDATE domains SET purpose='amended' WHERE domain_id='agent-surface'`)
+		commitWorkflowFixtureRegistry(t, lawChangeFixtureHome(t, s), lawChangeRegistryWithPurpose(t, "agent-surface", "amended"))
 		requireFailureKind(t, enactLawChange(t, s, id, change, nil), KindOutcomeMismatch, "unattributed registry edit")
 	})
 }

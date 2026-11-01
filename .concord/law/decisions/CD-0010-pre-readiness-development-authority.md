@@ -1,3 +1,17 @@
+---
+{
+  "id": "CD-0010",
+  "title": "Pre-readiness development authority",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "product_wide_rationale": "Defines pre-readiness development authority, amended by CD-0089 for self-hosting and CD-0213 for planning and issue linkage. It governs how the Product is built rather than one runtime Domain."
+}
+---
 # CD-0010 — Pre-readiness development authority
 
 **Status:** Accepted.

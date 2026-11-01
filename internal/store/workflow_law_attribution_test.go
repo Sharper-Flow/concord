@@ -126,12 +126,11 @@ func attributionBaseline(t *testing.T, s *Store, id string) string {
 func TestLawAttributionCompletedPeerPreservesStart(t *testing.T) {
 	s := seedLawChangeFixture(t, "inventory-seed")
 	seedLawChangeLaw(t, s, "law-peer", "derived", "agent-surface")
-	lawChangeFold(t, s, `UPDATE law_subjects SET path='.concord/docs/spec.md' WHERE law_id='law-peer'`)
 	attributionItem(t, s, "peer-a", []string{}, []string{})
 	original := attributionBaseline(t, s, "peer-a")
 	attributionItem(t, s, "peer-b", []string{"law-peer"}, []string{"agent-surface"})
 	editLawChangeLaw(t, s, "law-peer")
-	lawChangeFold(t, s, `UPDATE domains SET purpose='peer enacted purpose' WHERE domain_id='agent-surface'`)
+	commitWorkflowFixtureRegistry(t, lawChangeFixtureHome(t, s), lawChangeRegistryWithPurpose(t, "agent-surface", "peer enacted purpose"))
 	requireFailureKind(t, enactLawChange(t, s, "peer-a", nil, nil), KindOutcomeMismatch, "a declaration is not attribution")
 	event := attributionCompletion(t, s, "peer-b")
 	if err := CompleteWorkflow(t.Context(), s, event); err != nil {
@@ -202,7 +201,6 @@ func TestLawAttributionCompletedAddition(t *testing.T) {
 		fields["spec_mandate"] = mustJSONValue([]string{"law-new"})
 	})
 	seedLawChangeLaw(t, s, "law-new", "derived", "agent-surface")
-	lawChangeFold(t, s, `UPDATE law_subjects SET path='.concord/docs/spec.md' WHERE law_id='law-new'`)
 	if err := CompleteWorkflow(t.Context(), s, attributionCompletion(t, s, "addition-b")); err != nil {
 		t.Fatal(err)
 	}
@@ -211,35 +209,37 @@ func TestLawAttributionCompletedAddition(t *testing.T) {
 	}
 }
 
-func attributionRevision(t *testing.T, s *Store, hash string) {
+// lawPeerFixtureLaw is the fixture law-peer content at each revision the
+// attribution chain test moves the committed law through. Each revision is a
+// real committed amendment; the pins derive from the committed bytes.
+const lawPeerStartRevision = "Synthetic fixture law body.\n"
+const lawPeerAmendedRevision = "Synthetic fixture law body, amended once by the producer.\n"
+const lawPeerThirdRevision = "Synthetic fixture law body, amended a third time.\n"
+
+// commitLawPeerRevision moves the committed law-peer record to the named body
+// revision, keeping its stable ID, tier, and Domain homes.
+func commitLawPeerRevision(t *testing.T, s *Store, body string) {
 	t.Helper()
-	tx := lawChangeTx(t, s)
-	for _, query := range []string{`PRAGMA defer_foreign_keys=ON`, `INSERT INTO write_guard(active) VALUES(1)`, `UPDATE law_subjects SET content_hash=? WHERE law_id='law-peer'`, `UPDATE law_domain_homes SET law_content_hash=? WHERE law_id='law-peer'`, `DELETE FROM write_guard`} {
-		var args []any
-		if strings.HasPrefix(query, "UPDATE") {
-			args = []any{hash}
-		}
-		if _, err := tx.Exec(query, args...); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	commitWorkflowFixtureLaw(t, lawChangeFixtureHome(t, s), "law-peer", lawChangeFixtureLawBody("law-peer", "derived", "agent-surface", body))
+}
+
+func attributionRevision(t *testing.T, s *Store, body string) {
+	t.Helper()
+	commitLawPeerRevision(t, s, body)
 }
 
 func TestLawAttributionChainsAndStartWatermark(t *testing.T) {
 	s := seedLawChangeFixture(t, "inventory-seed")
 	seedLawChangeLaw(t, s, "law-peer", "derived", "agent-surface")
-	lawChangeFold(t, s, `UPDATE law_subjects SET path='.concord/docs/spec.md' WHERE law_id='law-peer'`)
 	attributionItem(t, s, "chain-a", []string{}, []string{})
 	attributionItem(t, s, "chain-b", []string{"law-peer"}, []string{})
 	attributionItem(t, s, "chain-ab", []string{"law-peer"}, []string{})
 	editLawChangeLaw(t, s, "law-peer")
+	edited := committedLawFileHash(t, lawChangeFixtureHome(t, s).RepoPath, workflowFixtureDecisionsLawPath("law-peer"))
 	if err := CompleteWorkflow(t.Context(), s, attributionCompletion(t, s, "chain-b")); err != nil {
 		t.Fatal(err)
 	}
-	second := "sha256:" + strings.Repeat("e", 64)
+	second := lawPeerAmendedRevision
 	attributionRevision(t, s, second)
 	if err := CompleteWorkflow(t.Context(), s, attributionCompletion(t, s, "chain-ab")); err != nil {
 		t.Fatal(err)
@@ -248,13 +248,13 @@ func TestLawAttributionChainsAndStartWatermark(t *testing.T) {
 		t.Fatalf("exact law chain did not advance: %v", err)
 	}
 	// A later start at a reverted state cannot consume a pre-start completion.
-	attributionRevision(t, s, lawChangeHashA)
+	attributionRevision(t, s, lawPeerStartRevision)
 	seedWork(t, s, "chain-late")
 	startLawChange(t, s, "chain-late")
 	attributionRevision(t, s, second)
 	requireFailureKind(t, enactLawChange(t, s, "chain-late", nil, nil), KindOutcomeMismatch, "pre-start proof is not attribution")
 	// Nor does the completed chain bless a subsequently altered state.
-	attributionRevision(t, s, "sha256:"+strings.Repeat("f", 64))
+	attributionRevision(t, s, lawPeerThirdRevision)
 	requireFailureKind(t, enactLawChange(t, s, "chain-a", nil, nil), KindOutcomeMismatch, "post-completion edit remains visible")
 	var proof workflowLawEnactment
 	var raw string
@@ -265,15 +265,41 @@ func TestLawAttributionChainsAndStartWatermark(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, state := range proof.Before.Laws {
-		if state.LawID == "project/law-peer" && state.ContentHash != "sha256:"+strings.Repeat("9", 64) {
+		if state.LawID == "project/law-peer" && state.ContentHash != edited {
 			t.Fatalf("C recorded its raw start rather than B's effective after-state: %+v", state)
 		}
 	}
 }
 
+// lawChangeRegistryWithRelations renders the fixture registry revision whose
+// named relation (or entry edit) rides the committed Domain registry.
+func lawChangeRegistryWithRelations(t *testing.T, mutate func(*KnowledgeDomainRegistry)) string {
+	t.Helper()
+	var registry KnowledgeDomainRegistry
+	if err := json.Unmarshal([]byte(lawChangeFixtureRegistry), &registry); err != nil {
+		t.Fatal(err)
+	}
+	mutate(&registry)
+	encoded, err := json.Marshal(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded) + "\n"
+}
+
 func TestLawAttributionRegistryRootAndRelation(t *testing.T) {
 	s := seedLawChangeFixture(t, "inventory-seed")
-	lawChangeFold(t, s, `INSERT INTO domain_architecture_relations(home_project_id,home_locator_id,product_id,source_domain_id,kind,target_domain_id,state,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','agent-surface','replaces','root','declared',?,'test')`, "sha256:"+strings.Repeat("b", 64))
+	seedLawChangeLaw(t, s, "law-peer", "derived", "root")
+	declared := lawChangeRegistryWithRelations(t, func(registry *KnowledgeDomainRegistry) {
+		for index := range registry.Domains {
+			if registry.Domains[index].DomainID == "agent-surface" {
+				registry.Domains[index].ArchitectureRelations = []KnowledgeArchitectureRelation{{
+					Kind: "replaces", TargetDomainID: "root", State: "declared", statePresent: true,
+				}}
+			}
+		}
+	})
+	commitWorkflowFixtureRegistry(t, lawChangeFixtureHome(t, s), declared)
 	attributionItem(t, s, "registry-a", []string{}, []string{})
 	attributionItem(t, s, "registry-b", []string{}, []string{"root", "agent-surface"}, func(fields map[string]json.RawMessage) {
 		var binding WorkflowArchitectureBinding
@@ -283,8 +309,18 @@ func TestLawAttributionRegistryRootAndRelation(t *testing.T) {
 		binding.DomainRelationModifies = []WorkflowDomainRelationModification{{SourceDomainID: "agent-surface", Kind: "replaces", TargetDomainID: "root"}}
 		fields["architecture_binding"] = mustJSONValue(binding)
 	})
-	lawChangeFold(t, s, `UPDATE domain_registries SET root_domain_id='agent-surface' WHERE product_id='product'`)
-	lawChangeFold(t, s, `UPDATE domain_architecture_relations SET state='building' WHERE kind='replaces'`)
+	// The declared relation advances its lifecycle state: a committed registry
+	// revision is the only way the relation's fingerprint changes.
+	building := lawChangeRegistryWithRelations(t, func(registry *KnowledgeDomainRegistry) {
+		for index := range registry.Domains {
+			if registry.Domains[index].DomainID == "agent-surface" {
+				registry.Domains[index].ArchitectureRelations = []KnowledgeArchitectureRelation{{
+					Kind: "replaces", TargetDomainID: "root", State: "building", statePresent: true,
+				}}
+			}
+		}
+	})
+	commitWorkflowFixtureRegistry(t, lawChangeFixtureHome(t, s), building)
 	requireFailureKind(t, enactLawChange(t, s, "registry-a", nil, nil), KindOutcomeMismatch, "uncompleted root and relation")
 	if err := CompleteWorkflow(t.Context(), s, attributionCompletion(t, s, "registry-b")); err != nil {
 		t.Fatal(err)
@@ -292,10 +328,21 @@ func TestLawAttributionRegistryRootAndRelation(t *testing.T) {
 	if err := enactLawChange(t, s, "registry-a", nil, nil); err != nil {
 		t.Fatalf("completed root and exact relation did not advance: %v", err)
 	}
-	lawChangeFold(t, s, `UPDATE domain_registries SET root_domain_id='workflow-engine' WHERE product_id='product'`)
-	requireFailureKind(t, enactLawChange(t, s, "registry-a", nil, nil), KindOutcomeMismatch, "another root is not the proved root")
-	lawChangeFold(t, s, `UPDATE domain_registries SET root_domain_id='agent-surface' WHERE product_id='product'`)
-	lawChangeFold(t, s, `INSERT INTO domain_architecture_relations(home_project_id,home_locator_id,product_id,source_domain_id,kind,target_domain_id,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','agent-surface','depends_on','root',?,'test')`, "sha256:"+strings.Repeat("b", 64))
+	// An undeclared entry edit is not the proved state.
+	commitWorkflowFixtureRegistry(t, lawChangeFixtureHome(t, s), lawChangeRegistryWithPurpose(t, "root", "edited on main"))
+	requireFailureKind(t, enactLawChange(t, s, "registry-a", nil, nil), KindOutcomeMismatch, "another entry is not the proved entry")
+	commitWorkflowFixtureRegistry(t, lawChangeFixtureHome(t, s), declared)
+	// The same relation endpoints under another declared kind prove nothing.
+	other := lawChangeRegistryWithRelations(t, func(registry *KnowledgeDomainRegistry) {
+		for index := range registry.Domains {
+			if registry.Domains[index].DomainID == "agent-surface" {
+				registry.Domains[index].ArchitectureRelations = []KnowledgeArchitectureRelation{{
+					Kind: "depends_on", TargetDomainID: "root", GoverningLawIDs: []string{"law-peer"}, governingLawsPresent: true,
+				}}
+			}
+		}
+	})
+	commitWorkflowFixtureRegistry(t, lawChangeFixtureHome(t, s), other)
 	requireFailureKind(t, enactLawChange(t, s, "registry-a", nil, nil), KindOutcomeMismatch, "same endpoints do not prove another relation kind")
 }
 
@@ -303,7 +350,7 @@ func TestLawAttributionCompletionFailureAndRollback(t *testing.T) {
 	s := seedLawChangeFixture(t, "inventory-seed")
 	attributionItem(t, s, "rollback-a", []string{}, []string{})
 	attributionItem(t, s, "rollback-b", []string{}, []string{"agent-surface"})
-	lawChangeFold(t, s, `UPDATE domains SET purpose='pending peer change' WHERE domain_id='agent-surface'`)
+	commitWorkflowFixtureRegistry(t, lawChangeFixtureHome(t, s), lawChangeRegistryWithPurpose(t, "agent-surface", "pending peer change"))
 	event := attributionCompletion(t, s, "rollback-b")
 	assertAbsent := func() {
 		t.Helper()

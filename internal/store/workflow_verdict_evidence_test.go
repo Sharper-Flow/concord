@@ -10,14 +10,15 @@ import (
 )
 
 // seedComparisonObservation records the investigation artifact the operator
-// question gate requires: a current Domain ref and a different work item. When
-// the fixture Product holds no Domain registry yet, one is folded in first.
+// question gate requires: a current Domain ref and a different work item. The
+// ref reads the committed Domain registry; a fixture Product with no
+// designated home falls back to the fixture registry's child Domain, which
+// every committed workflow fixture registry declares.
 func seedComparisonObservation(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	var domainRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT d.domain_id FROM domains d JOIN product_projects pp ON pp.product_id=d.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? AND d.status='current' LIMIT 1`, workID).Scan(&domainRef); err != nil {
-		seedIssue31DomainRegistry(t, s)
-		domainRef = "root"
+	domainRef := "root"
+	if list, err := s.QueryDomainList(context.Background(), DomainListRequest{Product: "product", Limit: 1}); err == nil && len(list.Domains) > 0 {
+		domainRef = list.Domains[0].DomainID
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {

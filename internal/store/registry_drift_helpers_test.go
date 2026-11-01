@@ -7,7 +7,10 @@ import (
 	"testing"
 )
 
-// registryFixtureHash is the registry hash seedIssue31DomainRegistry projects.
+// registryFixtureHash is the recorded registry hash the drift fixtures write
+// into workflow_architecture_bindings. The column records which committed
+// registry revision an approval validated against and is never read back as a
+// pin (CD-0222 D7), so the value stays synthetic.
 func registryFixtureHash() string { return "sha256:" + strings.Repeat("b", 64) }
 
 // execInFold applies raw projection statements under the write guard, the

@@ -43,19 +43,15 @@ func approvalRouteDefinition(t *testing.T) WorkflowDefinition {
 
 // runCoordinatorActionTx drives one workflow action through the public
 // ApplyWorkflowActionTx entry under the caller registry, the same transaction
-// entry the owning boundary uses. The store pools one connection, so the
+// entry and pre-transaction proof preparation the owning boundary uses. The store pools one connection, so the
 // transaction is the store's own Transact scope and the action commits or
 // rolls back as one unit. It returns the refusal so negative callers can
 // assert it.
 func runCoordinatorActionTx(t *testing.T, s *Store, registry DefinitionRegistry, workID, actionID string, actor WorkflowActor, payload string) error {
 	t.Helper()
-	ctx := context.Background()
-	if actionID == "approve_contract" || actionID == "supersede_contract" || actionID == "complete" {
-		verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
-		if err != nil {
-			return err
-		}
-		ctx = verified
+	ctx, err := s.PrepareWorkflowActionProof(context.Background(), actionID, workID)
+	if err != nil {
+		return err
 	}
 	version := readWorkVersion(t, s, workID)
 	request := WorkflowActionExecutionRequest{
@@ -91,10 +87,16 @@ func approvalKindEvidenceCount(t *testing.T, s *Store, workID string) int {
 
 // foldedApprovalAdmission loads the tx-scoped admission state for one work
 // item through the shared loader, in one short read transaction so the pooled
-// connection is released before the next store call.
+// connection is released before the next store call. The proof the fold's law
+// and Domain reads revalidate is prepared before the transaction opens, the
+// same pre-transaction preparation the owning boundary runs
+// (PrepareWorkflowActionProof).
 func foldedApprovalAdmission(t *testing.T, s *Store, registry DefinitionRegistry, definition WorkflowDefinition, workID string) WorkflowAdmissionState {
 	t.Helper()
-	ctx := context.Background()
+	ctx, err := s.PrepareWorkflowActionProof(context.Background(), "confirm_premise", workID)
+	if err != nil {
+		t.Fatalf("prepare the confirm_premise proof: %v", err)
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

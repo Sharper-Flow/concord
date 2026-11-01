@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0071",
+  "title": "The authority boundary is the model's output, not the agent's process",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-call-boundary",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0071: The authority boundary is the model's output, not the agent's process
 
 - **Status:** Accepted

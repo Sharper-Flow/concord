@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0142",
+  "title": "Operator-directed execution removal preserves the planning record",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "PM4"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0217"
+    }
+  ]
+}
+---
 # CD-0142: Operator-directed execution removal preserves the planning record
 
 - **Status:** Accepted

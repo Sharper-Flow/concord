@@ -21,15 +21,18 @@ func resolveKnowledgeQuerySources(ctx context.Context, q queryer, productID stri
 	return candidates, nil
 }
 
-func resolveKnowledgeSourceRole(ctx context.Context, q queryer, home KnowledgeHome) (productID string, designated bool, err error) {
-	err = q.QueryRowContext(ctx, `SELECT product_id FROM product_knowledge_homes WHERE project_id = ? AND locator_id = ?`, home.HomeProjectID, home.HomeLocatorID).Scan(&productID)
+// resolveKnowledgeSourceRole returns the Product that designates the home, or
+// an empty Product ID for a standalone home.
+func resolveKnowledgeSourceRole(ctx context.Context, q queryer, home KnowledgeHome) (string, error) {
+	var productID string
+	err := q.QueryRowContext(ctx, `SELECT product_id FROM product_knowledge_homes WHERE project_id = ? AND locator_id = ?`, home.HomeProjectID, home.HomeLocatorID).Scan(&productID)
 	if err == nil {
-		return productID, true, nil
+		return productID, nil
 	}
 	if err != sql.ErrNoRows {
-		return "", false, wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot resolve the knowledge home designation", true, "retry once the database is readable", err)
+		return "", wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot resolve the knowledge home designation", true, "retry once the database is readable", err)
 	}
-	return "", false, nil
+	return "", nil
 }
 
 func knowledgeSourceSetDigest(sources []KnowledgeHome) string {

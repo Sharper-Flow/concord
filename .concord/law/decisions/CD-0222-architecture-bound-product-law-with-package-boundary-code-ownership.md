@@ -1,3 +1,21 @@
+---
+{
+  "id": "CD-0222",
+  "title": "Architecture-bound Product law",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-root:concord",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0060"
+    }
+  ],
+  "product_wide_rationale": "Successor of the record that defines the Domain model itself. It carries what a Domain is and how law homes to one, so no partition it creates can own it."
+}
+---
 # CD-0222: Architecture-bound Product law
 
 - **Status:** Accepted
@@ -8,7 +26,7 @@
 - **Approval:** Operator-delegated approval A4 for [Concord (CON) issue
   899](https://linear.app/sharper-flow/issue/CON-899).
 - **Related:** [CD-0060](CD-0060-domain-registry-enactment.md),
-  [CD-0020](CD-0020-retain-knowledge-index-shape.md), [CD-0036](CD-0036-breaking-law-cutovers.md),
+  [CD-0036](CD-0036-breaking-law-cutovers.md),
   [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md), [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md),
   and [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md).
 - **Preserves:** CD-0002 and CD-0011 storage authority and falsifiers;
@@ -100,11 +118,12 @@ architecture_relations[]
 ```
 
 The Domain registry is Product law. Git is the sole writer of Domain identity,
-hierarchy, and architecture relations; SQLite holds a transactional derived
-projection keyed by the registry's content hash. The resolved Product knowledge
-home establishes the owning Product, so every installation that reads the same
-Git authority sees the same Domain IDs without embedding installation-local IDs
-in shared law.
+hierarchy, and architecture relations; each read uses the registry committed at
+the verified law-folder commit, and SQLite holds no copy of it
+([law-folder-authority](../constitution/law-folder-authority.md)). The
+resolved Product knowledge home establishes the owning Product, so every
+installation that reads the same Git authority sees the same Domain IDs without
+embedding installation-local IDs in shared law.
 
 SQLite separately owns a Domain stage override. It does not create or rename
 a Domain, author law, or define architecture dependencies. A Project never
@@ -153,10 +172,10 @@ A link to a test locates a check; it does not prove behavioral conformance.
 Owner notes are not accepted law records. Typed proof anchors keep
 CD-0249's closed kinds and resolution requirements.
 
-The Git knowledge manifest remains the sole writer. Its next compatible schema
-adds the Domain registry, law-home fields, and exact law identity
-`(law_id, content_hash)` from CD-0036. The SQLite knowledge index remains a
-derived projection.
+Each law file's in-file metadata carries its law-home fields, and the Domain
+registry stays an independent Git file. Exact law identity is
+`(law_id, content_hash)` from CD-0036, read from the committed law folder
+([law-folder-authority](../constitution/law-folder-authority.md)).
 
 The active law graph obeys these pruning invariants:
 
@@ -167,7 +186,7 @@ The active law graph obeys these pruning invariants:
 3. superseded law remains historical but is absent from the default current-law
    view;
 4. unknown, dangling, duplicate, self, and forbidden-cycle relations fail the
-   manifest before projection replacement;
+   committed law read;
 5. a breaking replacement uses a new law ID and CD-0036 supersession; a
    compatible amendment keeps its ID; and
 6. semantic similarity may suggest consolidation for operator review, but no
@@ -184,12 +203,12 @@ family has its own owner, endpoint constraints, metadata, and graph rules.
 
 | Source | Relation | Target | Structural rule |
 |---|---|---|---|
-| Product knowledge home | `owns` | Domain | Git registry authority; SQLite projects one local Product FK |
+| Product knowledge home | `owns` | Domain | Git registry authority; the Product's designated knowledge home binds it to one Product |
 | Domain | `subdomain_of` | Domain | Git-authored; same Product; zero or one parent; acyclic |
 | Domain | `depends_on` | Domain | Git-authored; same Product; directional; cites at least one current governing law ID |
 | Domain | `shares_contract_with` | Domain | Git-authored; same Product; canonical symmetric pair; cites at least one current governing law ID |
 | Domain | `replaces` | Domain | Git-authored; same Product; stateful `declared -> building -> coexisting -> cutover -> retired` relation |
-| Law | `home` | Domain | Exactly one owner, authored in the Git manifest |
+| Law | `home` | Domain | Exactly one owner, authored in the law file's metadata |
 | Law | `applies_to` | Domain | Zero or more explicit applicability targets |
 | Law | `supersedes`, `refines`, `subordinate_to`, `conflicts_with` | Law | CD-0015/CD-0036 rules remain authoritative |
 | Work | `home_in` | Domain | Exactly one for Product-changing work |
@@ -254,8 +273,8 @@ Product-changing contract. The generic workflow type is always
 Product-changing type. The generic type cannot bypass this split.
 
 One carve-out bounds that split: a `changes_product_truth=false` contract may
-revise `derived` law in-contract. Its `law_modifies` may name only records the
-accepted Git law projection carries as `derived`; every revision line stays
+revise `derived` law in-contract. Its `law_modifies` may name only laws the
+committed law folder carries as `derived`; every revision line stays
 visible in the contract the operator approves. `legislated` law remains
 reachable only through a Product-changing workflow type, and the architecture
 binding stays reserved for Product-changing contracts regardless of tier.
@@ -505,11 +524,14 @@ graph. Product law approval does not authorize live-state cutover.
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` proves record identity, placement, and the relation graph.
+- Committed law-folder snapshot validation proves record identity, folder
+  placement, and the relation graph.
 - `python3 scripts/test-check-domain-registry.py` proves the referential checks without a participation rule.
 - `internal/store.TestConsequentialBoundariesAdmitASharedDomainPeer` and `internal/store.TestExecutionClaimAdmitsASharedDomainPeer` prove D6: a shared-Domain peer blocks no boundary.
 - `internal/store.TestResolveOverlapRecordsRoutineRelations` and `internal/store.TestResolveOverlapMergeAndSupersessionAreAtomic` prove the `resolve_overlap` relation writer.
-- `internal/store.TestKnowledgeManifestV12RequiresLawHomeForApplicability` proves the carried one-home invariant.
+- `internal/store.TestLawFolderSnapshotRefusesInvalidLawFiles` proves the
+  carried one-home invariant: applicability without exactly one declared home
+  refuses at the committed read.
 - `internal/store.TestValidateWorkContextDomainTxRefusals` proves declared context, scope, and rationale bounds without an inventory.
 - `internal/store.TestReadWorkContextOverflowRefusesReadNotRetention` proves context bounds refuse instead of truncate.
 - `go test ./internal/store -run 'TestDispatchAdmitsPacketConsumingLatestCheckpoint'` and its companion witness selectors prove coordination without global navigation artifacts.

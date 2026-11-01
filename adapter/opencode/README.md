@@ -244,7 +244,7 @@ and delivery.
 
 The native `concord-research` helper investigates a framed question within the
 caller's scope and budget, using exploration and external lookup for bounded
-follow-up questions. It resolves law through `concord_knowledge`, edits no files
+follow-up questions. It resolves law through the workflow's resolved law context, edits no files
 and returns claim-level citations, uncertainty, gaps and caller decisions. The
 driving session records the conclusion. It shares the verifier's editing-tool
 denials and the other helpers' workflow, host safety and no-bypass boundaries;

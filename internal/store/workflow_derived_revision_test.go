@@ -8,15 +8,22 @@ import (
 	"time"
 )
 
-// seedDerivedLawExtension adds a legislated law next to the derived spec:one
-// that seedWorkflowLaw seeds. Migration 98 defaults every law_subjects row to
-// derived, so the legislated row is stated explicitly.
+// seedDerivedLawExtension adds a legislated law beside the derived spec:one
+// that seedWorkflowLaw seeds: a committed decisions-tier file whose authored
+// authority names an approving work the store does not hold, so the source
+// verification keeps the declared tier unverified.
 func seedDerivedLawExtension(t *testing.T, s *Store) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier) VALUES('project','workflow-law-locator','spec:legislated','spec','accepted','.concord/docs/decisions/spec-legislated.md','Synthetic legislated test law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test','legislated'); DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
+	commitWorkflowFixtureLaw(t, lawChangeFixtureHome(t, s), "spec:legislated", lawChangeFixtureLaw("spec:legislated", "legislated", "root"))
 }
+
+// derivedRevisionLegislatedDeclarerLaw is the committed legislated revision
+// whose record itself declares the conflicts_with relation against spec:one.
+// Its authored shape matches seedDerivedLawExtension's legislated extension:
+// the unheld approving work keeps the declared tier unverified.
+const derivedRevisionLegislatedDeclarerLaw = "---\n" +
+	`{"id":"spec:legislated","title":"Fixture law spec:legislated","authority":{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1},"home_domain_id":"root","applies_to_domain_ids":[],"law_relations":[{"kind":"conflicts_with","target_id":"spec:one"}]}` + "\n" +
+	"---\n\nSynthetic fixture law body.\n"
 
 // runDerivedLawApproval drives one approve_contract on the live
 // non-Product-changing workflow and reports the action error instead of
@@ -194,8 +201,18 @@ func TestTierAdmittedConflictRecordsTheContractRevisionLine(t *testing.T) {
 		seedWork(t, s, workID)
 		seedWorkflowLaw(t, s)
 		seedDerivedLawExtension(t, s)
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES('project','workflow-law-locator','spec:legislated','conflicts_with','spec:one','test',?); DELETE FROM write_guard`, declarer); err != nil {
-			t.Fatal(err)
+		// A conflicts_with relation is authored on its declaring record: the
+		// declarer argument names the law whose committed front matter
+		// declares the relation (law-folder-authority.md, Identity and
+		// change).
+		home := lawChangeFixtureHome(t, s)
+		switch declarer {
+		case "spec:one":
+			commitFixtureLawFile(t, home, "spec:one", derivedRevisionConflictLaw)
+		case "spec:legislated":
+			commitWorkflowFixtureLaw(t, home, "spec:legislated", derivedRevisionLegislatedDeclarerLaw)
+		default:
+			t.Fatalf("fixture declarer %s has no committed record", declarer)
 		}
 		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
 		// A declared modification carries the CD-0230 D4 law-change inputs; an
@@ -230,9 +247,12 @@ func TestTierAdmittedConflictRecordsTheContractRevisionLine(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Each pin is the committed whole-file digest of the mandated law at
+		// the approved revision, read back from the home's checkout.
+		repo := workflowLawFixtureRepo(t, s)
 		want := []WorkflowLawRevision{
-			{LawID: "spec:legislated", ContentHash: "sha256:" + strings.Repeat("b", 64)},
-			{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)},
+			{LawID: "spec:legislated", ContentHash: committedLawFileHash(t, repo, workflowFixtureDecisionsLawPath("spec:legislated"))},
+			{LawID: "spec:one", ContentHash: workflowFixtureLawPin(t, repo, "spec:one")},
 		}
 		if len(revisions) != len(want) || revisions[0] != want[0] || revisions[1] != want[1] {
 			t.Fatalf("the approved contract pins %v, want %v", revisions, want)

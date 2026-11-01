@@ -168,3 +168,48 @@ func TestWithdrawnRequirementLeavesCapturedWorkUnchanged(t *testing.T) {
 		t.Fatalf("withdrawal changed captured work to %+v, want %+v", after, before)
 	}
 }
+
+// A declared ref that names committed law resolves only through the verified
+// law-folder snapshot of the Product's designated home; a ref the folder does
+// not hold refuses, and an unverified read refuses rather than guess.
+func TestCaptureGoverningRequirementResolvesCommittedLaw(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _ := seedKnowledgeHomeProduct(t, "law-prod", KnowledgeHome{HomeProjectID: "law-proj", HomeLocatorID: "law-loc", HeadRef: "HEAD"}, "CD-0901", "", "")
+	verified, err := s.EstablishDomainRegistryProof(ctx, "law-prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ValidateCaptureGoverningRequirements(verified, []string{"law-prod"}, nil, []string{"CD-0901"}); err != nil {
+		t.Fatalf("committed law ID did not resolve: %v", err)
+	}
+	err = s.ValidateCaptureGoverningRequirements(verified, []string{"law-prod"}, nil, []string{"CD-0902"})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || !strings.Contains(failure.Detail, `"CD-0902"`) {
+		t.Fatalf("uncommitted law ID = %v, want projection_not_found naming the id", err)
+	}
+	err = s.ValidateCaptureGoverningRequirements(ctx, []string{"law-prod"}, nil, []string{"CD-0901"})
+	if !failureAs(err, &failure) || failure.Kind != KindInvalidOperation {
+		t.Fatalf("unverified law resolution = %v, want invalid_operation", err)
+	}
+}
+
+// A Product without a designated knowledge home holds no Product law: refs
+// resolve against its registered requirements alone, with no proof needed.
+func TestCaptureGoverningRequirementWithoutKnowledgeHome(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	seedGovernedProject(t, s, "prod", "proj")
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{declareAuditRequirementEvent("declare-audit")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "proj"): 1}}); err != nil {
+		t.Fatalf("declare requirement: %v", err)
+	}
+	if err := s.ValidateCaptureGoverningRequirements(ctx, []string{"prod"}, nil, []string{"audit_required"}); err != nil {
+		t.Fatalf("registered requirement did not resolve: %v", err)
+	}
+	err := s.ValidateCaptureGoverningRequirements(ctx, []string{"prod"}, nil, []string{"CD-0901"})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound {
+		t.Fatalf("law ref without a law home = %v, want projection_not_found", err)
+	}
+}

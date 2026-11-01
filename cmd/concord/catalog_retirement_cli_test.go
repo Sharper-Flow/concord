@@ -26,6 +26,14 @@ var catalogRecoveryCurrentTables = []string{
 	"projects", "project_locators", "products", "product_projects", "work_items", "work_projects", "domains", "domain_registries",
 }
 
+// catalogRecoveryRetainedTables is the part of the current state the upgrade
+// tail keeps: schema 174 retires the Domain projection (domains,
+// domain_registries) with the legacy law index, so the live post-upgrade
+// comparison covers the retained tables and asserts the retired two absent.
+var catalogRecoveryRetainedTables = []string{
+	"projects", "project_locators", "products", "product_projects", "work_items", "work_projects",
+}
+
 func catalogRecoveryRows(t *testing.T, path string, tables []string) map[string][]string {
 	t.Helper()
 	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?mode=ro")
@@ -153,6 +161,7 @@ func TestCatalogRetirementReleasedBackupRecovery(t *testing.T) {
 		}
 	}
 	current := catalogRecoveryRows(t, path, catalogRecoveryCurrentTables)
+	currentRetained := catalogRecoveryRows(t, path, catalogRecoveryRetainedTables)
 	snapshot := filepath.Join(root, "inventory-snapshot.db")
 	var manifest store.BackupManifest
 	if err := json.Unmarshal([]byte(run(released, "backup", map[string]any{"destination": snapshot})), &manifest); err != nil {
@@ -199,14 +208,14 @@ func TestCatalogRetirementReleasedBackupRecovery(t *testing.T) {
 		t.Fatalf("candidate must apply the complete breaking tail: %+v", upgrade)
 	}
 	db := mustOpenCutoverStore(t, path)
-	for _, table := range catalogRecoveryInventoryTables {
+	for _, table := range append(append([]string(nil), catalogRecoveryInventoryTables...), "domains", "domain_registries") {
 		var count int
 		if err := db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name=?`, table).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("catalog object %s survived candidate upgrade: count=%d error=%v", table, count, err)
 		}
 	}
-	if after := catalogRecoveryRows(t, path, catalogRecoveryCurrentTables); !reflect.DeepEqual(current, after) {
-		t.Fatalf("candidate changed current rows:\nbefore: %v\nafter: %v", current, after)
+	if after := catalogRecoveryRows(t, path, catalogRecoveryRetainedTables); !reflect.DeepEqual(currentRetained, after) {
+		t.Fatalf("candidate changed current rows:\nbefore: %v\nafter: %v", currentRetained, after)
 	}
 	verifyAndRecover(filepath.Join(root, "recovered-after-upgrade.db"))
 	if after := catalogRecoveryRows(t, snapshot, catalogRecoveryInventoryTables); !reflect.DeepEqual(inventory, after) {

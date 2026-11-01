@@ -1,3 +1,41 @@
+---
+{
+  "id": "CD-0134",
+  "title": "The agent surface splits by authority boundary",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-surface",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-call-boundary",
+    "agent-contract",
+    "agent-evolution"
+  ],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0222"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0060"
+    },
+    {
+      "kind": "refines",
+      "target_id": "TS2"
+    },
+    {
+      "kind": "refines",
+      "target_id": "TS8"
+    },
+    {
+      "kind": "refines",
+      "target_id": "TS9"
+    }
+  ]
+}
+---
 # CD-0134: The agent surface splits by authority boundary
 
 - **Status:** Accepted
@@ -97,7 +135,8 @@ The registry and projection migration require a separate implementation change w
 
 ## Verification
 
-- `scripts/check-knowledge-index.py` validates the record shard, law home, and relation shape.
+- Committed law-folder snapshot validation validates the record's metadata,
+  law home, and relation shape.
 - `scripts/check-json.py` runs the repository JSON and generated-contract validators.
 
 The checks validate this decision record and its current registry state. They do not claim that the split migration has happened.

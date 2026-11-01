@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0022",
+  "title": "Active research findings carry applies-to scope",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0022: Active Research Findings Carry Applies-To Scope
 
 **Status:** Accepted under operator approval.
@@ -6,7 +19,7 @@
 **Type:** Storage-shape amendment to the research-pack aggregate, now CD-0215 D3/D4.
 **Issue:** [#118](https://github.com/Sharper-Flow/concord/issues/118).
 **Depends on:** [#117](https://github.com/Sharper-Flow/concord/issues/117).
-**Preserves:** CD-0215 D7/D8, PM6, CD-0020, and C18.
+**Preserves:** CD-0215 D7/D8, PM6, and C18.
 **Amended by:** CD-0222 replaces `component_ids` with `domain_ids` and makes
 Domain references validate against the Git-derived canonical Domain projection.
 

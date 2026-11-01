@@ -60,16 +60,29 @@ type domainObservationDismissedPayload struct {
 }
 
 func validateCurrentDomain(ctx context.Context, tx *sql.Tx, productID, domainID string) error {
-	var status string
-	if err := tx.QueryRowContext(ctx, `SELECT status FROM domains WHERE product_id=? AND domain_id=?`, productID, domainID).Scan(&status); err == sql.ErrNoRows {
-		return newFailure(KindProjectionNotFound, "fold_event", "Domain does not exist in the current Product registry", false, "refresh the Git Domain projection before recording local state")
-	} else if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect current Domain", true, "retry once the database is readable", err)
+	// The committed registry is the only Domain authority. The recording
+	// route establishes the knowledge-source proof before the transaction
+	// opens (EstablishDomainRegistryProof); the fold revalidates it and reads
+	// its snapshot. A missing, rebound, or content-moved proof refuses with
+	// its own typed reason rather than claiming the Domain is absent.
+	snapshot, err := lawSnapshotForProduct(ctx, tx, productID, "fold_event")
+	if err != nil {
+		return err
 	}
-	if status != "current" {
-		return newFailure(KindInvalidTransition, "fold_event", "deprecated Domain cannot receive observations", false, "record observations only on a current Domain")
+	registry, err := snapshot.Registry()
+	if err != nil {
+		return err
 	}
-	return nil
+	for _, domain := range registry.Domains {
+		if domain.DomainID != domainID {
+			continue
+		}
+		if domainRegistryStatus(domain.Status) != "current" {
+			return newFailure(KindInvalidTransition, "fold_event", "deprecated Domain cannot receive observations", false, "record observations only on a current Domain")
+		}
+		return nil
+	}
+	return newFailure(KindProjectionNotFound, "fold_event", "Domain does not exist in the current Product registry", false, "verify the Product's committed Domain registry before recording local state")
 }
 
 func foldDomainObservationRecorded(ctx context.Context, tx *sql.Tx, event Event) error {

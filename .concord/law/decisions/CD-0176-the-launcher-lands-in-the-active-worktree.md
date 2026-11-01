@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0176",
+  "title": "The active work directory governs managed session preparation",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0093"
+    }
+  ]
+}
+---
 # CD-0176: The active work directory governs managed session preparation
 
 - **Status:** Accepted
@@ -28,3 +45,4 @@ fallback directory nor an inferred work identity.
 
 - `cmd/concord.TestSessionPrepare` cases prove the directory, identity, and
   registry checks under CD-0093.
+- Committed law-folder snapshot validation passes.

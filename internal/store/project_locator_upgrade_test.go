@@ -271,7 +271,11 @@ func TestRemoteLocatorUpgradeRefusalsRollback(t *testing.T) {
 			}
 			s := remoteUpgradeFixture(t, locators...)
 			if mode == "reference" {
-				if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project-a','b','CD-0001','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:` + strings.Repeat("a", 64) + `','commit'); DELETE FROM fold_guard`); err != nil {
+				// The knowledge-reference refusal protects the retained
+				// Git-derived anchor tables; schema 174 retired the law-index
+				// projections, so archived_work is the witness that must pin
+				// the locator against remote rewrite.
+				if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('reference-archive','lesson','Referenced lesson','2026-08-27T00:00:00Z','published','[]','completed',0,'S','project-a','b','.concord/docs/lessons/t.md','` + strings.Repeat("a", 40) + `','sha256:` + strings.Repeat("b", 64) + `'); DELETE FROM fold_guard`); err != nil {
 					t.Fatal(err)
 				}
 			}

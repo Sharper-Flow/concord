@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0029",
+  "title": "Peer messages addressed to durable work",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "work-coordination",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0029: Peer messages addressed to durable work
 
 - **Status:** Accepted

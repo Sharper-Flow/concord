@@ -7,10 +7,9 @@ import (
 
 func removeLawChangeLaw(t *testing.T, s *Store) {
 	t.Helper()
-	const law = "law-remove"
-	lawChangeFold(t, s, `DELETE FROM law_domain_applicability WHERE law_id=?`, law)
-	lawChangeFold(t, s, `DELETE FROM law_domain_homes WHERE law_id=?`, law)
-	lawChangeFold(t, s, `DELETE FROM law_subjects WHERE law_id=?`, law)
+	// A law retires by deleting its committed file: folder membership is the
+	// acceptance authority, so the deletion is the removal.
+	removeWorkflowFixtureLaw(t, lawChangeFixtureHome(t, s), "law-remove")
 }
 
 func TestLawRemovalThroughCurrentSuccessor(t *testing.T) {
@@ -84,9 +83,12 @@ func TestLawRemovalDeclarationSafeguards(t *testing.T) {
 	if err := enactLawChange(t, s, id, change, nil); err != nil {
 		t.Fatal(err)
 	}
-	lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='legislated' WHERE law_id='law-retain'`)
+	// A retained revision must still carry the derived tier: commit the
+	// legislated revision and the enactment refuses, then the derived
+	// revision again and it passes.
+	seedLawChangeLaw(t, s, "law-retain", "legislated", "agent-surface")
 	requireFailureKind(t, enactLawChange(t, s, id, change, nil), KindMissingEvidence, "a removal does not exempt a retained revision from the derived tier")
-	lawChangeFold(t, s, `UPDATE law_subjects SET authority_tier='derived' WHERE law_id='law-retain'`)
+	seedLawChangeLaw(t, s, "law-retain", "derived", "agent-surface")
 	if err := enactLawChange(t, s, id, change, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -139,9 +141,15 @@ func TestLawRemovalClassifiedCurrentSuccessor(t *testing.T) {
 	}
 	event := attributionCompletionWithConfirmation(t, s, id, nil, func(f acceptanceRecoveryFixture) error {
 		v := readWorkVersion(t, s, id)
+		// The owning boundary prepares the confirmation's proof before its
+		// transaction opens; this raw event builder needs the same proof.
+		ctx, err := s.PrepareWorkflowActionProof(t.Context(), "confirm_premise", id)
+		if err != nil {
+			return err
+		}
 		tx := lawChangeTx(t, s)
 		request := WorkflowActionExecutionRequest{WorkID: id, Actor: lawChangeConstructorActor, Now: time.Unix(20, 0).UTC()}
-		events, err := workflowConfirmPremiseEventsForDefinition(t.Context(), tx, entry.Definition, request, owner, nil, "law-removal-confirm", v)
+		events, err := workflowConfirmPremiseEventsForDefinition(ctx, tx, entry.Definition, request, owner, nil, "law-removal-confirm", v)
 		_ = tx.Rollback()
 		if err != nil {
 			return err

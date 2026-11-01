@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0106",
+  "title": "lesson owns the knowledge ladder",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0106: lesson owns the knowledge ladder
 
 - **Status:** Accepted
@@ -34,10 +47,6 @@ Knowledge about an external system belongs to the Product that learned it.
 A research pack is retained context for its owning work, not the durable home
 for learned usage.
 
-Concord knowledge search resolves exactly one Product home
-(`internal/store/knowledge_query.go:97`, `:540`). A `lesson` in one Product
-is not visible to a search from another Product.
-
 ## Decision
 
 ### D1. episode is removed as an external authority
@@ -53,10 +62,11 @@ Three rungs hold every durable learning, and each rung exists today.
    anchors on a work item. The retired `domain_observations` store
    (CD-0068) keeps its rows readable and records nothing new.
 2. A `lesson` holds a proven Product-scoped learning. It is published
-   through a reviewed pull request (CD-0026), and it is committed in the
-   Product's knowledge home with a manifest record.
-3. A `decision` or a `spec` holds accepted law. Only the formalization
-   procedure reaches this rung.
+   through a reviewed pull request (CD-0026), committed as a file in the
+   Product's knowledge home.
+3. A `decision` or a `spec` holds accepted law. A reviewed pull request that
+   lands its file under `.concord/law/` on the default branch reaches this
+   rung ([law-folder-authority](../constitution/law-folder-authority.md)).
 
 No new kind, store, or global home is added. A procedural learning that
 applies to every Product belongs to host instructions or a skill, not to a
@@ -64,11 +74,11 @@ Concord record.
 
 ### D3. lesson graduation replaces the episode promotion seam
 
-A graduation names a record version, never a moving document. A `lesson`
-that graduates to a `decision` or a `spec` is cited by manifest path plus
-sha256 in the receiving record's
-evidence. Concord records no runtime event for a graduation, because
-knowledge records carry no runtime write surface.
+A graduation names a file revision, never a moving document. A `lesson`
+that graduates to a `decision` or a `spec` is cited in the receiving law
+file by repository path, commit, and SHA-256. Concord records no runtime
+event for a graduation, because knowledge records carry no runtime write
+surface.
 
 ### D4. Learned external-system usage belongs to the Product
 
@@ -84,9 +94,8 @@ freshness is never a stored property and no stored copy can age.
 
 - C8 does not move. lgrep and vision keep the product-scoping lean.
 - `vertical-integration.md` covers lgrep and vision only.
-- The formalization procedure states the no-vendor-content rule from D4.
-- `concord_knowledge.search` admits the 7 manifest kinds in its `kinds`
-  filter. That is work-5686760e84b5109c137a496e.
+- D4's no-vendor-content rule governs every lesson that cites vendor
+  documentation.
 - No storage, schema, or event change follows from this record.
 
 ## Rejected alternatives
@@ -107,5 +116,5 @@ knowledge must outlive the work that found it.
 
 - `vertical-integration.md` names lgrep and vision only and carries no
   promotion receiving contract.
-- The knowledge manifest registers this record as an accepted decision.
-- Repository document, knowledge-index, and link validators pass.
+- This record sits under `.concord/law/decisions/` on the default branch.
+- Repository document and link validators pass.

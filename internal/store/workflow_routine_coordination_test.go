@@ -112,7 +112,9 @@ func unsignedDeliveryCorrectionRequest(t *testing.T, s *Store, workID string, ve
 func overlapContentFixture(t *testing.T) (*Store, WorkflowArchitectureBinding, string) {
 	t.Helper()
 	s, _, binding, _, _, _ := architectureValidationFixture(t, "content-left")
-	overlapFixtureExec(t, s, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) SELECT home_project_id,home_locator_id,product_id,'extra','Extra','Synthetic Domain',status,registry_content_hash,scanned_commit_oid FROM domains WHERE domain_id='child'`)
+	// The fixture registry gains its extra child Domain through a committed
+	// registry revision: the committed registry is the only Domain read.
+	commitWorkflowFixtureRegistry(t, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}, overlapFixtureRegistry(t))
 	seedWork(t, s, "content-right")
 	overlapFixtureExec(t, s, `UPDATE work_items SET intent_json=json_set(intent_json,'$.governing_requirements',json('[]')) WHERE id IN ('content-left','content-right')`)
 	actor := seedProductChangingContract(t, s, "content-left", binding)
@@ -122,6 +124,25 @@ func overlapContentFixture(t *testing.T) (*Store, WorkflowArchitectureBinding, s
 		t.Fatal(err)
 	}
 	return s, binding, ref
+}
+
+// overlapFixtureRegistry renders the architecture fixture's committed registry
+// revision with one extra child Domain beside the ones the contracts bind.
+func overlapFixtureRegistry(t *testing.T) string {
+	t.Helper()
+	var registry KnowledgeDomainRegistry
+	if err := json.Unmarshal([]byte(workflowArchitectureFixtureRegistry), &registry); err != nil {
+		t.Fatal(err)
+	}
+	registry.Domains = append(registry.Domains, KnowledgeDomain{
+		DomainID: "extra", Name: "Extra", Purpose: "Synthetic extra Domain.", Status: "current",
+		ParentDomainID: registry.RootDomainID, ArchitectureRelations: []KnowledgeArchitectureRelation{},
+	})
+	encoded, err := json.Marshal(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded) + "\n"
 }
 
 func TestRoutineCoordination(t *testing.T) {

@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0146",
+  "title": "Capture refuses a colliding external reference",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0035"
+    }
+  ]
+}
+---
 # CD-0146: Capture refuses a colliding external reference
 
 - **Status:** Accepted

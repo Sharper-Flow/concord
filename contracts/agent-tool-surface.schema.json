@@ -37,7 +37,7 @@
           "const": "concord-agent-tool-surface"
         },
         "tool_count": {
-          "const": 9
+          "const": 8
         }
       }
     },
@@ -81,8 +81,8 @@
     },
     "tools": {
       "type": "array",
-      "minItems": 9,
-      "maxItems": 9,
+      "minItems": 8,
+      "maxItems": 8,
       "uniqueItems": true,
       "items": {
         "type": "object",
@@ -113,7 +113,7 @@
     },
     "operations": {
       "type": "array",
-      "minItems": 44,
+      "minItems": 41,
       "maxItems": 96,
       "items": {
         "type": "object",

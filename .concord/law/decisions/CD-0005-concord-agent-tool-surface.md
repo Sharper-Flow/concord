@@ -1,3 +1,21 @@
+---
+{
+  "id": "CD-0005",
+  "title": "Concord agent tool surface",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-surface",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-call-boundary",
+    "agent-contract",
+    "agent-evolution"
+  ]
+}
+---
 # CD-0005: Concord Minimal Agent Tool Surface
 
 **Status:** Accepted
@@ -41,13 +59,12 @@ Static v1 exposure; no discovery meta-tool.
 
 Binding: [`../specs/agent-tool-surface-budget.md`](../specs/agent-tool-surface-budget.md).
 
-### D3. Four read tools
+### D3. Three read tools
 
 ```text
 concord_product_view   resolve | snapshot
 concord_work_browse    list | ready | blocked | scope
 concord_work_trace     history | relations
-concord_knowledge      search | resolve_note
 ```
 
 Reads are strict, bounded, cursor-based, authority/freshness-aware, and never repair

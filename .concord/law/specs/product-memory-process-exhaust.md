@@ -1,9 +1,34 @@
+---
+{
+  "id": "PM9",
+  "title": "product memory process exhaust",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Salvage and the authenticated publisher's summary attestation are publication properties, not query-corpus cases. The compaction-link witnesses TestCompactionLinkPublishRecordsNoVersionChange (internal/store/compaction_link_version_test.go) and TestCompactionReconcileMissingVersionRetainsProofStep (internal/agent/compaction_partial_serialization_test.go) carry the retained publication proof; integrated attestation coverage remains unmeasured."
+    },
+    {
+      "criterion": 2,
+      "exemption": "The absence of a receipt mechanism cannot be exercised by a positive scenario. The guarantee is proved structurally by the registry sweep of TestPM8AndPM9DeclareNoEvidenceOrReceiptStore (internal/store/pm8_pm9_absence_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Typed unavailability is a query property. Its dedicated typed-outcome witness was retired with the index query family; the surviving query suite still refuses an unavailable read (internal/store/query_test.go), and integrated typed-unavailability coverage remains unmeasured."
+    }
+  ]
+}
+---
 # Concord Process-Exhaust Salvage and Receipt (PM9)
 
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM9; binding CD-0002 amendment.
-> **Binding inputs:** PM1 Q7/Q9/Q10, accepted PM2–PM8, CD-0002 I1–I6,
+> **Binding inputs:** PM1 Q7, accepted PM2–PM8, CD-0002 I1–I6,
 > PM6 publish proof, and compaction-retention-policy retention.
 > **Does not decide:** PM10 backup/restore, TS1–TS9, external CI retention,
 > or a durable WIP-byte store.
@@ -12,7 +37,7 @@
 
 CD-0002 carried a process-exhaust rule that assumed a salvage-and-receipt
 handoff. The
-binding inputs are PM1 Q7/Q9/Q10, the accepted PM2 through PM8, PM6 publish
+binding inputs are PM1 Q7, the accepted PM2 through PM8, PM6 publish
 proof, and compaction-retention-policy retention. This record closes the deferral: closure
 publishes one completion receipt, verification reports are attributed and bound
 to their recorded subject, and the store keeps current state and finite verified snapshots
@@ -193,16 +218,19 @@ PM1–PM8 and Concord's no-WIP-byte decision remain controlling.
 No corpus scenario can exercise the absence of a receipt mechanism, so every
 criterion carries a typed exemption naming the structural proof.
 
-- Criterion 1 is proved by the compaction flow tests of PM6's verification
-  (`TestPublishCanonicalNoteCommitsOneNote` and
-  `TestCompactionPayloadRequiresExplicitUniqueScopeArrays`,
-  `internal/store/knowledge_index_test.go`), which fix the bounded note
-  payload the publisher attests.
+- Criterion 1 is proved by the retained compaction-link witnesses
+  (`TestCompactionLinkPublishRecordsNoVersionChange`,
+  `internal/store/compaction_link_version_test.go`, and
+  `TestCompactionReconcileMissingVersionRetainsProofStep`,
+  `internal/agent/compaction_partial_serialization_test.go`), which carry the
+  publication proof the publisher attests; attestation coverage remains
+  unmeasured.
 - Criterion 2 is proved by
   `TestPM8AndPM9DeclareNoEvidenceOrReceiptStore`
   (`internal/store/pm8_pm9_absence_test.go`), which rejects receipt-shaped
   tables and event kinds by name over the whole registry.
-- Criterion 3 is proved by `TestQueryQ10ReturnsAmbiguousAsTypedResult` and
-  the typed-outcome tests of `internal/store/query_test.go`, which keep
-  unavailable and integrity failures distinct. Section 8 records the reopen
+- Criterion 3's dedicated typed-outcome witness was retired with the index
+  query family; the surviving query suite still refuses an unavailable read
+  (`internal/store/query_test.go`), and integrated typed-unavailability
+  coverage remains unmeasured. Section 8 records the reopen
   criteria for each guarantee.

@@ -83,7 +83,7 @@ initialization/TestMain and is not a non-executing planning operation.
 | Reported verification | Report binding and same-commit Review/acceptance consumers | Evidence identity or shared workflow setup changes |
 | Adapter | Explicit changed test files and caller files, with Product selection cleared | Shared adapter contract, setup or native host behavior changes |
 | Python tooling | One affected `scripts/test-*.py`; inspect imported helpers and callers | Unknown/transitive mapping or aggregate script changes need the tooling battery |
-| Documentation | Link and public-content validators | Law/knowledge inputs change: run their owning validators too |
+| Documentation | Link and public-content validators | Law or documentation inputs change: run their owning validators too |
 | Generated contracts | Edit manifest/schema, regenerate, then check generated parity and affected consumers | Shared schema/generator affects more than the edited example |
 
 For example, a helper edited in `internal/store` can change an assertion reached

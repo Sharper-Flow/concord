@@ -1,3 +1,32 @@
+---
+{
+  "id": "TS2",
+  "title": "agent tool surface budget",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-contract",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The budget is enforced structurally, not by scenario: scripts/generate-agent-contracts.py pins the exact tool count and surface.tool_count agreement, and scripts/test-agent-contracts.py Ts2BudgetTests fails when this document's always_visible_tools value disagrees with the manifest."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Closed tool sections and complete operation coverage are enforced by the generator's manifest validation, exercised by ManifestTamperTests in scripts/test-agent-contracts.py."
+    },
+    {
+      "criterion": 3,
+      "exemption": "The alias ban is enforced by the generator's alias rejection over every tool and operation entry."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Boundary-crossing rejection is evaluation law for future candidates, enforced by the TS8 change rule and by TS1's scenario corpus, which such a candidate fails."
+    }
+  ]
+}
+---
 # Concord Agent Tool-Surface Budget and Granularity (TS2)
 
 > **Status:** **Accepted — binding until superseded.**
@@ -29,16 +58,18 @@ evidence, rejected shortcuts, and falsifiers, and carry no obligation.
 
 ## 1. Decision
 
-Concord exposes **at most nine always-visible domain tools** to an agent.
+Concord exposes **at most eight always-visible domain tools** to an agent.
 Business grouping belongs to Linear through the Linear MCP server.
-`concord_domain` owns Domain navigation and detail intents.
-Budget: `always_visible_tools: 9`. The canonical machine-readable count is the
+`concord_domain` owns Domain navigation and detail intents. Product law is the
+committed law folder, not a knowledge tool
+([law-folder-authority](../constitution/law-folder-authority.md)).
+Budget: `always_visible_tools: 8`. The canonical machine-readable count is the
 generated manifest's `surface.tool_count`
 ([`contracts/agent-tool-surface.v1.json`](../../../contracts/agent-tool-surface.v1.json)),
 and `scripts/test-agent-contracts.py` fails if this document and the manifest
 disagree.
 
-The cap is a Concord governance constraint derived from TS1's eight evidenced job
+The cap is a Concord governance constraint derived from TS1's evidenced job
 families and the explicit need to avoid both CRUD explosion and mega-dispatch. It
 is not asserted as a universal model limit across models, schemas, or tasks.
 
@@ -110,8 +141,8 @@ recovery boundaries into one tool to save prompt tokens is a failure.
 |---|---|---|---|
 | **Entity/CRUD surface** | Separate list/get/create/update/delete tools for Product, Project, work, relation, evidence, note, and operation entities; likely 20+ tools. | Agents must reconstruct AJ1–AJ8 by sequencing storage operations; high overlap; leaks implementation shape. | **Rejected.** |
 | **Two mega-tools** | One generic query dispatcher and one generic mutation dispatcher. | Minimizes count but combines unrelated intents, approvals, authorities, recovery, and result shapes; conditional schemas become prose. | **Rejected.** |
-| **One tool per TS1 job** | Eight tools mirroring AJ1–AJ8 exactly. | Useful comparison baseline, but assumes an end-to-end evaluation job always equals one callable boundary. AJ1 combines several read intents; AJ8 spans native operations and durable status. | **Not binding.** Evaluate, but do not force 1:1 mapping. |
-| **Domain-intent surface** | A single-digit set of cohesive read, mutation, knowledge, and operation families; closed typed variants where the granularity rule permits. | Preserves TS1 outcomes while allowing TS3/TS4 to merge always-chained reads and split distinct consequence boundaries. | **Selected rule.** Exact map remains TS3/TS4. |
+| **One tool per TS1 job** | Seven tools mirroring the current TS1 jobs. | Useful comparison baseline, but assumes an end-to-end evaluation job always equals one callable boundary. AJ1 combines several read intents; AJ8 spans native operations and durable status. | **Not binding.** Evaluate, but do not force 1:1 mapping. |
+| **Domain-intent surface** | A single-digit set of cohesive read, mutation, and operation families; closed typed variants where the granularity rule permits. | Preserves TS1 outcomes while allowing TS3/TS4 to merge always-chained reads and split distinct consequence boundaries. | **Selected rule.** Exact map remains TS3/TS4. |
 | **Progressive discovery first** | Small meta-surface searches or loads additional domain tools. | Solves a scale problem Concord does not yet have; adds a meta-selection step before evidence. | **Rejected for the current path.** Reconsider only through TS8/TS9. |
 
 ## 5. Candidate evaluation
@@ -131,7 +162,7 @@ records, per scenario and candidate:
 
 1. Reject any candidate that fails a hard scenario oracle, crosses an authority or
    consequence boundary, requires callers to sequence domain invariants manually,
-   or exceeds nine always-visible tools.
+   or exceeds eight always-visible tools.
 2. For a deterministic corpus run, compare success and recovery counts directly.
    For stochastic evaluation, predeclare the model, run count, sampling settings,
    and confidence interval before comparing candidates; reject a candidate whose

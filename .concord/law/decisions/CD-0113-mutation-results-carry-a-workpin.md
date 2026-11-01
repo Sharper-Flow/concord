@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0113",
+  "title": "Mutation results carry a WorkPin",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-contract",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0113: Mutation results carry a WorkPin
 
 - **Status:** Accepted
@@ -127,7 +138,7 @@ Scenario: intents stay honest
   read, and every intent names an admitted action.
 - The generated payload schemas, the TS7 contracts, and the adapter are
   regenerated; the manifest digest changes once, in the same change.
-- `python3 scripts/check-knowledge-index.py` passes.
+- Committed law-folder snapshot validation passes.
 
 ## Out of scope
 

@@ -48,7 +48,6 @@ func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, regis
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	if beforeInitialize != nil {
 		beforeInitialize(s)
 	}
@@ -107,8 +106,12 @@ func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, regis
 		"consequence_class": "internal_sqlite",
 	}
 	if registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth {
+		// The registry root "product-root:product" is the Product-wide Domain
+		// the fixture registry commits; "root" is its child. Root-scope
+		// selections (product-wide rationale) name the real root, so the
+		// approved affected scope admits both.
 		contractPayload["architecture_binding"] = WorkflowArchitectureBinding{
-			HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+			HomeDomainID: "root", AffectedDomainIDs: []string{"root", "product-root:product"},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		}

@@ -1,3 +1,22 @@
+---
+{
+  "id": "CD-0157",
+  "title": "The registry gains an advisory utility",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-contract",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0149"
+    }
+  ]
+}
+---
 # CD-0157: The registry gains an advisory utility
 
 - **Status:** Accepted

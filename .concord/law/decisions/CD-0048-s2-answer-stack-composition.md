@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0048",
+  "title": "S2 composes the answers the store already materialized",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0048: S2 composes the answers the store already materialized
 
 - **Status:** Accepted (amended 2026-09-26, 2026-09-28, 2026-10-09, 2026-10-10)
@@ -67,9 +80,9 @@ versioned-write meaning.
 
 ## Verification
 
-- `python3 scripts/check-doc-links.py`, `python3 scripts/check-public-content.py`,
-  and `python3 scripts/check-knowledge-index.py` pass with this record indexed
-  exactly once.
+- `python3 scripts/check-doc-links.py` and
+  `python3 scripts/check-public-content.py` pass; folder membership registers
+  this record exactly once.
 - `TestWorkItemsCarryNoFoldMaintainedLastActivity`
   (`internal/store/schema_test.go`) pins migration 109: the
   `work_items.last_activity_at` column stays dropped.

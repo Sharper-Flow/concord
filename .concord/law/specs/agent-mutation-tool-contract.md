@@ -1,3 +1,32 @@
+---
+{
+  "id": "TS4",
+  "title": "agent mutation tool contract",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-contract",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "AJ3-capture-work"
+    },
+    {
+      "criterion": 2,
+      "scenario": "AJ4-stale-version"
+    },
+    {
+      "criterion": 3,
+      "scenario": "AJ4-completion-missing-evidence"
+    },
+    {
+      "criterion": 4,
+      "scenario": "AJ5-resolve-domain-overlap"
+    }
+  ]
+}
+---
 # Concord Agent Mutation-Tool Contract (TS4)
 
 > **Status:** **Accepted — binding until superseded.**
@@ -50,7 +79,7 @@ Concord exposes **four always-visible mutation tools**:
 4. `concord_work_compact` — publish or reconcile the one canonical durable note for
    terminal work through PM6's ordered git→SQLite protocol.
 
-Together with TS3's four reads, Concord v1 has **eight always-visible tools**, below
+Together with TS3's three reads, Concord v1 has **seven always-visible tools**, below
 TS2's cap of nine. This count follows the accepted boundaries; it is not a target
 that permits collapsing future authority or consequence boundaries.
 

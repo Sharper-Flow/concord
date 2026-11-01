@@ -84,7 +84,7 @@ func init() {
 	findingEvidenceRefMax := maxBound(
 		goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(ref)", boundBytes),
 		goInlineBound("internal/store/workflow_registry.go", "ValidReference", "len(value)", boundBytes))
-	criterionBindingsMax := goConstantBound("internal/store/knowledge_manifest.go", "maxCriterionBindings", boundItems)
+	criterionBindingsMax := goConstantBound("internal/store/knowledge_record.go", "maxCriterionBindings", boundItems)
 	observationWindow := goConstantBound("internal/store/workflow_continuity.go", "ContinuityObservationWindow", boundItems)
 	bindingMaxLawAdditions := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxLawAdditions", boundItems)
 	bindingMaxObligations := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxObligations", boundItems)
@@ -176,8 +176,13 @@ func init() {
 	deliveryArtifactInputs := inputBound("/$defs/work_transition_action_variant_record_delivery/properties/fields/properties/delivery_artifact/maxLength")
 	publishedReference := schemaBound("contracts/agent-tool-surface-payloads.schema.json", "/$defs/reference/maxLength")
 
-	// Published contract nodes outside the payload document's output roots.
-	manifestRecordTitle := schemaBound("contracts/concord-knowledge-index.v1.schema.json", "/$defs/record/properties/title/maxLength")
+	// The committed law read admits each law title at maxManifestTitle code
+	// points (law_snapshot.go) and each criterion predicate ID at
+	// maxCriterionReferenceID bytes. The predicate guard in
+	// validateKnowledgeCriterionBindingForm is presence-conjoined, so the row
+	// cites the live constant and names the guard site.
+	manifestRecordTitle := goConstantBound("internal/store/knowledge_record.go", "maxManifestTitle", boundCharacters)
+	manifestCriterionPredicate := goConstantBound("internal/store/knowledge_record.go", "maxCriterionReferenceID", boundBytes)
 
 	// Contract premise: the fold's single premise guard is
 	// workflowString(p.Premise, WorkflowPremiseMaxLength) at
@@ -185,16 +190,14 @@ func init() {
 	// round-trip rule, outside the fold's const scope, so the row cites the
 	// live constant and names the guard site.
 	workflowPremiseMax := goConstantBound("internal/store/workflow_registry.go", "WorkflowPremiseMaxLength", boundBytes)
-	manifestCriterionPredicate := schemaBound("contracts/concord-knowledge-index.v1.schema.json", "/$defs/criterionBinding/properties/predicate_id/maxLength")
 
-	// Law context Domain identity: the manifest parse validates each
-	// registry Domain record before prepareDomainProjection copies the
-	// validated fields into the projection (ParseKnowledgeManifest ->
-	// validateKnowledgeDomainRegistry -> validateKnowledgeDomainRecord,
-	// knowledge_manifest.go:616,709 -> projection insert :502), so the
-	// full-string guards are the writer chain's bounds.
-	domainNameGuard := goInlineBound("internal/store/knowledge_manifest.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Name)", boundCharacters)
-	domainPurposeGuard := goInlineBound("internal/store/knowledge_manifest.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Purpose)", boundCharacters)
+	// Law context Domain identity: the committed law read validates each
+	// registry Domain record through the retained chain
+	// (validateKnowledgeDomainRegistry -> validateKnowledgeDomainRecord in
+	// knowledge_record.go), so the full-string guards are the writer
+	// chain's bounds.
+	domainNameGuard := goInlineBound("internal/store/knowledge_record.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Name)", boundCharacters)
+	domainPurposeGuard := goInlineBound("internal/store/knowledge_record.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Purpose)", boundCharacters)
 
 	// Continuity boundary: the summary column carries the fold's own CHECK,
 	// and recorded_at rides the timestamp format.
@@ -444,12 +447,11 @@ func init() {
 	registerRetainedTwinBound("/$defs/workflow_law_context/properties/registry_path/maxLength",
 		unboundedOutput("knowledgeRegistryLocator joins the knowledge home's canonical-path locator with one fixed shard file name (internal/store/workflow_law_revision.go:836,849); the home locator's normalized value derives through normalizePath, whose symlink resolution expands the path to filesystem-target text with no length guard (internal/store/project_locator.go:154-161), so the joined locator is byte-ceiling only", readSizeRefusalPath, mutationResultPath))
 	registerOutputBound("/$defs/workflow_law_context_criterion/properties/predicate_id/maxLength",
-		manifestCriterionPredicate) // the manifest contract bounds criterion predicate ids with a closed pattern
-	// Law context Domain identity: the full-string guards sit upstream of
-	// the projection in the manifest parse chain (knowledge_manifest.go:
-	// 616,709,727); the insert at knowledge_index_projection.go:502 copies
-	// the already-validated fields, and rebuilds re-read the same validated
-	// registry.
+		manifestCriterionPredicate) // the committed law read bounds criterion predicate ids
+	// Law context Domain identity: the full-string guards sit in the
+	// committed law read (knowledge_record.go,
+	// validateKnowledgeDomainRegistry -> validateKnowledgeDomainRecord), so
+	// the already-validated fields are the writer chain's bounds.
 	registerOutputBound("/$defs/workflow_law_context_domain/properties/name/maxLength", domainNameGuard)
 	registerOutputBound("/$defs/workflow_law_context_domain/properties/purpose/maxLength", domainPurposeGuard)
 	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/criteria/maxItems",
@@ -466,7 +468,7 @@ func init() {
 	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/roles/maxItems",
 		workflowRoleMarkItemsBound("internal/store/workflow_law_revision.go", "readWorkflowLawContext", "markRole"))
 	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/title/maxLength",
-		manifestRecordTitle) // the projection copies the manifest record title verbatim
+		manifestRecordTitle) // the law context copies the committed law title verbatim
 
 	// Outcome payloads: subjects ride the fold's list guard and its member
 	// bound; the surface and check fields ride the admitted input shape the

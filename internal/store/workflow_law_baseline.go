@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
+	"sort"
 	"strings"
 )
 
@@ -36,36 +37,24 @@ func readWorkflowLawInventoryTx(ctx context.Context, q queryer, workID string) (
 		return nil, err
 	}
 	b.Home = workflowLawBaselineSource{ProjectID: project, LocatorID: locator}
-	sources := []KnowledgeHome{{HomeProjectID: project, HomeLocatorID: locator}}
-	for _, source := range sources {
-		b.Sources = append(b.Sources, workflowLawBaselineSource{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID})
-		rows, err := q.QueryContext(ctx, `SELECT law_id,content_hash,authority_tier FROM law_subjects WHERE home_project_id=? AND home_locator_id=? ORDER BY law_id`, source.HomeProjectID, source.HomeLocatorID)
-		if err != nil {
-			return nil, workflowProjectionError(err, "cannot read the start law inventory")
+	source := KnowledgeHome{HomeProjectID: project, HomeLocatorID: locator}
+	b.Sources = append(b.Sources, workflowLawBaselineSource{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID})
+	// The inventory reads the verified law-folder snapshot the
+	// pre-transaction proof carries; the boundary below refuses a read whose
+	// home was never verified or whose head moved after the verification.
+	snapshot, err := lawSnapshotForSource(ctx, source, "workflow_law_change")
+	if err != nil {
+		return nil, err
+	}
+	for _, lawID := range snapshot.LawIDs() {
+		record, _ := snapshot.Law(lawID)
+		state := workflowLawState{
+			LawID:       source.HomeProjectID + "/" + lawID,
+			ContentHash: record.SHA256,
+			Tier:        record.Authority.Tier,
+			DomainIDs:   workflowLawRecordDomains(record),
 		}
-		var states []workflowLawState
-		for rows.Next() {
-			var state workflowLawState
-			if err := rows.Scan(&state.LawID, &state.ContentHash, &state.Tier); err != nil {
-				_ = rows.Close()
-				return nil, workflowProjectionError(err, "cannot decode the start law inventory")
-			}
-			states = append(states, state)
-		}
-		err = rows.Err()
-		_ = rows.Close()
-		if err != nil {
-			return nil, workflowProjectionError(err, "cannot finish the start law inventory")
-		}
-		for _, state := range states {
-			domains, err := readWorkflowLawDomainsTx(ctx, q, lawReferenceResolution{source: source, lawID: state.LawID})
-			if err != nil {
-				return nil, err
-			}
-			state.DomainIDs = domains
-			state.LawID = source.HomeProjectID + "/" + state.LawID
-			b.Laws = append(b.Laws, state)
-		}
+		b.Laws = append(b.Laws, state)
 	}
 	slices.SortFunc(b.Laws, func(a, b workflowLawState) int { return strings.Compare(a.LawID, b.LawID) })
 	for i := 1; i < len(b.Laws); i++ {
@@ -75,6 +64,20 @@ func readWorkflowLawInventoryTx(ctx context.Context, q queryer, workID string) (
 	}
 	b.Registry, err = readWorkflowLawRegistrySnapshot(ctx, q, workID)
 	return b, err
+}
+
+// workflowLawRecordDomains lists the Domains one committed law is homed in or
+// applies to, sorted and unique, the root included. The record is the
+// authority: its authored home and applicability are the same facts the
+// retired projection stored per row.
+func workflowLawRecordDomains(record KnowledgeRecord) []string {
+	domains := make([]string, 0, 1+len(record.AppliesToDomainIDs))
+	if record.HomeDomainID != "" {
+		domains = append(domains, record.HomeDomainID)
+	}
+	domains = append(domains, record.AppliesToDomainIDs...)
+	sort.Strings(domains)
+	return slices.Compact(domains)
 }
 
 func initializeWorkflowLawBaselineTx(ctx context.Context, tx *sql.Tx, workID string) error {
@@ -132,7 +135,7 @@ func readWorkflowLawBaselineTx(ctx context.Context, q queryer, workID string) (*
 // Inventory admission has its own seam: unlike a mandate read, it must prove
 // the complete inventory even when the contract names no law.
 func requireWorkflowLawInventoryProof(ctx context.Context, q queryer, project, locator string) error {
-	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: project, HomeLocatorID: locator})
+	productID, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: project, HomeLocatorID: locator})
 	if err != nil {
 		return err
 	}
@@ -145,7 +148,7 @@ func requireWorkflowLawInventoryProof(ctx context.Context, q queryer, project, l
 	}
 	for _, home := range homes {
 		if home.HomeLocatorID == locator {
-			return requireKnowledgeSourcesProof(ctx, q, "", []KnowledgeHome{home})
+			return requireKnowledgeSourcesProof(ctx, "", []KnowledgeHome{home})
 		}
 	}
 	return newFailure(KindUnknownScope, "workflow_law_change", "the standalone inventory has no canonical law home", false, "resolve one canonical Git knowledge home before verifying the inventory")

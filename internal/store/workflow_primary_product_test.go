@@ -20,7 +20,6 @@ func crossProductBindingApprovalFixture(t *testing.T, workID string) (*Store, Wo
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	seedSecondaryProductMembership(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal:" + workID, ClientRef: "client:" + workID, AgentRef: "agent:" + workID, SessionRef: "session:" + workID, ActorClass: ActorAgent}
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
@@ -65,9 +64,14 @@ func TestWorkflowBindingProductFollowsThePrimaryMembership(t *testing.T) {
 	workID := "binding-primary-cross-product"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	seedSecondaryProductMembership(t, s, workID)
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The binding validation reads the committed Domain registry inside the
+	// transaction; the source-set proof is established before it opens.
+	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +161,7 @@ func TestWorkProductIDsFollowThePrimaryMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	products, err := workProductIDs(ctx, tx, "cross-product-work")
+	products, err := seedCrossProductWorkProductIDs(ctx, tx, "cross-product-work")
 	if err != nil {
 		t.Fatalf("cross-Product work refused its Product scope: %v", err)
 	}
@@ -191,4 +195,24 @@ func TestWorkVisibilityListingKeepsEveryMemberProduct(t *testing.T) {
 	if secondary.LifecycleCounts["needed"] != 1 {
 		t.Fatalf("secondary Product needed count = %d, want the cross-Product work visible", secondary.LifecycleCounts["needed"])
 	}
+}
+
+// seedCrossProductWorkProductIDs derives the Product membership of one work
+// item over its primary Project, the same derivation the retired warm-up
+// helper performed.
+func seedCrossProductWorkProductIDs(ctx context.Context, q queryer, id string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY pp.product_id`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }

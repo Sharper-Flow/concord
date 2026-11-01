@@ -7,23 +7,13 @@ import (
 )
 
 // knowledgeHomePairTables lists every Git-derived projection keyed on the
-// (home_project_id, home_locator_id) identity pair. Migration 52 binds each
-// one's pair to project_locators through triggers; this list is the Go-side
-// mirror for locator-removal refusal. A test
-// pins the list to the trigger set, so the two cannot drift apart.
+// (home_project_id, home_locator_id) identity pair. The
+// project_locators_referenced_by_knowledge_no_delete trigger binds each one's
+// pair to project_locators; this list is the Go-side mirror for
+// locator-removal refusal. A test pins the list to the trigger set, so the two
+// cannot drift apart.
 var knowledgeHomePairTables = []string{
 	"archived_work",
-	"knowledge_index_watermark",
-	"knowledge_kind_coverage",
-	"law_subjects",
-	"law_bodies",
-	"law_relations",
-	"domains",
-	"domain_registries",
-	"domain_architecture_relations",
-	"domain_relation_governing_laws",
-	"law_domain_homes",
-	"law_domain_applicability",
 }
 
 // knowledgeLocatorDeleteGuardName is the migration 52 trigger that refuses

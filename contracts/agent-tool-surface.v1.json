@@ -3,7 +3,7 @@
   "schema_version": "1.0",
   "surface": {
     "name": "concord-agent-tool-surface",
-    "tool_count": 9
+    "tool_count": 8
   },
   "envelope": {
     "schema_version": "1.0",
@@ -52,15 +52,6 @@
         "concord_work_trace.relations",
         "concord_work_trace.project_retirement",
         "concord_work_trace.research"
-      ]
-    },
-    {
-      "id": "concord_knowledge",
-      "description": "Search and resolve durable knowledge using cached publication provenance. Explicit observe_publication is the bounded network/cache exception: one origin discovery and selected-branch fetch within ten seconds, then retained provenance; it does not synchronize law or change read authority.",
-      "operations": [
-        "concord_knowledge.search",
-        "concord_knowledge.resolve_note",
-        "concord_knowledge.observe_publication"
       ]
     },
     {
@@ -408,66 +399,6 @@
       "query_id": "CD-0182.R1",
       "input_schema": "#/schemas/work_trace_project_retirement_input",
       "result_schema": "#/schemas/project_retirement_result",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "request_id",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_knowledge.search",
-      "tool": "concord_knowledge",
-      "kind": "read",
-      "query_id": "PM1.Q9",
-      "input_schema": "#/schemas/knowledge_search_input",
-      "result_schema": "#/schemas/knowledge_page",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "request_id",
-        "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_knowledge.resolve_note",
-      "tool": "concord_knowledge",
-      "kind": "read",
-      "query_id": "PM1.Q10",
-      "input_schema": "#/schemas/knowledge_resolve_input",
-      "result_schema": "#/schemas/canonical_note_result",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "request_id",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_knowledge.observe_publication",
-      "tool": "concord_knowledge",
-      "kind": "read",
-      "query_id": "CD-0020.R1",
-      "input_schema": "#/schemas/knowledge_observe_publication_input",
-      "result_schema": "#/schemas/knowledge_publication",
       "capability": "product_read",
       "consequence": "read",
       "metadata": {
@@ -1064,26 +995,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/external_observation_page",
       "closed": true
     },
-    "knowledge_observe_publication_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_observe_publication_input",
-      "closed": true
-    },
-    "knowledge_publication": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_publication",
-      "closed": true
-    },
-    "knowledge_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_page",
-      "closed": true
-    },
-    "knowledge_resolve_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_resolve_input",
-      "closed": true
-    },
-    "knowledge_search_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_search_input",
-      "closed": true
-    },
     "mutation_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/mutation_result",
       "closed": true
@@ -1346,6 +1257,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:afa9b8b3bbc0eba73ce0175234708c2641100f4d394d4b0046761c3faf7d9a9d",
-  "digest": "sha256:af5b377d1b5af5be7640198f171750311cceac27c05ea3b3844b254dc5de95c7"
+  "payload_digest": "sha256:b428128ea03571d89486b02e7f424eceada9c4b92bc57559451a700758dcd4e9",
+  "digest": "sha256:0cfc6c647913526ffea43384788a8c37d06d6101052be760cf10350c2a23db5e"
 }

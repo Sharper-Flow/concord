@@ -45,8 +45,9 @@ func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
 	if defErr != nil {
 		t.Fatal(defErr)
 	}
-	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-holder", Definition: definition, Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}, Now: fixedTime()})
+	startCtx := agentWorkflowSourceProof(t, ctx, s, "work-holder")
+	if err := s.Transact(startCtx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(startCtx, tx, store.WorkflowInitializationRequest{WorkID: "work-holder", Definition: definition, Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0149",
+  "title": "The registry gains a read-only exploration utility",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-contract",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0149: The registry gains a read-only exploration utility
 
 - **Status:** Accepted

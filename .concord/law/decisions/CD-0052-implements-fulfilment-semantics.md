@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0052",
+  "title": "implements declares fulfilment-link semantics, display-only",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "work-coordination",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0052: `implements` declares fulfilment-link semantics, display-only
 
 - **Status:** Accepted
@@ -79,5 +92,5 @@ cheapest honest state and is reversible if a consumer lands.
 - `internal/store.TestRelationKindsEnforceTheirOwnGraphRules` exercises the
   per-kind cycle rejection and the `implements` cycle exemption (two-node
   cycle permitted).
-- Validators: `check-knowledge-index.py`,
-  `check-json.py`, `check-doc-links.py`, `check-public-content.py`.
+- Validators: `check-json.py`, `check-doc-links.py`,
+  `check-public-content.py`.

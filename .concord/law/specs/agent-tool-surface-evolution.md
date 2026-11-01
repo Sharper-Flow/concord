@@ -1,3 +1,36 @@
+---
+{
+  "id": "TS8",
+  "title": "agent tool surface evolution",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-evolution",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-call-boundary",
+    "agent-contract"
+  ],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Digest binding is a surface-identity property enforced by the generated drift validator scripts/check-agent-contracts.py over the generated contracts and manifest."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Generated-artifact unity is enforced by the validator's generated-drift checks in scripts/check-agent-contracts.py, which fail when the manifest and its artifacts disagree."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Fail-closed digest mismatch is an envelope-and-adapter property. The guarantee is proved by TestEnvelopeRejectsUnknownVariantsAndFields (internal/agentcontract/envelope_test.go) and the strict unknown-input rejection of adapter/opencode/generated-contract-tests.ts."
+    },
+    {
+      "criterion": 4,
+      "scenario": "AJ5-resolve-domain-overlap"
+    }
+  ]
+}
+---
 # Concord Agent Tool Surface Identity and Change (TS8)
 
 > **Status:** Accepted and binding until superseded.

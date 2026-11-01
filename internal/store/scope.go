@@ -110,27 +110,6 @@ func productsForWorkIDs(ctx context.Context, q queryer, ids []string) (map[strin
 	return out, rows.Err()
 }
 
-func (s *Store) ProductsForKnowledgeID(ctx context.Context, id string) ([]string, error) {
-	return productsForKnowledgeID(ctx, s.db, id)
-}
-
-func productsForKnowledgeID(ctx context.Context, q queryer, id string) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT product_id FROM archived_work_products WHERE work_id=? ORDER BY product_id`, id)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "scope", "cannot resolve knowledge Product scope", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			return nil, err
-		}
-		out = append(out, p)
-	}
-	return out, rows.Err()
-}
-
 func (s *Store) ProductsForProjectIDs(ctx context.Context, ids []string) (map[string][]string, error) {
 	return productsForProjectIDs(ctx, s.db, ids)
 }
@@ -268,77 +247,23 @@ func knowledgeHomeForLocator(ctx context.Context, q queryer, projectID, locatorI
 	return KnowledgeHome{HomeProjectID: projectID, HomeLocatorID: locatorID, RepoPath: value, HeadRef: headRef}, nil
 }
 
-// ResolveKnowledgeQueryHome resolves the git authority before any watermark or
-// archived-row read. Product homes have precedence over ambient Project scope;
-// Project-only calls use exactly one canonical-path locator. A caller-supplied
-// KnowledgeHome is evidence to compare, never an authority override.
-func (s *Store) ResolveKnowledgeQueryHome(ctx context.Context, productID, projectID string, supplied KnowledgeHome, op string) (KnowledgeHome, error) {
-	if s == nil || s.db == nil {
-		return KnowledgeHome{}, newFailure(KindUnavailable, op, "store is not open", false, "open a store before resolving knowledge authority")
+// resolveKnowledgeQueryHome resolves the Product's one designated canonical
+// knowledge home.
+func resolveKnowledgeQueryHome(ctx context.Context, q queryer, productID string, op string) (KnowledgeHome, error) {
+	if productID == "" {
+		return KnowledgeHome{}, newFailure(KindInvalidFilter, op, "knowledge query requires a Product", false, "supply the Product whose designated knowledge home answers")
 	}
-	return resolveKnowledgeQueryHome(ctx, s.db, productID, projectID, supplied, op)
-}
-
-func resolveKnowledgeQueryHome(ctx context.Context, q queryer, productID, projectID string, supplied KnowledgeHome, op string) (KnowledgeHome, error) {
-	var resolved KnowledgeHome
-	switch {
-	case productID != "":
-		candidates, err := productKnowledgeHomeCandidates(ctx, q, productID)
-		if err != nil {
-			return KnowledgeHome{}, err
-		}
-		if len(candidates) == 0 {
-			return KnowledgeHome{}, newFailure(KindUnknownScope, op, "Product has no unique canonical knowledge home", false, "designate exactly one Product knowledge home")
-		}
-		if len(candidates) > 1 {
-			return KnowledgeHome{}, newAmbiguousScopeFailure(op, "Product has multiple canonical knowledge homes", "designate exactly one Product knowledge home", knowledgeHomeCandidateIDs(candidates))
-		}
-		resolved = candidates[0]
-		if projectID != "" {
-			var member bool
-			if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM product_projects WHERE product_id=? AND project_id=?)`, productID, projectID).Scan(&member); err != nil {
-				return KnowledgeHome{}, wrapFailure(KindUnavailable, op, "cannot validate Product/Project membership", true, "retry once the database is readable", err)
-			}
-			if !member {
-				return KnowledgeHome{}, newFailure(KindUnknownScope, op, "Project is not a member of the requested Product", false, "supply a Project belonging to the Product")
-			}
-		}
-	case projectID != "":
-		candidates, err := projectCanonicalHomeCandidates(ctx, q, projectID)
-		if err != nil {
-			return KnowledgeHome{}, err
-		}
-		if len(candidates) == 0 {
-			return KnowledgeHome{}, newFailure(KindUnknownScope, op, "Project has no canonical-path knowledge locator", false, "designate exactly one canonical Project locator")
-		}
-		if len(candidates) > 1 {
-			return KnowledgeHome{}, newAmbiguousScopeFailure(op, "Project has multiple canonical-path knowledge locators", "leave exactly one canonical Project locator", knowledgeHomeCandidateIDs(candidates))
-		}
-		resolved = candidates[0]
-	default:
-		if supplied.HomeProjectID == "" || supplied.HomeLocatorID == "" || supplied.RepoPath == "" || supplied.HeadRef == "" {
-			return KnowledgeHome{}, newFailure(KindInvalidFilter, op, "unscoped knowledge query requires a complete explicit home", false, "supply a Project, Product, or a locator-verified KnowledgeHome")
-		}
-		var err error
-		resolved, err = knowledgeHomeForLocator(ctx, q, supplied.HomeProjectID, supplied.HomeLocatorID, supplied.HeadRef)
-		if err != nil {
-			return KnowledgeHome{}, knowledgeHomeResolutionFailure(err, op)
-		}
-	}
-	if err := compareKnowledgeHomeEvidence(supplied, resolved, op); err != nil {
+	candidates, err := productKnowledgeHomeCandidates(ctx, q, productID)
+	if err != nil {
 		return KnowledgeHome{}, err
 	}
-	return resolved, nil
-}
-
-func knowledgeHomeResolutionFailure(err error, op string) error {
-	var failure *Failure
-	if failureAs(err, &failure) {
-		classified := *failure
-		classified.Op = op
-		return &classified
+	if len(candidates) == 0 {
+		return KnowledgeHome{}, newFailure(KindUnknownScope, op, "Product has no unique canonical knowledge home", false, "designate exactly one Product knowledge home")
 	}
-	return wrapFailure(KindUnavailable, op, "cannot verify the canonical knowledge locator", true, "retry once the database is readable", err)
+	if len(candidates) > 1 {
+		return KnowledgeHome{}, newAmbiguousScopeFailure(op, "Product has multiple canonical knowledge homes", "designate exactly one Product knowledge home", knowledgeHomeCandidateIDs(candidates))
+	}
+	return candidates[0], nil
 }
 
 // knowledgeHomeCandidateIDs renders the enumerated home identities an
@@ -391,11 +316,4 @@ func projectCanonicalHomeCandidates(ctx context.Context, q queryer, projectID st
 		return nil, wrapFailure(KindUnavailable, "knowledge_home", "cannot finish resolving Project canonical locators", true, "retry once the database is readable", err)
 	}
 	return homes, nil
-}
-
-func compareKnowledgeHomeEvidence(supplied, resolved KnowledgeHome, op string) error {
-	if supplied.HomeProjectID != "" && supplied.HomeProjectID != resolved.HomeProjectID || supplied.HomeLocatorID != "" && supplied.HomeLocatorID != resolved.HomeLocatorID || supplied.RepoPath != "" && supplied.RepoPath != resolved.RepoPath || supplied.HeadRef != "" && supplied.HeadRef != resolved.HeadRef {
-		return newFailure(KindInvalidFilter, op, "caller KnowledgeHome does not match the authoritative canonical home", false, "use the Product or Project-resolved KnowledgeHome")
-	}
-	return nil
 }

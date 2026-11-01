@@ -7,16 +7,29 @@ import (
 	"testing"
 )
 
+// derivedRevisionConflictLaw is the committed spec:one revision whose record
+// declares the conflicts_with relation against the legislated fixture law:
+// the declarer is whichever record carries the relation.
+const derivedRevisionConflictLaw = "---\n" +
+	`{"id":"spec:one","title":"Fixture folder law spec:one","authority":{"tier":"derived"},"home_domain_id":"root","applies_to_domain_ids":[],"law_relations":[{"kind":"conflicts_with","target_id":"spec:legislated"}]}` + "\n" +
+	"---\n\nSynthetic fixture law body.\n"
+
+// derivedRevisionLandedLaw is the committed spec:one revision after the
+// derived record came into conformance: the same stable ID and home, the
+// conflict withdrawn, and a new whole-file digest.
+const derivedRevisionLandedLaw = "---\n" +
+	`{"id":"spec:one","title":"Fixture folder law spec:one","authority":{"tier":"derived"},"home_domain_id":"root","applies_to_domain_ids":[]}` + "\n" +
+	"---\n\nSynthetic fixture law body, brought into conformance.\n"
+
 // TestDerivedRevisionCompletesOnlyAfterItLands holds CD-0159 D4 from the
 // contract approval through completion. A research contract mandates both
 // ends of a conflicts_with relation and revises the derived end, which the
 // tier admits as a revision line. Completion re-checks the conflict without
-// the amendment allowance, so it refuses while the Git-derived projection
-// still carries the conflict. The derived record declares the conflict, which
-// the projection records as its declarer, so the landing commit edits only
-// derived law. The test writes the projection a rebuild at that commit
-// produces, a new content hash for the derived law and no conflict row, and
-// the same contract completes with no further approval.
+// the amendment allowance, so it refuses while the committed law folder still
+// carries the conflict. The derived record declares the conflict on its
+// committed file, so the landing commit edits only derived law: a new content
+// digest for the derived law and no conflict relation, and the same contract
+// completes with no further approval.
 func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 	t.Parallel()
 	const workID = "derived-revision-lands"
@@ -24,10 +37,8 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	seedDerivedLawExtension(t, s)
-	seedIssue31DomainRegistry(t, s)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES('project','workflow-law-locator','spec:legislated','conflicts_with','spec:one','test','spec:one'); DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
+	commitFixtureLawFile(t, home, "spec:one", derivedRevisionConflictLaw)
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/researcher", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	version := seedDerivedRevisionWorkflow(t, s, workID, owner)
 	approval := json.RawMessage(`{"premise":"Bring the derived law into conformance with the legislated one.","spec_mandate":["spec:legislated","spec:one"],"law_modifies":["spec:one"],"law_change_reason":"Bring the derived record into conformance with its legislated mandate.","required_evidence":["artifact"],"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["report_recorded"]}}]}`)
@@ -51,8 +62,8 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 	f := workContextFixture{store: s, workID: workID, owner: owner}
 	pack := seedResearchContextPack(t, f, "derived-lands-proof")
 	bindResearchPack(t, f, pack.PackID, 1, true)
+	// The selection's child Domain carries no product-wide rationale.
 	selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
-	selection["product_wide_rationale"] = "The research supports conformance with the legislated mandate."
 	if err := f.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
 		t.Fatal(err)
 	}
@@ -82,9 +93,9 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 		t.Fatalf("completion before the revision landed did not meet the clause 3 conflict refusal: %v", err)
 	}
 
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM law_relations WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND kind='conflicts_with'; UPDATE law_subjects SET content_hash='sha256:` + strings.Repeat("c", 64) + `',scanned_commit_oid='landed' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'; DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
+	// The landing commit withdraws the conflict on the committed derived
+	// record: same stable ID and home, new whole-file digest.
+	commitFixtureLawFile(t, home, "spec:one", derivedRevisionLandedLaw)
 	if err := complete(); err != nil {
 		t.Fatalf("completion after the revision landed was refused: %v", err)
 	}

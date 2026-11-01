@@ -137,21 +137,11 @@ func seedProjectHandoffLaw(t *testing.T, s *Store, productID, projectID string) 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// The seed statements inline their literals: a multi-statement Exec
-	// binds parameters to the first statement only on this driver, and the
-	// law_subjects home-pair trigger then reads the wrong values.
-	if _, err := s.DatabaseForTesting().Exec(fmt.Sprintf(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('%s','%s','%s'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('%s','%s','%s','spec','accepted','.concord/docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM write_guard`, productID, projectID, "ph-law-locator", projectID, "ph-law-locator", "spec:one")); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(fmt.Sprintf(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('%s','%s','%s'); DELETE FROM write_guard`, productID, projectID, "ph-law-locator")); err != nil {
 		t.Fatal(err)
 	}
-	commit := commitKnowledgeRepo(t, locatorPath, "synthetic handoff law source")
 	home := KnowledgeHome{HomeProjectID: projectID, HomeLocatorID: "ph-law-locator", RepoPath: locatorPath, HeadRef: "HEAD"}
-	digest, err := knowledgeContentDigest(t.Context(), home, commit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES(?,?,'HEAD',?,?,'test',1,?); DELETE FROM write_guard`, projectID, "ph-law-locator", commit, digest, knowledgeProjectionVersion); err != nil {
-		t.Fatal(err)
-	}
+	writeFixtureSpecLawSource(t, home, "spec:one")
 }
 
 // seedProjectHandoffContract initializes the shared work item's research

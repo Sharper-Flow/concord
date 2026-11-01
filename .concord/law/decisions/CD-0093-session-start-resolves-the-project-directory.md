@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0093",
+  "title": "Session context resolves in the host-placed work directory",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0093: Session context resolves in the host-placed work directory
 
 - **Status:** Accepted
@@ -118,5 +129,5 @@ has one owner (CD-0088 D1).
   unregistered agent handle.
 - `go test ./cmd/concord/ -run TestDeterministicHostRegistryRefusalsExit2`
   proves D3: probe and registry refusals are typed and deterministic.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py`, and
-  `python3 scripts/check-knowledge-index.py` pass.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  pass.

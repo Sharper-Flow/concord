@@ -12,20 +12,17 @@ func publishedAbsenceFixture(t *testing.T) (*Store, KnowledgeHome, string, strin
 	s := openTemp(t)
 	repo := initKnowledgeRepo(t)
 	path := ".concord/docs/work/work-published.md"
-	writeKnowledgeFile(t, repo, path, canonicalWorkNote("work-published", "2026-08-07T00:00:00Z"))
+	content := canonicalWorkNote("work-published")
+	writeKnowledgeFile(t, repo, path, content)
 	commit := commitKnowledgeRepo(t, repo, "published outcome")
 	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "prod-alpha", home, "proj-web")
 	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM product_projects WHERE product_id='anchor-product-proj-web'; DELETE FROM products WHERE id='anchor-product-proj-web'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RebuildKnowledgeIndex(t.Context(), home); err != nil {
-		t.Fatal(err)
-	}
-	var hash string
-	if err := s.db.QueryRow(`SELECT content_hash FROM archived_work WHERE id='work-published'`).Scan(&hash); err != nil {
-		t.Fatal(err)
-	}
+	// The archived linkage is the compaction fold's retained row, seeded here
+	// from the note's own parsed metadata.
+	hash := seedArchivedWorkNote(t, s, home, commit, path, content)
 	return s, home, commit, hash
 }
 
@@ -116,7 +113,10 @@ func TestPublishedExecutionAbsenceProjectGuards(t *testing.T) {
 	}
 }
 
-func TestPublishedIssueLinksSurviveIndexRebuildAndMissingNotes(t *testing.T) {
+// The published linkage is retained history: it survives the source note's
+// deletion, because the compaction linkage is not derived from a rescanned
+// projection (folder law holds publication in Git and the archived row).
+func TestPublishedIssueLinksSurviveWithRetainedLinkage(t *testing.T) {
 	s, home, commit, hash := publishedAbsenceFixture(t)
 	ctx := t.Context()
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workCreatedEvent("work-live-link", "create-live-link"), operationEvent("member-live-link", "work_project.added", SubjectWorkItem, "work-live-link", map[string]any{"work_id": "work-live-link", "project_id": "proj-web", "role": "primary", "reason": "fixture", "expected_version": 1, "resulting_version": 2})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-live-link"): 0}}); err != nil {
@@ -131,9 +131,6 @@ func TestPublishedIssueLinksSurviveIndexRebuildAndMissingNotes(t *testing.T) {
 		}
 	}
 	if _, err := s.db.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
 	link, found, err := readLinearLinkCore(ctx, s.db, "work-published")
@@ -160,18 +157,11 @@ func TestPublishedIssueLinksSurviveIndexRebuildAndMissingNotes(t *testing.T) {
 	}
 	runKnowledgeGit(t, home.RepoPath, "rm", "--", ".concord/docs/work/work-published.md")
 	commitKnowledgeRepo(t, home.RepoPath, "remove outcome")
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		t.Fatal(err)
+	if link, found, err := readLinearLinkCore(ctx, s.db, "work-published"); err != nil || !found || link.HumanKey != "EX-3" {
+		t.Fatalf("source note deletion lost the published issue identity: %+v found=%v %v", link, found, err)
 	}
-	link, found, err = readLinearLinkCore(ctx, s.db, "work-published")
-	if err != nil || !found || link.WorkID != "work-published" || link.HumanKey != "EX-3" {
-		t.Fatalf("missing note lost its issue identity: %+v found=%v %v", link, found, err)
-	}
-	_, err = ReadWorkPin(ctx, s, link.WorkID)
-	assertFailureKind(t, err, KindProjectionNotFound)
-	if !strings.Contains(err.Error(), link.WorkID) {
-		t.Fatalf("missing note absence lost the work identity: %v", err)
-	}
+	_, err = ReadWorkPin(ctx, s, "work-published")
+	assertPublishedAbsence(t, err, home, commit, hash)
 	if link, found, err := readLinearLinkCore(ctx, s.db, "work-live-link"); err != nil || !found || link.HumanKey != "EX-4" {
 		t.Fatalf("live link pruned after outcome removal: %+v found=%v err=%v", link, found, err)
 	}
@@ -208,13 +198,12 @@ func TestPublishedAbsenceHelperUsesCallerTransaction(t *testing.T) {
 func TestPublishedAbsenceRefusesAmbiguousCanonicalIdentity(t *testing.T) {
 	s, _, _, _ := publishedAbsenceFixture(t)
 	repo := initKnowledgeRepo(t)
-	writeKnowledgeFile(t, repo, ".concord/docs/work/other.md", canonicalWorkNote("work-published", "2026-08-07T00:00:00Z"))
-	commitKnowledgeRepo(t, repo, "second source")
+	note := canonicalWorkNote("work-published")
+	writeKnowledgeFile(t, repo, ".concord/docs/work/other.md", note)
+	commit := commitKnowledgeRepo(t, repo, "second source")
 	home := KnowledgeHome{HomeProjectID: "proj-other", HomeLocatorID: "repo-other", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeLocator(t, s, home)
-	if err := s.RebuildKnowledgeIndex(t.Context(), home); err != nil {
-		t.Fatal(err)
-	}
+	seedArchivedWorkNote(t, s, home, commit, ".concord/docs/work/other.md", note)
 	err := publishedWorkAbsenceQ(t.Context(), s.db, "work-published", "absence_test")
 	assertFailureKind(t, err, KindAmbiguousScope)
 	if strings.Contains(err.Error(), ".concord/docs/work/") {
@@ -225,14 +214,12 @@ func TestPublishedAbsenceRefusesAmbiguousCanonicalIdentity(t *testing.T) {
 func TestPublishedAbsenceAmbiguityNamesOnlyInScopeHomes(t *testing.T) {
 	s, _, _, _ := publishedAbsenceFixture(t)
 	repo := initKnowledgeRepo(t)
-	note := strings.Replace(canonicalWorkNote("work-published", "2026-08-07T00:00:00Z"), "project_ids: [proj-web]", "project_ids: [proj-other]", 1)
+	note := strings.Replace(canonicalWorkNote("work-published"), "project_ids: [proj-web]", "project_ids: [proj-other]", 1)
 	writeKnowledgeFile(t, repo, ".concord/docs/work/other.md", note)
-	commitKnowledgeRepo(t, repo, "second source")
+	commit := commitKnowledgeRepo(t, repo, "second source")
 	home := KnowledgeHome{HomeProjectID: "proj-other", HomeLocatorID: "repo-other", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeLocator(t, s, home)
-	if err := s.RebuildKnowledgeIndex(t.Context(), home); err != nil {
-		t.Fatal(err)
-	}
+	seedArchivedWorkNote(t, s, home, commit, ".concord/docs/work/other.md", note)
 	err := publishedWorkAbsenceInScopeQ(t.Context(), s.db, "work-published", "prod-alpha", "proj-web", "absence_test")
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindAmbiguousScope || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "repo-alpha-web" {

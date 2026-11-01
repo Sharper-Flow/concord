@@ -2,29 +2,30 @@
 """Move a CD record to a new number in one operation.
 
 A CD number lives in several places that must move together: the decision
-document filename, the document body, the record shard's ``id`` and ``path``,
-the record's ``sha256``, the generated aggregates,
-and every in-repository reference. Moving them by hand can leave a manifest
-that validates while pointing at the wrong document.
+document filename under `.concord/law/decisions/`, the document body, and the
+document's authored frontmatter ``id``. Folder placement supplies the path,
+the kind, and the content digest, so no second record file follows the move.
+Moving them by hand can leave a law file whose frontmatter names an identifier
+its filename no longer carries.
 
 This tool moves all of them, then proves the move by refusing to finish while
 the old identifier survives anywhere in the tree.
 
 It renumbers a CD its branch allocated and has not landed. Whether a record
 is landed is a question of lineage, not of any mutable record field: the
-record at the comparison ref, compared with the record at the merge base of
-this branch and that ref, proves what this branch carried before it could
-change anything. A tree record equal to the landed one, or descended from
-it, is durable law, and moving it is refused here: a landed number is referenced
-by records this repository cannot see. A record the branch allocated after
-the merge base is branch-local even when the comparison ref later claimed
-the identifier for another record; renumbering this branch's record is the
-remedy for that collision. A changed title on an otherwise-landed
-record is drift, not a new allocation, and refuses like the record it edits.
-This holds when both sides changed the record after the merge base: an
-amendment on the comparison ref and a local edit are two changes to one
-durable record, and the merge base carrying the identifier is what proves
-the lineage.
+document at the comparison ref, compared with the document at the merge base
+of this branch and that ref, proves what this branch carried before it could
+change anything. A tree document equal to the landed one, or descended from
+it, is durable law, and moving it is refused here: a landed number is
+referenced by records this repository cannot see. A document the branch
+allocated after the merge base is branch-local even when the comparison ref
+later claimed the identifier for another record; renumbering this branch's
+document is the remedy for that collision. A changed title on an
+otherwise-landed document is drift, not a new allocation, and refuses like
+the record it edits. This holds when both sides changed the document after
+the merge base: an amendment on the comparison ref and a local edit are two
+changes to one durable record, and the merge base carrying the identifier is
+what proves the lineage.
 """
 
 from __future__ import annotations
@@ -39,27 +40,19 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
-import knowledge_index  # noqa: E402
 
 CD_ID_RE = re.compile(r"^CD-[0-9]{4}$")
-# Document lookup and occupancy must agree across the admitted homes.
-DECISION_TREES = (Path(".concord/law/decisions"), Path(".concord/docs/decisions"))
-RECORDS = Path(".concord/docs/knowledge/records")
+# The law decisions tree is the one canonical home; folder membership supplies
+# law status, so a document outside it is not a record this tool moves.
+DECISION_TREE = Path(".concord/law/decisions")
+
+FRONT_MATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 
 # Regenerated rather than edited, in dependency order. Each entry is the argv
-# that rewrites the file from its authored source. A CD identifier reaches these
-# outputs only through a source this tool edits directly, so regeneration
-# carries the rename forward without a hand edit.
-#
-# Order matters. The renamed shards are normalised first, then the sha256
-# proofs are recomputed, then the shards are normalised again with the new
-# hashes. The lane generator cascades into knowledge-index validation, so it
-# runs last, once the hashes are settled.
+# that rewrites the file from its authored source. A CD identifier reaches
+# these outputs only through a source this tool edits directly, so
+# regeneration carries the rename forward without a hand edit.
 GENERATORS: tuple[tuple[str, ...], ...] = (
-    ("scripts/generate-knowledge-index.py", "--update"),
-    ("scripts/check-knowledge-index.py", "--update"),
-    ("scripts/generate-knowledge-index.py", "--update"),
     ("scripts/generate-agent-contracts.py",),
     ("scripts/generate-agent-profiles.py",),
 )
@@ -88,7 +81,6 @@ class Plan:
     old: str
     new: str
     document: tuple[Path, Path]
-    record: tuple[Path, Path]
     edits: list[Path] = field(default_factory=list)
 
 
@@ -125,32 +117,55 @@ def read_text(path: Path) -> str | None:
         return None
 
 
-def manifest_records(root: Path, ref: str) -> dict[str, dict] | None:
-    """CD id -> record object at ``ref``, or None when the ref is unreachable."""
+def front_matter(text: str | None) -> dict | None:
+    """A law document's authored frontmatter object, or None when absent."""
+    if text is None:
+        return None
+    match = FRONT_MATTER_RE.match(text)
+    if not match:
+        return None
     try:
-        data = knowledge_index.raw_manifest_at(root, ref)
-    except (subprocess.CalledProcessError, knowledge_index.ComposeError, knowledge_index.DuplicateKeyError, UnicodeDecodeError, json.JSONDecodeError):
+        record = json.loads(match.group(1))
+    except json.JSONDecodeError:
         return None
-    records = data.get("records")
-    if not isinstance(records, list):
-        return None
-    by_id: dict[str, dict] = {}
-    for record in records:
-        if not isinstance(record, dict):
-            continue
-        identifier = record.get("id")
-        if isinstance(identifier, str) and CD_ID_RE.fullmatch(identifier):
-            by_id[identifier] = record
-    return by_id
+    return record if isinstance(record, dict) else None
 
 
-def tree_record(root: Path, identifier: str) -> dict | None:
-    """The tree's record shard object, or None when the shard is unreadable."""
-    try:
-        data = json.loads((root / RECORDS / f"{identifier}.json").read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+def tree_stem_paths(root: Path, ref: str, identifier: str) -> list[Path] | None:
+    """Law decision paths at ``ref`` whose basename starts ``identifier-``.
+
+    None means the ref yielded no tree this tool can read, which proves
+    nothing either way and never blocks an offline renumber.
+    """
+    result = git(root, "ls-tree", "-r", "--name-only", "-z", ref, "--", str(DECISION_TREE))
+    if result.returncode != 0:
         return None
-    return data if isinstance(data, dict) else None
+    names = result.stdout.decode("utf-8", "replace").split("\0")
+    return [
+        Path(name)
+        for name in names
+        if name and Path(name).name.startswith(f"{identifier}-")
+    ]
+
+
+def blob_bytes(root: Path, ref: str, path: Path) -> bytes | None:
+    result = git(root, "show", f"{ref}:{path.as_posix()}")
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def working_tree_record(root: Path, document: Path, identifier: str) -> dict | None:
+    """The tree document's frontmatter, or None when the record is incomplete.
+
+    None covers a document whose frontmatter is absent, malformed, or names
+    another identifier: not a record this tool can move, and the caller
+    refuses with a named finding.
+    """
+    record = front_matter(read_text(root / document))
+    if record is None or record.get("id") != identifier:
+        return None
+    return record
 
 
 def merge_base(root: Path, ref: str) -> str | None:
@@ -164,13 +179,9 @@ def merge_base(root: Path, ref: str) -> str | None:
 
 
 def find_document(root: Path, identifier: str, findings: list[str]) -> Path | None:
-    matches: list[Path] = []
-    for tree in DECISION_TREES:
-        matches.extend((root / tree).glob(f"{identifier}-*.md"))
-    matches = sorted(matches)
+    matches: list[Path] = sorted((root / DECISION_TREE).glob(f"{identifier}-*.md"))
     if not matches:
-        trees = " or ".join(str(tree) for tree in DECISION_TREES)
-        findings.append(f"no decision document matches {trees}/{identifier}-*.md")
+        findings.append(f"no decision document matches {DECISION_TREE}/{identifier}-*.md")
         return None
     if len(matches) > 1:
         names = ", ".join(match.relative_to(root).as_posix() for match in matches)
@@ -196,51 +207,61 @@ def plan(
     # offline renumber.
     # Landed is a property of lineage, not of any mutable record field: the
     # merge base proves which record this branch carried before the branch
-    # could have changed it. A tree record equal to the landed one, or
+    # could have changed it. A tree document equal to the landed one, or
     # descended from it, is durable law — a changed title does not make it
-    # branch-local. A record absent from the merge base is this branch's own
+    # branch-local. A document absent from the merge base is this branch's own
     # allocation even when the ref later claimed the identifier for another
     # record; that collision is the case whose prescribed remedy is this
     # renumber.
-    landed = manifest_records(root, against)
-    if landed is not None:
-        landed_old = landed.get(old)
-        if landed_old is not None:
-            if tree_record(root, old) == landed_old:
+    landed_old_paths = tree_stem_paths(root, against, old)
+    document = find_document(root, old, findings)
+    record = working_tree_record(root, document, old) if document is not None else None
+    if document is not None and record is None:
+        findings.append(
+            f"{DECISION_TREE / document.name}: frontmatter does not carry id {old}; "
+            f"{old} is not a complete record"
+        )
+    if landed_old_paths is not None:
+        if landed_old_paths and document is not None:
+            landed_bytes = blob_bytes(root, against, landed_old_paths[0])
+            working_bytes = (root / document).read_bytes()
+            if landed_bytes is not None and working_bytes == landed_bytes:
                 findings.append(
                     f"{old} is already on {against} and is durable law; renumber only a CD this "
                     "branch allocated and has not landed"
                 )
             else:
                 base = merge_base(root, against)
-                base_old = manifest_records(root, base).get(old) if base else None
+                base_old = tree_stem_paths(root, base, old) if base else []
                 # The merge base carrying the id is what proves lineage, not
                 # agreement between the two landed copies: an amendment on
                 # the comparison ref after the merge base, and a local edit
                 # on this branch, are two edits of one durable record, and
                 # neither makes it branch-local.
-                if base_old is not None:
+                if base_old:
                     findings.append(
                         f"{old} descends from the landed record on {against} (the merge base "
                         f"{base[:12]} already carried it); local changes such as a new title do "
                         "not make it branch-local, and renumbering would move durable law"
                     )
-        if new in landed:
+        if tree_stem_paths(root, against, new):
             findings.append(f"{new} is already on {against}; choose a free number")
 
-    document = find_document(root, old, findings)
-    record = RECORDS / f"{old}.json"
-    if not (root / record).is_file():
-        findings.append(f"{record}: shard is missing; {old} is not a complete record")
-
-    # The target must be entirely free, in every decisions tree and in the
-    # shard tree. A partially occupied number produces a manifest that still
-    # validates while pointing at the wrong document.
-    if (root / RECORDS / f"{new}.json").exists():
-        findings.append(f"{new} already has a shard; choose a free number")
-    for tree in DECISION_TREES:
-        if sorted((root / tree).glob(f"{new}-*.md")):
-            findings.append(f"{new} already has a decision document in {tree}; choose a free number")
+    # The target must be entirely free: no decision document with that number,
+    # and no law file whose frontmatter already claims the identifier.
+    if sorted((root / DECISION_TREE).glob(f"{new}-*.md")):
+        findings.append(
+            f"{new} already has a decision document in {DECISION_TREE}; choose a free number"
+        )
+    for path in repository_files(root):
+        if path.parent != DECISION_TREE or path.suffix != ".md":
+            continue
+        claimed = front_matter(read_text(root / path))
+        if claimed is not None and claimed.get("id") == new:
+            findings.append(
+                f"{path.as_posix()} already carries law id {new}; choose a free number"
+            )
+            break
 
     if findings:
         return findings, None
@@ -271,13 +292,12 @@ def plan(
     if findings:
         return findings, None
 
-    # The renamed document stays in the tree that holds it: a docs-tier
-    # branch-local CD does not migrate trees as a side effect of renumbering.
+    # The renamed document stays in the law decisions tree: the folder is the
+    # one canonical home, and the folder supplies kind, path, and digest.
     return [], Plan(
         old=old,
         new=new,
         document=(document, document.parent / document.name.replace(old, new, 1)),
-        record=(record, RECORDS / f"{new}.json"),
         edits=edits,
     )
 
@@ -291,20 +311,6 @@ def rename(root: Path, source: Path, target: Path, findings: list[str]) -> None:
             (root / source).rename(root / target)
         except OSError as exc:
             findings.append(f"{source}: could not move to {target}: {exc}")
-
-
-def rewrite_json(path: Path, changes: dict[str, str], findings: list[str]) -> None:
-    text = read_text(path)
-    if text is None:
-        findings.append(f"{path}: could not read shard")
-        return
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        findings.append(f"{path}: invalid JSON: {exc}")
-        return
-    data.update(changes)
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def run_generators(root: Path, findings: list[str]) -> None:
@@ -341,16 +347,7 @@ def apply(root: Path, prepared: Plan, *, generate: bool = True) -> list[str]:
             continue
         (root / path).write_text(old_re.sub(prepared.new, text), encoding="utf-8")
 
-    rename(root, *prepared.document, findings)
-    rename(root, *prepared.record, findings)
-    if findings:
-        return findings
-
-    rewrite_json(
-        root / prepared.record[1],
-        {"id": prepared.new, "path": prepared.document[1].as_posix()},
-        findings,
-    )
+    rename(root, prepared.document[0], prepared.document[1], findings)
     if findings:
         return findings
 
@@ -372,7 +369,6 @@ def describe(prepared: Plan) -> str:
     lines = [
         f"{prepared.old} -> {prepared.new}",
         f"  document {prepared.document[0]} -> {prepared.document[1]}",
-        f"  record   {prepared.record[0]} -> {prepared.record[1]}",
         f"  edits    {len(prepared.edits)} file(s)",
     ]
     lines.extend(f"    {path}" for path in prepared.edits)
@@ -390,7 +386,7 @@ def main() -> int:
     parser.add_argument(
         "--against",
         default="origin/main",
-        help="ref whose manifest holds the landed CDs (default: origin/main)",
+        help="ref whose law folder holds the landed CDs (default: origin/main)",
     )
     parser.add_argument("--root", type=Path, default=ROOT, help="repository root")
     args = parser.parse_args()

@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0092",
+  "title": "Main-checkout capability scope",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-call-boundary",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0092: Scope the main-checkout refusal by capability class
 
 - **Status:** Accepted

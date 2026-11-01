@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0204",
+  "title": "The acceptance gate is one admission condition and a missing verdict records late",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0201"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0203"
+    }
+  ]
+}
+---
 # CD-0204: The acceptance gate is one admission condition and a missing verdict records late
 
 - **Status:** Accepted

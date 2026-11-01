@@ -1,3 +1,34 @@
+---
+{
+  "id": "TS6",
+  "title": "agent adapter transport contract",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [
+    "agent-contract"
+  ],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Client registration is a transport-layer property below scenario grain. The guarantee is proved by TestCommandBoundaryRejectsInvalidTrailingJSONAcrossCommands (cmd/concord/main_test.go) and TestCLIEndToEndRegistersClientAndInvokesRead (cmd/concord/main_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Secret non-exposure is a transport invariant. CD-0080 removes the grant token, so the remaining secret is the registered client key. The guarantee is proved by TestInvokeRejectsUnknownFieldWithoutEcho (cmd/concord/main_test.go) and TestAuthorityRefusalsCarryTheUnauthorizedKind (internal/agent/authority_refusal_kind_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Single-envelope stdout is a transport property. The guarantee is proved by TestDecodeInvokeRequestRejectsInvalidTrailingJSON (internal/agent/runtime_test.go) and the adapter contract tests (adapter/opencode/generated-contract-tests.ts)."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Same-key retry is a dispatch property. The guarantee is proved by TestDispatchIdempotentReplaySurvivesAmbientScopeDrift (internal/agent/mutation_dispatch_test.go)."
+    }
+  ]
+}
+---
 # Concord Agent Adapter and Transport Contract (TS6)
 
 > **Status:** **Accepted — binding until superseded.**
@@ -103,7 +134,6 @@ The plugin entry registers custom-tool definitions from `concord.ts`, including:
 product_view      → concord_product_view
 work_browse       → concord_work_browse
 work_trace        → concord_work_trace
-knowledge         → concord_knowledge
 work_define       → concord_work_define
 work_transition   → concord_work_transition
 work_relate       → concord_work_relate
@@ -208,7 +238,7 @@ MCP is rejected for v1 because:
 
 The JSON CLI contract is the stable internal client boundary. A future concrete
 client may add another thin adapter. Persistent MCP requires TS8/TS9 comparison and
-explicit CD-0003 D2 reconsideration. It must preserve the same eight semantics.
+explicit CD-0003 D2 reconsideration. It must preserve the same seven semantics.
 
 ## 8. Alternatives
 
@@ -216,7 +246,7 @@ explicit CD-0003 D2 reconsideration. It must preserve the same eight semantics.
 |---|---|
 | Agent calls CLI via `bash` | Rejected: loses schemas, hidden TS5 context, and selection reliability. |
 | Thin plugin entry with shared `concord.ts` transport | **Selected:** generated tool registration and accepted host runtime hooks; domain authority stays in Go. |
-| Eight tool files + shared library | Viable but rejected: more deployment/naming surface with no gain. |
+| Seven tool files + shared library | Viable but rejected: more deployment/naming surface with no gain. |
 | Local/remote MCP | Rejected for v1: no second client, extra context/lifecycle, no-daemon conflict. |
 | TypeScript core/SQLite access | Rejected: second authority/validator. |
 | FFI/WASM/native addon | Rejected: needless distribution/crash complexity. |
@@ -237,7 +267,7 @@ explicit CD-0003 D2 reconsideration. It must preserve the same eight semantics.
 
 Before release, prove:
 
-- all eight names/schemas match canonical registry and Go validators;
+- all seven names/schemas match canonical registry and Go validators;
 - wrong-client, inactive-client, and wrong-worktree invocations fail closed;
   registered key rotation/revocation takes effect;
 - directory/worktree/session/agent reaches core scope correctly;
@@ -260,7 +290,7 @@ Reopen TS6 when:
 - OpenCode adds a simpler external-binary tool adapter preserving schema, context,
   permission evidence, and cancellation.
 
-Any replacement preserves one core authority, eight semantics, hidden verified
+Any replacement preserves one core authority, seven semantics, hidden verified
 context, operation-bound authorization, same-key retries, and native-system ownership.
 
 ## Acceptance criteria

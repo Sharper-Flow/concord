@@ -433,38 +433,34 @@ func validateWorkContextDomain(ctx context.Context, tx queryer, workID, domainID
 	if !validateWorkContextRationale(productWideRationale) {
 		return workContextFailure(KindInvalidPayload, "work_context_domain", "product_wide_rationale exceeds 512 bytes", "bound the product-wide rationale")
 	}
-	productID, err := architectureBindingProductID(ctx, tx, workID)
+	// The pre-transaction establishment binds the law-folder snapshot whose
+	// registry is the independent registry at the verified commit; the
+	// validator reads it from that proof.
+	snapshot, err := lawSnapshotForWork(ctx, tx, workID, "work_context_domain")
 	if err != nil {
 		return err
 	}
-	var rootDomainID, registryHash string
-	if err := tx.QueryRowContext(ctx, `SELECT root_domain_id,content_hash FROM domain_registries WHERE product_id=?`, productID).Scan(&rootDomainID, &registryHash); err != nil {
-		if err == sql.ErrNoRows {
-			return workContextFailure(KindUnknownScope, "work_context_domain", "Product has no current Domain registry", "publish and rebuild the Product Domain registry")
-		}
-		return wrapFailure(KindUnavailable, "work_context_domain", "cannot read the Product Domain registry", true, "retry once the registry projection is readable", err)
+	registry, err := snapshot.Registry()
+	if err != nil {
+		return err
 	}
-	var status, domainHash string
-	if err := tx.QueryRowContext(ctx, `SELECT status,registry_content_hash FROM domains WHERE product_id=? AND domain_id=?`, productID, domainID).Scan(&status, &domainHash); err != nil {
-		if err == sql.ErrNoRows {
-			var elsewhere int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domains WHERE domain_id=?`, domainID).Scan(&elsewhere); err != nil {
-				return wrapFailure(KindUnavailable, "work_context_domain", "cannot resolve the named Domain", true, "retry once the Domain projection is readable", err)
-			}
-			if elsewhere > 0 {
-				return workContextFailure(KindUnknownScope, "work_context_domain", "Domain "+domainID+" belongs to another Product", "name a current Domain of the work's Product")
-			}
-			return workContextFailure(KindUnknownScope, "work_context_domain", "unknown Domain "+domainID, "name a current Domain of the Product registry")
+	var declared *KnowledgeDomain
+	for index := range registry.Domains {
+		if registry.Domains[index].DomainID == domainID {
+			declared = &registry.Domains[index]
+			break
 		}
-		return wrapFailure(KindUnavailable, "work_context_domain", "cannot read the named Domain", true, "retry once the Domain projection is readable", err)
 	}
-	if status != "current" || domainHash != registryHash {
-		return workContextFailure(KindStaleRequiresReview, "work_context_domain", "non-current or stale Domain "+domainID, "rebuild the current Product Domain registry")
+	if declared == nil {
+		return workContextFailure(KindUnknownScope, "work_context_domain", "unknown Domain "+domainID, "name a current Domain of the Product registry")
+	}
+	if domainRegistryStatus(declared.Status) != "current" {
+		return workContextFailure(KindStaleRequiresReview, "work_context_domain", "non-current or stale Domain "+domainID, "name a current Domain of the Product registry")
 	}
 	if err := validateWorkContextAffectedDomainTx(ctx, tx, workID, domainID); err != nil {
 		return err
 	}
-	if domainID == rootDomainID {
+	if domainID == registry.RootDomainID {
 		if strings.TrimSpace(productWideRationale) == "" {
 			return workContextFailure(KindInvalidPayload, "work_context_domain", "the root Domain "+domainID+" requires a nonempty product-wide rationale", "state why the claim spans every Domain of the Product")
 		}

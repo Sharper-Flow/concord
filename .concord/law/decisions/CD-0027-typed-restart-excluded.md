@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0027",
+  "title": "Typed restart after a boundary is deliberately excluded",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-call-boundary",
+  "applies_to_domain_ids": [
+    "workflow-engine"
+  ]
+}
+---
 # CD-0027: Typed restart after a boundary is deliberately excluded
 
 - **Status:** Accepted

@@ -23,9 +23,17 @@ import (
 // verified snapshot of the pre-upgrade store, the live store must lose the
 // coverage table, and a snapshot failure must apply no migration.
 
+// lawCoverageFixtureTables survives every breaking migration to the current
+// head. lawCoverageRetiredLiveTables stays intact at the v165 predecessor and
+// in its verified snapshot, but later breaking migrations (172 Domain Shape,
+// 174 law index retirement) drop it from the live store, where the assertions
+// must show it absent.
 var lawCoverageFixtureTables = []string{
-	"law_subjects", "law_bodies", "knowledge_kind_coverage",
 	"projects", "work_items",
+}
+
+var lawCoverageRetiredLiveTables = []string{
+	"law_subjects", "law_bodies", "knowledge_kind_coverage",
 }
 
 // seedV165LawCoverageRows populates a v165 store the way the retired
@@ -101,13 +109,18 @@ func lawCoverageFixtureRows(t *testing.T, db *sql.DB, table string) []string {
 
 func lawCoverageFixtureState(t *testing.T, db *sql.DB, includeCoverage bool) map[string][]string {
 	t.Helper()
-	state := make(map[string][]string, len(lawCoverageFixtureTables)+1)
+	state := make(map[string][]string, len(lawCoverageFixtureTables)+len(lawCoverageRetiredLiveTables)+3)
 	if includeCoverage {
 		state["law_coverage_anchors"] = lawCoverageFixtureRows(t, db, "law_coverage_anchors")
 		// These v165 projections retire with Domain Shape at v172. They must
 		// remain recoverable in the pre-upgrade snapshot, not in the live store.
 		state["law_evidence_paths"] = lawCoverageFixtureRows(t, db, "law_evidence_paths")
 		state["knowledge_package_domains"] = lawCoverageFixtureRows(t, db, "knowledge_package_domains")
+		// The law-index tables retire from the live store at schema 174; the
+		// pre-upgrade snapshot must still hold them with their rows.
+		for _, table := range lawCoverageRetiredLiveTables {
+			state[table] = lawCoverageFixtureRows(t, db, table)
+		}
 	}
 	for _, table := range lawCoverageFixtureTables {
 		state[table] = lawCoverageFixtureRows(t, db, table)
@@ -190,15 +203,17 @@ func TestUpgradeRetiringLawCoverageSnapshotsTheCoverageTableBeforeTheDrop(t *tes
 		t.Fatal(err)
 	}
 
-	// The live store loses coverage and the later-retired Domain Shape
-	// projections, while preserving current law and work rows.
+	// The live store loses coverage, the Domain Shape projections, and the
+	// schema 174 law index, while preserving retained work rows.
 	liveDB := openRawSQLite(t, path)
-	var objects int
-	if err := liveDB.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name LIKE 'law_coverage_anchors%'`).Scan(&objects); err != nil {
-		t.Fatal(err)
-	}
-	if objects != 0 {
-		t.Fatalf("the live store kept %d law_coverage_anchors objects", objects)
+	for _, table := range append([]string{"law_coverage_anchors", "law_evidence_paths", "knowledge_package_domains"}, lawCoverageRetiredLiveTables...) {
+		var objects int
+		if err := liveDB.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name LIKE ?`, table+"%").Scan(&objects); err != nil {
+			t.Fatal(err)
+		}
+		if objects != 0 {
+			t.Fatalf("the live store kept %d %s objects", objects, table)
+		}
 	}
 	var head int
 	if err := liveDB.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&head); err != nil {

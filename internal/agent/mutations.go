@@ -749,22 +749,18 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base agentco
 	}
 }
 
-// knowledgeSourceProofForAction prepares the knowledge home proof the
-// approval, supersession, and completion gates verify inside their
-// transaction (CD-0200), and for completion the Git proof of which changed
-// laws the reviewed candidate never edited. It runs after replay and approval
-// admission, with no transaction open (CD-0195 D2). A non-nil envelope
-// carries the refusal.
+// knowledgeSourceProofForAction prepares the knowledge-source proof the
+// action verifies inside its transaction (store.PrepareWorkflowActionProof),
+// and for completion the Git proof of which changed laws the reviewed
+// candidate never edited. It runs after replay and approval admission, with
+// no transaction open (CD-0195 D2). A non-nil envelope carries the refusal.
 func (r runtime) knowledgeSourceProofForAction(ctx context.Context, base agentcontract.Envelope, actionID, workID string) (context.Context, *agentcontract.Envelope) {
-	switch actionID {
-	case "approve_contract", "supersede_contract", "complete":
-		verifiedCtx, proofErr := r.Store.EstablishKnowledgeSourceSetProof(ctx, workID)
-		if proofErr != nil {
-			refusal := failureEnvelope(base, proofErr)
-			return ctx, &refusal
-		}
-		ctx = verifiedCtx
+	verifiedCtx, proofErr := r.Store.PrepareWorkflowActionProof(ctx, actionID, workID)
+	if proofErr != nil {
+		refusal := failureEnvelope(base, proofErr)
+		return ctx, &refusal
 	}
+	ctx = verifiedCtx
 	if actionID == "complete" {
 		ctx = r.Store.EstablishLawCandidateProof(ctx, workID)
 	}
@@ -1078,8 +1074,14 @@ func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, r
 		}
 		plan.declareInitialDurability(true)
 	}
+	// Declared refs that name law resolve through the verified committed law
+	// folder, so the proof precedes both governing-requirement checks.
+	verifiedCtx, proofErr := r.Store.EstablishKnowledgeSourceSetProofForProject(ctx, in.ProjectIDs[0])
+	if proofErr != nil {
+		return failureEnvelope(base, proofErr), nil, true
+	}
 	productIDs := captureProductIDs(productsByProject)
-	if err := r.Store.ValidateCaptureGoverningRequirements(ctx, productIDs, applicable, in.GoverningRequirements); err != nil {
+	if err := r.Store.ValidateCaptureGoverningRequirements(verifiedCtx, productIDs, applicable, in.GoverningRequirements); err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
 	for _, product := range productIDs {
@@ -1088,15 +1090,11 @@ func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, r
 		}
 	}
 	plan.scope["project_ids"] = in.ProjectIDs
-	verifiedCtx, proofErr := r.Store.EstablishKnowledgeSourceSetProofForProject(ctx, in.ProjectIDs[0])
-	if proofErr != nil {
-		return failureEnvelope(base, proofErr), nil, true
-	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 		if len(governingScope.Missing()) > 0 && !containsCapability(grant.Capabilities, agentcontract.Capability("cross_scope")) {
 			return nil, nil, nil, &store.Failure{Kind: store.KindUnauthorized, Op: "capture", Detail: "a governing-requirement scope cut requires cross_scope capability", RecoveryAction: "contact_operator", Violations: governingScope.Missing()}
 		}
-		if err := store.ValidateCaptureGoverningRequirementsTx(ctx, tx, in.ProjectIDs, governingScope); err != nil {
+		if err := store.ValidateCaptureGoverningRequirementsTx(verifiedCtx, tx, in.ProjectIDs, governingScope); err != nil {
 			return nil, nil, nil, err
 		}
 		return r.applyCaptureTx(verifiedCtx, tx, grant, in, digest, workID, registeredDefinition)
@@ -2162,7 +2160,41 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 	}
 	plan.scope["product_ids"] = preflightProducts
 	base.EvidenceRefs = append([]agentcontract.EvidenceRef{}, plan.evidenceRefs...)
-	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.plannedInitialDurability, plan.intents, plan.effect)
+	proofCtx := ctx
+	if op.ID == "concord_work_define.observation_record" {
+		// The observation fold's Domain validation resolves the committed
+		// registry from the pre-transaction proof (CD-0195 D2: the git read
+		// runs with no transaction open). The Product follows the
+		// authenticated selection, falling back to the scope-derived Product
+		// of the observed work for an ambient call. An unreachable or
+		// invalid committed registry refuses here and no effect runs.
+		product := r.Envelope.SelectedProductID
+		if product == "" && len(preflightProducts) == 1 {
+			product = preflightProducts[0]
+		}
+		if product != "" {
+			verified, refusal := r.domainRegistryProofForObservation(proofCtx, base, product)
+			if refusal != nil {
+				return *refusal, nil
+			}
+			proofCtx = verified
+		}
+	}
+	return r.executeMutation(proofCtx, base, raw, digest, plan.scope, plan.plannedInitialDurability, plan.intents, plan.effect)
+}
+
+// domainRegistryProofForObservation establishes the committed Domain registry
+// proof the observation folds resolve their Domain validation from. It runs
+// after replay and scope admission, with no transaction open (CD-0195 D2), so
+// an exact replay keeps answering from its stored receipt without re-reading
+// the registry, and a refused observation writes nothing.
+func (r runtime) domainRegistryProofForObservation(ctx context.Context, base agentcontract.Envelope, productID string) (context.Context, *agentcontract.Envelope) {
+	verifiedCtx, proofErr := r.Store.EstablishDomainRegistryProof(ctx, productID)
+	if proofErr != nil {
+		refusal := failureEnvelope(base, proofErr)
+		return ctx, &refusal
+	}
+	return verifiedCtx, nil
 }
 
 func (r runtime) deriveMutationProducts(ctx context.Context, scope map[string]any) ([]string, error) {
@@ -2363,6 +2395,12 @@ func (m *compactionMutation) publish(ctx context.Context) (agentcontract.Envelop
 	m.base = base
 	// CD-0243 D7: the durable intent locks exact content and home; it is not
 	// operator consent. ClaimStepAuthorized retains the publication fence.
+	// The claim's consequential boundary compares the contract's law pins
+	// with committed law verified before the claim transaction opens.
+	ctx, proofErr := r.Store.PrepareWorkLawProof(ctx, workID)
+	if proofErr != nil {
+		return failureEnvelope(base, proofErr), nil
+	}
 	claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: m.acceptedScope, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ContractDigest: agentcontract.ManifestDigest}
 	claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
 		// CD-0222 D7: publication is consequential, so the claim refuses
@@ -2997,7 +3035,23 @@ func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelop
 	if hostErr != nil {
 		return agentcontract.Envelope{}, hostErr
 	}
-	execution := mutationExecution{runtime: r, base: base, raw: raw, digest: digest, scope: scope, intents: intents, effect: effect, host: host, contractOp: contractOp}
+	// The consequential boundary and the result's work pin compare each
+	// scoped work's law pins with current committed law, read before the
+	// transaction opens (CD-0195 D2). A verification failure is held for the
+	// consequential boundary, after exact replay; any other mutation keeps its
+	// effect, and its pin reports law currency unverified.
+	var proofErr error
+	for _, workID := range mutationScopeWorkIDs(scope) {
+		verified, err := r.Store.PrepareWorkLawProof(ctx, workID)
+		if err != nil {
+			if proofErr == nil {
+				proofErr = err
+			}
+			continue
+		}
+		ctx = verified
+	}
+	execution := mutationExecution{runtime: r, base: base, raw: raw, digest: digest, scope: scope, intents: intents, effect: effect, host: host, contractOp: contractOp, lawProofErr: proofErr}
 	mutation := func(tx *store.Transaction) error {
 		return execution.executeTx(ctx, tx, durable)
 	}
@@ -3015,14 +3069,17 @@ func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelop
 
 type mutationExecution struct {
 	runtime
-	base           agentcontract.Envelope
-	raw            []byte
-	digest         string
-	scope          map[string]any
-	intents        []agentcontract.NextIntent
-	effect         mutationEffect
-	host           store.ResolvedProjectHost
-	contractOp     agentcontract.ContractOperation
+	base       agentcontract.Envelope
+	raw        []byte
+	digest     string
+	scope      map[string]any
+	intents    []agentcontract.NextIntent
+	effect     mutationEffect
+	host       store.ResolvedProjectHost
+	contractOp agentcontract.ContractOperation
+	// lawProofErr is the scoped works' pre-transaction law verification
+	// failure; only the consequential boundary consumes it.
+	lawProofErr    error
 	response       agentcontract.Envelope
 	resultRejected bool
 }
@@ -3093,6 +3150,9 @@ func (m *mutationExecution) admitTx(ctx context.Context, tx *store.Transaction, 
 	// inspection remains available, and an operation that records no
 	// workflow state sits outside every class it lists.
 	if mutationRequiresConsequentialBoundary(r.Tool, r.Operation, raw) {
+		if m.lawProofErr != nil {
+			return m.lawProofErr
+		}
 		for _, workID := range mutationScopeWorkIDs(scope) {
 			if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
 				return err

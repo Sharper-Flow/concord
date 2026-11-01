@@ -3,9 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"os/exec"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -26,13 +23,9 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)
 	}
-	var registries int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM domain_registries WHERE product_id='product-1'`).Scan(&registries); err != nil {
-		t.Fatal(err)
-	}
-	if registries != 0 {
-		t.Fatalf("fixture precondition: want an empty Domain registry, got %d rows", registries)
-	}
+	// Schema 174 retired the SQL Domain projection, so the registry exists
+	// only as committed content by construction: nothing can be rebuilt or
+	// pre-seeded, which is the state this approval must succeed in.
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -101,24 +94,29 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
-	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
-	if err != nil {
+	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)
-	}
-	// Learn the committed registry's root Domain through the production path
-	// before testing approval with every trace of the derived projection removed.
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		t.Fatal(err)
-	}
-	var rootDomainID string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&rootDomainID); err != nil {
-		t.Fatal(err)
 	}
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
+	// Learn the committed registry's root Domain through the production path
+	// before testing approval with every trace of the derived projection removed.
+	detail := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_domain", Operation: "list", Input: json.RawMessage(`{"product_id":"product-1","page":{"cursor":null,"limit":10}}`)}, env)
+	if detail.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("domain list before the no-prior-read approval: %+v", detail.Error)
+	}
+	var listed struct {
+		Registry struct {
+			RootDomainID string `json:"root_domain_id"`
+		} `json:"registry"`
+	}
+	if err := json.Unmarshal(detail.Result, &listed); err != nil {
+		t.Fatalf("decode domain list: %v: %s", err, string(detail.Result))
+	}
+	rootDomainID := listed.Registry.RootDomainID
 	// The archived ops_runbook authoring left the live catalog (CD-0218 D1);
 	// the no-prior-read derivation journey runs on the implementation head.
 	registered, registeredErr := store.LiveWorkflowDefinitionForRef("workflow.implementation")
@@ -143,59 +141,11 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 		"verification_obligations": []any{},
 	}
 	// Owning-start source verification and the pre-contract actions derive
-	// their own law inventory. Remove projections only after those demands,
-	// so this approval still proves recovery without a prior Domain read.
-	wipeDerivedKnowledge(t, s, home)
-	var registries int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM domain_registries`).Scan(&registries); err != nil || registries != 0 {
-		t.Fatalf("precondition: want no derived registry, got %d err=%v", registries, err)
-	}
+	// their own law inventory. Schema 174 retired the SQL Domain projection,
+	// so the approval runs with no stored registry by construction: it must
+	// derive everything from the committed home again.
 	resp, _ := approvedWorkflowContract(t, s, service, env, version, fields, "derived-registry-approval-no-read")
 	if resp.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("approve_contract with no derived registry present: %+v", resp.Error)
+		t.Fatalf("approve_contract with no stored registry present: %+v", resp.Error)
 	}
-}
-
-// wipeDerivedKnowledge leaves the store with no derived projection for the
-// home, the state a restore from before any rebuild would leave. The rebuild
-// is the one mechanism that clears the projection in dependency order, so
-// the wipe runs it against the home's own history at a commit that projects
-// nothing, then removes the watermark that rebuild wrote. The committed
-// content at HEAD is untouched.
-func wipeDerivedKnowledge(t *testing.T, s *store.Store, home store.KnowledgeHome) {
-	t.Helper()
-	empty := home
-	empty.HeadRef = emptyKnowledgeCommit(t, home.RepoPath)
-	if err := s.RebuildKnowledgeIndex(context.Background(), empty); err != nil {
-		t.Fatalf("rebuild against the empty commit: %v", err)
-	}
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM knowledge_index_watermark`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// emptyKnowledgeCommit is a commit in the repository whose tree carries no
-// manifest and no notes: an empty tree committed with no parent.
-func emptyKnowledgeCommit(t *testing.T, repo string) string {
-	t.Helper()
-	tree := strings.TrimSpace(runFixtureGit(t, repo, "hash-object", "-t", "tree", "/dev/null"))
-	return strings.TrimSpace(runFixtureGit(t, repo, "commit-tree", tree, "-m", "empty"))
-}
-
-func runFixtureGit(t *testing.T, repo string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Concord Test", "GIT_AUTHOR_EMAIL=test@example.invalid", "GIT_COMMITTER_NAME=Concord Test", "GIT_COMMITTER_EMAIL=test@example.invalid")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-	return string(out)
 }

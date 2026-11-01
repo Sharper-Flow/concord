@@ -19,8 +19,15 @@ var shapeRetiredCLITables = []string{
 	"knowledge_package_domains", "law_evidence_paths",
 }
 
+// shapeRetainedCLITables survives every breaking migration to the current
+// head. shapeLawIndexCLITables stays intact at the pinned 171 predecessor and
+// in its verified snapshot, but schema 174's law index retirement drops it
+// from the live store.
 var shapeRetainedCLITables = []string{
 	"projects", "project_locators", "products", "product_projects", "work_items", "work_projects",
+}
+
+var shapeLawIndexCLITables = []string{
 	"domain_registries", "domains", "domain_architecture_relations", "domain_relation_governing_laws",
 	"law_subjects", "law_bodies", "law_domain_homes", "law_domain_applicability",
 }
@@ -82,6 +89,7 @@ func shapeCLIState(t *testing.T, path string, includeRetired bool) map[string][]
 	defer db.Close()
 	tables := append([]string(nil), shapeRetainedCLITables...)
 	if includeRetired {
+		tables = append(tables, shapeLawIndexCLITables...)
 		tables = append(tables, shapeRetiredCLITables...)
 	}
 	state := make(map[string][]string, len(tables))
@@ -92,6 +100,17 @@ func shapeCLIState(t *testing.T, path string, includeRetired bool) map[string][]
 		}
 	}
 	return state
+}
+
+// upgradeTailFrom returns the exact applied list for an upgrade whose
+// predecessor sits at the given schema version, so the report assertion names
+// the full breaking tail without pinning the moving head.
+func upgradeTailFrom(predecessor int) []int {
+	var tail []int
+	for schema := predecessor + 1; schema <= store.CurrentSchemaVersion(); schema++ {
+		tail = append(tail, schema)
+	}
+	return tail
 }
 
 func TestUpgradeRetiringDomainShapeSnapshotsRowsBeforeDrop(t *testing.T) {
@@ -109,8 +128,8 @@ func TestUpgradeRetiringDomainShapeSnapshotsRowsBeforeDrop(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("upgrade report: %v: %s", err, out)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{172, 173}) || report.SchemaVersion != 173 {
-		t.Fatalf("upgrade report = %+v, want migrations [172 173] and schema 173", report)
+	if !reflect.DeepEqual(report.Applied, upgradeTailFrom(171)) || report.SchemaVersion != store.CurrentSchemaVersion() {
+		t.Fatalf("upgrade report = %+v, want the full breaking tail from 171 and schema %d", report, store.CurrentSchemaVersion())
 	}
 	if !strings.HasPrefix(report.Backup, filepath.Join(root, "backups")+string(filepath.Separator)) {
 		t.Fatalf("snapshot is outside the existing backup route: %+v", report)
@@ -123,7 +142,7 @@ func TestUpgradeRetiringDomainShapeSnapshotsRowsBeforeDrop(t *testing.T) {
 		t.Fatalf("snapshot changed retiring or retained rows:\nbefore: %v\nsnapshot: %v", before, snapshot)
 	}
 	db := openRawSQLite(t, path)
-	for _, table := range shapeRetiredCLITables {
+	for _, table := range append(append([]string(nil), shapeRetiredCLITables...), shapeLawIndexCLITables...) {
 		var objects int
 		if err := db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table).Scan(&objects); err != nil || objects != 0 {
 			t.Fatalf("retired %s catalog objects=%d err=%v", table, objects, err)
@@ -282,7 +301,7 @@ DELETE FROM write_guard`); err != nil {
 		Applied []int  `json:"applied"`
 		Backup  string `json:"backup"`
 	}
-	if err := json.Unmarshal([]byte(out), &report); err != nil || !reflect.DeepEqual(report.Applied, []int{172, 173}) {
+	if err := json.Unmarshal([]byte(out), &report); err != nil || !reflect.DeepEqual(report.Applied, upgradeTailFrom(171)) {
 		t.Fatalf("remediated upgrade report=%s err=%v", out, err)
 	}
 	manifest, err := store.VerifyBackup(context.Background(), report.Backup)

@@ -43,8 +43,6 @@ _primary_spec.loader.exec_module(_primary_prompts)
 SKILL_REFERENCES = {
     "concord-law-writing": {
         "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
-        "formalization": ".concord/docs/knowledge-formalization-procedure.md",
-        "publication": ".concord/docs/concord-knowledge-index.md",
         "ownership": ".concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
         "amendment": ".concord/docs/decisions/CD-0036-breaking-law-cutovers.md",
         "conflicts": ".concord/docs/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md",
@@ -1040,7 +1038,7 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
                         return 1
             source = (ROOT / "adapter/opencode/concord.ts").read_text(encoding="utf-8")
             exports = re.findall(r"export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(", source)
-            if exports != ["product_view", "work_browse", "work_trace", "knowledge", "work_define", "domain", "work_transition", "work_relate", "work_compact"]:
+            if exports != ["product_view", "work_browse", "work_trace", "work_define", "domain", "work_transition", "work_relate", "work_compact"]:
                 print(f"adapter export drift: {exports}", file=sys.stderr); return 1
         if options.adapter_tests_external:
             summary += "; adapter suite external"

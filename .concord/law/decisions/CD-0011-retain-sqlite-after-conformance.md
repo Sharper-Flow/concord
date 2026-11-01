@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0011",
+  "title": "Retain SQLite after conformance",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0011 — Retain SQLite after ten-process conformance
 
 **Status:** Accepted.

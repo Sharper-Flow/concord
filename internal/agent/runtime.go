@@ -226,25 +226,6 @@ type domainReadInput struct {
 	Page      pageInput `json:"page"`
 	Limit     int       `json:"limit,omitempty"`
 }
-type knowledgeSearchInput struct {
-	ProductID string   `json:"product_id"`
-	ProjectID string   `json:"project_id"`
-	DomainID  string   `json:"domain_id"`
-	Kinds     []string `json:"kinds"`
-	Tags      []string `json:"tags"`
-	Text      string   `json:"text"`
-	// AllowDegraded opts the caller in to CD-0008 D3 degraded enumeration: a
-	// knowledge index behind the git head answers with authority "degraded" plus
-	// omissions instead of failing closed. Default false keeps the fail-closed
-	// path, so a caller never receives a silently incomplete answer.
-	AllowDegraded bool      `json:"allow_degraded"`
-	Page          pageInput `json:"page"`
-	Limit         int       `json:"limit,omitempty"`
-}
-type knowledgeResolveInput struct {
-	WorkID      string `json:"work_id"`
-	KnowledgeID string `json:"knowledge_id"`
-}
 
 type runtime struct {
 	Store                  *store.Store
@@ -471,13 +452,6 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 	if err := json.Unmarshal(request.Input, &fields); err != nil {
 		return err
 	}
-	// Q10 owns archived-row lookup, Product visibility, and historical locator
-	// proof. Do not apply live/frozen scope joins here: home-scoped manifest rows
-	// intentionally have no archived Product rows, and compacted work may no
-	// longer have a live work membership.
-	if request.Tool == "concord_knowledge" && request.Operation == "resolve_note" {
-		return nil
-	}
 	identity, err := extractMutationWorkIdentity(request.Input)
 	if err != nil {
 		return err
@@ -510,9 +484,6 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 			return err
 		}
 	}
-	if err := validateKnowledgeReferenceScope(ctx, s, env, grant, fields); err != nil {
-		return err
-	}
 	if raw, ok := fields["product_id"]; ok {
 		var product string
 		if json.Unmarshal(raw, &product) == nil && product != "" && !slices.Contains(grant.ProductScope, product) {
@@ -520,25 +491,6 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 		}
 	}
 	return validateProjectReferenceScope(ctx, s, env, grant, kind, fields)
-}
-
-func validateKnowledgeReferenceScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, fields map[string]json.RawMessage) error {
-	if raw, ok := fields["knowledge_id"]; ok {
-		var id string
-		if json.Unmarshal(raw, &id) == nil && id != "" {
-			products, err := s.ProductsForKnowledgeID(ctx, id)
-			if err != nil {
-				return err
-			}
-			if len(products) == 0 {
-				return newRuntimeFailure("unknown_scope", "knowledge reference is not in Product scope", "reread_entities", false)
-			}
-			if !scopeIntersects(products, grant.ProductScope) || env.SelectedProductID != "" && !slices.Contains(products, env.SelectedProductID) {
-				return newRuntimeFailure("unauthorized", "knowledge reference is outside authorized Product scope", "contact_operator", false)
-			}
-		}
-	}
-	return nil
 }
 
 func validateProjectReferenceScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, kind agentcontract.OperationKind, fields map[string]json.RawMessage) error {
@@ -1176,12 +1128,6 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readTraceRelations(ctx, base, input)
 	case "concord_work_trace.project_retirement":
 		return r.readTraceProjectRetirement(ctx, base, input)
-	case "concord_knowledge.search":
-		return r.readKnowledgeSearch(ctx, base, input)
-	case "concord_knowledge.resolve_note":
-		return r.readKnowledgeResolveNote(ctx, base, input)
-	case "concord_knowledge.observe_publication":
-		return r.readKnowledgeObservePublication(ctx, base, input)
 	case "concord_domain.list", "concord_domain.detail":
 		return r.readDomain(ctx, base, input, queryID)
 	default:
@@ -1207,80 +1153,21 @@ func historyDirection(v string) string {
 	}
 	return "oldest_first"
 }
-func knowledgeKinds(values []string) []string {
-	out := make([]string, 0, len(values))
-	for _, v := range values {
-		switch v {
-		case "specification":
-			out = append(out, "spec")
-		case "note":
-			out = append(out, "work_note")
-		default:
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-// freshenProductKnowledge brings the index behind a Product's derived
-// projections up to its knowledge sources' current content. It runs with no
-// transaction open. A Product without a unique designated home is not an
-// error here: the caller's read owns that refusal, and an index cannot be
-// built for a home that does not exist.
-func (r runtime) freshenProductKnowledge(ctx context.Context, product string) error {
-	home, err := r.Store.ResolveKnowledgeQueryHome(ctx, product, "", store.KnowledgeHome{}, r.Tool+"."+r.Operation)
-	if err != nil {
-		var failure *store.Failure
-		if errors.As(err, &failure) && (failure.Kind == store.KindUnknownScope || failure.Kind == store.KindAmbiguousScope) {
-			return nil
-		}
-		return err
-	}
-	return r.Store.EnsureKnowledgeIndexFresh(ctx, home)
-}
-
-func (r runtime) knowledgeHome(ctx context.Context) (store.KnowledgeHome, error) {
-	resolved, err := r.Store.ResolveProject(ctx, r.Envelope.Directory, r.Envelope.Worktree)
-	if err != nil {
-		return store.KnowledgeHome{}, err
-	}
-	if len(resolved.Locators) == 0 {
-		return store.KnowledgeHome{}, newRuntimeFailure("unknown_scope", "Project has no durable git locator", "resolve_ambiguity", false)
-	}
-	return store.KnowledgeHome{HomeProjectID: resolved.ProjectID, HomeLocatorID: resolved.Locators[0].ID, RepoPath: resolved.Repository.CanonicalPath, HeadRef: "HEAD"}, nil
-}
-
-func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string, knowledgeHomes ...store.KnowledgeHome) (string, error) {
+func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string) (string, error) {
 	if token == "" {
 		return "", nil
 	}
 	expected := SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default"}
-	switch {
-	case r.Tool == "concord_work_trace" && r.Operation == "mutation_result":
+	if r.Tool == "concord_work_trace" && r.Operation == "mutation_result" {
 		// The retained document is immutable. Unrelated writes must not
 		// invalidate its continuation; the filter binds its exact identity.
 		expected.Source = binding
-	case r.Tool != "concord_knowledge":
+	} else {
 		watermark, err := r.Store.Revision(ctx)
 		if err != nil {
 			return "", err
 		}
 		expected.Source = strconv.FormatInt(watermark, 10)
-	default:
-		var watermark string
-		projectID := r.Envelope.AmbientProjectID
-		locatorID := ""
-		headRef := ""
-		if len(knowledgeHomes) > 0 {
-			projectID = knowledgeHomes[0].HomeProjectID
-			locatorID = knowledgeHomes[0].HomeLocatorID
-			headRef = knowledgeHomes[0].HeadRef
-		}
-		watermark, err := r.Store.KnowledgeIndexWatermark(ctx, projectID, locatorID, headRef)
-		if err != nil {
-			return "", err
-		}
-		expected.Source = watermark
 	}
 	cursor, err := r.Store.DecodeCursor(ctx, token, expected)
 	if err != nil {
@@ -1985,71 +1872,6 @@ func relationReplacementState(edges []store.RelationEdge) string {
 		}
 	}
 	return "none"
-}
-func (r runtime) q9(base agentcontract.Envelope, q store.Q9Result) (agentcontract.Envelope, error) {
-	type item struct {
-		ID          string `json:"knowledge_id"`
-		Kind        string `json:"kind"`
-		Locator     string `json:"locator"`
-		Commit      string `json:"commit_oid,omitempty"`
-		Hash        string `json:"content_hash,omitempty"`
-		Status      string `json:"status,omitempty"`
-		SuccessorID string `json:"successor_id,omitempty"`
-	}
-	items := []item{}
-	for _, v := range q.Items {
-		kind := v.Kind
-		if kind == "work_note" {
-			kind = "note"
-		}
-		if kind == "spec" {
-			kind = "specification"
-		}
-		wire := item{ID: v.ID, Kind: kind, Locator: v.NotePath, Commit: v.CommitOID, Hash: v.ContentHash, Status: store.KnowledgeLawStatus(v.Kind, v.OutcomeTag), SuccessorID: v.SuccessorID}
-		items = append(items, wire)
-	}
-	publications := q.Publications
-	if publications == nil {
-		publications = []store.KnowledgePublication{}
-	}
-	payload := map[string]any{"items": items, "watermark": q.IndexWatermark, "publications": publications}
-	response, err := r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
-	if err == nil {
-		response.SourceVersionWatermark = []agentcontract.Watermark{{SourceKind: "git_knowledge", SourceID: q.IndexWatermark, Version: q.IndexWatermark}}
-	}
-	return response, err
-}
-func (r runtime) q10(base agentcontract.Envelope, q store.Q10Result) (agentcontract.Envelope, error) {
-	state := q.Status
-	var locator *string
-	lawStatus, successorID := "", ""
-	if q.Result != nil {
-		lawStatus, successorID = q.Result.LawStatus, q.Result.SuccessorID
-	}
-	if q.Note != nil {
-		v := q.Note.NotePath
-		locator = &v
-	}
-	payload := map[string]any{"state": state, "locator": locator, "candidates": []string{}}
-	if q.Note != nil {
-		for key, value := range map[string]string{"commit_oid": q.Note.CommitOID, "content_hash": q.Note.ContentHash, "home_project_id": q.Note.HomeProjectID, "home_locator_id": q.Note.HomeLocatorID} {
-			if value != "" {
-				payload[key] = value
-			}
-		}
-	}
-	if q.Publication != nil {
-		payload["publication"] = q.Publication
-	}
-	// Law status or a work-note successor never replaces the PM1 Q10 locator
-	// state: canonical/not_compacted/missing/ambiguous.
-	if lawStatus != "" {
-		payload["status"] = lawStatus
-	}
-	if successorID != "" {
-		payload["successor_id"] = successorID
-	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
 }
 
 // SignedCursor remains an agent-facing alias while the authority owns its

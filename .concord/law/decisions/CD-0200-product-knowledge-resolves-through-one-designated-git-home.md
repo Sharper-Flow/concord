@@ -1,11 +1,23 @@
+---
+{
+  "id": "CD-0200",
+  "title": "Product knowledge resolves through one designated Git home",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-53464f08b2d9f2583b0ee847",
+    "contract_version": 1
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0200: Product knowledge resolves through one designated Git home
 
 - **Status:** Accepted
 - **Date:** 2026-10-01
 - **Scope:** Product knowledge placement, discovery, law identity, and workflow law resolution
-- **Preserves:** [CD-0194](CD-0194-product-knowledge-lives-under-concord.md),
-  PM6's one-note-per-work-item rule, and CD-0020's distinction between
-  authority, freshness, reachability, and publication
+- **Preserves:** [CD-0194](CD-0194-product-knowledge-lives-under-concord.md)
+  and PM6's one-note-per-work-item rule
 
 ## Context
 
@@ -24,17 +36,8 @@ Discovery never makes a repository law.
 
 ### D2. The home owns the Product registry
 
-The home rebuilds its Git-derived knowledge projection from its verified
-Git head. Its manifest carries the Product's Domain registry. Law Domain
-homes and applicability must resolve against that registry. Invalid input
-or rollback preserves the prior projection.
-
-### D3. Product-wide Q9 verifies the home
-
-Q9 verifies the home's watermark before answering. An unreachable or stale
-home refuses unless the caller allows degradation. A degraded answer names
-the limitation and never reads as an authoritative negative. Continuations
-bind the home identity, query, and ordering.
+The home's repository carries the Product's Domain registry at its existing
+path. Law Domain homes and applicability must resolve against that registry.
 
 ### D4. Records carry revision proof
 
@@ -44,11 +47,12 @@ repository-relative path, its commit OID, and its content hash. A
 knowledge home. A Product-scoped law lookup resolves within its designated
 home. Historical work notes retain their recorded home and revision.
 
-### D5. Law relations stay within the manifest
+### D5. Law relations stay within the law folder
 
-Typed law relations name records in the same manifest and obey
-[CD-0015](CD-0015-typed-law-relations.md). No precedence follows from
-repository placement or discovery.
+Typed law relations name law files in the same law folder and obey
+[CD-0015](CD-0015-typed-law-relations.md). Repository discovery grants no
+authority; rank and precedence follow
+[law-folder-authority](../constitution/law-folder-authority.md).
 
 ### D6. Workflow law resolves through the home
 
@@ -67,16 +71,20 @@ never probe Git while holding the store connection.
 ## Consequences
 
 Product knowledge has one explicit authority. Home changes preserve
-historical work-note locators. Search degradation stays visible, while
-consequential law boundaries require verified home proof.
+historical work-note locators. Consequential law boundaries require
+verified home proof.
 
 ## Verification
 
-- `TestSingleSourceProductQ9OutputUnchanged` covers Product search,
-  continuation, Project search, and authority.
-- `TestHomeProofSeparatesVerifiedHeadFromScannedRevision` distinguishes a
-  verified Git head from the projection's scanned revision.
-- `TestKnowledgeHomeReplacementDuringRebuildRefusesStaleContext`,
-  `TestKnowledgeHomeReplacementMissingManifestKeepsPriorRegistry`, and
-  `TestKnowledgeHomeReplacementKeepsOtherProductRows` cover designation
-  races, refusal atomicity, and isolation between Products.
+- `TestMandateAdmitsUnrelatedHeadMovementAndRefusesLawContentMovement`
+  (`internal/store/law_boundary_test.go`) distinguishes a verified head from
+  law-content movement: an unrelated head stays admitted, moved law content
+  refuses.
+- `TestLawFolderSnapshotFrozenAtExplicitCommit`
+  (`internal/store/law_snapshot_test.go`) freezes each committed read at its
+  explicit commit against dirty files and later commits.
+- `TestProductKnowledgeHomeDesignationRejectsContestedHome`,
+  `TestProductKnowledgeHomeDesignationFailureHasNoEffects`, and
+  `TestProductKnowledgeHomeDesignationPreservesAuthoredFiles`
+  (`internal/store/product_knowledge_home_designation_test.go`) cover
+  contested designations, refusal atomicity, and authored-file preservation.

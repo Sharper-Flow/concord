@@ -13,13 +13,32 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 // ---------------------------------------------------------------------------
-// AJ6 compaction bindings
+// Shared PM1 + designated-home fixture; AJ6 compaction bindings
 // ---------------------------------------------------------------------------
+
+// agentJobsKnowledgeFixture seeds the PM1 corpus with its designated git home
+// so Domain reads run against a real committed repository. The lagging-index
+// half of the retired knowledge search fixture went with that family; the
+// returned id is always empty and exists only so retained callers keep their
+// call shape.
+func agentJobsKnowledgeFixture(t *testing.T, lagging bool) (*store.Store, *Service, Authority, store.KnowledgeHome, string) {
+	t.Helper()
+	if lagging {
+		t.Fatal("the lagging knowledge index fault was retired with the public knowledge family")
+	}
+	s, service, grant, corpus := agentJobsPM1Fixture(t)
+	knowledge, err := pm1fixture.SeedKnowledge(context.Background(), s, corpus, t.TempDir())
+	if err != nil {
+		t.Fatalf("pm1fixture.SeedKnowledge: %v", err)
+	}
+	return s, service, grant, knowledge.Home, ""
+}
 
 // agentJobsCompactionFixture seeds the PM1 corpus with a real git knowledge
 // home, then returns everything needed to publish the canonical note for
@@ -310,6 +329,35 @@ func stringsToAny(values []string) []any {
 		out[i] = value
 	}
 	return out
+}
+
+// TestCanonicalNoteResultSchemaKeepsItsRetiredLawStatuses adapts the schema
+// assertion the retired knowledge read projection carried: the compact
+// publish result still answers one canonical note, accepts only published or
+// accepted standing, and refuses a successor on the wire. The knowledge page
+// half of that assertion went with the public knowledge family.
+func TestCanonicalNoteResultSchemaKeepsItsRetiredLawStatuses(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{"accepted", "superseded", "published"} {
+		for _, successor := range []bool{false, true} {
+			note := map[string]any{"state": "canonical", "status": status}
+			if successor {
+				note["successor_id"] = "work-2"
+			}
+			raw, err := json.Marshal(note)
+			if err != nil {
+				t.Fatal(err)
+			}
+			valid := !successor && (status == "accepted" || status == "published")
+			if err := payloadschema.Validate("canonical_note_result", raw); (err == nil) != valid {
+				t.Fatalf("canonical_note_result status=%q successor=%v: err=%v, want valid=%v", status, successor, err, valid)
+			}
+		}
+	}
+	raw := json.RawMessage(`{"state":"canonical","successor_id":"work-2"}`)
+	if err := payloadschema.Validate("canonical_note_result", raw); err != nil {
+		t.Fatalf("canonical_note_result rejected a work-note successor: %v", err)
+	}
 }
 
 // TestPublicationOrderIsDeclaredNotIncidental pins the accepted cross-authority

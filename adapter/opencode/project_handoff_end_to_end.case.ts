@@ -173,7 +173,6 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   const repoReceive = join(root, "repo-receive")
   for (const repo of [repoSource, repoReceive]) {
     await mkdir(join(repo, ".concord/docs/knowledge"), { recursive: true })
-    await Bun.write(join(repo, ".concord/docs/knowledge", "manifest.json"), JSON.stringify({ schema_version: "1.2", supported_kinds: [], indexed_kinds: [], knowledge_roots: [] }, null, 2))
     await Bun.write(join(repo, ".concord/docs/knowledge", "domain-registry.json"), JSON.stringify({
       schema_version: "1.0",
       product_key: PRODUCT_ID,

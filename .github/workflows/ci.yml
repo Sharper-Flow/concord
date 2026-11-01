@@ -208,12 +208,6 @@ jobs:
         run: python3 -m unittest discover -s adapter/opencode/evals/coordinator -p 'test_*.py'
       - name: Validate documentation links
         run: python3 scripts/check-doc-links.py
-      - name: Test reproducible law relocation
-        run: python3 scripts/test-relocate-law.py
-      - name: Validate knowledge placement
-        run: python3 scripts/check-knowledge-placement.py
-      - name: Validate the frozen legislative default census
-        run: python3 scripts/check-knowledge-authority-history.py
       - name: Validate agent instructions
         run: python3 scripts/check-agents-md.py
       - name: Validate primary agent examples
@@ -278,12 +272,10 @@ jobs:
         run: python3 scripts/test-ci-native-provision.py
       - name: Test named adapter result consumption
         run: python3 scripts/test-adapter-acceptance.py
-      - name: Test legislative reference grammar and defaults
-        run: python3 scripts/test-knowledge-authority.py
       - name: Test isolated rapid integration
         run: python3 scripts/test-rapid-integration.py
       - name: Test release and installer tooling
-        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-generate-agent-profiles.py && python3 scripts/test-shard-format.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py
+        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-generate-agent-profiles.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py && python3 scripts/test-blackbox-acceptance-neighbor-mode.py
 
   # Go static analysis: build hygiene, lint, and the callgraph/complexity
   # planes. Cached module and build caches keep the pinned analysis tools
@@ -1033,7 +1025,7 @@ jobs:
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
         run: >-
           python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -race -timeout=15m -run
-          '^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter|TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance)$'
+          '^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter)$'
           ./internal/store
       - name: Retain native Go results
         if: always()

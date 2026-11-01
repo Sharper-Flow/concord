@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0084",
+  "title": "Concord tool results are host ToolResults",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0084: Concord tool results are host ToolResults
 
 - **Status:** Accepted

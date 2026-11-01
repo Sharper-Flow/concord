@@ -7,7 +7,7 @@ import { configureHostLease } from "./host-lease"
 
 
 const MUTATING = ["concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_transition"]
-const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_domain"]
+const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_domain"]
 const WORKFLOW_CATALOG = [...MUTATING, ...READS].sort()
 const CATALOG = WORKFLOW_CATALOG
 const utilityRegistry = await Bun.file(new URL("../../contracts/agent-utilities.v1.json", import.meta.url)).json() as { utilities: { id: string }[] }

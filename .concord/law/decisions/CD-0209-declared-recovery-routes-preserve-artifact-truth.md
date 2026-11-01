@@ -1,3 +1,36 @@
+---
+{
+  "id": "CD-0209",
+  "title": "Declared recovery routes preserve artifact truth",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0143"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0172"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0186"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0201"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0204"
+    }
+  ]
+}
+---
 # CD-0209: Declared recovery routes preserve artifact truth
 
 - **Status:** Accepted
@@ -120,4 +153,4 @@ record participates in that boundary.
   liveness and real-engine conformance.
 - `go test ./internal/agent` checks public route journeys, exact evidence,
   no-effect refusals, replay and current Review correction before delivery.
-- `python3 scripts/check-knowledge-index.py` checks registration and closure.
+- Committed law-folder snapshot validation checks registration and closure.

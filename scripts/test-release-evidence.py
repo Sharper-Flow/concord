@@ -162,8 +162,7 @@ class CIWorkflowDriftTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", step)
         selector = (
             "^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|"
-            "TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter|"
-            "TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance)$"
+            "TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter)$"
         )
         self.assertEqual(shlex.split(step["run"]), [
             "python3", "scripts/go-test-results.py", "--output-dir", "$RUNNER_TEMP/go-test-results/tests", "--",

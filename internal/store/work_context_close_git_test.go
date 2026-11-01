@@ -43,8 +43,6 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err := s.AddProjectLocator(ctx, "project", ProjectLocator{ID: "review-repo-" + workID, Kind: LocatorCanonicalPath, Value: checkout}, projectVersion); err != nil {
 		t.Fatal(err)
 	}
-	seedIssue31DomainRegistry(t, s)
-	execInFold(t, s, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','child-alpha','Context','Implementation context','root','current','sha256:`+strings.Repeat("b", 64)+`','test')`)
 
 	// Completion retains context without publishing it into either Git tree.
 	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
@@ -209,12 +207,10 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if promoted != 0 {
 		t.Errorf("close promoted context into %d checkpoint, boundary, or contract rows", promoted)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM law_subjects WHERE instr(title,?)>0 OR instr(path,?)>0`, marker, marker).Scan(&promoted); err != nil {
-		t.Fatal(err)
-	}
-	if promoted != 0 {
-		t.Errorf("close promoted context into %d law rows", promoted)
-	}
+	// The retired law_subjects SQL index is gone (schema 174): folder
+	// membership supplies acceptance, and no database row carries law. The
+	// Git immutability check above owns the anti-publication proof for the
+	// law folder itself, so no separate law-row assertion remains.
 }
 
 func closeGitWorkflowEvent(t *testing.T, s *Store, actor, kind string, fields map[string]any) {

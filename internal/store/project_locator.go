@@ -232,23 +232,6 @@ func normalizeRemoteVersion(value string, version int) (string, error) {
 	return scheme + "://" + user + host + "/" + path, nil
 }
 
-// resolveCommitSHARunner pins a repository ref to one full commit SHA. It is
-// the runner-parameterized core used by knowledge publication.
-func resolveCommitSHARunner(ctx context.Context, runner GitRunner, repo, ref string) (string, error) {
-	if repo == "" || strings.HasPrefix(ref, "-") || strings.ContainsAny(ref, " \t\n\r\x00") {
-		return "", newFailure(KindInvalidOperation, "project_locator", "ref starts with a dash or contains whitespace or NUL", false, "supply one rev-syntax ref")
-	}
-	out, err := runner.Run(ctx, repo, "rev-parse", "--verify", ref+"^{commit}")
-	if err != nil {
-		return "", newFailure(KindGitUnreachable, "project_locator", fmt.Sprintf("cannot resolve %s to a commit in %s", ref, repo), false, "supply a ref that resolves to one commit")
-	}
-	sha := strings.TrimSpace(string(out))
-	if !worktreeSHAPattern.MatchString(sha) || len(sha) != 40 {
-		return "", newFailure(KindGitUnreachable, "project_locator", "resolved value is not a full 40-character SHA", false, "supply a ref that resolves to one full commit SHA")
-	}
-	return sha, nil
-}
-
 func (s *Store) AddProjectLocator(ctx context.Context, projectID string, locator ProjectLocator, expectedVersion int64) error {
 	return s.applyLocatorEvent(ctx, projectID, "project.locator_added", locator, expectedVersion)
 }

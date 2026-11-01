@@ -11,8 +11,11 @@ import (
 
 // The schema floor admits this database. Runtime state compatibility must
 // refuse it before a command can reach the per-home or per-work-item guards.
+// The retired knowledge projection carried its own watermark axis; its
+// owning migration retires that surface, so only the workflow and contract
+// axes remain here.
 func TestOpenRefusesUpgradeWindowState(t *testing.T) {
-	for _, axis := range []string{"knowledge", "workflow", "contract"} {
+	for _, axis := range []string{"workflow", "contract"} {
 		t.Run(axis, func(t *testing.T) {
 			s := openTemp(t)
 			seedUpgradeWindowState(t, s, axis)
@@ -57,36 +60,25 @@ func seedUpgradeWindowState(t *testing.T, s *Store, axis string) {
 			VALUES('skew-locator','skew-home','canonical_path','/test/skew','/test/skew','t','t');`); err != nil {
 		t.Fatal(err)
 	}
-	if axis == "knowledge" {
-		if _, err := db.Exec(`
-			INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete,projection_version)
-			VALUES('skew-home','skew-locator','HEAD','commit','t',1,?)`, knowledgeProjectionVersion+1); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(`INSERT INTO runtime_state_writers(surface,definition_ref,knowledge_projection_version,digest,binary_version) VALUES('knowledge','',?,'','v99.0.0')`, knowledgeProjectionVersion+1); err != nil {
-			t.Fatal(err)
-		}
-	} else {
-		if _, err := db.Exec(`
+	if _, err := db.Exec(`
 			INSERT INTO work_items(id,kind,title,urgency,lifecycle,priority,version,created_at,updated_at)
 			VALUES('work-skew','task','skew','standard','needed',50,1,'t','t');
 			INSERT INTO work_projects(work_id,project_id,role) VALUES('work-skew','skew-home','primary');
 			INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state)
 			VALUES('work-skew','workflow.future_definition',?,'proposal','planned')`, "sha256:"+strings.Repeat("a", 64)); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(`INSERT INTO runtime_state_writers(surface,definition_ref,knowledge_projection_version,digest,binary_version) VALUES('workflow','workflow.future_definition',0,?,'v99.0.0')`, "sha256:"+strings.Repeat("a", 64)); err != nil {
-			t.Fatal(err)
-		}
-		if axis == "contract" {
-			actor := "actor:" + strings.Repeat("a", 64)
-			if _, err := db.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at)
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO runtime_state_writers(surface,definition_ref,knowledge_projection_version,digest,binary_version) VALUES('workflow','workflow.future_definition',0,?,'v99.0.0')`, "sha256:"+strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if axis == "contract" {
+		actor := "actor:" + strings.Repeat("a", 64)
+		if _, err := db.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at)
 				VALUES(?,'principal-skew','client-skew','agent-skew','session-skew','operator','t');
 				INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,definition_ref,definition_digest)
 				SELECT work_id,1,'premise','internal_sqlite','[]','[]','t',?,'[]','prototype_internal',definition_ref,definition_digest FROM workflow_instances;
 				DELETE FROM workflow_instances`, actor, actor); err != nil {
-				t.Fatal(err)
-			}
+			t.Fatal(err)
 		}
 	}
 	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
@@ -106,10 +98,9 @@ func TestBinaryCompatibilityUsesCurrentFamilyAndLaterAdditiveSchema(t *testing.T
 		UPDATE workflow_instances SET definition_ref='workflow.implementation',definition_digest=? WHERE work_id='work-skew'; DELETE FROM write_guard`, definition.Digest); err != nil {
 		t.Fatal(err)
 	}
-	// A release stamp alone is not authority to reject a compatible pair.
-	if _, err := db.Exec(`INSERT INTO runtime_state_writers(surface,definition_ref,knowledge_projection_version,digest,binary_version) VALUES('knowledge','',?,'','v99.0.0')`, knowledgeProjectionVersion); err != nil {
-		t.Fatal(err)
-	}
+	// A release stamp alone is not authority to reject a compatible pair. The
+	// retired knowledge projection no longer records a writer surface; the
+	// workflow writer row carries the same-family case.
 	if _, err := db.Exec(`INSERT INTO schema_migrations(version,name,checksum,applied_at,breaking) VALUES(?,'future-additive','future-checksum','t',0)`, CurrentSchemaVersion()+1); err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +210,7 @@ func TestRuntimeStateWriterCommitsWithItsRepresentation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := recordRuntimeStateWriter(ctx, tx, knowledgeStateWriter(knowledgeProjectionVersion)); err != nil {
+		if err := recordRuntimeStateWriter(ctx, tx, knowledgeStateWriter(1)); err != nil {
 			_ = tx.Rollback()
 			t.Fatal(err)
 		}
@@ -239,4 +230,10 @@ func TestRuntimeStateWriterCommitsWithItsRepresentation(t *testing.T) {
 			t.Fatalf("commit=%v produced %d writer records", commit, count)
 		}
 	}
+}
+
+// knowledgeStateWriter is the writer row a released binary recorded for the
+// retired knowledge projection. Fixtures seed it as historical state.
+func knowledgeStateWriter(projectionVersion int64) runtimeStateWriter {
+	return runtimeStateWriter{surface: "knowledge", projectionVersion: projectionVersion}
 }

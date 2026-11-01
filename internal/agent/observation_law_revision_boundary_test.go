@@ -16,86 +16,100 @@ import (
 // Domain overlaps.
 
 const (
-	observationBoundaryWork      = "work-holder"
-	observationBoundaryOldLaw    = "spec:one"
-	observationBoundaryOldHash   = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	observationBoundaryLocatorID = "law-locator"
+	observationBoundaryWork    = "work-holder"
+	observationBoundaryOldLaw  = "spec:one"
+	observationBoundaryLawPath = ".concord/law/specs/spec-one.md"
+	// observationBoundaryLocatorID is the committed knowledge home the
+	// observation fixture designates for product-1 (pm1fixture's locator
+	// naming for the Product).
+	observationBoundaryLocatorID = "domain-locator-product-1"
 )
 
+// observationLawBoundary is the seeded boundary fixture: an active workflow
+// contract on work-holder that mandates and pins one committed law, with the
+// committed home the law resolves through.
+type observationLawBoundary struct {
+	store   *store.Store
+	service *Service
+	grant   Authority
+	scope   string
+	home    store.KnowledgeHome
+	pinHash string
+}
+
 // seedObservationLawBoundary gives work-holder an active workflow contract that
-// mandates and pins one law, and returns the fixture with that law still
-// accepted. Callers that want the stale condition call
-// deleteObservationBoundaryLaw afterwards.
-func seedObservationLawBoundary(t *testing.T) (*store.Store, *Service, Authority, string) {
+// mandates and pins one law committed at product-1's designated home, and
+// returns the fixture with that law still carried by the committed folder.
+// Callers that want the stale condition call deleteObservationBoundaryLaw
+// afterwards.
+func seedObservationLawBoundary(t *testing.T) observationLawBoundary {
 	t.Helper()
-	ctx := context.Background()
 	s, service, grant := observationFixture(t)
 
-	var projectVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id='project-1'`).Scan(&projectVersion); err != nil {
-		t.Fatal(err)
-	}
-	locatorPath := t.TempDir()
-	normalized, err := store.NormalizeProjectLocator(store.LocatorCanonicalPath, locatorPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	locatorPayload, _ := json.Marshal(map[string]any{
-		"project_id": "project-1", "locator_id": observationBoundaryLocatorID,
-		"kind": string(store.LocatorCanonicalPath), "value": locatorPath, "normalized_value": normalized,
-		"expected_version": projectVersion, "resulting_version": projectVersion + 1,
-	})
-	if err := store.ApplyOperation(ctx, s, store.Operation{
-		Events:           []store.Event{{EventID: "obs-law-locator", Kind: "project.locator_added", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: locatorPayload}},
-		ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProject, "project-1"): projectVersion},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// The boundary law is committed content at the designated home
+	// (law-folder-authority.md, Committed reads): the contract pins the exact
+	// whole-file revision the folder carries, and the stale variants cut the
+	// law away with a committed removal.
+	boundary := observationLawBoundary{store: s, service: service, grant: grant}
+	boundary.home = observationCommittedHome(t, s)
+	registry := committedProductRegistry(t, s)
+	boundary.pinHash = commitAgentFixtureLaw(t, boundary.home.RepoPath, observationBoundaryLawPath,
+		agentFixtureLawFrontmatter(observationBoundaryOldLaw, registry.RootDomainID, "The observation boundary fixture registry declares no child Domain, so this law has no child home available."))
 
 	actorRef := "actor:" + strings.Repeat("a", 64)
 	execProjection(t, s,
-		[]string{`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project-1',?,?,'spec','accepted','.concord/docs/spec.md','Synthetic boundary law',?,'test')`,
+		[]string{
 			`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-1','agent','2026-08-08T12:00:00Z')`,
 			`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'accept the merge result','internal_sqlite','[]','[]','2026-08-08T12:00:00Z',?,?,'[]',1,'prototype_internal')`,
-			`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,?,?)`},
+			`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,?,?)`,
+		},
 		[][]any{
-			{observationBoundaryLocatorID, observationBoundaryOldLaw, observationBoundaryOldHash},
 			{actorRef},
 			{observationBoundaryWork, actorRef, `["` + observationBoundaryOldLaw + `"]`},
-			{observationBoundaryWork, observationBoundaryOldLaw, observationBoundaryOldHash},
+			{observationBoundaryWork, observationBoundaryOldLaw, boundary.pinHash},
 		})
 
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return s, service, grant, scopeVersion
+	boundary.scope = scopeVersion
+	return boundary
 }
 
-// deleteObservationBoundaryLaw removes the mandated law without a replacement
-// (CD-0036 D2). The contract still pins its deleted revision.
-func deleteObservationBoundaryLaw(t *testing.T, s *store.Store) {
+// observationCommittedHome reads the committed home the observation fixture
+// designated for product-1, so the fixture amends the law folder the boundary
+// actually resolves rather than a second locator.
+func observationCommittedHome(t *testing.T, s *store.Store) store.KnowledgeHome {
 	t.Helper()
-	execProjection(t, s,
-		[]string{`DELETE FROM law_subjects WHERE home_project_id='project-1' AND home_locator_id=? AND law_id=?`},
-		[][]any{
-			{observationBoundaryLocatorID, observationBoundaryOldLaw},
-		})
-	assertObservationBoundaryCutover(t, s)
+	var projectID, locatorID, repo string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT project_id,locator_id,normalized_value FROM project_locators WHERE locator_id=? AND kind='canonical_path'`, observationBoundaryLocatorID).Scan(&projectID, &locatorID, &repo); err != nil {
+		t.Fatal(err)
+	}
+	return store.KnowledgeHome{HomeProjectID: projectID, HomeLocatorID: locatorID, RepoPath: repo, HeadRef: "HEAD"}
+}
+
+// deleteObservationBoundaryLaw removes the mandated law from the committed
+// folder without a replacement (CD-0036 D2). The contract still pins its
+// deleted revision.
+func deleteObservationBoundaryLaw(t *testing.T, boundary observationLawBoundary) {
+	t.Helper()
+	retireAgentFixtureLaw(t, boundary.home.RepoPath, observationBoundaryLawPath)
+	assertObservationBoundaryCutover(t, boundary)
 }
 
 // assertObservationBoundaryCutover proves the fixture actually created the
-// stale condition: the contract still pins a law absent from current law.
-func assertObservationBoundaryCutover(t *testing.T, s *store.Store) {
+// stale condition: the contract still pins the committed revision, and the
+// committed law folder no longer carries the law.
+func assertObservationBoundaryCutover(t *testing.T, boundary observationLawBoundary) {
 	t.Helper()
-	db := s.DatabaseForTesting()
 	var pinned string
-	if err := db.QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=1 AND law_id=?`, observationBoundaryWork, observationBoundaryOldLaw).Scan(&pinned); err != nil {
+	if err := boundary.store.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=1 AND law_id=?`, observationBoundaryWork, observationBoundaryOldLaw).Scan(&pinned); err != nil {
 		t.Fatal(err)
 	}
-	remaining := scalarRow(t, s, `SELECT count(*) FROM law_subjects WHERE home_project_id='project-1' AND home_locator_id=? AND law_id=?`, observationBoundaryLocatorID, observationBoundaryOldLaw)
-	if pinned != observationBoundaryOldHash || remaining != 0 {
-		t.Fatalf("deletion not established: pinned=%q remaining=%d", pinned, remaining)
+	remaining := gitRun(t, boundary.home.RepoPath, "ls-tree", "HEAD", "--", observationBoundaryLawPath)
+	if pinned != boundary.pinHash || strings.TrimSpace(remaining) != "" {
+		t.Fatalf("deletion not established: pinned=%q committed tree entry=%q", pinned, strings.TrimSpace(remaining))
 	}
 }
 
@@ -203,8 +217,9 @@ func TestExternalObservationBoundaryRefusesStaleLawRevision(t *testing.T) {
 func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observationID string) map[string]any) {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant, scopeVersion := seedObservationLawBoundary(t)
-	deleteObservationBoundaryLaw(t, s)
+	boundary := seedObservationLawBoundary(t)
+	s, service, grant, scopeVersion := boundary.store, boundary.service, boundary.grant, boundary.scope
+	deleteObservationBoundaryLaw(t, boundary)
 
 	eventsBefore := agentCurrentEffects(t, s)
 	versionBefore := scalarRow(t, s, `SELECT version FROM work_items WHERE id=?`, observationBoundaryWork)
@@ -222,8 +237,8 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 	if stale == nil {
 		t.Fatal("stale-law refusal carries no typed stale_law_revision detail")
 	}
-	if stale.OldLawID != observationBoundaryOldLaw || stale.OldContentHash != observationBoundaryOldHash {
-		t.Fatalf("refusal old law=%q hash=%q, want %q %q", stale.OldLawID, stale.OldContentHash, observationBoundaryOldLaw, observationBoundaryOldHash)
+	if stale.OldLawID != observationBoundaryOldLaw || stale.OldContentHash != boundary.pinHash {
+		t.Fatalf("refusal old law=%q hash=%q, want %q %q", stale.OldLawID, stale.OldContentHash, observationBoundaryOldLaw, boundary.pinHash)
 	}
 	if strings.Join(stale.RecoveryActions, ",") != "supersede_contract,terminal_work" {
 		t.Fatalf("refusal recovery choices=%v, want [supersede_contract terminal_work]", stale.RecoveryActions)
@@ -262,7 +277,8 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 // refusal above is attributable to the stale pin and not to the fixture.
 func TestExternalObservationBoundaryAcceptsCurrentLawRevision(t *testing.T) {
 	t.Parallel()
-	s, service, grant, scopeVersion := seedObservationLawBoundary(t)
+	boundary := seedObservationLawBoundary(t)
+	s, service, grant, scopeVersion := boundary.store, boundary.service, boundary.grant, boundary.scope
 
 	captured := dispatchObservation(t, s, service, grant, scopeVersion, externalCaptureInput("obs-current-1", "xobs:0123456789abcdef"))
 	if captured.Outcome != agentcontract.OutcomeOK {
@@ -280,8 +296,9 @@ func TestExternalObservationBoundaryAcceptsCurrentLawRevision(t *testing.T) {
 // CD-0036 D4: recording what happened does not accept an attributed result.
 func TestStaleLawBoundaryAllowsRawObservation(t *testing.T) {
 	t.Parallel()
-	s, service, grant, scopeVersion := seedObservationLawBoundary(t)
-	deleteObservationBoundaryLaw(t, s)
+	boundary := seedObservationLawBoundary(t)
+	s, service, grant, scopeVersion := boundary.store, boundary.service, boundary.grant, boundary.scope
+	deleteObservationBoundaryLaw(t, boundary)
 	response := dispatchObservation(t, s, service, grant, scopeVersion, map[string]any{
 		"work_id": observationBoundaryWork, "idempotency_key": "obs-stale-raw",
 		"statement": "The worker finished after the mandated law was deleted.",
@@ -303,8 +320,9 @@ func TestStaleLawBoundaryAllowsRawObservation(t *testing.T) {
 // that enact them would close the refusal's own way out.
 func TestStaleLawBoundaryLeavesRecoveryReachable(t *testing.T) {
 	t.Parallel()
-	s, service, grant, scopeVersion := seedObservationLawBoundary(t)
-	deleteObservationBoundaryLaw(t, s)
+	boundary := seedObservationLawBoundary(t)
+	s, service, grant, scopeVersion := boundary.store, boundary.service, boundary.grant, boundary.scope
+	deleteObservationBoundaryLaw(t, boundary)
 
 	version := scalarRow(t, s, `SELECT version FROM work_items WHERE id=?`, observationBoundaryWork)
 	// CD-0243 D3/D7 retire terminal consent, not verification evidence.

@@ -751,6 +751,9 @@ class ToolDescriptionTests(unittest.TestCase):
             "concord_product_view.portfolio",
             "concord_work_compact.lesson_publish",
             "concord_knowledge.unprocessed",
+            "concord_knowledge.search",
+            "concord_knowledge.resolve_note",
+            "concord_knowledge.observe_publication",
         ]
         registered = {operation["id"] for operation in manifest["operations"]}
         for operation in retired:
@@ -906,7 +909,6 @@ class ShippedSkillTests(unittest.TestCase):
     OPERATIONS = {
         "concord_domain.list",
         "concord_product_view.resolve",
-        "concord_knowledge.search", "concord_knowledge.resolve_note",
     }
 
     def content(self):
@@ -982,11 +984,12 @@ class ShippedSkillTests(unittest.TestCase):
             self.assertTrue(any("ancestor" in f for f in lane_checker.shipped_skill_reference_findings(ROOT, self.content())))
 
         def git_result(argv, **kwargs):
-            missing = argv[1] == "cat-file" and argv[-1].endswith(":.concord/docs/concord-knowledge-index.md")
+            missing_doc = ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md"
+            missing = argv[1] == "cat-file" and argv[-1].endswith(":" + missing_doc)
             return subprocess.CompletedProcess(argv, 1 if missing else 0)
 
         with unittest.mock.patch.object(lane_checker.subprocess, "run", side_effect=git_result):
-            self.assertTrue(any("concord-knowledge-index.md" in f for f in lane_checker.shipped_skill_reference_findings(ROOT, self.content())))
+            self.assertTrue(any("CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md" in f for f in lane_checker.shipped_skill_reference_findings(ROOT, self.content())))
 
     def test_checkout_relative_mutable_and_unrelated_links_are_rejected(self):
         for target in (
@@ -1005,9 +1008,10 @@ class ShippedSkillTests(unittest.TestCase):
             with self.subTest(addition=addition):
                 self.assertTrue(any("reference" in f for f in self.findings(self.content() + addition)))
 
-    def test_canonical_publication_reference_is_required(self):
-        text = re.sub(r"\[Knowledge identity and publication\]\([^)]*\)", "Publication", self.content())
-        self.assertTrue(any("publication" in f for f in self.findings(text)))
+    def test_canonical_ownership_reference_is_required(self):
+        text = re.sub(r"\[Domain ownership\]\([^)]*\)", "Domain ownership", self.content())
+        self.assertNotEqual(text, self.content())
+        self.assertTrue(any("missing canonical ownership reference" in f for f in self.findings(text)))
 
     def test_admitted_inventory_is_exact_and_rejects_missing_extra_or_symlinked_files(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1052,7 +1056,6 @@ class LawWritingSkillTests(unittest.TestCase):
     NAME = "concord-law-writing"
     OPERATIONS = {
         "concord_product_view.resolve", "concord_domain.list",
-        "concord_knowledge.search", "concord_knowledge.resolve_note",
     }
 
     def content(self):
@@ -1092,7 +1095,7 @@ class MethodSkillTests(unittest.TestCase):
     """CD-0246 D1 and D3: portable method skills ship like any admitted skill."""
 
     NAMES = ("concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review")
-    OPERATIONS = {"concord_knowledge.search"}
+    OPERATIONS = set()
 
     def content(self, name):
         return (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")

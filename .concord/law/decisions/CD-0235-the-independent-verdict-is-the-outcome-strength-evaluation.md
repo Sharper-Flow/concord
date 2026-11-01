@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0235",
+  "title": "The outcome strength evaluation is Review's judgment",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0012"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    }
+  ]
+}
+---
 # CD-0235: The outcome strength evaluation is Review's judgment
 
 - **Status:** Accepted
@@ -56,5 +77,5 @@ against the approved criteria; the operator's premise confirmation
 
 - The implementing change binds the anchor for the
   accepted ready disposition on the final candidate; until it lands,
-  `python3 scripts/check-knowledge-index.py` is the executable anchor for
+  the committed law-folder read is the executable anchor for
   this record's law registration.

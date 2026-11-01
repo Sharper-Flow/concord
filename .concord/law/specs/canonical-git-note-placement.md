@@ -1,9 +1,42 @@
+---
+{
+  "id": "PM6",
+  "title": "Canonical Git note placement",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "AJ6-compact-terminal-work"
+    },
+    {
+      "criterion": 2,
+      "exemption": "Canonical discovery and cleanup eligibility are operation properties, not one query-corpus case. TestValidateNotePathAdmitsLawDecisionNotes (internal/store/knowledge_note_path_test.go) is a candidate canonical-placement witness; integrated discovery and cleanup coverage remains unmeasured."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Orphan recovery is an operation property below scenario grain. The guarantee is proved by TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote (internal/agent/mutation_dispatch_test.go)."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Git-proof verification is an operation property. The retained VerifyCommittedNote proof runs in internal/store/git_knowledge.go; its bounded-runner proof is TestVerifyCommittedNoteDefaultRunnerStaysBounded (internal/store/git_note_bounded_test.go). Hash-mismatch and unsafe-path rejection cases remain unmeasured."
+    },
+    {
+      "criterion": 5,
+      "exemption": "Ambiguous-claim detection is a verification property. The retained parser is parseKnowledgeNote in internal/store/git_knowledge.go; its dedicated rejection tests were retired with the index and the rejection cases remain unmeasured."
+    }
+  ]
+}
+---
 # Concord Canonical Git-Note Placement (PM6)
 
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-05.
 > **Decision:** PM6; binding CD-0002 §2c/§2d specification.
-> **Binding inputs:** PM1 Q9/Q10, PM2 git durable-knowledge authority, PM5
+> **Binding inputs:** PM2 git durable-knowledge authority, PM5
 > membership/optional-primary semantics, and CD-0002 I1–I6.
 > **Operator choice:** when no deterministic git home exists, compaction blocks with
 > typed `ambiguous`; Concord does not add a global fallback knowledge repository.
@@ -17,7 +50,7 @@
 ## Context
 
 Terminal work must leave behind exactly one durable, findable note. The
-binding inputs are PM1 Q9/Q10, PM2's git durable-knowledge authority, PM5
+binding inputs are PM2's git durable-knowledge authority, PM5
 membership semantics, CD-0002 invariants I1 through I6, and the compaction
 design. This record fixes canonical note placement: one eligible git home
 selected deterministically from accepted membership, in-tree markdown notes
@@ -39,7 +72,7 @@ The binding contract is sections 1 through 8: the one-note decision, the
 eligible-home rule with Product-home designation, the deterministic selection
 rule, the canonical note shape and typed locator, the publish protocol and
 recovery seam, discovery without copies, rename and archive semantics, and
-the Q9/Q10 result semantics. Sections 9 through 13 record invariants,
+the note result semantics. Sections 9 through 13 record invariants,
 rejected alternatives, deferred scope, falsifiers, and sources, and carry no
 obligation.
 ## 1. Decision
@@ -157,7 +190,7 @@ promoted from research uses its existing separate durable form.
 
 ### Typed locator
 
-Q9/Q10 and `archived_work` use:
+The `archived_work` linkage uses:
 
 ```text
 home_project_id
@@ -196,25 +229,34 @@ PM6 proves durable linkage; compaction-retention-policy owns the bounded lazy pr
 
 Failure before the Git commit leaves only a draft.
 Failure after the commit but before the SQLite publication step settles leaves an incomplete publication operation; reconciliation finds and verifies the same note by work ID rather than creating another.
-A committed note whose identity and content proof verify may already be indexed and discovered as canonical during that interval.
-Canonical discovery does not prove that the publication operation settled or that the closure judgement was accepted, and it does not grant cleanup eligibility.
+A committed note whose identity and content proof verify already reads as the
+canonical note in Git during that interval.
+A canonical note in Git does not prove that the publication operation settled or that the closure judgement was accepted, and it does not grant cleanup eligibility.
 SQLite never records a canonical locator before verifying its Git proof.
 
-Rebuild scans canonical note directories, validates unique `concord_work_id`, and
-reconstructs `archived_work`. Two valid notes claiming one work ID are typed
+Work-note reconstruction rebuilds the derived `archived_work` linkage and its
+frozen scope populations from Git. It runs on publication and reconciliation,
+during verified PM10 recovery, or to refresh historical-work coverage required
+by [compaction-retention-policy §4](compaction-retention-policy.md#4-one-query-population-across-tiers).
+It exposes no public search or rebuild operation and creates no law catalog.
+It is proof-preserving and scopes work-note metadata only; it builds no
+registry over law, reference, or lesson documents. Two valid notes claiming one work ID are typed
 `ambiguous`; neither is silently selected. A locator whose object/hash cannot be
 verified is `missing` or `degraded`, never authoritative.
 
 ## 6. Discovery without copies
 
-- Q10 resolves the one typed locator from SQLite when its watermark/proof is current.
-- Q9 searches the rebuildable historical index and returns the canonical locator.
+- The retained work surface owns proof and discovery for its work item: the
+  stored `archived_work` linkage resolves the one typed locator when its Git
+  proof is current — the recorded commit contains `note_path` and its bytes
+  hash to `content_hash`.
 - Every affected Product/Project discovers the same note through PM5 work membership
   joins; no member repo receives a stub or duplicate markdown file.
-- Repository-local text search finds notes physically housed there; Product-wide
-  discovery uses Q9/Q10 rather than pretending every repo contains every note.
-- If SQLite is unavailable, an operator with the eligible git authorities can scan
-  note metadata and rebuild the index; PM10 owns the full restore procedure.
+- Repository-local text search finds notes physically housed there; no Concord
+  query pretends every repo contains every note.
+- If the store is unavailable, an operator with the eligible git authorities can
+  read note metadata directly from Git. That is a host capability, not a Concord
+  query; PM10 owns the full restore procedure.
 
 ## 7. Rename, archive, offline, and deletion
 
@@ -237,23 +279,21 @@ Notes are not automatically migrated when locators or Product membership change.
 Migration would create a new commit/location and must be an explicit proof-preserving
 operation; PM10 governs recovery, not silent copy-on-move behavior.
 
-## 8. Q9/Q10 result semantics
+## 8. Note result semantics
 
-### Q10 outcomes
+### Outcomes
 
-Product visibility is population-aware after the archived row is read: `work_note`
-and `scope_mode=explicit` records validate the frozen `archived_work_products`
-population, while manifest `scope_mode=home` records validate current
-`product_projects` membership of the stored `home_project_id`. An unscoped Q10
-lookup skips this visibility filter. This membership check does not select or
-rewrite the canonical locator: the stored Project/locator IDs still resolve the
-current path, while the recorded commit OID and content hash prove the historical
-note.
+Product visibility validates the note's frozen `archived_work_products`
+population. An empty frozen population does not acquire Product membership
+from later changes to its home Project. This check does not select or rewrite
+the canonical locator: the stored Project/locator IDs still resolve the
+current path, while the recorded commit OID and content hash prove the
+historical note.
 
 | Outcome | Meaning |
 |---|---|
-| canonical locator | one verified note proof exists and index watermark is complete |
-| not_compacted | retained work has no verified canonical note in the applicable index; an incomplete publication operation alone does not prevent discovery of a verified note |
+| canonical locator | one verified note proof exists: the recorded commit contains the path and its bytes hash to the recorded content hash |
+| not_compacted | retained work has no verified canonical note in the applicable note locations; an incomplete publication operation alone does not prevent discovery of a verified note |
 | `ambiguous` | home selection failed or multiple notes claim the work ID |
 | `missing` | recorded/candidate git object cannot be found after required authorities were checked |
 
@@ -261,12 +301,12 @@ note.
 
 | Authority | Meaning |
 |---|---|
-| `authoritative` | every applicable canonical git authority/head needed for the answer is covered |
-| `degraded` | authorities are reachable, but index/watermark coverage is incomplete or lagging |
+| `authoritative` | every applicable canonical git authority/head needed for the answer is covered by the resolved commit's read |
+| `degraded` | required work-note coverage is reachable but incomplete or lagging; the result names its omissions and proves no absence |
 | `unreachable` | an applicable canonical git authority cannot currently be contacted/opened |
 
-Empty search results are authoritative only when every applicable canonical git head
-is covered by the index watermark, per PM1 Q9.
+Absence is proven only when every applicable canonical git authority was read
+at one resolved commit.
 
 ## 9. Structural invariants
 
@@ -278,8 +318,11 @@ is covered by the index watermark, per PM1 Q9.
 4. **Stable identity:** Project/locator IDs identify the home; mutable paths/remotes
    never become authority.
 5. **No copies/stubs:** all memberships resolve the same locator.
-6. **Rebuildable index:** bounded front matter plus git tree/path/commit is sufficient
-   to reconstruct `archived_work` and detect duplicate claims.
+6. **Work-note reconstruction:** bounded work-note front matter plus git
+   tree/path/commit is sufficient to reconstruct the derived `archived_work`
+   linkage and detect duplicate claims during publication, reconciliation,
+   verified PM10 recovery, or historical-work coverage refresh — never as a
+   public search or a law-index rebuild.
 7. **Typed uncertainty:** missing/degraded/unreachable/ambiguous are distinct from
    authoritative empty or success.
 8. **No destructive recovery:** orphan notes are verified/re-indexed or surfaced;
@@ -353,10 +396,10 @@ operator choice, and the falsifiers above remain controlling.
   Then the operation blocks with typed `ambiguous` and creates no note.
 
 - Given a publish that committed to git but not yet to SQLite
-  When Q10 resolves the work item
-  Then a verified note resolves `canonical`, and the unsettled publication
-  makes nothing eligible for cleanup. Work with no verified note resolves
-  `not_compacted`.
+  When publication or reconciliation verifies the work item's note
+  Then the Git-first proof — path, commit OID, work ID, and content hash —
+  resolves the note as canonical, and the unsettled publication makes nothing
+  eligible for cleanup. Work with no verified note is `not_compacted`.
 
 - Given an orphan canonical-looking note from an interrupted publish
   When a retry runs
@@ -369,7 +412,7 @@ operator choice, and the falsifiers above remain controlling.
   mismatch or unsafe path fails the proof.
 
 - Given one work ID claimed by two valid notes
-  When the index rebuilds
+  When work-note reconciliation runs
   Then the claim is typed `ambiguous` and neither note is silently selected.
 
 ## Verification
@@ -377,21 +420,19 @@ operator choice, and the falsifiers above remain controlling.
 - Criterion 1 is proved by the bound `AJ6-compact-terminal-work` scenario of
   `.concord/scenarios/agent-jobs.v1.json`, executed by `TestAgentJobsCorpus`
   (`internal/agent/agent_jobs_corpus_test.go`).
-- Criterion 2 is proved by
-  `TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag`
-  (`internal/store/knowledge_index_test.go`) and, for work with no verified
-  note, by the bound `Q10-not-compacted` scenario of
-  `.concord/scenarios/product-memory-query.v1.json`, executed by
-  `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).
+- Criterion 2's canonical-placement witness is
+  `TestValidateNotePathAdmitsLawDecisionNotes`
+  (`internal/store/knowledge_note_path_test.go`); integrated discovery and
+  cleanup coverage remains unmeasured.
 - Criterion 3 is proved by
-  `TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes`
-  (`internal/store/knowledge_index_test.go`) and
   `TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote`
   (`internal/agent/mutation_dispatch_test.go`).
-- Criterion 4 is proved by `TestVerifyCommittedNoteRejectsHashMismatchAndSymlink`
-  and `TestVerifyCommittedNoteRejectsUnsafeAndNonBlobPaths`
-  (`internal/store/knowledge_index_test.go`).
-- Criterion 5 is proved by
-  `TestParseKnowledgeNoteRejectsAmbiguousAndMalformedCriticalMetadata`
-  (`internal/store/knowledge_index_test.go`). Section 12 records the
-  falsifiers for each guarantee.
+- Criterion 4's retained proof is `VerifyCommittedNote`
+  (`internal/store/git_knowledge.go`), exercised by
+  `TestVerifyCommittedNoteDefaultRunnerStaysBounded`
+  (`internal/store/git_note_bounded_test.go`); hash-mismatch and unsafe-path
+  rejection cases remain unmeasured.
+- Criterion 5's retained parser is `parseKnowledgeNote`
+  (`internal/store/git_knowledge.go`); its dedicated rejection tests were
+  retired with the index and the rejection cases remain unmeasured. Section 12
+  records the falsifiers for each guarantee.

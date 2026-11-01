@@ -46,7 +46,7 @@ or implementation authority. Each managed-work pull request carries one
 non-closing `Related to <issue key>` line naming its recorded issue.
 
 Read before you write. The product view, the work browse, the trace, and the
-knowledge records already answer most alignment questions. Align against what
+committed law folder already answer most alignment questions. Align against what
 is recorded, not against a recollection of it. Re-read the continuity trace
 before any consequential definition.
 

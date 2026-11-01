@@ -1,3 +1,46 @@
+---
+{
+  "id": "compaction-retention-policy",
+  "title": "Compaction retention and historical index",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [
+    "durable-authority"
+  ],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Committed retained work keeps its canonical locator proof across compaction linkage: TestCompactionReconcileMissingVersionRetainsProofStep (internal/agent/compaction_partial_serialization_test.go) retains the proof step and TestCompactionLinkPublishRecordsNoVersionChange (internal/store/compaction_link_version_test.go) pins the publish version; integrated corpus coverage remains unmeasured."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Cross-tier deduplication and watermark composition are query properties, not a single corpus case. Their watermark witness was retired with the index; integrated cleanup and historical-tier coverage remain unmeasured."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Retirement eligibility is an operation property, not a PM1 query-corpus case. TestResearchRetirementTerminalOwnersEligible in internal/store/research_retirement_test.go is a candidate anchor; integrated coverage remains unmeasured under CON-816."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Publication separation and optional-pin protection require operation witnesses. TestResearchRetirementActivePinsProtectAndTerminalReleaseFences in internal/store/research_retirement_test.go is a candidate anchor; publication coverage remains unmeasured under CON-816."
+    },
+    {
+      "criterion": 5,
+      "exemption": "Historical derivation is a reconstruction property. Its rebuild witnesses were retired with the index; derivation of every historical field remains unmeasured."
+    },
+    {
+      "criterion": 6,
+      "exemption": "Dry-run write absence is an operation property. TestResearchRetirementDryRunMixedBatchHasNoWrites in internal/store/research_retirement_test.go is a candidate anchor; integrated coverage remains unmeasured under CON-816."
+    },
+    {
+      "criterion": 7,
+      "exemption": "Restart and committed replay are operation properties. TestResearchRetireDryRunAndReplay in internal/agent/research_surface_test.go is a candidate replay anchor; restart coverage remains unmeasured under CON-816."
+    }
+  ]
+}
+---
 # Concord Compaction Retention and Historical Index
 
 - **Law ID:** compaction-retention-policy
@@ -98,7 +141,7 @@ A stale historical index cannot produce authoritative counts.
 Q7 returns current-state records within the store's finite retained categories, not a process-exhaust receipt or the compact note; the store keeps no exact event history ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 Q8 resolves a superseded historical item's canonical successor from verified front matter and historical projection.
 Current relations are stored rows; the store keeps no relation history ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-Q9/Q10 retain PM6 locator proof, canonical note identity, current Git authority, and typed outcomes.
+The retained work surface carries PM6 locator proof, canonical note identity, current Git authority, and typed outcomes for its terminal work.
 
 ### 5. Identity and renewed work
 
@@ -139,7 +182,7 @@ Authorized owner reopen before retirement removes eligibility without reconstruc
 
 | Data | Treatment | Authority | Consumer | Applicability check | Safe removal condition |
 |---|---|---|---|---|---|
-| canonical Git note | retain | distilled knowledge | knowledge search and `resolve_note`; historical index rebuild; the typed-absence outcome locator | the note commit verifies from Git | none in Concord; Git owns the note |
+| canonical Git note | retain | distilled knowledge | publication and reconciliation; work-note-only recovery; the typed-absence outcome locator | the note commit verifies from Git | none in Concord; Git owns the note |
 | canonical publication proof | verify from Git; the settled operation and closure judgement gate cleanup | PM6 and CD-0242 D9 | terminal cleanup | Git proof verified before cleanup; version, lifecycle, and home re-read in the cleanup transaction | removed with its terminal execution |
 | terminal execution and owned membership/relation rows | collect only after verified closure and release of every consuming category | CD-0242 D2; CD-0088 D2 | live executions that reference it; unsettled effects, workflow steps, Project handoffs, messages, findings, and owned research; not worktree ownership or verification leases | the cleanup blocker list in `internal/store/terminal_cleanup.go` | terminal, its published note matches the lifecycle, and no blocker holds |
 | defect recurrence classification and required Product/workflow scope | retain until work or Product removal | CD-0211 D2–D4 | recurrence admission of later defect captures | same-shape lookup at capture | work or Product removal |
@@ -184,7 +227,8 @@ A simpler PM10 authority must preserve the canonical note, retained receipts, an
 ## Acceptance criteria
 
 - Given a published and verified compaction link
-  When Q10 resolves the work item
+  When the retained work read or compaction linkage/reconcile verification
+  resolves the work item's note
   Then canonical locator proof and note identity remain unchanged.
 
 - Given historical and live work in one query population
@@ -213,11 +257,11 @@ A simpler PM10 authority must preserve the canonical note, retained receipts, an
 
 ## Verification
 
-- Criterion 1 retains the PM1 `Q10-not-compacted` corpus binding and canonical locator witnesses.
-- Criterion 2 retains `internal/store.TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead` for watermark evidence; no executed cleanup proves the historical-tier join.
+- Criterion 1 keeps its canonical locator proof: `TestCompactionReconcileMissingVersionRetainsProofStep` retains the proof step and `TestCompactionLinkPublishRecordsNoVersionChange` pins the publish version.
+- Criterion 2's watermark witness was retired with the index; no executed cleanup proves the historical-tier join.
 - Criterion 3 names candidate `internal/store.TestResearchRetirementTerminalOwnersEligible`; integrated retirement eligibility remains unmeasured.
 - Criterion 4 names candidate `internal/store.TestResearchRetirementActivePinsProtectAndTerminalReleaseFences`; publication separation and full protection coverage remain unmeasured.
-- Criterion 5 retains `internal/store.TestCompactionPayloadRequiresExplicitUniqueScopeArrays` for explicit scope derivation; derivation of every historical projection field remains unmeasured.
+- Criterion 5's rebuild witnesses were retired with the index; derivation of every historical projection field remains unmeasured.
 - Criterion 6 names candidate `internal/store.TestResearchRetirementDryRunMixedBatchHasNoWrites`; integrated dry-run coverage remains unmeasured.
 - Criterion 7 names candidate `internal/agent.TestResearchRetireDryRunAndReplay`; restart and full committed replay coverage remain unmeasured.
 

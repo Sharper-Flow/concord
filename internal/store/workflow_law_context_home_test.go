@@ -12,7 +12,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -24,7 +23,6 @@ import (
 // at all, so only a home-qualified locator can name a readable file.
 func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string {
 	t.Helper()
-	ctx := context.Background()
 	seedWork(t, s, workID)
 	homeDir := initKnowledgeRepo(t)
 	dispatchDir := t.TempDir()
@@ -36,81 +34,30 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 	if err := os.WriteFile(filepath.Join(registryDir, "domain-registry.json"), []byte(registry+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(registryDir, "manifest.json"), []byte("{\"schema_version\":\"1.2\",\"supported_kinds\":[\"decision\",\"spec\"],\"indexed_kinds\":[\"decision\",\"spec\"]}\n"), 0o600); err != nil {
+	specDir := filepath.Join(homeDir, ".concord", "law", "specs")
+	if err := os.MkdirAll(specDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(homeDir, ".concord", "docs"), 0o700); err != nil {
+	spec := `{"id":"spec:one","title":"Synthetic home law","authority":{"tier":"derived"},"home_domain_id":"product-root:product","applies_to_domain_ids":[],"product_wide_rationale":"Synthetic law spans the fixture Product."}`
+	if err := os.WriteFile(filepath.Join(specDir, "spec-one-fixture.md"), []byte("---\n"+spec+"\n---\n\nSynthetic home law body.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(homeDir, ".concord", "docs", "spec.md"), []byte("# Synthetic home law\n"), 0o600); err != nil {
-		t.Fatal(err)
+	seed := func(query string, args ...any) {
+		t.Helper()
+		if _, err := s.DatabaseForTesting().Exec(query, args...); err != nil {
+			t.Fatal(err)
+		}
 	}
-	hash := "sha256:" + strings.Repeat("b", 64)
-	// The registry/domain rows carry mutually deferred foreign keys, so the
-	// seeding commits inside one transaction, mirroring seedLawContextFixture.
-	// One statement group per Exec: the driver binds placeholders per
-	// statement, so distinct path arguments must not share an Exec string.
-	seedTx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := enterWrite(ctx, seedTx); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('project-dispatch-locator','project','canonical_path',?,?,'now','now')`, dispatchDir, dispatchDir); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project-home','Home',1,'now','now');
-		INSERT INTO product_projects(product_id,project_id,role) VALUES('product','project-home','secondary')`); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('project-home-locator','project-home','canonical_path',?,?,'now','now')`, homeDir, homeDir); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project-home','project-home-locator')`); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project-home','project-home-locator','product','root','1.0',?,'test')`, hash); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project-home','project-home-locator','product','root','Root','Product law','current',?,'test')`, hash); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project-home','project-home-locator','product','child','Child','Child law','root','current',?,'test')`, hash); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project-home','project-home-locator','spec:one','spec','accepted','.concord/docs/spec.md','Synthetic home law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test')`); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project-home','project-home-locator','spec:one','product','root','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test')`); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if err := leaveWrite(ctx, seedTx); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if err := seedTx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	commit := commitKnowledgeRepo(t, homeDir, "synthetic cross-repository law source")
-	home := KnowledgeHome{HomeProjectID: "project-home", HomeLocatorID: "project-home-locator", RepoPath: homeDir, HeadRef: "HEAD"}
-	digest, err := knowledgeContentDigest(ctx, home, commit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES('project-home','project-home-locator','HEAD',?,?,'test',1,?); DELETE FROM write_guard`, commit, digest, knowledgeProjectionVersion); err != nil {
-		t.Fatal(err)
-	}
+	// The driver binds placeholders per statement, so distinct path arguments
+	// must not share an Exec string.
+	seed(`INSERT INTO write_guard(active) VALUES(1)`)
+	seed(`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('project-dispatch-locator','project','canonical_path',?,?,'now','now')`, dispatchDir, dispatchDir)
+	seed(`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project-home','Home',1,'now','now')`)
+	seed(`INSERT INTO product_projects(product_id,project_id,role) VALUES('product','project-home','secondary')`)
+	seed(`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('project-home-locator','project-home','canonical_path',?,?,'now','now')`, homeDir, homeDir)
+	seed(`INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project-home','project-home-locator')`)
+	seed(`DELETE FROM write_guard`)
+	commitKnowledgeRepo(t, homeDir, "synthetic cross-repository law source")
 	// The approval helper derives its actor ref from the law-context actor
 	// identity, so initialization records exactly that actor.
 	actor := WorkflowActor{PrincipalRef: "principal:law-context", ClientRef: "client:law-context", AgentRef: "agent:law-context", SessionRef: "session:law-context", ActorClass: ActorAgent}
@@ -118,7 +65,7 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 	if !ok {
 		t.Fatal("latest implementation definition missing")
 	}
-	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +96,7 @@ func TestContinuityQualifiesLawContextWithTheRegisteredKnowledgeHome(t *testing.
 	s := openTemp(t)
 	workID := "law-context-cross-repo"
 	homeRepo := seedCrossRepositoryLawFixture(t, s, workID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "product-root:product", AffectedDomainIDs: []string{"product-root:product"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
 	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	if err != nil {
@@ -171,7 +118,7 @@ func TestContinuityQualifiesLawContextWithTheRegisteredKnowledgeHome(t *testing.
 	if len(snapshot.LawContext.Laws) != 1 {
 		t.Fatalf("law context laws = %+v, want one mandated spec", snapshot.LawContext.Laws)
 	}
-	wantLawPath := filepath.Join(homeRepo, ".concord/docs/spec.md")
+	wantLawPath := filepath.Join(homeRepo, ".concord/law/specs/spec-one-fixture.md")
 	if snapshot.LawContext.Laws[0].Path != wantLawPath {
 		t.Fatalf("law path = %q, want the knowledge home's %q", snapshot.LawContext.Laws[0].Path, wantLawPath)
 	}
@@ -180,67 +127,28 @@ func TestContinuityQualifiesLawContextWithTheRegisteredKnowledgeHome(t *testing.
 	}
 }
 
-// A knowledge home still on the pre-migration shard layout (CD-0194 D5)
-// resolves its registry locator under docs/knowledge, never under the
-// canonical .concord layout the home does not carry.
-func TestContinuityResolvesRegistryUnderPreMigrationLayout(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	workID := "law-context-pre-migration"
-	seedLawContextFixture(t, s, workID)
-	homeRepo := workflowLawFixtureRepo(t, s)
-	if err := os.RemoveAll(filepath.Join(homeRepo, ".concord", "docs", "knowledge")); err != nil {
-		t.Fatal(err)
-	}
-	preMigrationDir := filepath.Join(homeRepo, "docs", "knowledge")
-	if err := os.MkdirAll(preMigrationDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	registry := `{"schema_version":"1.0","product_key":"product","root_domain_id":"root","domains":[]}`
-	if err := os.WriteFile(filepath.Join(preMigrationDir, "domain-registry.json"), []byte(registry+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(preMigrationDir, "manifest.json"), []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
-	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.LawContext == nil {
-		t.Fatal("continuity resolved no law context for a bound contract")
-	}
-	wantRegistry := filepath.Join(homeRepo, "docs/knowledge/domain-registry.json")
-	if snapshot.LawContext.RegistryPath != wantRegistry {
-		t.Fatalf("law context registry path = %q, want the carried pre-migration layout %q", snapshot.LawContext.RegistryPath, wantRegistry)
-	}
-	if _, err := os.ReadFile(snapshot.LawContext.RegistryPath); err != nil {
-		t.Fatalf("the dispatched lane could not open the registry the packet named: %v", err)
-	}
-}
-
-// A knowledge home whose checkout carries no registry under any supported
-// layout refuses the law context typed: the packet must never advertise a
-// locator no lane can open, and must never silently drop the binding.
+// A knowledge home whose committed revision carries no registry under any
+// supported layout refuses the law context typed: the packet must never
+// advertise a locator no lane can open, and must never silently drop the
+// binding. The contract is approved while the registry is committed; the
+// registry's committed retirement is the next revision the read verifies.
 func TestContinuityRefusesUnresolvableRegistrySource(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	workID := "law-context-missing-registry"
 	seedLawContextFixture(t, s, workID)
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
 	homeRepo := workflowLawFixtureRepo(t, s)
 	if err := os.Remove(filepath.Join(homeRepo, ".concord/docs/knowledge/domain-registry.json")); err != nil {
 		t.Fatal(err)
 	}
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
+	commitKnowledgeRepo(t, homeRepo, "retire the registry revision")
 	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent || failure.Op != "read_workflow_law_context" {
-		t.Fatalf("missing registry diagnosis = %v, want typed domain_registry_absent from the law context", err)
+	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent {
+		t.Fatalf("missing registry diagnosis = %v, want typed domain_registry_absent from the committed read", err)
 	}
 }
 
@@ -270,6 +178,13 @@ func TestWorkflowLawHomeRepoRefusesAnUnresolvedCanonicalPath(t *testing.T) {
 func readLawOnlyContext(t *testing.T, s *Store, workID string, mandate []string) (*WorkflowLawContext, error) {
 	t.Helper()
 	ctx := context.Background()
+	// The law context reads the verified snapshot; the proof is established
+	// the way the continuity route does before the read transaction opens.
+	verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	if err != nil {
+		return nil, err
+	}
+	ctx = verified
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -287,7 +202,7 @@ func TestLawContextRefusesRemovedBoundLawDocument(t *testing.T) {
 	workID := "law-context-law-file-removed"
 	seedLawContextFixture(t, s, workID)
 	homeRepo := workflowLawFixtureRepo(t, s)
-	if err := os.Remove(filepath.Join(homeRepo, ".concord", "docs", "spec.md")); err != nil {
+	if err := os.Remove(filepath.Join(homeRepo, ".concord", "law", "specs", "spec-one-fixture.md")); err != nil {
 		t.Fatal(err)
 	}
 	lawContext, err := readLawOnlyContext(t, s, workID, []string{"spec:one"})
@@ -302,7 +217,9 @@ func TestLawContextRefusesRemovedBoundLawDocument(t *testing.T) {
 
 // The whole knowledge home checkout disappearing before a law-only read must
 // refuse typed too: an absent home cannot ground any locator the packet
-// advertises, and the lane has no Concord route to repair it.
+// advertises, and the lane has no Concord route to repair it. The committed
+// read resolves the home's git head first, so the refusal is the
+// verification's git_unreachable, before any locator is qualified.
 func TestLawContextRefusesRemovedKnowledgeHomeBeforeLawOnlyRead(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -316,19 +233,23 @@ func TestLawContextRefusesRemovedKnowledgeHomeBeforeLawOnlyRead(t *testing.T) {
 		t.Fatalf("removed knowledge home still resolved a context: %+v", lawContext)
 	}
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "read_workflow_law_context" || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:one" {
-		t.Fatalf("removed knowledge home diagnosis = %v, want typed projection_not_found naming spec:one", err)
+	if !failureAs(err, &failure) || failure.Kind != KindGitUnreachable || failure.Op != "knowledge_home" {
+		t.Fatalf("removed knowledge home diagnosis = %v, want typed git_unreachable from the pre-transaction verification", err)
 	}
 }
 
 // A registry locator occupied by a directory is not a registry the lane can
-// read: the context refuses typed instead of advertising the directory.
+// read: the context refuses typed instead of advertising the directory. The
+// contract is approved while the registry file is committed; the committed
+// revision that replaces it with a directory is what the read verifies.
 func TestContinuityRefusesRegistryReplacedByDirectory(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	workID := "law-context-registry-directory"
 	seedLawContextFixture(t, s, workID)
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
 	homeRepo := workflowLawFixtureRepo(t, s)
 	registryPath := filepath.Join(homeRepo, ".concord", "docs", "knowledge", "domain-registry.json")
 	if err := os.Remove(registryPath); err != nil {
@@ -337,46 +258,11 @@ func TestContinuityRefusesRegistryReplacedByDirectory(t *testing.T) {
 	if err := os.MkdirAll(registryPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
+	commitKnowledgeRepo(t, homeRepo, "replace the registry with a directory")
 	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent || failure.Op != "read_workflow_law_context" {
-		t.Fatalf("directory registry diagnosis = %v, want typed domain_registry_absent from the law context", err)
-	}
-}
-
-// A bound law recorded under the supported pre-migration layout qualifies
-// against the same knowledge home: the recorded path is home-qualified and
-// opens, whatever layout tier the home carries (CD-0194 D5).
-func TestContinuityQualifiesPreMigrationBoundLawDocument(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	workID := "law-context-pre-migration-law"
-	seedLawContextFixture(t, s, workID)
-	homeRepo := workflowLawFixtureRepo(t, s)
-	if err := os.MkdirAll(filepath.Join(homeRepo, "docs"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(homeRepo, "docs", "spec-pre.md"), []byte("# Pre-migration law\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:pre','spec','accepted','docs/spec-pre.md','Pre-migration law','sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd','test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:pre','product','root','sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd','test'); DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	lawContext, err := readLawOnlyContext(t, s, workID, []string{"spec:pre"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if lawContext == nil || len(lawContext.Laws) != 1 {
-		t.Fatalf("law context = %+v, want one mandated pre-migration spec", lawContext)
-	}
-	wantPath := filepath.Join(homeRepo, "docs", "spec-pre.md")
-	if lawContext.Laws[0].Path != wantPath {
-		t.Fatalf("law path = %q, want the knowledge home's %q", lawContext.Laws[0].Path, wantPath)
-	}
-	if _, err := os.ReadFile(lawContext.Laws[0].Path); err != nil {
-		t.Fatalf("the dispatched lane could not open the law file the packet named: %v", err)
+	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent {
+		t.Fatalf("directory registry diagnosis = %v, want typed domain_registry_absent from the committed read", err)
 	}
 }
 
@@ -387,7 +273,7 @@ func TestLawContextLocatorsRequireReadableSources(t *testing.T) {
 			s := openTemp(t)
 			seedLawContextFixture(t, s, "law-context-readable-source")
 			home := workflowLawFixtureRepo(t, s)
-			relative := ".concord/docs/spec.md"
+			relative := ".concord/law/specs/spec-one-fixture.md"
 			if source == "registry" {
 				relative = knowledgeRegistryPath
 			}
@@ -423,20 +309,22 @@ func TestLawContextLocatorsRequireReadableSources(t *testing.T) {
 	}
 }
 
-// The newest layout whose manifest head the home carries selects the tier
-// (CD-0194 D5), the same rule the committed-shard reader applies. A leftover
-// registry under an older tier never stands in for the selected tier's
-// missing registry.
+// The law context reads the one committed registry at its existing path: a
+// leftover registry under a pre-migration layout tier never stands in for
+// the registry file the committed revision does not carry.
 func TestContinuityRegistryDoesNotFallBackAcrossTheSelectedLayout(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	workID := "law-context-selected-layout"
 	seedLawContextFixture(t, s, workID)
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
 	homeRepo := workflowLawFixtureRepo(t, s)
 	if err := os.Remove(filepath.Join(homeRepo, filepath.FromSlash(knowledgeRegistryPath))); err != nil {
 		t.Fatal(err)
 	}
+	commitKnowledgeRepo(t, homeRepo, "retire the canonical registry revision")
 	legacyDir := filepath.Join(homeRepo, "docs", "knowledge")
 	if err := os.MkdirAll(legacyDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -445,185 +333,9 @@ func TestContinuityRegistryDoesNotFallBackAcrossTheSelectedLayout(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(legacyDir, "domain-registry.json"), []byte(registry+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
 	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent || failure.Op != "read_workflow_law_context" {
+	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent {
 		t.Fatalf("selected-layout registry diagnosis = %v (context %+v), want typed domain_registry_absent", err, snapshot.LawContext)
-	}
-}
-
-// A knowledge home carrying no manifest head under any supported layout has
-// no selected tier, so a stray registry file does not resolve it.
-func TestContinuityRefusesHomeWithoutManifestHead(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	workID := "law-context-no-head"
-	seedLawContextFixture(t, s, workID)
-	homeRepo := workflowLawFixtureRepo(t, s)
-	if err := os.Remove(filepath.Join(homeRepo, filepath.FromSlash(knowledgeHeadPath))); err != nil {
-		t.Fatal(err)
-	}
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
-	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent || failure.Op != "read_workflow_law_context" {
-		t.Fatalf("headless home diagnosis = %v, want typed domain_registry_absent", err)
-	}
-}
-
-// A knowledge home that predates the shard homes carries the aggregate
-// manifest itself, and its domain_registry member is the registry the lane
-// reads, so the packet names the aggregate file instead of refusing a shape
-// the Product still carries.
-func TestContinuityNamesAggregateManifestAsRegistryLocator(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	workID := "law-context-aggregate-home"
-	seedLawContextFixture(t, s, workID)
-	homeRepo := workflowLawFixtureRepo(t, s)
-	if err := os.RemoveAll(filepath.Join(homeRepo, ".concord", "docs", "knowledge")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(homeRepo, "docs"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	aggregate := `{"schema_version":"1.0","product_key":"product","knowledge_roots":["docs/"],"domain_registry":{"schema_version":"1.0","product_key":"product","root_domain_id":"root","domains":[]},"records":[]}`
-	if err := os.WriteFile(filepath.Join(homeRepo, filepath.FromSlash(knowledgeManifestPath)), []byte(aggregate+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
-	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.LawContext == nil {
-		t.Fatal("continuity resolved no law context for a bound contract")
-	}
-	wantRegistry := filepath.Join(homeRepo, filepath.FromSlash(knowledgeManifestPath))
-	if snapshot.LawContext.RegistryPath != wantRegistry {
-		t.Fatalf("law context registry path = %q, want the aggregate manifest %q", snapshot.LawContext.RegistryPath, wantRegistry)
-	}
-	if _, err := os.ReadFile(snapshot.LawContext.RegistryPath); err != nil {
-		t.Fatalf("the dispatched lane could not open the registry the packet named: %v", err)
-	}
-}
-
-// The aggregate fallback names the aggregate manifest only when it is a
-// regular readable file: a directory or a broken entry at the aggregate path
-// is not a registry the packet may advertise.
-func TestContinuityRefusesAggregateManifestReplacedByDirectory(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	workID := "law-context-aggregate-directory"
-	seedLawContextFixture(t, s, workID)
-	homeRepo := workflowLawFixtureRepo(t, s)
-	if err := os.RemoveAll(filepath.Join(homeRepo, ".concord", "docs", "knowledge")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(homeRepo, filepath.Dir(filepath.FromSlash(knowledgeManifestPath))), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(homeRepo, filepath.FromSlash(knowledgeManifestPath)), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
-	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent || failure.Op != "read_workflow_law_context" {
-		t.Fatalf("aggregate directory diagnosis = %v, want typed domain_registry_absent from the law context", err)
-	}
-}
-
-// The registry locator names the file the Domain projection was read from:
-// the Domain registry's own recorded home. A Product whose knowledge home
-// designation is gone must not fall back to the dispatch Project's checkout,
-// even when that checkout carries a readable registry of its own.
-func TestContinuityRegistryLocatorFollowsTheDomainRegistryHome(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	workID := "law-context-registry-home"
-	homeRepo := seedCrossRepositoryLawFixture(t, s, workID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
-	var dispatchDir string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT normalized_value FROM project_locators WHERE locator_id='project-dispatch-locator'`).Scan(&dispatchDir); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dispatchDir, ".concord", "docs", "knowledge"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for _, relative := range []string{knowledgeHeadPath, knowledgeRegistryPath} {
-		if err := os.WriteFile(filepath.Join(dispatchDir, filepath.FromSlash(relative)), []byte("{}\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM product_knowledge_homes WHERE product_id='product'; DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join(homeRepo, filepath.FromSlash(knowledgeRegistryPath))
-	if snapshot.LawContext == nil || snapshot.LawContext.RegistryPath != want {
-		t.Fatalf("law context = %+v, want registry locator %q from the Domain registry's home", snapshot.LawContext, want)
-	}
-}
-
-// A Domain-binding context whose Product has no Domain registry projection
-// refuses typed instead of naming any repository's registry file.
-func TestContinuityRefusesDomainBindingWithoutRegistryProjection(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	workID := "law-context-no-registry-row"
-	seedLawContextFixture(t, s, workID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if err := enterWrite(ctx, tx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `PRAGMA defer_foreign_keys=ON; DELETE FROM domain_registries WHERE product_id='product'`); err != nil {
-		t.Fatal(err)
-	}
-	_, err = readWorkflowLawContext(ctx, tx, workID, &WorkflowReadContract{Version: 1, ArchitectureBinding: &binding})
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent || failure.Op != "read_workflow_law_context" {
-		t.Fatalf("missing registry projection diagnosis = %v, want typed domain_registry_absent", err)
-	}
-}
-
-// A projected law path that escapes the knowledge home checkout is not a
-// home locator: the open is confined to the home, so the context refuses
-// rather than advertising a file outside it.
-func TestLawContextRefusesLawPathEscapingTheHome(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	workID := "law-context-escape"
-	seedLawContextFixture(t, s, workID)
-	homeRepo := workflowLawFixtureRepo(t, s)
-	if err := os.WriteFile(filepath.Join(filepath.Dir(homeRepo), "escape.md"), []byte("# Outside\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:escape','spec','accepted','../escape.md','Escaping law','sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:escape','product','root','sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','test'); DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	lawContext, err := readLawOnlyContext(t, s, workID, []string{"spec:escape"})
-	var failure *Failure
-	if lawContext != nil || !failureAs(err, &failure) || failure.Kind != KindUnavailable {
-		t.Fatalf("escaping law path = %+v, %v; want typed unavailable", lawContext, err)
 	}
 }

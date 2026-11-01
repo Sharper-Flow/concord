@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0236",
+  "title": "Vacuity is judged at review",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0012"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    }
+  ]
+}
+---
 # CD-0236: Vacuity is judged at review
 
 - **Status:** Accepted

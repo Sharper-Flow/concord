@@ -1,3 +1,20 @@
+---
+{
+  "id": "C17",
+  "title": "product coordination view",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "Q5-ready-ranking"
+    }
+  ]
+}
+---
 # Product coordination view — accepted contract
 
 **Status:** Accepted C17 contract. The ranked-query contract is owned by the product-memory query contract.
@@ -196,5 +213,6 @@ This contract must be revised or superseded when:
 
 - Criterion 1 is proved by the bound `Q5-ready-ranking` scenario of
   `.concord/scenarios/product-memory-query.v1.json`, executed by
-  `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).
+  `TestAcceptedQ1ToQ8AndDomainCorpus`
+  (`internal/store/query_corpus_test.go`).
   Section 10 records the falsifiers for each guarantee.

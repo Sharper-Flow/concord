@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0069",
+  "title": "The durable tier is enforced, not advised",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "agent-contract",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0069: The Durable Tier Is Enforced, Not Advised
 
 Status: accepted

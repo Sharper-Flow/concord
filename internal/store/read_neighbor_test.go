@@ -42,7 +42,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 	seedResearchWork(t, s, "neighbor-research")
 	actor, version := continuityTestWorkflow(t, s, "neighbor-work")
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	insertInvestigationGateObservation(t, s, "neighbor-work", "obs:"+strings.Repeat("3", 16), []string{"root", "blocker"})
 	pack := createSimplePack(t, s, "neighbor-pack", "neighbor-research")
 	if _, err := ClaimStepAuthorized(ctx, s, testClaim("neighbor-fence", "neighbor-fence-key"), nil); err != nil {
@@ -53,7 +52,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 	if err := s.RegisterTrustedClient(ctx, neighborClient, neighborKey, "2026-08-09T00:00:00Z"); err != nil {
 		t.Fatal(err)
 	}
-	knowledgeRepo, knowledgeHome := seedNeighborKnowledgeHome(t, s)
+	knowledgeRepo, _ := seedNeighborKnowledgeHome(t, s)
 	toolRepo := seedNeighborToolRepo(t)
 	if err := s.AddProjectLocator(ctx, "proj", ProjectLocator{ID: "proj-canonical", Kind: LocatorCanonicalPath, Value: toolRepo}, 1); err != nil {
 		t.Fatal(err)
@@ -90,26 +89,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		{name: "PM1.Q6", run: func() error { _, err := s.QueryQ6(ctx, Q6Request{Work: "blocker"}); return err }},
 		{name: "PM1.Q7", run: func() error { _, err := s.QueryQ7(ctx, Q7Request{Work: "blocker"}); return err }},
 		{name: "PM1.Q8", run: func() error { _, err := s.QueryQ8(ctx, Q8Request{Work: "blocker"}); return err }},
-		{name: "QueryQ9", run: func() error {
-			result, err := s.QueryQ9(ctx, Q9Request{Text: "neighbor law govern", Kinds: []string{"decision"}, Home: knowledgeHome})
-			if err != nil {
-				return err
-			}
-			if len(result.Items) != 1 {
-				return fmt.Errorf("items=%d, want 1", len(result.Items))
-			}
-			return nil
-		}},
-		{name: "QueryQ10", run: func() error {
-			result, err := s.QueryQ10(ctx, Q10Request{Work: "blocked", AllowDegraded: true, Home: knowledgeHome})
-			if err != nil {
-				return err
-			}
-			if result.Status != "not_compacted" {
-				return fmt.Errorf("status=%q, want not_compacted", result.Status)
-			}
-			return nil
-		}},
 		// Work-item reads.
 		{name: "ReadWorkItemSummary", run: func() error { _, err := s.ReadWorkItemSummary(ctx, "blocker"); return err }},
 		{name: "TrustedClientWithKey", run: func() error {
@@ -190,16 +169,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if value <= 0 {
 				return fmt.Errorf("watermark=%d", value)
-			}
-			return nil
-		}},
-		{name: "KnowledgeIndexWatermark", run: func() error {
-			value, err := s.KnowledgeIndexWatermark(ctx, "home", "neighbor-locator", "HEAD")
-			if err != nil {
-				return err
-			}
-			if value == "" {
-				return fmt.Errorf("empty knowledge index watermark")
 			}
 			return nil
 		}},
@@ -321,7 +290,14 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			return WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), preflightRequest)
 		}},
 		{name: "requireRecordedInvestigationArtifactSnapshot", run: func() error {
-			return requireRecordedInvestigationArtifactSnapshot(ctx, s, "neighbor-work")
+			// The investigation precondition reads the committed Domain
+			// registry inside its read-only transaction; the source-set proof
+			// is established before that transaction opens.
+			proofed, err := s.EstablishKnowledgeSourceSetProof(ctx, "neighbor-work")
+			if err != nil {
+				return err
+			}
+			return requireRecordedInvestigationArtifactSnapshot(proofed, s, "neighbor-work")
 		}},
 		{name: "readSnapshot activeWorkflowContractVersions", run: func() error {
 			var versions []int64
@@ -374,16 +350,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 				return err
 			}
 			if home.RepoPath != toolRepo {
-				return fmt.Errorf("home=%+v", home)
-			}
-			return nil
-		}},
-		{name: "ResolveKnowledgeQueryHome", run: func() error {
-			home, err := s.ResolveKnowledgeQueryHome(ctx, "neighbor-knowledge-product", "", KnowledgeHome{}, "PM1.Q9")
-			if err != nil {
-				return err
-			}
-			if home.RepoPath != knowledgeRepo {
 				return fmt.Errorf("home=%+v", home)
 			}
 			return nil
@@ -491,16 +457,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if len(products["proj"]) != 1 || products["proj"][0] != "prod" {
 				return fmt.Errorf("products=%+v", products)
-			}
-			return nil
-		}},
-		{name: "ProductsForKnowledgeID", run: func() error {
-			products, err := s.ProductsForKnowledgeID(ctx, "neighbor-law")
-			if err != nil {
-				return err
-			}
-			if len(products) != 0 {
-				return fmt.Errorf("products=%v, want none", products)
 			}
 			return nil
 		}},
@@ -632,13 +588,8 @@ func seedNeighborKnowledgeHome(t *testing.T, s *Store) (string, KnowledgeHome) {
 	t.Helper()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	writeManifestFixture(t, repo, manifestFixture{
-		ID: "neighbor-law", Kind: "decision", Path: ".concord/docs/decisions/CD-9001-neighbor-law.md",
-		Status: "accepted", Date: "2026-09-20T00:00:00Z", Title: "Neighbor law",
-		Summary: "Govern the neighbor read fixture", Scopes: homeScope(),
-	})
-	commitKnowledgeRepo(t, repo, "neighbor read fixture law")
 	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "neighbor-locator", RepoPath: repo, HeadRef: "HEAD"}
+	writeFixtureLawSource(t, home, "neighbor-law")
 	// A replay must restore the home from the log, so seed it the way the
 	// production event paths leave it instead of direct SQL rows.
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
@@ -655,9 +606,6 @@ func seedNeighborKnowledgeHome(t *testing.T, s *Store) (string, KnowledgeHome) {
 		t.Fatal(err)
 	}
 	if _, err := s.DesignateProductKnowledgeHome(ctx, ProductKnowledgeHomeDesignation{ProductID: "neighbor-knowledge-product", ProjectID: "home", LocatorID: "neighbor-locator", Reason: "neighbor read fixture", ExpectedVersion: 2}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
 	return repo, home

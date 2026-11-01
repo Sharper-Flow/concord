@@ -1,3 +1,21 @@
+---
+{
+  "id": "CD-0021",
+  "title": "Floor condition 1 means reach, not an operator authoring surface",
+  "authority": {
+    "tier": "legislated",
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "contract_version": 1
+  },
+  "home_domain_id": "operator-surface",
+  "applies_to_domain_ids": [
+    "agent-adapter",
+    "agent-call-boundary",
+    "agent-contract",
+    "agent-surface"
+  ]
+}
+---
 # CD-0021: Floor Condition 1 Means Reach, Not an Operator Authoring Surface
 
 **Status:** Accepted under operator approval.

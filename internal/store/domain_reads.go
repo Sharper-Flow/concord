@@ -2,15 +2,17 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/base64"
-	"encoding/json"
+	"sort"
 	"strings"
 )
 
 // Bounded Product → Domain reads navigate current Domains, their current law,
-// and typed architecture relations. A Product without a Git-derived registry
-// refuses rather than returning an empty page.
+// and typed architecture relations. Every read resolves the Product's
+// designated git home and reads the independent Domain registry and the law
+// folder at one explicit commit into an immutable snapshot before answering;
+// a Product without a readable committed registry refuses rather than
+// returning an empty page.
 
 const (
 	domainListDefaultLimit = 20
@@ -18,7 +20,7 @@ const (
 )
 
 // DomainRegistryView is the authority watermark every Domain read carries: it
-// names the projected registry the answer came from, so callers can distinguish
+// names the committed registry the answer came from, so callers can distinguish
 // authoritative-empty (registry present, no matching rows) from absent
 // (no registry at all, a typed refusal).
 type DomainRegistryView struct {
@@ -114,35 +116,74 @@ func sliceOrEmpty[T any](values []T) []T {
 	return values
 }
 
-func readDomainRegistry(ctx context.Context, q queryer, product string) (*DomainRegistryView, error) {
-	var view DomainRegistryView
-	err := q.QueryRowContext(ctx, `SELECT r.product_id,r.product_key,r.root_domain_id,r.content_hash,r.scanned_commit_oid FROM domain_registries r WHERE r.product_id=?`, product).Scan(&view.ProductID, &view.ProductKey, &view.RootDomainID, &view.ContentHash, &view.ScannedCommit)
-	if err == sql.ErrNoRows {
-		return nil, newFailure(KindDomainRegistryAbsent, "domain_read", "Product has no projected Domain registry", false, "rebuild the knowledge index from the Product Git home before reading Domains")
-	}
+// loadDomainSnapshot resolves the Product's designated git home and reads the
+// committed law folder and Domain registry at its explicit head commit. It
+// runs on the pool, never inside a transaction: the reads are git
+// subprocesses the pool lock must never hold (CD-0195 D2).
+func (s *Store) loadDomainSnapshot(ctx context.Context, productID, op string) (*lawFolderSnapshot, KnowledgeDomainRegistry, error) {
+	home, err := resolveKnowledgeQueryHome(ctx, s.db, productID, op)
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "domain_read", "cannot read the Domain registry", true, "retry once the knowledge projection is readable", err)
+		return nil, KnowledgeDomainRegistry{}, err
 	}
-	return &view, nil
+	snapshot, err := loadLawFolderSnapshotAtHome(ctx, home)
+	if err != nil {
+		return nil, KnowledgeDomainRegistry{}, err
+	}
+	registry, err := snapshot.Registry()
+	if err != nil {
+		return nil, KnowledgeDomainRegistry{}, err
+	}
+	return snapshot, registry, nil
+}
+
+// domainRegistryView projects the snapshot's committed registry into the
+// authority watermark the Domain reads carry.
+func domainRegistryView(snapshot *lawFolderSnapshot, registry KnowledgeDomainRegistry, productID string) *DomainRegistryView {
+	return &DomainRegistryView{
+		ProductID:     productID,
+		ProductKey:    registry.ProductKey,
+		RootDomainID:  registry.RootDomainID,
+		ContentHash:   domainRegistryContentHash(registry),
+		ScannedCommit: snapshot.CommitOID(),
+	}
+}
+
+// domainRegistryStatus applies the projection's status default: a registry
+// entry without an authored status is current.
+func domainRegistryStatus(status string) string {
+	if status == "" {
+		return "current"
+	}
+	return status
+}
+
+// domainRegistryRelationState applies the projection's state default: a
+// relation without an authored state is active.
+func domainRegistryRelationState(state string) string {
+	if state == "" {
+		return "active"
+	}
+	return state
 }
 
 // QueryDomainList returns every current Domain for a Product in the bounded
-// page order (status, name, domain_id). Deprecated Domains stay out of the
+// page order (name, domain_id). Deprecated Domains stay out of the
 // default view; they remain reachable through registry history.
 func (s *Store) QueryDomainList(ctx context.Context, req DomainListRequest) (DomainListResult, error) {
 	var out DomainListResult
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "C22.DomainList", "store is not open", false, "open a store before reading Domains")
 	}
-	return queryDomainList(ctx, s.db, req)
-}
-
-func queryDomainList(ctx context.Context, q queryer, req DomainListRequest) (DomainListResult, error) {
-	var out DomainListResult
-	registry, err := readDomainRegistry(ctx, q, req.Product)
+	snapshot, committed, err := s.loadDomainSnapshot(ctx, req.Product, "C22.DomainList")
 	if err != nil {
 		return out, err
 	}
+	return queryDomainList(req, snapshot, committed)
+}
+
+func queryDomainList(req DomainListRequest, snapshot *lawFolderSnapshot, committed KnowledgeDomainRegistry) (DomainListResult, error) {
+	var out DomainListResult
+	registry := domainRegistryView(snapshot, committed, req.Product)
 	limit := req.Limit
 	if limit == 0 {
 		limit = domainListDefaultLimit
@@ -154,27 +195,23 @@ func queryDomainList(ctx context.Context, q queryer, req DomainListRequest) (Dom
 	if err != nil {
 		return out, err
 	}
-	rows, err := q.QueryContext(ctx, `
-		SELECT domain_id,name,purpose,parent_domain_id,status FROM domains
-		WHERE product_id=? AND status='current' AND (name,domain_id) > (?,?)
-		ORDER BY name,domain_id LIMIT ?`, req.Product, cursorName, cursorID, limit+1)
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainList", "cannot read Domains", true, "retry once the knowledge projection is readable", err)
-	}
-	defer rows.Close()
-	out.Domains = []DomainSummary{}
-	for rows.Next() {
-		var d DomainSummary
-		var parent sql.NullString
-		if err := rows.Scan(&d.DomainID, &d.Name, &d.Purpose, &parent, &d.Status); err != nil {
-			return out, wrapFailure(KindUnavailable, "C22.DomainList", "cannot decode Domain", true, "retry once the knowledge projection is readable", err)
+	current := currentSnapshotDomains(committed)
+	sort.Slice(current, func(i, j int) bool {
+		if current[i].Name != current[j].Name {
+			return current[i].Name < current[j].Name
 		}
-		d.ParentID = parent.String
-		d.HomeDomain = d.DomainID == registry.RootDomainID
-		out.Domains = append(out.Domains, d)
-	}
-	if err := rows.Err(); err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainList", "cannot enumerate Domains", true, "retry once the knowledge projection is readable", err)
+		return current[i].DomainID < current[j].DomainID
+	})
+	out.Domains = []DomainSummary{}
+	for _, domain := range current {
+		if cursorName != "" && !(domain.Name > cursorName || domain.Name == cursorName && domain.DomainID > cursorID) {
+			continue
+		}
+		domain.HomeDomain = domain.DomainID == registry.RootDomainID
+		out.Domains = append(out.Domains, domain)
+		if len(out.Domains) > limit {
+			break
+		}
 	}
 	if len(out.Domains) > limit {
 		out.Domains = out.Domains[:limit]
@@ -185,6 +222,20 @@ func queryDomainList(ctx context.Context, q queryer, req DomainListRequest) (Dom
 	out.Registry = registry
 	out.ResultMeta = ResultMeta{QueryID: "C22.DomainList", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"status", "name", "domain_id"}}
 	return out, nil
+}
+
+// currentSnapshotDomains lists the committed registry's current Domains in
+// registry order with the projected status default applied.
+func currentSnapshotDomains(registry KnowledgeDomainRegistry) []DomainSummary {
+	out := make([]DomainSummary, 0, len(registry.Domains))
+	for _, domain := range registry.Domains {
+		status := domainRegistryStatus(domain.Status)
+		if status != "current" {
+			continue
+		}
+		out = append(out, DomainSummary{DomainID: domain.DomainID, Name: domain.Name, Purpose: domain.Purpose, ParentID: domain.ParentDomainID, Status: status})
+	}
+	return out
 }
 
 func decodeDomainCursor(cursor string) (string, string, error) {
@@ -214,16 +265,17 @@ func (s *Store) QueryDomainDetail(ctx context.Context, req DomainDetailRequest) 
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "C22.DomainDetail", "store is not open", false, "open a store before reading Domains")
 	}
-	return queryDomainDetail(ctx, s.db, req)
-}
-
-func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) (DomainDetailResult, error) {
-	var out DomainDetailResult
-	registry, err := readDomainRegistry(ctx, q, req.Product)
+	snapshot, committed, err := s.loadDomainSnapshot(ctx, req.Product, "C22.DomainDetail")
 	if err != nil {
 		return out, err
 	}
-	summary, err := domainExistsCurrent(ctx, q, req.Product, req.Domain)
+	return queryDomainDetail(ctx, s.db, req, snapshot, committed)
+}
+
+func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest, snapshot *lawFolderSnapshot, committed KnowledgeDomainRegistry) (DomainDetailResult, error) {
+	var out DomainDetailResult
+	registry := domainRegistryView(snapshot, committed, req.Product)
+	summary, err := domainExistsCurrent(committed, req.Domain)
 	if err != nil {
 		return out, err
 	}
@@ -233,74 +285,53 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) 
 	out.CurrentLaw = []DomainLawRecord{}
 	out.Relations = []DomainRelationView{}
 
-	lawRows, err := q.QueryContext(ctx, `
-		SELECT s.law_id,s.kind,s.title,s.path,s.content_hash,s.scanned_commit_oid
-		FROM law_subjects s
-		JOIN law_domain_homes h ON h.home_project_id=s.home_project_id AND h.home_locator_id=s.home_locator_id AND h.law_id=s.law_id
-		WHERE h.product_id=? AND h.domain_id=? AND s.status='accepted'
-		ORDER BY s.kind,s.law_id`, req.Product, req.Domain)
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot read current law", true, "retry once the knowledge projection is readable", err)
-	}
-	defer lawRows.Close()
-	for lawRows.Next() {
-		var record DomainLawRecord
-		if err := lawRows.Scan(&record.LawID, &record.Kind, &record.Title, &record.Path, &record.ContentHash, &record.ScannedCommit); err != nil {
-			return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot decode current law", true, "retry once the knowledge projection is readable", err)
+	for _, record := range snapshotOrderedList(snapshot) {
+		if record.HomeDomainID != req.Domain {
+			continue
 		}
-		out.CurrentLaw = append(out.CurrentLaw, record)
-	}
-	if err := lawRows.Err(); err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot enumerate current law", true, "retry once the knowledge projection is readable", err)
-	}
-	lawRows.Close()
-	for i := range out.CurrentLaw {
-		appRows, err := q.QueryContext(ctx, `SELECT domain_id FROM law_domain_applicability WHERE product_id=? AND law_id=? ORDER BY domain_id`, req.Product, out.CurrentLaw[i].LawID)
-		if err != nil {
-			return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot read law applicability", true, "retry once the knowledge projection is readable", err)
-		}
-		for appRows.Next() {
-			var domain string
-			if err := appRows.Scan(&domain); err != nil {
-				appRows.Close()
-				return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot decode law applicability", true, "retry once the knowledge projection is readable", err)
-			}
-			out.CurrentLaw[i].AppliesTo = append(out.CurrentLaw[i].AppliesTo, domain)
-		}
-		if err := appRows.Err(); err != nil {
-			appRows.Close()
-			return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot enumerate law applicability", true, "retry once the knowledge projection is readable", err)
-		}
-		appRows.Close()
+		out.CurrentLaw = append(out.CurrentLaw, DomainLawRecord{
+			LawID:         record.ID,
+			Kind:          record.Kind,
+			Title:         record.Title,
+			Path:          record.Path,
+			ContentHash:   record.SHA256,
+			AppliesTo:     orderedStrings(record.AppliesToDomainIDs),
+			ScannedCommit: snapshot.CommitOID(),
+		})
 	}
 
-	relRows, err := q.QueryContext(ctx, `
-		SELECT r.kind,r.source_domain_id,r.target_domain_id,r.state,
-			(SELECT json_group_array(l.law_id ORDER BY l.law_id) FROM domain_relation_governing_laws l
-			 WHERE l.home_project_id=r.home_project_id AND l.home_locator_id=r.home_locator_id AND l.product_id=r.product_id
-			   AND l.source_domain_id=r.source_domain_id AND l.kind=r.kind AND l.target_domain_id=r.target_domain_id) AS laws
-		FROM domain_architecture_relations r
-		WHERE r.product_id=? AND (r.source_domain_id=? OR r.target_domain_id=?)
-		ORDER BY r.kind,r.source_domain_id,r.target_domain_id`, req.Product, req.Domain, req.Domain)
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot read Domain relations", true, "retry once the knowledge projection is readable", err)
-	}
-	defer relRows.Close()
-	for relRows.Next() {
-		var view DomainRelationView
-		var laws string
-		if err := relRows.Scan(&view.Kind, &view.SourceDomain, &view.TargetDomain, &view.State, &laws); err != nil {
-			return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot decode Domain relations", true, "retry once the knowledge projection is readable", err)
+	seenRelation := map[string]bool{}
+	for _, domain := range committed.Domains {
+		for _, relation := range domain.ArchitectureRelations {
+			if domain.DomainID != req.Domain && relation.TargetDomainID != req.Domain {
+				continue
+			}
+			key := domain.DomainID + "\x00" + relation.Kind + "\x00" + relation.TargetDomainID
+			if seenRelation[key] {
+				continue
+			}
+			seenRelation[key] = true
+			out.Relations = append(out.Relations, DomainRelationView{
+				Kind:         relation.Kind,
+				SourceDomain: domain.DomainID,
+				TargetDomain: relation.TargetDomainID,
+				State:        domainRegistryRelationState(relation.State),
+				// The detail contract renders a law-free relation as an empty
+				// array, never null.
+				GoverningLaws: append([]string{}, orderedStrings(relation.GoverningLawIDs)...),
+			})
 		}
-		if err := json.Unmarshal([]byte(laws), &view.GoverningLaws); err != nil {
-			return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot decode governing laws", true, "retry once the knowledge projection is readable", err)
+	}
+	sort.Slice(out.Relations, func(i, j int) bool {
+		left, right := out.Relations[i], out.Relations[j]
+		if left.Kind != right.Kind {
+			return left.Kind < right.Kind
 		}
-		out.Relations = append(out.Relations, view)
-	}
-	if err := relRows.Err(); err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot enumerate Domain relations", true, "retry once the knowledge projection is readable", err)
-	}
-	relRows.Close()
+		if left.SourceDomain != right.SourceDomain {
+			return left.SourceDomain < right.SourceDomain
+		}
+		return left.TargetDomain < right.TargetDomain
+	})
 
 	// CD-0224: the open observations join the existing Domain surface, so
 	// the operator meets them where the next decision about the Domain is
@@ -316,19 +347,40 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) 
 	return out, nil
 }
 
-func domainExistsCurrent(ctx context.Context, q queryer, product, domain string) (DomainSummary, error) {
-	var summary DomainSummary
-	var parent sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT domain_id,name,purpose,parent_domain_id,status FROM domains WHERE product_id=? AND domain_id=?`, product, domain).Scan(&summary.DomainID, &summary.Name, &summary.Purpose, &parent, &summary.Status)
-	if err == sql.ErrNoRows {
-		return summary, newFailure(KindUnknownDomain, "domain_read", "Domain does not exist in the Product registry", false, "read the Domain list for the current registry before requesting detail")
+// snapshotOrderedList lists the snapshot's laws in the stable (kind, law_id)
+// order the detail page projects.
+func snapshotOrderedList(snapshot *lawFolderSnapshot) []KnowledgeRecord {
+	records := make([]KnowledgeRecord, 0, len(snapshot.LawIDs()))
+	for _, id := range snapshot.LawIDs() {
+		record, _ := snapshot.Law(id)
+		records = append(records, record)
 	}
-	if err != nil {
-		return summary, wrapFailure(KindUnavailable, "domain_read", "cannot read Domain", true, "retry once the knowledge projection is readable", err)
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].Kind != records[j].Kind {
+			return records[i].Kind < records[j].Kind
+		}
+		return records[i].ID < records[j].ID
+	})
+	return records
+}
+
+// domainExistsCurrent resolves one current Domain from the committed
+// registry. A deprecated or unknown Domain refuses typed, exactly as the
+// projected read did.
+func domainExistsCurrent(registry KnowledgeDomainRegistry, domain string) (DomainSummary, error) {
+	var summary DomainSummary
+	for _, entry := range registry.Domains {
+		if entry.DomainID != domain {
+			continue
+		}
+		summary = DomainSummary{DomainID: entry.DomainID, Name: entry.Name, Purpose: entry.Purpose, ParentID: entry.ParentDomainID, Status: domainRegistryStatus(entry.Status)}
+		break
+	}
+	if summary.DomainID == "" {
+		return summary, newFailure(KindUnknownDomain, "domain_read", "Domain does not exist in the Product registry", false, "read the Domain list for the current registry before requesting detail")
 	}
 	if summary.Status != "current" {
 		return summary, newFailure(KindUnknownDomain, "domain_read", "Domain is deprecated in the current registry", false, "read current Domains only; deprecated Domains remain historical")
 	}
-	summary.ParentID = parent.String
 	return summary, nil
 }

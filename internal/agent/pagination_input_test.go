@@ -33,7 +33,6 @@ var paginationBaseInputs = map[string]map[string]any{
 	"concord_work_trace.continuity":            {"work_id": "work-done"},
 	"concord_work_trace.mutation_result":       {"source_tool": "concord_work_relate", "source_operation": "message_send", "idempotency_key": "pagination-message", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
 	"concord_work_trace.research":              {"product_id": "prod-alpha", "work_id": "work-done"},
-	"concord_knowledge.search":                 {},
 	"concord_domain.list":                      {"product_id": "prod-alpha"},
 }
 

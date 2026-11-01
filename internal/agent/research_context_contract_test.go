@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -18,40 +19,21 @@ import (
 // resolved view into the work pin, and replays the exact selected payload
 // without a second effect.
 
-// seedResearchContextDomainRegistry publishes one current Domain registry for
-// the fixture Product: a root Domain and one child. The registry and its
-// home locator are fold-only projections, so the fixture enters the fold the
-// same way the retained-scope fixture does — fixture prerequisite only, and
-// every selection below travels the public Invoke route.
+// seedResearchContextDomainRegistry commits one current Domain registry for
+// the fixture Product at its designated knowledge home: a root Domain and one
+// child. Every selection below travels the public Invoke route, which reads
+// the committed registry.
 func seedResearchContextDomainRegistry(t *testing.T, f researchScopeEnv) (root, child string) {
 	t.Helper()
-	root, child = "registry-root", "registry-scope"
-	hash := "sha256:" + strings.Repeat("b", 64)
-	db := f.store.DatabaseForTesting()
-	tx, err := db.Begin()
-	if err != nil {
-		t.Fatal(err)
+	root, child = "product-root:product-a", "registry-scope"
+	registry := store.KnowledgeDomainRegistry{
+		SchemaVersion: "1.0", ProductKey: "product-a", RootDomainID: root,
+		Domains: []store.KnowledgeDomain{
+			{DomainID: root, Name: "fixture domain " + root, Purpose: "the root Domain of the research-context fixture", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},
+			{DomainID: child, Name: "fixture domain " + child, Purpose: "the child Domain of the research-context fixture", ParentDomainID: root, Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}},
+		},
 	}
-	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('research-context-fixture','project-a','canonical_path','/fixture/research-context','/fixture/research-context','now','now')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product-a','project-a','research-context-fixture','product-a',?,'1.0',?,'test')`, root, hash); err != nil {
-		t.Fatal(err)
-	}
-	for _, domain := range []string{root, child} {
-		if _, err := tx.Exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project-a','research-context-fixture','product-a',?,?,?,NULLIF(?,''),'current',?,'test')`,
-			domain, "fixture domain "+domain, "the root Domain of the research-context fixture", map[bool]string{true: "", false: root}[domain == root], hash, "test"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	if _, err := pm1fixture.SeedProductDomainRegistry(context.Background(), f.store, "product-a", "project-a", t.TempDir(), registry); err != nil {
 		t.Fatal(err)
 	}
 	return root, child
@@ -232,7 +214,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 	t.Run("malformed_and_unknown_owner_selections_refuse_whole", func(t *testing.T) {
 		t.Parallel()
 		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
-		_, child := seedResearchContextDomainRegistry(t, f)
+		root, child := seedResearchContextDomainRegistry(t, f)
 		before := researchScopeSnapshot(t, f.store, researchScopePackA)
 		bound := func(key string, mutate func(ref map[string]any)) map[string]any {
 			ref := researchContextSelectedRef(researchScopePackA, "f-"+researchScopePackA, child, "")
@@ -249,7 +231,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 				[]map[string]any{researchContextSelectedRef("pack-absent", "f-pack-absent", child, "")}), "unknown_scope"},
 			{"zero_revision", bound("rc-zero", func(ref map[string]any) { ref["revision"] = 0 }), "invalid_input"},
 			{"unknown_domain", bound("rc-domain", func(ref map[string]any) { ref["domain_id"] = "registry-absent" }), "unknown_scope"},
-			{"root_domain_without_rationale", bound("rc-root-bare", func(ref map[string]any) { ref["domain_id"] = "registry-root" }), "invalid_input"},
+			{"root_domain_without_rationale", bound("rc-root-bare", func(ref map[string]any) { ref["domain_id"] = root }), "invalid_input"},
 		}
 		for _, test := range cases {
 			t.Run(test.name, func(t *testing.T) {

@@ -1,3 +1,32 @@
+---
+{
+  "id": "workflow-engine-contract",
+  "title": "Workflow engine contract",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "WF02-planning-requires-outcome"
+    },
+    {
+      "criterion": 2,
+      "scenario": "WF04-weaker-delivery"
+    },
+    {
+      "criterion": 3,
+      "scenario": "WF37-action-availability-before-register"
+    },
+    {
+      "criterion": 4,
+      "scenario": "WF19-completion-one-transaction"
+    }
+  ]
+}
+---
 # Concord Workflow Engine Contract
 
 > **Status:** Implementation contract for accepted CD-0013, v1.
@@ -23,7 +52,7 @@ CD-0015 adds the law boundary without adding a workflow tool.
 Only contracts approved through surface `2.2.0` carry the internal persisted
 law-boundary marker: for those contracts, `spec_mandate` is the bounded
 referenced-law set and `law_modifies` is an optional bounded subset. Planning
-checks the accepted Git-derived `law_subjects` and `law_relations` projection;
+checks the laws committed in the law folder and their declared relations;
 an explicit conflict may pass planning only when the endpoint whose record
 declares it is in `law_modifies`. Completion reruns the check without that
 exception, so only a Git-authorized law delta can resolve the conflict.

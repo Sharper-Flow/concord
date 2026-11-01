@@ -1,3 +1,14 @@
+---
+{
+  "id": "CD-0058",
+  "title": "Concord performs no model routing",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": []
+}
+---
 # CD-0058: Concord does not route models
 
 - **Status:** Accepted
@@ -27,4 +38,5 @@ requirements remain under CD-0242 D5 and D8.
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` checks identity and hashes.
+- Committed law-folder snapshot validation checks the record's identity and
+  content digest.

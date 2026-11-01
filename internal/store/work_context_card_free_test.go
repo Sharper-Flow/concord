@@ -15,7 +15,7 @@ import (
 // workContextCompanionRepo builds one real Git repository whose checkout
 // carries a complete 1.1 navigation companion and inventory, and returns the
 // repo path and its committed HEAD.
-func workContextCompanionRepo(t *testing.T) (string, string) {
+func workContextCompanionRepo(t *testing.T) string {
 	t.Helper()
 	repo := initKnowledgeRepo(t)
 	domains := []map[string]any{}
@@ -28,12 +28,23 @@ func workContextCompanionRepo(t *testing.T) (string, string) {
 	writeKnowledgeFile(t, repo, ".concord/navigation/inventory.json", string(mustJSONValue(inventory)))
 	writeKnowledgeFile(t, repo, ".concord/domain-navigation.v1.json", `{"schema_version":"1.1","rules":[],"unresolved":[],"mechanisms":[],"catalog_bindings":[],"test_coverage":[],"dependency_interpretations":[]}`)
 	writeKnowledgeFile(t, repo, "README.md", "context subject\n")
-	return repo, commitKnowledgeRepo(t, repo, "companion fixture")
+	// The companion is the Product's law home once a test repoints the
+	// locator, so it carries the committed registry the pre-transaction
+	// verification reads: the Product root plus the current child Domains the
+	// declared-context cases name.
+	registry := `{"schema_version":"1.0","product_key":"product","root_domain_id":"product-root:product","domains":[` +
+		`{"domain_id":"product-root:product","name":"Product","purpose":"Governs the synthetic fixture Product.","status":"current","architecture_relations":[]},` +
+		`{"domain_id":"child-alpha","name":"Affected child","purpose":"The approved affected child.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]},` +
+		`{"domain_id":"child-unaffected","name":"Unaffected","purpose":"Current outside the approved affected scope.","status":"current","parent_domain_id":"product-root:product","architecture_relations":[]}]}`
+	writeKnowledgeFile(t, repo, knowledgeRegistryPath, registry+"\n")
+	commitKnowledgeRepo(t, repo, "companion fixture")
+	return repo
 }
 
-// workContextPointLawHome repoints the Product's registry home at repo and
-// pins its scanned commit, the way the retired proof resolved sources.
-func workContextPointLawHome(t *testing.T, f workContextFixture, repo, oid string) {
+// workContextPointLawHome repoints the Product's registry home at repo: the
+// per-operation establishment re-reads the committed registry from the
+// repointed locator at the next action.
+func workContextPointLawHome(t *testing.T, f workContextFixture, repo string) {
 	t.Helper()
 	tx, err := f.store.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
@@ -44,9 +55,6 @@ func workContextPointLawHome(t *testing.T, f workContextFixture, repo, oid strin
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`UPDATE project_locators SET locator_value=?,normalized_value=? WHERE locator_id='workflow-law-locator'`, repo, repo); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`UPDATE domain_registries SET scanned_commit_oid=? WHERE product_id='product'`, oid); err != nil {
 		t.Fatal(err)
 	}
 	if err := leaveWrite(context.Background(), tx); err != nil {
@@ -64,8 +72,7 @@ func TestWorkContextViewCarriesOnlyDeclaredSourcesWithoutCompanion(t *testing.T)
 	t.Parallel()
 	f := seedWorkContextFixture(t, "ctx-cardfree-declared")
 	defer f.store.Close()
-	repo, oid := workContextCompanionRepo(t)
-	workContextPointLawHome(t, f, repo, oid)
+	workContextPointLawHome(t, f, workContextCompanionRepo(t))
 	if err := f.recordWorkContext(t, map[string]any{
 		"required_reading": []map[string]any{workContextRepoReading(workContextTestChild, "")},
 		"finding_refs":     []string{},
@@ -97,8 +104,7 @@ func TestWorkContextViewStaysAbsentBesideCompanionOnlyHome(t *testing.T) {
 	t.Parallel()
 	f := seedWorkContextFixture(t, "ctx-cardfree-absent")
 	defer f.store.Close()
-	repo, oid := workContextCompanionRepo(t)
-	workContextPointLawHome(t, f, repo, oid)
+	workContextPointLawHome(t, f, workContextCompanionRepo(t))
 	view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
 	if err != nil {
 		t.Fatalf("companion-only home refused the absent read: %v", err)

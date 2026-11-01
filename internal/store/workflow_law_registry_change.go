@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -34,12 +33,19 @@ func workflowLawRegistryEntryHash(fields []string) string {
 	return fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 }
 
+// readWorkflowLawRegistrySnapshot projects the verified committed Domain
+// registry into compact per-entry fingerprints. The registry comes from the
+// pre-transaction proof's law-folder snapshot: the same committed registry the
+// Domain reads and the law loader answer from, at the same frozen commit. A
+// home the proof does not carry refuses; a Product whose law home is not a
+// designated Product home, or whose home committed no registry, keeps its
+// nil-registry answer.
 func readWorkflowLawRegistrySnapshot(ctx context.Context, q queryer, workID string) (*workflowLawRegistrySnapshot, error) {
 	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, q, workID)
 	if err != nil {
 		return nil, err
 	}
-	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
+	productID, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
 	if err != nil {
 		var f *Failure
 		if failureAs(err, &f) && f.Kind == KindUnknownScope {
@@ -47,70 +53,39 @@ func readWorkflowLawRegistrySnapshot(ctx context.Context, q queryer, workID stri
 		}
 		return nil, err
 	}
-	result := &workflowLawRegistrySnapshot{Entries: []workflowLawRegistryPin{}}
-	if err := q.QueryRowContext(ctx, `SELECT root_domain_id FROM domain_registries WHERE product_id=?`, productID).Scan(&result.RootDomainID); err != nil {
-		if err == sql.ErrNoRows {
+	if productID == "" {
+		return nil, nil
+	}
+	snapshot, err := lawSnapshotForSource(ctx, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID}, "workflow_law_change")
+	if err != nil {
+		return nil, err
+	}
+	registry, err := snapshot.Registry()
+	if err != nil {
+		var f *Failure
+		if failureAs(err, &f) && f.Kind == KindDomainRegistryAbsent {
 			return nil, nil
 		}
-		return nil, workflowProjectionError(err, "cannot read the changed Domain registry")
+		return nil, err
 	}
-	rows, err := q.QueryContext(ctx, `SELECT domain_id,name,purpose,COALESCE(parent_domain_id,''),status FROM domains WHERE product_id=? ORDER BY domain_id`, productID)
-	if err != nil {
-		return nil, workflowProjectionError(err, "cannot read registry entries for the law change")
+	result := &workflowLawRegistrySnapshot{RootDomainID: registry.RootDomainID, Entries: []workflowLawRegistryPin{}}
+	for _, domain := range registry.Domains {
+		result.Entries = append(result.Entries, workflowLawRegistryPin{
+			DomainID:    domain.DomainID,
+			ContentHash: workflowLawRegistryEntryHash([]string{domain.Name, domain.Purpose, domain.ParentDomainID, domainRegistryStatus(domain.Status)}),
+		})
 	}
-	for rows.Next() {
-		var id, name, purpose, parent, status string
-		if err := rows.Scan(&id, &name, &purpose, &parent, &status); err != nil {
-			_ = rows.Close()
-			return nil, workflowProjectionError(err, "cannot decode the changed registry's entries")
+	for _, domain := range registry.Domains {
+		for _, relation := range domain.ArchitectureRelations {
+			fields := []string{domainRegistryRelationState(relation.State)}
+			fields = append(fields, orderedStrings(relation.GoverningLawIDs)...)
+			result.Entries = append(result.Entries, workflowLawRegistryPin{
+				DomainID:       domain.DomainID,
+				Kind:           relation.Kind,
+				TargetDomainID: relation.TargetDomainID,
+				ContentHash:    workflowLawRegistryEntryHash(fields),
+			})
 		}
-		result.Entries = append(result.Entries, workflowLawRegistryPin{DomainID: id, ContentHash: workflowLawRegistryEntryHash([]string{name, purpose, parent, status})})
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return nil, workflowProjectionError(err, "cannot finish reading the changed registry's entries")
-	}
-	if err := rows.Close(); err != nil {
-		return nil, workflowProjectionError(err, "cannot close the changed registry's entries")
-	}
-	rows, err = q.QueryContext(ctx, `SELECT r.source_domain_id,r.kind,r.target_domain_id,r.state,COALESCE(g.law_id,'')
-FROM domain_architecture_relations r LEFT JOIN domain_relation_governing_laws g
-ON g.home_project_id=r.home_project_id AND g.home_locator_id=r.home_locator_id AND g.product_id=r.product_id AND g.source_domain_id=r.source_domain_id AND g.kind=r.kind AND g.target_domain_id=r.target_domain_id
-WHERE r.product_id=? ORDER BY r.source_domain_id,r.kind,r.target_domain_id,g.law_id`, productID)
-	if err != nil {
-		return nil, workflowProjectionError(err, "cannot read registry relations for the law change")
-	}
-	var current workflowLawRegistryPin
-	var fields []string
-	appendRelation := func() {
-		if current.Kind != "" {
-			current.ContentHash = workflowLawRegistryEntryHash(fields)
-			result.Entries = append(result.Entries, current)
-		}
-	}
-	for rows.Next() {
-		var pin workflowLawRegistryPin
-		var state, lawID string
-		if err := rows.Scan(&pin.DomainID, &pin.Kind, &pin.TargetDomainID, &state, &lawID); err != nil {
-			_ = rows.Close()
-			return nil, workflowProjectionError(err, "cannot decode the changed registry's relations")
-		}
-		if pin.key() != current.key() {
-			appendRelation()
-			current = pin
-			fields = []string{state}
-		}
-		if lawID != "" {
-			fields = append(fields, lawID)
-		}
-	}
-	appendRelation()
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return nil, workflowProjectionError(err, "cannot finish reading the changed registry's relations")
-	}
-	if err := rows.Close(); err != nil {
-		return nil, workflowProjectionError(err, "cannot close the changed registry's relations")
 	}
 	slices.SortFunc(result.Entries, func(a, b workflowLawRegistryPin) int {
 		return strings.Compare(a.key(), b.key())

@@ -21,19 +21,13 @@ func mustActorRef(t *testing.T, actor WorkflowActor) string {
 	return ref
 }
 
-// Synthetic projection fixtures still bind freshness to real committed bytes,
-// just as seedWorkflowLaw does. Source proof is established separately by the
-// caller before opening its workflow transaction.
-func bindWorkflowFixtureKnowledgeSource(t *testing.T, s *Store, home KnowledgeHome) {
+// Synthetic projection fixtures bind their synthetic home to a real committed
+// law folder, so a pre-transaction verification reads a real snapshot from it.
+// Source proof is established separately by the caller before opening its
+// workflow transaction.
+func bindWorkflowFixtureKnowledgeSource(t *testing.T, home KnowledgeHome) {
 	t.Helper()
-	commit := commitKnowledgeRepo(t, home.RepoPath, "fixture knowledge source")
-	digest, err := knowledgeContentDigest(t.Context(), home, commit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES(?,?,'HEAD',?,?,'test',1,?); DELETE FROM write_guard`, home.HomeProjectID, home.HomeLocatorID, commit, digest, knowledgeProjectionVersion); err != nil {
-		t.Fatal(err)
-	}
+	writeFixtureLawSource(t, home, "spec:one")
 }
 
 func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadRequest) (WorkflowReadProjection, error) {
@@ -41,7 +35,12 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	if len(request.WorkID) < 2 || len(request.WorkID) > 128 {
 		return out, newFailure(KindInvalidOperation, "workflow_read", "work ID is out of bounds", false, "supply one bounded work ID")
 	}
-	var err error
+	// The production read prepares the work's law proof before its read
+	// snapshot opens (PrepareWorkLawProof); this helper does the same.
+	ctx, err := s.PrepareWorkLawProof(ctx, request.WorkID)
+	if err != nil {
+		return out, err
+	}
 	err = s.readSnapshot(ctx, func(q queryer) error {
 		out, err = readWorkflowProjectionTx(ctx, q, request)
 		return err

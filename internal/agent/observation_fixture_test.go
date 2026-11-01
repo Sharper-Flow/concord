@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -28,5 +29,11 @@ func observationFixture(t *testing.T) (*store.Store, *Service, Authority) {
 		}
 	}
 	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"product_read", "work_relate", "work_define", "work_transition"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	// The observation surface validates Domains against the committed
+	// registry: designate the committed home the pre-transaction proof reads
+	// (law-folder-authority.md, Committed reads). No SQL projection is seeded.
+	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
 	return s, service, grant
 }

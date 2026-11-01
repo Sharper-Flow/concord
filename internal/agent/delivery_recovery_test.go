@@ -18,11 +18,7 @@ import (
 func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	ctx := context.Background()
-	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 

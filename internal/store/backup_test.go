@@ -271,9 +271,10 @@ func captureEvidenceRows(t *testing.T, db *sql.DB, query string) []string {
 	return captured
 }
 
-// TestBackupRestorePreservesLivingEvidence checks workflow and law pins,
-// research selections, issue identity, and retained reports through
-// snapshot and restore. Retiring research must leave its selection typed missing.
+// TestBackupRestorePreservesLivingEvidence checks workflow and law pins, the
+// knowledge-home binding, research selections, issue identity, and retained
+// reports through snapshot and restore. Retiring research must leave its
+// selection typed missing.
 func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -560,8 +561,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		{"research_finding_sources", `SELECT pack_id,revision,finding_id,source_id FROM active_research_finding_sources ORDER BY pack_id,revision,finding_id,source_id`},
 		{"research_finding_scopes", `SELECT pack_id,revision,finding_id,scope_kind,scope_id FROM active_research_finding_scopes ORDER BY pack_id,revision,finding_id,scope_kind,scope_id`},
 		{"research_consumers", `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers ORDER BY pack_id,consumer_work_id`},
-		{"domain_registry", `SELECT product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid FROM domain_registries ORDER BY product_id`},
-		{"domains", `SELECT product_id,domain_id,parent_domain_id,status,registry_content_hash FROM domains ORDER BY product_id,domain_id`},
+		{"knowledge_homes", `SELECT product_id,project_id,locator_id FROM product_knowledge_homes ORDER BY product_id`},
 	}
 	want := map[string][]string{}
 	for i := range fingerprints {
@@ -573,10 +573,11 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if len(want["research_packs"]) != 1 || len(want["research_revisions"]) != 2 || len(want["research_sources"]) != 3 || len(want["research_findings"]) != 3 || len(want["research_consumers"]) != 3 {
 		t.Fatalf("research population = %d packs, %d revisions, %d sources, %d findings, %d consumers, want one pack with two revisions, three linked descriptors (revision 2 copies revision 1's), three findings and three pins", len(want["research_packs"]), len(want["research_revisions"]), len(want["research_sources"]), len(want["research_findings"]), len(want["research_consumers"]))
 	}
-	// The registry fixture seeds one current registry for the work's Product
-	// beside the foreign product-2 registry, with five Domains across both.
-	if len(want["domain_registry"]) != 2 || len(want["domains"]) != 5 {
-		t.Fatalf("domain registry population = %d registries, %d domains, want the seeded fixture pair", len(want["domain_registry"]), len(want["domains"]))
+	// The committed Domain registry lives in the Product's designated Git
+	// home (law-folder-authority.md, Committed reads), so the store carries
+	// the home binding the registry reads resolve through, not registry rows.
+	if len(want["knowledge_homes"]) != 1 {
+		t.Fatalf("knowledge home population = %d, want the one Product knowledge-home binding", len(want["knowledge_homes"]))
 	}
 	if !strings.Contains(strings.Join(want["work_context_state"], "\x1e"), `"research_finding_refs"`) {
 		t.Fatalf("current context fingerprint lost the selection declaration bytes")

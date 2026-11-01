@@ -19,7 +19,6 @@ func TestComponentInputsAreProhibitedOnTheAgentSurface(t *testing.T) {
 		{"concord_work_browse", "list", `{"page":{"cursor":null,"limit":20},"component_id":"auth"}`},
 		{"concord_work_define", "capture", `{"title":"T","value_statement":"V","kind":"task","project_ids":["project-1"],"component_id":"auth","idempotency_key":"probe"}`},
 		{"concord_work_define", "revise_intent", `{"work_id":"work-1","expected_version":1,"title":"T","value_statement":"V","kind":"task","reason":"probe","component_id":"auth","idempotency_key":"probe"}`},
-		{"concord_knowledge", "search", `{"page":{"cursor":null,"limit":20},"component_ids":["auth"]}`},
 		// CD-0222 D9 renamed the research scope wire from component_ids to
 		// domain_ids. The input $def research_scopes_input never declared
 		// component_ids, so additionalProperties:false refuses the retired
@@ -48,8 +47,7 @@ func TestResearchScopeDomainIDsAreAcceptedOnTheResultSurface(t *testing.T) {
 	}
 }
 
-// Domain reads carry a closed-surface guarantee, and knowledge search accepts
-// domain_id.
+// Domain reads carry a closed-surface guarantee.
 func TestDomainReadInputsValidate(t *testing.T) {
 	t.Parallel()
 	valid := []struct {
@@ -57,7 +55,6 @@ func TestDomainReadInputsValidate(t *testing.T) {
 	}{
 		{"concord_domain", "list", `{"product_id":"product-1","page":{"cursor":null,"limit":20}}`},
 		{"concord_domain", "detail", `{"product_id":"product-1","domain_id":"root"}`},
-		{"concord_knowledge", "search", `{"product_id":"product-1","domain_id":"root","page":{"cursor":null,"limit":20}}`},
 	}
 	for _, probe := range valid {
 		if err := agentcontract.ValidateOperationPayload(probe.tool, probe.operation, []byte(probe.payload), false); err != nil {

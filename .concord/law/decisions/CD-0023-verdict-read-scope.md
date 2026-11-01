@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0023",
+  "title": "Verdict read scope for the executing actor",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-call-boundary",
+  "applies_to_domain_ids": [
+    "workflow-engine"
+  ]
+}
+---
 # CD-0023: Verdict read scope for the executing actor
 
 - **Status:** Accepted

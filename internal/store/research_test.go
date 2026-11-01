@@ -667,7 +667,7 @@ func compactionFixture(t *testing.T, required bool) (*Store, KnowledgeHome, Rese
 	t.Helper()
 	repo := initKnowledgeRepo(t)
 	path := ".concord/docs/work/owner.md"
-	writeKnowledgeFile(t, repo, path, canonicalWorkNote("owner", "2026-08-07T00:00:00Z"))
+	writeKnowledgeFile(t, repo, path, canonicalWorkNote("owner"))
 	commit := commitKnowledgeRepo(t, repo, "owner proof")
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer")
@@ -741,7 +741,7 @@ func TestProofBackedCompactionRetainsResearchAndNeverStoresBody(t *testing.T) {
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	path := ".concord/docs/work/owner.md"
-	writeKnowledgeFile(t, repo, path, canonicalWorkNote("owner", "2026-08-07T00:00:00Z"))
+	writeKnowledgeFile(t, repo, path, canonicalWorkNote("owner"))
 	commit := commitKnowledgeRepo(t, repo, "owner proof")
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer")

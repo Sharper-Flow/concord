@@ -1,3 +1,17 @@
+---
+{
+  "id": "CD-0216",
+  "title": "Research surface and explicit retirement",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-contract",
+  "applies_to_domain_ids": [
+    "product-memory",
+    "workflow-engine"
+  ]
+}
+---
 # CD-0216: Research surface and explicit retirement
 
 - **Status:** Accepted

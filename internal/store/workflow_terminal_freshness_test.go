@@ -2,9 +2,8 @@ package store
 
 import "context"
 
+// prepareTerminalTestContext is the production pre-transaction proof
+// preparation (PrepareWorkflowActionProof) for a raw test transaction.
 func prepareTerminalTestContext(ctx context.Context, s *Store, workID, action string) (context.Context, error) {
-	if action == "approve_contract" || action == "supersede_contract" || action == "complete" {
-		return s.EstablishKnowledgeSourceSetProof(ctx, workID)
-	}
-	return ctx, nil
+	return s.PrepareWorkflowActionProof(ctx, action, workID)
 }

@@ -1,3 +1,16 @@
+---
+{
+  "id": "CD-0217",
+  "title": "Publication and research retention have separate boundaries",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "product-memory",
+  "applies_to_domain_ids": [
+    "durable-authority"
+  ]
+}
+---
 # CD-0217: Publication and research retention have separate boundaries
 
 - **Status:** Accepted

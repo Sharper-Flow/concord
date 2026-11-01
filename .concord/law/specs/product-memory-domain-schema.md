@@ -1,3 +1,31 @@
+---
+{
+  "id": "PM3",
+  "title": "Product memory domain schema",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "durable-authority",
+  "applies_to_domain_ids": [
+    "product-memory",
+    "work-coordination"
+  ],
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. Criterion 1 states CD-0242 D2. The guarantee is proved by TestEventLogRetirementFreshStore and TestEventLogRetirementUpgradePreservesCurrentRows (internal/store)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. The guarantee is proved by TestOpenEnforcesForeignKeysBehaviorally (internal/store/store_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. The guarantee is proved by TestOpenAppliesSchemaManifest (internal/store/schema_test.go) and TestOpenIsIdempotentAcrossProcesses (internal/store/store_test.go)."
+    }
+  ]
+}
+---
 # Concord Product-Memory Domain Schema (PM3)
 
 > **Status:** **Accepted — binding until superseded.**
@@ -51,13 +79,13 @@ PM4/PM5 semantics (now settled separately).
 |---|---|---|---|
 | `products` | first-class typed projection | Q1/Q2 Product root | none; the Product-row glance retired with its read (CD-0224) |
 | `projects` | first-class typed projection; repositories are one Project kind/locator | Q1/Q3/Q6 scope | repo/deploy packaging, Project kind details |
-| `domains` | Git-derived first-class Product-owned architecture identity with optional acyclic parent, law ownership, and endpoint-specific architecture relations; SQLite projects that law | Q3/Q9 Domain filter; Product → Domain primary navigation | #193 implements Domain/law homes; #197 directly removes component authority from the current read path |
+| `domains` | Git-derived first-class Product-owned architecture identity with optional acyclic parent, law ownership, and endpoint-specific architecture relations; SQLite projects that law | Q3 Domain filter; Product → Domain primary navigation | #193 implements Domain/law homes; #197 directly removes component authority from the current read path |
 | `work_items` | one canonical typed managed-work projection; extensible `kind`; rare metadata JSON; independent `research` is ordinary work; CD-0213 permits historical `initiative` reads but no new grouping writes | Q2–Q8 | PM4 supplies states/relations; PM5 supplies membership/scope; business grouping belongs to Linear MCP |
 | Product↔Project membership | typed relational edge | Q1 ownership/ambiguity | PM5: many-to-many, role-only, optional singular primary |
 | Work↔Project membership | typed relational edge; no copied status | Q6 both directions | PM5: role-only, optional singular primary, derived Product scope |
 | `relations` | typed edge structure with real foreign key (FK) endpoints | Q4/Q8 | PM4 supplies kinds, inverses, cycle rules, and supersession semantics |
-| `labels` / tagging | typed many-to-many categorical extension | Q3/Q9 tags | exact label governance |
-| `external_refs` | opaque typed locator for PR/commit/upstream/URL | Q8/Q10 links | provider-specific validation |
+| `labels` / tagging | typed many-to-many categorical extension | Q3 tags | exact label governance |
+| `external_refs` | opaque typed locator for PR/commit/upstream/URL | Q8 links | provider-specific validation |
 | store state | current rows and finite verified snapshots; no event log, fold, upcaster, or replay exists (CD-0242 D2) | Q2–Q8 current-state reads | none |
 | active research context | CD-0215 direct SQLite tables for packs/revisions/findings/sources/consumers; never Git knowledge | work context | delete only by explicit retirement; PM8 still excludes blobs |
 | `artifacts` | other small structured/markdown content only | work context | PM8 excludes a v1 blob/evidence store |
@@ -125,7 +153,7 @@ and polymorphic domain relations that cannot enforce integrity.
 
 The generic `entities(type, current_state JSON)` design keeps the storage layer uniform but
 pushes PM1's stable Product/Project/work fields into JSON or a growing set of facets.
-Once every hot field is promoted for Q1–Q10, the system has recreated explicit
+Once every hot field is promoted for Q1–Q8, the system has recreated explicit
 tables indirectly—with weaker discoverability and integrity.
 
 ### Per-kind tables and typed logs — rejected

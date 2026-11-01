@@ -17,18 +17,23 @@ func TestRecordedInvestigationArtifactRequiresResolvableDomainAndWorkRefs(t *tes
 	seedWork(t, s, workID)
 	seedWork(t, s, otherWorkID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 
+	// The committed registry decides whether a ref names a current Domain:
+	// the proof is established per operation before the gate runs.
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("1", 16), []string{workID, "root"})
-	if err := requireRecordedInvestigationArtifact(context.Background(), s.DatabaseForTesting(), workID); err == nil {
+	if err := requireRecordedInvestigationArtifact(ctx, s.DatabaseForTesting(), workID); err == nil {
 		t.Fatal("observation accepted the owning work item as the comparison ref")
 	}
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("2", 16), []string{"missing-domain", otherWorkID})
-	if err := requireRecordedInvestigationArtifact(context.Background(), s.DatabaseForTesting(), workID); err == nil {
+	if err := requireRecordedInvestigationArtifact(ctx, s.DatabaseForTesting(), workID); err == nil {
 		t.Fatal("observation accepted an unknown Domain ref")
 	}
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("3", 16), []string{"root", otherWorkID})
-	if err := requireRecordedInvestigationArtifact(context.Background(), s.DatabaseForTesting(), workID); err != nil {
+	if err := requireRecordedInvestigationArtifact(ctx, s.DatabaseForTesting(), workID); err != nil {
 		t.Fatalf("resolvable investigation artifact refused: %v", err)
 	}
 }
@@ -89,7 +94,6 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 	workID := "investigation-gate-same-action"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:investigation", ClientRef: "client:investigation", AgentRef: "agent:investigation", SessionRef: "session:investigation", ActorClass: ActorAgent}
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
@@ -224,12 +228,15 @@ func TestInvestigationArtifactAdmitsSingleItemProductByDomainRef(t *testing.T) {
 	workID := "investigation-gate-single"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
 
 	// The Product holds no second work item, so a current Domain ref alone
 	// satisfies the artifact.
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("a", 16), []string{"root"})
-	if err := requireRecordedInvestigationArtifact(context.Background(), s.DatabaseForTesting(), workID); err != nil {
+	if err := requireRecordedInvestigationArtifact(ctx, s.DatabaseForTesting(), workID); err != nil {
 		t.Fatalf("single-item Product refused a domain-only investigation artifact: %v", err)
 	}
 }
@@ -242,9 +249,39 @@ func TestInvestigationArtifactSingleItemProductStillRequiresDomainRef(t *testing
 	workID := "investigation-gate-single-badref"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedIssue31DomainRegistry(t, s)
-	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("b", 16), []string{"missing-domain"})
-	if err := requireRecordedInvestigationArtifact(context.Background(), s.DatabaseForTesting(), workID); err == nil {
-		t.Fatal("single-item Product admitted an artifact without a current Domain ref")
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
+	if err != nil {
+		t.Fatal(err)
 	}
+	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("b", 16), []string{"missing-domain"})
+	requireFailureKind(t, requireRecordedInvestigationArtifact(ctx, s.DatabaseForTesting(), workID), KindMissingEvidence, "an artifact without a current Domain ref")
+}
+
+// Without a proof that binds the Product's committed registry, the advisory
+// fold cannot decide the artifact's Domain refs. It must say so with a typed
+// stale-review answer rather than report a valid artifact as missing, and a
+// registry change after the verification refuses the same way.
+func TestInvestigationArtifactDomainRefsUnverifiedWithoutCurrentProof(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	workID := "investigation-gate-unverified"
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("c", 16), []string{"root"})
+	requireFailureKind(t, requireRecordedInvestigationArtifact(context.Background(), s.DatabaseForTesting(), workID), KindStaleRequiresReview, "an artifact read without a registry proof")
+
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := requireRecordedInvestigationArtifact(ctx, s.DatabaseForTesting(), workID); err != nil {
+		t.Fatalf("a verified current Domain ref was refused: %v", err)
+	}
+	var repo string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT normalized_value FROM project_locators WHERE project_id='project' AND locator_id='workflow-law-locator'`).Scan(&repo); err != nil {
+		t.Fatal(err)
+	}
+	writeKnowledgeFile(t, repo, knowledgeRegistryPath, strings.Replace(fixtureLawFolderRegistry, `"domain_id":"root","name":"Root","purpose":"Fixture root child Domain.","status":"current"`, `"domain_id":"root","name":"Root","purpose":"Fixture root child Domain.","status":"deprecated"`, 1))
+	commitKnowledgeRepo(t, repo, "deprecate the root child Domain")
+	requireFailureKind(t, requireRecordedInvestigationArtifact(ctx, s.DatabaseForTesting(), workID), KindStaleRequiresReview, "an artifact read against a moved registry")
 }

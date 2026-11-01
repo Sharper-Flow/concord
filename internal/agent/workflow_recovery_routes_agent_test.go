@@ -13,10 +13,8 @@ import (
 
 func recoveryRegistry(t *testing.T, s *store.Store) (hash, root string) {
 	t.Helper()
-	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash,root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&hash, &root); err != nil {
-		t.Fatal(err)
-	}
-	return hash, root
+	registry := committedProductRegistry(t, s)
+	return registry.ContentHash, registry.RootDomainID
 }
 
 func recoveryDomainRepository(t *testing.T, s *store.Store) string {
@@ -34,9 +32,6 @@ func recoveryDomainRepository(t *testing.T, s *store.Store) string {
 		if output, err := exec.Command("git", append([]string{"-C", home.RepoPath}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("fixture tooling: %v: %s", err, output)
 		}
-	}
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"remote", "add", "origin", "https://example.invalid/fixture.git"}, {"update-ref", "refs/remotes/origin/main", "HEAD"}, {"symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"}} {
 		if output, err := exec.Command("git", append([]string{"-C", home.RepoPath}, args...)...).CombinedOutput(); err != nil {

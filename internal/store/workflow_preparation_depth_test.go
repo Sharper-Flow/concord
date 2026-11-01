@@ -15,7 +15,6 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 			const workID = "small-fix-preparation"
 			seedWork(t, s, workID)
 			seedWorkflowLaw(t, s)
-			seedIssue31DomainRegistry(t, s)
 			definition, err := LiveWorkflowDefinitionForRef("workflow.break_fix")
 			if err != nil {
 				t.Fatal(err)

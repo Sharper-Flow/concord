@@ -1,3 +1,28 @@
+---
+{
+  "id": "CD-0246",
+  "title": "Concord ships portable engineering methods",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0043"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0063"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0245"
+    }
+  ]
+}
+---
 # CD-0246: Concord ships portable engineering methods
 
 - **Status:** Accepted
@@ -51,6 +76,7 @@ and installs through the existing skill path.
 
 ## Verification
 
-- `python3 scripts/check-knowledge-index.py` checks identity and hashes.
+- Committed law-folder snapshot validation checks the record's identity and
+  content digest.
 - `python3 scripts/check-agent-contracts.py` checks admitted skill inventory and portability.
 - `python3 scripts/test-installer.py` checks skill installation and discovery.

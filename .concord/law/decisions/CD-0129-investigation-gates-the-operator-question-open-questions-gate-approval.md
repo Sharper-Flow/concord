@@ -1,3 +1,24 @@
+---
+{
+  "id": "CD-0129",
+  "title": "Investigation gates premise confirmation, open questions gate approval",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "workflow-engine",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0030"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0113"
+    }
+  ]
+}
+---
 # CD-0129: Investigation gates premise confirmation, open questions gate contract approval
 
 - **Status:** Accepted

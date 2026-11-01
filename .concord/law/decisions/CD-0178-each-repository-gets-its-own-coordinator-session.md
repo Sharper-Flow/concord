@@ -1,3 +1,20 @@
+---
+{
+  "id": "CD-0178",
+  "title": "Each repository gets its own coordinator session",
+  "authority": {
+    "tier": "derived"
+  },
+  "home_domain_id": "agent-adapter",
+  "applies_to_domain_ids": [],
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0104"
+    }
+  ]
+}
+---
 # CD-0178: Each repository gets its own coordinator session
 
 - **Status:** Accepted

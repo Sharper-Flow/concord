@@ -2919,7 +2919,7 @@
       }
     },
     "workflow_law_context": {
-      "description": "The approved contract's binding law and Domains, resolved at continuity read time from the law_subjects and domains projections. Absent when the contract binds no law and no Domain.",
+      "description": "The approved contract's binding law and Domains, resolved at continuity read time from the committed law folder and Domain registry. Absent when the contract binds no law and no Domain.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -2987,7 +2987,7 @@
           }
         },
         "kind": {
-          "description": "The law_subjects record kind. Constitution records are law-bearing and project into law_subjects, so a contract can mandate them.",
+          "description": "The law kind its law-folder tier supplies. Constitution records are law, so a contract can mandate them.",
           "type": "string",
           "enum": [
             "constitution",
@@ -4195,139 +4195,6 @@
         }
       }
     },
-    "knowledge_search_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "product_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "kinds": {
-          "type": "array",
-          "maxItems": 16,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "enum": [
-              "constitution",
-              "decision",
-              "lesson",
-              "note",
-              "reference",
-              "research",
-              "specification"
-            ]
-          },
-          "description": "Bounds: <=16 items inclusive"
-        },
-        "tags": {
-          "type": "array",
-          "maxItems": 32,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
-        "text": {
-          "type": "string",
-          "maxLength": 512,
-          "description": "Bounds: <=512 code points inclusive"
-        },
-        "allow_degraded": {
-          "type": "boolean"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "limit": {
-          "$ref": "#/$defs/limit",
-          "description": "Bounds: 1..100 value inclusive"
-        },
-        "domain_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      }
-    },
-    "knowledge_observe_publication_input": {
-      "description": "Explicit cache/provenance exception for readers and writers with product_read. Requires the exact Product/designated home Project/locator tuple, never an arbitrary repository or ref. Performs one noninteractive origin default-branch discovery and one selected-branch fetch within a combined ten seconds, then persists timestamped provenance. Only the selected origin tracking ref, required objects and transfer metadata may change. No checkout synchronization, law mutation, or automatic network on ordinary reads.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "product_id",
-        "source_project_id",
-        "source_locator_id"
-      ],
-      "properties": {
-        "product_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "source_project_id": {
-          "$ref": "#/$defs/id",
-          "description": "Project of the Product's designated knowledge home. Bounds: 1..128 code points inclusive"
-        },
-        "source_locator_id": {
-          "$ref": "#/$defs/id",
-          "description": "Exact locator of that designated home. Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      }
-    },
-    "knowledge_resolve_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "knowledge_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      },
-      "oneOf": [
-        {
-          "required": [
-            "work_id"
-          ],
-          "not": {
-            "required": [
-              "knowledge_id"
-            ]
-          }
-        },
-        {
-          "required": [
-            "knowledge_id"
-          ],
-          "not": {
-            "required": [
-              "work_id"
-            ]
-          }
-        }
-      ]
-    },
     "product_context": {
       "type": "object",
       "additionalProperties": false,
@@ -5436,122 +5303,6 @@
         "previous_success": {
           "$ref": "#/$defs/knowledge_publication_record",
           "description": "Historical only; never replaces the latest comparison."
-        }
-      }
-    },
-    "knowledge_page": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "items"
-      ],
-      "properties": {
-        "items": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "knowledge_id",
-              "kind",
-              "locator"
-            ],
-            "properties": {
-              "knowledge_id": {
-                "$ref": "#/$defs/id"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "constitution",
-                  "decision",
-                  "lesson",
-                  "note",
-                  "reference",
-                  "research",
-                  "specification"
-                ]
-              },
-              "locator": {
-                "type": "string",
-                "minLength": 1
-              },
-              "commit_oid": {
-                "$ref": "#/$defs/id"
-              },
-              "content_hash": {
-                "$ref": "#/$defs/digest"
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "accepted",
-                  "published"
-                ]
-              },
-              "successor_id": {
-                "description": "A work-note successor, never a law replacement.",
-                "$ref": "#/$defs/id"
-              }
-            },
-            "allOf": [
-              {
-                "if": {
-                  "required": [
-                    "successor_id"
-                  ]
-                },
-                "then": {
-                  "properties": {
-                    "kind": {
-                      "const": "note"
-                    }
-                  },
-                  "not": {
-                    "required": [
-                      "status"
-                    ]
-                  }
-                }
-              },
-              {
-                "if": {
-                  "properties": {
-                    "kind": {
-                      "type": "string",
-                      "enum": [
-                        "constitution",
-                        "decision",
-                        "specification"
-                      ]
-                    }
-                  }
-                },
-                "then": {
-                  "properties": {
-                    "status": {
-                      "const": "accepted"
-                    }
-                  }
-                }
-              }
-            ]
-          }
-        },
-        "next_cursor": {
-          "$ref": "#/$defs/cursor_output"
-        },
-        "publications": {
-          "description": "Cached publication provenance for the queried knowledge home, never an automatic origin check.",
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/knowledge_publication"
-          }
-        },
-        "watermark": {
-          "type": "string",
-          "maxLength": 256
         }
       }
     },
@@ -16983,7 +16734,7 @@
       }
     },
     "retained_workflow_law_context": {
-      "description": "The approved contract's binding law and Domains, resolved at continuity read time from the law_subjects and domains projections. Absent when the contract binds no law and no Domain.",
+      "description": "The approved contract's binding law and Domains, resolved at continuity read time from the committed law folder and Domain registry. Absent when the contract binds no law and no Domain.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -17050,7 +16801,7 @@
           }
         },
         "kind": {
-          "description": "The law_subjects record kind. Constitution records are law-bearing and project into law_subjects, so a contract can mandate them.",
+          "description": "The law kind its law-folder tier supplies. Constitution records are law, so a contract can mandate them.",
           "type": "string",
           "enum": [
             "constitution",

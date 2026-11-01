@@ -1,6 +1,6 @@
 ---
 name: concord-retrospective
-description: Find what in the agents' environment caused recurring friction and move each correction to the owner that can hold it. Use after a session or delivery with repeated steering, a mistake a check could have caught, slow navigation, missing information, or costly tool use.
+description: Find what in the agents' environment caused recurring friction and move each correction to the owner that can hold it. Use after a session or delivery with repeated steering, a mistake a check could have caught, slow navigation, missing information, or costly tool use, or when authoring or publishing a Product lesson.
 ---
 
 # Retrospective
@@ -51,3 +51,21 @@ the owner that should hold the correction, and the smallest change at that
 owner. Prefer deleting or relocating text to adding text. Apply in-scope
 corrections through the normal change route. Record the rest once, as follow-up
 items in the Product's planning system.
+
+## Publish a Product lesson
+
+For a proven Product-scoped learning, author Markdown under
+`.concord/docs/lessons/*.md` in the Product's designated knowledge home. Before
+authoring, read and apply the canonical [durable-note bound](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0069-durable-tier-enforcement.md).
+Distill the learning, not a transcript or stored state dump.
+
+[Publish through a reviewed PR](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0026-learning-capture.md):
+commit the lesson in one commit on a branch of that home, not its default
+checkout or another Project's tree. The operator reviews the lesson before
+merge, and required checks must pass. Before merge it is candidate text. A
+lesson for terminal work names that work.
+
+Learned external-system usage belongs to the Product that learned it. Tag it
+`resource:<resource_id>`; store a locator to vendor documentation, never vendor
+schema or documentation content. Fetch the vendor source live. For placement
+or promotion into Product law, load `concord-law-writing`.

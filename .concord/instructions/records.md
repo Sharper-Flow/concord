@@ -11,6 +11,11 @@ transcript of commands and status changes. Do not mirror routine progress in
 chat, receipts, and planning comments. Required workflow transitions and planning
 state changes still belong in their owning systems.
 
+Public repository content excludes private Product or customer data,
+credentials, and inaccessible private-source citations. Keep planning backlogs
+with the owning Product's team in its external planning system, never in a
+repository, including when you discover work for another Product.
+
 List every law change in the pull request and completion report with its record,
 its change in meaning or an explicit statement of none, and its reason.
 For Concord deletion under CD-0243 D3, name each retired law and its change in

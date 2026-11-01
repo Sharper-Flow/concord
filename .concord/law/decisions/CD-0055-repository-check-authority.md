@@ -3,9 +3,7 @@
   "id": "CD-0055",
   "title": "Repository checks are structural first, and textual guards are declared exceptions",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "repository-verification",
   "applies_to_domain_ids": []
@@ -15,8 +13,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-21
-- **Scope:** what authority a repository check may hold; when a hand-written
-  textual guard is legal; the audit of the existing Go-source checks; issue #302
+- **Scope:** what authority a repository check in any Product served by Concord
+  may hold; when a hand-written textual guard is legal; the audit of the existing
+  Go-source checks; issue #302
 - **Approval:** Operator accepted the drafted decision on 2026-08-21; the public
   record is [issue #302](https://github.com/Sharper-Flow/concord/issues/302)
 - **Related:** CD-0249 (computed reachability and the `deadcode` precedent), CD-0014
@@ -62,8 +61,8 @@ The current inventory of Go-source analysis in required checks:
 
 ### D1. Structural first
 
-An invariant that Go types, tests, generated contracts with pinned digests, or
-schema validation can own is owned there. A repository check that restates such
+An invariant that language types, tests, generated contracts with pinned digests,
+or schema validation can own is owned there. A repository check that restates such
 an invariant is a second opinion with merge-blocking authority — the failure
 mode in miniature.
 
@@ -115,9 +114,9 @@ a probabilistic or judgment-shaped verdict is D4 and never blocks.
 3. Appeasing a guard by reshaping code, rather than improving structure, is
    evidence the guard exceeded its class; the response is to fix or retire the
    guard, not to appease it.
-4. This decision governs the repository validator plane only. The coordination
-   plane's prior exclusion of heuristic authority is unchanged and remains the
-   stronger rule.
+4. This decision governs the repository validator plane of every Product served
+   by Concord. The coordination plane's prior exclusion of heuristic authority
+   is unchanged and remains the stronger rule.
 5. This record's Verification section names the surviving store-boundary tests,
    transaction-scope test, and reachability checker.
 

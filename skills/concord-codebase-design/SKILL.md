@@ -1,6 +1,6 @@
 ---
 name: concord-codebase-design
-description: Design or restructure a module's interface and decide where a seam belongs. Use when adding or changing a function, type, package, or service boundary, judging whether an abstraction earns its place, or making code testable through its interface.
+description: Design or restructure a module's interface and decide where a seam belongs. Use when adding or changing a function, type, package, or service boundary, judging whether an abstraction earns its place, making code testable through its interface, or adding, changing or reviewing a repository check.
 ---
 
 # Codebase design
@@ -73,3 +73,26 @@ For a consequential interface, sketch at least two materially different
 interfaces before choosing. Compare them on depth, locality, seam placement, and
 what each forces callers to know. Record the choice and the rejected option in
 the work's design record, not in code comments.
+
+## Check authority
+
+When adding, changing or reviewing a repository check in any Product served by
+Concord, name its [authority class](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0055-repository-check-authority.md):
+
+- **structural**: prefer types, tests, generated contracts with pinned digests,
+  or schema validation. Do not add a blocking second opinion over an invariant
+  those mechanisms already own.
+- **real-tool**: static analysis wraps a pinned real tool and declares only its
+  exceptions. Do not hand-write a lexer or parser for a language the toolchain
+  already parses.
+- **textual-guard**: legal only when all four conditions hold: the failure is
+  invisible at the guarded boundary (hang, deadlock or silent corruption); the
+  structural mechanisms cannot express the invariant today; the guard stays
+  small and documents its false-positive shape; and it names the structural
+  end state that retires it. Missing a condition is a finding, not a guard.
+- **warn-only**: heuristic similarity, smell or pattern suspicion may report,
+  never block or become a required check. A deterministic textual rule is still
+  subject to every textual-guard condition, not automatically a heuristic.
+
+A check with no class is a review finding. Fix or retire a guard that exceeds
+its class; do not reshape correct code to appease it.

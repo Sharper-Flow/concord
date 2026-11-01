@@ -1008,9 +1008,10 @@ class ShippedSkillTests(unittest.TestCase):
             with self.subTest(addition=addition):
                 self.assertTrue(any("reference" in f for f in self.findings(self.content() + addition)))
 
-    def test_canonical_publication_reference_is_required(self):
-        text = re.sub(r"\[Knowledge identity and publication\]\([^)]*\)", "Publication", self.content())
-        self.assertTrue(any("publication" in f for f in self.findings(text)))
+    def test_canonical_ownership_reference_is_required(self):
+        text = re.sub(r"\[Domain ownership\]\([^)]*\)", "Domain ownership", self.content())
+        self.assertNotEqual(text, self.content())
+        self.assertTrue(any("missing canonical ownership reference" in f for f in self.findings(text)))
 
     def test_admitted_inventory_is_exact_and_rejects_missing_extra_or_symlinked_files(self):
         with tempfile.TemporaryDirectory() as temporary:

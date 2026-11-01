@@ -36,6 +36,9 @@ const (
 	maxCriterionBindings         = 1000
 	minCriterionExemption        = 12
 	maxCriterionExemption        = 512
+	// maxCriterionReferenceID bounds a criterion binding's work and predicate
+	// IDs to what the workflow law context renders for them.
+	maxCriterionReferenceID = 128
 )
 
 var manifestLawBearingKinds = map[string]bool{
@@ -139,11 +142,9 @@ type KnowledgeCriterionBinding struct {
 
 var (
 	// criterionWorkIDPattern and criterionPredicateIDPattern bound the
-	// predicate-reference form authoritatively, mirroring
-	// contracts/concord-knowledge-index.v1.schema.json ($defs.criterionBinding).
-	// The checker cannot reach the store and the store cannot reach the
-	// workflow table from a Git manifest parse, so both sides validate shape
-	// only; verdict-level discharge lives on the work-item side.
+	// predicate-reference form authoritatively. The committed law read cannot
+	// reach the workflow table, so it validates shape only; verdict-level
+	// discharge lives on the work-item side.
 	criterionWorkIDPattern      = regexp.MustCompile(`^work-[0-9a-f]{8,64}$`)
 	criterionPredicateIDPattern = regexp.MustCompile(`^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$`)
 )
@@ -624,10 +625,10 @@ func validateKnowledgeCriterionBindingForm(binding KnowledgeCriterionBinding) er
 	if binding.Exemption != "" && (utf8.RuneCountInString(binding.Exemption) < minCriterionExemption || utf8.RuneCountInString(binding.Exemption) > maxCriterionExemption || strings.TrimSpace(binding.Exemption) != binding.Exemption) {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion exemption is not a bounded reason", false, "use a trimmed exemption reason of twelve to five hundred twelve characters")
 	}
-	if binding.WorkID != "" && (len(binding.WorkID) > maxManifestID || !criterionWorkIDPattern.MatchString(binding.WorkID)) {
+	if binding.WorkID != "" && (len(binding.WorkID) > maxCriterionReferenceID || !criterionWorkIDPattern.MatchString(binding.WorkID)) {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding work id is not a bounded work- id", false, "reference a Concord work item with the work- id form")
 	}
-	if binding.PredicateID != "" && (len(binding.PredicateID) > maxManifestID || !criterionPredicateIDPattern.MatchString(binding.PredicateID)) {
+	if binding.PredicateID != "" && (len(binding.PredicateID) > maxCriterionReferenceID || !criterionPredicateIDPattern.MatchString(binding.PredicateID)) {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding predicate id is not a predicate- prefixed id", false, "reference one outcome predicate with the predicate: prefix")
 	}
 	return nil

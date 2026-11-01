@@ -58,16 +58,18 @@ evidence, rejected shortcuts, and falsifiers, and carry no obligation.
 
 ## 1. Decision
 
-Concord exposes **at most nine always-visible domain tools** to an agent.
+Concord exposes **at most eight always-visible domain tools** to an agent.
 Business grouping belongs to Linear through the Linear MCP server.
-`concord_domain` owns Domain navigation and detail intents.
-Budget: `always_visible_tools: 9`. The canonical machine-readable count is the
+`concord_domain` owns Domain navigation and detail intents. Product law is the
+committed law folder, not a knowledge tool
+([law-folder-authority](../constitution/law-folder-authority.md)).
+Budget: `always_visible_tools: 8`. The canonical machine-readable count is the
 generated manifest's `surface.tool_count`
 ([`contracts/agent-tool-surface.v1.json`](../../../contracts/agent-tool-surface.v1.json)),
 and `scripts/test-agent-contracts.py` fails if this document and the manifest
 disagree.
 
-The cap is a Concord governance constraint derived from TS1's eight evidenced job
+The cap is a Concord governance constraint derived from TS1's evidenced job
 families and the explicit need to avoid both CRUD explosion and mega-dispatch. It
 is not asserted as a universal model limit across models, schemas, or tasks.
 
@@ -160,7 +162,7 @@ records, per scenario and candidate:
 
 1. Reject any candidate that fails a hard scenario oracle, crosses an authority or
    consequence boundary, requires callers to sequence domain invariants manually,
-   or exceeds nine always-visible tools.
+   or exceeds eight always-visible tools.
 2. For a deterministic corpus run, compare success and recovery counts directly.
    For stochastic evaluation, predeclare the model, run count, sampling settings,
    and confidence interval before comparing candidates; reject a candidate whose

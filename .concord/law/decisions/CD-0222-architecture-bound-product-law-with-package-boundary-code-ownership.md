@@ -171,10 +171,10 @@ A link to a test locates a check; it does not prove behavioral conformance.
 Owner notes are not accepted law records. Typed proof anchors keep
 CD-0249's closed kinds and resolution requirements.
 
-The Git knowledge manifest remains the sole writer. Its next compatible schema
-adds the Domain registry, law-home fields, and exact law identity
-`(law_id, content_hash)` from CD-0036. The SQLite knowledge index remains a
-derived projection.
+Each law file's in-file metadata carries its law-home fields, and the Domain
+registry stays an independent Git file. Exact law identity is
+`(law_id, content_hash)` from CD-0036, read from the committed law folder
+([law-folder-authority](../constitution/law-folder-authority.md)).
 
 The active law graph obeys these pruning invariants:
 
@@ -185,7 +185,7 @@ The active law graph obeys these pruning invariants:
 3. superseded law remains historical but is absent from the default current-law
    view;
 4. unknown, dangling, duplicate, self, and forbidden-cycle relations fail the
-   manifest before projection replacement;
+   committed law read;
 5. a breaking replacement uses a new law ID and CD-0036 supersession; a
    compatible amendment keeps its ID; and
 6. semantic similarity may suggest consolidation for operator review, but no

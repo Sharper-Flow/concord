@@ -127,7 +127,7 @@ participation remain host-owned. This contract does not change host roles.
 | Main-branch review and merge | Repository pull requests and required checks | Review decisions, check results, merge record, and changed files | Main-branch delivery under this contract |
 | Eligible phase-local integration under CD-0241 | Coordinating agent under the declared phase | Rapid-branch merge commit and recorded local gate evidence digests | An operator-declared CD-0241 phase, not main-branch delivery |
 | Implementation isolation | Git branches and worktrees | Branch ancestry, worktree boundaries, and commits | Implementation, including outside-workflow repair |
-| Product law | Accepted decisions, specifications, and constitutional documents | Canonical knowledge records, approved versions, and law relations | Each Product's own accepted law |
+| Product law | Accepted decisions, specifications, and constitutional documents | Files under `.concord/law/` on the default branch, their committed revisions, and law relations | Each Product's own accepted law |
 | Concord predecessor lessons | Public predecessor records | Reachable citations in [../../docs/advance-predecessor-lessons.md](../../docs/advance-predecessor-lessons.md) | Concord's predecessor evidence, not an adopting Product's law |
 
 ### Preserved boundaries

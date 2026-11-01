@@ -70,9 +70,9 @@ test("ordinary tool entries resolve the live directory on every call with a GET-
       session_ref: "session-directory", agent_ref: "Concord",
     })
   }
-  expect(index).toBe(9)
-  expect(calls).toHaveLength(18)
-  expect(reads).toEqual(Array.from({ length: 9 }, () => ({ url: "/session/{id}", path: { id: "session-directory" }, signal: abort })))
+  expect(index).toBe(8)
+  expect(calls).toHaveLength(16)
+  expect(reads).toEqual(Array.from({ length: 8 }, () => ({ url: "/session/{id}", path: { id: "session-directory" }, signal: abort })))
 })
 
 const consumed = async (data: unknown): Promise<RouteResult> => {

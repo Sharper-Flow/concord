@@ -325,24 +325,99 @@ class TierRoutingTest(unittest.TestCase):
                 self.assertEqual(len(result.calls), 1)
                 self.assertIn("named test execution not verified", result.stdout)
 
+    def test_targeted_literal_fragments_preserve_argv_and_status(self):
+        for pattern in ("Overlap", "Overlap|Sequenc", "TestOne"):
+            command = ["go", "test", "-run", pattern, "./internal/store"]
+            for failure, code in (("", 0), ("go", 7)):
+                with self.subTest(pattern=pattern, failure=failure):
+                    result = self.run_wrapper("targeted", "--", *command, failure=failure)
+                    self.assertEqual(result.returncode, code, result.stderr)
+                    self.assertEqual(result.gate_class, "targeted")
+                    self.assertEqual([(call["command"], call["args"]) for call in result.calls],
+                                     [(command[0], command[1:])])
+                    self.assertIn("PASS targeted" if code == 0 else "FAIL targeted (exit 7)",
+                                  result.stdout if code == 0 else result.stderr)
+
+    def test_targeted_python_native_argv_preserves_arguments_and_status(self):
+        for args in (["--root", "."], ["Suite.test_one"],
+                     ["--output", "a file.json", "", "$(exit 99)", "; exit 99", "--", "*.py"]):
+            command = ["python3", "scripts/check-script-tests.py", *args]
+            for failure, code in (("", 0), ("python3", 7)):
+                with self.subTest(args=args, failure=failure):
+                    result = self.run_wrapper("targeted", "--", *command, failure=failure)
+                    self.assertEqual(result.returncode, code, result.stderr)
+                    self.assertEqual(result.gate_class, "targeted")
+                    self.assertEqual([(call["command"], call["args"]) for call in result.calls],
+                                     [(command[0], command[1:])])
+                    self.assertIn("PASS targeted" if code == 0 else "FAIL targeted (exit 7)",
+                                  result.stdout if code == 0 else result.stderr)
+
+    def test_fragment_and_python_plans_do_not_execute_or_invent_full_names(self):
+        for command in (
+            ["go", "test", "-run", "Overlap|Sequenc", "./internal/store"],
+            ["go", "test", "-run=TestOne", "./internal/store"],
+            ["python3", "scripts/check-script-tests.py", "--root", "."],
+        ):
+            with self.subTest(command=command):
+                result = self.run_wrapper("plan", "targeted", "--", *command)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.calls, [])
+                self.assertEqual(result.gate_class, "")
+                planned = json.loads(result.stdout)
+                self.assertEqual(planned["command"], command)
+                self.assertEqual(planned["expected_tests"], [])
+                self.assertEqual(planned["admission"], "targeted")
+                if command[0] == "go":
+                    self.assertIn("fragment", planned["reason"])
+                    self.assertNotIn("anchored", planned["reason"])
+
+    def test_anchored_plans_keep_full_name_expectations(self):
+        for pattern, names in (("^TestOne$", ["TestOne"]),
+                               ("^(TestOne|TestTwo)$", ["TestOne", "TestTwo"]),
+                               ("^(ExampleOne|FuzzOne)$", ["ExampleOne", "FuzzOne"])):
+            with self.subTest(pattern=pattern):
+                result = self.run_wrapper("plan", "targeted", "--", "go", "test",
+                                          "-run", pattern, "./internal/store")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)["expected_tests"], names)
+                self.assertEqual(result.calls, [])
+                self.assertEqual(result.gate_class, "")
+
     def test_broad_and_unknown_shapes_cannot_use_targeted(self):
         for command in (
             ["go", "test", "./internal/store"],
             ["go", "test", "-run=^TestOne$", "./..."],
             ["go", "test", "-run", "", "./internal/store"],
             ["go", "test", "-run=.*", "./internal/store"],
-            ["go", "test", "-run=TestOne", "./internal/store"],
+            ["go", "test", "-run=Overlap|", "./internal/store"],
+            ["go", "test", "-run=|Sequenc", "./internal/store"],
+            ["go", "test", "-run=Overlap||Sequenc", "./internal/store"],
+            ["go", "test", "-run=Overlap|.*", "./internal/store"],
+            ["go", "test", "-run=Overlap.*", "./internal/store"],
+            ["go", "test", "-run=Overlap/Sequenc", "./internal/store"],
+            ["go", "test", "-run=Overlap[AB]", "./internal/store"],
+            ["go", "test", "-run=(?i)Overlap", "./internal/store"],
+            ["go", "test", "-run=Overlap+", "./internal/store"],
+            ["go", "test", "-run=Overlap?", "./internal/store"],
+            ["go", "test", "-run=Overlap{1,2}", "./internal/store"],
+            ["go", "test", "-run=(Overlap|Sequenc", "./internal/store"],
             ["go", "test", "-run=^TestOne|TestTwo$", "./internal/store"],
             ["go", "test", "-run=^(TestOne$", "./internal/store"],
             ["go", "test", "-run=^TestOne$", "all"],
             ["go", "test", "-run=^$", "./internal/store"],
             ["go", "test", "-run=^TestOne$", "-bench=.", "./internal/store"],
+            ["go", "test", "-run=Overlap|Sequenc", "-fuzz=FuzzOne", "./internal/store"],
+            ["go", "test", "-run=Overlap|Sequenc", "-list=.", "./internal/store"],
+            ["go", "test", "-run=Overlap|Sequenc", "./..."],
             ["go", "test", "-run=^TestOne$", "-args", "-run=.*"],
             ["go", "test", "-run=^TestOne$", "-run=^TestTwo$", "./internal/store"],
             ["bun", "test", "adapter/opencode/"],
             ["env", "-u", "PRODUCT", "bun", "test", "adapter/opencode/"],
             ["python3", "scripts/run-script-tests.py"],
+            ["python3", "scripts/run-script-tests.py", "--dry-run", "--", "scripts/local-test-plan.py"],
             ["python3", "scripts/check-json.py"],
+            ["python3", "scripts/check-json.py", "--adapter-tests-external"],
+            ["python3", "scripts/not-a-check.py", "--root", "."],
             ["bash", "-c", "go test ./..."], ["probe"], ["env", "--split-string=go test ./..."],
         ):
             with self.subTest(command=command):

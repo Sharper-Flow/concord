@@ -56,7 +56,7 @@ usage() {
 Usage: bin/oc-test smoke | targeted -- <command> [args...] | broad -- <command> [args...] | plan <targeted|broad> -- <command> [args...] | read-go ARTIFACT_DIR [package=TestName ...] | conformance | preflight
 
   smoke        Go packages CI tests without shards, adapter suite, and JSON/law validation under host admission control
-  targeted     bounded Go selection, adapter test files, or one Python check/test suite
+  targeted     Go literal fragments/anchored names, adapter test files, or one Python check/test script with native arguments
   broad        arbitrary caller command under full host admission (including suites/shards)
   plan         print command/admission/selection JSON without discovery or execution
   read-go      compare named expectations with retained shared Go producer artifacts

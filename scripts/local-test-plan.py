@@ -67,15 +67,17 @@ def go_selection(args: list[str]) -> list[str]:
         index += 1
     if not packages or not pattern:
         raise PlanError("targeted Go checks need explicit packages and nonempty -run")
-    # A finite list of anchored top-level names avoids accidental substring or
-    # match-all selection. Subtest regexes need an explicitly admitted broad run.
+    # Only literal fragments or anchored top-level names are admitted here.
+    # Subtest and arbitrary regexes need an explicitly admitted broad run.
     # Alternation binds looser than anchors, so more than one name needs the
     # group: '^TestA|TestB$' matches any name starting TestA or ending TestB.
     name = r"(?:Test|Example|Fuzz)[A-Za-z0-9_]*"
     match = re.fullmatch(rf"\^(?:({name})|\(({name}(?:\|{name})*)\))\$", pattern)
-    if not match:
-        raise PlanError("targeted -run must be anchored literal test names, e.g. '^TestName$' or '^(TestA|TestB)$'")
-    return (match.group(1) or match.group(2)).split("|")
+    if match:
+        return (match.group(1) or match.group(2)).split("|")
+    if re.fullmatch(r"[A-Za-z0-9_]+(?:\|[A-Za-z0-9_]+)*", pattern):
+        return []  # Fragments do not identify expected full test names.
+    raise PlanError("targeted -run must be nonempty literal fragments (e.g. 'Overlap|Sequenc') or anchored literal test names (e.g. '^TestName$' or '^(TestA|TestB)$')")
 
 
 def plan(tier: str, command: list[str]) -> dict:
@@ -90,7 +92,9 @@ def plan(tier: str, command: list[str]) -> dict:
     native = native_command(command)
     if native[:2] == ["go", "test"]:
         result["expected_tests"] = go_selection(native[2:])
-        result["reason"] = "Explicit packages and finite anchored top-level test selection"
+        result["reason"] = ("Explicit packages and finite anchored top-level test selection"
+                            if result["expected_tests"] else
+                            "Explicit packages and finite literal fragment selection; full test names unknown")
     elif native[:2] == ["bun", "test"] and len(native) > 2 and all(
         not token.startswith("-") and re.fullmatch(r"(?:\./)?adapter/[^\s]*\.(?:test|spec)\.[cm]?[jt]sx?", token)
         for token in native[2:]
@@ -98,11 +102,8 @@ def plan(tier: str, command: list[str]) -> dict:
         result["reason"] = "Explicit adapter test files (file existence/results remain native-tool checks)"
     elif len(native) >= 2 and native[0] == "python3" and re.fullmatch(
         r"scripts/(?:test|check)-[a-z0-9-]+\.py", native[1]
-    ) and native[1] != "scripts/check-json.py" and all(
-        re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", token)
-        for token in native[2:]
-    ):
-        result["reason"] = "One repository validator or script test suite"
+    ) and native[1] != "scripts/check-json.py":
+        result["reason"] = "One repository validator or script test suite with native arguments"
     else:
         raise PlanError("command is not a supported bounded targeted shape")
     return result

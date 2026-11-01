@@ -1089,7 +1089,6 @@ func init() {
 	registerOutputBound("/$defs/blocked_work_page/properties/items/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 	registerOutputBound("/$defs/blocked_work_page/properties/nodes/maxItems", goConstantBound("internal/store/query.go", "q4MaxNodeLimit", boundItems))
 
-
 	// The folds store the caller text that parseRFC3339 admitted: the Go
 	// standard library takes any number of fractional-second digits
 	// (time/format.go stdFracSecond9), so the stored render is byte-ceiling

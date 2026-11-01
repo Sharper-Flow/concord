@@ -68,7 +68,7 @@ def hosted_root():
     require(os.environ.get("GITHUB_ACTIONS") == "true", "hosted execution only")
     require(os.environ.get("GITHUB_REPOSITORY") == "Sharper-Flow/concord", "wrong repository")
     require(os.environ.get("GITHUB_EVENT_NAME") == "push", "push event required")
-    require(os.environ.get("GITHUB_REF") == "refs/heads/diag/con-1610-wal-one-shot", "wrong branch")
+    require(os.environ.get("GITHUB_REF") == "refs/heads/diag/con-1610-wal-allocation-2", "wrong branch")
     require(os.environ.get("GITHUB_RUN_ATTEMPT") == "1", "reruns are not admitted")
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     require(event.get("created") is True and event.get("deleted") is False, "branch creation only")
@@ -111,6 +111,16 @@ def prepare(root):
     print("Frozen source, reporting delta, effective tree and literal 306-name selection verified.")
 
 
+def optional_observation(probe):
+    try:
+        value = probe()
+    except (OSError, AttributeError) as error:
+        return {"status": "unavailable", "reason": f"{type(error).__name__} (errno={getattr(error, 'errno', None)})"}
+    if not value:
+        return {"status": "unavailable", "reason": "probe returned no data"}
+    return {"status": "observed", "value": value}
+
+
 def record_runtime(root):
     subject = root / "subject"
     for key, value in POISON.items():
@@ -148,9 +158,12 @@ def record_runtime(root):
         "runner": {key: os.environ.get(key) for key in (
             "RUNNER_OS", "RUNNER_ARCH", "ImageOS", "ImageVersion", "GO_SETUP_CACHE_HIT", "GOMAXPROCS"
         )},
-        "cpu_count": os.cpu_count(),
-        "cpu_affinity": sorted(os.sched_getaffinity(0)),
-        "cpu_max": Path("/sys/fs/cgroup/cpu.max").read_text().strip(),
+        "cpu_count": optional_observation(os.cpu_count),
+        "cpu_affinity": optional_observation(lambda: sorted(os.sched_getaffinity(0))),
+        # Raw local controller files do not establish effective CPU capacity.
+        "cpu_max": optional_observation(lambda: Path("/sys/fs/cgroup/cpu.max").read_text().strip()),
+        "cpu_v1_quota_us": optional_observation(lambda: Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text().strip()),
+        "cpu_v1_period_us": optional_observation(lambda: Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text().strip()),
         "implicit_go_input_sha256": {key: digest(os.environ.get(key, "").encode()) for key in ("GOFLAGS", "GODEBUG")},
         "original_image_cpu_cache": "not recorded; exact reproduction cannot be claimed",
     }

@@ -1,8 +1,8 @@
-name: CON-1610 one-shot WAL diagnosis
+name: CON-1610 WAL diagnosis allocation 2
 
 on:
   push:
-    branches: [diag/con-1610-wal-one-shot]
+    branches: [diag/con-1610-wal-allocation-2]
 
 permissions:
   contents: read

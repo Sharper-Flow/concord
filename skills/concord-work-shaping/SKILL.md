@@ -10,8 +10,8 @@ workflow step or gate and grants no scope, approval, or execution authority.
 
 ## Canonical references
 
-- [Shipped skill delivery and portability](https://github.com/Sharper-Flow/concord/tree/02c0bae9c28eafe6414cab2f390f940dc1f79625/.concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
-- [Operator approval classes](https://github.com/Sharper-Flow/concord/tree/02c0bae9c28eafe6414cab2f390f940dc1f79625/.concord/docs/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md):
+- [Shipped skill delivery and portability](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+- [Operator approval classes](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md):
   a shaping choice in one of these classes goes to the operator.
 
 ## Intake

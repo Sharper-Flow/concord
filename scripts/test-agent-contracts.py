@@ -903,6 +903,58 @@ class Ts2BudgetTests(unittest.TestCase):
                          "manifest tool list disagrees with the TS2 budget")
 
 
+class CurrentSkillReferenceTests(unittest.TestCase):
+    CURRENT = "https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md"
+
+    def test_shipped_law_urls_name_current_main_law_and_existing_targets(self):
+        count = 0
+        for path in sorted((ROOT / "skills").rglob("*")):
+            if not path.is_file():
+                continue
+            for target in lane_checker.skill_reference_targets(path.read_text()):
+                if ".concord/" not in target:
+                    continue
+                with self.subTest(path=path.relative_to(ROOT), target=target):
+                    match = re.fullmatch(r"https://github\.com/Sharper-Flow/concord/(?:tree|blob)/main/(\.concord/law/[^#]+)(?:#[a-z0-9-]+)?", target)
+                    self.assertIsNotNone(match)
+                    self.assertTrue((ROOT / match[1]).is_file())
+                count += 1
+        self.assertGreater(count, 0)
+
+    def test_current_law_url_is_accepted_without_git_history(self):
+        with unittest.mock.patch.object(lane_checker.subprocess, "run", side_effect=AssertionError("history is not current law")):
+            self.assertEqual(lane_checker.shipped_skill_reference_findings(ROOT, f"[Law]({self.CURRENT})"), [])
+
+    def test_stale_law_urls_are_rejected_in_every_link_form(self):
+        for target in (
+            self.CURRENT.replace("/main/", "/" + "a" * 40 + "/"),
+            self.CURRENT.replace(".concord/law/", ".concord/docs/"),
+            self.CURRENT.replace("/main/", "/release/"),
+            self.CURRENT.replace("/law/decisions/", "/law/../decisions/"),
+            "https://github.com/Sharper-Flow/concord/tree/" + "a" * 40 + "/.concord/docs/priorities.md",
+        ):
+            for content in (f"[Law]({target})", f"[law]: {target}", f"<{target}>", target):
+                with self.subTest(content=content):
+                    findings = lane_checker.shipped_skill_reference_findings(ROOT, content)
+                    self.assertTrue(any("current main canonical law" in finding for finding in findings), findings)
+
+    def test_missing_current_law_target_is_rejected(self):
+        target = self.CURRENT.rsplit("/", 1)[0] + "/missing-rule.md"
+        findings = lane_checker.shipped_skill_reference_findings(ROOT, target)
+        self.assertTrue(any("does not exist" in finding for finding in findings), findings)
+
+    def test_readme_and_support_file_law_urls_cannot_bypass_shipped_check(self):
+        stale = self.CURRENT.replace("/main/", "/" + "a" * 40 + "/")
+        read_text = Path.read_text
+        for relative in ("skills/README.md", "skills/concord-diagnosis/LICENSE"):
+            def mutate(path, *args, **kwargs):
+                content = read_text(path, *args, **kwargs)
+                return content + "\n" + stale if path == ROOT / relative else content
+            with self.subTest(path=relative), unittest.mock.patch.object(Path, "read_text", mutate):
+                findings = lane_checker._check_shipped_skills()
+                self.assertTrue(any(relative in finding and "current main canonical law" in finding for finding in findings), findings)
+
+
 class ShippedSkillTests(unittest.TestCase):
     NAME = "concord-law-writing"
     COMMANDS = {"product-knowledge-home-designate"}
@@ -959,10 +1011,9 @@ class ShippedSkillTests(unittest.TestCase):
         content = self.content() + '\n`concord --help`\n`concord product-knowledge-home-designate --help`\n`kind: knowledge`\n```json\n{"product_id":"alpha"}\n```\n'
         self.assertEqual(self.findings(content), [])
 
-    def test_canonical_references_cannot_mix_revisions(self):
-        revision = re.search(r"concord/(?:tree|blob)/([0-9a-f]{40})/", self.content())[1]
-        content = self.content().replace(revision, ("b" if revision == "a" * 40 else "a") * 40, 1)
-        self.assertTrue(any("one source revision" in f for f in self.findings(content)))
+    def test_canonical_references_cannot_mix_current_and_pinned_law(self):
+        content = self.content().replace("/main/", "/" + "a" * 40 + "/", 1)
+        self.assertTrue(any("current main canonical law" in f for f in self.findings(content)))
 
     def test_empty_concord_invocation_is_a_finding_not_a_crash(self):
         self.assertTrue(any("command" in f for f in self.findings(self.content() + "\n`concord `")))
@@ -974,24 +1025,16 @@ class ShippedSkillTests(unittest.TestCase):
         content = re.sub(r"(?m)^description:.*$", "description: " + "x" * 1025, self.content())
         self.assertTrue(any("frontmatter" in f for f in self.findings(content)))
 
-    def test_reference_resolution_requires_a_reachable_commit_and_existing_paths(self):
-        with unittest.mock.patch.object(lane_checker.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
+    def test_reference_resolution_requires_existing_repository_paths(self):
+        with unittest.mock.patch.object(lane_checker.subprocess, "run", side_effect=AssertionError("must not read historical law")):
             self.assertEqual(lane_checker.shipped_skill_reference_findings(ROOT, self.content()), [])
-            self.assertEqual(run.call_args_list[0].args[0][:3], ["git", "merge-base", "--is-ancestor"])
-            references = set(lane_checker.SKILL_REFERENCE.findall(self.content()))
-            self.assertEqual(run.call_count, 1 + len(references))
-        with unittest.mock.patch.object(lane_checker.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
-            self.assertTrue(any("ancestor" in f for f in lane_checker.shipped_skill_reference_findings(ROOT, self.content())))
+        is_file = Path.is_file
+        missing_doc = ROOT / ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md"
+        with unittest.mock.patch.object(Path, "is_file", lambda path: False if path == missing_doc else is_file(path)):
+            findings = lane_checker.shipped_skill_reference_findings(ROOT, self.content())
+        self.assertEqual(findings, [f"reference path {missing_doc.relative_to(ROOT)} does not exist in this repository"])
 
-        def git_result(argv, **kwargs):
-            missing_doc = ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md"
-            missing = argv[1] == "cat-file" and argv[-1].endswith(":" + missing_doc)
-            return subprocess.CompletedProcess(argv, 1 if missing else 0)
-
-        with unittest.mock.patch.object(lane_checker.subprocess, "run", side_effect=git_result):
-            self.assertTrue(any("CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md" in f for f in lane_checker.shipped_skill_reference_findings(ROOT, self.content())))
-
-    def test_checkout_relative_mutable_and_unrelated_links_are_rejected(self):
+    def test_checkout_relative_nonlaw_and_unrelated_links_are_rejected(self):
         for target in (
             "../../.concord/docs/decisions/rule.md", "../references/schema.json",
             "https://github.com/Sharper-Flow/concord/tree/main/README.md",
@@ -1074,7 +1117,7 @@ class LawWritingSkillTests(unittest.TestCase):
         content = re.sub(r"\[Operator approval boundary\]\([^)]*\)", "Approval", self.content())
         self.assertTrue(any("missing canonical approval reference" in finding for finding in self.findings(content)))
 
-    def test_law_references_resolve_in_delivered_history(self):
+    def test_law_references_resolve_in_current_repository(self):
         self.assertEqual(lane_checker.shipped_skill_reference_findings(ROOT, self.content()), [])
 
     def test_law_license_is_required_without_admitting_arbitrary_support_files(self):
@@ -1105,7 +1148,7 @@ class MethodSkillTests(unittest.TestCase):
             content, skill_name=name, commands=set(), operations=self.OPERATIONS,
         )
 
-    def test_method_skills_are_admitted_portable_and_resolve_in_delivered_history(self):
+    def test_method_skills_are_admitted_portable_and_resolve_in_current_repository(self):
         for name in self.NAMES:
             with self.subTest(skill=name):
                 self.assertIn(name, lane_checker.ADMITTED_SKILLS)

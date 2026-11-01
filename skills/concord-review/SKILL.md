@@ -7,7 +7,7 @@ description: Review a change or a completed implementation step against the repo
 
 Use this method within the review the caller assigned. It adds no workflow step,
 gate, record, or editing authority under
-[method admission](https://github.com/Sharper-Flow/concord/tree/cc7b956e6a5b32eaf99ee02ab93122fef71dc70f/.concord/docs/decisions/CD-0246-concord-ships-portable-engineering-methods.md).
+[method admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md).
 
 ## Establish the review
 

@@ -101,8 +101,13 @@ func writeLawIndexHome(t *testing.T, repo string, files map[string]string) strin
 // which the retirement must preserve.
 func lawIndexRetirementFixture(t *testing.T, homePath, commit string, subjects []lawIndexSubjectSeed) (*sql.DB, string) {
 	t.Helper()
+	return lawIndexRetirementFixtureAt(t, 173, homePath, commit, subjects)
+}
+
+func lawIndexRetirementFixtureAt(t *testing.T, schema int, homePath, commit string, subjects []lawIndexSubjectSeed) (*sql.DB, string) {
+	t.Helper()
 	db, path := retirementUpgradeFixture(t)
-	advanceHistoricalPrefix(t, db, 173)
+	advanceHistoricalPrefix(t, db, schema)
 	// One explicit transaction for the whole seed window: the Domain registry
 	// rows form a deferred-FK cycle (domain_registries.root_domain_id ->
 	// domains, domains.registry_content_hash -> domain_registries), so the

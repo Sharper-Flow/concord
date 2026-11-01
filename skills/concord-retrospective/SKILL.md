@@ -12,10 +12,10 @@ finding outside the assigned scope becomes a follow-up item.
 
 ## Canonical references
 
-- [Shipped skill delivery and portability](https://github.com/Sharper-Flow/concord/tree/02c0bae9c28eafe6414cab2f390f940dc1f79625/.concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
-- [Shipped conduct corpus](https://github.com/Sharper-Flow/concord/tree/02c0bae9c28eafe6414cab2f390f940dc1f79625/.concord/docs/decisions/CD-0063-shipped-operator-conduct-rules.md):
+- [Shipped skill delivery and portability](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+- [Shipped conduct corpus](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0063-shipped-operator-conduct-rules.md):
   Concord's always-on conduct changes only with a Concord release.
-- [Knowledge ladder](https://github.com/Sharper-Flow/concord/tree/02c0bae9c28eafe6414cab2f390f940dc1f79625/.concord/docs/decisions/CD-0106-lesson-owns-the-knowledge-ladder.md):
+- [Knowledge ladder](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0106-lesson-owns-the-knowledge-ladder.md):
   a procedure belongs to instructions or a skill, a fact about one Product to
   a lesson, and accepted law to a decision or specification.
 

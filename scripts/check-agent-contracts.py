@@ -42,41 +42,40 @@ _primary_spec.loader.exec_module(_primary_prompts)
 
 SKILL_REFERENCES = {
     "concord-law-writing": {
-        "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
-        "ownership": ".concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
-        "amendment": ".concord/docs/decisions/CD-0036-breaking-law-cutovers.md",
-        "conflicts": ".concord/docs/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md",
-        "approval": ".concord/docs/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "ownership": ".concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
+        "amendment": ".concord/law/decisions/CD-0036-breaking-law-cutovers.md",
+        "conflicts": ".concord/law/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md",
+        "approval": ".concord/law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
     },
     # Portable engineering methods (CD-0246 D1 and D3).
     "concord-instruction-writing": {
-        "admission": ".concord/docs/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
+        "admission": ".concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
     },
     "concord-review": {
-        "admission": ".concord/docs/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
+        "admission": ".concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
     },
     "concord-diagnosis": {
-        "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
-        "intake": ".concord/docs/decisions/CD-0211-defect-intake-classifies-recurrence-before-fix.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
     },
     "concord-codebase-design": {
-        "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
-        "ownership": ".concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "ownership": ".concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
     },
     "concord-work-shaping": {
-        "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
-        "approval": ".concord/docs/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "approval": ".concord/law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
     },
     "concord-retrospective": {
-        "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
-        "conduct": ".concord/docs/decisions/CD-0063-shipped-operator-conduct-rules.md",
-        "ladder": ".concord/docs/decisions/CD-0106-lesson-owns-the-knowledge-ladder.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "conduct": ".concord/law/decisions/CD-0063-shipped-operator-conduct-rules.md",
+        "ladder": ".concord/law/decisions/CD-0106-lesson-owns-the-knowledge-ladder.md",
     },
 }
 ADMITTED_SKILLS = frozenset(SKILL_REFERENCES)  # CD-0245 D1, CD-0246 D3
 # Each skill adapting upstream MIT-licensed method text keeps its notice.
 SKILL_SUPPORT_FILES = {name: frozenset({"LICENSE"}) for name in ADMITTED_SKILLS}
-SKILL_REFERENCE = re.compile(r"https://github\.com/Sharper-Flow/concord/(?:tree|blob)/([0-9a-f]{40})/([^#\s]+)(?:#[a-z0-9-]+)?")
+SKILL_REFERENCE = re.compile(r"https://github\.com/Sharper-Flow/concord/(?:tree|blob)/main/(\.concord/law/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.md)(?:#[a-z0-9-]+)?")
 
 HOST_PIN = ROOT / ".concord/docs/adapter-host-pin.v1.json"
 HOST_PIN_SCHEMA = ROOT / "contracts/adapter-host-pin.schema.json"
@@ -694,16 +693,18 @@ def _check_shipped_skills() -> list[str]:
     surface = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text(encoding="utf-8"))
     operations = {operation for tool in surface["tools"] for operation in tool["operations"]}
     commands = set(re.findall(r'Canonical: "([a-z][a-z-]+)"', (ROOT / "cmd/concord/main.go").read_text(encoding="utf-8")))
-    for name in sorted(ADMITTED_SKILLS):
-        path = skills_dir / name / "SKILL.md"
+    for path in sorted(skills_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(ROOT).as_posix()
         try:
             content = path.read_text(encoding="utf-8")
-            content_findings = shipped_skill_content_findings(content, skill_name=name, commands=commands, operations=operations)
-            if not content_findings:
-                content_findings = shipped_skill_reference_findings(ROOT, content)
-            findings.extend(f"skills/{name}/SKILL.md: {finding}" for finding in content_findings)
+            content_findings = shipped_skill_reference_findings(ROOT, content)
+            if path.name == "SKILL.md":
+                content_findings.extend(shipped_skill_content_findings(content, skill_name=path.parent.name, commands=commands, operations=operations))
+            findings.extend(f"{relative}: {finding}" for finding in content_findings)
         except (OSError, UnicodeError) as exc:
-            findings.append(f"skills/{name}/SKILL.md: unreadable content: {exc}")
+            findings.append(f"{relative}: unreadable content: {exc}")
     return findings
 
 def shipped_skill_inventory_findings(skills_dir: Path) -> list[str]:
@@ -755,45 +756,37 @@ def shipped_skill_content_findings(content: str, *, skill_name: str, commands: s
         elif " " in token and not re.fullmatch(r"[a-z_]+: [a-z_]+", token):
             findings.append(f"unadmitted executable invocation: {token}")
     references: set[str] = set()
-    revisions: set[str] = set()
     for target in skill_reference_targets(content):
         match = SKILL_REFERENCE.fullmatch(target)
         if match:
-            revisions.add(match[1])
-            references.add(match[2])
+            references.add(match[1])
         else:
-            findings.append(f"reference must resolve to pinned public canonical content, not an adopting checkout: {target}")
-    if len(revisions) != 1:
-        findings.append("canonical references must name one source revision")
+            findings.append(f"reference must resolve to current main canonical law, not an adopting checkout: {target}")
     findings.extend(f"missing canonical {label} reference: {path}" for label, path in SKILL_REFERENCES[skill_name].items() if path not in references)
     return findings
 
 
 def skill_reference_targets(content: str) -> list[str]:
-    """Include inline links, reference definitions and autolinks."""
-    return (
+    """Include inline links, reference definitions, autolinks and bare URLs."""
+    return sorted(set(
         re.findall(r"\[[^\]]+\]\(([^)]+)\)", content)
         + re.findall(r"(?m)^ {0,3}\[[^\]]+\]:[ \t]*(\S+)", content)
         + re.findall(r"<([A-Za-z][A-Za-z0-9+.-]*:[^>\s]+)>", content)
-    )
+        + re.findall(r"https?://[^\s<>`\"\[\]()]+", content)
+    ))
 
 
 def shipped_skill_reference_findings(root: Path, content: str) -> list[str]:
-    """Resolve canonical source pins locally; CI supplies the public Git history."""
-    references = {match.groups() for target in skill_reference_targets(content) if (match := SKILL_REFERENCE.fullmatch(target))}
+    """Check current law URLs against repository files, including README citations."""
     findings: list[str] = []
-    try:
-        for revision in sorted({revision for revision, _ in references}):
-            result = subprocess.run(["git", "merge-base", "--is-ancestor", revision, "HEAD"], cwd=root, capture_output=True, timeout=10)
-            if result.returncode:
-                findings.append(f"reference revision {revision} must be an ancestor of this checkout; re-pin to delivered source")
-                continue
-            for _, path in sorted(reference for reference in references if reference[0] == revision):
-                result = subprocess.run(["git", "cat-file", "-e", f"{revision}:{path}"], cwd=root, capture_output=True, timeout=10)
-                if result.returncode:
-                    findings.append(f"reference path {path} does not exist at {revision}")
-    except (OSError, subprocess.SubprocessError) as exc:
-        findings.append(f"reference resolution unavailable: {exc}")
+    for target in skill_reference_targets(content):
+        if ".concord/law" not in target and ".concord/docs/decisions" not in target:
+            continue
+        match = SKILL_REFERENCE.fullmatch(target)
+        if not match:
+            findings.append(f"reference must resolve to current main canonical law: {target}")
+        elif not (root / match[1]).is_file():
+            findings.append(f"reference path {match[1]} does not exist in this repository")
     return findings
 
 def _check_envelope_operation_vocabulary() -> list[str]:

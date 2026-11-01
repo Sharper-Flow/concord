@@ -16,11 +16,11 @@ adopting Product's behavior. Read that Product's own accepted law for its rules.
 Concord's development-only paths and decision-number conventions apply only to
 Concord development, not automatically to another Product.
 
-- [Skill admission and portability](https://github.com/Sharper-Flow/concord/tree/2ad87865e640ce2ebcf8bf0582d003955566b701/.concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
-- [Domain ownership](https://github.com/Sharper-Flow/concord/tree/2ad87865e640ce2ebcf8bf0582d003955566b701/.concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md).
-- [Compatible amendment and breaking replacement](https://github.com/Sharper-Flow/concord/tree/2ad87865e640ce2ebcf8bf0582d003955566b701/.concord/docs/decisions/CD-0036-breaking-law-cutovers.md).
-- [Law-change authority and conflict rules](https://github.com/Sharper-Flow/concord/tree/2ad87865e640ce2ebcf8bf0582d003955566b701/.concord/docs/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md).
-- [Operator approval boundary](https://github.com/Sharper-Flow/concord/tree/2ad87865e640ce2ebcf8bf0582d003955566b701/.concord/docs/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md).
+- [Skill admission and portability](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+- [Domain ownership](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md).
+- [Compatible amendment and breaking replacement](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0036-breaking-law-cutovers.md).
+- [Law-change authority and conflict rules](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md).
+- [Operator approval boundary](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md).
 
 ## Find the owner
 

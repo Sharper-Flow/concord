@@ -137,10 +137,10 @@ func accountLawIndexHome(ctx context.Context, home lawIndexHome) (string, string
 	}
 	defaultRef := ""
 	if len(missing) > 0 {
-		var accounted bool
-		defaultRef, accounted = accountLawIndexRetirements(ctx, home.RepoPath, snapshot.CommitOID(), missing)
-		if !accounted {
-			return "", "", subject + " commit " + snapshot.CommitOID() + " has no law folder file or verified law-folder retirement for legacy law " + lawIndexEntryList(missing)
+		var unaccounted []lawIndexEntry
+		defaultRef, unaccounted = accountLawIndexRetirements(ctx, home.RepoPath, snapshot.CommitOID(), missing)
+		if len(unaccounted) > 0 {
+			return "", "", subject + " commit " + snapshot.CommitOID() + " has no law folder file or verified law-folder retirement for legacy law " + lawIndexEntryList(unaccounted)
 		}
 	}
 	return snapshot.CommitOID(), defaultRef, ""

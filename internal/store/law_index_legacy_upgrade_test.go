@@ -8,6 +8,12 @@ import (
 	"testing"
 )
 
+// An unrelated folder law whose deletion must not account for another law.
+const (
+	lawIndexUnrelatedLawID = "CD-0305"
+	lawIndexUnrelatedPath  = ".concord/law/decisions/CD-0305-unrelated.md"
+)
+
 func TestLawIndexSchema168RetiredLawSnapshotAndUpgrade(t *testing.T) {
 	useStampedBuild(t)
 	repo := initKnowledgeRepo(t)
@@ -70,18 +76,23 @@ func seedLawIndexLegacyProof(t *testing.T, db *sql.DB) {
 }
 
 func TestLawIndexRetirementHistoryRequiresPositiveFolderDeletion(t *testing.T) {
-	for _, scenario := range []string{"metadata_identity", "legacy_only_deletion", "legacy_rename", "wrong_hash", "missing_commit", "nonancestor_commit", "unmerged_deletion", "missing_default_ref", "retained_original_path", "malformed_identity"} {
+	for _, scenario := range []string{"metadata_identity", "legacy_only_deletion", "legacy_rename", "unrelated_folder_deletion", "wrong_hash", "missing_commit", "nonancestor_commit", "unmerged_deletion", "missing_default_ref", "retained_original_path", "malformed_identity"} {
 		t.Run(scenario, func(t *testing.T) {
 			repo := initKnowledgeRepo(t)
 			content := "# Synthetic legacy law\n\nRecorded source bytes.\n"
 			writeKnowledgeFile(t, repo, lawIndexMissingOldPath, content)
 			scanned := writeLawIndexHome(t, repo, map[string]string{lawIndexCurrentPath: fixtureLawFolderLaw(lawIndexCurrentLawID)})
 			law := lawIndexEntry{LawID: lawIndexMissingLawID, Path: lawIndexMissingOldPath, ContentHash: lawIndexContentHash(content), ScannedCommit: scanned}
-			if scenario == "legacy_only_deletion" {
+			switch scenario {
+			case "legacy_only_deletion":
 				runKnowledgeGit(t, repo, "rm", lawIndexMissingOldPath)
-			} else if scenario == "legacy_rename" {
+			case "legacy_rename":
 				runKnowledgeGit(t, repo, "mv", lawIndexMissingOldPath, ".concord/docs/still-law.md")
-			} else {
+			case "unrelated_folder_deletion":
+				writeKnowledgeFile(t, repo, lawIndexUnrelatedPath, fixtureLawFolderLaw(lawIndexUnrelatedLawID))
+				commitKnowledgeRepo(t, repo, "publish an unrelated folder law")
+				runKnowledgeGit(t, repo, "rm", lawIndexMissingOldPath, lawIndexUnrelatedPath)
+			default:
 				runKnowledgeGit(t, repo, "mv", lawIndexMissingOldPath, lawIndexMissingNewPath)
 				if scenario == "metadata_identity" {
 					writeKnowledgeFile(t, repo, lawIndexMissingNewPath, fixtureLawFolderLaw(lawIndexMissingLawID))
@@ -116,11 +127,34 @@ func TestLawIndexRetirementHistoryRequiresPositiveFolderDeletion(t *testing.T) {
 				law.ScannedCommit = commitKnowledgeRepo(t, repo, "unrelated source history")
 				runKnowledgeGit(t, repo, "checkout", "main")
 			}
-			_, admitted := accountLawIndexRetirements(t.Context(), repo, head, []lawIndexEntry{law})
-			if want := scenario == "metadata_identity"; admitted != want {
+			_, unaccounted := accountLawIndexRetirements(t.Context(), repo, head, []lawIndexEntry{law})
+			if admitted, want := len(unaccounted) == 0, scenario == "metadata_identity"; admitted != want {
 				t.Fatalf("retirement accounted = %v, want %v", admitted, want)
 			}
 		})
+	}
+}
+
+// A refusal names only the laws the history cannot account for, so a proven
+// retirement beside unconverted law is not reported as missing proof.
+func TestLawIndexRetirementNamesOnlyUnaccountedLaws(t *testing.T) {
+	repo := initKnowledgeRepo(t)
+	retiredContent := "# Synthetic retired law\n\nRecorded source bytes.\n"
+	lostContent := "# Synthetic unconverted law\n\nRecorded source bytes.\n"
+	writeKnowledgeFile(t, repo, lawIndexMissingOldPath, retiredContent)
+	writeKnowledgeFile(t, repo, lawIndexMovedOldPath, lostContent)
+	scanned := writeLawIndexHome(t, repo, map[string]string{lawIndexCurrentPath: fixtureLawFolderLaw(lawIndexCurrentLawID)})
+	runKnowledgeGit(t, repo, "mv", lawIndexMissingOldPath, lawIndexMissingNewPath)
+	commitKnowledgeRepo(t, repo, "publish folder law")
+	runKnowledgeGit(t, repo, "rm", lawIndexMissingNewPath, lawIndexMovedOldPath)
+	head := commitKnowledgeRepo(t, repo, "retire folder law and drop unconverted law")
+	runKnowledgeGit(t, repo, "update-ref", "refs/remotes/origin/main", head)
+	runKnowledgeGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	retired := lawIndexEntry{LawID: lawIndexMissingLawID, Path: lawIndexMissingOldPath, ContentHash: lawIndexContentHash(retiredContent), ScannedCommit: scanned}
+	lost := lawIndexEntry{LawID: lawIndexMovedLawID, Path: lawIndexMovedOldPath, ContentHash: lawIndexContentHash(lostContent), ScannedCommit: scanned}
+	ref, unaccounted := accountLawIndexRetirements(t.Context(), repo, head, []lawIndexEntry{retired, lost})
+	if ref != "refs/remotes/origin/main" || !reflect.DeepEqual(unaccounted, []lawIndexEntry{lost}) {
+		t.Fatalf("accounting = %q, %+v; want only %s unaccounted", ref, unaccounted, lawIndexMovedLawID)
 	}
 }
 

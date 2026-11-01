@@ -16,37 +16,44 @@ import (
 // conversion. Only a positively identified law-folder file's deletion on the
 // default branch can account for it. Historical reads deliberately do not load
 // whole snapshots: a retired pre-frontmatter file need not satisfy today's
-// metadata schema, but its exact recorded bytes must still be provable.
-func accountLawIndexRetirements(ctx context.Context, repo, head string, laws []lawIndexEntry) (string, bool) {
+// metadata schema, but its exact recorded bytes must still be provable. It
+// returns the default ref the proof is bound to and the laws it cannot account
+// for; every law is unaccounted when the default-branch binding fails.
+func accountLawIndexRetirements(ctx context.Context, repo, head string, laws []lawIndexEntry) (string, []lawIndexEntry) {
 	runner := lawFolderGitRunner{}
 	out, err := runner.Run(ctx, repo, "symbolic-ref", "refs/remotes/origin/HEAD")
 	if err != nil {
-		return "", false
+		return "", laws
 	}
 	defaultRef := strings.TrimSpace(string(out))
 	if !strings.HasPrefix(defaultRef, "refs/remotes/origin/") || !safeGitRefPath(defaultRef) || lawIndexDefaultRefCheap(repo) != defaultRef {
-		return "", false
+		return "", laws
 	}
 	out, err = runner.Run(ctx, repo, "rev-parse", "--verify", defaultRef+"^{commit}")
 	if err != nil || strings.TrimSpace(string(out)) != head {
-		return "", false
+		return "", laws
 	}
+	var unaccounted []lawIndexEntry
 	for _, law := range laws {
-		if validateCommitOID(law.ScannedCommit) != nil || !lawFolderRelPathClean(strings.Split(law.Path, "/")) {
-			return "", false
-		}
-		if _, err := runner.Run(ctx, repo, "merge-base", "--is-ancestor", law.ScannedCommit, head); err != nil {
-			return "", false
-		}
-		content, err := committedRegularBlobBytes(ctx, runner, repo, law.ScannedCommit, law.Path)
-		if err != nil || lawIndexHash(content) != law.ContentHash || !lawIndexPathAbsent(ctx, runner, repo, head, law.Path) {
-			return "", false
-		}
-		if !lawIndexFolderDeletion(ctx, runner, repo, head, law) {
-			return "", false
+		if !lawIndexRetirementProven(ctx, runner, repo, head, law) {
+			unaccounted = append(unaccounted, law)
 		}
 	}
-	return defaultRef, true
+	return defaultRef, unaccounted
+}
+
+func lawIndexRetirementProven(ctx context.Context, runner GitRunner, repo, head string, law lawIndexEntry) bool {
+	if validateCommitOID(law.ScannedCommit) != nil || !lawFolderRelPathClean(strings.Split(law.Path, "/")) {
+		return false
+	}
+	if _, err := runner.Run(ctx, repo, "merge-base", "--is-ancestor", law.ScannedCommit, head); err != nil {
+		return false
+	}
+	content, err := committedRegularBlobBytes(ctx, runner, repo, law.ScannedCommit, law.Path)
+	if err != nil || lawIndexHash(content) != law.ContentHash || !lawIndexPathAbsent(ctx, runner, repo, head, law.Path) {
+		return false
+	}
+	return lawIndexFolderDeletion(ctx, runner, repo, head, law)
 }
 
 // origin/HEAD is a shared symbolic ref, including for a linked worktree.

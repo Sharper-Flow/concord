@@ -92,12 +92,8 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 		return applyNativeTaskCutover(ctx, q, m.SQL)
 	}
 	if m.Name == "repository_verification_retirement" {
-		var active bool
-		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_verify_leases WHERE state='held' OR outcome='running')`).Scan(&active); err != nil {
+		if err := checkVerificationRetirement(ctx, q); err != nil {
 			return err
-		}
-		if active {
-			return newFailure(KindResourceBusy, "migrate", "repository verification is still held or running", false, "settle verification with the installed release before upgrading")
 		}
 	}
 	if _, err := q.ExecContext(ctx, m.SQL); err != nil {

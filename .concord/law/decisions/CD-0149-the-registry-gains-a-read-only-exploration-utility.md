@@ -3,9 +3,7 @@
   "id": "CD-0149",
   "title": "The registry gains a read-only exploration utility",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "agent-contract",
   "applies_to_domain_ids": []
@@ -57,7 +55,7 @@ requires a bounded question, read and search steps, and a plain-text facts
 packet: observed facts with source `path:line`, relevant counts with their
 populations, historical commit identifiers, and explicit unknowns. It
 prohibits inferred root causes, diagnoses, and repair recommendations. The
-parent coordinator owns diagnosis (CD-0211 D5).
+parent coordinator owns diagnosis.
 
 ### D3. The registry admits `explore` v1
 

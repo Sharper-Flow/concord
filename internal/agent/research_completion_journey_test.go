@@ -12,14 +12,9 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// The public defect journey: a first bug capture, the recurrence refusal that
-// names the research route, a research capture carrying the same intake, a
-// real workflow.research completion driven entirely through the public
-// mutation boundary (signed contract approval, finding, report, an
-// sourced research proof, operator premise confirmation, completion), and the
-// recurrent retry admitted behind that completed root cause. No workflow or
-// lifecycle state is seeded or forged: every step is a public dispatch.
-func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
+// Research completion uses the public mutation boundary for contract approval,
+// sourced criterion proof, premise confirmation and closure.
+func TestPublicResearchCompletionJourney(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_define", "work_transition", "research"})
@@ -64,35 +59,20 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		return dispatchMutation(t, s, service, request, actorEnv)
 	}
 
-	// 1. The first bug of the shape is admitted with its intake.
 	first := capture("defect-journey-first",
-		`{"title":"Checksum mismatch","value_statement":"Uploads lose their checksum","kind":"bug","project_ids":["project-1"],"idempotency_key":"defect-journey-first","defect_intake":{"failure_shape":"journey-upload-checksum","reproduction":"upload the fixture and compare digests","searched":"the Product work list and the public tracker","related_defect_ids":[]}}`)
+		`{"title":"Checksum mismatch","value_statement":"Uploads lose their checksum","kind":"bug","project_ids":["project-1"],"idempotency_key":"defect-journey-first"}`)
 	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first bug capture=%+v", first.Error)
 	}
 	bugID := (*first.ChangedRefs)[0].ID
 
-	// 2. The repeat refuses and names the research route.
-	repeat := capture("defect-journey-repeat",
-		`{"title":"Checksum mismatch again","value_statement":"Uploads still lose their checksum","kind":"bug","project_ids":["project-1"],"idempotency_key":"defect-journey-repeat","defect_intake":{"failure_shape":"journey-upload-checksum","reproduction":"upload the fixture and compare digests again","searched":"the Product work list and the public tracker","related_defect_ids":[]}}`)
-	if repeat.Outcome != agentcontract.OutcomeError || repeat.Error == nil {
-		t.Fatalf("repeat capture outcome=%s, want typed refusal", repeat.Outcome)
-	}
-	for _, needle := range []string{"journey-upload-checksum", bugID, "research", "root_cause_work_id"} {
-		if !strings.Contains(repeat.Error.Message, needle) {
-			t.Fatalf("repeat refusal %q does not name %s", repeat.Error.Message, needle)
-		}
-	}
-
-	// 3. The research capture carries the same intake as the cluster identity.
 	research := capture("defect-journey-research",
-		`{"title":"Why uploads lose checksums","value_statement":"The cluster needs a root cause","kind":"research","project_ids":["project-1"],"idempotency_key":"defect-journey-research","defect_intake":{"failure_shape":"journey-upload-checksum","reproduction":"upload the fixture and compare digests","searched":"the Product work list and the public tracker","related_defect_ids":["`+bugID+`"]}}`)
+		`{"title":"Why uploads lose checksums","value_statement":"The cluster needs a root cause","kind":"research","project_ids":["project-1"],"idempotency_key":"defect-journey-research"}`)
 	if research.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("research capture=%+v", research.Error)
 	}
 	rcaID := (*research.ChangedRefs)[0].ID
 
-	// 4. The real workflow.research completion, every step a public dispatch.
 	contractFields := map[string]any{
 		"premise":            "The upload checksum cluster has one root cause.",
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}},
@@ -132,7 +112,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		t.Fatalf("observation_record=%+v", observation.Error)
 	}
 
-	// 5. Main associates the approved criterion with a selected sourced
+	// Main associates the approved criterion with a selected sourced
 	// research finding. A report reference alone is not criterion proof.
 	researchMutation := func(operation string, input map[string]any) agentcontract.Envelope {
 		t.Helper()
@@ -211,18 +191,4 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		t.Fatalf("research completion started %d fenced actions", fencedStarts)
 	}
 
-	// 7. The recurrent retry is admitted behind the completed root cause.
-	retry := capture("defect-journey-retry",
-		`{"title":"Checksum mismatch returned","value_statement":"The checksum failure returned after the fix","kind":"bug","project_ids":["project-1"],"idempotency_key":"defect-journey-retry","defect_intake":{"failure_shape":"journey-upload-checksum","reproduction":"upload the fixture and compare digests after the repair","searched":"the Product work list and the public tracker","related_defect_ids":[],"root_cause_work_id":"`+rcaID+`"}}`)
-	if retry.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("retry behind completed root cause=%+v", retry.Error)
-	}
-	retryID := (*retry.ChangedRefs)[0].ID
-	var siblingsJSON string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(intent_json,'$.defect.sibling_ids') FROM work_items WHERE id=?`, retryID).Scan(&siblingsJSON); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(siblingsJSON, bugID) {
-		t.Fatalf("retry sibling snapshot=%s, want the first bug %s", siblingsJSON, bugID)
-	}
 }

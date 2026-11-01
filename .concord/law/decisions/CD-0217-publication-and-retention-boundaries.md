@@ -112,7 +112,7 @@ Migration and conformance witnesses are required before deployment.
 
 Publication and research boundaries are checked by `internal/store.TestResearchRetirementCascadesContent` and `internal/agent.TestResearchRetireDryRunAndReplay`.
 `internal/store.TestTerminalCleanupDefersUnreleasedOwners` checks unreleased ownership and effect blockers.
-`internal/store.TestTerminalCleanupRetainsDefectAdmissionClassification` checks that recurrence-admission facts survive collection of execution state.
-`internal/store.TestPublishedExecutionAbsenceReaders` and `internal/store.TestPublishedClassificationOnlyAbsenceReaders` check truthful readback after collection.
+`internal/store.TestTerminalCleanupRemovesBugAndResearchExecution` checks collection of bug and research execution state.
+`internal/store.TestPublishedExecutionAbsenceReaders` checks truthful readback after collection.
 Publication, every terminal route, owner removal, restart, restore and the pin/retire race still require integrated evidence.
 The required witnesses remain outstanding until they pass on the implementing subject.

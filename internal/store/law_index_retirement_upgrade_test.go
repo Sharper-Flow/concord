@@ -282,8 +282,8 @@ func TestLawIndexRetirementUpgradeAdmitsFolderAuthorityAndPreservesCurrentState(
 	if err != nil {
 		t.Fatalf("guarded upgrade refused a folder-accounted law index: %v", err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{174}) {
-		t.Fatalf("applied migrations = %v, want [174]", report.Applied)
+	if !reflect.DeepEqual(report.Applied, []int{174, 175}) {
+		t.Fatalf("applied migrations = %v, want [174 175]", report.Applied)
 	}
 	assertLawIndexRetired(t, db)
 	if got := retirementUpgradeRows(t, db, `SELECT count(*) FROM schema_migrations WHERE version=174 AND breaking=1`); !reflect.DeepEqual(got, [][]any{{int64(1)}}) {
@@ -512,8 +512,8 @@ INSERT INTO law_index_drop_blocker VALUES('project-upgrade','law-home-locator','
 	if err != nil {
 		t.Fatalf("retry after removing the drop blocker: %v", err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{174}) {
-		t.Fatalf("applied migrations = %v, want [174]", report.Applied)
+	if !reflect.DeepEqual(report.Applied, []int{174, 175}) {
+		t.Fatalf("applied migrations = %v, want [174 175]", report.Applied)
 	}
 	assertLawIndexRetired(t, db)
 	retirementUpgradeHealthy(t, db)

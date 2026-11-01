@@ -7,10 +7,9 @@ import "slices"
 type WorkflowCapability string
 
 const (
-	WorkflowCapabilityDerivedStepStart  WorkflowCapability = "derived_step_start"
-	WorkflowCapabilityProducesDelivery  WorkflowCapability = "produces_delivery"
-	WorkflowCapabilityRefineProof       WorkflowCapability = "refine_proof"
-	WorkflowCapabilityRootCauseAnalysis WorkflowCapability = "root_cause_analysis"
+	WorkflowCapabilityDerivedStepStart WorkflowCapability = "derived_step_start"
+	WorkflowCapabilityProducesDelivery WorkflowCapability = "produces_delivery"
+	WorkflowCapabilityRefineProof      WorkflowCapability = "refine_proof"
 )
 
 // workflowCapabilityNames is the closed capability vocabulary in canonical
@@ -19,7 +18,6 @@ var workflowCapabilityNames = []WorkflowCapability{
 	WorkflowCapabilityDerivedStepStart,
 	WorkflowCapabilityProducesDelivery,
 	WorkflowCapabilityRefineProof,
-	WorkflowCapabilityRootCauseAnalysis,
 }
 
 type workflowCapabilitySet []WorkflowCapability

@@ -1436,7 +1436,7 @@ func factWriteSuccessorEvent(t *testing.T, s *Store, workID, actorRef string, fa
 		"outcome_predicates": successorPredicates,
 		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_boundary_version": 1,
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"rigor_class":          "prototype_internal", "consequence_class": "internal_sqlite",
 	}
 	binding, err := readWorkflowArchitectureBinding(ctx, s.DatabaseForTesting(), workID, previous)
 	if err != nil {

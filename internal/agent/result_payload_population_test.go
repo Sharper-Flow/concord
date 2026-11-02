@@ -97,7 +97,7 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			Tags:          []string{"tag-1"},
 			RecordedAt:    "2026-01-01T00:00:00Z",
 		}},
-		ChangesProductTruth:     true,
+		ChangesProductTruth: true,
 	}
 }
 
@@ -320,11 +320,11 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 			OutcomePredicates: []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "check", OutcomePayload: `{"kind":"check"}`}},
 			RequiredEvidence:  []string{"verification"}, RouteConventions: []string{"workflow_action"}, SpecMandate: []string{"spec-1"},
 			LawModifies: []string{"spec-1"},
-			RigorClass: "prototype_internal", ChangesProductTruth: new(true), ArchitectureBinding: binding,
+			RigorClass:  "prototype_internal", ChangesProductTruth: new(true), ArchitectureBinding: binding,
 		},
-		CandidateIDs:       []string{"work-2", "work-3"},
-		BacklogAlignment:   &store.WorkflowReadBacklogAlignment{Searched: "Searched open work for duplicate objectives.", Outcome: "related_found", RelatedIDs: []string{"work-2", "work-3"}},
-		CompletionWarnings: []string{"a warning"},
+		CandidateIDs:        []string{"work-2", "work-3"},
+		BacklogAlignment:    &store.WorkflowReadBacklogAlignment{Searched: "Searched open work for duplicate objectives.", Outcome: "related_found", RelatedIDs: []string{"work-2", "work-3"}},
+		CompletionWarnings:  []string{"a warning"},
 		ChangesProductTruth: true,
 		ArchitectureBinding: binding,
 		ProposalRecord: &store.WorkflowProposalRecord{

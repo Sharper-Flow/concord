@@ -270,6 +270,14 @@ amendment or deletion alone invalidates no exit, Review or proof. A changed
 candidate or actual recorded input still requires the proof applicable to that
 subject; Git reconciliation does not relabel earlier evidence.
 
+The one-time retirement of law pins changes the Review dependency encoding.
+It preserves accepted reports and their receipt bindings without rewriting them
+or retaining a runtime compatibility decoder. Affected active work uses its
+existing same-candidate re-review route. If an affected delivery-family item has no
+admitted re-review route, upgrade refuses without changes; complete or cancel
+that item with the installed release before retrying. This encoding cutover is
+not invalidation by later law drift.
+
 A changed requirement first re-evaluates the existing candidate. Code changes
 are required only when the candidate no longer satisfies it. A contract
 version change, a relaunch, or a corrected admission request invalidates

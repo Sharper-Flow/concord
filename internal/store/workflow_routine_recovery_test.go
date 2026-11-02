@@ -12,8 +12,8 @@ import (
 // duplicate-recovery and complete-step routes consent without a consumed
 // operator approval, self-repair may be classified only by the real recorded
 // agent-class coordinator, and a classified contract gains no CD-0150 overlap
-// exemption. Every retained gate holds unchanged: stale-law and complete-step
-// state gates, audit-evidence and predecessor-set walls, exact failed
+// exemption. Every retained gate holds unchanged: complete-step state gates,
+// audit-evidence and predecessor-set walls, exact failed
 // attempt/epoch retry binding, the convergence wall, failure counts, and the
 // legacy operator identity requirement on old pins.
 //
@@ -130,41 +130,6 @@ func TestRoutineRecovery(t *testing.T) {
 		}
 	})
 
-	t.Run("the clone recovery wall refuses a deleted mandated law", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-recovery-stale-law"
-		ctx := context.Background()
-		fixture := routineRecoveryAtCompleteStep(t, workID)
-		s := fixture.store
-		// A clone keeps the deleted mandate; complete successors may drop it
-		// or bind any current accepted law (CD-0036 D3). The clone's contract
-		// mandates the pinned law, and the mandated law retires by deleting
-		// its committed file, the ordinary pull-request route.
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-			UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
-			DELETE FROM write_guard`, workID); err != nil {
-			t.Fatal(err)
-		}
-		removeCommittedFixtureLaw(t, lawChangeFixtureHome(t, s))
-		// The wall reads the committed law folder inside its transaction, so
-		// the pre-transaction proof verifies the home after the retirement
-		// commit.
-		ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		err = checkMandatedLawsTx(ctx, tx, workID, []string{"spec:one"}, []string{}, true)
-		var failure *Failure
-		if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound {
-			t.Fatalf("clone recovery retaining deleted law returned %v, want the wall refusal", err)
-		}
-	})
-
 	t.Run("shared fold walls hold for audit evidence and predecessor sets under both policies", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-walls-new"
@@ -229,6 +194,42 @@ func TestRoutineRecovery(t *testing.T) {
 		}
 	})
 
+}
+
+func TestCloneSuccessorRefusesMissingMandate(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	const workID = "clone-missing-mandate"
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, workflowFixtureDefinition(t, 2), "execution", []string{"verification"}, nil)
+	s := fixture.store
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
+DELETE FROM write_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+	removeCommittedFixtureLaw(t, lawChangeFixtureHome(t, s))
+	version := readWorkVersion(t, s, workID)
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := workflowEventWithActor("clone-missing-mandate", WorkflowContractSuperseded, workID, ownerRef, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"previous_contract_version": 1, "new_contract_version": 2,
+		"supersede_reason": "Revise the contract without changing its mandate.", "audit_evidence": []string{"evidence:clone"},
+	})
+	err = applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "check_mandated_laws" {
+		t.Fatalf("clone caller retaining missing mandate = %v, want check_mandated_laws projection_not_found", err)
+	}
+	if got := readWorkVersion(t, s, workID); got != version {
+		t.Fatalf("refused clone changed version from %d to %d", version, got)
+	}
+	var contracts int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contracts); err != nil || contracts != 1 {
+		t.Fatalf("refused clone contracts=%d err=%v", contracts, err)
+	}
 }
 
 // routineRecoveryAtCompleteStep parks a current implementation item on its

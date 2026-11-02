@@ -435,7 +435,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:architecture-v2", "immutable_subject_ref": "commit:architecture-v2", "expected_result": "pass"},
 		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one", "law:new"}, "law_modifies": []string{},
 		"law_boundary_version": 1,
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": successorBinding,
+		"rigor_class":          "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": successorBinding,
 	}
 	supersede := workflowEventWithActor("architecture-binding-supersede", WorkflowContractSuperseded, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
 		"work_id": workID, "expected_version": int64(5), "resulting_version": int64(6), "previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "revised Domain footprint", "audit_evidence": []string{"audit:architecture-v2"}, "successor_contract": successor,

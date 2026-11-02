@@ -271,7 +271,7 @@ func captureEvidenceRows(t *testing.T, db *sql.DB, query string) []string {
 	return captured
 }
 
-// TestBackupRestorePreservesLivingEvidence checks workflow and law pins, the
+// TestBackupRestorePreservesLivingEvidence checks workflow pins and law IDs, the
 // knowledge-home binding, research selections, issue identity, and retained
 // reports through snapshot and restore. Retiring research must leave its
 // selection typed missing.
@@ -292,11 +292,16 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	// current research-enabled workflow head, so the retained selection is
 	// one the admitted record_work_context route really authored.
 	seedWork(t, s, contextWork)
+	seedWorkflowLaw(t, s)
 
 	// Workflow definition pin: the recorded actor and the selected definition
 	// are event-folded, so the rebuild must reproduce both pins from the log.
 	owner := WorkflowActor{PrincipalRef: "principal:evidence", ClientRef: "client:evidence", AgentRef: "agent:evidence", SessionRef: "session:evidence", ActorClass: ActorAgent}
 	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,8 +317,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Law pins: one current law revision pin for the mandated law, folded
-	// from the approved contract event.
+	// The approved contract retains its law mandate through backup and restore.
 	approval := workflowEventWithActor("evidence-contract", WorkflowContractApproved, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": int64(1),
 		"premise":           "preserve living evidence across backup, restore, rebuild and as-of reads",
@@ -354,13 +358,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		t.Fatalf("source pack=%+v err=%v, want one revision with one source, one finding and two consumers", seededPack, err)
 	}
 
-	// Domain registry for the consuming work's Product: the selection below
-	// validates its declared Domain against it, and the registry itself is
-	// direct-table authority the restore and rebuild must carry unchanged.
-	// The registry home pair references the workflow-law locator, so the law
-	// fixture seeds that locator first, exactly as the work-context fixture
-	// pairs them.
-	seedWorkflowLaw(t, s)
+	// The selection validates its Domain against the committed registry in
+	// the already-designated knowledge home.
 	seedWorkContextDomainRegistry(t, s)
 
 	// A second research revision: revision 1 stays the exact selection target
@@ -580,11 +579,12 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if !strings.Contains(strings.Join(want["work_context_state"], "\x1e"), `"research_finding_refs"`) {
 		t.Fatalf("current context fingerprint lost the selection declaration bytes")
 	}
-	if len(want["workflow_instances"]) != 2 || len(want["workflow_contracts"]) != 2 || len(want["law_pins"]) != 1 {
-		t.Fatalf("definition/law population = %d instances, %d contracts, %d law pins, want the evidence and context-consumer instances with their contracts and the one law pin", len(want["workflow_instances"]), len(want["workflow_contracts"]), len(want["law_pins"]))
+	if len(want["workflow_instances"]) != 2 || len(want["workflow_contracts"]) != 2 {
+		t.Fatalf("workflow population = %d instances, %d contracts, want the evidence and context-consumer instances with their contracts", len(want["workflow_instances"]), len(want["workflow_contracts"]))
 	}
-	if wantLawPin := want["law_pins"][0]; wantLawPin != workID+"\x1f1\x1fspec:one\x1fsha256:"+strings.Repeat("a", 64) {
-		t.Fatalf("law pin = %q, want the pinned spec:one revision", wantLawPin)
+	var mandate string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&mandate); err != nil || mandate != `["spec:one"]` {
+		t.Fatalf("law mandate = %q, err=%v, want spec:one", mandate, err)
 	}
 	if len(want["workflow_review_state"]) != 1 || !strings.Contains(want["workflow_review_state"][0], `"report_ref":"evidence-recorded-review"`) {
 		t.Fatalf("Review state = %v, want the one exact recorded report", want["workflow_review_state"])

@@ -248,7 +248,7 @@ func TestLawDeletionLeavesCancellationReachable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("the stale-law boundary refused its own terminal_work recovery: %+v", response.Error)
+		t.Fatalf("law deletion refused terminal_work cancellation: %+v", response.Error)
 	}
 	if lifecycle, got := readWorkFromStore(t, s, observationBoundaryWork); lifecycle != "cancelled" || got != int64(version+1) {
 		t.Fatalf("terminal recovery = %s v%d, want cancelled v%d", lifecycle, got, version+1)

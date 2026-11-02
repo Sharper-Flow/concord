@@ -9,9 +9,7 @@ import (
 
 func loadedAdmissionForTest(t *testing.T, s *Store, workID string, pin WorkPin) (WorkflowDefinition, WorkflowAdmissionState) {
 	t.Helper()
-	// The admission state folds the law-pin staleness boundary, which reads
-	// the committed law folder inside the transaction; the proof is
-	// established before it opens.
+	// Prepare any committed-law reads before the transaction opens.
 	ctx, err := s.PrepareWorkLawProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)

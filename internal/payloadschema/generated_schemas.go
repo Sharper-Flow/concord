@@ -5060,6 +5060,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "retained_workflow_law_context_law": {
       "additionalProperties": false,
+      "description": "A bound law at the verified own-home snapshot. An absent law retains only identity, roles, obligation IDs and status absent; reserved additions carry identity and roles before publication. Present laws carry readable current metadata.",
       "properties": {
         "criteria": {
           "description": "The law's acceptance criteria bound to the reading work item's own outcome predicates (CD-0180). Present only when at least one criterion binds this work item.",
@@ -5114,7 +5115,8 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "status": {
           "enum": [
-            "accepted"
+            "accepted",
+            "absent"
           ],
           "type": "string"
         },
@@ -16427,6 +16429,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "workflow_law_context_law": {
       "additionalProperties": false,
+      "description": "A bound law at the verified own-home snapshot. An absent law retains only identity, roles, obligation IDs and status absent; reserved additions carry identity and roles before publication. Present laws carry readable current metadata.",
       "properties": {
         "criteria": {
           "description": "The law's acceptance criteria bound to the reading work item's own outcome predicates (CD-0180). Present only when at least one criterion binds this work item.",
@@ -16482,7 +16485,8 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "status": {
           "enum": [
-            "accepted"
+            "accepted",
+            "absent"
           ],
           "type": "string"
         },

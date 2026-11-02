@@ -2876,6 +2876,7 @@
       }
     },
     "workflow_law_context_law": {
+      "description": "A bound law at the verified own-home snapshot. An absent law retains only identity, roles, obligation IDs and status absent; reserved additions carry identity and roles before publication. Present laws carry readable current metadata.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -2924,7 +2925,8 @@
         "status": {
           "type": "string",
           "enum": [
-            "accepted"
+            "accepted",
+            "absent"
           ]
         },
         "title": {
@@ -16582,6 +16584,7 @@
       }
     },
     "retained_workflow_law_context_law": {
+      "description": "A bound law at the verified own-home snapshot. An absent law retains only identity, roles, obligation IDs and status absent; reserved additions carry identity and roles before publication. Present laws carry readable current metadata.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -16630,7 +16633,8 @@
         "status": {
           "type": "string",
           "enum": [
-            "accepted"
+            "accepted",
+            "absent"
           ]
         },
         "title": {

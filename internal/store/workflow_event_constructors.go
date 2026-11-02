@@ -173,6 +173,9 @@ func workflowApprovalRequiredEvidence(definition WorkflowDefinition, fields map[
 }
 
 func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64, contract map[string]any, spec, lawModifies []string) ([]Event, error) {
+	if err := validateLawModificationSubset(spec, lawModifies); err != nil {
+		return nil, err
+	}
 	// On a canonical authoring head the contract records the explicit
 	// predicate array alone: the legacy outcome pair stays off the event, and
 	// the fold resolves the end state through the predicates whenever they
@@ -311,6 +314,9 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	}
 	lawModifies := workflowFieldStrings(fields, "law_modifies")
 	specMandate := workflowFieldStrings(fields, "spec_mandate")
+	if err := validateLawModificationSubset(specMandate, lawModifies); err != nil {
+		return nil, err
+	}
 	productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
 	binding, bindingErr := workflowContractProductGuard(ctx, tx, request.WorkID, fields, lawModifies, productChanging, "successor", "supply the complete successor architecture binding")
 	if bindingErr != nil {

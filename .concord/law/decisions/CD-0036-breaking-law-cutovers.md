@@ -73,8 +73,12 @@ proof of the law delta the item actually delivers.
 
 Continuity resolves current readable law and Domain context by ID. It exposes
 neither stale-law pin refusals nor pinned/current compatible-amendment hashes.
-Missing current documents still receive the owning read's truthful absence or
-typed resolution failure; no compatibility decoder or alternate pin list
+An own-home bound law missing from the verified committed snapshot carries
+status `absent`, its law ID, contract roles and obligation IDs, without a title,
+kind, file path or criteria. Reserved additions retain their identity and roles
+before publication. Foreign-home references, missing Domains, and unreadable
+locators for present law files still refuse. Same-operation snapshot
+revalidation remains required. No compatibility decoder or alternate pin list
 replaces the retired contract data.
 
 ## Rejected alternatives

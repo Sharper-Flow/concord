@@ -106,11 +106,11 @@ type ContinuitySnapshot struct {
 	// ObservationsTotal counts the whole population, so a reader knows when
 	// the paged concord_work_trace.observations read holds more. Read-time
 	// visibility: no gate consumes this.
-	Observations            []WorkObservation            `json:"observations"`
-	ObservationsTotal       int64                        `json:"observations_total"`
-	ChangesProductTruth     bool                         `json:"changes_product_truth"`
-	ArchitectureBinding     *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
-	WorkPin                 *WorkPin                     `json:"work_pin,omitempty"`
+	Observations        []WorkObservation            `json:"observations"`
+	ObservationsTotal   int64                        `json:"observations_total"`
+	ChangesProductTruth bool                         `json:"changes_product_truth"`
+	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+	WorkPin             *WorkPin                     `json:"work_pin,omitempty"`
 	// PendingProjectHandoff carries the frontier handoff addressed to the
 	// reading session's Project under the active contract, consumed or not,
 	// so every session of the receiving Project reads the bounded job
@@ -342,10 +342,8 @@ func continuityReadOutsideRepairTx(ctx context.Context, tx *sql.Tx, work string,
 }
 
 // continuityReadContractTx reads the one active contract and every enrichment
-// that hangs off it — predicates, architecture binding, self-repair, law
-// revisions and context, and stale-law and compatible-amendment scans. A
-// work item with no contract row leaves the
-// snapshot without one.
+// that hangs off it: predicates, architecture binding, self-repair and current
+// law context. A work item with no contract row leaves the snapshot without one.
 func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, activeContractVersion int64) error {
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
@@ -133,15 +134,10 @@ const (
 // readWorkflowLawContext resolves the approved contract's bound law and
 // Domain references against the verified committed law folder and Domain
 // registry inside the caller's transaction. It returns nil when the contract
-// binds no law and no Domain, so a contract with no bound law still
-// dispatches. A law listed in law_additions — a reserved addition before its
-// subject is published — carries its role and identity only. Any other bound
-// law without a committed file, and any home or affected Domain missing from
-// the committed registry, refuses with KindProjectionNotFound: the packet
-// would otherwise bind a document no lane can read. Every file locator the
-// context carries is qualified with the Product knowledge home's repository
-// and verified to open there, so a lane dispatched into any member Project
-// reads the home's checkout.
+// binds no law and no Domain. Missing own-home laws retain their contract
+// identity and roles with status absent, except reserved additions, which
+// carry identity and roles only. Foreign-home references and missing Domains
+// refuse. Every advertised file locator must open inside the knowledge home.
 func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, contract *WorkflowReadContract) (*WorkflowLawContext, error) {
 	if contract == nil {
 		return nil, nil
@@ -381,14 +377,19 @@ func resolveLawContextSubjects(ctx context.Context, homeProjectID, homeLocatorID
 		if parseErr != nil {
 			return nil, parseErr
 		}
-		record, exists := snapshot.Law(bareID)
-		if !exists || qualified && projectID != homeProjectID {
-			if listedAsAddition(laws[index].Roles) {
-				continue
-			}
-			failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law is not a file in the committed law folder at the verified snapshot commit", false, "publish the law file under the law folder through an ordinary reviewed pull request")
+		if qualified && projectID != homeProjectID {
+			failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law reference names a different knowledge home", false, "resolve the law through its designated Product knowledge home")
 			failure.CandidateIDs = []string{laws[index].LawID}
 			return nil, failure
+		}
+		record, exists := snapshot.Law(bareID)
+		if !exists {
+			law := WorkflowLawContextLaw{LawID: laws[index].LawID, Roles: laws[index].Roles, ObligationIDs: laws[index].ObligationIDs}
+			if !slices.Contains(law.Roles, lawContextRoleAdded) {
+				law.Status = "absent"
+			}
+			laws[index] = law
+			continue
 		}
 		laws[index].Kind, laws[index].Status, laws[index].Title = record.Kind, record.Status, record.Title
 		path, err := knowledgeLawLocator(homeRepo, laws[index].LawID, record.Path)
@@ -414,20 +415,6 @@ func lawContextCriteria(bindings []KnowledgeCriterionBinding, workID string) []W
 	}
 	sort.Slice(criteria, func(left, right int) bool { return criteria[left].Criterion < criteria[right].Criterion })
 	return criteria
-}
-
-// listedAsAddition reports whether the contract lists the law in
-// law_additions, the one listing the approved design allows to precede its
-// committed law file: an addition cannot reuse an existing law ID, so its
-// absent subject at continuity read time is the designed pre-publication
-// state. Every other bound role promises a document that already exists.
-func listedAsAddition(roles []string) bool {
-	for _, role := range roles {
-		if role == lawContextRoleAdded {
-			return true
-		}
-	}
-	return false
 }
 
 // resolveLawContextDomains resolves the binding's home Domain first, then its

@@ -82,3 +82,17 @@ func TestContinuityPayloadOmitsUnboundLawContext(t *testing.T) {
 		t.Fatalf("unbound law context or proposal leaked into the payload: %s", raw)
 	}
 }
+
+func TestContinuityPayloadValidatesAbsentBoundLawAgainstSchema(t *testing.T) {
+	t.Parallel()
+	law := store.WorkflowLawContextLaw{Roles: []string{"mandated", "modified", "obligation"}, LawID: "spec:one", Status: "absent", ObligationIDs: []string{"verification"}}
+	raw, err := json.Marshal(law)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"workflow_law_context_law", "retained_workflow_law_context_law"} {
+		if err := payloadschema.Validate(name, raw); err != nil {
+			t.Errorf("%s rejects absent bound law: %v", name, err)
+		}
+	}
+}

@@ -647,21 +647,21 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 						artifacts = []bool{false, true}
 					}
 				}
-					for _, designStale := range designs {
-						for _, verdict := range verdicts {
-							for _, artifactStale := range artifacts {
-								for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
-									if !withEvidence(admissionModelState{
-										step: step.ID, contracts: count,
-										designStale: designStale, verdict: verdict, artifactStale: artifactStale,
-										artifact: observation[0], observed: observation[1],
-									}) {
-										return
-									}
+				for _, designStale := range designs {
+					for _, verdict := range verdicts {
+						for _, artifactStale := range artifacts {
+							for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
+								if !withEvidence(admissionModelState{
+									step: step.ID, contracts: count,
+									designStale: designStale, verdict: verdict, artifactStale: artifactStale,
+									artifact: observation[0], observed: observation[1],
+								}) {
+									return
 								}
 							}
 						}
 					}
+				}
 			}
 		}
 	}

@@ -148,9 +148,18 @@ func cancelLawPinUpgradeBlockers(t *testing.T, path string) {
 }
 
 func TestLawPinUpgradeSafety(t *testing.T) {
+	testLawPinUpgradeSafetyAt(t, 174)
+}
+
+func TestLawPinUpgradeSafetyFromInstalledPredecessor(t *testing.T) {
+	testLawPinUpgradeSafetyAt(t, 175)
+}
+
+func testLawPinUpgradeSafetyAt(t *testing.T, schema int) {
+	t.Helper()
 	useStampedBuild(t)
 	ctx := t.Context()
-	db, path, cases, workIDs := lawPinUpgradeFixture(t)
+	db, path, cases, workIDs := lawPinUpgradeFixtureAt(t, schema)
 	before := retirementUpgradeSnapshot(t, db)
 	_, err := Upgrade(ctx, path, nil)
 	var failure *Failure
@@ -210,8 +219,8 @@ func TestLawPinUpgradeSafety(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restore.SourceSnapshot.SchemaVersion != 174 {
-		t.Fatalf("source snapshot schema=%d", restore.SourceSnapshot.SchemaVersion)
+	if restore.SourceSnapshot.SchemaVersion != schema {
+		t.Fatalf("source snapshot schema=%d, want %d", restore.SourceSnapshot.SchemaVersion, schema)
 	}
 	restoredDB, err := sql.Open(driverName, dataSourceName(restored))
 	if err != nil {

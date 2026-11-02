@@ -604,8 +604,7 @@ func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, in
 	if product == "" {
 		return coreError(base, "unknown_scope", "Domain reads require a resolved Product", "reread_entities", false), nil
 	}
-	// These reads are where an agent learns the registry hash it pins in an
-	// architecture binding. The registry resolves from the committed snapshot
+	// The registry resolves from the committed snapshot
 	// of the Product's designated home, so no read carries a rebuild demand;
 	// a Product with no designated home keeps the domain read's own refusal.
 	switch r.Operation {

@@ -68,7 +68,7 @@ func TestBuildAcceptsFullyPinnedContract(t *testing.T) {
 		Version: 2, Premise: "the premise", OutcomePredicates: []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "artifact", OutcomePayload: "the outcome"}},
 		RequiredEvidence: []string{"verification"}, RouteConventions: []string{"route-1"},
 		SpecMandate: []string{"law-1"}, LawModifies: []string{"law-1"},
-		RigorClass:   "prototype_internal", ChangesProductTruth: new(true),
+		RigorClass: "prototype_internal", ChangesProductTruth: new(true),
 		ArchitectureBinding: &store.WorkflowArchitectureBinding{
 			HomeDomainID:      "child",
 			AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{"child"},
@@ -337,7 +337,7 @@ func schemaSizeContract(predicates []store.WorkflowReadPredicate) *store.Workflo
 		Version: 2, Premise: "the premise", OutcomePredicates: predicates,
 		RequiredEvidence: []string{"verification"}, RouteConventions: []string{"route-1"},
 		SpecMandate: []string{"law-1"}, LawModifies: []string{},
-		RigorClass: "prototype_internal",
+		RigorClass:          "prototype_internal",
 		ChangesProductTruth: new(true),
 	}
 }

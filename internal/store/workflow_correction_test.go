@@ -962,26 +962,20 @@ func completeStepPinnedDefinition(t *testing.T, s *Store, workID string) (Regist
 	return BuiltinWorkflowRegistry().Current(definitionRef)
 }
 
-// staleLawSuccessorPayload mandates a current accepted law. The composed
-// successor derives current pins without a relation to the deleted law.
-func staleLawSuccessorPayload(workID string) json.RawMessage {
+// replacementLawSuccessorPayload mandates the current replacement law.
+func replacementLawSuccessorPayload(workID string) json.RawMessage {
 	binding := `{"home_domain_id":"root","affected_domain_ids":["root","product-root:product"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	return json.RawMessage(`{"contract_version":2,"premise":"the delivered subject under the successor law","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":["complete_step_correction"],"spec_mandate":["spec:two"],"law_modifies":[],"rigor_class":"prototype_internal","decision_domains":[],"architecture_binding":` + binding + `,"supersede_reason":"the approved premise moved to the successor law","audit_evidence":["evidence:complete-correction-` + workID + `"]}`)
 }
 
-// TestCompleteStepCorrectionStaleLawStaysBehindTheGate proves the stale-law
-// recovery route does not bypass the complete-step admission. With the active
-// contract's pinned law deleted but no durable contradiction record,
-// discovery and preflight refuse; the route opens only when the contradiction
-// observation postdates the verdict (CD-0172 D1).
-func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
+// Law deletion alone does not open complete-step correction. The contradiction
+// observation must postdate the verdict (CD-0172 D1).
+func TestCompleteStepCorrectionLawDeletionStaysBehindTheGate(t *testing.T) {
 	t.Parallel()
-	const workID = "complete-correction-stale-law-gate"
+	const workID = "complete-correction-law-deletion-gate"
 	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
 	s := fixture.store
-	// The stale-law condition is committed state now: the pinned law retires
-	// by deleting its file, and the successor law enacts by adding its file
-	// (law-folder-authority.md, Identity and change).
+	// Replace the committed law through its ordinary Git route.
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
 	removeCommittedFixtureLaw(t, home)
 	commitFixtureLawFile(t, home, "spec:two", "---\n"+
@@ -996,21 +990,20 @@ func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
 	err := issue1013Preflight(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "contract recovery is available only for a stale workflow contract" {
-		t.Fatalf("stale-law supersession without the contradiction record = %v, want the complete-step gate refusal", err)
+		t.Fatalf("law deletion supersession without the contradiction record = %v, want the complete-step gate refusal", err)
 	}
 	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
 		t.Fatal("discovery admitted the complete-step correction without the contradiction record")
 	}
 
-	// Recording the durable contradiction opens the shared gate; the stale-law
-	// condition neither excuses the reserved convention nor the state gate,
-	// and the successor still pins the accepted successor law.
+	// The contradiction opens the shared gate; law deletion excuses neither
+	// the reserved convention nor the state gate.
 	recordCompleteStepContradictionObservation(t, s, workID, fixture.owner)
-	if err := issue1013Preflight(t, s, workID, "supersede_contract", staleLawSuccessorPayload(workID), fixture.owner); err != nil {
-		t.Fatalf("preflight refused the complete-step correction behind a stale law: %v", err)
+	if err := issue1013Preflight(t, s, workID, "supersede_contract", replacementLawSuccessorPayload(workID), fixture.owner); err != nil {
+		t.Fatalf("preflight refused correction after law deletion: %v", err)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", staleLawSuccessorPayload(workID), fixture.owner); err != nil {
-		t.Fatalf("supersede behind a stale law through the gate: %v", err)
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", replacementLawSuccessorPayload(workID), fixture.owner); err != nil {
+		t.Fatalf("correction after law deletion through the gate: %v", err)
 	}
 	if step, state, _, _ := completeStepInstancePin(t, s, workID); step != "repair" || state != "running" {
 		t.Fatalf("instance after correction: step=%q state=%q, want repair/running", step, state)
@@ -1205,15 +1198,12 @@ func TestCompleteStepCorrectionKeepsSuccessorVerdictsFresh(t *testing.T) {
 }
 
 // seedOffShapeCompletedInstance parks a completed workflow instance on a
-// verified break-fix step whose pinned shape does not carry the complete-step
-// correction route, and deletes the active contract's pinned law so the
-// stale-law recovery is the admission under test.
+// verified break-fix step whose pinned shape carries no complete-step
+// correction route, with a deleted mandate in its active contract.
 func seedOffShapeCompletedInstance(t *testing.T, workID string) workflowReturnRouteFixture {
 	t.Helper()
 	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
-	// The stale-law condition is committed state: the pinned law retires by
-	// deleting its file, and the successor law enacts by adding its file
-	// (law-folder-authority.md, Identity and change).
+	// Replace the committed law through its ordinary Git route.
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, fixture.store), HeadRef: "HEAD"}
 	removeCommittedFixtureLaw(t, home)
 	commitFixtureLawFile(t, home, "spec:two", "---\n"+
@@ -1228,11 +1218,10 @@ func seedOffShapeCompletedInstance(t *testing.T, workID string) workflowReturnRo
 	return fixture
 }
 
-// offShapeStaleLawSuccessorPayload is the stale-law successor without the
-// reserved convention: the shape under test carries no complete-step
-// correction route, so a shape-compliant successor declares no route.
-func offShapeStaleLawSuccessorPayload(workID string) json.RawMessage {
-	return json.RawMessage(strings.Replace(string(staleLawSuccessorPayload(workID)), `"route_conventions":["complete_step_correction"]`, `"route_conventions":[]`, 1))
+// offShapeReplacementLawSuccessorPayload omits the reserved convention because
+// the shape under test carries no complete-step correction route.
+func offShapeReplacementLawSuccessorPayload(workID string) json.RawMessage {
+	return json.RawMessage(strings.Replace(string(replacementLawSuccessorPayload(workID)), `"route_conventions":["complete_step_correction"]`, `"route_conventions":[]`, 1))
 }
 
 // TestCompleteStepCorrectionReadOnlyPreflightRequiresReservedRoute pins the
@@ -1300,7 +1289,7 @@ func TestCompletedInstanceOffShapeSupersessionRefusesBeforeEffect(t *testing.T) 
 		t.Parallel()
 		const workID = "complete-correction-offshape-preflight"
 		fixture := seedOffShapeCompletedInstance(t, workID)
-		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", offShapeStaleLawSuccessorPayload(workID), fixture.owner)
+		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", offShapeReplacementLawSuccessorPayload(workID), fixture.owner)
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != sharedDetail {
 			t.Fatalf("read-only preflight on the off-shape completed instance = %v, want the shape refusal", err)
@@ -1312,7 +1301,7 @@ func TestCompletedInstanceOffShapeSupersessionRefusesBeforeEffect(t *testing.T) 
 		const workID = "complete-correction-offshape-admission"
 		fixture := seedOffShapeCompletedInstance(t, workID)
 		err := WorkflowActionPreflightWithRegistry(context.Background(), fixture.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-			WorkID: workID, ActionID: "supersede_contract", Payload: offShapeStaleLawSuccessorPayload(workID), Actor: fixture.owner,
+			WorkID: workID, ActionID: "supersede_contract", Payload: offShapeReplacementLawSuccessorPayload(workID), Actor: fixture.owner,
 		})
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != sharedDetail {
@@ -1324,7 +1313,7 @@ func TestCompletedInstanceOffShapeSupersessionRefusesBeforeEffect(t *testing.T) 
 		t.Parallel()
 		const workID = "complete-correction-offshape-mutation"
 		fixture := seedOffShapeCompletedInstance(t, workID)
-		err := runIssue933OperatorAction(t, fixture.store, workID, "supersede_contract", offShapeStaleLawSuccessorPayload(workID), fixture.owner)
+		err := runIssue933OperatorAction(t, fixture.store, workID, "supersede_contract", offShapeReplacementLawSuccessorPayload(workID), fixture.owner)
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != sharedDetail {
 			t.Fatalf("mutation on the off-shape completed instance = %v, want the shape refusal", err)

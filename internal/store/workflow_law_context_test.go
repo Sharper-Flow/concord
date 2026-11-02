@@ -226,7 +226,7 @@ func TestContinuityContractWithoutBoundLawCarriesDomainsOnly(t *testing.T) {
 	}
 }
 
-func TestContinuityRefusesUnreadableDeletedModifiedLaw(t *testing.T) {
+func TestContinuityReportsAbsentDeletedModifiedLaw(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -235,11 +235,20 @@ func TestContinuityRefusesUnreadableDeletedModifiedLaw(t *testing.T) {
 	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{"spec:one", "law:new"}, []string{"spec:one"}, binding)
 	removeCommittedFixtureLaw(t, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"})
-	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	requireFailureKind(t, err, KindProjectionNotFound, "deleted modified law context")
+	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []WorkflowLawContextLaw{
+		{Roles: []string{"added", "mandated"}, LawID: "law:new"},
+		{Roles: []string{"mandated", "modified"}, LawID: "spec:one", Status: "absent"},
+	}
+	if snapshot.LawContext == nil || !reflect.DeepEqual(snapshot.LawContext.Laws, want) {
+		t.Fatalf("deleted modified law context = %+v, want %+v", snapshot.LawContext, want)
+	}
 }
 
-func TestContinuityRefusesUnreadableDeletedObligationLaw(t *testing.T) {
+func TestContinuityReportsAbsentDeletedObligationLaw(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -248,8 +257,14 @@ func TestContinuityRefusesUnreadableDeletedObligationLaw(t *testing.T) {
 	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
 	approveLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
 	removeCommittedFixtureLaw(t, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"})
-	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	requireFailureKind(t, err, KindProjectionNotFound, "deleted obligation law context")
+	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []WorkflowLawContextLaw{{Roles: []string{"mandated", "obligation"}, LawID: "spec:one", Status: "absent", ObligationIDs: []string{"verification"}}}
+	if snapshot.LawContext == nil || !reflect.DeepEqual(snapshot.LawContext.Laws, want) {
+		t.Fatalf("deleted obligation law context = %+v, want %+v", snapshot.LawContext, want)
+	}
 }
 
 // The law context carries the mandated spec's criteria bound to the reading

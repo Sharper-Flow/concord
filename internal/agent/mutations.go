@@ -3031,14 +3031,14 @@ func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelop
 
 type mutationExecution struct {
 	runtime
-	base       agentcontract.Envelope
-	raw        []byte
-	digest     string
-	scope      map[string]any
-	intents    []agentcontract.NextIntent
-	effect     mutationEffect
-	host       store.ResolvedProjectHost
-	contractOp agentcontract.ContractOperation
+	base           agentcontract.Envelope
+	raw            []byte
+	digest         string
+	scope          map[string]any
+	intents        []agentcontract.NextIntent
+	effect         mutationEffect
+	host           store.ResolvedProjectHost
+	contractOp     agentcontract.ContractOperation
 	response       agentcontract.Envelope
 	resultRejected bool
 }

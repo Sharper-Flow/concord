@@ -158,7 +158,7 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:" + workID, "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{},
 		"law_boundary_version": 1,
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
+		"rigor_class":          "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
 	contract = pOverlapContractFacts(t, s, contract)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contract}, ExpectedVersions: workVersion(workID, version)}); err != nil {

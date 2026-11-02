@@ -198,9 +198,8 @@ type workflowContractSupersededPayload struct {
 	PredecessorContractVersions []int64  `json:"predecessor_contract_versions,omitempty"`
 	SupersedeReason             string   `json:"supersede_reason"`
 	AuditEvidence               []string `json:"audit_evidence"`
-	// SuccessorContract is present for the operator-approved stale-law
-	// recovery route. When present, the event installs the fully supplied
-	// successor instead of cloning the prior contract.
+	// SuccessorContract installs the fully supplied successor instead of
+	// cloning the prior contract.
 	SuccessorContract *workflowContractApprovedPayload `json:"successor_contract,omitempty"`
 }
 

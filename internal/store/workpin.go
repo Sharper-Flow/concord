@@ -485,12 +485,9 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 		decision := workflowAdmit(definition, state, actionID)
 		return decision.Admitted
 	}
-	// The contract recovery advertises exactly the pure decision's answer:
-	// the stale-law and duplicate recoveries the fold admits at a running
-	// step, and the ordinary correction admission, but never a terminal,
-	// off-shape, or gate-refused state. The correction checkpoint's own
-	// answer is not the advertisement's gate — the stale-law recovery stays
-	// offered at a step whose correction checkpoint refuses.
+	// Contract recovery advertises the pure decision's answer, including
+	// duplicate recovery and ordinary correction, never a terminal, off-shape
+	// or gate-refused state.
 	if !workPinContainsAction(pin.NextValidIntents, "supersede_contract") && admits("supersede_contract") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(definition), pin.Version, "operator_contract_correction"))
 	}

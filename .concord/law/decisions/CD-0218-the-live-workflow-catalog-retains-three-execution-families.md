@@ -169,9 +169,9 @@ than publish competing overrides.
 ```
 
 ```gherkin
-  Given a running retained-family item has an ordinary stale-law recovery route
+  Given a running retained-family item needs an ordinary contract update
   When the authenticated coordinator supplies its complete contract through revise_intent
-  Then the ordinary re-pin commits without moving the step or discarding retained evidence
+  Then the update commits without moving the step or discarding retained evidence
 ```
 
 ## Alternatives considered
@@ -235,7 +235,7 @@ set at the D5 boundary.
   `go test ./internal/store/ -run TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict`.
 - Criterion 7 requires ordinary-update recovery coverage under
   [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates),
-  including unchanged stale-pin admission and retained evidence.
+   including unchanged workflow position, retained evidence and current-proof validity.
 
 Retained research failure derivation is covered by
 `internal/store.TestResearchDerivedFailureRetriesAndRebuilds`.

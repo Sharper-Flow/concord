@@ -103,28 +103,6 @@ func TestLivenessDisclosesOutcomeKindAndTokenOmissions(t *testing.T) {
 	}
 }
 
-func TestLivenessOmitsUnrequestedOptionalDesignCorrection(t *testing.T) {
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	action := workflowContractRecoveryActionDefinition()
-	raw, err := livenessPayload(definition.Definition, action, map[string]string{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		t.Fatal(err)
-	}
-	if _, exists := fields["design_record"]; exists {
-		t.Error("unrequested optional design_record was synthesized")
-	}
-	if !slices.Contains(livenessOmittedVariants(definition.Definition), "optional-presence:supersede_contract.design_record") {
-		t.Error("engine-owned optional design presence was not reported as unexamined")
-	}
-}
-
 func TestLivenessReportsOptionalPresenceSampling(t *testing.T) {
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		omitted := livenessOmittedVariants(definition)
@@ -166,14 +144,20 @@ func TestLivenessExecutesGeneratedCorrection(t *testing.T) {
 	t.Fatal("no generated request_correction move")
 }
 
-func TestLivenessBindsCurrentAndSuccessorContractVersions(t *testing.T) {
+func TestLivenessBindsVerdictsToOrdinaryContractUpdates(t *testing.T) {
 	const workID = "liveness-contract-versions"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
-	for _, scenario := range []struct {
-		action string
-		want   int64
-	}{{"supersede_contract", 2}, {"record_verdict", 1}} {
-		raw, err := livenessBindRecordedState(context.Background(), fixture.store, workID, scenario.action, json.RawMessage(`{"contract_version":99}`))
+	for _, version := range []int64{1, 2} {
+		if version > 1 {
+			contract := pContractSuccessor(t, fixture.store, workID, "Continue with the same current proof.")
+			if err := reviseContractRecord(t, fixture.store, workID, fixture.owner, contract, readWorkVersion(t, fixture.store, workID), nil); err != nil {
+				t.Fatal(err)
+			}
+			if step := currentStep(t, fixture.store, workID); step != "execution" {
+				t.Fatalf("ordinary update reset execution to %s", step)
+			}
+		}
+		raw, err := livenessBindRecordedState(context.Background(), fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":99}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -183,8 +167,8 @@ func TestLivenessBindsCurrentAndSuccessorContractVersions(t *testing.T) {
 		if err := json.Unmarshal(raw, &fields); err != nil {
 			t.Fatal(err)
 		}
-		if fields.Version != scenario.want {
-			t.Errorf("%s version=%d, want %d", scenario.action, fields.Version, scenario.want)
+		if fields.Version != version {
+			t.Errorf("verdict version=%d, want %d", fields.Version, version)
 		}
 	}
 }
@@ -261,7 +245,10 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 				case actionID == "record_verdict":
 					err = runVerdictActionAs(t, s, workID, actionID, criterionAssociationPayload(proofRef, "predicate:liveness-exit"), 0, livenessActor())
 				case journey != nil && (actionID == "record_review" || actionID == "confirm_premise" || actionID == "complete"):
-					err = journey.terminalAction(t, actionID, payload, livenessActor())
+					payload, err = livenessBindRecordedState(ctx, s, workID, actionID, payload)
+					if err == nil {
+						err = journey.terminalAction(t, actionID, payload, livenessActor())
+					}
 				default:
 					err = livenessApply(ctx, s, workID, livenessMove{action: actionID, variant: livenessVariantLabel(variant), payload: payload}, ordinal)
 				}
@@ -313,6 +300,12 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 					}
 					proofRef = view.ResearchFindings[0].ViewID
 				}
+				if actionID == "record_verdict" {
+					contract := pContractSuccessor(t, s, workID, "Complete the revised plan with the current candidate and proof.")
+					if err := reviseContractRecord(t, s, workID, livenessActor(), contract, readWorkVersion(t, s, workID), nil); err != nil {
+						t.Fatalf("ordinary contract update before final proof: %v", err)
+					}
+				}
 				if actionID == "complete" {
 					bindCompletionClosure(t, s, workID, livenessActor())
 				}
@@ -321,6 +314,10 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 			state, events, err := livenessCompletion(ctx, s, workID)
 			if err != nil || state != "completed" || events != 1 {
 				t.Fatalf("completion state=%s events=%d err=%v", state, events, err)
+			}
+			var confirmations int
+			if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_premise_confirmations p JOIN workflow_contracts c ON c.work_id=p.work_id AND c.contract_version=p.contract_version WHERE p.work_id=? AND c.contract_version=2 AND c.superseded_by IS NULL`, workID).Scan(&confirmations); err != nil || confirmations != 1 {
+				t.Fatalf("current version-2 premise confirmations=%d err=%v, want one", confirmations, err)
 			}
 			{
 				var operatorEvents int

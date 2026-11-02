@@ -41,6 +41,7 @@ type captureMutationInput struct {
 	GoverningRequirements []string `json:"governing_requirements"`
 }
 type reviseMutationInput struct {
+	Contract        json.RawMessage             `json:"contract"`
 	WorkID          string                      `json:"work_id"`
 	ExpectedVersion int64                       `json:"expected_version"`
 	Title           string                      `json:"title"`
@@ -533,7 +534,7 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 	// for a fresh registry is therefore here, before that transaction opens
 	// (CD-0082 D1, and the single-connection rule: a rebuild needs the
 	// connection the transaction would hold).
-	if in.ActionID == "approve_contract" || in.ActionID == "supersede_contract" {
+	if in.ActionID == "approve_contract" {
 		if err := s.EnsureWorkProductKnowledgeFresh(ctx, in.WorkID); err != nil {
 			return err
 		}
@@ -1169,6 +1170,16 @@ func (r runtime) planReviseIntent(ctx context.Context, base agentcontract.Envelo
 		}
 	}
 	verifiedCtx := ctx
+	if in.Contract != nil {
+		if err := r.Store.EnsureWorkProductKnowledgeFresh(ctx, in.WorkID); err != nil {
+			return failureEnvelope(base, err), nil, true
+		}
+		var proofErr error
+		verifiedCtx, proofErr = r.Store.EstablishKnowledgeSourceSetProof(ctx, in.WorkID)
+		if proofErr != nil {
+			return failureEnvelope(base, proofErr), nil, true
+		}
+	}
 	if in.WorkflowTypeRef != "" {
 		_, initialized, readErr := r.Store.WorkflowInstanceDefinition(ctx, in.WorkID)
 		if readErr != nil {
@@ -1202,15 +1213,25 @@ func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction,
 		urgency = "standard"
 	}
 	payloadFields := map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1}
+	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+	eventActor := grant.PrincipalRef
+	if in.Contract != nil {
+		payloadFields["contract"] = in.Contract
+		payloadFields["actor"] = actor
+		var err error
+		eventActor, err = store.WorkflowActorRef(actor)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
 	if in.Task != nil {
 		payloadFields["task"] = *in.Task
 	}
 	payload, _ := json.Marshal(payloadFields)
-	result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":revise", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
+	result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":revise", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: eventActor, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}, Registry: r.Registry})
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	changedVersion := in.ExpectedVersion + 1
 	switch {
 	case in.WorkflowTypeRef != "" && !definitionFound:

@@ -349,7 +349,7 @@ func assertEvidenceSupersession142(t *testing.T) {
 		},
 	})
 	e.Actor = actor
-	e.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
+	e.PayloadVersion = 6
 	c.events = []Event{e}
 	parents := c.parents
 	c.parents = func(t *testing.T, s *Store, guard string) {
@@ -371,7 +371,12 @@ DELETE FROM fold_guard`, e.OccurredAt.UTC().Format(time.RFC3339Nano), e.Actor, w
 		}
 	}
 	c.write = func(ctx context.Context, tx *sql.Tx, e Event) error {
-		return foldWorkflowContractSuperseded(ctx, tx, e, nil)
+		// Reconstruct the historical projection, not the retired runtime fold.
+		_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_digest,supersession_seq)
+			SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_digest,? FROM workflow_contracts WHERE work_id=? AND contract_version=1;
+			INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
+			UPDATE workflow_contracts SET superseded_by=2 WHERE work_id=? AND contract_version=1`, e.OccurredAt.UTC().Format(time.RFC3339Nano), e.Actor, e.Seq, work, work, work)
+		return err
 	}
 	live := c.current(t)
 	old := c.prefix(t, 141)

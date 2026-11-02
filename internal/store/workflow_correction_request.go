@@ -8,67 +8,12 @@ import (
 	"slices"
 )
 
-// A complete-step correction cuts the disproved predecessor's proof off from
-// every descendant, even when a later contract retains identical predicates.
-const workflowCompleteStepCorrectionRoute = "complete_step_correction"
-
 func workflowFoldCorrectionReturnTarget(entry RegisteredDefinition, currentStep string) (string, error) {
 	target := workflowCorrectionReturnTarget(entry.Definition, currentStep)
 	if target == "" {
 		return "", newFailure(KindIllegalLifecycleTransition, "fold_event", "correction has no declared recovery route to a producer step", false, "repair the pinned workflow definition")
 	}
 	return target, nil
-}
-
-func workflowCompleteStepCorrectionStep(definition WorkflowDefinition, currentStep string) bool {
-	return workflowDisprovedPremiseAtCompleteRouteTarget(definition, currentStep) != ""
-}
-
-func workflowCompletedInstanceSupersedeOffShape(state string, definition WorkflowDefinition, currentStep string) bool {
-	return state == "completed" && !workflowCompleteStepCorrectionStep(definition, currentStep)
-}
-
-func workflowCompletedInstanceOffShapeFailure(subject string) *Failure {
-	return newFailure(KindInvalidOperation, subject, "a completed workflow instance supersedes its contract only on the pinned complete-step correction shape", false, "start a successor workflow")
-}
-
-func workflowCompleteStepCorrectionEvidenceCutoff(ctx context.Context, q queryer, workID string, contractVersion int64) (int64, error) {
-	rows, err := q.QueryContext(ctx, `SELECT contract_version,route_conventions FROM workflow_contracts WHERE work_id=? AND contract_version<=? ORDER BY contract_version DESC`, workID, contractVersion)
-	if err != nil {
-		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the workflow contract ancestry", true, "retry once the workflow projection is readable", err)
-	}
-	var routeVersion int64
-	for rows.Next() {
-		var version int64
-		var routesJSON string
-		if err := rows.Scan(&version, &routesJSON); err != nil {
-			rows.Close()
-			return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot scan the workflow contract ancestry", true, "retry once the workflow projection is readable", err)
-		}
-		var routes []string
-		if json.Unmarshal([]byte(routesJSON), &routes) == nil && slices.Contains(routes, workflowCompleteStepCorrectionRoute) {
-			routeVersion = version
-			break
-		}
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot enumerate the workflow contract ancestry", true, "retry once the workflow projection is readable", err)
-	}
-	if err := rows.Close(); err != nil {
-		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot close the workflow contract ancestry", true, "retry once the workflow projection is readable", err)
-	}
-	if routeVersion == 0 {
-		return 0, nil
-	}
-	var seq int64
-	if err := q.QueryRowContext(ctx, `SELECT supersession_seq FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, routeVersion).Scan(&seq); err != nil {
-		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the complete-step correction cutoff", true, "retry once the workflow projection is readable", err)
-	}
-	if seq == 0 {
-		return 0, newFailure(KindInvariantViolation, "workflow_correction", "complete-step correction contract has no supersession event", false, "restore a verified backup into a new path with concord restore, then swap")
-	}
-	return seq, nil
 }
 
 // WorkflowCorrectionContext retains the direction and source of a corrective
@@ -100,15 +45,7 @@ func workflowLatestComparableHealthySequence(ctx context.Context, q queryer, wor
 }
 
 func workflowCorrectionHealthyBaseline(ctx context.Context, q queryer, workID string, contractVersion int64) (int64, error) {
-	lastHealthySeq, err := workflowLatestComparableHealthySequence(ctx, q, workID, contractVersion)
-	if err != nil {
-		return 0, err
-	}
-	cutoff, err := workflowCompleteStepCorrectionEvidenceCutoff(ctx, q, workID, contractVersion)
-	if err != nil {
-		return 0, err
-	}
-	return max(lastHealthySeq, cutoff), nil
+	return workflowLatestComparableHealthySequence(ctx, q, workID, contractVersion)
 }
 
 type workflowCorrectionVerdictPrerequisites struct {
@@ -288,6 +225,9 @@ func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer,
 	if err != nil {
 		return nil, err
 	}
+	if state.Review.correctionConsumed() {
+		return nil, nil
+	}
 	return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{state.Review.Accepted.ReportRef}, SourceEventID: state.Review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: "the accepted current Review no longer covers the current candidate or depended-on revisions", Strategy: workflowReviewRecovery(fmt.Sprintf("return to step %q", target), "covering the current candidate")}, nil
 }
 
@@ -312,13 +252,13 @@ func workflowCorrectionRequestUnavailableFailure(subject, missing string) *Failu
 	}
 }
 
-func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64, registry DefinitionRegistry) (*WorkflowCorrectionContext, string, error) {
+func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, registry DefinitionRegistry) (*WorkflowCorrectionContext, string, error) {
 	if workflowCorrectionReturnTarget(definition, currentStep) != "" {
 		review, err := loadWorkflowReviewState(ctx, q, workID)
 		if err != nil {
 			return nil, workflowCorrectionMissingNone, err
 		}
-		if review.Accepted != nil && review.Candidate != nil && review.Accepted.Report.OutputCandidate == *review.Candidate && review.DependenciesCurrent && review.Accepted.Report.Disposition == "correction_required" {
+		if workflowReviewNeedsProducerReturn(review) {
 			predicates, err := workflowActiveContractPredicateIDs(ctx, q, workID, subject)
 			if err != nil {
 				return nil, workflowCorrectionMissingNone, err
@@ -327,14 +267,10 @@ func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q querye
 			if err != nil {
 				return nil, workflowCorrectionMissingNone, err
 			}
-			consumed, err := workflowReviewCorrectionConsumed(ctx, q, workID, seq, excludeSeq)
-			if err != nil {
-				return nil, workflowCorrectionMissingNone, err
-			}
-			if consumed {
+			if review.correctionConsumed() {
 				return nil, workflowCorrectionMissingFreshReview, nil
 			}
-			return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{review.Accepted.ReportRef}, SourceEventID: review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: "the accepted current Review requires correction", Strategy: workflowReviewRecovery("perform the declared corrective work", "covering the corrected candidate")}, workflowCorrectionMissingNone, nil
+			return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{review.Accepted.ReportRef}, SourceEventID: review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: workflowReviewReturnDiagnosis(review), Strategy: workflowReviewRecovery("perform the declared corrective work", "covering the corrected candidate")}, workflowCorrectionMissingNone, nil
 		}
 	}
 	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
@@ -361,20 +297,26 @@ func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q querye
 	return nil, workflowCorrectionMissingVerdict, nil
 }
 
+func workflowReviewNeedsProducerReturn(review WorkflowReviewState) bool {
+	return review.Accepted != nil && review.Candidate != nil &&
+		(!review.DependenciesCurrent || review.Accepted.Report.OutputCandidate != *review.Candidate || review.Accepted.Report.Disposition == "correction_required")
+}
+
+func workflowReviewReturnDiagnosis(review WorkflowReviewState) string {
+	if !review.DependenciesCurrent || review.Accepted.Report.OutputCandidate != *review.Candidate {
+		return "the accepted Review no longer covers the current candidate or depended-on revisions"
+	}
+	return "the accepted current Review requires correction"
+}
+
 func workflowReviewReportSequence(ctx context.Context, q queryer, workID, reportRef string) (int64, error) {
 	var seq int64
 	err := q.QueryRowContext(ctx, `SELECT effect_seq FROM effect_receipts WHERE event_id=? AND subject_type='work_item' AND subject_id=?`, reportRef, workID).Scan(&seq)
 	return seq, err
 }
 
-func workflowReviewCorrectionConsumed(ctx context.Context, q queryer, workID string, reportSeq, excludeSeq int64) (bool, error) {
-	var consumed int
-	err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_phase_exits WHERE work_id=? AND action_id='request_correction' AND exit_seq>? AND exit_seq<>?`, workID, reportSeq, excludeSeq).Scan(&consumed)
-	return consumed != 0, err
-}
-
-func workflowCorrectionRequestAdmissionStateForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64, registry DefinitionRegistry) (bool, string, error) {
-	context, missing, err := workflowCorrectionRequestAdmissionForRegistry(ctx, q, workID, definition, currentStep, subject, excludeSeq, registry)
+func workflowCorrectionRequestAdmissionStateForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, registry DefinitionRegistry) (bool, string, error) {
+	context, missing, err := workflowCorrectionRequestAdmissionForRegistry(ctx, q, workID, definition, currentStep, subject, registry)
 	return context != nil, missing, err
 }
 
@@ -423,7 +365,7 @@ func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID str
 		}
 	}
 	for _, ref := range evidence {
-		bound, err := workflowEvidenceReferenceBound(ctx, q, workID, ref, subject, 0)
+		bound, err := workflowEvidenceReferenceBound(ctx, q, workID, ref, subject)
 		if err != nil {
 			return err
 		}

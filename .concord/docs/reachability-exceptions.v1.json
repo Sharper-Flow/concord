@@ -45,7 +45,6 @@
       "id": "contract-generator-cross-field-projection",
       "state": "out_of_scope",
       "functions": [
-        "internal/store.BuiltinWorkflowCanonicalRecoveryActionDefinitions",
         "internal/store.BuiltinWorkflowDecisionFactActionDefinitions",
         "internal/store.WorkflowActionCanonicalCrossFieldRules",
         "internal/store.WorkflowActionCrossFieldRules",

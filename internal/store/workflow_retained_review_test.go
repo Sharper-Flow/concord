@@ -89,7 +89,7 @@ func TestRetainedReviewCandidateBounds(t *testing.T) {
 				payload := pContractSuccessor(t, j.s, j.workID, "The approved outcome needs a corrected approach.")
 				predicates := payload["outcome_predicates"].([]any)
 				predicates[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "fail"
-				if err := runVerdictActionAs(t, j.s, j.workID, "supersede_contract", mustJSONValue(payload), 0, j.fixture.owner); err != nil {
+				if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, payload, readWorkVersion(t, j.s, j.workID), nil); err != nil {
 					t.Fatal(err)
 				}
 			}

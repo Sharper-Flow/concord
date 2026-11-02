@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -16,7 +17,7 @@ import (
 // producer through the evidence-bearing correction route.
 
 func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	ctx := context.Background()
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatal(err)
@@ -135,7 +136,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	// candidate the earlier Review covered.
 	recordFinding("open", "correction_required")
 	open, err := store.ReadWorkPin(ctx, s, "work-1")
-	if err != nil || open.Review == nil || len(open.Review.Findings) != 1 || open.Review.Findings[0].Status != "open" || !open.Review.Findings[0].Blocking {
+	if err != nil || open.Review == nil || open.Review.Accepted == nil || open.Review.Candidate == nil || len(open.Review.Findings) != 1 || open.Review.Findings[0].Status != "open" || !open.Review.Findings[0].Blocking {
 		t.Fatalf("Review lost its blocking finding: %+v (%v)", open.Review, err)
 	}
 	reportRef := open.Review.Accepted.ReportRef
@@ -146,36 +147,41 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	}))
 	changeCandidate("repair")
 	retained, err := store.ReadWorkPin(ctx, s, "work-1")
-	if err != nil || retained.Review == nil || len(retained.Review.Findings) != 1 || retained.Review.Findings[0].FindingID != open.Review.Findings[0].FindingID || retained.Review.Findings[0].Status != "open" {
+	if err != nil || retained.Review == nil || !reflect.DeepEqual(retained.Review.Accepted, open.Review.Accepted) || !reflect.DeepEqual(retained.Review.Findings, open.Review.Findings) {
 		t.Fatalf("candidate correction discarded the open finding: %+v (%v)", retained.Review, err)
 	}
+	currentCandidate := store.ReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, fixture.path, "rev-parse", "HEAD"), Tree: gitRun(t, fixture.path, "rev-parse", "HEAD^{tree}")}
+	if !reflect.DeepEqual(retained.Review.Candidate, open.Review.Candidate) || retained.Review.DependenciesCurrent || currentCandidate == *open.Review.Candidate || retained.Review.Accepted.Report.OutputCandidate == currentCandidate {
+		t.Fatalf("repair did not stale the retained Review on the changed candidate: %+v", retained.Review)
+	}
 
-	// Main's repair acceptance changed the integrated candidate. The earlier
-	// continue Review cannot authorize delivery of this different candidate.
+	// The correction consumed the accepted correction_required Review. Its
+	// consumption blocks delivery before the changed-candidate mismatch.
+	beforeDelivery := agentCurrentEffects(t, s)
 	deliveryRefusal := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-recovery", "delivery_state": "asserted"}, "idempotency_key": "gate-recovery-delivery"})
-	if deliveryRefusal.Outcome != agentcontract.OutcomeError || deliveryRefusal.Error == nil || deliveryRefusal.Error.Kind != "stale_requires_review" || deliveryRefusal.Error.EffectState != "none" || deliveryRefusal.Error.Message != "recorded Review does not cover the current candidate and dependencies" {
-		t.Fatalf("repair delivery exit = %+v, want a zero-effect current-candidate Review refusal", deliveryRefusal.Error)
+	if deliveryRefusal.Outcome != agentcontract.OutcomeError || deliveryRefusal.Error == nil || deliveryRefusal.Error.Kind != "missing_evidence" || deliveryRefusal.Error.EffectState != "none" || deliveryRefusal.Error.Message != "accepted Review already funded a corrective return" {
+		t.Fatalf("repair delivery exit = %+v, want a zero-effect consumed-Review refusal", deliveryRefusal.Error)
+	}
+	afterDelivery, err := store.ReadWorkPin(ctx, s, "work-1")
+	if err != nil || !reflect.DeepEqual(afterDelivery, retained) || agentCurrentEffects(t, s) != beforeDelivery {
+		t.Fatalf("refused delivery changed workflow authority, candidate, Review, findings or delivery state: %v", err)
 	}
 	recordFinding("closed", "ready_for_final_proof")
 	reviewed, err := store.ReadWorkPin(ctx, s, "work-1")
 	if err != nil || reviewed.Review == nil || reviewed.Review.Accepted == nil || reviewed.Review.Candidate == nil || reviewed.Review.Dependencies == nil || !reviewed.Review.DependenciesCurrent || reviewed.Review.Accepted.Report.Disposition != "ready_for_final_proof" || reviewed.Review.Accepted.Report.OutputCandidate != *reviewed.Review.Candidate {
 		t.Fatalf("ready Review does not cover the current candidate: %+v (%v)", reviewed.Review, err)
 	}
-
-	// Seed the contract-correction checkpoint for the successor's store-owned
-	// setup, then park its unchanged candidate at the delivery gate below.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1';
-		DELETE FROM write_guard`); err != nil {
-		t.Fatalf("seed contract-correction checkpoint: %v", err)
+	if reviewed.Review.Accepted.ReportRef == reportRef || *reviewed.Review.Candidate != currentCandidate || len(reviewed.Review.Findings) != 1 || reviewed.Review.Findings[0].FindingID != open.Review.Findings[0].FindingID || reviewed.Review.Findings[0].Status != "closed" || len(reviewed.Review.Findings[0].ClosureRefs) == 0 {
+		t.Fatalf("fresh Review did not close the retained finding on the repaired candidate: %+v", reviewed.Review)
 	}
-	spineOK(t, oAgentAction(t, fixture, "supersede_contract", map[string]any{
+
+	revised, _ := dispatchContractRevisionResult(t, s, service, env, "work-1", version(), map[string]any{
 		"contract_version": 2, "premise": "approved gate return objective",
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:gate-recovery", "immutable_subject_ref": "commit:gate-recovery", "expected_result": "fail"}}},
 		"required_evidence":  []string{"review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "decision_domains": []string{},
 		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
-		"supersede_reason":     "the expected criterion result changed", "audit_evidence": []string{"evidence:gate-review"},
-	}))
+	}, "gate-revise-criterion")
+	spineOK(t, revised)
 	stale, err := store.ReadWorkPin(ctx, s, "work-1")
 	if err != nil || stale.Review == nil || stale.Review.Accepted == nil || stale.Review.Candidate == nil || stale.Review.Dependencies == nil || stale.Review.DependenciesCurrent || *stale.Review.Candidate != *reviewed.Review.Candidate || stale.Review.Accepted.ReportRef != reviewed.Review.Accepted.ReportRef {
 		t.Fatalf("successor did not stale the standing Review on the unchanged candidate: %+v (%v)", stale.Review, err)

@@ -211,17 +211,19 @@ The authenticated coordinator explicitly records every applicable
 approval class in the contract's `decision_domains` field. An explicit empty
 array means no class applies; an absent field is never treated as
 engineering. It does not infer consent from a title, tag, kind, path, or
-premise text. Only attributed contract supersession changes that
+premise text. An attributed ordinary contract update changes that
 classification, with expected versions and a reason; it never rewrites an
 earlier operator decision. The field describes the contract; operator approval
 remains conversational under CD-0243. Every workflow records a valid contract
 and premise confirmation.
 
-Supersession, correction, verdicts, completion and
+Contract updates, correction, verdicts, completion and
 acceptance records preserve evidence, version, source, scope, current-step, and
 recovery checks. Recovery follows CD-0243 D5: the operator may approve
 explained irreversible loss, and customer-data loss remains reserved.
-Supersession grants no legislative authority or automatic overlap exemption.
+Contract updates grant no legislative authority or automatic overlap exemption.
+The ordinary update and its version-addressed provenance follow
+[workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates).
 
 Independent native Task Review inspects the accumulated solution and reports
 one disposition that Main records against its exact subject and dependencies
@@ -299,12 +301,13 @@ The implementation acceptance suite must exercise:
 6. An absence end-state is satisfied by removal; relocation is refused.
 7. Candidate-set revision records current rows in one transaction and leaves
    premise + end-state byte-identical.
-8. Premise revision is represented as supersession only.
-9. An execution-time write to the approved required end-state is refused.
+8. A premise revision uses the ordinary record update and preserves earlier
+   version-addressed content and evidence.
+9. An in-place write to an earlier version's required end-state is refused.
 10. Mid-execution discovery outside the approved end-state forward-links as successor
     work and does not close the current item.
-11. End-state supersession re-enters planning and records an audit shape matching
-    `specs-as-laws.md` §6.
+11. A complete contract update appends the next retained version atomically,
+    without resetting the step; current criteria and candidate still need valid proof.
 12. The executing agent cannot author, replace, or disable its own end-state check.
 13. Review's corrective edits are accepted without further review, and Main's
     recorded acceptance of the review disposition, not a distinct verdict actor,

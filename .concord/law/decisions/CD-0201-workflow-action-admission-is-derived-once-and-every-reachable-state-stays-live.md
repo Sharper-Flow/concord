@@ -11,10 +11,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0166"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0172"
     }
   ]
 }
@@ -72,10 +68,9 @@ The derived admission state covers every condition the five sites read: the step
 contract count, the breaking impact
 notices, design currency, the accepted Review disposition of the
 current candidate, recovery routes, evidence-binding recovery and
-the correction classifications. A duplicated contract projection follows the
-same rule: the count classifies the supersede recovery, and the singular-reader
-derivations degrade instead of refusing the route that recovery owns
-([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+the correction classifications. Contract content changes use the ordinary record
+update in [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates),
+not a separate workflow-action admission route.
 
 Review, correction and context projections use their current findings and
 recorded verification reports without inventing worker lineage. Reports use
@@ -109,13 +104,18 @@ witness and never skip. A conformance test replays the real engine on
 witness paths and compares the loaded state with the abstract successor at
 every step, so the model cannot drift from the derivation.
 
+Duplicate active contracts are a corrupt projection, not a well-formed public
+authoring state. Refusal checks keep that projection readable without selecting
+a contract or granting contract-dependent authority, and name verified restore.
+The liveness model does not invent a workflow move for that external recovery.
+
 No runtime guard enforces the law. The law binds design and review through
 the checks alone. The model states which admission families it derives; an
 exit the model cannot prove is not counted, so the checks fail rather than
 assume.
 
 Missing oracle readiness, an oracle defect, or a new uncovered case must
-retain declared preparation, correction, contract-supersession, and operator-stop
+retain declared preparation, correction, ordinary contract-update, and operator-stop
 recovery as applicable. Recovery never erases open blockers, and no attempt
 count, limit, or reset exists
 ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).

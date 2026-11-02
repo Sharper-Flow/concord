@@ -69,7 +69,7 @@ func TestWorkItemUsesCurrentDefinitionWithoutInflightPin(t *testing.T) {
 }
 
 func TestCurrentAndRecoveryDeclarationsResolvePublicDocument(t *testing.T) {
-	actions := BuiltinWorkflowCanonicalRecoveryActionDefinitions()
+	actions := BuiltinWorkflowRecoveryActionDefinitions()
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		actions = append(actions, definition.ActionDefinitions...)
 	}

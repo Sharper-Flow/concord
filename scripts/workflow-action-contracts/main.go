@@ -56,11 +56,12 @@ type schemaRefProjection struct {
 }
 
 type contractProjection struct {
-	SchemaVersion string                         `json:"schema_version"`
-	Actions       []actionContract               `json:"actions"`
-	Workflows     []workflowOutcomeContract      `json:"workflows"`
-	Teaching      store.WorkflowContractTeaching `json:"teaching"`
-	SchemaRefs    schemaRefProjection            `json:"schema_refs"`
+	SchemaVersion   string                            `json:"schema_version"`
+	Actions         []actionContract                  `json:"actions"`
+	Workflows       []workflowOutcomeContract         `json:"workflows"`
+	Teaching        store.WorkflowContractTeaching    `json:"teaching"`
+	SchemaRefs      schemaRefProjection               `json:"schema_refs"`
+	ContractUpdates []store.WorkflowPayloadDefinition `json:"contract_updates"`
 }
 
 // canonicalPayload normalizes a payload for comparison: a nil field list
@@ -267,7 +268,7 @@ func main() {
 		return
 	}
 	definitions := store.BuiltinWorkflowDefinitions()
-	recovery := append(store.BuiltinWorkflowCanonicalRecoveryActionDefinitions(), store.BuiltinWorkflowDecisionFactActionDefinitions()...)
+	recovery := append(store.BuiltinWorkflowRecoveryActionDefinitions(), store.BuiltinWorkflowDecisionFactActionDefinitions()...)
 	contracts, err := collectActionContracts(definitions, recovery)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -308,6 +309,12 @@ func main() {
 		})
 	}
 	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows, Teaching: store.WorkflowContractTeachingRules(), SchemaRefs: collectSchemaRefs(definitions, recovery)}
+	for _, definition := range definitions {
+		payload := store.WorkflowContractUpdatePayload(definition)
+		if !slicesContainsPayload(projection.ContractUpdates, payload) {
+			projection.ContractUpdates = append(projection.ContractUpdates, payload)
+		}
+	}
 	for _, id := range ids {
 		projection.Actions = append(projection.Actions, contracts[id])
 	}
@@ -317,4 +324,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func slicesContainsPayload(values []store.WorkflowPayloadDefinition, payload store.WorkflowPayloadDefinition) bool {
+	for _, value := range values {
+		if reflect.DeepEqual(value, payload) {
+			return true
+		}
+	}
+	return false
 }

@@ -937,11 +937,6 @@ func validateEngineCrossFieldDeclarations() error {
 			}
 		}
 	}
-	recovery := workflowContractRecoveryActionDefinition()
-	cross := workflowActionCrossField(recovery.ID)
-	if !validateCrossFieldDeclaration(recovery.Payload.Fields, cross) {
-		return fmt.Errorf("engine cross-field declaration for %s does not match its payload fields", recovery.ID)
-	}
 	return nil
 }
 
@@ -1105,24 +1100,6 @@ func actionPolicyWithAlternatives(policy builtinActionPolicy, alternatives ...Wo
 func workflowActionCrossField(actionID string) WorkflowActionCrossField {
 	if policy, ok := builtinActionPolicies[actionID]; ok && policy.CrossField != nil {
 		return *policy.CrossField
-	}
-	if actionID == "supersede_contract" {
-		// The successor outcome shape is engine-owned typed data: the
-		// successor supplies exactly one outcome group. It lives here, not
-		// on the digest-covered recovery definition payload. The kind
-		// equality is declared beside the group it binds: outcome_kind and
-		// outcome_payload.kind are one value, the equality the
-		// contract_approved fold enforces through DecodeWorkflowPredicate
-		// and the published pair branches close per kind (CON-412).
-		return WorkflowActionCrossField{Alternatives: []WorkflowPayloadAlternative{
-			{Fields: []string{"outcome_predicates"}},
-			{Fields: []string{"outcome_kind", "outcome_payload"}},
-		}, KindMatches: []WorkflowPayloadKindMatch{{
-			Field:         "outcome_kind",
-			Object:        "outcome_payload",
-			Discriminator: "kind",
-			Remedy:        "supply the outcome_payload whose kind equals outcome_kind",
-		}}}
 	}
 	return WorkflowActionCrossField{}
 }
@@ -1417,7 +1394,6 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"request_correction": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric,
 		actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
 	),
-	"supersede_contract": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped),
 }
 
 // workflowCallerEvidenceBinders names the actions whose completed event binds
@@ -1559,10 +1535,7 @@ func workflowDecisionFactInitialActionDefinition(definition WorkflowDefinition) 
 // Recovery payloads are engine-owned even when absent from a historical pin.
 // Discovery of a definition does not grant admission at the current step.
 func workflowRecoveryActionDefinition(actionID string) (WorkflowActionDefinition, bool) {
-	switch actionID {
-	case "supersede_contract":
-		return workflowContractRecoveryActionDefinition(), true
-	case "record_verdict":
+	if actionID == "record_verdict" {
 		return currentActionDefinition(actionID, true), true
 	}
 	for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {
@@ -1579,7 +1552,6 @@ func workflowRecoveryActionDefinition(actionID string) (WorkflowActionDefinition
 // second copy.
 func BuiltinWorkflowRecoveryActionDefinitions() []WorkflowActionDefinition {
 	return []WorkflowActionDefinition{
-		workflowContractRecoveryActionDefinition(),
 		workflowCorrectionRequestActionDefinition(),
 	}
 }

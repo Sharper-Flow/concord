@@ -223,10 +223,10 @@ var workContextFindingRefPattern = regexp.MustCompile(`^finding:([0-9]+):([0-9]+
 // workContextOverflowRecovery is the one truthful recovery text for every
 // shared work-context bound: the declaration's optional context can reduce
 // through a later declaration, and a view whose mandatory context alone
-// exceeds the bound names the approved contract supersession or stop route
+// exceeds the bound names the ordinary contract update or stop route
 // instead of promising that reduction always repairs.
 func workContextOverflowRecovery() string {
-	return "reduce the declaration's optional context (readings, findings, or research selections) through a later declaration; if mandatory context alone exceeds the bound, supersede the active contract through its approved recovery route or stop the work"
+	return "reduce the declaration's optional context (readings, findings, or research selections) through a later declaration; if mandatory context alone exceeds the bound, use revise_intent with complete contract content only when the agreed scope permits reducing mandatory context, or stop the work"
 }
 
 // workContextFailure bounds the refusal messages of this surface.

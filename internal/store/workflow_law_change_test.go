@@ -443,8 +443,6 @@ func lawChangeConstructorFields(t *testing.T, s *Store, version int, laws, domai
 			t.Fatal(err)
 		}
 		values["required_evidence"] = json.RawMessage(evidence)
-		values["supersede_reason"] = "narrow the contract"
-		values["audit_evidence"] = []string{"audit:law-change-narrow"}
 	}
 	return lawChangeFields(t, values)
 }
@@ -452,29 +450,30 @@ func lawChangeConstructorFields(t *testing.T, s *Store, version int, laws, domai
 func constructLawChangeContract(t *testing.T, s *Store, definition WorkflowDefinition, registry DefinitionRegistry, workID, ownerRef string, fields map[string]json.RawMessage) (*WorkflowLawChange, *WorkflowArchitectureBinding) {
 	t.Helper()
 	expected := readWorkVersion(t, s, workID)
-	ctx, proofErr := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
-	if proofErr != nil {
-		t.Fatal(proofErr)
-	}
-	tx := lawChangeTx(t, s)
-	eventID := fmt.Sprintf("law-change-contract-%s-%d", workID, expected)
-	r := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: expected, OperationID: eventID, Now: time.Unix(12, 0).UTC()}
-	var events []Event
 	var err error
-	if _, successor := fields["supersede_reason"]; successor {
-		r.ActionID = "supersede_contract"
-		raw, _ := json.Marshal(fields)
-		events, err = workflowSupersedeContractEvents(ctx, tx, definition, r, ownerRef, raw, fields, eventID, expected)
+	if workflowFieldInt(fields, "contract_version", 1) > 1 {
+		contract := make(map[string]any, len(fields))
+		for name, value := range fields {
+			contract[name] = value
+		}
+		err = reviseContractRecord(t, s, workID, workflowActorForRef(t, s, ownerRef), contract, expected, registry)
 	} else {
-		r.ActionID = "approve_contract"
+		ctx, proofErr := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+		if proofErr != nil {
+			t.Fatal(proofErr)
+		}
+		tx := lawChangeTx(t, s)
+		eventID := fmt.Sprintf("law-change-contract-%s-%d", workID, expected)
+		r := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: expected, OperationID: eventID, ActionID: "approve_contract", Now: time.Unix(12, 0).UTC()}
+		var events []Event
 		events, err = workflowApproveContractEvents(ctx, tx, definition, r, ownerRef, fields, eventID, expected)
+		_ = tx.Rollback()
+		if err == nil {
+			err = tryAppendWorkflowEventsWithRegistry(s, registry, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}})
+		}
 	}
-	_ = tx.Rollback()
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tryAppendWorkflowEventsWithRegistry(s, registry, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}); err != nil {
-		t.Fatalf("live constructor fold: %v", err)
+		t.Fatalf("contract recording: %v", err)
 	}
 	var encoded sql.NullString
 	if err := s.DatabaseForTesting().QueryRow(`SELECT law_change FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&encoded); err != nil {

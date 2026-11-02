@@ -204,32 +204,34 @@ test("published string bounds admit and refuse with the core in both directions 
 // CON-412 nested kind equality: outcome_kind and outcome_payload.kind hold
 // one value. The published items close per kind, so a mismatched pair
 // validates no published branch while the matching pair admits. The
-// canonical supersede authoring surface carries the outcome_predicates
+// complete contract update surface carries the outcome_predicates
 // array alone: the per-kind closure holds on its array items, and the
 // retired scalar pair fields refuse the closed variant whether their kinds
 // match or not.
 test("published outcome kinds refuse outcome_kind and outcome_payload.kind disagreements", () => {
   const schema = publishedSchema("concord_work_transition")
-  const supersedeFields = (fields: Record<string, unknown>) => ({
-    operation: "workflow_action",
+  const revisionSchema = publishedSchema("concord_work_define")
+  const revisionFields = (contract: Record<string, unknown>) => ({
+    operation: "revise_intent",
     input: {
       work_id: "work-kind-parity",
       expected_version: 9,
-      action_id: "supersede_contract",
       idempotency_key: "idem-kind-parity",
-      fields,
+      title: "Updated plan", value_statement: "Current criteria", kind: "task", reason: "Revise the plan",
+      contract,
     },
   })
-  const supersedeAuthored = authoredInput("work_transition_action_variant_supersede_contract")
+  const revisionAuthored = authoredInput("work_define_revise_input")
   // The base fields come from the same sampler the variant battery uses, so
   // the base is the proven minimal call, not a handwritten field list.
-  const supersedeInput: Record<string, unknown> = {}
-  for (const key of supersedeAuthored.required ?? []) supersedeInput[key] = sample(supersedeAuthored.properties[key])
+  const revisionInput: Record<string, unknown> = {}
+  for (const key of revisionAuthored.required ?? []) revisionInput[key] = sample(revisionAuthored.properties[key])
+  revisionInput.contract = sample(revisionAuthored.properties.contract)
   expect(
-    authoredVerdict("work_transition_action_variant_supersede_contract", supersedeInput).ok,
-    "the sampled supersede input is core-admitted",
+    authoredVerdict("work_define_revise_input", revisionInput).ok,
+    "the sampled contract update is core-admitted",
   ).toBe(true)
-  const baseFields = supersedeInput.fields as Record<string, unknown>
+  const baseFields = revisionInput.contract as Record<string, unknown>
   const checkItem = {
     predicate_id: "predicate:kind-parity",
     ordinal: 0,
@@ -238,17 +240,17 @@ test("published outcome kinds refuse outcome_kind and outcome_payload.kind disag
   }
   const failures: string[] = []
   // Matching check pair admits through the canonical array.
-  expect(validateAgainstSchema(schema, supersedeFields({ ...baseFields, outcome_predicates: [checkItem] }), failures), failures.join("; ")).toBe(true)
+  expect(validateAgainstSchema(revisionSchema, revisionFields({ ...baseFields, outcome_predicates: [checkItem] }), failures), failures.join("; ")).toBe(true)
   // Mismatched array item refuses: outcome_kind exists beside a check payload.
-  expect(validateAgainstSchema(schema, supersedeFields({ ...baseFields, outcome_predicates: [{ ...checkItem, outcome_kind: "exists" }] }), failures)).toBe(false)
-  // The retired scalar pair form refuses the closed supersede variant: the
+  expect(validateAgainstSchema(revisionSchema, revisionFields({ ...baseFields, outcome_predicates: [{ ...checkItem, outcome_kind: "exists" }] }), failures)).toBe(false)
+  // The scalar pair form refuses the closed contract update: the
   // pair fields are declared nowhere and outcome_predicates is required,
   // so even a matching kind pair finds no admitting branch.
   const retiredPair: Record<string, unknown> = { ...baseFields }
   delete retiredPair.outcome_predicates
   retiredPair.outcome_kind = "check"
   retiredPair.outcome_payload = { kind: "check", check_ref: "check:kind-parity", immutable_subject_ref: "commit:kind-parity", expected_result: "pass" }
-  expect(validateAgainstSchema(schema, supersedeFields(retiredPair), failures)).toBe(false)
+  expect(validateAgainstSchema(revisionSchema, revisionFields(retiredPair), failures)).toBe(false)
   // Mismatched approve item refuses: outcome_kind exists with a check payload.
   // The items count holds on every branch of the fields union, not only the
   // factored parent view.

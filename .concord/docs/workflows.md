@@ -117,13 +117,13 @@ second question belongs to the outcome contract below.
 ### 2.1a Outcome contract
 
 Accepted CD-0012 gives the value statement a binding counterpart. Every work item
-additionally carries a three-part **outcome contract**, each part with its own
-revision authority:
+additionally carries a three-part **outcome contract** with separate revision
+rules:
 
 | Part | Content | Revision authority |
 |---|---|---|
-| **Premise** | Why this work exists, in the operator's terms. | Operator only; revision supersedes rather than edits. |
-| **Required end-state** | Falsifiable postconditions carrying the operative verb. | Operator only, at planning approval. |
+| **Premise** | Why this work exists, in the operator's terms. | Authenticated coordinator through the ordinary complete contract update; operator decisions follow CD-0243. |
+| **Required end-state** | Falsifiable postconditions carrying the operative verb. | Authenticated coordinator through the ordinary complete contract update; operator decisions follow CD-0243. |
 | **Candidate set** | The specific instances the end-state ranges over. | The executing agent, during execution, by a recorded revision. |
 
 The required end-state is approved at planning beside CD-0006 D10's spec mandate,
@@ -131,6 +131,12 @@ and verified at completion. A delivered end-state may only be stronger than the
 approved one, never weaker. Work discovered mid-execution that lies outside the
 approved end-state forward-links as successor work under CD-0006 R1; it never
 substitutes.
+
+Contract changes use [workflow-engine contract §4.1](../law/specs/workflow-engine-contract.md#41-ordinary-contract-updates).
+The update appends the next retained version without resetting the step or
+discarding evidence. Earlier version content remains immutable; current
+criteria and candidate still need valid independent proof. An execution-time
+law conflict still stops work for planning resolution before execution resumes.
 
 Every workflow carries an outcome contract. Research may record `no_change`
 when its approved outcome predicate allows it. The retained families' outcome

@@ -24,8 +24,7 @@ func duplicateActiveContractForTest(ctx context.Context, t *testing.T, s *Store,
 	}
 }
 
-// Relaxing the law-revision gate keeps the operator recovery reachable. It must
-// not make an ambiguous projection ordinarily actionable: a normal action still
+// An ambiguous projection is not ordinarily actionable: a normal action still
 // has no single contract to read, so it refuses.
 func TestNormalWorkflowActionRefusesAnAmbiguousProjection(t *testing.T) {
 	ctx := context.Background()

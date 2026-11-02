@@ -77,17 +77,3 @@ func TestWorkPinIntentsAreAdmittedAtEveryBuiltinStep(t *testing.T) {
 		t.Fatal("no emitted intent was checked")
 	}
 }
-
-func TestWorkPinRecoveryIntentsAreAdmittedAtTheirWalls(t *testing.T) {
-	t.Run("duplicate_contracts", func(t *testing.T) {
-		f := newAcceptanceRecoveryFixture(context.Background(), t)
-		duplicateActiveWorkflowContract(context.Background(), t, f.store, f.workID)
-		if assertWorkPinIntentsAdmitted(t, f.store, f.workID) == 0 {
-			t.Fatal("duplicate recovery offered no intent")
-		}
-		seedTerminalInstanceForTesting(t, f.store, f.workID, "cancelled")
-		if assertWorkPinIntentsAdmitted(t, f.store, f.workID) != 0 {
-			t.Fatal("terminal work offered an intent")
-		}
-	})
-}

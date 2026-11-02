@@ -1118,7 +1118,7 @@ func init() {
 	registerOutputBound("/$defs/mutation_result/properties/next_valid_intents/maxItems", sumBound(
 		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
 		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
+		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinCorrectionRequestIntentsTx", "pin.NextValidIntents"),
 	))
 	registerOutputBound("/$defs/mutation_result/properties/work_pins/maxItems", pkSubsetChainItemsBound(
 		pkPlanEffectWorkPinsBound("internal/agent/mutations.go"),
@@ -1176,14 +1176,14 @@ func init() {
 	registerOutputBound("/$defs/project_handoff_consume_result/properties/next_valid_intents/maxItems", sumBound(
 		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
 		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
+		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinCorrectionRequestIntentsTx", "pin.NextValidIntents"),
 	))
 	registerOutputBound("/$defs/project_handoff_consume_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume"))
 	registerOutputBound("/$defs/project_handoff_record_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord", "mutationResultChangedRefs"))
 	registerOutputBound("/$defs/project_handoff_record_result/properties/next_valid_intents/maxItems", sumBound(
 		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
 		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
+		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinCorrectionRequestIntentsTx", "pin.NextValidIntents"),
 	))
 	registerOutputBound("/$defs/project_handoff_record_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord"))
 
@@ -2615,7 +2615,7 @@ func TestPkDerivations(t *testing.T) {
 		"commit oid":    pkLengthSetBound("internal/store/git_knowledge.go", "validateCommitOID", "len(oid)"),
 		"git sha":       pkLengthSetBound("internal/store/outside_repair.go", "outsideRepairGitSHA", "len(value)"),
 		"stop collect":  pkCollectStopBound("internal/store/membership.go", "membershipImpact", "len(impact.AffectedWorkIDs)"),
-		"intent sites":  pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
+		"intent sites":  pkAppendSitesItemsBound("internal/store/workpin.go", "workPinCorrectionRequestIntentsTx", "pin.NextValidIntents"),
 		"record effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord"), "pin aggregate": pkSubsetChainItemsBound(pkPlanEffectWorkPinsBound("internal/agent/mutations.go"), pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"}, pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"}),
 		"consume effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume"),
 		"registry hash":  pkHexDigestConstructionBound("internal/store/knowledge_record.go", "domainRegistryContentHash"),

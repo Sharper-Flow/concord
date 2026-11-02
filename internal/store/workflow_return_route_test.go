@@ -152,7 +152,7 @@ func TestWorkflowActionPreflightNamesEveryMissingAndUndeclaredField(t *testing.T
 func TestPReviewCorrectionAdmitsAdvertisedEvidence(t *testing.T) {
 	j := pReturnReviewFixture(t, "p-return-advertised-evidence", "workflow.break_fix", "correction_required")
 	entry := mustBuiltinDefinition(t, "workflow.break_fix")
-	correction, _, err := workflowCorrectionRequestAdmissionForRegistry(t.Context(), j.s.db, j.workID, entry.Definition, "repair", "test", 0, BuiltinWorkflowRegistry())
+	correction, _, err := workflowCorrectionRequestAdmissionForRegistry(t.Context(), j.s.db, j.workID, entry.Definition, "repair", "test", BuiltinWorkflowRegistry())
 	if err != nil || correction == nil {
 		t.Fatalf("advertised correction=%+v err=%v", correction, err)
 	}
@@ -439,7 +439,7 @@ func TestVerdictCorrectionRefusesUnrecordedReview(t *testing.T) {
 	j := pReturnReviewFixture(t, "return-route-unaccepted-review-delivery", "workflow.break_fix", "")
 	before := j.effects(t)
 	entry := mustBuiltinDefinition(t, "workflow.break_fix")
-	available, _, err := workflowCorrectionRequestAdmissionStateForRegistry(t.Context(), j.s.db, j.workID, entry.Definition, "repair", "return_route_test", 0, BuiltinWorkflowRegistry())
+	available, _, err := workflowCorrectionRequestAdmissionStateForRegistry(t.Context(), j.s.db, j.workID, entry.Definition, "repair", "return_route_test", BuiltinWorkflowRegistry())
 	if err != nil || available {
 		t.Fatalf("unaccepted Review correction available=%t err=%v", available, err)
 	}

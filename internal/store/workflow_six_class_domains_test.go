@@ -29,7 +29,7 @@ func TestSixClassDecisionDomainsAuthoring(t *testing.T) {
 		`["increased_spending","legal","product","production_data","security","ui_ux","unknown"]`,
 		`null`, `{}`, `"security"`, `[true]`, `[1]`, `[null]`,
 	} {
-		_, err := workflowSubmittedDecisionDomains(definition, "approval", map[string]json.RawMessage{"decision_domains": json.RawMessage(raw)})
+		_, err := workflowSubmittedDecisionDomains(definition, map[string]json.RawMessage{"decision_domains": json.RawMessage(raw)})
 		if !hasFailureKind(err, KindInvalidPayload) {
 			t.Errorf("authored %s returned %v, want invalid_payload", raw, err)
 		}
@@ -40,7 +40,7 @@ func TestSixClassDecisionDomainsAuthoring(t *testing.T) {
 		}
 	}
 	// Definitions without the policy retain the absence contract, not a new fact.
-	legacy, err := workflowSubmittedDecisionDomains(WorkflowDefinition{}, "approval", nil)
+	legacy, err := workflowSubmittedDecisionDomains(WorkflowDefinition{}, nil)
 	if err != nil || legacy != nil {
 		t.Fatalf("legacy absence = %v, %v; want nil, nil", legacy, err)
 	}
@@ -62,7 +62,7 @@ func TestSixClassDecisionDomainsRoundTrip(t *testing.T) {
 	for _, domains := range sets {
 		t.Run(workflowJSON(domains), func(t *testing.T) {
 			definition := declaringDefinition()
-			authored, err := workflowSubmittedDecisionDomains(definition, "approval", map[string]json.RawMessage{"decision_domains": json.RawMessage(workflowJSON(domains))})
+			authored, err := workflowSubmittedDecisionDomains(definition, map[string]json.RawMessage{"decision_domains": json.RawMessage(workflowJSON(domains))})
 			if err != nil {
 				t.Fatalf("approved six-class fact refused by authoring: %v", err)
 			}

@@ -528,11 +528,10 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			})
 		}
 	}
-	// Recovery discovery folds admission even when duplicate contracts prevent
-	// selecting one active contract. Its own fixture keeps that ambiguity out
-	// of the other read rows.
+	// A duplicate active contract must not block reading a declared action.
+	// Keep that ambiguity out of the other read rows.
 	for _, mode := range []neighbor.Mode{neighbor.Reader, neighbor.Writer} {
-		t.Run(string(mode)+"/WorkflowActionDefinitionForSupersedeContract", func(t *testing.T) {
+		t.Run(string(mode)+"/WorkflowActionDefinitionForRecordVerdictWithAmbiguousContract", func(t *testing.T) {
 			f := newAcceptanceRecoveryFixture(ctx, t)
 			duplicateActiveWorkflowContract(ctx, t, f.store, f.workID)
 			if _, err := f.store.db.Exec("PRAGMA busy_timeout=50"); err != nil {
@@ -540,15 +539,15 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			neighbor.Start(t, f.store.Path(), mode)
 			started := time.Now()
-			_, action, err := WorkflowActionDefinitionFor(ctx, f.store, BuiltinWorkflowRegistry(), f.workID, "supersede_contract")
+			_, action, err := WorkflowActionDefinitionFor(ctx, f.store, BuiltinWorkflowRegistry(), f.workID, "record_verdict")
 			if err != nil {
-				t.Fatalf("supersede_contract discovery under %s neighbor: %v", mode, err)
+				t.Fatalf("record_verdict discovery under %s neighbor: %v", mode, err)
 			}
-			if action.ID != "supersede_contract" {
-				t.Fatalf("recovery action=%+v, want supersede_contract", action)
+			if action.ID != "record_verdict" {
+				t.Fatalf("declared action=%+v, want record_verdict", action)
 			}
 			if mode == neighbor.Writer && time.Since(started) >= neighbor.WriterHold {
-				t.Fatal("supersede_contract discovery waited for writer release")
+				t.Fatal("record_verdict discovery waited for writer release")
 			}
 		})
 	}

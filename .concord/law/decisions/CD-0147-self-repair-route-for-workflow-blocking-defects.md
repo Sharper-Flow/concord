@@ -3,9 +3,7 @@
   "id": "CD-0147",
   "title": "Self-repair route for workflow-blocking defects",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "product-root:concord",
   "applies_to_domain_ids": [],
@@ -48,7 +46,7 @@ all five conditions hold:
 1. The defect is in Concord and a typed operation refuses the record of its own repair.
 2. The operator approved code-first ordering for the item.
 3. The item was captured before the repair code landed.
-4. The delivery is reconciled afterward: the contract is superseded at its checkpoint, every contract-required evidence kind is bound, and the lifecycle reaches a terminal state.
+4. The delivery is reconciled afterward: the contract is updated through the ordinary record update at its checkpoint, every contract-required evidence kind is bound, and the lifecycle reaches a terminal state.
 5. The session claims no authority, verdict, or completion beyond what the record carries.
 
 The session must record the delivery and its evidence after the repair. An
@@ -68,7 +66,7 @@ This decision declares conduct. It adds no operation, flag, admission path,
 operator override, or exception to a gate. Existing refusals remain active.
 
 This route does not amend CD-0222. It does not authorize fabricated
-workflow state, skipped contract supersession, missing evidence, or a terminal
+workflow state, skipped contract update, missing evidence, or a terminal
 claim without the required record.
 
 ## Consequences

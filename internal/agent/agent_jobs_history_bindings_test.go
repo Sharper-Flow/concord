@@ -10,15 +10,15 @@ import (
 
 // AJ4 — read the contract a correction replaced.
 //
-// bindAJ4HistoryOfASupersededContract approves contract v1, supersedes it
-// with v2 through the operator-approved correction route, then reads
+// bindAJ4HistoryOfASupersededContract approves contract v1, revises it
+// with v2 through the ordinary update route, then reads
 // concord_work_trace.history with contract_version 1. It proves the
 // workflow summary answers v1 (not the active v2) with its successor and its
 // own verified definition pin, that a version the work never had refuses
 // unknown_scope, and that the reads leave the store revision unchanged.
 func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObservation {
 	t.Helper()
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition", "product_read"})
 	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -34,7 +34,7 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		t.Fatalf("approve_contract = %+v", approved.Error)
 	}
 	version = recordApprovedWorkDesign(t, s, service, env, "work-1", "aj4-history-design")
-	superseded, _ := dispatchWorkflowActionResult(t, s, service, env, version, "supersede_contract", map[string]any{
+	revised, _ := dispatchContractRevisionResult(t, s, service, env, "work-1", version, map[string]any{
 		"contract_version":     2,
 		"premise":              "corrected premise",
 		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
@@ -47,17 +47,10 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		"spec_mandate":      []string{},
 		"law_modifies":      []string{},
 		"rigor_class":       "prototype_internal",
-		"supersede_reason":  "correct the accepted premise",
-		"audit_evidence":    []string{"evidence:aj4-history"},
 		"decision_domains":  []string{},
-		"design_record": map[string]any{
-			"approach":     "corrected design",
-			"decisions":    []map[string]any{{"id": "decision:corrected", "question": "Which approach?", "choice": "corrected", "rationale": "Matches the approved objective", "rejected": []string{"original"}}},
-			"touched_refs": []string{"src/work.go"},
-		},
-	}, "aj4-history-supersede")
-	if superseded.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("supersede_contract = %+v", superseded.Error)
+	}, "aj4-history-revise")
+	if revised.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("revise_intent = %+v", revised.Error)
 	}
 
 	history := func(contractVersion int) agentcontract.Envelope {

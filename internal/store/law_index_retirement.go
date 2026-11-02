@@ -44,8 +44,8 @@ type lawIndexEntry struct {
 
 func (home lawIndexHome) designated() bool { return len(home.ProductIDs) > 0 }
 
-func (home lawIndexHome) knowledgeHome() KnowledgeHome {
-	return KnowledgeHome{HomeProjectID: home.ProjectID, HomeLocatorID: home.LocatorID, RepoPath: home.RepoPath, HeadRef: "HEAD"}
+func (home lawIndexHome) knowledgeHome() (KnowledgeHome, error) {
+	return currentLawHome(KnowledgeHome{HomeProjectID: home.ProjectID, HomeLocatorID: home.LocatorID, RepoPath: home.RepoPath})
 }
 
 // lawIndexRetirementProof is what the pre-transaction accounting established:
@@ -102,13 +102,13 @@ func establishLawIndexRetirementProof(ctx context.Context, db *sql.DB) (*lawInde
 	if len(refusals) > 0 {
 		return nil, newFailure(KindUpgradeBlocked, "migrate",
 			"migration 174 (law_index_retirement) would drop legacy law index rows the committed law folder cannot account for; no migration was applied: "+strings.Join(refusals, "; "),
-			true, "publish each still-current named law into its home's .concord/law/ folder through the source owner's reviewed route; for retired law restore reachable committed law-folder deletion history and the recorded source bytes, with origin/HEAD naming that default-branch commit; repair malformed folder files or unreachable homes, then retry concord upgrade")
+			true, "publish each still-current named law into its home's .concord/law/ folder through the source owner's reviewed route; for retired law restore reachable committed law-folder deletion history and the recorded source bytes; "+defaultLawRefRecovery+"; repair malformed folder files or unreachable homes, then retry concord upgrade")
 	}
 	return proof, nil
 }
 
 // accountLawIndexHome loads one designated home's committed law folder and
-// returns its head and any default ref used to prove retirement, or a refusal
+// returns its head and concrete default ref, or a refusal
 // naming the Product, home, and laws the folder cannot account for.
 func accountLawIndexHome(ctx context.Context, home lawIndexHome) (string, string, string) {
 	subject := fmt.Sprintf("Product %s knowledge home %s/%s", strings.Join(home.ProductIDs, ", "), home.ProjectID, home.LocatorID)
@@ -117,7 +117,11 @@ func accountLawIndexHome(ctx context.Context, home lawIndexHome) (string, string
 		return "", "", subject + " has no canonical path, so legacy law " + laws + " cannot be accounted for"
 	}
 	subject += " at " + home.RepoPath
-	snapshot, err := loadLawFolderSnapshotAtHome(ctx, home.knowledgeHome())
+	bound, err := home.knowledgeHome()
+	if err != nil {
+		return "", "", subject + " has no default-branch law authority (" + err.Error() + "), so legacy law " + laws + " cannot be accounted for"
+	}
+	snapshot, err := loadLawFolderSnapshotAtHome(ctx, bound)
 	if err != nil {
 		var failure *Failure
 		if errors.As(err, &failure) && failure.Kind == KindGitUnreachable {
@@ -135,10 +139,15 @@ func accountLawIndexHome(ctx context.Context, home lawIndexHome) (string, string
 			missing = append(missing, law)
 		}
 	}
-	defaultRef := ""
+	if err := requireDefaultLawRef(bound); err != nil {
+		return "", "", subject + " changed default-branch law authority during accounting"
+	}
+	defaultRef := bound.HeadRef
 	if len(missing) > 0 {
-		var unaccounted []lawIndexEntry
-		defaultRef, unaccounted = accountLawIndexRetirements(ctx, home.RepoPath, snapshot.CommitOID(), missing)
+		retirementRef, unaccounted := accountLawIndexRetirements(ctx, home.RepoPath, snapshot.CommitOID(), missing)
+		if retirementRef != defaultRef {
+			unaccounted = missing
+		}
 		if len(unaccounted) > 0 {
 			return "", "", subject + " commit " + snapshot.CommitOID() + " has no law folder file or verified law-folder retirement for legacy law " + lawIndexEntryList(unaccounted)
 		}
@@ -244,16 +253,15 @@ func verifyLawIndexRetirementProof(ctx context.Context, tx *sql.Tx, proof *lawIn
 		if !home.designated() {
 			continue
 		}
-		accounted := proof.heads[lawIndexHomeKey(home.ProjectID, home.LocatorID)]
-		head, err := resolveKnowledgeHeadCheap(home.RepoPath, "HEAD")
-		if err != nil || head != accounted {
-			return lawIndexRetirementMoved(fmt.Sprintf("knowledge home %s/%s at %s moved from the commit its law folder accounted for", home.ProjectID, home.LocatorID, home.RepoPath))
+		key := lawIndexHomeKey(home.ProjectID, home.LocatorID)
+		accounted := proof.heads[key]
+		ref, err := resolveDefaultLawRefCheap(home.RepoPath)
+		if err != nil || ref != proof.defaultRefs[key] {
+			return lawIndexRetirementMoved("the default-branch law authority changed after accounting")
 		}
-		if ref := proof.defaultRefs[lawIndexHomeKey(home.ProjectID, home.LocatorID)]; ref != "" {
-			current, err := resolveKnowledgeHeadCheap(home.RepoPath, ref)
-			if err != nil || current != accounted || lawIndexDefaultRefCheap(home.RepoPath) != ref {
-				return lawIndexRetirementMoved("the default-branch retirement proof moved after accounting")
-			}
+		head, err := resolveKnowledgeHeadCheap(home.RepoPath, ref)
+		if err != nil || head != accounted {
+			return lawIndexRetirementMoved(fmt.Sprintf("knowledge home %s/%s at %s moved from the default commit its law folder accounted for", home.ProjectID, home.LocatorID, home.RepoPath))
 		}
 	}
 	return nil

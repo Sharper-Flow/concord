@@ -51,6 +51,24 @@ const (
 	cliLawIndexRegistry = `{"schema_version":"1.0","product_key":"fixture","root_domain_id":"product-root:fixture","domains":[{"domain_id":"product-root:fixture","name":"Fixture","purpose":"Governs the synthetic fixture Product.","status":"current","architecture_relations":[]}]}` + "\n"
 )
 
+func TestLawIndexCLIFixtureDesignatesDefault(t *testing.T) {
+	path, _ := cliStoreRoot(t)
+	seedLawIndexCLIStore(t, path)
+	db := openRawSQLite(t, path)
+	defer func() { _ = db.Close() }()
+	var repo string
+	if err := db.QueryRow(`SELECT locator_value FROM project_locators WHERE locator_id = ?`, cliLawIndexLocator).Scan(&repo); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(runLawIndexGit(t, repo, "symbolic-ref", "--no-recurse", "refs/remotes/origin/HEAD")); got != "refs/remotes/origin/main" {
+		t.Fatalf("default designation = %q, want refs/remotes/origin/main", got)
+	}
+	committed := strings.TrimSpace(runLawIndexGit(t, repo, "rev-parse", "refs/heads/main^{commit}"))
+	if got := strings.TrimSpace(runLawIndexGit(t, repo, "rev-parse", "refs/remotes/origin/main^{commit}")); got != committed {
+		t.Fatalf("default commit = %q, want %q", got, committed)
+	}
+}
+
 func cliLawIndexLawContent() string {
 	return "---\n" +
 		`{"id":"` + cliLawIndexLawID + `","title":"CLI law index retirement law","authority":{"tier":"derived"},"home_domain_id":"product-root:fixture","applies_to_domain_ids":[],"product_wide_rationale":"This synthetic law governs the whole fixture Product."}` + "\n" +
@@ -99,6 +117,8 @@ func seedLawIndexCLIStore(t *testing.T, path string) {
 	}
 	runLawIndexGit(t, repo, "add", "--", ".")
 	runLawIndexGit(t, repo, "commit", "--quiet", "--date", "2026-08-07T00:00:00Z", "-m", "synthetic law index retirement home", "--author", "Concord Test <test@example.invalid>")
+	runLawIndexGit(t, repo, "symbolic-ref", "refs/remotes/origin/main", "refs/heads/main")
+	runLawIndexGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	commit := strings.TrimSpace(runLawIndexGit(t, repo, "rev-parse", "HEAD"))
 
 	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?_pragma=busy_timeout(5000)")

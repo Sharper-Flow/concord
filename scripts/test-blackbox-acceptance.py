@@ -303,6 +303,8 @@ def _git_init(work: Path) -> tuple[Path, Path]:
     readme.write_text('harness-fixture\n', encoding='utf-8')
     subprocess.run(['git', '-C', str(base), 'add', 'README.md'], check=True)
     subprocess.run(['git', '-C', str(base), 'commit', '--quiet', '-m', 'harness-fixture'], check=True)
+    subprocess.run(['git', '-C', str(base), 'symbolic-ref', 'refs/remotes/origin/main', 'refs/heads/main'], check=True)
+    subprocess.run(['git', '-C', str(base), 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'], check=True)
     # Add a sibling worktree on a fresh branch. ``git worktree add`` of an
     # absolute path with --detach gives a clean checkout independent of the
     # main one, so the core's --git-common-dir vs --git-dir check returns false

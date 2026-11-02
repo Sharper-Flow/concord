@@ -5,8 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
@@ -21,15 +19,11 @@ import (
 // for; every law is unaccounted when the default-branch binding fails.
 func accountLawIndexRetirements(ctx context.Context, repo, head string, laws []lawIndexEntry) (string, []lawIndexEntry) {
 	runner := lawFolderGitRunner{}
-	out, err := runner.Run(ctx, repo, "symbolic-ref", "refs/remotes/origin/HEAD")
+	defaultRef, err := resolveDefaultLawRefCheap(repo)
 	if err != nil {
 		return "", laws
 	}
-	defaultRef := strings.TrimSpace(string(out))
-	if !strings.HasPrefix(defaultRef, "refs/remotes/origin/") || !safeGitRefPath(defaultRef) || lawIndexDefaultRefCheap(repo) != defaultRef {
-		return "", laws
-	}
-	out, err = runner.Run(ctx, repo, "rev-parse", "--verify", defaultRef+"^{commit}")
+	out, err := runner.Run(ctx, repo, "rev-parse", "--verify", defaultRef+"^{commit}")
 	if err != nil || strings.TrimSpace(string(out)) != head {
 		return "", laws
 	}
@@ -54,28 +48,6 @@ func lawIndexRetirementProven(ctx context.Context, runner GitRunner, repo, head 
 		return false
 	}
 	return lawIndexFolderDeletion(ctx, runner, repo, head, law)
-}
-
-// origin/HEAD is a shared symbolic ref, including for a linked worktree.
-// Retargeting it invalidates retirement proof even if its old target stayed put.
-func lawIndexDefaultRefCheap(repo string) string {
-	dir, err := knowledgeGitDir(repo)
-	if err != nil {
-		return ""
-	}
-	if raw, err := os.ReadFile(filepath.Join(dir, "commondir")); err == nil { //nolint:gosec // fixed Git metadata name in the designated home.
-		common := strings.TrimSpace(string(raw))
-		if !filepath.IsAbs(common) {
-			common = filepath.Join(dir, common)
-		}
-		dir = common
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, "refs/remotes/origin/HEAD")) //nolint:gosec // fixed symbolic ref name in the designated home.
-	if err != nil {
-		return ""
-	}
-	ref, _ := strings.CutPrefix(strings.TrimSpace(string(raw)), "ref: ")
-	return ref
 }
 
 func lawIndexHash(content []byte) string {

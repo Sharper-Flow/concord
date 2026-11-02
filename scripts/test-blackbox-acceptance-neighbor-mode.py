@@ -12,6 +12,7 @@ binary, no network, and no SQLite file.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import tempfile
 import time
 import unittest
@@ -30,6 +31,29 @@ def _load_harness():
 
 
 _bb = _load_harness()
+
+
+class GitFixtureTests(unittest.TestCase):
+    def test_default_resolves_in_both_worktrees(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base, linked = _bb._git_init(Path(directory))
+
+            def git(repo, *args):
+                return subprocess.check_output(
+                    ["git", "-C", str(repo), *args], text=True
+                ).strip()
+
+            committed = git(base, "rev-parse", "refs/heads/main^{commit}")
+            for repo in (base, linked):
+                with self.subTest(worktree=repo.name):
+                    self.assertEqual(
+                        git(repo, "symbolic-ref", "--no-recurse", "refs/remotes/origin/HEAD"),
+                        "refs/remotes/origin/main",
+                    )
+                    self.assertEqual(
+                        git(repo, "rev-parse", "refs/remotes/origin/main^{commit}"),
+                        committed,
+                    )
 
 
 class ClassificationTests(unittest.TestCase):

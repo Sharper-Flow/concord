@@ -121,6 +121,8 @@ func TestLawIndexRetirementHistoryRequiresPositiveFolderDeletion(t *testing.T) {
 			}
 			if scenario != "missing_default_ref" {
 				runKnowledgeGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+			} else {
+				runKnowledgeGit(t, repo, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
 			}
 			switch scenario {
 			case "wrong_hash":
@@ -171,7 +173,7 @@ func TestLawIndexRetirementRevalidatesHistoryAndDefaultBinding(t *testing.T) {
 			scanned := writeLawIndexHome(t, repo, map[string]string{lawIndexMissingNewPath: content})
 			runKnowledgeGit(t, repo, "rm", lawIndexMissingNewPath)
 			head := commitKnowledgeRepo(t, repo, "retire folder law")
-			runKnowledgeGit(t, repo, "update-ref", "refs/remotes/origin/main", head)
+			runKnowledgeGit(t, repo, "update-ref", "--no-deref", "refs/remotes/origin/main", head)
 			runKnowledgeGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 			db, _ := lawIndexRetirementFixture(t, repo, scanned, []lawIndexSubjectSeed{{lawID: lawIndexMissingLawID, recordPath: lawIndexMissingNewPath, content: content}})
 			proof, err := establishLawIndexRetirementProof(t.Context(), db)
@@ -225,7 +227,13 @@ func TestLawIndexRetirementRevalidatesHistoryAndDefaultBinding(t *testing.T) {
 			}
 			defer tx.Rollback()
 			err = verifyLawIndexRetirementProof(t.Context(), tx, proof)
-			assertFailureKind(t, err, KindUpgradeBlocked)
+			if change == "home_head" {
+				if err != nil {
+					t.Fatalf("checkout movement changed default law accounting: %v", err)
+				}
+			} else {
+				assertFailureKind(t, err, KindUpgradeBlocked)
+			}
 		})
 	}
 }

@@ -14,12 +14,14 @@ import (
 
 // Shared committed-git-home test fixtures. Every test that reads law through
 // the committed law folder builds its synthetic home through these helpers:
-// the repo starts on main, so HEAD is the default branch the loader resolves.
+// the repo explicitly designates main as its local origin default.
 
 func initKnowledgeRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
 	runKnowledgeGit(t, repo, "init", "--initial-branch=main")
+	runKnowledgeGit(t, repo, "symbolic-ref", "refs/remotes/origin/main", "refs/heads/main")
+	runKnowledgeGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	runKnowledgeGit(t, repo, "config", "user.email", "test@example.invalid")
 	runKnowledgeGit(t, repo, "config", "user.name", "Concord Test")
 	return repo

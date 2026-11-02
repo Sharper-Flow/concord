@@ -6,16 +6,22 @@ import (
 	"testing"
 )
 
-func retiredMandateCompletion(t *testing.T, s *Store, id string, event Event) Event {
+// completeRetiredMandate runs complete through the real action path, so
+// admission and the completion gate both answer.
+func completeRetiredMandate(t *testing.T, s *Store, f acceptanceRecoveryFixture, label string) error {
 	t.Helper()
-	v := readWorkVersion(t, s, id)
-	owner := ownerRefForTest(t, lawChangeConstructorActor)
-	event.EventID += "-retry"
-	event.Payload = mustJSONValue(map[string]any{
-		"work_id": id, "expected_version": v, "resulting_version": v + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": owner,
-		"premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": lawChangeHashA, "impact_verdict": "non-breaking",
+	return f.run(t.Context(), "complete", label, readWorkVersion(t, s, f.workID), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
+}
+
+// reachRetiredMandateRelease confirms the premise and parks the item at release.
+func reachRetiredMandateRelease(t *testing.T, s *Store, id string) acceptanceRecoveryFixture {
+	t.Helper()
+	var confirmed acceptanceRecoveryFixture
+	attributionCompletionWithConfirmation(t, s, id, nil, func(f acceptanceRecoveryFixture) error {
+		confirmed = f
+		return f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, id), nil, nil)
 	})
-	return event
+	return confirmed
 }
 
 func requireRetiredMandateStep(t *testing.T, s *Store, id, want string) {
@@ -39,7 +45,8 @@ func TestRetiredMandateDeclaredRemovalCompletes(t *testing.T) {
 		fields[workflowLawChangeRemovalsField] = mustJSONValue([]string{"law-remove"})
 	})
 	removeLawChangeLaw(t, s)
-	if err := CompleteWorkflow(t.Context(), s, attributionCompletion(t, s, id)); err != nil {
+	f := reachRetiredMandateRelease(t, s, id)
+	if err := completeRetiredMandate(t, s, f, "complete"); err != nil {
 		t.Fatalf("declared retirement of a mandated law cannot complete: %v", err)
 	}
 }
@@ -55,7 +62,7 @@ func TestRetiredMandateUndeclaredMandateStillRefuses(t *testing.T) {
 	})
 	removeLawChangeLaw(t, s)
 	removeWorkflowFixtureLaw(t, lawChangeFixtureHome(t, s), "law-retain")
-	err := CompleteWorkflow(t.Context(), s, attributionCompletion(t, s, id))
+	err := completeRetiredMandate(t, s, reachRetiredMandateRelease(t, s, id), "complete")
 	requireFailureKind(t, err, KindProjectionNotFound, "an undeclared absent mandate")
 	if !strings.Contains(err.Error(), "law-retain") || strings.Contains(err.Error(), "law-remove") {
 		t.Fatalf("refusal names the wrong mandate: %v", err)
@@ -72,12 +79,8 @@ func TestRetiredMandateUndeclaredRemovalRecoversAtRelease(t *testing.T) {
 	seedLawChangeLaw(t, s, "law-remove", "derived", "agent-surface")
 	attributionItem(t, s, id, []string{"law-remove"}, []string{})
 	removeLawChangeLaw(t, s)
-	var confirmed acceptanceRecoveryFixture
-	event := attributionCompletionWithConfirmation(t, s, id, nil, func(f acceptanceRecoveryFixture) error {
-		confirmed = f
-		return f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, id), nil, nil)
-	})
-	requireFailureKind(t, CompleteWorkflow(t.Context(), s, event), KindProjectionNotFound, "an undeclared retirement")
+	confirmed := reachRetiredMandateRelease(t, s, id)
+	requireFailureKind(t, completeRetiredMandate(t, s, confirmed, "complete"), KindProjectionNotFound, "an undeclared retirement")
 	// Before any update the active version is confirmed: no late route opens.
 	requireFailureKind(t, confirmed.run(t.Context(), "confirm_premise", "confirm-early", readWorkVersion(t, s, id), nil, nil), KindIllegalLifecycleTransition, "late confirmation of a confirmed version")
 
@@ -95,14 +98,14 @@ func TestRetiredMandateUndeclaredRemovalRecoversAtRelease(t *testing.T) {
 	if !workPinContainsAction(pin.NextValidIntents, "confirm_premise") || workPinContainsAction(pin.NextValidIntents, "complete") {
 		t.Fatalf("work pin intents = %+v, want late confirm_premise without complete", pin.NextValidIntents)
 	}
-	requireFailureKind(t, CompleteWorkflow(t.Context(), s, retiredMandateCompletion(t, s, id, event)), KindMissingEvidence, "an unconfirmed updated version")
+	requireFailureKind(t, completeRetiredMandate(t, s, confirmed, "complete-unconfirmed"), KindMissingEvidence, "an unconfirmed updated version")
 
 	if err := confirmed.run(t.Context(), "confirm_premise", "confirm-late", readWorkVersion(t, s, id), nil, nil); err != nil {
 		t.Fatalf("late confirmation of the updated version: %v", err)
 	}
 	requireRetiredMandateStep(t, s, id, "release")
 	requireFailureKind(t, confirmed.run(t.Context(), "confirm_premise", "confirm-again", readWorkVersion(t, s, id), nil, nil), KindIllegalLifecycleTransition, "a second late confirmation")
-	if err := CompleteWorkflow(t.Context(), s, retiredMandateCompletion(t, s, id, event)); err != nil {
+	if err := completeRetiredMandate(t, s, confirmed, "complete-reconciled"); err != nil {
 		t.Fatalf("reconciled retirement cannot complete: %v", err)
 	}
 }
@@ -115,11 +118,7 @@ func TestRetiredMandateLateConfirmationRequiresCurrentProof(t *testing.T) {
 	seedLawChangeLaw(t, s, "law-remove", "derived", "agent-surface")
 	attributionItem(t, s, id, []string{"law-remove"}, []string{})
 	removeLawChangeLaw(t, s)
-	var confirmed acceptanceRecoveryFixture
-	attributionCompletionWithConfirmation(t, s, id, nil, func(f acceptanceRecoveryFixture) error {
-		confirmed = f
-		return f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, id), nil, nil)
-	})
+	confirmed := reachRetiredMandateRelease(t, s, id)
 	entry := mustBuiltinDefinition(t, "workflow.implementation")
 	fields := lawChangeConstructorFields(t, s, 2, []string{}, []string{})
 	fields[workflowLawChangeReasonField] = mustJSONValue("retire the obsolete law")

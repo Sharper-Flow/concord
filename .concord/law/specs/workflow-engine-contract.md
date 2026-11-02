@@ -286,9 +286,9 @@ and canonical payload, and only when their evidence still proves the current
 candidate. Changed or removed criteria gain no proof from retained verdicts.
 Evidence for a different candidate does not prove the current candidate.
 Version-bound premise confirmations stay bound to their recorded version.
-When an update follows the premise confirmation, the coordinator confirms the
-active version through `confirm_premise` at the terminal step, under the same
-confirmation prerequisites. That late confirmation does not move the step, and
+When an update at the terminal step follows the premise confirmation, the
+coordinator confirms the active version through `confirm_premise` there, under
+the same confirmation prerequisites. That late confirmation does not move the step, and
 completion refuses until it is recorded.
 Current evidence, Review, confirmation, and completion checks remain required;
 unchanged valid proof needs no replacement merely because a contract version

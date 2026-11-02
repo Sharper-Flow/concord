@@ -686,9 +686,10 @@ func workflowActionOmitsGenericCompletion(actionID string) bool {
 	return actionID == "checkpoint_context" || actionID == "cross_context_boundary" || actionID == "record_work_context"
 }
 
-// workflowActionAdvancesStep reports whether a completed action moves the
-// instance to the next step: the fold advances on an advance-mode generic
-// completion and on nothing else.
+// workflowActionAdvancesStep reports whether a completed action declared on
+// its step moves the instance to the next step: the fold advances on an
+// advance-mode generic completion and on nothing else. An action admitted
+// off-step never advances (workflowCompletedActionAdvances).
 func workflowActionAdvancesStep(definition WorkflowDefinition, actionID string) bool {
 	if workflowActionOmitsGenericCompletion(actionID) {
 		return false

@@ -1787,10 +1787,12 @@ func admitWorkflowRecoveryEvidenceCompletionTx(ctx context.Context, tx *sql.Tx, 
 	return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind eligible recovery evidence", false, "bind an outstanding requirement or verification of an unverdicted active check")
 }
 
-// workflowCompletedActionAdvances reports whether a recorded action completion advances the pinned step.
+// workflowCompletedActionAdvances reports whether a recorded action completion
+// advances the pinned step: an advance-mode action its step declares. An
+// action admitted off-step through a recovery route never moves the step.
 func workflowCompletedActionAdvances(definition WorkflowDefinition, p workflowActionCompletedPayload) bool {
 	mode, ok := workflowActionExecutionMode(definition, p.ActionID)
-	return ok && mode == ActionAdvance
+	return ok && mode == ActionAdvance && definitionStepAllows(definition, p.StepID, p.ActionID)
 }
 
 func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
@@ -1839,7 +1841,7 @@ func completeAdmittedWorkflowActionTx(ctx context.Context, tx *sql.Tx, event Eve
 		if _, ok := workflowActionExecutionMode(entry.Definition, p.ActionID); !ok {
 			return newFailure(KindInvariantViolation, "fold_event", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
 		}
-		advancesStep = workflowCompletedActionAdvances(entry.Definition, p) && definitionStepAllows(entry.Definition, currentStep, p.ActionID)
+		advancesStep = workflowCompletedActionAdvances(entry.Definition, p)
 		correction, err := validateWorkflowCorrectionCompletionTx(ctx, tx, event, scope, p, entry, currentStep)
 		if err != nil {
 			return err
@@ -2001,9 +2003,10 @@ func workflowStepPassBoundary(ctx context.Context, q queryer, definition Workflo
 	return startSeq, true, nil
 }
 
-// advancingWorkflowActions lists the pinned actions whose completed fold moves
-// the instance between steps — the same mode test the completed-action fold
-// applies — so the pass boundary reads the fold's own step-transition rule.
+// advancingWorkflowActions lists the pinned advance-mode actions, the mode
+// test the completed-action fold applies to declared actions. A late
+// confirm_premise exit at a terminal step also matches, without moving the
+// step; the pass boundary reads only steps that record action starts.
 func advancingWorkflowActions(definition WorkflowDefinition) []string {
 	var advancing []string
 	for _, action := range definition.ActionDefinitions {

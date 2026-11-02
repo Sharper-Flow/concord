@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Tests for scripts/check-pr-linear-link.py — the guard must require exactly
 one non-closing Related-to line on work/work-* pull requests, refuse closing
-phrases in the title and the body (Linear parses both), and pass other
-branches and non-PR events."""
+phrases in the title and the body of every pull request (Linear parses both),
+and pass branches without closing phrases and non-PR events."""
 import importlib.util
 import json
 import subprocess
@@ -266,6 +266,59 @@ def test_non_work_branch_passes_without_a_body() -> None:
     ok, detail = guard.check_pr_link("feature/thing", "", "")
     assert ok, detail
     assert "not a Concord work branch" in detail, detail
+
+
+# CON-1450: three merged slice pull requests on non-work branches carried a
+# documented closing word directly before an issue key in their squash
+# messages, and Linear moved CON-1320 and CON-1100 to Done within two seconds
+# of each merge while most of their scope stayed open. The sentences below are
+# verbatim from those pull request bodies, so the closing-word scan cannot
+# stop at work/work-* branches.
+INCIDENT_SLICES = [
+    ("con-1320-durable-owner", "This does not complete CON-1320."),
+    ("fix-con-1100-law-rule-evidence", "This PR does not close CON-1100 or claim whole-record acceptance."),
+    ("test-con-1100-removal-confirmation", "It does not complete CON-1100 or qualify its whole-record coverage pointers."),
+]
+
+
+def test_incident_closing_wordings_on_non_work_branches_are_rejected() -> None:
+    for branch, sentence in INCIDENT_SLICES:
+        ok, detail = guard.check_pr_link(branch, "fix: deliver one slice of a larger issue", f"{sentence}\n")
+        assert not ok, f"the incident wording from {branch!r} must fail the check: {detail}"
+
+
+def test_incident_closing_wording_in_a_non_work_title_is_rejected() -> None:
+    ok, detail = guard.check_pr_link(
+        "con-1320-durable-owner",
+        "fix(store): this does not complete CON-1320",
+        "one slice of a larger issue\n",
+    )
+    assert not ok, "an incident wording in a non-work title must fail the check"
+    assert "title" in detail and "CON-1320" in detail, detail
+
+
+def test_cli_rejects_non_work_pull_request_incident_body() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        event_path = Path(directory) / "event.json"
+        event_path.write_text(
+            json.dumps(
+                {
+                    "pull_request": {
+                        "head": {"ref": "fix-con-1100-law-rule-evidence"},
+                        "title": "fix(conflicts): qualify existing law-change rule evidence",
+                        "body": "This PR does not close CON-1100 or claim whole-record acceptance.\n",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).with_name("check-pr-linear-link.py")), "pull_request", str(event_path)],
+            capture_output=True,
+            text=True,
+        )
+    assert result.returncode == 1, result.stdout
+    assert "closing phrase" in result.stdout and "CON-1100" in result.stdout, result.stdout
 
 
 QUEUE_REF = "refs/heads/gh-readonly-queue/main/pr-1350-6dc40f1b3d345e898fec2f0e7a9fe9518c9336bd"

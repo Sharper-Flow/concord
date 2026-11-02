@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -95,11 +93,9 @@ func agentFixtureLawFrontmatter(id, homeDomainID, productWideRationale string) s
 }
 
 // commitAgentFixtureLaw amends a seeded home's committed law folder with one
-// law file and commits it. It returns the committed bytes' SHA-256, the same
-// whole-file digest the law-folder snapshot records, so a fixture can pin the
-// exact revision it committed. Anything already staged in the repository's
-// index rides the same commit.
-func commitAgentFixtureLaw(t *testing.T, repo, relativePath, frontmatter string) string {
+// law file and commits it. Anything already staged in the repository's index
+// rides the same commit.
+func commitAgentFixtureLaw(t *testing.T, repo, relativePath, frontmatter string) {
 	t.Helper()
 	full := filepath.Join(repo, filepath.FromSlash(relativePath))
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
@@ -111,8 +107,6 @@ func commitAgentFixtureLaw(t *testing.T, repo, relativePath, frontmatter string)
 	}
 	gitRun(t, repo, "add", "--", relativePath)
 	gitRun(t, repo, "commit", "--quiet", "-m", "fixture law "+relativePath)
-	sum := sha256.Sum256([]byte(content))
-	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // retireAgentFixtureLaw commits the removal of one committed law file: the

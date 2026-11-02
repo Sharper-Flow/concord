@@ -51,45 +51,11 @@ WHERE w.lifecycle NOT IN `+terminalLifecycleSQLList()+` ORDER BY w.id`)
 	var blockers []string
 	registry := BuiltinWorkflowRegistry()
 	for _, candidate := range candidates {
-		registered, err := resolveCurrentWorkflowDefinition(registry, candidate.definition)
+		stranded, err := workflowLawPinRetirementStrandsReview(ctx, q, registry, candidate.id, candidate.definition, candidate.step)
 		if err != nil {
 			return err
 		}
-		definition := registered.Definition
-		if !workflowDefinitionProducesDelivery(definition) || !stepDeclaresAction(definition, candidate.step, "complete") || stepDeclaresAction(definition, candidate.step, "record_review") {
-			continue
-		}
-		review, err := loadWorkflowReviewState(ctx, q, candidate.id)
-		if err != nil {
-			var syntaxError *json.SyntaxError
-			var typeError *json.UnmarshalTypeError
-			if errors.As(err, &syntaxError) || errors.As(err, &typeError) {
-				return wrapFailure(KindInvariantViolation, "migrate", "cannot inspect retained Review for work "+candidate.id+" before law-pin retirement", false, "restore a verified backup into a new path with concord restore, then swap", err)
-			}
-			return err
-		}
-		if review.Accepted == nil || review.Candidate == nil || review.Dependencies == nil || review.DependenciesCurrent || review.Accepted.Report.OutputCandidate != *review.Candidate {
-			continue
-		}
-		before, err := workflowReviewDependenciesBeforePinRetirement(ctx, q, candidate.id, *review.Dependencies)
-		if err != nil {
-			return err
-		}
-		if !sameReviewDependencies(review.Accepted.Report.Dependencies, before) {
-			continue
-		}
-		moved, err := verificationReportMovedCandidate(ctx, q, candidate.id, *review.Accepted)
-		if err != nil {
-			return err
-		}
-		if moved {
-			continue
-		}
-		state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, q, candidate.id, definition, candidate.step, "migrate", registry)
-		if err != nil {
-			return err
-		}
-		if !workflowAdmit(definition, state, "record_review").Admitted {
+		if stranded {
 			blockers = append(blockers, candidate.id)
 		}
 	}
@@ -99,6 +65,50 @@ WHERE w.lifecycle NOT IN `+terminalLifecycleSQLList()+` ORDER BY w.id`)
 	return newFailure(KindUpgradeBlocked, "migrate",
 		fmt.Sprintf("law-pin retirement would invalidate accepted Review without an admitted re-review route for work: %s; no migration was applied", strings.Join(blockers, ", ")), true,
 		"complete or cancel the named work with the installed release, then retry concord upgrade")
+}
+
+// workflowLawPinRetirementStrandsReview checks whether the encoding cutover
+// alone invalidates this work's accepted Review without an admitted re-review.
+func workflowLawPinRetirementStrandsReview(ctx context.Context, q queryer, registry DefinitionRegistry, workID, definitionRef, step string) (bool, error) {
+	registered, err := resolveCurrentWorkflowDefinition(registry, definitionRef)
+	if err != nil {
+		return false, err
+	}
+	definition := registered.Definition
+	if !workflowDefinitionProducesDelivery(definition) || !stepDeclaresAction(definition, step, "complete") || stepDeclaresAction(definition, step, "record_review") {
+		return false, nil
+	}
+	review, err := loadWorkflowReviewState(ctx, q, workID)
+	if err != nil {
+		var syntaxError *json.SyntaxError
+		var typeError *json.UnmarshalTypeError
+		if errors.As(err, &syntaxError) || errors.As(err, &typeError) {
+			return false, wrapFailure(KindInvariantViolation, "migrate", "cannot inspect retained Review for work "+workID+" before law-pin retirement", false, "restore a verified backup into a new path with concord restore, then swap", err)
+		}
+		return false, err
+	}
+	if review.Accepted == nil || review.Candidate == nil || review.Dependencies == nil || review.DependenciesCurrent || review.Accepted.Report.OutputCandidate != *review.Candidate {
+		return false, nil
+	}
+	before, err := workflowReviewDependenciesBeforePinRetirement(ctx, q, workID, *review.Dependencies)
+	if err != nil {
+		return false, err
+	}
+	if !sameReviewDependencies(review.Accepted.Report.Dependencies, before) {
+		return false, nil
+	}
+	moved, err := verificationReportMovedCandidate(ctx, q, workID, *review.Accepted)
+	if err != nil {
+		return false, err
+	}
+	if moved {
+		return false, nil
+	}
+	state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, q, workID, definition, step, "migrate", registry)
+	if err != nil {
+		return false, err
+	}
+	return !workflowAdmit(definition, state, "record_review").Admitted, nil
 }
 
 // Only the cutover preflight reads the retiring digest inputs. Accepted reports

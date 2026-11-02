@@ -21,6 +21,15 @@ pull request when their scope is clear.
 4. Address review feedback and required checks before merge. Maintainers merge
    approved changes.
 
+Link each Concord work pull request (`work/work-*` branch) to its Linear issue
+with a non-closing `Related to <issue key>` line in the body; other branches
+need no link. Never put a closing word (`Fixes`, `Closes`,
+`complete`, and Linear's other closing magic words) directly before an issue
+key, not even to disclaim completion: Linear ignores the negation and moves
+the issue at merge. `verify-pr-linear-link` refuses the wording on every pull
+request, because issue status changes only through the Linear MCP server or
+the operator (CD-0213 D5).
+
 ## Verification
 
 Run `go test` on each changed package during development. Run the relevant

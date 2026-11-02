@@ -76,7 +76,11 @@ func knowledgeSourceProofKey(home KnowledgeHome) string {
 // its own, so the resolved head here is the commit the transaction
 // revalidates against.
 func loadLawFolderSnapshotAtHome(ctx context.Context, home KnowledgeHome) (*lawFolderSnapshot, error) {
-	head, err := resolveKnowledgeHead(ctx, home)
+	home, err := currentLawHome(home)
+	if err != nil {
+		return nil, err
+	}
+	head, err := resolveCurrentLawHead(ctx, home)
 	if err != nil {
 		return nil, err
 	}
@@ -90,10 +94,14 @@ func loadLawFolderSnapshotAtHome(ctx context.Context, home KnowledgeHome) (*lawF
 // verification runs; PM1 §3.3 admits a move whose law folder and registry
 // content are unchanged and re-verifies at the new head when it is not.
 func (s *Store) verifyLawSourceSnapshot(ctx context.Context, home KnowledgeHome) (*lawFolderSnapshot, knowledgeSourceVerifiedRevision, error) {
+	home, err := currentLawHome(home)
+	if err != nil {
+		return nil, knowledgeSourceVerifiedRevision{}, err
+	}
 	const attempts = 3
 	var lastErr error
 	for attempt := 0; attempt < attempts; attempt++ {
-		head, err := resolveKnowledgeHead(ctx, home)
+		head, err := resolveCurrentLawHead(ctx, home)
 		if err != nil {
 			return nil, knowledgeSourceVerifiedRevision{}, err
 		}
@@ -109,8 +117,11 @@ func (s *Store) verifyLawSourceSnapshot(ctx context.Context, home KnowledgeHome)
 			return nil, knowledgeSourceVerifiedRevision{}, err
 		}
 		revision.head = head
-		current, err := resolveKnowledgeHead(ctx, home)
+		current, err := resolveCurrentLawHead(ctx, home)
 		if err != nil {
+			return nil, knowledgeSourceVerifiedRevision{}, err
+		}
+		if err := requireDefaultLawRef(home); err != nil {
 			return nil, knowledgeSourceVerifiedRevision{}, err
 		}
 		if current == head {
@@ -230,6 +241,9 @@ func lawSnapshotForSource(ctx context.Context, home KnowledgeHome, op string) (*
 // head alone. It uses only small file reads (resolveKnowledgeHeadCheap and
 // the cheap object walk), so it stays inside CD-0195 D2.
 func (proof *knowledgeSourceSetProof) revalidateSource(source KnowledgeHome, op string) error {
+	if err := requireDefaultLawRef(source); err != nil {
+		return err
+	}
 	key := knowledgeSourceProofKey(source)
 	verified := proof.revisions[key]
 	if proof.snapshots[key] == nil || verified.head == "" {
@@ -388,7 +402,7 @@ func (s *Store) establishKnowledgeSourceSetProofAtHomes(ctx context.Context, hom
 	if productID == "" {
 		homes, err := projectCanonicalHomeCandidates(ctx, s.db, homeProjectID)
 		if err != nil {
-			return ctx, nil
+			return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{refreshErr: err}), nil
 		}
 		for _, home := range homes {
 			if home.HomeLocatorID != homeLocatorID {
@@ -415,7 +429,7 @@ func (s *Store) establishKnowledgeSourceSetProofAtHomes(ctx context.Context, hom
 	}
 	sources, err := resolveKnowledgeQuerySources(ctx, s.db, productID, "check_mandated_laws")
 	if err != nil {
-		return ctx, nil // The transaction's boundary owns source-resolution refusal.
+		return ctx, err
 	}
 	seenHomes := map[string]bool{}
 	for _, source := range sources {

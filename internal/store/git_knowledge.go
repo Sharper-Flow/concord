@@ -177,6 +177,13 @@ func knowledgeGitDir(repoPath string) (string, error) {
 // plain name resolve, which bounds every path to a fixed subtree of the git
 // directory and refuses a ref that would traverse out of it.
 func resolveGitRefCheap(gitDir, ref string) (string, error) {
+	return resolveGitRefDepthCheap(gitDir, ref, 0)
+}
+
+func resolveGitRefDepthCheap(gitDir, ref string, depth int) (string, error) {
+	if depth >= 5 {
+		return "", fmt.Errorf("git symbolic ref exceeds the cheap resolution bound")
+	}
 	if !strings.HasPrefix(ref, "refs/") || !safeGitRefPath(ref) {
 		return "", fmt.Errorf("git ref stays outside the refs/ tree")
 	}
@@ -190,9 +197,14 @@ func resolveGitRefCheap(gitDir, ref string) (string, error) {
 	}
 	for _, dir := range dirs {
 		if raw, err := os.ReadFile(path.Join(dir, ref)); err == nil { //nolint:gosec // safeGitRefPath bounds ref to plain components under the fixed refs/ subtree.
-			if oid, ok := commitOIDFromRefLine(strings.TrimSpace(string(raw))); ok {
+			line := strings.TrimSpace(string(raw))
+			if oid, ok := commitOIDFromRefLine(line); ok {
 				return oid, nil
 			}
+			if symbolic, ok := strings.CutPrefix(line, "ref: "); ok {
+				return resolveGitRefDepthCheap(gitDir, symbolic, depth+1)
+			}
+			return "", fmt.Errorf("git loose ref is malformed")
 		}
 	}
 	for _, dir := range dirs {

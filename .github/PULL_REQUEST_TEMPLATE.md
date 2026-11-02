@@ -7,7 +7,8 @@ Related to <issue key>
 <!-- One non-closing line naming this work item's recorded Linear issue
      (CD-0213 D5). Do not use a closing phrase such as Fixes: issue status
      changes through the Linear MCP server or the operator. verify-pr-linear-link
-     refuses a work/work-* pull request without this line. -->
+     refuses a closing word directly before an issue key on any pull request,
+     and a work/work-* pull request without this line. -->
 
 ## Scope and authority impact
 

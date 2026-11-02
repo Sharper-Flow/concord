@@ -57,9 +57,15 @@ uses a new ID. Contract law identity and Git reconciliation follow
 Concord resolves one default-branch commit at the designated home and
 reads law and the independent Domain registry at that same commit into an
 explicit immutable in-memory snapshot before opening a store transaction.
+The local `origin/HEAD` designation selects its concrete remote-tracking
+reference. A missing, unsafe or unresolved designation refuses with recovery;
+checkout `HEAD` is not a substitute. Law reads do not fetch or advance the
+checkout. Their agent results disclose that remote freshness is unchecked
+and name an owner-run fetch and retry, even when local references agree.
 Dirty files, another checkout's branch and later commits cannot alter that
 snapshot. A consequential transaction revalidates its home and reference
-binding through the existing bounded small-file proof. The proof binds the
+binding, including a changed default designation, through the existing bounded
+small-file proof. The proof binds the
 committed law-folder and Domain-registry content, so a moved head over
 unchanged law and registry content stays admitted, and changed law or
 registry content refuses rather than consuming stale proof. It does not run Git

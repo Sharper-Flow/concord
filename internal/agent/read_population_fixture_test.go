@@ -158,6 +158,34 @@ func seedReadPopulationFocusWork(t *testing.T, s *store.Store) {
 	}
 }
 
+func TestReadPopulationKnowledgeFixtureDesignatesDefault(t *testing.T) {
+	corpus, err := pm1fixture.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := pm1fixture.OpenTemp(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if err := pm1fixture.Seed(context.Background(), s, corpus); err != nil {
+		t.Fatal(err)
+	}
+	fx := readPopulationFixture{store: s}
+	fx.seedKnowledgeHome(t)
+	var repo string
+	if err := fx.store.DatabaseForTesting().QueryRow(`SELECT locator_value FROM project_locators WHERE locator_id = 'population-knowledge-locator'`).Scan(&repo); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(gitRun(t, repo, "symbolic-ref", "--no-recurse", "refs/remotes/origin/HEAD")); got != "refs/remotes/origin/main" {
+		t.Fatalf("default designation = %q, want refs/remotes/origin/main", got)
+	}
+	committed := strings.TrimSpace(gitRun(t, repo, "rev-parse", "refs/heads/main^{commit}"))
+	if got := strings.TrimSpace(gitRun(t, repo, "rev-parse", "refs/remotes/origin/main^{commit}")); got != committed {
+		t.Fatalf("default commit = %q, want %q", got, committed)
+	}
+}
+
 // seedKnowledgeHome commits a Domain registry carrying a root and a child
 // Domain, plus committed law documents the child hosts, and authorizes the
 // home. The home lives on its own Project so the focus Project's
@@ -204,6 +232,8 @@ func (fx readPopulationFixture) seedKnowledgeHome(t *testing.T) string {
 	}
 	gitRun(t, repo, "add", "--", ".")
 	gitRun(t, repo, "commit", "--quiet", "-m", "population knowledge home")
+	gitRun(t, repo, "symbolic-ref", "refs/remotes/origin/main", "refs/heads/main")
+	gitRun(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 
 	execPopulationStatement(t, fx.store, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('proj-knowledge','Population knowledge',1,'now','now')`)
 	execPopulationStatement(t, fx.store, `INSERT INTO product_projects(product_id,project_id,role) VALUES('prod-alpha','proj-knowledge','secondary')`)

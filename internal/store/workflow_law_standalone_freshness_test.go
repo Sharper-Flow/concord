@@ -89,7 +89,8 @@ func TestLawBaselineStandaloneInventoryFreshness(t *testing.T) {
 				case "stale-law":
 					seedLawChangeLaw(t, s, "law-peer", "derived", "agent-surface")
 				case "changed-location":
-					moved := t.TempDir()
+					moved := initKnowledgeRepo(t)
+					writeFixtureSpecLawSource(t, KnowledgeHome{RepoPath: moved}, "spec:one")
 					lawChangeFold(t, s, `UPDATE project_locators SET locator_value=?,normalized_value=? WHERE locator_id=?`, moved, moved, home.HomeLocatorID)
 				case "code-only-after-proof":
 					writeKnowledgeFile(t, home.RepoPath, "unrelated.go", "package synthetic\n")

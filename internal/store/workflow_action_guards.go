@@ -222,7 +222,7 @@ func workflowEvidenceBindingRecoveryEligibility(ctx context.Context, q queryer, 
 	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
 		return state, nil
 	}
-	required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if err != nil {
 		if workflowMissingContractProjection(err) {
 			return state, nil
@@ -259,7 +259,7 @@ func workflowEvidenceBindingRecoveryEligibility(ctx context.Context, q queryer, 
 			requirements = append(requirements, workflowEvidenceRequirement{Kind: string(EvidenceVerification), Reference: approved.ImmutableSubjectRef})
 		}
 	}
-	state.Requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements, cutoff, beforeSeq)
+	state.Requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements, beforeSeq)
 	return state, err
 }
 
@@ -289,12 +289,12 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 		}
 		return false, nil
 	}
-	_, _, _, cutoff, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
+	_, _, _, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if inputsErr != nil {
 		return false, inputsErr
 	}
 	if reference != "" {
-		exactBound, exactErr := workflowEvidenceTupleBound(ctx, q, workID, kind, reference, cutoff)
+		exactBound, exactErr := workflowEvidenceTupleBound(ctx, q, workID, kind, reference)
 		if exactErr != nil {
 			return false, exactErr
 		}

@@ -825,13 +825,13 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if err := normalizeWorkflowContractApproval(ctx, &p); err != nil {
+	if err := normalizeWorkflowContractApproval(&p); err != nil {
 		return err
 	}
 	return foldValidatedWorkflowContractApproval(ctx, tx, event, scope, p)
 }
 
-func normalizeWorkflowContractApproval(ctx context.Context, p *workflowContractApprovedPayload) error {
+func normalizeWorkflowContractApproval(p *workflowContractApprovedPayload) error {
 	if p.LawModifies == nil {
 		p.LawModifies = []string{}
 	}

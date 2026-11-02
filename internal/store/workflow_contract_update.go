@@ -29,6 +29,9 @@ func WorkflowContractUpdatePayload(definition WorkflowDefinition) WorkflowPayloa
 }
 
 func reviseWorkflowContractTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, raw json.RawMessage) error {
+	if err := requireNoOutsideRepairTx(ctx, tx, event.SubjectID, "revise_intent"); err != nil {
+		return err
+	}
 	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
 	if err != nil {
 		return err
@@ -78,7 +81,7 @@ func reviseWorkflowContractTx(ctx context.Context, tx *sql.Tx, event Event, scop
 	if err := decodeWorkflowPayload(contractEvent, &contract); err != nil {
 		return err
 	}
-	if err := normalizeWorkflowContractApproval(ctx, &contract); err != nil {
+	if err := normalizeWorkflowContractApproval(&contract); err != nil {
 		return err
 	}
 	var contractFields map[string]json.RawMessage

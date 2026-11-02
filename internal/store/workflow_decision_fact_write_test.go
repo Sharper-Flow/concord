@@ -176,7 +176,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 	t.Run("broken successor facts refuse atomically beside a live confirmation", func(t *testing.T) {
 		t.Parallel()
 		const workID = "decision-fact-broken-successor"
-		s, registry, _, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
+		s, registry, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
 		ownerRef := ownerRefForTest(t, owner)
 		for _, fact := range []struct {
 			name  string
@@ -532,7 +532,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 	t.Run("submitted JSON null stays absent regardless of whitespace", func(t *testing.T) {
 		definition := approvalRouteDefinition(t)
 		for _, raw := range []json.RawMessage{nil, json.RawMessage(`null`), json.RawMessage(" \nnull\t")} {
-			_, err := workflowSubmittedDecisionDomains(definition, "approval", map[string]json.RawMessage{"decision_domains": raw})
+			_, err := workflowSubmittedDecisionDomains(definition, map[string]json.RawMessage{"decision_domains": raw})
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload {
 				t.Fatalf("submitted decision_domains %q returned %v, want invalid_payload", raw, err)
@@ -599,7 +599,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 	t.Run("ordinary updates refuse missing and null facts beside the confirmed predecessor", func(t *testing.T) {
 		t.Parallel()
 		const workID = "decision-fact-successor-absent"
-		s, registry, _, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
+		s, registry, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
 		ownerRef := ownerRefForTest(t, owner)
 		for _, factCase := range []struct {
 			name    string
@@ -670,7 +670,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 	t.Run("the optional contract update input validates decision facts at schema and store boundaries", func(t *testing.T) {
 		t.Parallel()
 		const workID = "decision-fact-update-input"
-		s, registry, _, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
+		s, registry, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
 		ownerRef := ownerRefForTest(t, owner)
 		inputFor := func(event Event) map[string]any {
 			var input map[string]any
@@ -1343,7 +1343,7 @@ func factWriteEventDigestByID(t *testing.T, s *Store, eventID string) string {
 // seedFactWriteConfirmedEngineering seeds the consequence_v1 route to the
 // acceptance step with an explicit engineering fact and records the executing
 // coordinator's confirmation through the constructor+fold seam. It returns the baseline work version.
-func seedFactWriteConfirmedEngineering(t *testing.T, workID string) (*Store, DefinitionRegistry, WorkflowDefinition, WorkflowActor, int64) {
+func seedFactWriteConfirmedEngineering(t *testing.T, workID string) (*Store, DefinitionRegistry, WorkflowActor, int64) {
 	t.Helper()
 	s, registry, definition, owner := seedApprovalItemAtAcceptance(t, workID, []string{})
 	if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, nil); err != nil {
@@ -1352,7 +1352,7 @@ func seedFactWriteConfirmedEngineering(t *testing.T, workID string) (*Store, Def
 	if confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, 1); !ok || confirmed != ownerRefForTest(t, owner) {
 		t.Fatalf("the confirmed seed's confirmation row = %q (present %v), want the executing coordinator", confirmed, ok)
 	}
-	return s, registry, definition, owner, readWorkVersion(t, s, workID)
+	return s, registry, owner, readWorkVersion(t, s, workID)
 }
 
 // assertFactWriteInitialNoEffect holds the refusal invariant for an initial

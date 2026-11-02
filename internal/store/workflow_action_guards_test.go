@@ -37,14 +37,14 @@ func recoveryBindPayload() json.RawMessage {
 
 // Fixture assertions separate declared requirements from predicate recovery.
 func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) ([]workflowEvidenceRequirement, error) {
-	required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if err != nil {
 		if workflowMissingContractProjection(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations, cutoff)
+	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
 }
 
 func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {

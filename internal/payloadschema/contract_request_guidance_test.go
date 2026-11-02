@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-// contractGuidanceInput builds one work_transition_action_input payload for
-// the given action and fields, so a test states only the fieldset it studies.
-func contractGuidanceInput(t *testing.T, action, idempotencyKey, fields string) []byte {
+// contractGuidanceInput builds one approve_contract input so a test states
+// only the fieldset it studies.
+func contractGuidanceInput(t *testing.T, idempotencyKey, fields string) []byte {
 	t.Helper()
 	raw := []byte(`{
 		"work_id": "work-1",
 		"expected_version": 1,
-		"action_id": "` + action + `",
+		"action_id": "approve_contract",
 		"idempotency_key": "` + idempotencyKey + `",
 		"fields": ` + fields + `
 	}`)
@@ -66,7 +66,7 @@ func revisionContractWithPredicate(payload string) string {
 // the supplied action_id discriminator, so their constants never consume the
 // message budget either.
 func TestContractRequestFailureSelectsTheApplicableVariant(t *testing.T) {
-	data := contractGuidanceInput(t, "approve_contract", "select-approve-1",
+	data := contractGuidanceInput(t, "select-approve-1",
 		approveFieldsWithPredicate(`"The acceptance sentence has spaces"`))
 
 	err := ValidateInDocument(Document(), "work_transition_action_input", data)
@@ -160,7 +160,7 @@ func TestOutcomeKindDiscriminatorSelectsTheKindLeafFailure(t *testing.T) {
 					 "outcome_payload": ` + tc.payload + `}
 				]
 			}`
-			data := contractGuidanceInput(t, "approve_contract", "select-kind-"+tc.kind, fields)
+			data := contractGuidanceInput(t, "select-kind-"+tc.kind, fields)
 			err := ValidateInDocument(Document(), "work_transition_action_input", data)
 			if err == nil {
 				t.Fatal("an invalid outcome payload was accepted")
@@ -192,7 +192,7 @@ func TestInvalidDecisionDomainsNamesItsEnumThroughTheDeclaringVariant(t *testing
 			 "outcome_payload": {"kind": "exists", "surface": "go_source", "subjects": ["internal-store-workpin"]}}
 		]
 	}`
-	data := contractGuidanceInput(t, "approve_contract", "select-domains-1", fields)
+	data := contractGuidanceInput(t, "select-domains-1", fields)
 
 	err := ValidateInDocument(Document(), "work_transition_action_input", data)
 	if err == nil {
@@ -219,7 +219,7 @@ func TestContradictoryOutcomeKindSelectsTheDeclaredKind(t *testing.T) {
 			 "outcome_payload": {"kind": "check", "surface": "go_source", "subjects": ["internal-store-workpin"]}}
 		]
 	}`
-	data := contractGuidanceInput(t, "approve_contract", "select-kind-contradiction", fields)
+	data := contractGuidanceInput(t, "select-kind-contradiction", fields)
 
 	err := ValidateInDocument(Document(), "work_transition_action_input", data)
 	if err == nil {

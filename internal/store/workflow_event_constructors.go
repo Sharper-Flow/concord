@@ -233,7 +233,7 @@ func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, definition Wo
 	if revisionErr != nil {
 		return nil, revisionErr
 	}
-	decisionDomains, decisionDomainErr := workflowSubmittedDecisionDomains(definition, "approval", fields)
+	decisionDomains, decisionDomainErr := workflowSubmittedDecisionDomains(definition, fields)
 	if decisionDomainErr != nil {
 		return nil, decisionDomainErr
 	}

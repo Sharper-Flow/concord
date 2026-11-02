@@ -133,7 +133,7 @@ func init() {
 	contractSpecMandate := pkGuardArgBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "workflowList", "p.SpecMandate", 1, boundItems)
 	contractLawModifies := pkGuardArgBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "workflowList", "p.LawModifies", 1, boundItems)
 	actorRefDerived := workflowDigestRefCharactersBound("internal/store/workflow.go", "DeriveWorkflowActorRef")
-	sessionRefGuard := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowActorRecorded", "workflowString", "p.SessionRef", 1, boundBytes)
+	sessionRefGuard := pkGuardArgBound("internal/store/workflow.go", "persistWorkflowActorTuple", "workflowString", "p.SessionRef", 1, boundBytes)
 	checkpointActiveUnit := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowString", "p.ActiveUnit", 1, boundBytes)
 	checkpointHypothesis := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowString", "p.Hypothesis", 1, boundBytes)
 	checkpointDiagnosis := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowString", "p.Diagnosis", 1, boundBytes)

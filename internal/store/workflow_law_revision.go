@@ -139,67 +139,6 @@ func deriveWorkflowLawRevisionsTx(ctx context.Context, tx *sql.Tx, workID string
 	return revisions, nil
 }
 
-func validateCurrentWorkflowLawRevisionsTx(ctx context.Context, tx *sql.Tx, workID string, mandated, modified []string, supplied []WorkflowLawRevision) error {
-	expected, err := deriveWorkflowLawRevisionsTx(ctx, tx, workID, mandated, modified)
-	if err != nil {
-		return err
-	}
-	if len(expected) != len(supplied) {
-		return newFailure(KindInvalidPayload, "validate_workflow_law_revisions", "successor contract law pins do not match the current accepted law projection", false, "pin every mandated successor law to its current content hash")
-	}
-	for index := range expected {
-		if expected[index] != supplied[index] {
-			return newFailure(KindInvalidPayload, "validate_workflow_law_revisions", "successor contract law pin does not match the current accepted law projection", false, "pin the accepted successor law revision")
-		}
-	}
-	return nil
-}
-
-// validateClonedWorkflowContractLawRevisionsTx prevents the clone route from
-// retaining a deleted mandated law. Fully supplied successors validate their
-// own mandate and pins through validateCurrentWorkflowLawRevisionsTx.
-func validateClonedWorkflowContractLawRevisionsTx(ctx context.Context, tx *sql.Tx, workID string, predecessors []int64) error {
-	homeResolved := false
-	var homeProjectID, homeLocatorID string
-	for _, predecessor := range predecessors {
-		var mandateJSON string
-		if err := tx.QueryRowContext(ctx, `SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, predecessor).Scan(&mandateJSON); err != nil {
-			if err == sql.ErrNoRows {
-				return newFailure(KindProjectionNotFound, "validate_stale_workflow_recovery", "previous active workflow contract is unavailable", false, "reload the current contract")
-			}
-			return wrapFailure(KindUnavailable, "validate_stale_workflow_recovery", "cannot read the stale workflow contract", true, "retry once the workflow projection is readable", err)
-		}
-		var mandated []string
-		if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
-			return newFailure(KindInvariantViolation, "validate_stale_workflow_recovery", "previous workflow contract law mandate is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-		}
-		var err error
-		mandated, err = currentWorkflowLawMandateFromProjection(ctx, tx, workID, predecessor, mandated)
-		if err != nil {
-			return err
-		}
-		if len(mandated) == 0 {
-			continue
-		}
-		if !homeResolved {
-			homeProjectID, homeLocatorID, err = workflowLawHome(ctx, tx, workID)
-			if err != nil {
-				return err
-			}
-			homeResolved = true
-		}
-		stale, err := findStaleWorkflowLawRevision(ctx, tx, homeProjectID, homeLocatorID, workID, predecessor, mandated)
-		if err != nil {
-			return err
-		}
-		if stale == nil {
-			continue
-		}
-		return newFailure(KindInvalidPayload, "validate_stale_workflow_recovery", "cloned contract would retain a deleted mandated law", false, "supply a complete successor contract whose mandate resolves to current accepted law")
-	}
-	return nil
-}
-
 // findStaleWorkflowLawRevision is read-only and accepts either *sql.DB or
 // *sql.Tx. It consults only the current Git-derived law projection and the
 // contract pins; it never changes either authority. Each mandated reference

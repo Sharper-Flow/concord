@@ -174,7 +174,7 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		}
 	}
 	if state.contracts > 1 {
-		folded.Mandate.Failure = newFailure(KindInvariantViolation, "workflow_action", "workflow contract projection has multiple active contracts", false, "use the typed operator recovery for duplicate active contracts")
+		folded.Mandate.Failure = newFailure(KindInvariantViolation, "workflow_action", "workflow contract projection has multiple active contracts", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	// The acceptance gate folds the recorded verdict: without one,
 	// confirm_premise refuses and record_verdict on the same step stays the

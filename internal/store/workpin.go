@@ -710,11 +710,11 @@ func workPinOutstandingEvidenceKindsTx(ctx context.Context, q queryer, workID st
 		requirements = recovery.Requirements
 	}
 	if requirements == nil {
-		required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+		required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
 		if err != nil {
 			return nil, err
 		}
-		requirements, err = outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations, cutoff)
+		requirements, err = outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
 		if err != nil {
 			return nil, err
 		}

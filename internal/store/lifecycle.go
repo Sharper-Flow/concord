@@ -346,22 +346,26 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event, scope *
 		return newFailure(KindProjectionNotFound, "fold_event", "work item does not exist at expected version", false, "reload the work item before revising intent")
 	}
 	if payload.Contract != nil {
-		if payload.Actor != nil {
-			ref, err := WorkflowActorRef(*payload.Actor)
-			if err != nil {
-				return err
-			}
-			if event.Actor != ref {
-				return newFailure(KindInvalidPayload, "revise_intent", "contract actor does not match the event actor", false, "supply the authenticated actor tuple")
-			}
-			actor := payload.Actor
-			if err := persistWorkflowActorTuple(ctx, tx, event, workflowActorRecordedPayload{ActorRef: ref, PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, ActorClass: string(actor.ActorClass)}); err != nil {
-				return err
-			}
-		}
-		return reviseWorkflowContractTx(ctx, tx, event, scope, payload.Contract)
+		return foldWorkIntentContractRevision(ctx, tx, event, scope, payload)
 	}
 	return nil
+}
+
+func foldWorkIntentContractRevision(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, payload workIntentPayload) error {
+	if payload.Actor != nil {
+		actor := payload.Actor
+		ref, err := WorkflowActorRef(*actor)
+		if err != nil {
+			return err
+		}
+		if event.Actor != ref {
+			return newFailure(KindInvalidPayload, "revise_intent", "contract actor does not match the event actor", false, "supply the authenticated actor tuple")
+		}
+		if err := persistWorkflowActorTuple(ctx, tx, event, workflowActorRecordedPayload{ActorRef: ref, PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, ActorClass: string(actor.ActorClass)}); err != nil {
+			return err
+		}
+	}
+	return reviseWorkflowContractTx(ctx, tx, event, scope, payload.Contract)
 }
 
 func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) error {

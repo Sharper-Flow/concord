@@ -1569,7 +1569,7 @@ class AdapterHostDiagnosticTests(unittest.TestCase):
 class DeliveryDecidableTeachingTests(unittest.TestCase):
     """CD-0184: the authoring schema teaches that acceptance is decidable at
     delivery. The outcome_predicates array shared by approve_contract and
-    supersede_contract carries the rule, and the generator refuses a
+    ordinary contract updates carries the rule, and the generator refuses a
     projection that drops it.
     """
 
@@ -2991,7 +2991,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
 
             by_value = {combination["value"]: combination for combination in combinations}
             # A kind-match declaration expands one alternative group into
-            # per-kind branches (outcome_kind consts on supersede_contract):
+            # per-kind branches with outcome_kind consts:
             # each is registry-declared through the match, not through a
             # combination, so it carries no requires/forbids to expand.
             kind_match_fields = {match["field"] for match in cross.get("kind_matches", [])}

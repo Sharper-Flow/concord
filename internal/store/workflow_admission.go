@@ -301,7 +301,7 @@ func foldWorkflowConfirmationPrerequisites(ctx context.Context, q queryer, workI
 
 func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) WorkflowAdmissionDecision {
 	decision := WorkflowAdmissionDecision{}
-	if workflowAdmitInstanceRefused(definition, state, actionID, &decision) {
+	if workflowAdmitInstanceRefused(definition, state, &decision) {
 		return decision
 	}
 	if state.Review != nil && workflowDefinitionProducesDelivery(definition) && actionID == "complete" {
@@ -330,7 +330,7 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 // workflowAdmitInstanceRefused answers the refusals no action can pass:
 // outside repair or a terminal or archived instance. Each phase below reports
 // true when it decided the action, with decision filled.
-func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
+func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowAdmissionState, decision *WorkflowAdmissionDecision) bool {
 	if state.OutsideRepairActive {
 		decision.Failure = newOutsideRepairRouteFailure("workflow_action", "managed workflow action refused: outside-repair disposition is active")
 		return true

@@ -299,7 +299,7 @@ func TestAnnotatedContractFailureCarriesShapeAndExample(t *testing.T) {
 			 "outcome_payload": {"kind": "exists", "surface": "go_source", "subjects": ["The acceptance sentence has spaces"]}}
 		]
 	}`
-	data := contractGuidanceInput(t, "approve_contract", "guidance-approve-1", fields)
+	data := contractGuidanceInput(t, "guidance-approve-1", fields)
 
 	err := ValidateInDocument(root, "work_transition_action_input", data)
 	if err == nil {
@@ -331,7 +331,7 @@ func TestAnnotatedContractFailureCarriesShapeAndExample(t *testing.T) {
 			 "outcome_payload": {"kind": "exists", "surface": "plugin TTFT event handling", "subjects": ["internal-store-workpin"]}}
 		]
 	}`
-	data = contractGuidanceInput(t, "approve_contract", "guidance-approve-2", fields)
+	data = contractGuidanceInput(t, "guidance-approve-2", fields)
 	err = ValidateInDocument(root, "work_transition_action_input", data)
 	if err == nil {
 		t.Fatal("the recorded prose surface was accepted")
@@ -356,7 +356,7 @@ func TestUnannotatedRefusalCarriesNoGuidance(t *testing.T) {
 			 "outcome_payload": {"kind": "exists", "surface": "go_source", "subjects": ["has spaces"]}}
 		]
 	}`
-	data := contractGuidanceInput(t, "approve_contract", "unguided-1", fields)
+	data := contractGuidanceInput(t, "unguided-1", fields)
 	err := ValidateInDocument(freshPayloadDocument(t), "work_transition_action_input", data)
 	if err == nil {
 		t.Fatal("the invalid subject was accepted")

@@ -63,8 +63,7 @@ func validWorkflowRecoveryTrigger(trigger WorkflowRecoveryTrigger) bool {
 // (CD-0143). A route that crosses the pairing
 // refuses at registration.
 func workflowRecoveryRouteActionForTrigger(trigger WorkflowRecoveryTrigger) string {
-	switch trigger {
-	case WorkflowRecoveryTriggerUnhealthyVerdict:
+	if trigger == WorkflowRecoveryTriggerUnhealthyVerdict {
 		return "request_correction"
 	}
 	return ""
@@ -73,10 +72,8 @@ func workflowRecoveryRouteActionForTrigger(trigger WorkflowRecoveryTrigger) stri
 // workflowRecoveryRoutes is the one reader every recovery decision feeds
 // from: the admission fold, workflowAdmit, the action guards, the folds, the
 // work-pin intents, the correction counting and three-attempt wall,
-// and the liveness model. A definition that
-// declares a table resolves it; a released version without one resolves the
-// quarantined data for its (ref, version). The returned slice is a defensive
-// copy and the definition is not mutated.
+// and the liveness model. The returned slice is a defensive copy of the
+// declared table and the definition is not mutated.
 func workflowRecoveryRoutes(definition WorkflowDefinition) []WorkflowRecoveryRoute {
 	return cloneWorkflowRecoveryRoutes(definition.RecoveryRoutes)
 }
@@ -247,17 +244,9 @@ func workflowStepReachesByForwardEdges(graph WorkflowStepGraph, source, target s
 
 // validateWorkflowRecoveryRoutes is the D4 structural gate
 // ValidateWorkflowDefinition applies to every registered definition. It reads
-// the routes the one owner resolves — the declared table, or the quarantined
-// data for a table-less released (ref, version) — so no table-less shape is
-// exempt: an unreleased definition whose graph declares evaluator steps
-// resolves no routes and the coverage clause refuses it, while a released
-// table-less version must resolve quarantined routes that hold against its
-// own graph. Each route must pair its trigger with its action and sit on the
-// step that records the trigger's condition: an unhealthy_verdict route
-// belongs to a step that records a verdict or confirms a premise, and a
-// disproved_premise_at_complete route belongs to a step that declares the
-// complete action (CD-0172 D1). The graph bound (at most one failure edge per
-// step) holds for table-less released versions too.
+// declared routes. Each route pairs unhealthy_verdict with request_correction
+// on a step that records a verdict or confirms a premise. Evaluator steps
+// must declare a route, and each step has at most one failure edge.
 func validateWorkflowRecoveryRoutes(definition WorkflowDefinition) error {
 	graph := definition.StepGraph
 	failureEdges := make(map[string]int, len(graph.Edges))

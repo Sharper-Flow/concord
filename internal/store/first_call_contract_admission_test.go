@@ -127,12 +127,13 @@ func firstCallRequired(node map[string]any) []string {
 	return names
 }
 
-// firstCallActionInput assembles one complete workflow action input from the
+// firstCallActionInput assembles one complete approve_contract input from the
 // published closed variant: the envelope requireds with the variant's own
 // action_id const, plus the fields object the variant declares. Overrides
 // carry the live pinned-context values no schema range can encode.
-func firstCallActionInput(t *testing.T, defs map[string]any, variant string, workID string, version int64, overrides map[string]any) map[string]any {
+func firstCallActionInput(t *testing.T, defs map[string]any, workID string, version int64, overrides map[string]any) map[string]any {
 	t.Helper()
+	const variant = "work_transition_action_variant_approve_contract"
 	node := firstCallResolve(defs, map[string]any{"$ref": "#/$defs/" + variant})
 	properties, _ := node["properties"].(map[string]any)
 	input := map[string]any{}
@@ -150,9 +151,7 @@ func firstCallActionInput(t *testing.T, defs map[string]any, variant string, wor
 			// Every fixture here pins a consequence_v1 live head, whose
 			// contract actions carry the explicit engineering decision
 			// fact the published consequence_v1 branch requires.
-			if variant == "work_transition_action_variant_approve_contract" {
-				fields["decision_domains"] = []string{}
-			}
+			fields["decision_domains"] = []string{}
 			for key, value := range overrides {
 				fields[key] = value
 			}
@@ -347,7 +346,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 			"verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": pinnedObligation}},
 		}
 	}
-	input := firstCallActionInput(t, defs, "work_transition_action_variant_approve_contract", workID, version, map[string]any{
+	input := firstCallActionInput(t, defs, workID, version, map[string]any{
 		"outcome_predicates":   firstCallPredicates(definition),
 		"spec_mandate":         []string{"spec:one", "law:new"},
 		"architecture_binding": legalBinding(),
@@ -368,7 +367,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 
 	// Positional ordinal mutant: the predicate at position 0 declares
 	// ordinal 1. The owning guard is validateWorkflowContractPredicate.
-	ordinalMutant := firstCallActionInput(t, defs, "work_transition_action_variant_approve_contract", workID, version, map[string]any{
+	ordinalMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
 		"outcome_predicates": []map[string]any{{
 			"predicate_id": "predicate:first-call-ordinal", "ordinal": 1, "outcome_kind": "check",
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:ordinal", "immutable_subject_ref": "commit:ordinal", "expected_result": "pass"},
@@ -383,7 +382,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	// owning guard is validateArchitectureBindingLawAdditionsTx.
 	unauthorizedBinding := legalBinding()
 	unauthorizedBinding["law_additions"] = []map[string]any{{"law_id": "law:unauthorized", "home_domain_id": "root"}}
-	unauthorizedMutant := firstCallActionInput(t, defs, "work_transition_action_variant_approve_contract", workID, version, map[string]any{
+	unauthorizedMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
 		"outcome_predicates":   firstCallPredicates(definition),
 		"spec_mandate":         []string{"spec:one"},
 		"architecture_binding": unauthorizedBinding,
@@ -398,7 +397,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	// definition's obligation declarations.
 	undeclaredBinding := legalBinding()
 	undeclaredBinding["verification_obligations"] = []map[string]any{{"law_id": "spec:one", "obligation_id": "undeclared-obligation"}}
-	undeclaredMutant := firstCallActionInput(t, defs, "work_transition_action_variant_approve_contract", workID, version, map[string]any{
+	undeclaredMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
 		"outcome_predicates":   firstCallPredicates(definition),
 		"spec_mandate":         []string{"spec:one", "law:new"},
 		"architecture_binding": undeclaredBinding,
@@ -411,7 +410,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	// validateArchitectureBindingDomainsTx.
 	unknownDomainBinding := legalBinding()
 	unknownDomainBinding["affected_domain_ids"] = []string{"root", "ghost"}
-	unknownDomainMutant := firstCallActionInput(t, defs, "work_transition_action_variant_approve_contract", workID, version, map[string]any{
+	unknownDomainMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
 		"outcome_predicates":   firstCallPredicates(definition),
 		"spec_mandate":         []string{"spec:one", "law:new"},
 		"architecture_binding": unknownDomainBinding,
@@ -421,7 +420,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 
 	// Law-modification subset mutant: law_modifies names a law outside
 	// spec_mandate. The owning guard is validateLawModificationSubset.
-	subsetMutant := firstCallActionInput(t, defs, "work_transition_action_variant_approve_contract", workID, version, map[string]any{
+	subsetMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
 		"outcome_predicates":   firstCallPredicates(definition),
 		"spec_mandate":         []string{"spec:one"},
 		"law_modifies":         []string{"spec:unmandated"},
@@ -435,7 +434,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	// the per-kind item contract the publication and payload validation
 	// share (validateWorkflowPayloadSchema against the generated items def);
 	// the fold keeps its deeper DecodeWorkflowPredicate refusal.
-	kindMismatchMutant := firstCallActionInput(t, defs, "work_transition_action_variant_approve_contract", workID, version, map[string]any{
+	kindMismatchMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
 		"outcome_predicates": []map[string]any{{
 			"predicate_id": "predicate:first-call-kind", "ordinal": 0, "outcome_kind": "exists",
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:kind-mismatch", "immutable_subject_ref": "commit:kind-mismatch", "expected_result": "pass"},
@@ -505,7 +504,7 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor) 
 			"verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": (*pin.Obligations)[0]}},
 		}
 	}
-	approve := firstCallActionInput(t, defs, "work_transition_action_variant_approve_contract", workID, version, map[string]any{
+	approve := firstCallActionInput(t, defs, workID, version, map[string]any{
 		"outcome_predicates":   firstCallPredicates(registered.Definition),
 		"spec_mandate":         []string{"spec:one", "law:new"},
 		"architecture_binding": binding(),

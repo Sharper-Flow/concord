@@ -90,8 +90,8 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 }
 
 // workflowRouteActionDefinition resolves the actions whose definition depends
-// on the folded state rather than the pinned step: the late verdict, contract
-// supersession, worker failure recovery, and the correction routes. found is
+// on the folded state rather than the pinned step: the late verdict
+// and the correction request. found is
 // false when the action falls through to its pinned declaration.
 func workflowRouteActionDefinition(ctx context.Context, s *Store, registry DefinitionRegistry, entry RegisteredDefinition, workID, actionID string) (WorkflowActionDefinition, bool, error) {
 	if actionID == "request_correction" {

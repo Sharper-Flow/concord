@@ -1535,8 +1535,7 @@ func workflowDecisionFactInitialActionDefinition(definition WorkflowDefinition) 
 // Recovery payloads are engine-owned even when absent from a historical pin.
 // Discovery of a definition does not grant admission at the current step.
 func workflowRecoveryActionDefinition(actionID string) (WorkflowActionDefinition, bool) {
-	switch actionID {
-	case "record_verdict":
+	if actionID == "record_verdict" {
 		return currentActionDefinition(actionID, true), true
 	}
 	for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {

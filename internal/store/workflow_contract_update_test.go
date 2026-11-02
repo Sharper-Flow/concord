@@ -208,3 +208,41 @@ func contractRecordEffectSnapshot(t *testing.T, s *Store, workID string) string 
 	}
 	return contractCorrectionEffectSnapshot(t, s, workID) + content
 }
+
+func TestContractRecordUpdatePreservesOutsideRepairHold(t *testing.T) {
+	for _, withContract := range []bool{true, false} {
+		t.Run(fmt.Sprintf("contract=%t", withContract), func(t *testing.T) {
+			f := seedWorkContextFixture(t, fmt.Sprintf("record-outside-hold-%t", withContract))
+			defer f.store.Close()
+			req := outsideRepairTestRequest(t, f.store, f.workID, "hold")
+			req.Actor = f.owner
+			if err := f.store.TransactDurable(t.Context(), func(tx *Transaction) error {
+				_, err := SetOutsideRepairDispositionTx(t.Context(), tx, req)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			before := outsideRepairDatabaseSnapshot(t, f.store)
+			expected := readWorkVersion(t, f.store, f.workID)
+			if withContract {
+				err := reviseContractRecord(t, f.store, f.workID, f.owner, contractRecordUpdate(t, f.store, f.workID), expected, nil)
+				assertFailureKind(t, err, KindOutsideRepairActive)
+				if after := outsideRepairDatabaseSnapshot(t, f.store); after != before {
+					t.Fatal("held contract update changed durable state")
+				}
+				return
+			}
+			payload := map[string]any{
+				"title": "Updated intent", "value_statement": "Keep the hold", "kind": "task", "tags": []string{},
+				"reason": "update intent only", "expected_version": expected, "resulting_version": expected + 1,
+			}
+			if err := applyWorkEvent(t, f.store, workflowEvent(f.workID+"-intent", "work.intent_revised", f.workID, payload), workVersion(f.workID, expected)); err != nil {
+				t.Fatal(err)
+			}
+			active, err := outsideRepairActiveTx(t.Context(), f.store.db, f.workID)
+			if err != nil || !active {
+				t.Fatalf("intent-only update cleared the hold: %t, %v", active, err)
+			}
+		})
+	}
+}

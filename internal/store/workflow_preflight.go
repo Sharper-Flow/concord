@@ -431,7 +431,7 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 		return err
 	}
 	if actionID == "approve_contract" && workflowDeclaresDecisionDomains(definition) {
-		_, err := workflowSubmittedDecisionDomains(definition, "approval", fields)
+		_, err := workflowSubmittedDecisionDomains(definition, fields)
 		return err
 	}
 	// The proposal document rule is cross-field, so it runs only for a pinned

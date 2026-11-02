@@ -53,7 +53,7 @@ func TestWorkflowEvidenceCurrentFactsWithoutLog(t *testing.T) {
 		},
 		"G24-kind": func() (any, error) { return workflowEvidenceKindBound(ctx, s.db, work, "verification") },
 		"G24-reference": func() (any, error) {
-			return workflowEvidenceReferenceBound(ctx, s.db, work, "evidence:gate-proof", "workflow_action", 0)
+			return workflowEvidenceReferenceBound(ctx, s.db, work, "evidence:gate-proof", "workflow_action")
 		},
 		"G24-verification-order": func() (any, error) { return workflowVerificationBindingsAfter(ctx, s.db, work, 0, "workflow_action") },
 		"G24-requirements": func() (any, error) {

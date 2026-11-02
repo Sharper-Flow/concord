@@ -1177,9 +1177,9 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		if err == nil || !errors.As(err, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.Detail, "bytes of canonical JSON") {
 			t.Fatalf("legacy-gap declaration refusal = %v, want %s naming the whole-view byte bound", err, KindLimitExceeded)
 		}
-		// The optional reduction is named, and the mandatory supersession or
-		// stop route is explicitly conditional — named for the state it
-		// describes, never an unconditional command about this overflow.
+		// The optional reduction is named. The ordinary contract update or
+		// stop route is conditional on mandatory context exceeding the bound;
+		// the update keeps the current step and design.
 		if !strings.Contains(failure.RecoveryAction, "reduce the declaration's optional context") {
 			t.Fatalf("legacy-gap remedy = %q, want the optional reduction named", failure.RecoveryAction)
 		}

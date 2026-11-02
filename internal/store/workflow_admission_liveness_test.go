@@ -296,9 +296,8 @@ func admissionDeclaresAction(definition WorkflowDefinition, actionID string) boo
 
 // admissionSuccessors is the abstract successor set of one admitted action
 // over one model state. A Review records any typed disposition; a verdict
-// records ok or not; a contract
-// supersession carries a design record or not, and runs with or without a
-// successor contract. The step move is definition-owned: an advance-mode
+// records ok or not. Ordinary contract updates keep the step and design.
+// The step move is definition-owned: an advance-mode
 // action follows the forward edge, and every other mode keeps the step.
 func admissionSuccessors(definition WorkflowDefinition, state admissionModelState, actionID string) []admissionModelState {
 	if admissionContinuityAction(actionID) {
@@ -1231,9 +1230,9 @@ func admissionModelPath(graph admissionModelGraph, i int32) string {
 }
 
 // admissionSuccessor is the primary successor of one action: the first
-// member of admissionSuccessors, the completed outcome of a
-// dispatch, the ok verdict, and the supersession that carries a design
-// record. The conformance replay names the outcome it performs.
+// member of admissionSuccessors, such as a completed dispatch or an ok
+// verdict. Ordinary contract updates keep the step and design.
+// The conformance replay names the outcome it performs.
 func admissionSuccessor(definition WorkflowDefinition, state admissionModelState, actionID string) admissionModelState {
 	return admissionSuccessors(definition, state, actionID)[0]
 }

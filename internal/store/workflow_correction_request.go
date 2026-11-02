@@ -360,7 +360,7 @@ func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID str
 		}
 	}
 	for _, ref := range evidence {
-		bound, err := workflowEvidenceReferenceBound(ctx, q, workID, ref, subject, 0)
+		bound, err := workflowEvidenceReferenceBound(ctx, q, workID, ref, subject)
 		if err != nil {
 			return err
 		}

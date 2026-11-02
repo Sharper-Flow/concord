@@ -34,7 +34,7 @@ func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string,
 	result.Present = true
 	result.BindingStep = workflowEvidenceBindingStep(definition, step)
 	for _, lawID := range mandates {
-		bound, err := workflowEvidenceReferenceBound(ctx, q, workID, lawID, subject, 0)
+		bound, err := workflowEvidenceReferenceBound(ctx, q, workID, lawID, subject)
 		if err != nil {
 			return result, err
 		}

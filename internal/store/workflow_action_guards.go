@@ -146,11 +146,10 @@ func workflowSpecMandate(ctx context.Context, q queryer, workID, subject string)
 }
 
 // workflowEvidenceReferenceBound reports a durable evidence binding naming
-// the reference inside the accepted history. afterSeq bounds that history:
-// bindings at or before it do not count, and zero admits the whole history.
-func workflowEvidenceReferenceBound(ctx context.Context, q queryer, workID, reference, subject string, afterSeq int64) (bool, error) {
+// the reference in the evidence history.
+func workflowEvidenceReferenceBound(ctx context.Context, q queryer, workID, reference, subject string) (bool, error) {
 	var count int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq>? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, afterSeq, reference).Scan(&count); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, reference).Scan(&count); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect spec-mandate evidence", true, "retry once the workflow evidence projection is readable", err)
 	}
 	return count != 0, nil

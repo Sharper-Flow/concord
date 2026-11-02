@@ -19,7 +19,8 @@ func resolveDefaultLawRefCheap(repo string) (string, error) {
 	}
 	dir, err := knowledgeGitDir(repo)
 	if err != nil {
-		return fail("the knowledge home's Git metadata is unreachable")
+		// Fetching cannot repair a home that is absent or not a Git checkout.
+		return "", wrapFailure(KindGitUnreachable, "knowledge_home", "cannot establish default-branch law authority: the knowledge home's Git metadata is unreachable", true, "restore access to the git home and retry", err)
 	}
 	dirs := cheapGitObjectDirs(dir)
 	common := dirs[len(dirs)-1]

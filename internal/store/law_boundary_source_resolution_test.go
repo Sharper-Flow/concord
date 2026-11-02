@@ -38,9 +38,13 @@ func TestLawProofPreservesSourceResolutionFailure(t *testing.T) {
 					}
 					err = proof.refreshErr
 				}
+				wantRecovery := defaultLawRefRecovery
+				if mode == "removed-home" {
+					wantRecovery = "restore access to the git home and retry"
+				}
 				var failure *Failure
-				if !failureAs(err, &failure) || failure.Kind != KindGitUnreachable || failure.Op != "knowledge_home" || !failure.RetrySafe || failure.RecoveryAction != defaultLawRefRecovery {
-					t.Fatalf("source resolution failure = %v, want the default-authority git_unreachable refusal unchanged", err)
+				if !failureAs(err, &failure) || failure.Kind != KindGitUnreachable || failure.Op != "knowledge_home" || !failure.RetrySafe || failure.RecoveryAction != wantRecovery {
+					t.Fatalf("source resolution failure = %v, want git_unreachable with recovery %q", err, wantRecovery)
 				}
 			})
 		}

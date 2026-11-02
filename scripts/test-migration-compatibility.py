@@ -4704,12 +4704,10 @@ for name, sql in (
         breaking=[175],
     )
 
-# Atomic operation rebuild (178) sets the live compatibility floor. Work
-# side-channel retirement (179) drops work_messages and work_observations,
-# which older binaries still fold and read, so it also constrains them.
-# Terminal
-# retirement (177), law pin (176), and JSON member retirement (175) also
-# constrain older binaries. Law index
+# Work side-channel retirement (179) sets the live compatibility floor: it
+# drops work_messages and work_observations, which older binaries still fold
+# and read. Atomic operation rebuild (178), terminal retirement (177), law pin
+# (176), and JSON member retirement (175) also constrain older binaries. Law index
 # retirement (174) also constrains older binaries: older
 # binaries still read and rebuild the dropped law index, publication
 # observation and Domain registry projection tables.

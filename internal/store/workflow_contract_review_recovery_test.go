@@ -163,7 +163,6 @@ func contractReviewFinish(t *testing.T, j *candidateJourney, producer string) {
 	if err := pConfirmReceiptPremise(t, j.fixture); err != nil {
 		t.Fatal(err)
 	}
-	bindCompletionClosure(t, j.s, j.workID, j.fixture.owner)
 	if err := runVerdictActionAs(t, j.s, j.workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, diagnosisS1Actor(j.workID, "fresh-completer")); err != nil {
 		t.Fatalf("completion after producer return and fresh current proof: %v", err)
 	}

@@ -17,7 +17,7 @@
 >
 > - [`../specs/product-memory-authority-scope.md`](../specs/product-memory-authority-scope.md) (PM2) fixes one global local SQLite authority.
 > - [`../specs/product-memory-domain-schema.md`](../specs/product-memory-domain-schema.md) (PM3) fixes explicit typed projections.
-> - [`../specs/canonical-git-note-placement.md`](../specs/canonical-git-note-placement.md) (PM6, 2026-08-05) fixes git proof before eligibility.
+> - [`../specs/canonical-git-note-placement.md`](../specs/canonical-git-note-placement.md) (PM6) fixes reported delivery and historical note locators.
 > - [`../specs/compaction-retention-policy.md`](../specs/compaction-retention-policy.md) (2026-10-09) fixes bounded retention of store state; the store keeps current rows and finite verified snapshots ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 > - [`CD-0215-retained-research-context.md`](CD-0215-retained-research-context.md) (2026-10-09) keeps the sole narrow direct-table exception for research context, retained until explicit retirement.
 > - [`CD-0011-retain-sqlite-after-conformance.md`](CD-0011-retain-sqlite-after-conformance.md) (2026-08-07) records the post-falsifier review and retains SQLite with explicit future reopen conditions.
@@ -158,16 +158,19 @@ named job proves it necessary.
 
 ## 2c. Storage tiers and the archive lifecycle
 
-Linear owns planning, the Git knowledge home owns durable knowledge and completion receipts, the SQLite store owns current state and research, an execution's artifact directory owns its working evidence, and the worktree owns code progress ([CD-0242 D1](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d1-each-kind-of-state-has-one-owner)).
+Linear owns planning, the Git knowledge home owns durable knowledge, the SQLite
+store owns current state and research, an execution's artifact directory owns
+working evidence, and the worktree owns code progress ([CD-0242 D1](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d1-each-kind-of-state-has-one-owner)).
 
-**Archival is a compaction, not a serialization dump.** On reaching terminal state,
-an entity's outcome is distilled into **one human-readable markdown note**
-committed to the repo; the store keeps current rows and finite snapshots ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Target size is
-a page, not hundreds of kilobytes.
+[PM6 §1](../specs/canonical-git-note-placement.md#1-decision) governs reported-link
+completion without publication, closure hashes or retained workflow steps.
+Existing historical locators, note hashes and lesson tags remain readable.
+Durable markdown distills knowledge rather than serializing state; work and
+lesson notes target a page, not hundreds of kilobytes.
 
-CD-0215 research is not serialized into that note or retained as store history. Archive may
-promote selected reasoning/decisions/specs/lessons through their normal durable forms,
-then deletes the complete active pack only after Git/linkage proof.
+CD-0215 research is neither a Git note nor store history. Its selected reasoning
+may use normal decision/specification/lesson forms. Only explicit eligible
+research retirement deletes a pack; completion and upgrade preserve it.
 
 ```
 .concord/docs/work/YYYY-MM-DD-slug.md       # what shipped, why it mattered, links to commits/PRs
@@ -182,7 +185,7 @@ then deletes the complete active pack only after Git/linkage proof.
 3. **No duplication with SQLite.** A fact is operational (SQLite, while in-flight) or
    durable knowledge (git, after terminal) — never both as competing copies.
 4. **Process exhaust is not archived.** Sub-agent reports, briefing digests, and
-   traceability artifacts remain producer-owned; closure publishes one concise completion receipt in the canonical knowledge home ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
+   traceability artifacts remain producer-owned; completion records reported delivery links under PM6 §1.
 5. **Greppable.** An agent must be able to answer "have we solved this before?" by
    searching the durable tier.
 
@@ -196,18 +199,13 @@ live state, while approved git notes contain distilled durable knowledge.
 Adding a second store is precisely how Advance got sick, so the safety property is
 explicit and binding. **The git tier is not a second authority.** It is:
 
-- **(a) Write-only at/after terminal state** — never written for in-flight entities.
+- **(a) Independently published knowledge** — reviewed through its owning law or lesson route, not a workflow compaction operation.
 - **(b) One-way** — never read back as an input to any live transition decision. No
   code path consults git to decide state.
 - **(c) Knowledge, not state** — it carries meaning for future readers, not
   operational status.
 
-Because it is a one-way compaction of already-terminal data, it **cannot drift** from
-the authority. **I1 is preserved.**
-
-*(Secondary benefit: compaction bounds SQLite growth. Measured ADV per-project stores
-run 26–93 MB; compacting at archive keeps the live database small and moves durable
-value into git, where it is reviewable and travels with the code.)*
+It holds knowledge rather than live workflow state. **I1 is preserved.**
 
 ## 2d. Structured artifact placement
 
@@ -338,10 +336,9 @@ typed Product-memory projection shape. See
 [`CD-0003-concord-storage-layer-shape.md`](CD-0003-concord-storage-layer-shape.md)
 and [`../specs/product-memory-domain-schema.md`](../specs/product-memory-domain-schema.md).
 
-**PM6, compaction-retention-policy, and PM9 govern:** compaction trigger (at
-terminal transition), note template, generation pattern (agent-drafts +
-operator-approves), salvage rule, and the git-authority/SQLite-derived-index
-pattern. See [`../specs/canonical-git-note-placement.md`](../specs/canonical-git-note-placement.md),
+**PM6, compaction-retention-policy, and PM9 govern:** reported-link completion,
+historical note readers, explicit research retention and the process-exhaust
+boundary. See [`../specs/canonical-git-note-placement.md`](../specs/canonical-git-note-placement.md),
 [`../specs/compaction-retention-policy.md`](../specs/compaction-retention-policy.md), and
 [`../specs/product-memory-process-exhaust.md`](../specs/product-memory-process-exhaust.md).
 

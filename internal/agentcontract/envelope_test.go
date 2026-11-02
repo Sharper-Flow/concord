@@ -23,12 +23,6 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 		{"ok mutation", func() Envelope {
 			return NewOKMutation(NewBase("req-2", "concord_work_define", "capture"), json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), []ChangedRef{{EntityKind: "work", ID: "w-1", Version: "2"}}, []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "created"}})
 		}},
-		{"pending", func() Envelope {
-			return NewPending(NewBase("req-3", "concord_work_compact", "publish"), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPending, CurrentStep: "git", UpdatedAt: fixedTime()}, RecoveryAction{Kind: "reconcile_operation"})
-		}},
-		{"partial", func() Envelope {
-			return NewPartial(NewBase("req-4", "concord_work_compact", "publish"), OperationRef{ID: "op-1", Kind: "publish", Version: "2", State: OperationPartial, CurrentStep: "sqlite", UpdatedAt: fixedTime()}, []string{"git"}, TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial})
-		}},
 		{"core error", func() Envelope {
 			e := NewBase("req-5", "concord_work_browse", "list")
 			e.Authority = AuthorityUnreachable
@@ -143,7 +137,7 @@ func TestCorrectRequestRequiresPreEffectInputRefusal(t *testing.T) {
 		}{
 			{"invalid_input", EffectNone, false},
 			{"invalid_input", EffectPossible, false},
-			{"invalid_input", EffectPartial, false},
+			{"invalid_input", EffectState("partial"), false},
 			{"invalid_input", EffectNone, true},
 			{"unauthorized", EffectNone, false},
 		} {
@@ -237,7 +231,7 @@ func TestAdapterEnvelopeRetainsSchemaRejections(t *testing.T) {
 		"removed occupancy reason": func(e *Envelope) { e.Error.AdapterReason = "session_occupancy_unreadable" },
 		"core reason":              func(e *Envelope) { e.Origin = OriginCore },
 		"core-only kind":           func(e *Envelope) { e.Error.Kind = "internal_error" },
-		"partial effect":           func(e *Envelope) { e.Error.EffectState = EffectPartial },
+		"partial effect":           func(e *Envelope) { e.Error.EffectState = EffectState("partial") },
 		"authoritative adapter":    func(e *Envelope) { e.Authority = AuthorityAuthoritative },
 		"bootstrap effect": func(e *Envelope) {
 			e.Error.AdapterReason, e.Error.EffectState = "manifest_mismatch", EffectPossible
@@ -291,14 +285,6 @@ func TestGeneratedSchemaConflictRecoveryRequiresReconciliation(t *testing.T) {
 			e.Error.RecoveryAction.Kind = "reconcile_operation"
 			if err := validate(e); err != nil {
 				t.Fatalf("core reconciliation refused: %v", err)
-			}
-			partial := NewPartial(NewBase("partial-schema", "concord_work_compact", "publish"), OperationRef{ID: "op-1", Kind: "publish", Version: "2", State: OperationPartial, CurrentStep: "sqlite", UpdatedAt: fixedTime()}, []string{"git"}, TypedError{Kind: "operation_conflict", EffectState: EffectPartial, RecoveryAction: RecoveryAction{Kind: recovery}})
-			if err := validate(partial); err == nil {
-				t.Fatal("partial conflict admitted without reconciliation")
-			}
-			partial.Error.RecoveryAction.Kind = "reconcile_operation"
-			if err := validate(partial); err != nil {
-				t.Fatalf("partial reconciliation refused: %v", err)
 			}
 		})
 	}
@@ -498,12 +484,44 @@ func TestGoverningConflictOptionsAreClosedAndCoupled(t *testing.T) {
 	}
 }
 
+func TestEnvelopeRejectsRetiredPublicationVariants(t *testing.T) {
+	base := NewOKMutation(NewBase("retired-variant", "concord_work_transition", "workflow_action"), json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), nil, nil)
+	raw, err := base.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, outcome := range []string{"pending", "partial"} {
+		t.Run(outcome, func(t *testing.T) {
+			var object map[string]any
+			if err := json.Unmarshal(raw, &object); err != nil {
+				t.Fatal(err)
+			}
+			object["outcome"] = outcome
+			object["operation_ref"] = map[string]any{"id": "op-1", "kind": "workflow_action", "version": "1", "state": outcome, "current_step": "execute", "updated_at": fixedTime()}
+			wire, _ := json.Marshal(object)
+			if _, err := decodeEnvelopeForTest(wire); err == nil {
+				t.Fatal("retired outcome decoded")
+			}
+			if err := payloadschema.ValidateEnvelope(wire); err == nil {
+				t.Fatal("retired outcome passed the published schema")
+			}
+		})
+	}
+	for _, key := range []string{"operation_ref", "completed_steps", "failed_step", "next_action"} {
+		var object map[string]any
+		_ = json.Unmarshal(raw, &object)
+		object[key] = "retired"
+		wire, _ := json.Marshal(object)
+		if err := payloadschema.ValidateEnvelope(wire); err == nil {
+			t.Fatalf("retired field %s passed the published schema", key)
+		}
+	}
+}
+
 func TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome(t *testing.T) {
 	t.Parallel()
 	envelopes := []Envelope{
 		newOKReadForTest(NewBase("ok", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`)),
-		NewPending(NewBase("pending", "concord_work_compact", "publish"), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPending, CurrentStep: "git", UpdatedAt: fixedTime()}, RecoveryAction{Kind: "reconcile_operation"}),
-		NewPartial(NewBase("partial", "concord_work_compact", "publish"), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPartial, CurrentStep: "sqlite", UpdatedAt: fixedTime()}, []string{"git"}, TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial}),
 		NewCoreError(NewBase("error", "concord_work_transition", "lifecycle"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "reread_entities"}, EffectState: EffectNone}),
 	}
 	for _, envelope := range envelopes {

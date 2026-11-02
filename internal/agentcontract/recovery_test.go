@@ -77,9 +77,6 @@ func companionFields(err *TypedError) {
 	switch err.Kind {
 	case "ambiguous_scope":
 		err.Candidates = []string{"prod-alpha", "prod-beta"}
-	case "outside_repair_active":
-		// CD-0210: completed and resume use the store's single reconcile route.
-		err.RecoveryAction.RequiredRefs = []string{"outside_repair_reconcile"}
 	case "version_conflict":
 		err.CurrentVersions = []ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "2"}}
 	case "budget_refused":

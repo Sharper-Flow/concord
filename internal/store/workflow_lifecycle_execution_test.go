@@ -184,7 +184,7 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 	db := openMigratedTo(t, path, 106)
 	copyFixtureDataToPrefix(t, s, db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances"}, map[string]map[string]string{
 		"products":           {"planning_mode": "'local_only'"},
-		"workflow_instances": {"definition_version": "1"},
+		"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "1"},
 	}, "fold_guard")
 	start := func(id, action, identity string, expected, epoch int64) Event {
 		return workflowEventWithActor(id, WorkflowActionStarted, workID, executorRef, map[string]any{
@@ -241,7 +241,7 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 		parents: func(t *testing.T, prefix *Store, guard string) {
 			copyFixtureDataToPrefix(t, s, prefix.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances"}, map[string]map[string]string{
 				"products":           {"planning_mode": "'local_only'"},
-				"workflow_instances": {"definition_version": "1"},
+				"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "1"},
 			}, guard)
 		},
 	}, 107, "ORDER BY e.seq", "ORDER BY e.seq DESC", queries, workerFactsQueryRows(t, s, queries))

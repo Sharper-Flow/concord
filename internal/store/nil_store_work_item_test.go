@@ -26,13 +26,5 @@ func TestUnopenedStoreWorkItemMethods(t *testing.T) {
 			_, err := s.ExternalObservationsForWork(ctx, "work-1", time.Time{}, 10)
 			return err
 		}},
-		{"TerminalWorkVersion", func(s *Store) error {
-			_, err := s.TerminalWorkVersion(ctx, "work-1")
-			return err
-		}},
-		{"PendingOperationForWork", func(s *Store) error {
-			_, err := s.PendingOperationForWork(ctx, "work-1")
-			return err
-		}},
 	})
 }

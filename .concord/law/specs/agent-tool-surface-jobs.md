@@ -23,10 +23,6 @@
     {
       "criterion": 4,
       "scenario": "AJ4-stale-version"
-    },
-    {
-      "criterion": 5,
-      "scenario": "AJ6-partial-publication"
     }
   ]
 }
@@ -88,10 +84,9 @@ by Concord. No Q-number implies a separate tool.
 | **AJ3** | **Capture needed work without silently cutting scope.** Record a bounded idea, defect, investigation, implementation, or operational need with value, kind, and Project membership. | One canonical work item is created in the resolved scope. Ambiguity or conflict with governing law is surfaced for human direction rather than guessed or omitted. |
 | **AJ4** | **Transition work with evidence.** Move work through its accepted lifecycle, including completion, while satisfying evidence and version requirements. | One atomic domain transition occurs, evidence and actor are attributable, invalid or stale transitions fail structurally, and a retry cannot duplicate the effect. |
 | **AJ5** | **Relate and scope work.** Add or remove Project membership; create typed relations; and resolve concurrent Product-changing Domain overlap. | Graph and membership invariants hold; cycles and duplicate authority are rejected; supersession is atomic; overlap authority is operator-approved and pinned to both current contract versions. |
-| **AJ6** | **Compact and reconcile terminal work.** Publish the one canonical durable note required for terminal work and reconcile its Product-memory locator. | Git publication is proven before the SQLite locator is recorded; an interruption leaves an explicit, recoverable partial outcome; retries do not create duplicate notes or competing authority. |
 | **AJ8** | **Execute operational work with consequence controls.** Carry an ops item through plan, budgeted execution, health verification, rollback when needed, and cleanup—including ground-truth reclamation of derived resources. | Native authority executes the operation; Concord preserves intent, status, and evidence. A refused budget blocks consequences, health failure triggers the declared recovery path, cleanup uses native facts rather than stale bookkeeping, and partial completion is explicit. |
 
-These seven jobs are intentionally broader than storage queries and narrower than
+These jobs are intentionally broader than storage queries and narrower than
 "do anything." They are the evidenced intent families repeatedly present in
 Concord's Product model, live workflows, first-usable floor, and PM1 contract.
 They do not prescribe one tool per row.
@@ -113,7 +108,7 @@ later choose their concrete request/result schemas.
    exhausted budgets, and recovery actions are structural outcomes—not prose hidden
    beneath `success`.
 6. **Retry safety:** replaying the same intent does not duplicate work, relations,
-   transitions, notes, or external effects.
+    transitions or external effects.
 7. **Bounded context:** output is summary-first, cursor-bounded, and explicit about
    omissions. Empty, unknown, ambiguous, degraded, and unreachable remain distinct.
 8. **No silent scope reduction:** an agent may clarify, propose a law change, or
@@ -356,32 +351,6 @@ fixture-independent `effects.version_increment` assertion that entry added is wh
 carries the law, and it is unaffected. `TestAgentJobsCorpus` and the
 product-memory corpus pass unchanged.
 
-**2026-08-28, issue #463 — `AJ6-compact-terminal-work` asserts the emitted note
-satisfies the durable tier.**
-
-CD-0069 D4 requires this scenario to assert that the terminal compaction path
-emits a note the durable-tier budget accepts. The amendment adds three
-assertions:
-
-```json
-{ "target": "effects", "path": "durable_tier.markdown_only", "op": "eq", "value": true },
-{ "target": "effects", "path": "durable_tier.note_extension", "op": "eq", "value": ".md" },
-{ "target": "effects", "path": "durable_tier.budget_passed", "op": "eq", "value": true }
-```
-
-They cover a regression the existing assertions cannot see. A producer that
-started serializing state again would still publish, still verify, still record
-its locator, and still replay safely, so `publication_order`,
-`canonical_notes.count`, and the locator assertions would all hold while the note
-became a state dump. Neither the note schema nor the byte bound can express the
-difference, which is why CD-0069 puts it in the corpus.
-
-The binding reads the note the publication committed and evaluates it through
-`store.CheckDurableTier`, the same rule the producer applies before writing. A
-second copy of the rule in the corpus would agree with the producer only until
-one of them changed. No job definition, instruction, invariant, or other scenario
-changed, and the corpus remains 23 scenarios.
-
 ## Acceptance criteria
 
 - Given ambient Product context with needed, blocked, and terminal work
@@ -404,14 +373,9 @@ changed, and the corpus remains 23 scenarios.
   Then the core refuses before any effect, and a valid transition increments
   the version by exactly one.
 
-- Given a compaction interrupted between git and SQLite
-  When AJ6 reconciles
-  Then the outcome is an explicit recoverable partial state and a retry
-  creates no second note and no competing authority.
-
 ## Verification
 
-All five criteria are proved by scenarios of `.concord/scenarios/agent-jobs.v1.json`,
+All four criteria are proved by scenarios of `.concord/scenarios/agent-jobs.v1.json`,
 executed by `TestAgentJobsCorpus`
 (`internal/agent/agent_jobs_corpus_test.go`).
 
@@ -423,6 +387,3 @@ executed by `TestAgentJobsCorpus`
 - Criterion 4 is proved by the bound `AJ4-stale-version` and
   `AJ4-complete-valid-work` scenarios, whose `version_increment` assertion
   states the increment law structurally.
-- Criterion 5 is proved by the bound `AJ6-partial-publication` scenario and
-  by `TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote`
-  (`internal/agent/mutation_dispatch_test.go`).

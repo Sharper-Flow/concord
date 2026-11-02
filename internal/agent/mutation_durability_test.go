@@ -83,17 +83,13 @@ func TestMutationDurabilityDeclarations(t *testing.T) {
 	t.Parallel()
 
 	durableInitial := map[string]bool{
-		"concord_work_transition.remove":                   true,
-		"concord_work_relate.resolve_overlap":              true,
-		"concord_work_compact.publish":                     true,
-		"concord_work_transition.correct_delivery":         true,
-		"concord_work_transition.outside_repair":           true,
-		"concord_work_transition.outside_repair_reconcile": true,
+		"concord_work_transition.remove":           true,
+		"concord_work_relate.resolve_overlap":      true,
+		"concord_work_transition.correct_delivery": true,
 	}
 	replayBaseline := func(op agentcontract.ContractOperation) bool {
 		return durableInitial[op.ID] ||
-			op.ID == "concord_work_transition.workflow_action" ||
-			op.ID == "concord_work_compact.reconcile"
+			op.ID == "concord_work_transition.workflow_action"
 	}
 
 	declared := map[string]bool{}
@@ -266,11 +262,11 @@ func TestMutationDurabilityStoreBoundPlannerFacts(t *testing.T) {
 	t.Parallel()
 	t.Run("capture governing conflict", func(t *testing.T) {
 		t.Parallel()
-		s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
+		s, service, grant := agentJobsMutationPM1Fixture(t)
 		if err := pm1fixture.SeedGoverningRequirement(context.Background(), s, "proj-web", "audit_required", "accepted audit obligation"); err != nil {
 			t.Fatalf("seed governing requirement: %v", err)
 		}
-		env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
+		env := agentJobsMutationEnvelope(t, s, grant)
 		input := []byte(`{"title":"Durable cut","value_statement":"witness the governing durability fact","kind":"task","project_ids":["proj-web"],"idempotency_key":"durability-governing-1"}`)
 		before := s.DurableCommits()
 		refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)

@@ -8474,6 +8474,101 @@ DROP TABLE workflow_contract_law_revisions;
 ALTER TABLE workflow_architecture_bindings DROP COLUMN domain_registry_content_hash;
 `,
 	},
+	{
+		Version:  177,
+		Name:     "terminal_workflow_steps_retirement",
+		Breaking: true,
+		SQL: `
+INSERT INTO write_guard(active) VALUES(1);
+DELETE FROM workflow_step_epochs WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_step_completions WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_phase_exits WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_completed_exits WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_checkpoints WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_context_checkpoints WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_context_boundaries WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_artifact_actions WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_coordinator_actions WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM work_context_findings WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM work_context_state WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_evidence_bindings WHERE json_extract(payload,'$.producer_run_ref') IN (SELECT op_id FROM durable_operations WHERE workflow_type_ref='concord.pm6.compaction');
+DELETE FROM idempotency_records WHERE op_id IN (SELECT op_id FROM durable_operations WHERE workflow_type_ref='concord.pm6.compaction');
+DELETE FROM durable_operations WHERE workflow_type_ref='concord.pm6.compaction';
+DROP TABLE outside_repair_reconciliations;
+DROP TABLE outside_repair_dispositions;
+DROP TRIGGER workflow_law_baselines_completed;
+CREATE TABLE workflow_instances_v177 (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    definition_ref TEXT NOT NULL CHECK(length(definition_ref) BETWEEN 2 AND 128),
+    definition_digest TEXT NOT NULL CHECK(length(definition_digest)=71 AND substr(definition_digest,1,7)='sha256:'),
+    current_step TEXT NOT NULL CHECK(length(current_step) BETWEEN 2 AND 128),
+    instance_state TEXT NOT NULL CHECK(instance_state IN ('planned','ready','running','blocked','verifying','completed','cancelled','superseded')),
+    execution_actor_ref TEXT REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    execution_model TEXT NOT NULL DEFAULT '' CHECK(length(execution_model)<=128),
+    started_at TEXT,
+    completed_at TEXT,
+    last_checkpoint_at TEXT,
+    execution_started_at TEXT,
+    completion_payload TEXT CHECK(completion_payload IS NULL OR json_valid(completion_payload)),
+    completion_occurred_at TEXT,
+    unhealthy_verdict_seq INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO workflow_instances_v177
+ SELECT work_id,definition_ref,definition_digest,current_step,
+ CASE WHEN instance_state='outside_repair' THEN CASE (SELECT lifecycle FROM work_items WHERE id=work_id) WHEN 'completed' THEN 'completed' WHEN 'cancelled' THEN 'cancelled' WHEN 'superseded' THEN 'superseded' ELSE 'running' END ELSE instance_state END,
+ execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,
+ completion_payload,completion_occurred_at,unhealthy_verdict_seq FROM workflow_instances;
+DROP TABLE workflow_instances;
+ALTER TABLE workflow_instances_v177 RENAME TO workflow_instances;
+CREATE INDEX workflow_instances_state ON workflow_instances(instance_state,work_id);
+CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_law_baselines_completed BEFORE UPDATE ON workflow_law_baselines WHEN NEW.enactment_effect_seq IS NOT NULL BEGIN SELECT RAISE(ABORT, 'workflow_law_baselines enactment requires its completed effect receipt') WHERE NOT EXISTS (SELECT 1 FROM effect_receipts r JOIN workflow_instances i ON i.work_id=r.subject_id JOIN work_items w ON w.id=i.work_id WHERE r.effect_seq=NEW.enactment_effect_seq AND r.kind='workflow.completed' AND r.subject_type='work_item' AND r.subject_id=NEW.work_id AND i.instance_state='completed' AND w.lifecycle='completed'); END;
+DELETE FROM write_guard;
+`,
+	},
+	{
+		Version: 178, Name: "atomic_operation_results", Breaking: true,
+		SQL: `
+INSERT INTO write_guard(active) VALUES(1);
+CREATE TABLE durable_operations_v178 (
+ op_id TEXT PRIMARY KEY,
+ attempt_epoch INTEGER NOT NULL DEFAULT 1 CHECK(attempt_epoch=1),
+ work_id TEXT NOT NULL,
+ workflow_type_ref TEXT NOT NULL,
+ workflow_type_digest TEXT NOT NULL DEFAULT '',
+ step_id TEXT NOT NULL,
+ step_kind TEXT NOT NULL DEFAULT 'internal_sqlite' CHECK(step_kind='internal_sqlite'),
+ accepted_inputs_digest TEXT NOT NULL,
+ accepted_scope_snapshot TEXT,
+ result_kind TEXT NOT NULL DEFAULT 'completed' CHECK(result_kind='completed'),
+ result_payload TEXT,
+ evidence_refs TEXT NOT NULL DEFAULT '[]',
+ changed_refs TEXT NOT NULL DEFAULT '[]',
+ principal_ref TEXT NOT NULL,
+ request_id TEXT NOT NULL,
+ observed_at TEXT NOT NULL,
+ completed_at TEXT,
+ contract_digest TEXT NOT NULL
+);
+INSERT INTO durable_operations_v178
+ SELECT op_id,1,work_id,workflow_type_ref,workflow_type_digest,step_id,'internal_sqlite',
+ accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,
+ principal_ref,request_id,observed_at,completed_at,contract_digest
+ FROM durable_operations o WHERE result_kind='completed'
+ AND attempt_epoch=(SELECT MAX(p.attempt_epoch) FROM durable_operations p WHERE p.op_id=o.op_id AND p.result_kind='completed')
+ AND op_id NOT IN (SELECT op_id FROM idempotency_records WHERE operation_kind IN ('claim','complete') AND op_id IS NOT NULL);
+DELETE FROM workflow_evidence_bindings
+ WHERE json_extract(payload,'$.producer_run_ref') IN (SELECT op_id FROM durable_operations)
+ AND json_extract(payload,'$.producer_run_ref') NOT IN (SELECT op_id FROM durable_operations_v178);
+DELETE FROM idempotency_records WHERE operation_kind IN ('claim','complete') OR
+ (op_id IN (SELECT op_id FROM durable_operations) AND op_id NOT IN (SELECT op_id FROM durable_operations_v178));
+DROP TABLE durable_operations;
+ALTER TABLE durable_operations_v178 RENAME TO durable_operations;
+DELETE FROM write_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -8911,12 +9006,12 @@ func preflightDomainShapeReadingUpgrade(ctx context.Context, q queryer) error {
 	if !present {
 		return nil
 	}
-	// Inspect the stored source tag without decoding the retired source arm.
-	// Migration must neither rewrite authored readings nor bypass terminal cleanup.
+	// Terminal execution is discarded by the pending breaking retirement. Live
+	// authored readings still require their owning action before that cutover.
 	var workID, lifecycle string
 	err := q.QueryRowContext(ctx, `SELECT state.work_id,work.lifecycle FROM work_context_state AS state
 JOIN work_items AS work ON work.id=state.work_id
-WHERE EXISTS(SELECT 1 FROM json_each(state.declaration_payload,'$.required_reading') AS reading
+WHERE work.lifecycle NOT IN ('completed','cancelled','superseded') AND EXISTS(SELECT 1 FROM json_each(state.declaration_payload,'$.required_reading') AS reading
  WHERE json_extract(reading.value,'$.source.kind')='domain_shape')
 ORDER BY state.work_id LIMIT 1`).Scan(&workID, &lifecycle)
 	if err == sql.ErrNoRows {
@@ -8926,9 +9021,6 @@ ORDER BY state.work_id LIMIT 1`).Scan(&workID, &lifecycle)
 		return wrapFailure(KindUnavailable, "migrate", "cannot inspect persisted required readings before Domain Shape retirement", true, "confirm the database is readable and retry upgrade", err)
 	}
 	recovery := fmt.Sprintf("use a pre-retirement binary that still supports domain_shape (schema 171); for live work %q, use the admitted record_work_context workflow action to replace or remove only obsolete readings while preserving the rest of the declaration, then retry concord upgrade", workID)
-	if lifecycle == "completed" || lifecycle == "cancelled" || lifecycle == "superseded" {
-		recovery = fmt.Sprintf("use a pre-retirement binary that still supports domain_shape (schema 171); terminal work %q is immutable: do not replace or rewrite its declaration; use concord_work_compact.publish with the exact reviewed closure bytes and canonical home, or concord_work_compact.reconcile for an existing publication, and settle publication plus terminal cleanup under all existing gates; resolve every reported cleanup blocker, then retry concord upgrade; if the reviewed closure or required cleanup evidence cannot be supplied, no supported upgrade recovery is available for this work: retain the schema-171 store and seek maintainer follow-up", workID)
-	}
 	return newFailure(KindUpgradeBlocked, "migrate",
 		fmt.Sprintf("work %q still has a domain_shape required reading; no migration was applied", workID), true,
 		recovery)

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/zlib"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -15,17 +14,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 )
 
 const (
-	knowledgeScanLimit  = 1000
-	maxKnowledgeNote    = 256 * 1024
-	maxKnowledgeFront   = 32 * 1024
-	maxKnowledgeValue   = 4096
-	knowledgeQueryLimit = 100
-	gitCommandTimeout   = 10 * time.Second
-	maxGitOutput        = 4 * 1024 * 1024
+	gitCommandTimeout = 10 * time.Second
+	maxGitOutput      = 4 * 1024 * 1024
 )
 
 // KnowledgeHome is the explicit authority context for git-derived knowledge.
@@ -35,212 +28,6 @@ type KnowledgeHome struct {
 	HomeLocatorID string
 	RepoPath      string
 	HeadRef       string
-}
-
-// VerifiedNote is the committed byte proof and bounded metadata for one note.
-// Content is returned to callers that need to inspect the exact proof; the
-// SQLite index stores only the metadata and locator fields.
-type VerifiedNote struct {
-	ID            string
-	Kind          string
-	Title         string
-	CompletedAt   string
-	OutcomeTag    string
-	LessonTags    []string
-	TerminalState string
-	Priority      int64
-	Summary       string
-	SuccessorID   string
-	ProductIDs    []string
-	ProjectIDs    []string
-	DomainIDs     []string
-	ComponentIDs  []string
-	// HasDomainIDs and HasComponentIDs preserve whether the corresponding
-	// front-matter key was authored, including an explicitly empty array.
-	HasDomainIDs          bool
-	HasComponentIDs       bool
-	TagIDs                []string
-	ScopeMode             string
-	ManifestSchemaVersion string
-	NotePath              string
-	CommitOID             string
-	ContentHash           string
-	Content               []byte
-}
-
-// CommittedNote is the git-side proof of a publish: the commit that was made
-// and the path it carries. It is deliberately not a VerifiedNote.
-//
-// Verification is a separately ordered step owned by the caller. The accepted
-// cross-authority order is publish, then verify, then record the SQLite locator
-// (.concord/law/specs/agent-mutation-tool-contract.md). Returning an unverified proof here
-// keeps that boundary visible: a caller holding a CommittedNote has written to
-// git and has not yet earned the right to record a locator.
-type CommittedNote struct {
-	CommitOID string
-	NotePath  string
-}
-
-// PublishCanonicalNote writes one approved note into the selected git home and
-// commits only that path. It is intentionally separate from the SQLite
-// transaction because Git and SQLite cannot share one atomic commit, and
-// intentionally separate from verification so the caller orders the two.
-func PublishCanonicalNote(ctx context.Context, home KnowledgeHome, workID, content, expectedHash string) (CommittedNote, error) {
-	if home.RepoPath == "" || workID == "" || content == "" {
-		return CommittedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "canonical note publication is missing home, work, or content", false, "supply the approved note and git home")
-	}
-	note, err := parseKnowledgeNote([]byte(content))
-	if err != nil {
-		return CommittedNote{}, err
-	}
-	if note.ID != workID || note.Kind != "work_note" {
-		return CommittedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "approved note identity does not match the terminal work", false, "publish the canonical work note for the requested work ID")
-	}
-	if note.HasComponentIDs {
-		return CommittedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "new canonical notes cannot author component_ids", false, "use domain_ids in canonical work-note front matter")
-	}
-	if !note.HasDomainIDs {
-		return CommittedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "new canonical notes require domain_ids", false, "supply an explicit domain_ids array in canonical work-note front matter")
-	}
-	if expectedHash != "" {
-		sum := sha256.Sum256([]byte(content))
-		if expectedHash != "sha256:"+hex.EncodeToString(sum[:]) {
-			return CommittedNote{}, newFailure(KindInvalidNoteProof, "publish_note", "approved content digest does not match note bytes", false, "recompute the content digest over the exact approved bytes")
-		}
-	}
-	if err := CheckDurableTier(content); err != nil {
-		return CommittedNote{}, err
-	}
-	date := nowFromClock(nil).Format("2006-01-02")
-	if len(note.CompletedAt) >= 10 {
-		date = note.CompletedAt[:10]
-	}
-	name := slugifyKnowledgeTitle(note.Title)
-	suffix := workID
-	if len(suffix) > 16 {
-		suffix = suffix[len(suffix)-16:]
-	}
-	notePath := ".concord/docs/work/" + date + "-" + name + "-" + suffix + ".md"
-	fullPath := path.Join(home.RepoPath, notePath)
-	// Detecting an already-published note is a precondition probe, not the
-	// ordered verification step: it decides whether this call has anything to
-	// write at all. The caller still verifies the proof it is handed back.
-	if head, headErr := runGit(ctx, home.RepoPath, "rev-parse", "HEAD"); headErr == nil {
-		if existing, verifyErr := VerifyCommittedNote(ctx, home.RepoPath, strings.TrimSpace(string(head)), notePath, expectedHash); verifyErr == nil {
-			if existing.ID != workID {
-				return CommittedNote{}, newFailure(KindKnowledgeAmbiguous, "publish_note", "canonical path already claims a different work ID", false, "resolve the competing canonical note before retrying")
-			}
-			return CommittedNote{CommitOID: existing.CommitOID, NotePath: existing.NotePath}, nil
-		}
-	}
-	if err := os.MkdirAll(path.Dir(fullPath), 0o755); err != nil { //nolint:gosec // canonical notes are public repository content and require normal Git directory permissions.
-		return CommittedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot create the canonical note directory", true, "restore write access to the git home", err)
-	}
-	if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil { //nolint:gosec // canonical notes are public repository content and require normal Git file permissions.
-		return CommittedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot write the canonical note draft", true, "restore write access to the git home", err)
-	}
-	if _, err := runGit(ctx, home.RepoPath, "add", "--", notePath); err != nil {
-		return CommittedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot stage the canonical note", true, "restore git write access and retry", err)
-	}
-	if _, err := runGit(ctx, home.RepoPath, "commit", "--quiet", "-m", "docs: publish Concord work note", "--", notePath); err != nil {
-		return CommittedNote{}, wrapFailure(KindGitUnreachable, "publish_note", "cannot commit the canonical note", true, "complete the native git commit and reconcile", err)
-	}
-	commit, err := runGit(ctx, home.RepoPath, "rev-parse", "HEAD")
-	if err != nil {
-		return CommittedNote{}, err
-	}
-	return CommittedNote{CommitOID: strings.TrimSpace(string(commit)), NotePath: notePath}, nil
-}
-
-func slugifyKnowledgeTitle(value string) string {
-	var b strings.Builder
-	lastDash := false
-	for _, r := range strings.ToLower(value) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-			lastDash = false
-		} else if !lastDash && b.Len() > 0 {
-			b.WriteByte('-')
-			lastDash = true
-		}
-		if b.Len() >= 48 {
-			break
-		}
-	}
-	return strings.Trim(b.String(), "-")
-}
-
-// VerifyCommittedNote proves a canonical note from a committed git tree. It
-// deliberately never reads note_path from the working tree.
-func VerifyCommittedNote(ctx context.Context, repo, commitOID, notePath, expectedHash string) (VerifiedNote, error) {
-	if err := validateCommitOID(commitOID); err != nil {
-		return VerifiedNote{}, err
-	}
-	if err := validateNotePath(notePath); err != nil {
-		return VerifiedNote{}, err
-	}
-	content, err := committedRegularBlobBytes(ctx, runGitRunner{}, repo, commitOID, notePath)
-	if err != nil {
-		return VerifiedNote{}, err
-	}
-	if len(content) > maxKnowledgeNote {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "note exceeds the bounded size", false, "split the note into bounded durable records")
-	}
-	sum := sha256.Sum256(content)
-	hash := "sha256:" + hex.EncodeToString(sum[:])
-	if expectedHash != "" && expectedHash != hash {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "committed note hash does not match the expected hash", false, "re-read the committed blob and use its SHA-256")
-	}
-	note, err := parseKnowledgeNote(content)
-	if err != nil {
-		return VerifiedNote{}, err
-	}
-	note.NotePath, note.CommitOID, note.ContentHash, note.Content = notePath, commitOID, hash, append([]byte(nil), content...)
-	return note, nil
-}
-
-// FindVerifiedWorkNote scans only the bounded canonical work-note directory at a
-// recorded home head, verifies every candidate from the committed tree, and
-// returns the unique note claiming workID. It never reads the working tree and
-// never chooses between competing locators.
-func FindVerifiedWorkNote(ctx context.Context, home KnowledgeHome, workID, expectedHash string) (VerifiedNote, error) {
-	if workID == "" {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "find_work_note", "work ID is empty", false, "supply the terminal work identity")
-	}
-	head, err := resolveKnowledgeHead(ctx, home)
-	if err != nil {
-		return VerifiedNote{}, err
-	}
-	paths, err := scanKnowledgeTree(ctx, home, head)
-	if err != nil {
-		return VerifiedNote{}, err
-	}
-	var matches []VerifiedNote
-	var hashMismatch error
-	for _, notePath := range paths {
-		note, verifyErr := VerifyCommittedNote(ctx, home.RepoPath, head, notePath, "")
-		if verifyErr != nil {
-			continue
-		}
-		if note.ID != workID {
-			continue
-		}
-		if expectedHash != "" && note.ContentHash != expectedHash {
-			hashMismatch = newFailure(KindInvalidNoteProof, "find_work_note", "orphan note content hash does not match the approved proof", false, "supply the exact committed note digest")
-			continue
-		}
-		matches = append(matches, note)
-	}
-	if len(matches) > 1 {
-		return VerifiedNote{}, newFailure(KindKnowledgeAmbiguous, "find_work_note", "multiple canonical notes claim the same work ID", false, "resolve the competing canonical locators before reconciling")
-	}
-	if len(matches) == 1 {
-		return matches[0], nil
-	}
-	if hashMismatch != nil {
-		return VerifiedNote{}, hashMismatch
-	}
-	return VerifiedNote{}, newFailure(KindKnowledgeMissing, "find_work_note", "no committed canonical note claims the terminal work ID", true, "commit the approved note or retry reconciliation")
 }
 
 type treeEntry struct {
@@ -267,9 +54,8 @@ func gitTreeEntryRunner(ctx context.Context, runner GitRunner, repo, commitOID, 
 
 // committedRegularBlobBytes is the shared committed-blob proof primitive: it
 // resolves exactly one ordinary blob (100644/100755) at the declared path and
-// commit through the caller's runner and returns its bytes. VerifyCommittedNote
-// and the dispatch reading resolution both prove committed content through
-// this one owner.
+// commit through the caller's runner and returns its bytes. Committed law and
+// registry reads prove content through this one owner.
 func committedRegularBlobBytes(ctx context.Context, runner GitRunner, repo, commitOID, path string) ([]byte, error) {
 	entry, err := gitTreeEntryRunner(ctx, runner, repo, commitOID, path)
 	if err != nil {
@@ -283,38 +69,6 @@ func committedRegularBlobBytes(ctx context.Context, runner GitRunner, repo, comm
 		return nil, wrapFailure(KindInvalidNoteProof, "verify_note", "cannot read the committed blob", true, "confirm the commit and path are available", err)
 	}
 	return content, nil
-}
-
-func scanKnowledgeTree(ctx context.Context, home KnowledgeHome, commitOID string) ([]string, error) {
-	// One revision carries at most one work-note home in practice, but the
-	// scan reads both tiers so a commit that predates the move (CD-0194 D5)
-	// projects the notes it actually carries. An absent tier contributes
-	// nothing.
-	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-r", "-z", commitOID, "--", knowledgeWorkNoteTree, legacyKnowledgeWorkNoteTree)
-	if err != nil {
-		return nil, wrapFailure(KindGitUnreachable, "rebuild_knowledge_index", "cannot scan the canonical work-note directories", true, "restore access to the git home and retry", err)
-	}
-	entries, err := parseTreeEntries(out)
-	if err != nil {
-		return nil, wrapFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "git returned malformed tree entries", false, "repair the canonical git tree", err)
-	}
-	paths := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.mode != "100644" && entry.mode != "100755" || entry.kind != "blob" {
-			return nil, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "canonical work-note tree contains a non-blob entry", false, "remove symlink, gitlink, tree, or other non-regular entries from "+knowledgeWorkNoteTree+" and "+legacyKnowledgeWorkNoteTree)
-		}
-		if !strings.HasSuffix(entry.path, ".md") {
-			continue
-		}
-		if err := validateNotePath(entry.path); err != nil {
-			return nil, err
-		}
-		paths = append(paths, entry.path)
-		if len(paths) > knowledgeScanLimit {
-			return nil, newFailure(KindKnowledgeIndexIncomplete, "rebuild_knowledge_index", "canonical note scan exceeds 1000 notes", true, "resume with an explicit continuation cursor")
-		}
-	}
-	return paths, nil
 }
 
 func parseTreeEntries(out []byte) ([]treeEntry, error) {
@@ -494,31 +248,6 @@ func commitOIDFromRefLine(line string) (string, bool) {
 	return line, true
 }
 
-// knowledgeWorkNoteTree is the canonical work-note directory the projection
-// scans. scanKnowledgeTree names the same paths the committed note proof
-// verifies.
-const knowledgeWorkNoteTree = ".concord/docs/work/"
-
-// legacyKnowledgeWorkNoteTree is the pre-migration work-note directory
-// (CD-0194 D5). Verification, scanning, and the content digest keep reading a
-// revision in the layout that revision carries, so notes recorded before the
-// move stay provable and stay part of the projected content. New authoring
-// never lands here: PublishCanonicalNote writes only knowledgeWorkNoteTree.
-const legacyKnowledgeWorkNoteTree = "docs/work/"
-
-// knowledgeNoteDirs are the markdown directories a verifiable note may live
-// in: the current homes, then the pre-migration homes (CD-0194 D5). A proof recorded
-// against an old revision names the path that revision used, so the
-// verifier admits every tier a recorded proof can name. Decision notes are
-// law, so their law home admits them; work and lesson notes are not law and
-// keep their docs homes. Publishing is not affected: the only write path
-// constructs its path from knowledgeWorkNoteTree alone.
-var knowledgeNoteDirs = []string{
-	".concord/docs/work/", ".concord/docs/lessons/", ".concord/docs/decisions/",
-	".concord/law/decisions/",
-	"docs/work/", "docs/lessons/", "docs/decisions/",
-}
-
 func runGit(ctx context.Context, repo string, args ...string) ([]byte, error) {
 	return runGitEnv(ctx, repo, nil, args...)
 }
@@ -543,15 +272,6 @@ func runGitEnv(ctx context.Context, repo string, env []string, args ...string) (
 		return nil, fmt.Errorf("git command output exceeds %d-byte limit", maxGitOutput)
 	}
 	return output.Bytes(), nil
-}
-
-// runGitRunner adapts the bounded package Git execution to the GitRunner
-// seam, so runner-threaded proofs keep runGit's exact behavior when no
-// caller passes a runner.
-type runGitRunner struct{}
-
-func (runGitRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	return runGit(ctx, dir, args...)
 }
 
 // boundedGitOutput prevents a hostile or malformed git object/tree from
@@ -600,184 +320,6 @@ func validateContentHash(hash string) error {
 		}
 	}
 	return nil
-}
-
-func validateNotePath(notePath string) error {
-	if notePath == "" || strings.ContainsRune(notePath, '\x00') || strings.HasPrefix(notePath, "-") || strings.HasPrefix(notePath, "/") || path.Clean(notePath) != notePath {
-		return newFailure(KindInvalidNoteProof, "verify_note", "note path is not a clean relative path", false, "use a clean relative canonical note path")
-	}
-	parts := strings.Split(notePath, "/")
-	for _, part := range parts {
-		if part == ".." || part == "" {
-			return newFailure(KindInvalidNoteProof, "verify_note", "note path contains a forbidden path component", false, "use a clean relative canonical note path")
-		}
-	}
-	if !strings.HasSuffix(notePath, ".md") || !hasEligibleNoteDir(notePath) {
-		return newFailure(KindInvalidNoteProof, "verify_note", "note path is outside the canonical markdown directories", false, "use .concord/docs/work, lessons, or decisions markdown, .concord/law/decisions markdown, or the pre-migration docs home a recorded proof names")
-	}
-	return nil
-}
-
-// hasEligibleNoteDir reports whether notePath sits in one of the bounded
-// knowledge note directories, current or pre-migration.
-func hasEligibleNoteDir(notePath string) bool {
-	for _, dir := range knowledgeNoteDirs {
-		if strings.HasPrefix(notePath, dir) {
-			return true
-		}
-	}
-	return false
-}
-
-// parseKnowledgeFrontMatter decodes the bounded front-matter block into its
-// key-value pairs: only the accepted canonical keys, each declared once,
-// with trimmed, bounded, closed scalar values.
-func parseKnowledgeFrontMatter(front string) (map[string]string, map[string]bool, error) {
-	values := map[string]string{}
-	seenKeys := map[string]bool{}
-	allowed := map[string]bool{"concord_work_id": true, "id": true, "work_type": true, "type": true, "title": true, "completed_at": true, "outcome_tag": true, "lesson_tags": true, "terminal_state": true, "priority": true, "summary": true, "successor_work_id": true, "product_ids": true, "project_ids": true, "domain_ids": true, "component_ids": true, "tag_ids": true}
-	for _, line := range strings.Split(front, "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		key, value, ok := strings.Cut(line, ":")
-		key = strings.TrimSpace(key)
-		if !ok || key == "" || !allowed[key] || seenKeys[key] {
-			return nil, nil, newFailure(KindInvalidNoteProof, "verify_note", "front matter has an unknown, malformed, or duplicate key", false, "use only the accepted canonical metadata keys")
-		}
-		seenKeys[key] = true
-		value = strings.TrimSpace(value)
-		if value == "" || len(value) > maxKnowledgeValue {
-			return nil, nil, newFailure(KindInvalidNoteProof, "verify_note", "front matter contains an empty or oversized value", false, "supply bounded metadata values")
-		}
-		if (strings.HasPrefix(value, "\"") && (len(value) < 2 || !strings.HasSuffix(value, "\""))) || (strings.HasPrefix(value, "'") && (len(value) < 2 || !strings.HasSuffix(value, "'"))) {
-			return nil, nil, newFailure(KindInvalidNoteProof, "verify_note", "front matter contains an unclosed quoted scalar", false, "use a closed scalar value")
-		}
-		values[key] = unquoteScalar(value)
-	}
-	return values, seenKeys, nil
-}
-
-func parseKnowledgeNote(content []byte) (VerifiedNote, error) {
-	if len(content) > maxKnowledgeNote || len(content) < 8 || !strings.HasPrefix(string(content), "---\n") {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "note lacks bounded front matter", false, "use the accepted canonical front-matter template")
-	}
-	text := string(content)
-	end := strings.Index(text[4:], "\n---\n")
-	if end < 0 {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter is not closed", false, "close front matter with a standalone --- line")
-	}
-	end += 4
-	front := text[4:end]
-	if len(front) > maxKnowledgeFront {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter exceeds the bounded size", false, "keep canonical metadata bounded")
-	}
-	values, seenKeys, err := parseKnowledgeFrontMatter(front)
-	if err != nil {
-		return VerifiedNote{}, err
-	}
-	return decodeKnowledgeNoteMetadata(values, seenKeys)
-}
-
-func decodeKnowledgeNoteMetadata(values map[string]string, seenKeys map[string]bool) (VerifiedNote, error) {
-	if seenKeys["domain_ids"] && seenKeys["component_ids"] {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter cannot declare both domain_ids and component_ids", false, "use domain_ids for new notes or retain component_ids only in a legacy note")
-	}
-	if values["concord_work_id"] != "" && values["id"] != "" {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter declares two stable identity keys", false, "use concord_work_id for work notes or id for other knowledge notes")
-	}
-	if values["work_type"] != "" && values["type"] != "" {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter declares two note type keys", false, "use work_type for work notes or type for other knowledge notes")
-	}
-
-	note := VerifiedNote{Title: values["title"], CompletedAt: values["completed_at"], OutcomeTag: values["outcome_tag"], TerminalState: values["terminal_state"], Summary: values["summary"], SuccessorID: values["successor_work_id"], ScopeMode: "explicit"}
-	note.ID = values["concord_work_id"]
-	if note.ID == "" {
-		note.ID = values["id"]
-	}
-	note.Kind = values["type"]
-	if note.Kind == "" && values["work_type"] != "" {
-		note.Kind = "work_note"
-	}
-	if note.ID == "" || note.Kind == "" || note.Title == "" || note.CompletedAt == "" || note.OutcomeTag == "" || note.Summary == "" {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter is missing required identity or summary fields", false, "complete the accepted canonical metadata template")
-	}
-	if note.Kind != "work_note" && note.Kind != "lesson" && note.Kind != "decision" && note.Kind != "spec" {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "note type is not accepted", false, "use work_note, lesson, decision, or spec")
-	}
-	if note.Kind == "work_note" && values["concord_work_id"] == "" {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "work note lacks concord_work_id", false, "identify work notes with concord_work_id")
-	}
-	if note.Kind != "work_note" && values["id"] == "" {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "knowledge note lacks id", false, "identify lesson, decision, and spec notes with id")
-	}
-	if _, err := time.Parse(time.RFC3339Nano, note.CompletedAt); err != nil {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "completed_at is not RFC3339", false, "use an RFC3339 completion timestamp")
-	}
-	if note.TerminalState == "" {
-		note.TerminalState = "completed"
-	}
-	if note.TerminalState != "completed" && note.TerminalState != "cancelled" && note.TerminalState != "superseded" {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "terminal_state is not accepted", false, "use completed, cancelled, or superseded")
-	}
-	if note.TerminalState == "superseded" && note.SuccessorID == "" {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "superseded note lacks successor_work_id", false, "supply the canonical successor")
-	}
-	priority := values["priority"]
-	if priority == "" {
-		priority = "0"
-	}
-	note.Priority, _ = strconv.ParseInt(priority, 10, 64)
-	if _, err := strconv.ParseInt(priority, 10, 64); err != nil || note.Priority < 0 {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "priority is not a non-negative integer", false, "supply a bounded non-negative priority")
-	}
-	note.HasDomainIDs = seenKeys["domain_ids"]
-	note.HasComponentIDs = seenKeys["component_ids"]
-	for key, target := range map[string]*[]string{"lesson_tags": &note.LessonTags, "product_ids": &note.ProductIDs, "project_ids": &note.ProjectIDs, "domain_ids": &note.DomainIDs, "component_ids": &note.ComponentIDs, "tag_ids": &note.TagIDs} {
-		parsed, err := parseScalarArray(values[key])
-		if err != nil {
-			return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter array is malformed", false, "use a closed scalar array such as [sqlite, state-authority]")
-		}
-		*target = parsed
-	}
-	return note, nil
-}
-
-func unquoteScalar(value string) string {
-	if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
-		return value[1 : len(value)-1]
-	}
-	return value
-}
-
-func parseScalarArray(value string) ([]string, error) {
-	if value == "" {
-		return nil, nil
-	}
-	if !strings.HasPrefix(value, "[") || !strings.HasSuffix(value, "]") {
-		return nil, fmt.Errorf("not an array")
-	}
-	inner := strings.TrimSpace(value[1 : len(value)-1])
-	if inner == "" {
-		return []string{}, nil
-	}
-	parts := strings.Split(inner, ",")
-	result := make([]string, 0, len(parts))
-	seen := map[string]bool{}
-	for _, part := range parts {
-		item := unquoteScalar(strings.TrimSpace(part))
-		if item == "" || seen[item] {
-			return nil, fmt.Errorf("empty or duplicate array item")
-		}
-		for _, r := range item {
-			if unicode.IsSpace(r) && r != ' ' {
-				return nil, fmt.Errorf("invalid array item")
-			}
-		}
-		seen[item] = true
-		result = append(result, item)
-	}
-	return result, nil
 }
 
 // marshalStrings renders a string slice for the JSON-array columns of the

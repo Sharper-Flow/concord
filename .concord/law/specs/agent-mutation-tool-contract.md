@@ -45,7 +45,7 @@
 TS1's mutation jobs need a bounded mutation surface. The binding inputs are
 the accepted PM3 through PM6 and compaction-retention-policy domain operations, TS1 jobs and scenarios, TS2
 budget and granularity, the TS3 read surface, the capability-placement
-native-authority rule, and the Advance postmortem. This record fixes the four
+native-authority rule, and the Advance postmortem. This record fixes the three
 always-visible mutation tools, their operation tables, the batch boundary,
 and the inline-versus-durable execution rule. CD-0222 requires typed
 architecture binding for Product-changing work; CD-0213 removes planning writes; CD-0042 makes the
@@ -58,35 +58,33 @@ exists ([CD-0242](../decisions/CD-0242-knowledge-first-workflows-keep-current-st
 CD-0042 makes the generated current manifest the only pre-go-live surface
 identity. This contract does not authorize partial Domain writes or any planning write.
 
-Operator decisions follow CD-0243 D2 in conversation: an agent asks the operator only when one of its six approval classes applies. A governing-requirement scope cut remains a product decision. Authority-expanding Product or client-policy changes grant access and require security approval. Explicit cross-Product mutations require `cross_scope`, otherwise `unauthorized`. A publication intent is the exact content/home lock. All authentication, capability, version, authorization, evidence, native proof, retention-eligibility, atomicity, and durable-operation checks remain required.
+Operator decisions follow CD-0243 D2 in conversation: an agent asks the operator only when one of its six approval classes applies. A governing-requirement scope cut remains a product decision. Authority-expanding Product or client-policy changes grant access and require security approval. Explicit cross-Product mutations require `cross_scope`, otherwise `unauthorized`. All surviving authentication, capability, version, authorization, evidence, native proof, research-retention, atomicity, and durable-operation checks remain required.
 
 
-The binding contract is sections 1 through 4: the four-tool decision with the
+The binding contract is sections 1 through 4: the three-tool decision with the
 native-authority rule, each tool's operation table with core effects, the
 batch boundary of one domain intent per call, and the inline-versus-durable
-execution rule with the compaction recovery contract. Sections 5 through 7
+execution rule. Sections 5 through 7
 record scenario mapping including the native-run evidence law, rejected
 shapes, and falsifiers, and carry no obligation.
 ## 1. Decision
 
-Concord exposes **four always-visible mutation tools**:
+Concord exposes **three always-visible mutation tools**:
 
 1. `concord_work_define` — capture one work item or replace its mutable intent;
 2. `concord_work_transition` — perform one accepted lifecycle or workflow action
    with required evidence;
 3. `concord_work_relate` — change work membership or typed work relations while
-   preserving graph/supersession invariants;
-4. `concord_work_compact` — publish or reconcile the one canonical durable note for
-   terminal work through PM6's ordered git→SQLite protocol.
+    preserving graph/supersession invariants.
 
-Together with TS3's three reads, Concord v1 has **seven always-visible tools**, below
+Together with TS3's three reads, these are **six always-visible tools**, below
 TS2's cap of nine. This count follows the accepted boundaries; it is not a target
 that permits collapsing future authority or consequence boundaries.
 
 External native authorities—GitHub, CI, databases, cloud providers, service
 managers, and git itself—retain execution authority. Concord records work intent,
 references, evidence, and status; it does not expose a generic external
-`execute` tool or proxy provider APIs. An ops runbook uses these four Concord tools
+`execute` tool or proxy provider APIs. An ops runbook uses these Concord tools
 for durable coordination and the accepted native tool for the real effect.
 
 ## 2. Tool contracts
@@ -104,7 +102,7 @@ or terminal-note changes.
 
 The mutable intent block is closed: title, value statement, work kind, priority,
 tags, and accepted workflow-type reference. Identity, lifecycle,
-memberships, relations, evidence, versions, authority, and compaction locator cannot
+memberships, relations, evidence, versions, authority, and historical locator cannot
 appear in it. A governing-law conflict returns a typed conflict and no mutation;
 the agent cannot silently shrink the accepted scope.
 
@@ -173,44 +171,10 @@ version conflict. `depends_on` is an inverse read; `blocks` is written only by
 tool: capture writes `raised_from` through `raised_from_work_id`, and the
 workflow `link_successor` action writes `forward_link`.
 
-### 2.4 `concord_work_compact`
-
-**Use when:** an agent must publish or recover durable Product knowledge for one
-terminal work item. Do not use it to complete lifecycle, prune projections, or
-write arbitrary files.
-
-| Operation | Required domain input | Core/cross-authority effect |
-|---|---|---|
-| `publish` | terminal work ID/version; exact proposed note content; resolved home/locator | Follow PM6: validate eligibility/home, commit to git, verify commit/path/work ID/hash, then record the SQLite compaction link. |
-| `reconcile` | durable operation reference and expected operation version (or terminal work/version for orphan discovery); expected proof/recovery intent | Compare-and-swap the durable step, find and verify an orphan/partial publication by work ID, then complete the missing link or return a typed non-destructive recovery outcome without creating a second note. |
-
-Git and SQLite are never described as one atomic transaction. Before the first
-external effect, the core creates a durable operation record identifying the pinned
-terminal work version, the exact content and home digest, idempotency
-identity, current step, and recovery state. The PM6 home lock remains
-held through git verification and SQLite linkage; the core revalidates the pinned
-terminal version before recording that link.
-
-- If `publish` completes inside the accepted execution budget, it returns final
-  success inline.
-- If a git/host step remains pending or the caller budget ends, it returns the same
-  durable operation reference with structural `pending|partial|failed` state.
-- `reconcile` resumes or explains that operation; it never restarts from scratch.
-- SQLite never records an authoritative locator before git proof.
-- The publication phases are executed from one declared sequence rather than from
-  the order statements happen to appear in, and the sequence is checked as it
-  runs. A partial outcome reports the steps that actually completed, so an
-  operator recovering from an interrupted publication is told how far the
-  cross-authority effect really got.
-
-compaction-retention-policy pruning/backfill maintenance is not agent-exposed in v1: no accepted TS1
-scenario requires an agent batch tool. Native bounded maintenance may exist behind
-operator/internal CLI control and can be promoted only through TS8/TS9 evidence.
-
 ## 3. Batch boundary
 
-V1 mutation tools accept one work item, one lifecycle/workflow action, one relation,
-or one compaction operation per call.
+V1 mutation tools accept one work item, one lifecycle/workflow action or one
+relation per call.
 
 The only collection-valued mutation is `set_memberships`, which supplies the
 complete resulting membership set for **one** work item and commits as one invariant.
@@ -226,8 +190,6 @@ typed outcomes; reducing calls alone is insufficient.
 
 - SQLite-only define, transition, and relation operations are short, single-domain
   transactions and complete inline or fail without an effect.
-- Compaction crosses git/SQLite authority and may return a durable operation as
-  defined above.
 - External ops execute through their native tools. Concord's corresponding work
   transition completes only after native evidence is supplied; Concord never
   returns success merely because a provider call was launched.
@@ -245,7 +207,6 @@ durable results include current step and a safe next action—never a bare "star
 | `concord_work_define` | AJ3 capture and spec conflict |
 | `concord_work_transition` | AJ4 start, complete, missing evidence, stale version; AJ8 budget refusal and native execution |
 | `concord_work_relate` | AJ5 Domain-overlap resolution |
-| `concord_work_compact` | AJ6 publication and partial reconciliation |
 
 Native-run actions (`start_run`, `record_health`, `rollback_run`, `cleanup_run`)
 belong only to the archived `workflow.ops_runbook` family (CD-0218 D1).
@@ -300,7 +261,6 @@ Reopen TS4 when:
   failures that a stricter domain operation would solve;
 - single-relation calls create measured call overhead without independent graph or
   version semantics;
-- compaction cannot recover every PM6 interruption from its durable operation;
 - a recurring native operation lacks an authoritative tool and requires new Concord
   execution ownership; or
 - a homogeneous batch is required by a named scenario and can preserve per-item

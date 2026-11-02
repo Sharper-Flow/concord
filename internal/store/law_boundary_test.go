@@ -271,7 +271,7 @@ func TestMandateNamesAnOutsideFolderIDAsAbsentLaw(t *testing.T) {
 	s, home := lawConflictFolderFixture(t, "derived", "derived", "")
 	note := canonicalWorkNote("CD-9002")
 	writeKnowledgeFile(t, home.RepoPath, ".concord/docs/work/CD-9002.md", note)
-	seedArchivedWorkNote(t, s, home, commitKnowledgeRepo(t, home.RepoPath, "archived note"), ".concord/docs/work/CD-9002.md", note)
+	seedArchivedWorkNote(t, s, home, commitKnowledgeRepo(t, home.RepoPath, "archived note"), ".concord/docs/work/CD-9002.md", "CD-9002", "proj-web")
 	ctx, err := s.establishKnowledgeSourceSetProofAtHome(context.Background(), home.HomeProjectID, home.HomeLocatorID)
 	if err != nil {
 		t.Fatal(err)

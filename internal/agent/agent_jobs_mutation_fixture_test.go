@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
 	"testing"
 
@@ -12,16 +11,12 @@ import (
 )
 
 // agentJobsMutationPM1Fixture builds a PM1 fixture with full mutation
-// capabilities and returns the ed25519 private key so bindings can sign
-// host-approval assertions when scenarios demand an approval round-trip.
-// The fixture is otherwise identical to agentJobsPM1Fixture so scenario
-// observations are comparable.
+// capabilities. The fixture is otherwise identical to agentJobsPM1Fixture so
+// scenario observations are comparable.
 //
 // Capabilities granted: product_read, work_define, work_transition,
-// work_relate. work_compact is deliberately excluded
-// because the AJ3/AJ4/AJ5 mutation corpus exercises only the mutation
-// families covered by these bindings.
-func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Authority, ed25519.PrivateKey, pm1fixture.Corpus) {
+// work_relate.
+func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Authority) {
 	t.Helper()
 	corpus, err := pm1fixture.Load()
 	if err != nil {
@@ -35,22 +30,21 @@ func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Authorit
 	if err := pm1fixture.Seed(context.Background(), s, corpus); err != nil {
 		t.Fatalf("pm1fixture.Seed: %v", err)
 	}
-	service, _, grant := newAuthorizedService(t, s, "client-mutation", "human-operator", []agentcontract.Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact"}, []string{"prod-alpha", "prod-beta"}, []string{"proj-web", "proj-api", "proj-shared"}, store.ProjectResolution{ProjectID: "proj-web"})
+	service, _, grant := newAuthorizedService(t, s, "client-mutation", "human-operator", []agentcontract.Capability{"product_read", "work_define", "work_transition", "work_relate"}, []string{"prod-alpha", "prod-beta"}, []string{"proj-web", "proj-api", "proj-shared"}, store.ProjectResolution{ProjectID: "proj-web"})
 	grant.SessionRef = "session-mutation"
 	grant.AgentRef = "agent-engineer"
-	privateKey := mustKey(t)
-	return s, service, grant, privateKey, corpus
+	return s, service, grant
 }
 
 // agentJobsMutationEnvelope extends agentJobsEnvelope with a scope_version
-// resolved against the ambient project. Bindings call this so they can
+// resolved against the proj-web ambient project. Bindings call this so they can
 // dispatch mutations through the same envelope the production runtime
 // builds (mutation requests without a scope_version are refused with
 // stale_context).
-func agentJobsMutationEnvelope(t *testing.T, s *store.Store, grant Authority, ambientProject string) CallEnvelope {
+func agentJobsMutationEnvelope(t *testing.T, s *store.Store, grant Authority) CallEnvelope {
 	t.Helper()
-	env := agentJobsEnvelope(grant, ambientProject, "prod-alpha")
-	env.ScopeVersion = scopeVersionForProject(t, s, ambientProject)
+	env := agentJobsEnvelope(grant, "proj-web", "prod-alpha")
+	env.ScopeVersion = scopeVersionForProject(t, s, "proj-web")
 	return env
 }
 

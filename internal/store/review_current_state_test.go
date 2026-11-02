@@ -31,22 +31,6 @@ func TestReviewCurrentKeepsSharedAdmissionGuards(t *testing.T) {
 	if decision := workflowAdmit(entry.Definition, base, "record_review"); !decision.Admitted {
 		t.Fatalf("ordinary Review was not admitted: %+v", decision.Failure)
 	}
-	for _, tc := range []struct {
-		name string
-		set  func(*WorkflowAdmissionState)
-		kind FailureKind
-	}{
-		{"outside repair", func(s *WorkflowAdmissionState) { s.OutsideRepairActive = true }, KindOutsideRepairActive},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			state := base
-			tc.set(&state)
-			decision := workflowAdmit(entry.Definition, state, "record_review")
-			if decision.Admitted || decision.Failure == nil || decision.Failure.Kind != tc.kind {
-				t.Fatalf("ordinary Review bypassed %s: %+v", tc.name, decision)
-			}
-		})
-	}
 }
 
 func TestReviewCurrentPlanRevisionCannotRestoreReadiness(t *testing.T) {

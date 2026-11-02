@@ -6,11 +6,23 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWorkRemovalRetainsConsumedLawEnactment(t *testing.T) {
 	s := lawCleanupStore(t)
 	attributionItem(t, s, "cleanup-consumer", []string{}, []string{})
+	// A terminal consumer no longer applies the enactment, and completion
+	// publishes no note, so it fences nothing even without a historical note.
+	attributionItem(t, s, "cleanup-terminal-consumer", []string{}, []string{})
+	terminalVersion := readWorkVersion(t, s, "cleanup-terminal-consumer")
+	if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{{
+		EventID: "cancel-cleanup-terminal-consumer", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "cleanup-terminal-consumer",
+		Actor: "operator", OccurredAt: time.Unix(70, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.transitioned"),
+		Payload: mustJSONValue(map[string]any{"from": "in_progress", "to": "cancelled", "reason": "consumer terminal", "expected_version": terminalVersion, "resulting_version": terminalVersion + 1}),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "cleanup-terminal-consumer"): terminalVersion}}); err != nil {
+		t.Fatal(err)
+	}
 	lawCleanupProducer(t, s, true)
 	producer := removalTestRequest()
 	producer.WorkID, producer.ExpectedVersion = "cleanup-producer", readWorkVersion(t, s, "cleanup-producer")
@@ -32,18 +44,19 @@ func TestWorkRemovalRetainsConsumedLawEnactment(t *testing.T) {
 	assertFailureKind(t, err, KindOperationConflict)
 	requireLawCleanupJoin(t, s, 1)
 	requireLawCleanupAttribution(t, s)
+	assertFailureKind(t, requireReleasedWorkflowLawEnactmentQ(t.Context(), s.db, "cleanup-producer"), KindOperationConflict)
 	consumer := removalTestRequest()
 	consumer.OperationID, consumer.IdempotencyKey = "remove-consumer", "remove-consumer-key"
 	consumer.WorkID, consumer.ExpectedVersion = "cleanup-consumer", readWorkVersion(t, s, "cleanup-consumer")
 	if _, err := s.RemoveWork(t.Context(), consumer); err != nil {
 		t.Fatal(err)
 	}
+	if err := requireReleasedWorkflowLawEnactmentQ(t.Context(), s.db, "cleanup-producer"); err != nil {
+		t.Fatalf("terminal unpublished consumer still fences the enactment: %v", err)
+	}
 	_, err = s.RemoveWork(t.Context(), producer)
 	assertFailureKind(t, err, KindInvalidOperation)
-	if err := s.CleanupPublishedTerminalWork(t.Context(), "cleanup-producer"); err != nil {
-		t.Fatal(err)
-	}
-	requireLawCleanupJoin(t, s, 0)
+	requireLawCleanupJoin(t, s, 1)
 }
 
 func removalTestRequest() WorkRemovalRequest {

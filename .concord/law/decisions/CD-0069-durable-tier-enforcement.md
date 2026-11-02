@@ -3,9 +3,7 @@
   "id": "CD-0069",
   "title": "The durable tier is enforced, not advised",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "agent-contract",
   "applies_to_domain_ids": []
@@ -36,10 +34,11 @@ it.
 
 ## Decision
 
-The binding rules are executable law, enforced in three layers. Each layer
-binds a different writer population; no single layer covers all three.
+The binding rules apply to independently published durable markdown and are
+enforced by the repository check. Completion creates no note producer or
+publication scenario under [PM6 §1](../specs/canonical-git-note-placement.md#1-decision).
 
-### D1. Layer 1 — the detective check — lands now
+### D1. The repository check
 
 `scripts/check-durable-tier.py` runs in CI and fails on:
 
@@ -52,7 +51,7 @@ binds a different writer population; no single layer covers all three.
 
 The bounds live once in `.concord/docs/durable-tier-budget.v1.json`, shaped like
 `.concord/docs/complexity-budget.v1.json`: the checker reads them, and the
-producer-side parse and the AJ6 scenario extension read the same numbers.
+repository check reads the numbers.
 No surface restates a bound; restated bounds drift.
 
 Enforcement is zero tolerance with no ratchet baseline. The note tier is
@@ -64,10 +63,9 @@ An allowance is permission for one named note to exceed the byte bound while
 an issue tracks it. Allowances never permit non-markdown artifacts or
 embedded state dumps — those rules have no exceptions.
 
-### D2. The byte bound is 16384, and it governs compaction notes
+### D2. The byte bound is 16384, and it governs work and lesson notes
 
-CD-0002's page-size sentence is written about the note a terminal entity is
-distilled into. The bound applies to the note roots CD-0002 names for that
+The bound applies to the note roots CD-0002 names for that
 purpose: `<product-root>/.concord/docs/work/` and `<product-root>/.concord/docs/lessons/`. 16384 bytes is roughly eight
 times a real distilled page and three orders of magnitude under the
 predecessor's failure, so it rejects the disease without rationing the cure.
@@ -81,40 +79,11 @@ new one fails until acknowledged and drift becomes a reviewable manifest
 diff. License evidence and the CD-0014 dependency manifest are the initial
 inventory; both are legal or contract material, not state.
 
-### D3. Layer 3 — the producer-side parse — is the contract the compaction pipeline must satisfy
-
-When the terminal-compaction producer is built, its note writer must parse
-into a strict typed shape and reject before writing: unknown fields, total
-size over the budget bound, any embedded JSON block over the dump threshold.
-A compliant producer can never emit a violation. The bounds come from the
-same budget file; the producer adds no numbers of its own. This layer is
-tracked by issue #463.
-
-### D4. Layer 2 — the corpus scenario — lands with the producer
-
-`AJ6-compact-terminal-work` gains an assertion that the terminal compaction
-path emits a note that passes the durable-tier budget. This guards
-correct-shaped-but-wrong producer behavior over time — a regression that
-starts serializing state again — which neither the schema nor the byte bound
-can express. Tracked with layer 3 by issue #463.
-
-### D5. Why three layers
-
-The detective layer binds every writer, including manual commits and
-out-of-band tools; git accepts bytes from anyone, so only a check at the
-merge chokepoint is universal. The producer layer catches violations at the
-moment of writing, where they are cheapest to fix, but binds only producers
-that comply. The scenario layer observes behavior over time, catching
-pipeline regressions neither other layer can express. The pattern is the one
-mature systems run: compiler types plus conformance suites plus audit
-checks, each catching what the others structurally cannot.
-
 ## Consequences
 
 - The four CD-0002 binding rules and the page-size intent are falsifiable in
   CI from this record's merge.
-- The note tier starts empty and strict; the first note the producer writes
-  is born under enforcement.
+- Independently authored notes remain subject to the repository check.
 - Adding a non-markdown artifact to `.concord/law/decisions/` now requires a budget
   entry with a reason, which is the decision the predecessor never forced.
 - The bound can be lowered as a ratchet without a new decision; raising it

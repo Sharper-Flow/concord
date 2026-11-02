@@ -216,7 +216,6 @@ The initial capability classes are deliberately small:
 | `work_define` | capture/revise non-consequential work intent |
 | `work_transition` | lifecycle/workflow actions whose own obligations pass |
 | `work_relate` | membership/relation mutations in authorized scope |
-| `work_compact` | approved PM6 publication/reconciliation |
 | `cross_scope` | explicit mutation spanning outside selected ambient Product |
 
 These are policy capabilities, not roles, assignments, or new agent tools. A
@@ -250,9 +249,6 @@ Every mutation of an existing canonical entity carries its expected version.
 - relation link/unlink carries every affected endpoint version.
 - supersede/restore carries predecessor, current successor, and replacement
   successor versions as applicable.
-- compaction publish pins the terminal work version plus approved content/home
-  digest; reconcile carries the expected durable-operation version for atomic step
-  compare-and-swap, or terminal work/version only while discovering an orphan.
 - capture has no prior entity version but requires idempotency.
 
 Version mismatch fails before any effect and returns current
@@ -292,10 +288,6 @@ Idempotent request replay returns the committed result; no event replay exists
   the retry miss its original record.
 - Same key + different digest: fail `idempotency_conflict`; create no effect.
 - Original attempt not committed: a retry may execute normally.
-- Original cross-authority attempt partial/pending: return the same durable operation.
-  Before another external step, revalidate its pinned scope and versions; pause
-  for renewed authorization when those no longer apply, never start a second
-  publication/external effect.
 
 Idempotency identity remains reconstructable for as long as the referenced
 recorded mutation or durable operation remains authoritative. No short time to live (TTL) may make a valid
@@ -331,7 +323,6 @@ TS5 adds/requires these variants in the TS1 runner:
 | Wrong/cross Product | No silent mutation; explicit scope plus valid `cross_scope` capability required, otherwise `unauthorized`. |
 | Missing/spoofed principal | Mutation denied; caller cannot self-assign identity. |
 | Duplicate delivery | Same key/digest returns same result/effect count; changed digest conflicts. |
-| Partial compaction retry | Same durable operation resumes; no second note/effect. |
 
 ## 10. Rejected alternatives
 

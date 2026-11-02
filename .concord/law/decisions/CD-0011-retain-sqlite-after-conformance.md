@@ -33,9 +33,8 @@ The current architecture therefore remains:
 1. one global local SQLite database per operator installation;
 2. short-lived processes using the in-process store library;
 3. `WAL`, `synchronous=NORMAL`, per-connection foreign keys and busy timeout;
-4. current-row writes checked by expected version and recorded by idempotency key
-, explicit attempt
-   epochs, and PM10 Online Backup/Restore;
+4. current-row writes checked by expected version and recorded by idempotency key,
+   effect receipts, and PM10 Online Backup/Restore;
 5. git as the separate durable-knowledge authority fixed by PM6–PM10.
 
 No single-writer IPC boundary, Dolt server, Postgres, or DBOS authority is introduced
@@ -78,7 +77,7 @@ measure host isolation. Every correctness failure fails the run independently.
 
 ## Evidence
 
-- PR #16 implements the ten-process harness, D4 fencing/idempotency, and PM10
+- PR #16 implements the ten-process harness, idempotency, and PM10
   backup/restore evidence.
 - Issue #17 records contended-host and isolated-runner populations separately.
 - Required-check runs completed with all correctness invariants satisfied.

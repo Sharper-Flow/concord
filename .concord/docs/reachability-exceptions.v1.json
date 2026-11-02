@@ -102,9 +102,10 @@
       "state": "out_of_scope",
       "functions": [
         "internal/store.Store.DatabaseForTesting",
-        "internal/store.Store.DurableCommits"
+        "internal/store.Store.DurableCommits",
+        "internal/store.ReadWorkPin"
       ],
-      "reason": "DatabaseForTesting is the declared raw-handle seam for tests and pm1fixture; boundary_test.go enforces that production callers do not use it. DurableCommits is the test introspection read for the durable commit mechanism CD-0207 governs, exercised by durable_test.go. Neither is an operator mutation surface, and deleting them would remove the surviving assertions rather than retire a runtime feature."
+      "reason": "DatabaseForTesting is the declared raw-handle seam for tests and pm1fixture; boundary_test.go enforces that production callers do not use it. DurableCommits is the test introspection read for the durable commit mechanism CD-0207 governs, exercised by durable_test.go. ReadWorkPin is the standalone snapshot read store and agent tests use to observe the pin that read and mutation results stamp through ReadWorkPinTx. None is an operator mutation surface, and deleting them would remove the surviving assertions rather than retire a runtime feature."
     }
   ]
 }

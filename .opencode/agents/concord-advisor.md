@@ -22,7 +22,6 @@ tools:
   concord_domain: false
   concord_product_view: false
   concord_work_browse: false
-  concord_work_compact: false
   concord_work_define: false
   concord_work_relate: false
   concord_work_trace: false

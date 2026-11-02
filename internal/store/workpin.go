@@ -64,15 +64,6 @@ type WorkPin struct {
 	// record_verdict is declarable, so a caller cites qualifying refs without
 	// a raw store read (#974). It stays nil at every other step.
 	VerdictEvidence []WorkPinEvidence `json:"verdict_evidence,omitempty"`
-	// OutsideRepairDisposition names the work's outside-repair disposition
-	// when one is recorded. The pin exposes the same typed record the
-	// continuity snapshot does, so a host process reaches the disposition
-	// through either read surface.
-	OutsideRepairDisposition *OutsideRepairDisposition `json:"outside_repair_disposition,omitempty"`
-	// OutsideRepairRoute is the declared recovery route the boundary code
-	// dispatches when the disposition holds the work. Managed intents remain
-	// empty; outside-repair operations are not workflow actions.
-	OutsideRepairRoute []string `json:"outside_repair_route,omitempty"`
 }
 
 type WorkPinVerifiedCriterion struct {
@@ -186,13 +177,7 @@ func readMutationWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, registry 
 		return WorkPin{}, false, err
 	}
 	if !instance {
-		disposition, err := outsideRepairDispositionTx(ctx, tx, workID)
-		if err != nil {
-			return WorkPin{}, false, err
-		}
-		if disposition == nil || disposition.State == OutsideRepairStateResumed {
-			return identity, false, nil
-		}
+		return identity, false, nil
 	}
 	pin, err := readWorkPinForRegistryTx(ctx, tx, workID, registry)
 	return pin, true, err
@@ -223,17 +208,6 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 	}
 	if err := workPinReadIdentityTx(ctx, tx, workID, &pin); err != nil {
 		return pin, err
-	}
-	if held, err := workPinOutsideRepairDispositionTx(ctx, tx, workID, &pin); err != nil {
-		return pin, err
-	} else if held {
-		// A hold must remain readable even when the workflow pin is broken or
-		// absent. Read raw identity only; outside repair grants no pin authority.
-		err := tx.QueryRowContext(ctx, `SELECT definition_ref,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.WorkflowType, &pin.Step)
-		if err != nil && err != sql.ErrNoRows {
-			return pin, err
-		}
-		return pin, nil
 	}
 	registered, instanceState, err := workPinReadInstanceForRegistryTx(ctx, tx, workID, &pin, registry)
 	if err != nil {
@@ -279,26 +253,6 @@ func workPinReadWorkContextTx(ctx context.Context, tx *sql.Tx, workID string, pi
 	view, unavailable, err := readWorkContextProjection(ctx, tx, workID)
 	pin.WorkContext, pin.WorkContextUnavailable = view, unavailable
 	return err
-}
-
-// workPinOutsideRepairDispositionTx populates the pin's outside-repair
-// disposition fields and overrides the advertised intents with the boundary
-// route when the disposition is active. The active flag returns true so
-// the caller returns the pin as-is and skips the managed workflow path.
-func workPinOutsideRepairDispositionTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) (bool, error) {
-	disposition, err := outsideRepairDispositionTx(ctx, tx, workID)
-	if err != nil {
-		return false, err
-	}
-	pin.OutsideRepairDisposition = disposition
-	if disposition == nil || disposition.State == OutsideRepairStateResumed {
-		return false, nil
-	}
-	if disposition.State == OutsideRepairStateActive {
-		pin.OutsideRepairRoute = outsideRepairRouteNames()
-	}
-	pin.NextValidIntents = []WorkPinIntent{}
-	return true, nil
 }
 
 // workPinReadIdentityTx fills the pin's item identity: version, lifecycle,

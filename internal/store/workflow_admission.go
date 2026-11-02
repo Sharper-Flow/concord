@@ -16,9 +16,6 @@ type WorkflowAdmissionState struct {
 	Lifecycle string
 	// InstanceState is the workflow instance state.
 	InstanceState string
-	// OutsideRepairActive suspends every managed action, including continuity
-	// and recovery actions. Only the operator-only outside-repair APIs clear it.
-	OutsideRepairActive bool
 	// RefinementWorkflow reports whether the definition declares checkpoint_refine.
 	RefinementWorkflow bool
 	// ActiveContracts is the count of active workflow contracts.
@@ -104,14 +101,6 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 			return WorkflowAdmissionState{}, newFailure(KindProjectionNotFound, subject, "workflow instance is not recorded", false, "reread_entities")
 		}
 		return WorkflowAdmissionState{}, wrapFailure(KindUnavailable, subject, "cannot read workflow admission state", true, "retry once the database is readable", err)
-	}
-	active, err := outsideRepairActiveTx(ctx, q, workID)
-	if err != nil {
-		return WorkflowAdmissionState{}, err
-	}
-	state.OutsideRepairActive = active
-	if active || state.InstanceState == "outside_repair" {
-		return state, nil
 	}
 	// Keep corrupt duplicate projections readable without choosing a contract
 	// or authorizing contract-dependent actions. Recovery requires a verified restore.
@@ -346,13 +335,9 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 }
 
 // workflowAdmitInstanceRefused answers the refusals no action can pass:
-// outside repair or a terminal or archived instance. Each phase below reports
+// a terminal or archived instance. Each phase below reports
 // true when it decided the action, with decision filled.
 func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowAdmissionState, decision *WorkflowAdmissionDecision) bool {
-	if state.OutsideRepairActive {
-		decision.Failure = newOutsideRepairRouteFailure("workflow_action", "managed workflow action refused: outside-repair disposition is active")
-		return true
-	}
 	if workflowCompletedInstanceActionImmutable(state.InstanceState) {
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 		return true

@@ -297,8 +297,7 @@ permission:
     "gh issue view *": allow
   task:
     "*": deny
-  concord_work_transition: deny
-  concord_work_compact: deny""")
+  concord_work_transition: deny""")
         body = check_primary_prompts.flatten(check_primary_prompts.body(text))
         for marker in ("dispatch", "lane", "packet", "attempt window", "retry a failure"):
             with self.subTest(marker=marker):

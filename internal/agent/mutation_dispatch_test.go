@@ -4,15 +4,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	cryptorand "crypto/rand"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -39,76 +33,6 @@ func TestDispatchRejectsObsoleteEpicSurfaceAndGenericInitiativeCapture(t *testin
 		if responseErr == nil && (response.Error == nil || response.Error.Kind != "invalid_input") {
 			t.Fatalf("generic %s capture response=%+v err=%v", kind, response, responseErr)
 		}
-	}
-}
-
-func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, err := storetest.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	repo := t.TempDir()
-	if err := exec.Command("git", "init", "--quiet", repo).Run(); err != nil {
-		t.Fatal(err)
-	}
-	_ = exec.Command("git", "-C", repo, "config", "user.email", "test@example.invalid").Run()
-	_ = exec.Command("git", "-C", repo, "config", "user.name", "Concord Test").Run()
-	content := "---\nconcord_work_id: work-orphan\nwork_type: task\ntitle: Orphan\ncompleted_at: 2026-08-07T00:00:00Z\noutcome_tag: shipped\nlesson_tags: [test]\nterminal_state: completed\npriority: 1\nsummary: Orphan summary\nproduct_ids: [product-1]\nproject_ids: [project-1]\ndomain_ids: []\ntag_ids: []\n---\n\nOrphan.\n"
-	sum := sha256.Sum256([]byte(content))
-	proofDigest := "sha256:" + hex.EncodeToString(sum[:])
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-		{EventID: "orphan-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "orphan-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"display_name":"Project"}`)},
-		{EventID: "orphan-product-project", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: "orphan-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-orphan", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Orphan","priority":1}`)},
-		{EventID: "orphan-work-project", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-orphan", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-		{EventID: "orphan-complete", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: "work-orphan", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"from":"needed","to":"completed","reason":"fixture","expected_version":2,"resulting_version":3}`)},
-	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-orphan"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	notePath := filepath.Join(repo, ".concord/docs/work/2026-08-07-orphan-work.md")
-	if err := os.MkdirAll(filepath.Dir(notePath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(notePath, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := exec.Command("git", "-C", repo, "add", ".").Run(); err != nil {
-		t.Fatal(err)
-	}
-	if err := exec.Command("git", "-C", repo, "commit", "--quiet", "-m", "orphan note").Run(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator-1','project-1','canonical_path',?,?,'now','now'); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-1','project-1','locator-1'); DELETE FROM write_guard`, repo, repo); err != nil {
-		t.Fatal(err)
-	}
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"work_compact"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
-	grant.Worktree = "/unrelated-worktree"
-	claimScope := `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-orphan"],"scope_version":"","work_version":3,"content_digest":"` + proofDigest + `","home_project_id":"project-1","home_locator_id":"locator-1","head_ref":"HEAD"}`
-	claim, err := store.ClaimStepAuthorized(ctx, s, store.ClaimRequest{OpID: "orphan-operation", WorkID: "work-orphan", WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: "sha256:" + strings.Repeat("0", 64), AcceptedScopeSnapshot: claimScope, PrincipalRef: grant.PrincipalRef, Tool: "concord_work_compact", IdempotencyKey: "publish-key", RequestID: "publish-request", ObservedAt: fixedTime(), ContractDigest: agentcontract.ManifestDigest}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := InvokeRequest{Tool: "concord_work_compact", Operation: "reconcile", Input: json.RawMessage(`{"operation_id":"orphan-operation","expected_operation_version":` + strconv.FormatInt(claim.AttemptEpoch, 10) + `,"expected_proof_digest":"` + proofDigest + `","idempotency_key":"reconcile-key"}`)}
-	env := mutationEnvelope(grant, scopeVersion)
-	env.Worktree = "/unrelated-worktree"
-	env.RequestID = "reconcile-request"
-	response, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("reconcile=%+v err=%v", response, err)
-	}
-	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM archived_work WHERE id='work-orphan'`); count != 1 {
-		t.Fatalf("orphan link count=%d", count)
-	}
-	if count := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind='compaction_link.published' AND subject_id='work-orphan'`); count != 1 {
-		t.Fatalf("compaction event count=%d", count)
 	}
 }
 

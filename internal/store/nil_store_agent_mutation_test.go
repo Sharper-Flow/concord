@@ -13,9 +13,5 @@ func TestUnopenedStoreAgentMutationMethods(t *testing.T) {
 			_, _, err := s.LookupMutationIdempotency(ctx, MutationIdempotencyKey{})
 			return err
 		}},
-		{"AcceptedInputsDigest", func(s *Store) error {
-			_, err := s.AcceptedInputsDigest(ctx, "op-1")
-			return err
-		}},
 	})
 }

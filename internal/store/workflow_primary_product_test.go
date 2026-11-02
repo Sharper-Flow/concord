@@ -129,25 +129,6 @@ func TestContinuityReadsCrossProductWorkWithArchitectureBinding(t *testing.T) {
 	}
 }
 
-// Both member Products carry a designated knowledge home here; the compaction
-// home must resolve over the primary membership's Product alone instead of
-// refusing the two candidates as ambiguous.
-func TestCompactionHomeFollowsThePrimaryMembership(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	workID := "compaction-primary-cross-product"
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
-	seedSecondaryProductMembership(t, s, workID)
-	home, err := s.ResolveCompactionHome(context.Background(), workID)
-	if err != nil {
-		t.Fatalf("cross-Product work refused its compaction home: %v", err)
-	}
-	if home.HomeProjectID != "project" || home.HomeLocatorID != "workflow-law-locator" || home.RepoPath == "" {
-		t.Fatalf("compaction home = %s/%s repo=%q, want project/workflow-law-locator", home.HomeProjectID, home.HomeLocatorID, home.RepoPath)
-	}
-}
-
 // workProductIDs derives exactly one Product over the primary membership, so
 // a secondary membership in another Product does not widen the scope.
 func TestWorkProductIDsFollowThePrimaryMembership(t *testing.T) {

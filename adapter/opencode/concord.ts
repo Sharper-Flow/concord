@@ -608,7 +608,7 @@ function salvageDetails(raw: string): Record<string, unknown> | undefined {
 // describes the whole response rather than one member, and version skew is
 // classified at the call site before this detail reaches an operator.
 function coreResponseFailure(response: any, toolName: string, operation: string): string | null {
-  if (!response || typeof response !== "object" || response.schema_version !== "1.0" || response.manifest_digest !== activeManifestDigest() || response.origin !== "core" || response.tool !== toolName || response.operation !== operation || !["ok", "pending", "partial", "error"].includes(response.outcome)) return "the envelope identity"
+  if (!response || typeof response !== "object" || response.schema_version !== "1.0" || response.manifest_digest !== activeManifestDigest() || response.origin !== "core" || response.tool !== toolName || response.operation !== operation || !["ok", "error"].includes(response.outcome)) return "the envelope identity"
   if (!validateGeneratedEnvelope(response)) return `member ${envelopeFailurePath(response)} failed the generated envelope contract`
   if (response.outcome === "error") return null
   if (response.result !== undefined) {
@@ -873,4 +873,3 @@ export const work_relate = tool({
   args: argsSchema("concord_work_relate"),
   execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_relate", hostRequest(args), context),
 })
-export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", hostRequest(args), context) })

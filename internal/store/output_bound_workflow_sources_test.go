@@ -49,12 +49,11 @@ func init() {
 	// workLivenessFromCounts copies it to LastProgress without reformatting.
 	lastProgressAt := pkTimeLayoutWidthBound("internal/store/work_effect_seq.go", "advanceWorkEffectSeqTx", "time.RFC3339Nano")
 
-	// Step identity and workflow references are admitted through anchored
-	// regexp.MustCompile variables at definition registration; the pattern
+	// Step identities are admitted through an anchored
+	// regexp.MustCompile variable at definition registration; the pattern
 	// helper compiles the live pattern and derives its largest accepted
 	// character count.
 	stepIDPattern := goPatternBound("internal/store/workflow_registry.go", "workflowIDPattern")
-	workflowRefPattern := goPatternBound("internal/store/workflow_registry.go", "workflowRefPattern")
 
 	// Raw event ids: Event.validate admits any caller-supplied non-empty id
 	// (internal/store/events.go:164-180), so the digest-suffixed ids the
@@ -344,8 +343,6 @@ func init() {
 	registerOutputBound("/$defs/work_liveness/properties/last_progress/maxLength", lastProgressAt)
 
 	// Work pin.
-	registerOutputBound("/$defs/work_pin/allOf/0/then/properties/next_valid_intents/maxItems",
-		workflowEmptyAssignmentItemsBound("internal/store/workpin.go", "workPinOutsideRepairDispositionTx", "pin.NextValidIntents"))
 	registerOutputBound("/$defs/work_pin/properties/driving_sessions/maxItems", drivingSessionCount)
 	registerOutputBound("/$defs/work_pin/properties/linear_issue_key/maxLength", linearIssueKeyGuard)
 	registerOutputBound("/$defs/work_pin/properties/next_valid_intents/items/properties/required_fields/maxItems",
@@ -358,17 +355,13 @@ func init() {
 			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinStepIntentsTx", target: "pin.NextValidIntents"},
 			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinRecoveryIntentsTx", target: "pin.NextValidIntents"},
 			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinCorrectionRequestIntentsTx", target: "pin.NextValidIntents"},
-		)) // the step-action loop is the guard-capped base; the recovery, correction, and checkpoint routes each append at most one fixed intent; the outside-repair path rebuilds the pin to one intent (workpin.go:256)
+		)) // the step-action loop is the guard-capped base; the recovery, correction, and checkpoint routes each append at most one fixed intent
 	registerOutputBound("/$defs/work_pin/properties/obligations/items/maxLength", evidenceKindLongest)
 	registerOutputBound("/$defs/work_pin/properties/obligations/maxItems", evidenceKindSlice)
-	registerOutputBound("/$defs/work_pin/properties/outside_repair_route/maxItems",
-		workflowReturnSliceItemsBound("internal/store/outside_repair.go", "outsideRepairRouteNames"))
 	registerOutputBound("/$defs/work_pin/properties/outstanding_evidence_kinds/maxItems", evidenceKindSlice)
-	registerOutputBound("/$defs/work_pin/properties/step/maxLength", stepIDPattern)
 	registerOutputBound("/$defs/work_pin/properties/verdict_evidence/maxItems",
 		workflowSQLLimitItemsBound("internal/store/workpin.go", "workPinVerdictEvidenceTx"))
 	registerOutputBound("/$defs/work_pin/properties/verified_criteria/maxItems", contractOutcomePredicates) // one criterion per approved contract predicate
-	registerOutputBound("/$defs/work_pin/properties/workflow_type/maxLength", workflowRefPattern)
 
 	// Work pin evidence: the evidence_bound fold's inline closed vocabulary
 	// and the shared evidence reference guard.

@@ -47,7 +47,7 @@ does not depend on a conformance latency target.
 
 [CD-0207 D1–D3](CD-0207-a-durable-commit-replaces-the-checkpoint-barrier.md#d1-a-consequential-operation-commits-in-a-durable-write-transaction)
 owns the durable transaction mechanism, consequential-family enumeration,
-and placement of durability in the public fence entry points.
+and placement of durability at consequential mutation entry points.
 
 ### D2. Acknowledged consequential operations are durable; ordinary writes are durable through the last boundary
 
@@ -64,8 +64,8 @@ The contract, stated as Product law:
   the store. If an ordinary write rolls back, it rolls back; there is
   no silent reconstruction.
 
-Workflow actions, terminal transitions, authority changes, and cross-authority
-claims retain their durable commits under CD-0207. Mutation and recovery paths must select durability from the effect and retained
+Workflow actions, terminal transitions, authority changes, and producer evidence
+retain their durable commits under CD-0207. Mutation and recovery paths must select durability from the effect and retained
 intent.
 
 ### D5. Schema migrations are excluded

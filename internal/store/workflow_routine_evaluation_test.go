@@ -112,7 +112,6 @@ func TestRoutineEvaluation(t *testing.T) {
 		s := f.store
 		_, coordinator := seedRoutineActors(t, s, workID)
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
-		bindCompletionClosure(t, s, workID, coordinator)
 		version := readWorkVersion(t, s, workID)
 		ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
 		if err != nil {

@@ -1,268 +1,174 @@
 ---
 {
   "id": "compaction-retention-policy",
-  "title": "Compaction retention and historical index",
+  "title": "Historical work and explicit research retention",
   "authority": {
     "tier": "derived"
   },
   "home_domain_id": "product-memory",
-  "applies_to_domain_ids": [
-    "durable-authority"
-  ],
+  "applies_to_domain_ids": ["durable-authority"],
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "Committed retained work keeps its canonical locator proof across compaction linkage: TestCompactionReconcileMissingVersionRetainsProofStep (internal/agent/compaction_partial_serialization_test.go) retains the proof step and TestCompactionLinkPublishRecordsNoVersionChange (internal/store/compaction_link_version_test.go) pins the publish version; integrated corpus coverage remains unmeasured."
+      "exemption": "Historical locator preservation is a read and upgrade property. Integrated evidence must cover archived_work, content_hash, lesson_tags and frozen historical scope."
     },
     {
       "criterion": 2,
-      "exemption": "Cross-tier deduplication and watermark composition are query properties, not a single corpus case. Their watermark witness was retired with the index; integrated cleanup and historical-tier coverage remain unmeasured."
+      "exemption": "Cross-tier deduplication and authority composition are query properties. Integrated historical-tier coverage remains unmeasured."
     },
     {
       "criterion": 3,
-      "exemption": "Retirement eligibility is an operation property, not a PM1 query-corpus case. TestResearchRetirementTerminalOwnersEligible in internal/store/research_retirement_test.go is a candidate anchor; integrated coverage remains unmeasured under CON-816."
+      "exemption": "Retirement eligibility is an operation property. TestResearchRetirementTerminalOwnersEligible in internal/store/research_retirement_test.go is a candidate anchor; integrated coverage remains unmeasured."
     },
     {
       "criterion": 4,
-      "exemption": "Publication separation and optional-pin protection require operation witnesses. TestResearchRetirementActivePinsProtectAndTerminalReleaseFences in internal/store/research_retirement_test.go is a candidate anchor; publication coverage remains unmeasured under CON-816."
+      "exemption": "Optional-pin protection requires operation witnesses. TestResearchRetirementActivePinsProtectAndTerminalReleaseFences in internal/store/research_retirement_test.go is a candidate anchor; integrated coverage remains unmeasured."
     },
     {
       "criterion": 5,
-      "exemption": "Historical derivation is a reconstruction property. Its rebuild witnesses were retired with the index; derivation of every historical field remains unmeasured."
+      "exemption": "Dry-run write absence is an operation property. TestResearchRetirementDryRunMixedBatchHasNoWrites in internal/store/research_retirement_test.go is a candidate anchor; integrated coverage remains unmeasured."
     },
     {
       "criterion": 6,
-      "exemption": "Dry-run write absence is an operation property. TestResearchRetirementDryRunMixedBatchHasNoWrites in internal/store/research_retirement_test.go is a candidate anchor; integrated coverage remains unmeasured under CON-816."
-    },
-    {
-      "criterion": 7,
-      "exemption": "Restart and committed replay are operation properties. TestResearchRetireDryRunAndReplay in internal/agent/research_surface_test.go is a candidate replay anchor; restart coverage remains unmeasured under CON-816."
+      "exemption": "Restart and committed replay are operation properties. TestResearchRetireDryRunAndReplay in internal/agent/research_surface_test.go is a candidate replay anchor; restart coverage remains unmeasured."
     }
   ]
 }
 ---
-# Concord Compaction Retention and Historical Index
-
-- **Law ID:** compaction-retention-policy
-- **Status:** Accepted
-- **Date:** 2026-10-09
-- **Approval:** Under operator delegation on 2026-10-09, without calendar expiration.
-- **Related:** [CD-0215](../decisions/CD-0215-retained-research-context.md),
-  [CD-0216](../decisions/CD-0216-research-surface-and-explicit-retirement.md),
-  [CD-0217](../decisions/CD-0217-publication-and-retention-boundaries.md),
-  [CD-0142](../decisions/CD-0142-operator-directed-execution-removal.md), PM1, PM3–PM6, and PM8–PM10
-
-**Approval amendment:** [CD-0243 D7](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies CD-0142's operator-directed removal clauses. Removal remains
-per-item, scoped, fenced, and subject to the existing planning handoff.
+# Concord Historical Work and Explicit Research Retention
 
 ## Context
 
-Canonical note proof, historical scope and query populations govern terminal execution cleanup under CD-0242 D2.
-Research retention has a separate explicit boundary.
+Historical work notes and retained research have readers independent of workflow
+execution. Their preservation does not require retaining completed step records.
 
 ## Contract
 
-### 1. Authority and terminal execution cleanup
+### 1. Current work and historical readers
 
-The canonical Git note owns distilled knowledge.
-The store keeps current rows and finite verified snapshots under CD-0242 D2.
-archived_work and historical scope edges are disposable Git-derived read projections, not another authority for work.
-A verified committed canonical note is discoverable without a retained publication flag; discovery alone does not grant destructive eligibility.
+[PM6 §1](canonical-git-note-placement.md#1-decision) owns reported-link completion,
+atomic disposal of completed workflow steps and snapshot-gated upgrade disposal.
+There is no publication-gated terminal cleanup, prune command, pressure threshold,
+calendar sweep or new archive. Completed work need not acquire a canonical note.
+Terminal current-state identity and reported delivery links remain readable.
+Operations and effect receipts retain their retry and reconciliation consumers;
+finite verified snapshots follow CD-0242 D2 and PM10.
 
-Cleanup of completed, cancelled or superseded execution requires the settled canonical publication and the closure stage's reviewed judgement under CD-0242 D9.
-The receipt links the delivered subject, accepted outcome, consequential decisions and acceptance proof in its body, without new front matter.
-Active references and claims must be released, and outstanding effects must be reconciled, before the cleanup transaction removes execution state.
-Each retained category keeps its documented consumer and removal condition.
-Consumers of collected execution state receive typed absence and the canonical outcome locator, never a reference claiming that the removed artifact remains inspectable.
+Existing `archived_work` and historical scope edges remain disposable Git-derived
+read projections. PM6 preserves their home IDs, note path, commit OID, note
+`content_hash`, `lesson_tags`, terminal state/time and frozen scope. A historical
+reader does not require a settled publication operation, closure judgement or new
+backfill. Removed execution data returns typed absence, not an inspectable step
+reference. Historical links never recreate a live execution endpoint.
 
-Cleanup never shelves or cancels work, removes nonterminal execution, deletes code or worktrees, or deletes canonical Git knowledge or shared setup.
-CD-0142 separately governs scoped execution removal after its required planning handoff and reconciliation.
-Research is a separate aggregate deleted only by explicit eligible research_retire.
-An item that owns a retained research pack is blocked from terminal cleanup; releasing a consumer pin never deletes the pack.
-No work-removal operation or foreign-key cascade may delete retained research.
-Owner removal must preserve retained research or refuse before destructive effects.
+CD-0142 separately governs per-item nonterminal execution removal after its
+planning handoff. No work-removal operation, completion, upgrade or foreign-key
+cascade may delete retained research; preserve its owner identity or refuse
+before destructive effects.
 
-### 2. Guarantees for terminal execution cleanup
+### 2. Historical population and identity
 
-Calendar age alone cannot create removal eligibility.
-Uncompacted or proof-degraded work cannot become terminal-prune-eligible.
-Before terminal projection removal, verified linkage must identify home IDs, note path, commit OID, content hash, and unique work ID.
-Historical front matter must carry the complete scope and terminal state.
-Superseded work must have its canonical successor recorded.
-An in-flight compaction or canonical-home mutation and unresolved recovery prevent destructive eligibility.
-
-A future run must declare hard item or time bounds and return an explicit continuation.
-No unmeasured default pressure threshold or calendar sweep is accepted.
-Each work item must move atomically between live and historical projections, with replay returning the committed idempotent result.
-Retention removal follows each retained category's documented removal condition and never removes a receipt or verified snapshot a consumer needs ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-These guarantees constrain terminal execution cleanup under CD-0242 D2; note discovery alone does not satisfy them.
-
-### 3. Minimum Git-rebuildable historical projection
-
-The bounded PM6 front matter preserves:
+Historical projections retain these fields from their verified note or stable
+canonical-home context:
 
 ```text
 id, type, title, completed_at, outcome_tag, lesson_tags,
-home_project_id, home_locator_id, note_path, commit_oid, content_hash
-terminal_state            # completed | cancelled | superseded
-priority
-summary                   # bounded value/outcome summary
-product_ids[]             # scope at compaction
-project_ids[]             # memberships at compaction
-domain_ids[]
-tag_ids[]
-successor_work_id?        # required when terminal_state=superseded
+home_project_id, home_locator_id, note_path, commit_oid, content_hash,
+terminal_state, priority, summary,
+product_ids[], project_ids[], domain_ids[], tag_ids[], successor_work_id?
 ```
 
-These fields normalize into `archived_work`, `archived_work_products`, `archived_work_projects`, `archived_work_domains`, and `archived_work_tags`.
-They describe scope at compaction; later membership changes do not rewrite the canonical note or frozen historical associations.
-`completed_at` means the terminal timestamp for all three terminal states.
-PM1's `terminal_at` maps to that field for cancelled and superseded work too.
+Scope is frozen at the note's recorded revision. Later memberships do not
+rewrite it. `completed_at` is the terminal timestamp for completed, cancelled
+and superseded work; PM1's `terminal_at` maps to it. A superseded historical
+item's recorded successor remains readable. Historical edges carry no mutable
+blocker, readiness, evidence or per-Project status.
 
-An older note missing required fields needs bounded verified backfill before any future pruning eligibility.
-Historical edges carry no mutable blocker, readiness, evidence, lifecycle, or per-Project status.
-`successor_work_id` preserves canonical supersession resolution, not a second relation writer.
-CD-0222 and CD-0042 Domain scope and migration remain unchanged.
+Q2/Q3 union live terminal work and historical work and deduplicate by work ID
+before counting, ordering or pagination. Counts use the same population.
+Historical filters use frozen Product, Project, Domain and tag associations;
+current work retains PM5 membership semantics. Complete authority requires both
+the store watermark and applicable historical Git coverage. Incomplete reachable
+coverage is degraded with bounded omissions; unreachable Git authority is
+unreachable, never authoritative empty.
 
-### 4. One query population across tiers
+Q7 reads available current-state records, not an exact event history or process
+receipt. Q8 resolves historical supersession from verified recorded metadata.
+An already historical identity cannot reopen; renewed need uses a new identity
+linked to the old one without changing the historical note.
 
-Q2/Q3 union live terminal work and Git-derived historical work, then deduplicate by work ID before counting, ordering, or pagination.
-`COUNT(DISTINCT work_id)` uses that same population.
-Historical filters use frozen Product, Project, Domain, and tag associations.
-Historical state comes from `terminal_state`; terminal time comes from `completed_at`.
-Unpruned work retains current PM5 membership semantics.
+### 3. Protected research retirement
 
-An authoritative combined result requires the current store watermark and the applicable Git-index watermark.
-Reachable but incomplete or lagging historical coverage returns degraded authority and bounded omissions.
-Unreachable Git authority returns unreachable authority.
-A stale historical index cannot produce authoritative counts.
+CD-0215 packs are direct-table context, not historical work or execution steps.
+Nonterminal owners may author content; terminal owners retain read-only content
+for authorized exact-revision reuse. Scope and freshness govern reliance.
+Every required or optional pin belonging to a nonterminal consumer protects the
+pack. Consumer terminalization releases its pins transactionally, not the pack.
 
-Q7 returns current-state records within the store's finite retained categories, not a process-exhaust receipt or the compact note; the store keeps no exact event history ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-Q8 resolves a superseded historical item's canonical successor from verified front matter and historical projection.
-Current relations are stored rows; the store keeps no relation history ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-The retained work surface carries PM6 locator proof, canonical note identity, current Git authority, and typed outcomes for its terminal work.
+Completion, durable promotion and a research `no change` outcome preserve packs
+and require no consumer release. Selected reasoning may use ordinary accepted
+decision, specification or lesson forms; none serializes or indexes the corpus
+or promises recovery of a retired pack.
 
-### 5. Identity and renewed work
+Only explicit `research_retire` deletes a pack aggregate. It is authorized,
+bounded to 1–100 distinct candidates, version-fenced, idempotent and transactional.
+Dry run reports selected identities and versions without writes. Execution
+rechecks terminal ownership and zero active pins. No compaction link,
+publication proof, deadline, grace interval, timer, sweep or age establishes
+eligibility. Reads, completion, unrelated refusals, upgrade, restore and restart
+never retire research.
 
-Before any accepted committed prune boundary, PM4 reopen rules remain available.
-A projection-pruned ID cannot reopen; renewed need uses a new canonical work identity linked to the old one.
-The old note and recorded terminal state remain unchanged.
-Cross-tier follow-up must not invent mutable lifecycle, hierarchy, supersession, or blocker authority on historical edges.
-It must not pretend that a removed projection is a live foreign-key endpoint.
-CD-0242 D2 governs the cleanup boundary; historical links never recreate a live execution endpoint.
+A destructive batch commits atomically; invalid or unauthorized input leaves
+every candidate unchanged. Deletion removes the pack and its dependent revisions,
+findings, sources, provenance, scopes and bindings. Crash before commit retains
+the aggregate; committed replay returns the original result without repeating
+deletion or reconstructing content. Owner reopen before retirement removes
+eligibility. Retirement creates no tombstone or deleted-ID registry and is not
+secure erasure of backups.
 
-### 6. Protected research retirement
+### 4. Retained categories
 
-CD-0215 research packs remain direct-table context, not retained Product-memory events or historical work projections.
-Nonterminal owners may author content; terminal owners retain read-only content available for authorized exact-revision reuse.
-Freshness and scope still govern reliance.
-Consumer pins protect content while their consuming work is nonterminal, whether required or optional.
-Consumer terminalization releases those pins transactionally.
+| Data | Consumer and applicability | Removal condition |
+|---|---|---|
+| terminal current-state identity and reported delivery link | exact work and delivered-outcome readers | explicit work removal under its owning contract |
+| operation results and effect receipts | retries and reconciliation of the original intent | CD-0242 D2's documented end of the retry/reconciliation consumer |
+| historical notes and locator projections | historical readers verify recorded Git identity and frozen scope | Git owns notes; projections may be replaced from the same authority |
+| research and dependent content | exact-revision readers and active pins under section 3 | explicit eligible research_retire only |
+| verified snapshots | PM10 restore and unfinished recovery | documented count/age bound, never the newest verified snapshot or one recovery needs |
+| logs, traces, screenshots and raw reports | producer-owned, not Concord authority | the producer's own policy |
 
-PM6 publication verifies and links the ordinary durable note without deleting research or requiring consumers to stop.
-A research `no change` outcome does not change this separation.
-A note may retain selected reviewed reasoning through ordinary accepted durable forms.
-It never serializes or indexes the research corpus or promises recovery of a retired pack.
-
-Only explicit `research_retire` deletes a pack aggregate.
-The operation is authorized, bounded to 1–100 distinct candidates, version-fenced, idempotent, and transactional.
-Dry run reports selected identities and versions without writes.
-Execution rechecks terminal ownership and zero active pins before deletion.
-Compaction linkage is not required for research retirement.
-There is no deadline, timer, sweep, or age-derived eligibility.
-Reads, publication, unrelated refusals, rebuild, and restart never retire research.
-
-One destructive batch commits atomically; invalid or unauthorized input leaves all candidates unchanged.
-Deletion removes packs and dependent revisions, findings, sources, provenance, scopes, and bindings.
-Crash before commit retains the prior aggregate; replay after commit returns the committed result without repeating deletion.
-Authorized owner reopen before retirement removes eligibility without reconstructing a retired pack.
-
-### 7. Retained and removed data
-
-| Data | Treatment | Authority | Consumer | Applicability check | Safe removal condition |
-|---|---|---|---|---|---|
-| canonical Git note | retain | distilled knowledge | publication and reconciliation; work-note-only recovery; the typed-absence outcome locator | the note commit verifies from Git | none in Concord; Git owns the note |
-| canonical publication proof | verify from Git; the settled operation and closure judgement gate cleanup | PM6 and CD-0242 D9 | terminal cleanup | Git proof verified before cleanup; version, lifecycle, and home re-read in the cleanup transaction | removed with its terminal execution |
-| terminal execution and owned membership/relation rows | collect only after verified closure and release of every consuming category | CD-0242 D2; CD-0088 D2 | live executions that reference it; unsettled effects, workflow steps, Project handoffs, messages, findings, and owned research; not worktree ownership or verification leases | the cleanup blocker list in `internal/store/terminal_cleanup.go` | terminal, its published note matches the lifecycle, and no blocker holds |
-| historical index and scope edges | retain or rebuild | verified Git-derived projections | historical queries | rebuilt against the current Git head watermark | replaced by the rebuild; never a source of truth |
-| research packs and dependent content | retain until explicit eligible retirement | direct tables | active pins and the owning execution | pin and owner checks in `research_retire` | explicit `research_retire` with no active pin |
-| WIP logs, traces, screenshots, binary output | producer-owned process exhaust | no Concord retention | none in Concord | none | the producer's own policy |
-| reports and process exhaust | producer-owned | PM9; no separate receipt store | none in Concord | none | the producer's own policy |
-| backups and restore copies | PM10 recovery policy | recovery snapshots | restore and unfinished recovery | verification and the recovery exclusion in snapshot retention | beyond the documented count or age bound, never the newest verified snapshot or one a recovery needs |
-
-No other category is retained. Replaced history has no table and no flag that keeps it.
-
-Research retirement is not secure erasure of backups.
-Snapshot aging, `VACUUM`, and backup topology remain PM10 concerns; this specification adds no reclamation policy.
-
-### 8. Structural invariants and rejected alternatives
-
-- Verified linkage precedes any future terminal work pruning, not separate research retirement.
-- Retention cleanup never removes the newest verified snapshot or one an unfinished recovery needs ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-- A work item cannot be half-live and half-historical after a destructive transaction.
-- A committed prune boundary makes the old identity immutable.
-- Historical fields derive from one verified note or stable canonical-home context, never a copied live row.
-- Combined queries deduplicate one work population and compose its watermarks.
-- Calendar age never grants deletion authority.
-- Destructive maintenance is bounded, explicit, and idempotent ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-- Proof degradation prevents work pruning rather than allowing inference.
-- Live relations reference live work; historical links cannot create live foreign-key endpoints.
-- Research retirement has one owner and every active pin protects content.
-
-A fixed calendar sweep is rejected because no measured window supports it.
-Cleanup inside an unsettled publication or before reference and effect release is rejected because it can destroy state that still has a consumer.
-Restoration of the same pruned work ID is rejected; a note is not a verified recovery snapshot ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-Copied historical status on membership edges is rejected because terminal state belongs once on the historical work projection.
-
-### 9. Cutover and falsifiers
-
-This policy does not decide a future pressure threshold, work-prune command, backup topology, or alternate authoritative recovery source.
-
-Reconsider this policy if retained receipts and snapshots drive measured growth, real investigations require unavailable projection data, or linked renewed identities fail legitimate work.
-Other falsifiers are unmet PM1 query targets, unbounded historical front matter, excessive explicit maintenance burden, or evidence for a different measured trigger.
-A simpler PM10 authority must preserve the canonical note, retained receipts, and verified snapshots before it can replace this split.
+No other post-delivery execution category is retained. PM10 owns snapshot aging,
+backup topology and reclamation; this contract adds no `VACUUM` or secure-erasure
+promise.
 
 ## Acceptance criteria
 
-- Given a published and verified compaction link
-  When the retained work read or compaction linkage/reconcile verification
-  resolves the work item's note
-  Then canonical locator proof and note identity remain unchanged.
+- Given existing historical work
+  When upgrade or a historical read runs
+  Then its locator, note content hash, lesson tags and frozen scope remain intact.
 
-- Given historical and live work in one query population
-  When Q2/Q3 counts that population
-  Then the answer deduplicates by work ID and composes authority across both tiers.
+- Given historical and live work in one population
+  When Q2/Q3 counts it
+  Then the result deduplicates by work ID and composes authority across both tiers.
 
-- Given a pack owned by terminal work with no compaction link
-  When authorized research_retire rechecks its version and finds zero active pins
-  Then the explicit transaction may retire the pack without calendar or publication proof.
+- Given a pack with a terminal owner and zero active pins
+  When authorized research_retire rechecks its expected version
+  Then explicit retirement may delete it without a compaction link or calendar proof.
 
-- Given a pack with an active required or optional pin
-  When publication succeeds or research_retire evaluates the pack
-  Then publication preserves the pack and retirement reports protection without deleting it.
-
-- Given the historical projection of a compacted item
-  When the projection is read
-  Then every field derives from one verified note or stable canonical-home context rather than a copied live row.
+- Given an active required or optional pin
+  When completion, upgrade or research_retire encounters the pack
+  Then content remains protected from deletion.
 
 - Given a bounded research retirement batch
-  When dry run evaluates its candidates
-  Then no pack, binding, version, or mutation receipt changes.
+  When dry run evaluates it
+  Then no content, binding, version or mutation receipt changes.
 
-- Given a committed research retirement batch
-  When the same authorized idempotency identity replays after restart
-  Then the operation returns its committed result without repeating deletion or reconstructing content.
+- Given committed research retirement
+  When the authorized idempotency identity replays after restart
+  Then it returns the committed result without repeating deletion or reconstructing content.
 
 ## Verification
 
-- Criterion 1 keeps its canonical locator proof: `TestCompactionReconcileMissingVersionRetainsProofStep` retains the proof step and `TestCompactionLinkPublishRecordsNoVersionChange` pins the publish version.
-- Criterion 2's watermark witness was retired with the index; no executed cleanup proves the historical-tier join.
-- Criterion 3 names candidate `internal/store.TestResearchRetirementTerminalOwnersEligible`; integrated retirement eligibility remains unmeasured.
-- Criterion 4 names candidate `internal/store.TestResearchRetirementActivePinsProtectAndTerminalReleaseFences`; publication separation and full protection coverage remain unmeasured.
-- Criterion 5's rebuild witnesses were retired with the index; derivation of every historical projection field remains unmeasured.
-- Criterion 6 names candidate `internal/store.TestResearchRetirementDryRunMixedBatchHasNoWrites`; integrated dry-run coverage remains unmeasured.
-- Criterion 7 names candidate `internal/agent.TestResearchRetireDryRunAndReplay`; restart and full committed replay coverage remain unmeasured.
-
-Publication, terminal, reopen, removal, migration, restore, and race boundaries still need integrated assessment.
-Source anchors do not establish execution or full coverage; integrated conformance evidence remains outstanding.
+Criterion bindings name the query, upgrade and retirement boundaries that need
+evidence. Candidate source anchors do not establish execution or full coverage;
+integrated conformance evidence remains outstanding.

@@ -130,6 +130,17 @@ DELETE FROM write_guard`); err != nil {
 			tables = append(tables, domainShapePreservedTables...)
 			before := catalogUpgradeRows(t, db, tables...)
 			err := Migrate(context.Background(), db)
+			if lifecycle != "needed" {
+				if err != nil {
+					t.Fatalf("terminal execution cannot require retired publication: %v", err)
+				}
+				var contexts, identities int
+				if err := db.QueryRow(`SELECT (SELECT count(*) FROM work_context_state WHERE work_id='shape-work'),(SELECT count(*) FROM work_items WHERE id='shape-work')`).Scan(&contexts, &identities); err != nil || contexts != 0 || identities != 1 {
+					t.Fatalf("terminal contexts=%d identities=%d err=%v", contexts, identities, err)
+				}
+				retirementUpgradeHealthy(t, db)
+				return
+			}
 			if err == nil {
 				t.Fatal("upgrade admitted a persisted domain_shape required reading; retirement strands work-context decoding")
 			}
@@ -138,11 +149,7 @@ DELETE FROM write_guard`); err != nil {
 				t.Fatalf("upgrade refusal = %v, want retry-safe upgrade_blocked", err)
 			}
 			fragments := []string{"domain_shape", "shape-work", "pre-retirement binary", "schema 171", "retry"}
-			if lifecycle == "needed" {
-				fragments = append(fragments, "record_work_context", "replace or remove only obsolete readings", "preserving the rest of the declaration")
-			} else {
-				fragments = append(fragments, "immutable", "do not replace or rewrite", "concord_work_compact.publish", "concord_work_compact.reconcile", "exact reviewed closure bytes", "all existing gates", "no supported upgrade recovery")
-			}
+			fragments = append(fragments, "record_work_context", "replace or remove only obsolete readings", "preserving the rest of the declaration")
 			for _, fragment := range fragments {
 				if !strings.Contains(failure.Detail+" "+failure.RecoveryAction, fragment) {
 					t.Errorf("upgrade refusal %+v lacks actionable recovery fragment %q", failure, fragment)
@@ -151,12 +158,7 @@ DELETE FROM write_guard`); err != nil {
 			if after := catalogUpgradeRows(t, db, tables...); !reflect.DeepEqual(after, before) {
 				t.Fatalf("refused upgrade changed schema, manifest, revision, or rows:\nbefore: %v\nafter: %v", before, after)
 			}
-			if lifecycle != "needed" {
-				return
-			}
-
-			// Model only the live declaration's persisted replacement. Terminal
-			// declarations cannot be rewritten and require published cleanup.
+			// Model the live declaration's persisted replacement.
 			if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 UPDATE work_context_state SET declaration_seq=2,declaration_id='replacement-declaration',source_frontier=2,declaration_payload=json_remove(declaration_payload,'$.required_reading[0]') WHERE work_id='shape-work';
 DELETE FROM write_guard`); err != nil {

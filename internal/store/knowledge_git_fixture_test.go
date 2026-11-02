@@ -173,6 +173,12 @@ func requireFailureKind(t *testing.T, err error, want FailureKind, label string)
 }
 
 func canonicalWorkNote(id string) string {
+	return canonicalWorkNoteForProject(id, "proj-web")
+}
+
+// canonicalWorkNoteForProject renders the canonical fixture work note whose
+// metadata seedArchivedWorkNote records for a historical locator.
+func canonicalWorkNoteForProject(id, projectID string) string {
 	return "---\n" +
 		"concord_work_id: " + id + "\n" +
 		"work_type: implementation\n" +
@@ -184,7 +190,7 @@ func canonicalWorkNote(id string) string {
 		"priority: 2\n" +
 		"summary: Bounded summary\n" +
 		"product_ids: [prod-alpha]\n" +
-		"project_ids: [proj-web]\n" +
+		"project_ids: [" + projectID + "]\n" +
 		"domain_ids: [auth]\n" +
 		"tag_ids: [auth, release]\n" +
 		"---\n\nDurable note.\n"
@@ -277,27 +283,22 @@ func seedKnowledgeWorkLifecycle(t *testing.T, s *Store, id, title string, comple
 	}
 }
 
-// seedArchivedWorkNote writes the archived linkage rows the compaction-link
-// fold writes for one committed note, from the note's own parsed metadata.
-// The retired note rebuild used to write these rows from the same bytes; the
-// compaction publication route is the retained writer.
-func seedArchivedWorkNote(t *testing.T, s *Store, home KnowledgeHome, commitOID, notePath, content string) string {
+// seedArchivedWorkNote seeds the historical locator for the committed
+// canonicalWorkNoteForProject(workID, projectID) note at notePath and returns
+// the note's content hash.
+func seedArchivedWorkNote(t *testing.T, s *Store, home KnowledgeHome, commitOID, notePath, workID, projectID string) string {
 	t.Helper()
-	note, err := parseKnowledgeNote([]byte(content))
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256([]byte(content))
+	sum := sha256.Sum256([]byte(canonicalWorkNoteForProject(workID, projectID)))
 	hash := "sha256:" + hex.EncodeToString(sum[:])
 	db := s.DatabaseForTesting()
 	memberMigrationExec(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
 	defer memberMigrationExec(t, db, `DELETE FROM write_guard`)
-	memberMigrationExec(t, db, `INSERT OR REPLACE INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		note.ID, note.Kind, note.Title, note.CompletedAt, note.OutcomeTag, marshalStrings(note.LessonTags), note.TerminalState, note.Priority, note.Summary, nullableText(note.SuccessorID), home.HomeProjectID, home.HomeLocatorID, notePath, commitOID, hash, note.ScopeMode, "")
-	for table, values := range map[string][]string{"archived_work_products": note.ProductIDs, "archived_work_projects": note.ProjectIDs, "archived_work_domains": note.DomainIDs, "archived_work_tags": note.TagIDs} {
+	memberMigrationExec(t, db, `INSERT OR REPLACE INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version) VALUES (?,'work_note','Auth release','2026-08-07T00:00:00Z','shipped',?,'completed',2,'Bounded summary',NULL,?,?,?,?,?,'explicit','')`,
+		workID, marshalStrings([]string{"sqlite", "state-authority"}), home.HomeProjectID, home.HomeLocatorID, notePath, commitOID, hash)
+	for table, values := range map[string][]string{"archived_work_products": {"prod-alpha"}, "archived_work_projects": {projectID}, "archived_work_domains": {"auth"}, "archived_work_tags": {"auth", "release"}} {
 		column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_domains": "domain_id", "archived_work_tags": "tag_id"}[table]
 		for _, value := range values {
-			memberMigrationExec(t, db, "INSERT INTO "+table+" (home_project_id, home_locator_id, work_id, "+column+") VALUES (?, ?, ?, ?)", home.HomeProjectID, home.HomeLocatorID, note.ID, value) //nolint:gosec // table and column come from the closed scope maps and all values stay parameter-bound.
+			memberMigrationExec(t, db, "INSERT INTO "+table+" (home_project_id, home_locator_id, work_id, "+column+") VALUES (?, ?, ?, ?)", home.HomeProjectID, home.HomeLocatorID, workID, value) //nolint:gosec // table and column come from the closed scope maps and all values stay parameter-bound.
 		}
 	}
 	return hash

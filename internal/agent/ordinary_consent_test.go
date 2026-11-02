@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -13,8 +12,8 @@ import (
 func TestOrdinaryTerminalLifecycleNeedsNoConsent(t *testing.T) {
 	for _, target := range []string{"completed", "cancelled"} {
 		t.Run(target, func(t *testing.T) {
-			s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-			env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
+			s, service, grant := agentJobsMutationPM1Fixture(t)
+			env := agentJobsMutationEnvelope(t, s, grant)
 			_, version := readWorkFromStore(t, s, "work-cross")
 			input := []byte(fmt.Sprintf(`{"work_id":"work-cross","expected_version":%d,"target":%q,"reason":"obsolete or verified work","idempotency_key":"ordinary-terminal","evidence":[{"kind":"verification","authority":"verifier","locator_kind":"test","locator":"verification-pass"}]}`, version, target))
 			request := InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}
@@ -28,34 +27,6 @@ func TestOrdinaryTerminalLifecycleNeedsNoConsent(t *testing.T) {
 			replay := dispatchMutation(t, s, service, request, env)
 			if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 				t.Fatalf("replay = %+v", replay)
-			}
-		})
-	}
-}
-
-// CD-0243 D3/D7 retire ordinary outside-repair consent, not hold or proof gates.
-func TestOrdinaryOutsideRepairNeedsNoConsent(t *testing.T) {
-	for _, mode := range []string{"resume", "completed"} {
-		t.Run(mode, func(t *testing.T) {
-			s, service, env, fake := outsideFixture(t)
-			dispatch := func(operation string, input map[string]any) agentcontract.Envelope {
-				raw, err := json.Marshal(input)
-				if err != nil {
-					t.Fatal(err)
-				}
-				return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: operation, Input: raw}, env)
-			}
-			assertOutsideOK(t, dispatch("outside_repair", outsideHoldInput(2)), "ordinary hold")
-			if fake.fetches != 0 {
-				t.Fatal("hold fetched external evidence")
-			}
-			input := outsideResumeInput(4, nil)
-			if mode == "completed" {
-				input = outsideReconcileInput(4, nil)
-			}
-			assertOutsideOK(t, dispatch("outside_repair_reconcile", input), mode)
-			if mode == "completed" && fake.fetches == 0 {
-				t.Fatal("completed reconcile did not fetch proof")
 			}
 		})
 	}

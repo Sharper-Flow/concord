@@ -23,14 +23,10 @@ import (
 // arms carry effects; the claim under test is coverage, not behaviour.
 
 // dispatchRoots names the functions that route a contract operation to its
-// implementation, and the file each is declared in. mutate and readResult hold the
-// primary switches. mutateCompaction is separate because mutate routes to it by
-// tool name rather than by operation ID, so the compaction operations are named
-// there and nowhere else.
+// implementation, and the file each is declared in.
 var dispatchRoots = map[string]string{
-	"mutate":           "mutations.go",
-	"mutateCompaction": "mutations.go",
-	"readResult":       "runtime.go",
+	"mutate":     "mutations.go",
+	"readResult": "runtime.go",
 }
 
 // operationID matches the tool.operation shape used for contract operation IDs.

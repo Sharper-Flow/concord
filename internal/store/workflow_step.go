@@ -165,5 +165,5 @@ func advanceWorkflowInstanceStepTx(ctx context.Context, tx *sql.Tx, workID, step
 
 // workflowCompletedInstanceActionImmutable reports terminal workflow instances.
 func workflowCompletedInstanceActionImmutable(state string) bool {
-	return state == "completed" || state == "cancelled" || state == "superseded" || state == "outside_repair"
+	return state == "completed" || state == "cancelled" || state == "superseded"
 }

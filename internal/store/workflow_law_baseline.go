@@ -106,7 +106,7 @@ func readWorkflowLawBaselineTx(ctx context.Context, q queryer, workID string) (*
 	var startSeq int64
 	if err := q.QueryRowContext(ctx, `SELECT baseline_json,start_effect_seq FROM workflow_law_baselines WHERE work_id=?`, workID).Scan(&encoded, &startSeq); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil, newFailure(KindMissingEvidence, "workflow_law_change", "the item has no law before-state anchored at its owning start", false, "retain the historical item without inventing a baseline; cancel and re-capture the remaining work, or use boundary-authenticated outside repair and reconcile its delivery evidence")
+			return nil, nil, newFailure(KindMissingEvidence, "workflow_law_change", "the item has no law before-state anchored at its owning start", false, "retain the historical item without inventing a baseline; cancel and re-capture the remaining work")
 		}
 		return nil, nil, workflowProjectionError(err, "cannot read the owning start law baseline")
 	}

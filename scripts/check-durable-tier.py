@@ -9,13 +9,11 @@ layer of the CD-0069 enforcement stack: it binds every writer, including
 manual commits, at the merge chokepoint.
 
 The bounds are not restated here. They live once in
-.concord/docs/durable-tier-budget.v1.json and this script reads them, so the budget
-file, the future producer-side parse, and the AJ6 scenario extension all
-enforce the same numbers.
+.concord/docs/durable-tier-budget.v1.json and this script reads them.
 
 Scope, per CD-0069:
 
-- .concord/docs/work/ and .concord/docs/lessons/ (the compaction-note roots): markdown only,
+- .concord/docs/work/ and .concord/docs/lessons/ (historical work notes and lessons): markdown only,
   each note at or under max_note_bytes, no fenced JSON block over
   max_fenced_json_bytes. Zero tolerance; the tier starts empty and no ratchet
   baseline exists. An allowance is permission for one named note to exceed
@@ -132,8 +130,7 @@ def fenced_json_blocks(text: str) -> list[str]:
         if current is not None:
             current.append(line)
     # An unterminated fence still carries everything after it. Ignoring the
-    # trailing block would let a note escape the bound by omitting one line, and
-    # would put this layer out of step with the producer-side parse.
+    # trailing block would let a note escape the bound by omitting one line.
     if current is not None:
         blocks.append("\n".join(current))
     return blocks

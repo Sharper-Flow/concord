@@ -157,15 +157,17 @@ All three contexts use the same terminal-owner retention rule.
 - This deterministic fail-closed query is not a PM4 blocker and admits no heuristic substitute.
 - An active pin belongs to a nonterminal consuming work item, whether `required=true` or `required=false`.
 - Every active pin protects its pack from retirement.
-- Consumer terminalization releases its active bindings transactionally before terminal cleanup removes the work's rows.
+- Consumer terminalization releases its active bindings transactionally without deleting pack content.
 - Publication and a `no change` conclusion do not require consumers to release their pins.
 - New authorized reliance on a retained terminal-owner revision remains valid while the pack exists.
 - Scope, exact revision identity, and freshness still govern that reliance.
 
 ### D7. Publication and retirement are separate
 
-Publication selects bounded durable reasoning, writes the ordinary PM6 note or separately accepted decision, specification, or lesson, verifies Git, and records linkage.
-Publication failure retains the pack; successful publication also retains it.
+Durable promotion selects bounded reasoning for a separately accepted decision,
+specification or lesson through its ordinary reviewed publication route.
+Completion records reported delivery links under PM6 §1, not a publication
+operation. Failed and successful promotion both retain the pack.
 No research conclusion automatically becomes law.
 
 | Selected research output | Durable destination |
@@ -173,7 +175,7 @@ No research conclusion automatically becomes law.
 | binding choice | separate accepted decision |
 | requirement or invariant | accepted specification |
 | reusable operational lesson | lesson |
-| change or Initiative reasoning and outcome | ordinary PM6 work note |
+| change reasoning and outcome | existing work record and reported delivery links |
 | temporary evidence, source list, abandoned hypothesis | no automatic durable promotion |
 
 Only an explicit `research_retire` call deletes a pack aggregate.

@@ -102,9 +102,7 @@ func TestOperatorApprovalRemovalPreservesPopulatedCoordinationAndAuthentication(
 	for _, table := range tables[:3] {
 		metadata[table+" columns"] = slices.DeleteFunc(metadata[table+" columns"], func(column string) bool { return column == "approval_ref" })
 	}
-	if err := Migrate(context.Background(), db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, db, 174)
 	assertOperatorApprovalStorageAbsent(t, db)
 	if after := sixClassSnapshot(t, db, tables...); !reflect.DeepEqual(after, before) {
 		t.Fatalf("migration changed retained data: got %v, want %v", after, before)

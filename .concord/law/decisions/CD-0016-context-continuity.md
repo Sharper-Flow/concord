@@ -130,8 +130,8 @@ When the shared reader refuses with `limit_exceeded`, the work pin and continuit
 snapshot carry the closed `work_context_unavailable: {"reason":"limit_exceeded"}`
 member instead of `work_context`. The two members are mutually exclusive. A
 successfully evaluated absent context emits neither member. Other reader errors
-propagate. The outside-repair hold and ambiguous-contract partial-pin exits
-remain unchanged. Strict readers still refuse the over-bound view.
+propagate. The ambiguous-contract partial-pin exit remains unchanged.
+Strict readers still refuse the over-bound view.
 
 The shared reader reports missing, stale, rebound, or inactive research
 selections as typed entries without content. A required unresolved selection

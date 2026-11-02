@@ -63,7 +63,7 @@ Business grouping belongs to Linear through the Linear MCP server.
 `concord_domain` owns Domain navigation and detail intents. Product law is the
 committed law folder, not a knowledge tool
 ([law-folder-authority](../constitution/law-folder-authority.md)).
-Budget: `always_visible_tools: 8`. The canonical machine-readable count is the
+Current count: `always_visible_tools: 7`. The canonical machine-readable count is the
 generated manifest's `surface.tool_count`
 ([`contracts/agent-tool-surface.v1.json`](../../../contracts/agent-tool-surface.v1.json)),
 and `scripts/test-agent-contracts.py` fails if this document and the manifest

@@ -9,6 +9,12 @@ import (
 	"strings"
 )
 
+func orderedStrings(values []string) []string {
+	result := append([]string(nil), values...)
+	sort.Strings(result)
+	return result
+}
+
 // parseQualifiedKnowledgeID splits the source-qualified reference form
 // "project_id/law_id" (CD-0200). Project IDs cannot contain '/', and the law
 // folder refuses '/' inside a stable law ID, so the first '/' is the exact

@@ -48,11 +48,6 @@ type WorkflowInstanceDefinition struct {
 	DefinitionDigest string
 }
 
-// DurableOperationRecord identifies the newest pending attempt for a work item.
-type DurableOperationRecord struct {
-	OperationID string
-}
-
 func (s *Store) LookupMutationIdempotency(ctx context.Context, key MutationIdempotencyKey) (MutationIdempotencyRecord, bool, error) {
 	if s == nil || s.db == nil {
 		return MutationIdempotencyRecord{}, false, newFailure(KindUnavailable, "mutation_idempotency", "store is not open", false, "open the authority database")
@@ -137,24 +132,6 @@ func CompleteMutationResponseTx(ctx context.Context, transaction *Transaction, i
 	return nil
 }
 
-func (s *Store) AcceptedInputsDigest(ctx context.Context, operationID string) (string, error) {
-	if s == nil || s.db == nil {
-		return "", newFailure(KindUnavailable, "accepted_inputs", "store is not open", false, "open the authority database")
-	}
-	return acceptedInputsDigest(ctx, s.db, operationID)
-}
-
-func acceptedInputsDigest(ctx context.Context, q queryer, operationID string) (string, error) {
-	var digest string
-	if err := q.QueryRowContext(ctx, `SELECT accepted_inputs_digest FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, operationID).Scan(&digest); err != nil {
-		if err == sql.ErrNoRows {
-			return "", newFailure(KindProjectionNotFound, "accepted_inputs", "durable operation does not exist", false, "reread the operation")
-		}
-		return "", wrapFailure(KindUnavailable, "accepted_inputs", "cannot read accepted input digest", true, "retry once the database is readable", err)
-	}
-	return digest, nil
-}
-
 func (s *Store) WorkflowInstanceDefinition(ctx context.Context, workID string) (WorkflowInstanceDefinition, bool, error) {
 	if s == nil || s.db == nil {
 		return WorkflowInstanceDefinition{}, false, newFailure(KindUnavailable, "workflow_instance", "store is not open", false, "open the authority database")
@@ -182,61 +159,12 @@ func workflowInstanceDefinition(ctx context.Context, q queryer, workID string) (
 	return definition, true, nil
 }
 
-func (s *Store) TerminalWorkVersion(ctx context.Context, workID string) (int64, error) {
-	if s == nil || s.db == nil {
-		return 0, newFailure(KindUnavailable, "terminal_work", "store is not open", false, "open the authority database")
-	}
-	return terminalWorkVersion(ctx, s.db, workID)
-}
-
-func terminalWorkVersion(ctx context.Context, q queryer, workID string) (int64, error) {
-	if err := publishedWorkAbsenceQ(ctx, q, workID, "terminal_work"); err != nil {
-		return 0, err
-	}
-	var version int64
-	if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=? AND lifecycle IN ('completed','cancelled','superseded')`, workID).Scan(&version); err != nil {
-		if err == sql.ErrNoRows {
-			return 0, newFailure(KindProjectionNotFound, "terminal_work", "terminal work item does not exist", false, "reread the work item")
-		}
-		return 0, wrapFailure(KindUnavailable, "terminal_work", "cannot read terminal work version", true, "retry once the database is readable", err)
-	}
-	return version, nil
-}
-
-func (s *Store) PendingOperationForWork(ctx context.Context, workID string) (DurableOperationRecord, error) {
-	if s == nil || s.db == nil {
-		return DurableOperationRecord{}, newFailure(KindUnavailable, "pending_operation", "store is not open", false, "open the authority database")
-	}
-	return pendingOperationForWork(ctx, s.db, workID)
-}
-
-func pendingOperationForWork(ctx context.Context, q queryer, workID string) (DurableOperationRecord, error) {
-	var operation DurableOperationRecord
-	err := q.QueryRowContext(ctx, `SELECT op_id FROM durable_operations WHERE work_id=? AND (result_kind IS NULL OR result_kind IN ('pending','partial')) ORDER BY attempt_epoch DESC LIMIT 1`, workID).Scan(&operation.OperationID)
-	if err == sql.ErrNoRows {
-		return DurableOperationRecord{}, newFailure(KindProjectionNotFound, "pending_operation", "pending durable operation does not exist", false, "reread the work item")
-	}
-	if err != nil {
-		return DurableOperationRecord{}, wrapFailure(KindUnavailable, "pending_operation", "cannot read pending durable operation", true, "retry once the database is readable", err)
-	}
-	return operation, nil
-}
-
 func WorkLifecycleTx(ctx context.Context, transaction *Transaction, workID string) (string, error) {
 	tx, err := transactionSQL(transaction, "work_lifecycle")
 	if err != nil {
 		return "", err
 	}
 	return workLifecycleCore(ctx, tx, workID)
-}
-
-// WorkLifecycle reads one work item's lifecycle state on the store's own
-// connection, for callers that gate a request before opening a write transaction.
-func (s *Store) WorkLifecycle(ctx context.Context, workID string) (string, error) {
-	if s == nil || s.db == nil {
-		return "", newFailure(KindUnavailable, "work_lifecycle", "store is not open", false, "open the authority database")
-	}
-	return workLifecycleCore(ctx, s.db, workID)
 }
 
 func workLifecycleCore(ctx context.Context, q queryer, workID string) (string, error) {

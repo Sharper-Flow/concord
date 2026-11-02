@@ -107,7 +107,6 @@
         {"pattern": "concord-advisor", "action": "allow"}
       ],
       "denied_concord_tools": [
-        "concord_work_compact",
         "concord_work_define",
         "concord_work_relate",
         "concord_work_transition"
@@ -169,7 +168,6 @@
         {"pattern": "concord-lookup", "action": "allow"}
       ],
       "denied_concord_tools": [
-        "concord_work_compact",
         "concord_work_define",
         "concord_work_relate",
         "concord_work_transition"
@@ -235,7 +233,6 @@
         {"pattern": "concord-lookup", "action": "allow"}
       ],
       "denied_concord_tools": [
-        "concord_work_compact",
         "concord_work_define",
         "concord_work_relate",
         "concord_work_transition"
@@ -297,7 +294,6 @@
         {"pattern": "concord-lookup", "action": "allow"}
       ],
       "denied_concord_tools": [
-        "concord_work_compact",
         "concord_work_define",
         "concord_work_relate",
         "concord_work_transition"
@@ -359,7 +355,6 @@
         {"pattern": "concord-lookup", "action": "allow"}
       ],
       "denied_concord_tools": [
-        "concord_work_compact",
         "concord_work_define",
         "concord_work_relate",
         "concord_work_transition"
@@ -427,7 +422,6 @@
         {"pattern": "concord-lookup", "action": "allow"}
       ],
       "denied_concord_tools": [
-        "concord_work_compact",
         "concord_work_define",
         "concord_work_relate",
         "concord_work_transition"

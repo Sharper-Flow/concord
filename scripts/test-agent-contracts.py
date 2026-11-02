@@ -151,9 +151,7 @@ class MutationMetadataTests(unittest.TestCase):
     def test_mutations_preserve_capability_consequence_and_request_metadata(self):
         for identifier, capability, consequence, context in [
             ("concord_work_transition.remove", "work_transition", "lifecycle", "ambient"),
-            ("concord_work_compact.publish", "work_compact", "publication", "explicit"),
             ("concord_work_transition.correct_delivery", "work_transition", "recovery", "explicit"),
-            ("concord_work_transition.outside_repair", "work_transition", "recovery", "ambient"),
             ("concord_work_relate.set_memberships", "work_relate", "scope", "explicit"),
         ]:
             with self.subTest(operation=identifier):
@@ -285,9 +283,12 @@ func main() {
             scratch = Path(temporary)
             root = scratch / "source"
             root.mkdir()
-            tracked = self._run(ROOT, "git", "ls-files", "-z", show=False).split("\0")
+            tracked = self._run(ROOT, "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", show=False).split("\0")
+            deleted = set(self._run(ROOT, "git", "ls-files", "--deleted", "-z", show=False).split("\0"))
             excluded = {".git", "node_modules", "__pycache__", ".ruff_cache", "build", "dist"}
             for relative in filter(None, tracked):
+                if relative in deleted:
+                    continue
                 path = Path(relative)
                 self.assertFalse(path.is_absolute() or ".." in path.parts)
                 if excluded.intersection(path.parts):
@@ -558,7 +559,6 @@ profiles_generator = _load_cli_module("cli_safety_profiles", "generate-agent-pro
 work_kinds_generator = _load_cli_module("cli_safety_work_kinds", "generate-work-kinds.py")
 native_run_statuses_generator = _load_cli_module("cli_safety_native_run_statuses", "generate-native-run-statuses.py")
 relation_vocabulary_generator = _load_cli_module("cli_safety_relation_vocabulary", "generate-relation-vocabulary.py")
-durable_tier_budget_generator = _load_cli_module("cli_safety_durable_tier_budget", "generate-durable-tier-budget.py")
 class PublicationPinGenerationTests(unittest.TestCase):
     def test_pin_measures_the_production_publication(self):
         with unittest.mock.patch.object(generator.subprocess, "run") as run:
@@ -750,6 +750,10 @@ class ToolDescriptionTests(unittest.TestCase):
             "concord_work_relate.restore_superseded",
             "concord_product_view.portfolio",
             "concord_work_compact.lesson_publish",
+            "concord_work_compact.publish",
+            "concord_work_compact.reconcile",
+            "concord_work_transition.outside_repair",
+            "concord_work_transition.outside_repair_reconcile",
             "concord_knowledge.unprocessed",
             "concord_knowledge.search",
             "concord_knowledge.resolve_note",
@@ -3302,7 +3306,6 @@ class GeneratorCLISafetyTests(unittest.TestCase):
         ("generate-work-kinds.py", work_kinds_generator, "VOCABULARY"),
         ("generate-native-run-statuses.py", native_run_statuses_generator, "VOCABULARY"),
         ("generate-relation-vocabulary.py", relation_vocabulary_generator, "VOCABULARY"),
-        ("generate-durable-tier-budget.py", durable_tier_budget_generator, "BUDGET"),
     )
     REFUSAL_ARGSETS = (
         ("unknown-flag", ["--unknown-option"]),

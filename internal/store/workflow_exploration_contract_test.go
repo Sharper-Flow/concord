@@ -306,9 +306,6 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 						t.Fatalf("ordinary contract update before final proof: %v", err)
 					}
 				}
-				if actionID == "complete" {
-					bindCompletionClosure(t, s, workID, livenessActor())
-				}
 				apply(actionID, map[string]string{})
 			}
 			state, events, err := livenessCompletion(ctx, s, workID)

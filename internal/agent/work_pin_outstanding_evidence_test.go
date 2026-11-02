@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestWorkPinOutstandingEvidenceKindsTypedEnvelope(t *testing.T) {
@@ -50,10 +51,12 @@ func TestWorkPinOutstandingEvidenceKindsTypedEnvelope(t *testing.T) {
 		if !bytes.Equal(decoded.Result, payload) {
 			t.Fatal("envelope round-trip changed or truncated evidence-debt metadata")
 		}
-		replayed, _, pinless, err := (runtime{}).replayMutationPayload(payload,
-			[]agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}})
-		if err != nil || len(pinless) != 0 || !bytes.Equal(replayed, payload) {
-			t.Fatalf("retained snapshot changed, backfilled, or lost its pin: err=%v pinless=%v", err, pinless)
+		metadata, _ := json.Marshal(mutationResponseScope(map[string]any{}, decoded, nil))
+		refs, _ := json.Marshal(*decoded.ChangedRefs)
+		r := runtime{Tool: decoded.Tool, Operation: decoded.Operation}
+		replayed := r.recordedMutationResult(agentcontract.NewBase("debt-replay", r.Tool, r.Operation), store.MutationIdempotencyRecord{ResultPayload: string(payload), ChangedRefs: string(refs), AuthorizedScopeSnapshot: string(metadata)})
+		if replayed.Outcome != agentcontract.OutcomeOK || !bytes.Equal(replayed.Result, payload) {
+			t.Fatalf("retained snapshot changed, backfilled, or lost its pin: %+v", replayed)
 		}
 	}
 }

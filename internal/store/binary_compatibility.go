@@ -85,9 +85,8 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 // retirement. A store whose nonterminal work still pins retired or old
 // authoring — through the work's instance row or its active contract —
 // refuses activation: either half can still mutate the work. The work item's
-// lifecycle is the terminal authority: workflow_instance states such as
-// outside_repair are held dispositions, not terminal ones, so an item still
-// in progress blocks wherever its instance state sits. Terminal work opens
+// lifecycle is the terminal authority: an item still in progress blocks
+// wherever its instance state sits. Terminal work opens
 // and reads. Plain opens stay permissive; the per-mutation refusal lives in
 // the workflow admission.
 func checkWorkflowAuthoringCutover(ctx context.Context, q queryer) error {
@@ -211,15 +210,6 @@ func authoringFamilySQLList() string {
 // cutoverCancellationAdmission predicts read-only refusals using the same
 // owners as ordinary event append and fold. Older schemas have no hold table.
 func cutoverCancellationAdmission(ctx context.Context, q queryer, work cutoverWork) error {
-	present, err := columnPresent(ctx, q, "outside_repair_dispositions", "state")
-	if err != nil {
-		return err
-	}
-	if present {
-		if err := requireNoOutsideRepairTx(ctx, q, work.WorkID, "fold_event"); err != nil {
-			return err
-		}
-	}
 	if err := refuseRemovedWorkTx(ctx, q, work.WorkID, "apply_operation"); err != nil {
 		return err
 	}

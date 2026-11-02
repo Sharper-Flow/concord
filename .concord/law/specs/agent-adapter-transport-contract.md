@@ -107,8 +107,7 @@ LLM → OpenCode custom tool → `concord.ts`
 - OpenCode abort terminates the child. The core still reports whether a committed or
   external effect occurred; cancellation never fabricates rollback.
 - Caller budget passes unchanged. Unsupported budgets receive a typed core refusal.
-- SQLite operations finish in-process. TS4 compaction may return one durable
-  operation for later reconciliation.
+- SQLite operations finish in-process as atomic versioned mutations.
 
 No adapter-owned daemon, worker, database connection pool, HTTP server, IPC socket,
 or background reconciliation loop exists.
@@ -137,7 +136,6 @@ work_trace        → concord_work_trace
 work_define       → concord_work_define
 work_transition   → concord_work_transition
 work_relate       → concord_work_relate
-work_compact      → concord_work_compact
 ```
 
 Descriptions and strict discriminated schemas are generated or verified from one
@@ -201,7 +199,7 @@ approval prose or `approved: true`.
 - open SQLite or git authority directly;
 - derive Product scope or trust from path;
 - authorize or choose idempotency outcome;
-- implement lifecycle, relation, membership, compaction, recovery, or native-system
+- implement lifecycle, relation, membership, recovery, or native-system
   rules;
 - cache Product/work state;
 - rewrite typed core errors into guessed success/prose;

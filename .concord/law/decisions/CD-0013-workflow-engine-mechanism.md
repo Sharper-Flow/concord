@@ -38,7 +38,7 @@ outcome-contract acceptance criterion 3 (vacuity is judged at review).
 ## Context
 
 CD-0006 D3 commits Concord to a full workflow coordination engine with native-effect
-preservation. CD-0008 commits to checkpoint-and-resume, attempt fencing, immutable
+preservation. CD-0008 commits to current-state resumption, expected versions, immutable
 evidence binding and schema evolution. CD-0215 commits
 research ownership semantics. CD-0012 commits a three-part outcome contract
 and a strengthening-only delivery comparison; Review reports one disposition and Main records its acceptance ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
@@ -48,7 +48,7 @@ The accepted law already defines:
 - three live workflow families with documented shapes and completion verbs;
 - composition as forward-linked successors with no nested child execution;
 - one durable transaction per logical step;
-- attempt-epoch fencing for cross-authority and external-effect steps;
+- expected-version and idempotency checks for each atomic mutation;
 - an outcome contract with distinct operator and executing-agent revision authorities;
 - typed evidence bound to immutable subjects;
 
@@ -140,8 +140,9 @@ Actor identity stays the existing authenticated tuple.
   deliberately left for a separate reconciliation: the prose names
   "durable-knowledge" where the enum uses `durable_note`, and the prose omits
   `artifact` entirely. This decision resolves neither by implication.
-- `durable_operations` and the attempt-epoch fence remain the only step-claim
-  authority; the store records each step result as a current row, not duplicated state.
+- Operations and effect receipts retain successful-request retry and reconciliation
+  identity. There is no separate step-claim or settlement authority. Nonterminal
+  state stays resumable; completion disposes workflow step records under PM6 §1.
 
 ### D7. Workflow composition uses typed edges
 
@@ -240,12 +241,11 @@ The shared admission derivation owns questions and next actions. Every reachable
 
 At the current operation surface, removal, cancellation, repair,
 reconciliation, research-pack retirement, overlap resolution, membership
-changes, delivery correction, and note publication require operator consent
+changes and delivery correction require operator consent
 only when a CD-0243 D2 class applies. Governing-requirement scope cuts remain
 product decisions. Granting access remains a security decision. No approval
 grants otherwise absent capability or authorization. Existing authentication,
-capability, state, evidence, exact-target, retention-eligibility, content, home,
-and durable-intent checks remain required. Workflow acceptance does not authorize host-controlled
+capability, state, evidence, exact-target and research-retention checks remain required. Workflow acceptance does not authorize host-controlled
 destructive commands, deployment, release, credential disclosure, or
 force-push; host permissions still govern them.
 
@@ -320,17 +320,13 @@ The implementation acceptance suite must exercise:
     not reach an accepted terminal state.
 19. Contract + verdict + evidence + terminal metadata commit in one transaction.
 
-### Checkpoint and fencing (CD-0008 binding)
+### Current-state mutations (CD-0008 binding)
 
 20. Internal SQLite-only actions commit inline as one domain operation with no
     separate workflow fence event.
-21. Two agents claim the same external step; only the current attempt epoch
-    completes.
 22. A committed checkpoint is the resume boundary; an uncommitted step is the
     resume point.
 23. A retry with the same idempotency identity produces no second effect.
-24. A step completed by a stale attempt_epoch is refused.
-25. Takeover of a stuck attempt fences the prior holder by advancing the attempt epoch; the stale holder cannot complete it.
 
 ### Composition
 
@@ -409,7 +405,7 @@ This decision produces:
   machinery.
 - The three live families become first-class workflow definitions generated
   from Go, exposed through the reserved `workflow_action` operation, and backed by
-  the existing `durable_operations` claim/complete fence.
+   ordinary atomic versioned mutations, operations and effect receipts.
 - Recovery uses verified snapshots with tested restore; workflow state lives only as current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### Cost

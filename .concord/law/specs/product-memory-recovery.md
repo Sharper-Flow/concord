@@ -41,7 +41,7 @@
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM10; Product-memory recovery amendment.
 > **Binding inputs:** PM1–PM9, CD-0002 I1–I6, PM2 global SQLite authority,
-> PM6 git notes, compaction-retention-policy projection pruning, PM8 no-CAS boundary, PM9 no-receipt boundary.
+> PM6 historical notes, compaction-retention-policy research retention, PM8 no-CAS boundary, PM9 no-receipt boundary.
 > **Does not decide:** remote replication provider, encryption/key custody, retention
 > schedule, TS1–TS9, or a new blob store.
 
@@ -126,8 +126,8 @@ PM10 authorizes deletion only for disposable caches and completed, verified
 temporary backup files. It never deletes canonical git history, the newest
 verified snapshot, or a backup required by the configured retention policy
 ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). In-place `VACUUM` is stopped-only;
-online reclaim uses a fresh verified snapshot rather than a live-file copy. Git GC is
-never concurrent with compaction writes and retains Git's configured grace window.
+online reclaim uses a fresh verified snapshot rather than a live-file copy.
+Git GC retains Git's configured grace window.
 
 CD-0215 research retirement is governed by its explicit retirement operation,
 not PM10 reclamation. Active pack tables are included in backups while present;
@@ -159,7 +159,7 @@ locators; and passes the PM1 query corpus with no hidden local state.
 
 Required fault tests: concurrent-writer backup; interrupted backup/restore; corrupted
 snapshot; foreign key (FK) only violation; missing git object; projection-only corruption; schema
-version direction; compaction-prune recovery; safe temporary-file/projection GC; and
+version direction; historical locator preservation; safe temporary-file/projection GC; and
 proof that no screenshot/log/CAS/receipt is required.
 
 ## 6. Reopen criteria

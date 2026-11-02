@@ -837,134 +837,6 @@ func pkSprintfDigestRefBound() outputBoundSource {
 	}}
 }
 
-// pkOutsideRepairURLBound derives the admitted length of the canonical URLs
-// the evidence validator enforces. outsideRepairURL must still demand the
-// https scheme, the github.com host, and a path of "/" + repository + suffix;
-// the variable parts are the live workflowString bounds of the repository and
-// the release tag, and the pull suffix carries a positive int64 number in
-// decimal. Anything else fails closed.
-func pkOutsideRepairURLBound(which string) outputBoundSource {
-	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		const (
-			file         = "internal/store/outside_repair.go"
-			modelFile    = "internal/workflowproof/types.go"
-			validator    = "validateOutsideRepairEvidenceShape"
-			schemeHost   = int64(8 + 10) // "https://" + "github.com", enforced by the live equality literals
-			pathSlash    = int64(1)      // the "/" separator in the live path join
-			int64Digits  = int64(19)     // a positive int64 renders in at most 19 decimal digits
-			releaseToken = "/releases/tag/"
-			pullToken    = "/pull/"
-		)
-		goS, err := rt.loadGo(file)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		helpers := ledgerFuncDeclsNamed(goS.file, "outsideRepairURL")
-		if len(helpers) != 1 || helpers[0].Body == nil {
-			return evaluatedBound{}, fmt.Errorf("repair URL: outsideRepairURL is not declared exactly once with a body in %s", file)
-		}
-		scheme, host, slash := false, false, false
-		ast.Inspect(helpers[0].Body, func(n ast.Node) bool {
-			binary, ok := n.(*ast.BinaryExpr)
-			if !ok || binary.Op != token.EQL {
-				return true
-			}
-			left, right := ledgerExprText(binary.X), ledgerExprText(binary.Y)
-			if (left == "u.Scheme" && pkStringLitText(binary.Y) == "https") || (right == "u.Scheme" && pkStringLitText(binary.X) == "https") {
-				scheme = true
-			}
-			if (left == "u.Host" && pkStringLitText(binary.Y) == "github.com") || (right == "u.Host" && pkStringLitText(binary.X) == "github.com") {
-				host = true
-			}
-			if left == "u.Path" && pkPathStartsWithLiteral(binary.Y, "/") {
-				slash = true
-			}
-			if right == "u.Path" && pkPathStartsWithLiteral(binary.X, "/") {
-				slash = true
-			}
-			return true
-		})
-		if !scheme || !host || !slash {
-			return evaluatedBound{}, fmt.Errorf("repair URL: outsideRepairURL no longer enforces the https scheme, the github.com host, and the leading path slash")
-		}
-		validators := ledgerFuncDeclsNamed(goS.file, validator)
-		if len(validators) != 1 || validators[0].Body == nil {
-			return evaluatedBound{}, fmt.Errorf("repair URL: %s is not declared exactly once with a body in %s", validator, file)
-		}
-		repository, err := rt.evaluateSource(pkGuardArgBound(file, validator, "workflowString", "e.Repository", 1, boundBytes), census)
-		if err != nil {
-			return evaluatedBound{}, fmt.Errorf("repair URL: %w", err)
-		}
-		repoBytes, ok := repository.capacity(boundBytes)
-		if !ok {
-			return evaluatedBound{}, fmt.Errorf("repair URL: the repository guard carries no byte capacity")
-		}
-		total := schemeHost + pathSlash + repoBytes
-		describe := "canonical https://github.com/ URL with repository"
-		switch which {
-		case "release":
-			tag, err := rt.evaluateSource(pkGuardArgBound(file, validator, "workflowString", "e.ReleaseTag", 1, boundBytes), census)
-			if err != nil {
-				return evaluatedBound{}, fmt.Errorf("repair URL: %w", err)
-			}
-			tagBytes, ok := tag.capacity(boundBytes)
-			if !ok {
-				return evaluatedBound{}, fmt.Errorf("repair URL: the release tag guard carries no byte capacity")
-			}
-			if !pkLiteralPresent(validators[0], releaseToken) {
-				return evaluatedBound{}, fmt.Errorf("repair URL: the release suffix %q is not at its live call site", releaseToken)
-			}
-			total += int64(len(releaseToken)) + tagBytes
-			describe += ", /releases/tag/, and release tag"
-		case "pull":
-			// The pull suffix is built through the live Sprintf format
-			// "/pull/%d", whose operand is the declared int64 pull number.
-			format := ""
-			sprintfMatches := 0
-			ast.Inspect(validators[0].Body, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok || !ledgerCalleeMatches(call, "Sprintf") || len(call.Args) != 2 {
-					return true
-				}
-				literal := pkStringLitText(call.Args[0])
-				if literal == pkNotALiteral || !strings.HasPrefix(literal, pullToken) {
-					return true
-				}
-				number, ok := call.Args[1].(*ast.SelectorExpr)
-				if !ok || number.Sel == nil || number.Sel.Name != "Number" {
-					return true
-				}
-				sprintfMatches++
-				format = literal
-				return true
-			})
-			if sprintfMatches != 1 || format != pullToken+"%d" {
-				return evaluatedBound{}, fmt.Errorf("repair URL: %d live Sprintf calls render %q; the pull suffix derivation changed", sprintfMatches, format)
-			}
-			model, err := rt.loadGo(modelFile)
-			if err != nil {
-				return evaluatedBound{}, err
-			}
-			if declared := pkStructFieldType(model, "PullRequestEvidence", "Number"); declared != "int64" {
-				return evaluatedBound{}, fmt.Errorf("repair URL: the pull number is declared %q, not int64", declared)
-			}
-			total += int64(len(pullToken)) + int64Digits
-			describe += ", /pull/, and the pull number digits"
-		default:
-			return evaluatedBound{}, fmt.Errorf("repair URL: unknown kind %q", which)
-		}
-		label := fmt.Sprintf("%s admits at most %d characters (%s)", validator, total, describe)
-		return evaluatedBound{
-			constraints: []boundConstraint{
-				{unit: boundCharacters, value: total, from: label},
-				{unit: boundBytes, value: total, from: label + " (ASCII URL)"},
-			},
-			kind:     "derived",
-			describe: label,
-		}, nil
-	}}
-}
-
 // ---------------------------------------------------------------------------
 // Small AST helpers for the pk* derivations
 // ---------------------------------------------------------------------------
@@ -1145,24 +1017,6 @@ func init() {
 	registerOutputBound("/$defs/observed_universe_output/properties/observed_refs/maxItems", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.ObservedRefs", 1, boundItems))
 	registerOutputBound("/$defs/observed_universe_output/properties/omissions/items/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.Omissions", 3, boundBytes))
 	registerOutputBound("/$defs/observed_universe_output/properties/omissions/maxItems", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.Omissions", 1, boundItems))
-
-	registerOutputBound("/$defs/outside_repair_disposition/properties/reason/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "applyOutsideRepairMutationTx", "workflowString", "request.Reason", 1, boundBytes))
-	registerOutputBound("/$defs/outside_repair_disposition/properties/recorded_at/maxLength", pkTimeLayoutWidthBound("internal/store/outside_repair.go", "foldOutsideRepairDispositionSet", "time.RFC3339Nano"))
-
-	registerOutputBound("/$defs/outside_repair_evidence/properties/observed_at/maxLength", pkTimeJSONFieldBound("internal/workflowproof/types.go", "Evidence", "ObservedAt"))
-	registerOutputBound("/$defs/outside_repair_evidence/properties/published_at/maxLength", pkTimeJSONFieldBound("internal/workflowproof/types.go", "Evidence", "PublishedAt"))
-	registerOutputBound("/$defs/outside_repair_evidence/properties/pull_requests/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "len(e.PullRequests)", boundItems))
-	registerOutputBound("/$defs/outside_repair_evidence/properties/release_url/maxLength", pkOutsideRepairURLBound("release"))
-	registerOutputBound("/$defs/outside_repair_evidence/properties/repository/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "workflowString", "e.Repository", 1, boundBytes))
-
-	registerOutputBound("/$defs/outside_repair_git_sha/maxLength", pkLengthSetBound("internal/store/outside_repair.go", "outsideRepairGitSHA", "len(value)"))
-
-	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/merged_at/maxLength", pkTimeJSONFieldBound("internal/workflowproof/types.go", "PullRequestEvidence", "MergedAt"))
-	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/required_checks/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairRequiredChecks", "len(pr.RequiredChecks)", boundItems))
-	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/url/maxLength", pkOutsideRepairURLBound("pull"))
-
-	registerOutputBound("/$defs/outside_repair_release_tag/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "workflowString", "e.ReleaseTag", 1, boundBytes))
-	registerOutputBound("/$defs/outside_repair_required_check/properties/url/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairRequiredChecks", "workflowString", "check.URL", 1, boundBytes))
 
 	registerOutputBound("/$defs/product_context/properties/candidates/maxItems", maxBound(
 		goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems),
@@ -2610,10 +2464,7 @@ func TestPkDerivations(t *testing.T) {
 	rt := newLedgerRuntime(ledgerRepoRoot(t))
 	realSites := map[string]outputBoundSource{
 		"policy ref":    pkSprintfDigestRefBound(),
-		"release URL":   pkOutsideRepairURLBound("release"),
-		"pull URL":      pkOutsideRepairURLBound("pull"),
 		"commit oid":    pkLengthSetBound("internal/store/git_knowledge.go", "validateCommitOID", "len(oid)"),
-		"git sha":       pkLengthSetBound("internal/store/outside_repair.go", "outsideRepairGitSHA", "len(value)"),
 		"stop collect":  pkCollectStopBound("internal/store/membership.go", "membershipImpact", "len(impact.AffectedWorkIDs)"),
 		"intent sites":  pkAppendSitesItemsBound("internal/store/workpin.go", "workPinCorrectionRequestIntentsTx", "pin.NextValidIntents"),
 		"record effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord"), "pin aggregate": pkSubsetChainItemsBound(pkPlanEffectWorkPinsBound("internal/agent/mutations.go"), pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"}, pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"}),

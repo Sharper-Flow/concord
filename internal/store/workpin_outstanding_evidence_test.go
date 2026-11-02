@@ -6,8 +6,6 @@ import (
 	"reflect"
 	"slices"
 	"testing"
-
-	"github.com/sharper-flow/concord/internal/workflowproof"
 )
 
 func workPinOutstandingKindsWire(t *testing.T, pin *WorkPin) ([]string, bool) {
@@ -222,21 +220,6 @@ func TestWorkPinOutstandingEvidenceKindsOmittedWithoutContractAuthority(t *testi
 		}
 		if _, present := workPinOutstandingKindsWire(t, &pin); present {
 			t.Fatal("ambiguous-contract pin claims known evidence debt")
-		}
-	})
-	t.Run("outside-repair", func(t *testing.T) {
-		workID := "workpin-debt-outside-repair"
-		f := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
-		req := outsideRepairTestRequest(t, f.store, workID, "hold")
-		if err := outsideRepairApply(t, f.store, req, WorkflowOutsideRepairDispositionSet, workflowproof.Evidence{}); err != nil {
-			t.Fatal(err)
-		}
-		pin, err := ReadWorkPin(ctx, f.store, workID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, present := workPinOutstandingKindsWire(t, &pin); present {
-			t.Fatal("outside-repair partial pin claims managed evidence debt")
 		}
 	})
 }

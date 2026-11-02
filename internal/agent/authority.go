@@ -55,32 +55,14 @@ type Service struct {
 	// keeps git work outside every mutation transaction (CD-0195 D2).
 	ProjectHostProber  func(context.Context, string, string) (store.ResolvedProjectHost, error)
 	ProjectHostMatcher func(context.Context, *store.Transaction, store.ResolvedProjectHost) (store.ProjectResolution, error)
-	// publicationObserver, when set, is called with each publication phase as
-	// that phase completes, and may return an error to interrupt the sequence.
-	// It is an unexported white-box surface for conformance tests that must
-	// observe real cross-authority ordering or inject a fault between two
-	// phases; production construction leaves it nil. It mirrors the unexported
-	// observer surface internal/store uses for the same purpose.
-	publicationObserver func(phase string) error
-	// ExternalEvidenceCommand runs one authenticated forge command outside
-	// every write transaction. argv carries each value separately; no shell
-	// string is accepted. Production construction installs the gh executor;
-	// tests install a deterministic fake, so no test touches the forge. The
-	// outside-repair boundary owns the only call site (CD-0122 D2, CD-0210).
-	ExternalEvidenceCommand ExternalEvidenceCommandRunner
 }
-
-// ExternalEvidenceCommandRunner runs one external command by exact argv.
-// The implementation owns the bounded execution policy; a nil return value
-// from stdout is a command failure the caller reports as missing evidence.
-type ExternalEvidenceCommandRunner func(ctx context.Context, command string, args ...string) (stdout string, err error)
 
 func NewService(authority *store.Store) *Service {
 	var now Clock
 	if authority != nil {
 		now = authority.Clock
 	}
-	return &Service{Store: authority, Now: now, NonceRetention: 24 * time.Hour, ExternalEvidenceCommand: DefaultExternalEvidenceCommand}
+	return &Service{Store: authority, Now: now, NonceRetention: 24 * time.Hour}
 }
 
 func authorityUnavailable(op string) error {
@@ -160,7 +142,7 @@ func validPolicyGrants(policy TrustedClientPolicy) bool {
 		return false
 	}
 	for _, capability := range policy.Capabilities {
-		if !slices.Contains([]string{"product_read", "work_define", "work_transition", "work_relate", "work_compact", "cross_scope", "research"}, string(capability)) {
+		if !slices.Contains([]string{"product_read", "work_define", "work_transition", "work_relate", "cross_scope", "research"}, string(capability)) {
 			return false
 		}
 	}

@@ -22,8 +22,8 @@ func assertStoreRevisionWatermark(t *testing.T, s *store.Store, response agentco
 
 func TestPaginationCursorAcrossStoreReopen(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
+	s, service, grant := agentJobsMutationPM1Fixture(t)
+	env := agentJobsMutationEnvelope(t, s, grant)
 	first := dispatchRead(t, s, service, InvokeRequest{
 		Tool: "concord_work_browse", Operation: "list",
 		Input: json.RawMessage(`{"product_id":"prod-alpha","limit":1}`),

@@ -29,7 +29,7 @@
     },
     {
       "criterion": 5,
-      "exemption": "Durable-outcome honesty is proved at both levels: TestOutcomeMismatchIsClosedAndCannotDowngrade (internal/agentcontract/envelope_test.go) and the AJ6-partial-publication scenario of the agent-jobs corpus under TestAgentJobsCorpus (internal/agent/agent_jobs_corpus_test.go)."
+      "exemption": "Durable-outcome honesty is an envelope property. TestOutcomeMismatchIsClosedAndCannotDowngrade (internal/agentcontract/envelope_test.go) proves closed outcome classification without a publication operation."
     }
   ]
 }
@@ -145,8 +145,8 @@ Returns:
 - typed `error`; and
 - one structural `recovery_action`.
 
-`partial` never includes `success`, claims a canonical locator before proof, or
-starts a second operation on retry. Reconciliation uses the same operation ID,
+`partial` never includes `success` or starts a second operation on retry.
+Reconciliation uses the same operation ID,
 expected operation version, and idempotency identity.
 
 ## 5. Error contract
@@ -412,7 +412,6 @@ TS7 must pass:
 - every TS1 final-state/communication/prohibited-effect scenario;
 - all TS5 stale/version/approval/idempotency variants;
 - mutation success without a routine follow-up status call;
-- pending/partial compaction recovery with one versioned operation;
 - authoritative empty vs degraded empty vs unreachable;
 - cursor continuation/tampering/cross-operation misuse;
 - maximum-byte/page/graph/warning/evidence bounds; and
@@ -497,7 +496,5 @@ the guarantee.
 - Criterion 4 is proved by `TestAuthenticatedCursorBindsOperationAndRejectsTampering`
   (`internal/agent/runtime_test.go`).
 - Criterion 5 is proved by `TestOutcomeMismatchIsClosedAndCannotDowngrade`
-  (`internal/agentcontract/envelope_test.go`) and the bound `AJ6-partial-publication`
-  scenario of `.concord/scenarios/agent-jobs.v1.json`, executed by
-  `TestAgentJobsCorpus` (`internal/agent/agent_jobs_corpus_test.go`).
+  (`internal/agentcontract/envelope_test.go`).
   Section 12 records the falsifiers for each guarantee.

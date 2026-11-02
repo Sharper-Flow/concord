@@ -13,7 +13,7 @@ test("the plugin registration set equals the complete host tool catalog", async 
   // registration.
   const plugin = await ConcordAdapterPlugin()
   const catalog = [...new Set([...Object.keys(hostToolSchemas), ...contractOperations.map((operation: any) => operation.tool)])].sort()
-  expect(catalog.length).toBe(8)
+  expect(catalog.length).toBe(7)
   expect(Object.keys(plugin.tool).sort()).toEqual(catalog)
 })
 

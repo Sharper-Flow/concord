@@ -69,11 +69,6 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if active, err := outsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {
-		return err
-	} else if active {
-		return newOutsideRepairRouteFailure("complete_workflow", "workflow completion refused: outside-repair disposition is active")
-	}
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
@@ -151,9 +146,6 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry Definit
 
 func verifyWorkflowCompletionEvidenceAndScopeTx(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData, definition WorkflowDefinition) error {
 	// Clause 1: durable, event-folded evidence bound to the approved contract.
-	if err := requireReviewedClosureQ(ctx, tx, workID); err != nil {
-		return workflowClauseError(err, 1)
-	}
 	if err := verifyCompletionEvidence(ctx, tx, workID, contract.RequiredEvidence, definition.RequiredEvidenceKinds); err != nil {
 		return workflowClauseError(err, 1)
 	}

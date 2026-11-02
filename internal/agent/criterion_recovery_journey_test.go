@@ -2,9 +2,7 @@ package agent
 
 import (
 	"encoding/json"
-	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -18,11 +16,6 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	candidate := *before.Pinned.Pin.Review.Candidate
 	proof := store.WorkPinEvidence{EvidenceKind: "verification", ImmutableSubjectRef: f.proof}
 
-	f.administrativeRecovery(t)
-	after := f.read(t)
-	if !reflect.DeepEqual(before.Pinned.Contract, after.Pinned.Contract) || *after.Pinned.Pin.Review.Candidate != candidate || !slices.Contains(after.Pinned.Pin.VerdictEvidence, proof) {
-		t.Fatal("recovery-only correction invalidated the candidate, criteria or applicable proof")
-	}
 	f.env.SessionRef, f.env.AgentRef = "session-reevaluator", "agent-evaluator"
 	verdict := map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof}}}}
 	spineOK(t, f.action(t, "record_verdict", verdict))
@@ -98,7 +91,6 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise",
 		"idempotency_key": "journey-corrected-confirm",
 	}))
-	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}))
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 	done := f.read(t)
 	if done.Pinned.Pin.Lifecycle != "completed" || *done.Pinned.Pin.Review.Candidate != candidate || len(done.Pinned.Pin.VerifiedCriteria) != 1 ||

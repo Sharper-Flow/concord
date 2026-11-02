@@ -71,7 +71,6 @@ func completedDeliveryFixtureWithAssertions(t *testing.T, workID string, asserti
 		if err := f.run(ctx, "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
 			t.Fatal(err)
 		}
-		bindCompletionClosure(t, s, workID, f.owner)
 		if err := f.run(ctx, "complete", "complete", readWorkVersion(t, s, workID), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
 			t.Fatal(err)
 		}
@@ -361,7 +360,7 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 	valid := unsignedDeliveryCorrectionRequest(t, s, workID, version, targetEventID, targetSeq, targetPayloadVersion)
 	eventsBefore := countWorkflowSubjectEvents(t, s, workID)
 	var nonAssertion string
-	if err := s.db.QueryRow(`SELECT r.event_id FROM effect_receipts r JOIN workflow_phase_exits x ON x.work_id=r.subject_id AND x.exit_seq=r.effect_seq WHERE r.subject_id=? AND r.kind=? AND r.delivery_assertion=0 AND x.action_id='confirm_premise'`, workID, WorkflowActionCompleted).Scan(&nonAssertion); err != nil {
+	if err := s.db.QueryRow(`SELECT event_id FROM effect_receipts WHERE subject_id=? AND kind=? AND delivery_assertion=0 ORDER BY effect_seq LIMIT 1`, workID, WorkflowActionCompleted).Scan(&nonAssertion); err != nil {
 		t.Fatal(err)
 	}
 

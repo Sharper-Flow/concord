@@ -531,7 +531,6 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if (*resolved.Sources)[0] != wantSource {
 		t.Fatalf("pre-backup source = %+v, want the exact linked revision 1 descriptor %+v", (*resolved.Sources)[0], wantSource)
 	}
-	resolvedViewID := resolved.ViewID
 
 	// The original pack rows the restore and rebuild must reproduce, read
 	// only after every research mutation is final.
@@ -643,8 +642,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	}
 
 	// The preservation boundary: terminate every consumer legally, retire the
-	// pack through the explicit retirement route, and prove the retained
-	// selection reads typed missing without resurrecting the retired corpus.
+	// pack through the explicit retirement route, and prove retirement empties
+	// the corpus.
 	terminalizeResearchOwner(t, restored, "evidence-research-owner")
 	terminalizeResearchOwner(t, restored, "evidence-required-consumer")
 	terminalizeResearchOwner(t, restored, "evidence-optional-consumer")
@@ -671,26 +670,14 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if err != nil || len(retired.Candidates) != 1 || retired.Candidates[0].Classification != ResearchRetirementRetired {
 		t.Fatalf("legal retirement = %+v err=%v, want the retired classification", retired, err)
 	}
-	missingViewRaw := readViewBytes("after retirement", restored.DatabaseForTesting())
-	var missingDocument map[string]any
-	if err := json.Unmarshal(missingViewRaw, &missingDocument); err != nil {
-		t.Fatal(err)
+	// The context consumer's terminal transition disposed its work context
+	// with its other workflow step records, so no selection outlives it.
+	disposedView, err := readWorkContextView(ctx, restored.DatabaseForTesting(), contextWork)
+	if err != nil {
+		t.Fatalf("after retirement view read refused: %v", err)
 	}
-	missingEntries := researchEntries(t, missingDocument, missingViewRaw)
-	if len(missingEntries) != 1 {
-		t.Fatalf("post-retirement view carries %d research entries, want the retained selection", len(missingEntries))
-	}
-	missingEntry, _ := missingEntries[0].(map[string]any)
-	if missingEntry["state"] != "missing" || missingEntry["required"] != true {
-		t.Fatalf("post-retirement entry = %v, want fail-closed missing", missingEntry)
-	}
-	assertUnresolvedEntryCarriesNoContent(t, missingEntry, missingViewRaw)
-	missingSelection, _ := missingEntry["selection"].(map[string]any)
-	if missingSelection["pack_id"] != pack.PackID || missingSelection["revision"].(float64) != 1 || missingSelection["finding_id"] != "f1" {
-		t.Fatalf("post-retirement selection = %+v, want the retained exact tuple", missingSelection)
-	}
-	if missingEntry["view_id"] != resolvedViewID {
-		t.Fatalf("post-retirement view_id = %v, want the retained %q", missingEntry["view_id"], resolvedViewID)
+	if disposedView != nil && len(disposedView.ResearchFindings) != 0 {
+		t.Fatalf("terminal context consumer retained research selections: %+v", disposedView.ResearchFindings)
 	}
 	retiredPrints := []struct {
 		name  string
@@ -715,8 +702,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 			t.Fatalf("retired corpus %s = %v, want the legal retirement to empty it", name, afterRetire[name])
 		}
 	}
-	if !strings.Contains(strings.Join(afterRetire["work_context_state"], "\x1e"), `"research_finding_refs"`) {
-		t.Fatalf("post-retirement current context lost the retained selection declaration")
+	if strings.Contains(strings.Join(afterRetire["work_context_state"], "\x1e"), contextWork) {
+		t.Fatalf("terminal context consumer kept its work context declaration: %v", afterRetire["work_context_state"])
 	}
 }
 

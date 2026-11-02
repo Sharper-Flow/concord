@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -173,16 +174,15 @@ type WorkerSample struct {
 
 // WorkerResult is the bounded line-delimited result emitted by one child.
 type WorkerResult struct {
-	Worker       int            `json:"worker"`
-	PID          int            `json:"pid"`
-	DBIdentity   string         `json:"db_identity"`
-	EventIDs     []string       `json:"event_ids,omitempty"`
-	OperationIDs []string       `json:"operation_ids,omitempty"`
-	Outcome      WorkerOutcome  `json:"outcome"`
-	FailureKind  FailureKind    `json:"failure_kind,omitempty"`
-	Attempts     int            `json:"attempts,omitempty"`
-	Profile      string         `json:"profile,omitempty"`
-	Samples      []WorkerSample `json:"samples,omitempty"`
+	Worker      int            `json:"worker"`
+	PID         int            `json:"pid"`
+	DBIdentity  string         `json:"db_identity"`
+	EventIDs    []string       `json:"event_ids,omitempty"`
+	Outcome     WorkerOutcome  `json:"outcome"`
+	FailureKind FailureKind    `json:"failure_kind,omitempty"`
+	Attempts    int            `json:"attempts,omitempty"`
+	Profile     string         `json:"profile,omitempty"`
+	Samples     []WorkerSample `json:"samples,omitempty"`
 	// DurableCommits counts the durable transactions this child committed
 	// through the durable owner (CD-0207 D1). It is set only by the
 	// durable_mixed scenario.
@@ -322,62 +322,27 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 		t.Fatal(err)
 	}
 
-	claim := testClaim("conformance-fence", "parent-claim")
-	if _, err := ClaimStepAuthorized(ctx, s, claim, nil); err != nil {
-		t.Fatal(err)
-	}
-	results = run("fence")
-	if countOutcome(results, outcomeAccepted) != 10 {
-		t.Fatalf("fence claims = %+v, want ten accepted epochs", report.Scenarios["fence"])
-	}
-	if got := maxAttemptEpoch(t, s, "conformance-fence"); got != 11 {
-		t.Fatalf("fence claims ended at epoch %d, want 11", got)
-	}
-
-	staleClaim := testClaim("conformance-stale", "stale-parent")
-	if _, err := ClaimStepAuthorized(ctx, s, staleClaim, nil); err != nil {
-		t.Fatal(err)
-	}
-	secondClaim := testClaim("conformance-stale", "stale-second-claim")
-	secondClaim.PrincipalRef = "operator"
-	secondClaim.RequestID = "stale-second-claim-request"
-	if _, err := ClaimStepAuthorized(ctx, s, secondClaim, nil); err != nil {
-		t.Fatal(err)
-	}
-	results = run("stale_completion")
-	if countOutcome(results, outcomeStaleAttempt) != 10 {
-		t.Fatalf("stale completions = %+v, want ten stale attempts", report.Scenarios["stale_completion"])
-	}
-
-	claim = testClaim("conformance-idempotent", "parent-idempotent-claim")
-	if _, err := ClaimStepAuthorized(ctx, s, claim, nil); err != nil {
-		t.Fatal(err)
-	}
 	results = run("idempotent")
 	if countOutcome(results, outcomeAccepted) != 1 || countOutcome(results, outcomeDuplicate) != 9 {
 		t.Fatalf("idempotent retries = %+v, want 1 accepted/9 replayed", report.Scenarios["idempotent"])
 	}
 
-	claim = testClaim("conformance-idempotency-conflict", "parent-conflict-claim")
-	if _, err := ClaimStepAuthorized(ctx, s, claim, nil); err != nil {
-		t.Fatal(err)
-	}
 	results = run("idempotency_conflict")
 	if countOutcome(results, outcomeAccepted) != 1 || countOutcome(results, outcomeIdempotencyConflict) != 9 {
 		t.Fatalf("idempotency conflicts = %+v, want 1 accepted/9 conflicts", report.Scenarios["idempotency_conflict"])
 	}
 
-	results = run("step_read")
-	if maxAttemptEpoch(t, s, "conformance-fence") != 11 {
-		t.Fatal("Step reads advanced the fence epoch")
-	}
-	if countOutcome(results, outcomeAccepted) != 10 {
-		t.Fatalf("Step reads = %+v, want ten successful reads", report.Scenarios["step_read"])
-	}
-
-	// Ten children mix public reads with durable claim and completion commits.
+	// Ten children mix reads with ordinary durable atomic commits.
 	if err := prepareDurableMixedFixtures(t, ctx, s); err != nil {
 		t.Fatal(err)
+	}
+	beforeRead := retirementUpgradeSnapshot(t, s.db)
+	results = run("operation_read")
+	if countOutcome(results, outcomeAccepted) != 10 {
+		t.Fatalf("operation reads = %+v, want ten successful reads", report.Scenarios["operation_read"])
+	}
+	if after := retirementUpgradeSnapshot(t, s.db); !reflect.DeepEqual(beforeRead, after) {
+		t.Fatal("operation reads changed persisted state")
 	}
 	mixedResults, err := runConformanceWorkers(ctx, path, durableMixedScenario)
 	if err != nil {
@@ -617,33 +582,17 @@ func runWorkerScenario(ctx context.Context, s *Store, worker int, scenario strin
 		var applied ApplyOperationResult
 		applied, err = ApplyOperationWithResult(ctx, s, op)
 		result.EventIDs = applied.EventIDs
-	case "fence":
-		claim := testClaim("conformance-fence", fmt.Sprintf("worker-claim-%d", worker))
-		claim.PrincipalRef = fmt.Sprintf("agent-%d", worker)
-		claim.RequestID = fmt.Sprintf("fence-request-%d", worker)
-		var fence FenceResult
-		fence, err = claimStepAuthorizedWithRegistry(ctx, s, claim, false, nil, nil)
-		result.OperationIDs = []string{fence.OpID}
-	case "stale_completion":
-		req := completionRequest("conformance-stale", 1, fmt.Sprintf("stale-key-%d", worker), `{"stale":true}`)
-		var fence FenceResult
-		fence, err = completeStepWithRegistry(ctx, s, req, false, nil)
-		result.OperationIDs = []string{fence.OpID}
 	case "idempotent":
-		req := completionRequest("conformance-idempotent", 1, "same-result", `{"accepted":true}`)
-		var fence FenceResult
-		fence, err = completeStepWithRegistry(ctx, s, req, false, nil)
-		result.OperationIDs = []string{fence.OpID}
-		if fence.Replayed {
-			result.Outcome = outcomeDuplicate
-		}
+		op := conformanceCreationOperation("conformance-idempotent", "idempotent-membership")
+		op.ExpectedVersions = nil
+		_, err = ApplyOperationWithResult(ctx, s, op)
 	case "idempotency_conflict":
-		req := completionRequest("conformance-idempotency-conflict", 1, "same-conflict", fmt.Sprintf(`{"worker":%d}`, worker))
-		var fence FenceResult
-		fence, err = completeStepWithRegistry(ctx, s, req, false, nil)
-		result.OperationIDs = []string{fence.OpID}
-	case "step_read":
-		_, err = Step(ctx, s, "conformance-fence")
+		op := conformanceCreationOperation("conformance-idempotency-conflict", "conflict-membership")
+		op.ExpectedVersions = nil
+		op.Events[0].Payload = json.RawMessage(fmt.Sprintf(`{"display_name":"worker-%d","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`, worker))
+		_, err = ApplyOperationWithResult(ctx, s, op)
+	case "operation_read":
+		_, err = readOperationResult(ctx, s.db, durableMixedProbeOp)
 	case "duplicate":
 		retry := conformanceCreationOperation("duplicate-conformance", "duplicate-membership")
 		retry.ExpectedVersions = nil
@@ -715,19 +664,16 @@ func runLoadScenario(ctx context.Context, s *Store, worker int, scenario string)
 	return result
 }
 
-// durableMixedWorkerPlan builds one worker's durable operation identities for
-// the durable_mixed scenario. Op IDs and idempotency keys are unique per
-// worker, so the plan carries no same-entity contention; the `same` scenario
-// owns that race. The claim and the completion use distinct idempotency keys.
-func durableMixedWorkerPlan(worker int) (ClaimRequest, CompleteRequest) {
-	opID := fmt.Sprintf("conformance-durable-mixed-%d", worker)
-	claim := testClaim(opID, fmt.Sprintf("mixed-claim-%d", worker))
-	completion := completionRequest(opID, 1, fmt.Sprintf("mixed-complete-%d", worker), fmt.Sprintf(`{"worker":%d}`, worker))
-	return claim, completion
+// Each mixed worker commits two distinct atomic operations. The same-entity
+// scenario separately owns contention and version-conflict assertions.
+func durableMixedWorkerPlan(worker int) (Operation, Operation) {
+	first := fmt.Sprintf("conformance-durable-mixed-%d-first", worker)
+	last := fmt.Sprintf("conformance-durable-mixed-%d-last", worker)
+	return conformanceCreationOperation(first, first+"-membership"), conformanceCreationOperation(last, last+"-membership")
 }
 
 // prepareDurableMixedFixtures seeds the read targets the durable_mixed
-// children use: a claimed probe operation for the fence read, a probe product
+// children use: a completed operation for the result read, a probe product
 // for the membership read, and a research pack for the canonical research
 // read. Everything lands in the temporary conformance database.
 func prepareDurableMixedFixtures(t *testing.T, ctx context.Context, s *Store) error {
@@ -735,9 +681,7 @@ func prepareDurableMixedFixtures(t *testing.T, ctx context.Context, s *Store) er
 	if _, err := ApplyOperationWithResult(ctx, s, conformanceCreationOperation(durableMixedProbeProduct, durableMixedProbeProduct+"-membership")); err != nil {
 		return fmt.Errorf("durable_mixed probe product: %w", err)
 	}
-	if _, err := ClaimStepAuthorized(ctx, s, testClaim(durableMixedProbeOp, "mixed-probe-claim"), nil); err != nil {
-		return fmt.Errorf("durable_mixed probe claim: %w", err)
-	}
+	terminalCleanupSQL(t, s, fmt.Sprintf(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,step_id,step_kind,accepted_inputs_digest,principal_ref,request_id,observed_at,contract_digest,result_kind) VALUES('%s',1,'work-1','fixture.atomic','probe','internal_sqlite','%s','operator','probe-request','2026-08-07T00:00:00Z','%s','completed')`, durableMixedProbeOp, testDigest("probe"), testManifestDigest))
 	seedResearchWork(t, s, durableMixedResearchOwner)
 	if _, err := createResearchPack(ctx, s, CreateResearchPackRequest{
 		PackID:      durableMixedResearchPackID,
@@ -751,20 +695,20 @@ func prepareDurableMixedFixtures(t *testing.T, ctx context.Context, s *Store) er
 
 // runDurableMixedScenario performs one worker's durable_mixed plan: every
 // iteration reads through the surviving public read owners, and the first and
-// last iterations add the worker's durable claim and completion. The commit
+// last iterations add the worker's durable atomic operations. The commit
 // path is the durable owner's (CD-0050 D2, CD-0207 D1), so a durable commit
 // that returns success is durable and waits for no WAL reader. Every
 // operation appends one WorkerSample under its named profile.
 func runDurableMixedScenario(ctx context.Context, s *Store, worker int) WorkerResult {
 	result := WorkerResult{Worker: worker, Outcome: outcomeAccepted, Attempts: 1}
-	claim, completion := durableMixedWorkerPlan(worker)
+	first, last := durableMixedWorkerPlan(worker)
 	invariant := func() WorkerResult {
 		result.Outcome = outcomeInvariantViolation
 		result.FailureKind = KindInvariantViolation
 		return result
 	}
 	for iteration := 0; iteration < durableMixedIterations; iteration++ {
-		_, err := Step(ctx, s, durableMixedProbeOp)
+		_, err := readOperationResult(ctx, s.db, durableMixedProbeOp)
 		if !appendMixedSample(&result, mixedSampleProfileRead, err) {
 			return result
 		}
@@ -778,26 +722,26 @@ func runDurableMixedScenario(ctx context.Context, s *Store, worker int) WorkerRe
 		}
 		switch iteration {
 		case 0:
-			fence, err := ClaimStepAuthorized(ctx, s, claim, nil)
+			err := s.TransactDurable(ctx, func(tx *Transaction) error {
+				_, err := ApplyOperationTx(ctx, tx, first)
+				return err
+			})
 			if !appendMixedSample(&result, mixedSampleProfileDurable, err) {
 				return result
-			}
-			if fence.AttemptEpoch != 1 || fence.Replayed {
-				return invariant()
 			}
 		case durableMixedIterations - 1:
-			fence, err := CompleteStep(ctx, s, completion)
+			err := s.TransactDurable(ctx, func(tx *Transaction) error {
+				_, err := ApplyOperationTx(ctx, tx, last)
+				return err
+			})
 			if !appendMixedSample(&result, mixedSampleProfileDurable, err) {
 				return result
 			}
-			if fence.Replayed || fence.ResultKind != ResultCompleted {
-				return invariant()
-			}
-			readback, err := Step(ctx, s, completion.OpID)
+			readback, err := s.ProjectsForProduct(ctx, last.Events[0].SubjectID)
 			if !appendMixedSample(&result, mixedSampleProfileRead, err) {
 				return result
 			}
-			if readback.AttemptEpoch != completion.AttemptEpoch || readback.ResultKind != ResultCompleted || readback.ResultPayload != completion.ResultPayload {
+			if len(readback) != 1 {
 				return invariant()
 			}
 		}
@@ -828,21 +772,17 @@ func appendMixedSample(result *WorkerResult, profile string, err error) bool {
 
 // verifyDurableMixedEffects proves from the parent handle that each worker's
 // durable commits landed and their effects are visible to a fresh read: the
-// completion is the newest attempt with its payload, and the probe research
-// pack still reads current.
+// products have their recorded memberships, and the probe research pack
+// still reads current.
 func verifyDurableMixedEffects(t *testing.T, ctx context.Context, s *Store, workers int) error {
 	t.Helper()
 	for worker := 0; worker < workers; worker++ {
-		claim, completion := durableMixedWorkerPlan(worker)
-		fence, err := Step(ctx, s, claim.OpID)
-		if err != nil {
-			return fmt.Errorf("durable_mixed worker %d effect read: %w", worker, err)
-		}
-		if fence.AttemptEpoch != completion.AttemptEpoch || fence.ResultKind != ResultCompleted || fence.ResultPayload != completion.ResultPayload {
-			return fmt.Errorf("durable_mixed worker %d effect = epoch %d kind %q payload %q, want epoch %d kind %q payload %q", worker, fence.AttemptEpoch, fence.ResultKind, fence.ResultPayload, completion.AttemptEpoch, ResultCompleted, completion.ResultPayload)
-		}
-		if got := maxAttemptEpoch(t, s, claim.OpID); got != completion.AttemptEpoch {
-			return fmt.Errorf("durable_mixed worker %d newest attempt epoch = %d, want %d", worker, got, completion.AttemptEpoch)
+		first, last := durableMixedWorkerPlan(worker)
+		for _, operation := range []Operation{first, last} {
+			projects, err := s.ProjectsForProduct(ctx, operation.Events[0].SubjectID)
+			if err != nil || len(projects) != 1 {
+				return fmt.Errorf("durable_mixed worker %d effect read: projects=%v err=%v", worker, projects, err)
+			}
 		}
 	}
 	pack, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: durableMixedResearchPackID, Limit: 100})
@@ -936,10 +876,6 @@ func classifyOutcome(kind FailureKind, err error, prior WorkerOutcome) WorkerOut
 		return outcomeBusyEscaped
 	}
 	return outcomeError
-}
-
-func completionRequest(opID string, epoch int64, key, payload string) CompleteRequest {
-	return CompleteRequest{OpID: opID, AttemptEpoch: epoch, ResultKind: ResultCompleted, ResultPayload: payload, PrincipalRef: "agent-shared", Tool: "execute", IdempotencyKey: key, RequestID: key + "-request", ObservedAt: time.Now().UTC(), ResultEventIDs: []string{"effect-" + key}}
 }
 
 func lifecycleRelationOperation(worker int) Operation {
@@ -1291,15 +1227,6 @@ func countEffectReceipts(s *Store, eventID string) (int, error) {
 		return 0, fmt.Errorf("read effect receipt %s: %w", eventID, err)
 	}
 	return count, nil
-}
-
-func maxAttemptEpoch(t *testing.T, s *Store, opID string) int64 {
-	t.Helper()
-	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0) FROM durable_operations WHERE op_id=?`, opID).Scan(&epoch); err != nil {
-		t.Fatal(err)
-	}
-	return epoch
 }
 
 func emitWorker(result WorkerResult) { _ = json.NewEncoder(os.Stdout).Encode(result) }

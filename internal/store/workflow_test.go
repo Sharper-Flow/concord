@@ -529,7 +529,6 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 		if err := advanceWorkflowTestInstanceToStep(t.Context(), s, workID, "release", executor); err != nil {
 			t.Fatal(err)
 		}
-		bindCompletionClosure(t, s, workID, f.owner)
 	}
 	// Fault the mutable gate inputs only after the real current Review and
 	// proof path has run. Captured receipts and immutable events stay intact.
@@ -656,7 +655,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 	t.Parallel()
 	s := openTemp(t)
 	expectedColumns := map[string][]string{
-		"workflow_instances":             {"work_id", "definition_ref", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "outside_repair_state", "completion_payload", "completion_occurred_at", "unhealthy_verdict_seq"},
+		"workflow_instances":             {"work_id", "definition_ref", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "completion_payload", "completion_occurred_at", "unhealthy_verdict_seq"},
 		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_digest", "law_change", "supersession_seq", "last_healthy_seq", "decision_domains"},
 		"workflow_contract_predicates":   {"work_id", "contract_version", "predicate_id", "ordinal", "outcome_kind", "outcome_payload"},
 		"workflow_candidate_sets":        {"work_id", "contract_version", "candidate_kind", "candidate_ref", "candidate_role", "candidate_scope", "recorded_at", "recorded_by"},
@@ -680,7 +679,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 		"workflow_decision_records": {{"work_id", "question"}}, "workflow_design_records": {{"work_id", "work_version"}}, "workflow_premise_confirmations": {{"work_id", "contract_version"}},
 	}
 	enumFragments := map[string][]string{
-		"workflow_instances": {"'planned'", "'superseded'", "'outside_repair'", "'active'", "'resumed'"}, "workflow_contracts": {}, "workflow_contract_predicates": {"'exists'", "'check'"},
+		"workflow_instances": {"'planned'", "'superseded'", "'completed'"}, "workflow_contracts": {}, "workflow_contract_predicates": {"'exists'", "'check'"},
 		"workflow_candidate_sets": {"'work_item'", "candidate_role IN ('include')"}, "workflow_actors": {"'agent'", "'operator'"},
 		"workflow_checkpoints":      {"'internal_sqlite'", "'cross_authority'", "'external_effect'"},
 		"workflow_impact_edges":     {"'depends_on'", "'work_item'"},

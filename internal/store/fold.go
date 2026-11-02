@@ -15,9 +15,6 @@ type writeScope struct {
 	// eventIDs records this scope's successful appends in write order, including
 	// nested operations. Callers copy only the slice their operation appended.
 	eventIDs []string
-	// Only the validated outside-repair reconciliation writer grants this exact
-	// event permission to complete held work. It is local to that writer call.
-	outsideRepairLifecycleEvent *Event
 	// registry is the definition source the transaction's workflow writers
 	// resolve pinned definitions through. A nil registry selects the builtin
 	// registry; a caller-selected registry is bound before any write and is
@@ -58,15 +55,6 @@ func scopeDefinitionRegistry(scope *writeScope) DefinitionRegistry {
 		return BuiltinWorkflowRegistry()
 	}
 	return scope.registry
-}
-
-func (s *writeScope) permitsOutsideRepairLifecycle(tx *sql.Tx, event Event, lifecycle string) bool {
-	if s == nil || s.tx != tx || !s.guard.Active() || s.outsideRepairLifecycleEvent == nil {
-		return false
-	}
-	authorized := s.outsideRepairLifecycleEvent
-	return lifecycle == "completed" && event.Kind == WorkflowOutsideRepairReconciled &&
-		authorized.EventID == event.EventID && authorized.SubjectID == event.SubjectID && authorized.Seq == event.Seq
 }
 
 // newWriteScope binds an unused scope to an open transaction. enter opens the

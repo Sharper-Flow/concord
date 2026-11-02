@@ -131,8 +131,8 @@ func splitToolOperationID(id string) toolOperation {
 // dialects (page-required and page-optional).
 func TestTopLevelLimitAnswersFirstCall(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
+	s, service, grant := agentJobsMutationPM1Fixture(t)
+	env := agentJobsMutationEnvelope(t, s, grant)
 	for i := 1; i <= 3; i++ {
 		capture := dispatchMutation(t, s, service, InvokeRequest{
 			Tool:      "concord_work_define",
@@ -143,7 +143,7 @@ func TestTopLevelLimitAnswersFirstCall(t *testing.T) {
 			t.Fatalf("capture seed %d outcome=%s error=%+v", i, capture.Outcome, capture.Error)
 		}
 	}
-	readEnv := agentJobsMutationEnvelope(t, s, grant, "proj-web")
+	readEnv := agentJobsMutationEnvelope(t, s, grant)
 	resp := dispatchRead(t, s, service, InvokeRequest{
 		Tool:      "concord_work_browse",
 		Operation: "list",
@@ -168,8 +168,8 @@ func TestTopLevelLimitAnswersFirstCall(t *testing.T) {
 // either bounds the page.
 func TestEffectiveLimitPrecedence(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
+	s, service, grant := agentJobsMutationPM1Fixture(t)
+	env := agentJobsMutationEnvelope(t, s, grant)
 	for i := 1; i <= 4; i++ {
 		capture := dispatchMutation(t, s, service, InvokeRequest{
 			Tool:      "concord_work_define",
@@ -180,7 +180,7 @@ func TestEffectiveLimitPrecedence(t *testing.T) {
 			t.Fatalf("capture seed %d outcome=%s error=%+v", i, capture.Outcome, capture.Error)
 		}
 	}
-	readEnv := agentJobsMutationEnvelope(t, s, grant, "proj-web")
+	readEnv := agentJobsMutationEnvelope(t, s, grant)
 	listItems := func(input string) []json.RawMessage {
 		t.Helper()
 		resp := dispatchRead(t, s, service, InvokeRequest{
@@ -215,8 +215,8 @@ func TestEffectiveLimitPrecedence(t *testing.T) {
 // limit, and the continuation must not repeat the first page's rows.
 func TestTopLevelLimitCursorContinuation(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	readEnv := agentJobsMutationEnvelope(t, s, grant, "proj-web")
+	s, service, grant := agentJobsMutationPM1Fixture(t)
+	readEnv := agentJobsMutationEnvelope(t, s, grant)
 	first := dispatchRead(t, s, service, InvokeRequest{
 		Tool:      "concord_work_browse",
 		Operation: "list",

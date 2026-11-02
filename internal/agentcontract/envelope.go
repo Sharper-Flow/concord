@@ -20,10 +20,8 @@ const MaxResultEnvelopeBytes = 51200
 type Outcome string
 
 const (
-	OutcomeOK      Outcome = "ok"
-	OutcomePending Outcome = "pending"
-	OutcomePartial Outcome = "partial"
-	OutcomeError   Outcome = "error"
+	OutcomeOK    Outcome = "ok"
+	OutcomeError Outcome = "error"
 )
 
 type Origin string
@@ -46,16 +44,6 @@ type EffectState string
 const (
 	EffectNone     EffectState = "none"
 	EffectPossible EffectState = "possible"
-	EffectPartial  EffectState = "partial"
-)
-
-type OperationState string
-
-const (
-	OperationPending   OperationState = "pending"
-	OperationPartial   OperationState = "partial"
-	OperationFailed    OperationState = "failed"
-	OperationCompleted OperationState = "completed"
 )
 
 // Scope is the wire form of resolved_scope. Its members are exactly the
@@ -179,15 +167,6 @@ func validateOptions(err TypedError) error {
 	return nil
 }
 
-type OperationRef struct {
-	ID          string         `json:"id"`
-	Kind        string         `json:"kind"`
-	Version     string         `json:"version"`
-	State       OperationState `json:"state"`
-	CurrentStep string         `json:"current_step"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-}
-
 // Envelope is the closed TS7 wire envelope. Domain payloads remain raw JSON so
 // their owning TS3/TS4 contract can evolve independently; envelope structure is
 // validated here and by the canonical JSON schema.
@@ -214,10 +193,6 @@ type Envelope struct {
 	Result                 json.RawMessage   `json:"result,omitempty"`
 	ChangedRefs            *[]ChangedRef     `json:"changed_refs,omitempty"`
 	NextValidIntents       *[]NextIntent     `json:"next_valid_intents,omitempty"`
-	OperationRef           *OperationRef     `json:"operation_ref,omitempty"`
-	NextAction             *RecoveryAction   `json:"next_action,omitempty"`
-	CompletedSteps         []string          `json:"completed_steps,omitempty"`
-	FailedStep             string            `json:"failed_step,omitempty"`
 	Error                  *TypedError       `json:"error,omitempty"`
 }
 
@@ -247,19 +222,6 @@ func NewOKMutation(base Envelope, payload json.RawMessage, changed []ChangedRef,
 		intents = []NextIntent{}
 	}
 	base.NextValidIntents = &intents
-	return base
-}
-func NewPending(base Envelope, ref OperationRef, next RecoveryAction) Envelope {
-	base.Outcome = OutcomePending
-	base.OperationRef = &ref
-	base.NextAction = &next
-	return base
-}
-func NewPartial(base Envelope, ref OperationRef, steps []string, err TypedError) Envelope {
-	base.Outcome = OutcomePartial
-	base.OperationRef = &ref
-	base.CompletedSteps = steps
-	base.Error = &err
 	return base
 }
 func NewCoreError(base Envelope, err TypedError) Envelope {
@@ -321,7 +283,7 @@ func (e Envelope) validateInvariants() error {
 	if e.Origin != OriginCore && e.Origin != OriginAdapter {
 		return errors.New("unknown envelope origin")
 	}
-	if e.Outcome != OutcomeOK && e.Outcome != OutcomePending && e.Outcome != OutcomePartial && e.Outcome != OutcomeError {
+	if e.Outcome != OutcomeOK && e.Outcome != OutcomeError {
 		return errors.New("unknown envelope outcome")
 	}
 	if !unresolvedWrapper {
@@ -350,10 +312,6 @@ func (e Envelope) validateInvariants() error {
 	switch e.Outcome {
 	case OutcomeOK:
 		return e.validateOK()
-	case OutcomePending:
-		return e.validatePending()
-	case OutcomePartial:
-		return e.validatePartial()
 	case OutcomeError:
 		return e.validateError()
 	}
@@ -421,7 +379,7 @@ func (e Envelope) validateOK() error {
 	if isMutation(e.Tool, e.Operation) && (hasItems || e.ChangedRefs == nil || e.NextValidIntents == nil) {
 		return errors.New("mutation ok envelope requires result and mutation metadata")
 	}
-	if e.Error != nil || e.OperationRef != nil || e.NextAction != nil {
+	if e.Error != nil {
 		return errors.New("ok envelope contains another outcome")
 	}
 	return nil
@@ -440,32 +398,8 @@ func (e Envelope) nextIntentCount() int {
 	}
 	return len(*e.NextValidIntents)
 }
-func (e Envelope) validatePending() error {
-	if (e.Tool != "concord_work_compact" && e.Tool != "concord_work_transition") || e.OperationRef == nil || e.OperationRef.State != OperationPending || e.NextAction == nil || e.Error != nil || len(e.Items) > 0 || len(e.Result) > 0 {
-		return errors.New("invalid pending envelope")
-	}
-	if err := validateOperationRef(*e.OperationRef); err != nil {
-		return err
-	}
-	return validateRecoveryAction(*e.NextAction)
-}
-func (e Envelope) validatePartial() error {
-	if (e.Tool != "concord_work_compact" && e.Tool != "concord_work_transition") || e.OperationRef == nil || (e.OperationRef.State != OperationPartial && e.OperationRef.State != OperationFailed) || len(e.CompletedSteps) == 0 || len(e.CompletedSteps) > 32 || !boundedStrings(e.CompletedSteps, 64) || (e.FailedStep != "" && !BoundedBytes(e.FailedStep, 1, 64)) || e.Error == nil || e.Error.EffectState != EffectPartial || e.Error.AdapterReason != "" {
-		return errors.New("invalid partial envelope")
-	}
-	if err := validateOperationRef(*e.OperationRef); err != nil {
-		return err
-	}
-	return validateError(*e.Error)
-}
-func validateOperationRef(ref OperationRef) error {
-	if !BoundedBytes(ref.ID, 1, 128) || !BoundedBytes(ref.Kind, 1, 64) || !BoundedBytes(ref.Version, 1, 128) || !BoundedBytes(ref.CurrentStep, 1, 64) || ref.UpdatedAt.IsZero() {
-		return errors.New("invalid operation reference")
-	}
-	return nil
-}
 func (e Envelope) validateError() error {
-	if e.Error == nil || e.Error.EffectState == "" || e.Error.EffectState == EffectPartial || len(e.Items) > 0 || len(e.Result) > 0 {
+	if e.Error == nil || e.Error.EffectState == "" || len(e.Items) > 0 || len(e.Result) > 0 {
 		return errors.New("invalid error envelope")
 	}
 	if err := validateError(*e.Error); err != nil {
@@ -652,11 +586,6 @@ var enforcedRecoveryCouplings = map[string][]string{
 	"stale_context":      {"refresh_context"},
 	"timeout":            {"retry_same_request"},
 	"version_conflict":   {"reread_entities"},
-	// The outside-repair active refusal (CD-0210) carries the declared route
-	// refs the store names: reconcile and resume. The work pin pre-records the
-	// same routes, so a refusal that reaches a caller names routes the caller
-	// can dispatch without a second read.
-	"outside_repair_active": {"use_declared_route"},
 }
 
 // PublicRecovery projects a store-proposed recovery onto the contract. A

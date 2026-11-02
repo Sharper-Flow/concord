@@ -10,7 +10,6 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
@@ -214,25 +213,6 @@ type correctDeliveryMutationInput struct {
 	DeliveryState        string `json:"delivery_state"`
 	IdempotencyKey       string `json:"idempotency_key"`
 }
-type compactPublishInput struct {
-	WorkID          string                      `json:"work_id"`
-	ExpectedVersion int64                       `json:"expected_version"`
-	Content         string                      `json:"content"`
-	ContentDigest   string                      `json:"content_digest"`
-	HomeProjectID   string                      `json:"home_project_id"`
-	HomeLocatorID   string                      `json:"home_locator_id"`
-	IdempotencyKey  string                      `json:"idempotency_key"`
-	Evidence        []agentcontract.EvidenceRef `json:"evidence"`
-}
-type compactReconcileInput struct {
-	OperationID              string                      `json:"operation_id"`
-	ExpectedOperationVersion int64                       `json:"expected_operation_version"`
-	WorkID                   string                      `json:"work_id"`
-	ExpectedWorkVersion      int64                       `json:"expected_work_version"`
-	ExpectedProofDigest      string                      `json:"expected_proof_digest"`
-	IdempotencyKey           string                      `json:"idempotency_key"`
-	Evidence                 []agentcontract.EvidenceRef `json:"evidence"`
-}
 
 type mutationEffect func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error)
 
@@ -257,11 +237,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base agentcontra
 		return agentcontract.Envelope{}, false, nil
 	}
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
-	operationKind := r.Operation
-	if r.Tool == "concord_work_compact" {
-		operationKind = "claim"
-	}
-	idempotency := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}
+	idempotency := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}
 	record, found, err := r.Store.LookupMutationIdempotency(ctx, idempotency)
 	if err != nil {
 		return agentcontract.Envelope{}, false, err
@@ -269,14 +245,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base agentcontra
 	if !found {
 		return agentcontract.Envelope{}, false, nil
 	}
-	storedDigest, opID, scopeJSON := record.CanonicalDigest, record.OperationID, record.AuthorizedScopeSnapshot
-	if r.Tool == "concord_work_compact" {
-		accepted, err := r.Store.AcceptedInputsDigest(ctx, opID)
-		if err != nil {
-			return agentcontract.Envelope{}, false, err
-		}
-		storedDigest = accepted
-	}
+	storedDigest, scopeJSON := record.CanonicalDigest, record.AuthorizedScopeSnapshot
 	if storedDigest != digest {
 		return coreError(base, "idempotency_conflict", "idempotency key was reused with a different canonical request", "retry_same_request", false), true, nil
 	}
@@ -299,7 +268,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base agentcontra
 	if durabilityErr != nil {
 		return coreError(base, "invariant_violation", durabilityErr.Error(), "contact_operator", false), true, nil
 	}
-	return r.replayAuthorizedMutation(ctx, base, op, record, authorizedScope, idempotency, durable, opID)
+	return r.replayAuthorizedMutation(ctx, base, op, record, authorizedScope, idempotency, durable)
 }
 
 func mutationReplayDurability(durable bool, authorizedScope map[string]any, selectedProduct string) (bool, error) {
@@ -326,50 +295,25 @@ func mutationReplayDurability(durable bool, authorizedScope map[string]any, sele
 	return durable, nil
 }
 
-func (r runtime) replayAuthorizedMutation(ctx context.Context, base agentcontract.Envelope, op agentcontract.ContractOperation, record store.MutationIdempotencyRecord, authorizedScope map[string]any, idempotency store.MutationIdempotencyKey, durable bool, opID string) (agentcontract.Envelope, bool, error) {
-	if op.ID == "concord_work_transition.workflow_action" {
-		step, stepErr := store.Step(ctx, r.Store, opID)
-		if stepErr != nil {
-			return agentcontract.Envelope{}, false, stepErr
-		}
-		base.Replayed = true
-		base.ResolvedScope = scopeFromMap(authorizedScope)
-		replay, replayErr := r.replayWorkflowAction(base, step, record)
-		if replayErr != nil {
-			return agentcontract.Envelope{}, false, replayErr
-		}
-		if replay.Outcome == agentcontract.OutcomeError {
-			return replay, true, nil
-		}
-		return r.finishMutationReplay(ctx, replay, idempotency, durable)
-	}
+func (r runtime) replayAuthorizedMutation(ctx context.Context, base agentcontract.Envelope, op agentcontract.ContractOperation, record store.MutationIdempotencyRecord, authorizedScope map[string]any, idempotency store.MutationIdempotencyKey, durable bool) (agentcontract.Envelope, bool, error) {
 	base.Replayed = true
 	base.ResolvedScope = scopeFromMap(authorizedScope)
-	if r.Tool != "concord_work_compact" {
-		response := r.recordedMutationResult(base, record)
-		if response.Outcome == agentcontract.OutcomeError {
-			return response, true, nil
+	var response agentcontract.Envelope
+	if op.ID == "concord_work_transition.workflow_action" {
+		if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+			var err error
+			response, err = r.replayWorkflowActionTx(ctx, tx, base, record, authorizedScope)
+			return err
+		}); err != nil {
+			return agentcontract.Envelope{}, false, err
 		}
-		return r.finishMutationReplay(ctx, response, idempotency, durable)
+	} else {
+		response = r.recordedMutationResult(base, record)
 	}
-	step, err := store.Step(ctx, r.Store, opID)
-	if err != nil {
-		return agentcontract.Envelope{}, false, err
+	if response.Outcome == agentcontract.OutcomeError {
+		return response, true, nil
 	}
-	if step.ResultKind == store.ResultCompleted {
-		refs := decodeChangedRefs(step.ChangedRefs)
-		replayedPayload, intents, pinless, enrichErr := r.replayMutationPayload(json.RawMessage(step.ResultPayload), refs)
-		if enrichErr != nil {
-			return agentcontract.Envelope{}, false, enrichErr
-		}
-		response := r.finishPublishedCompaction(ctx, base, step.WorkID, replayedPayload, refs, intents, pinless)
-		if response.Outcome == agentcontract.OutcomeError {
-			return response, true, nil
-		}
-		return r.finishMutationReplay(ctx, response, idempotency, durable)
-	}
-	ref := operationRefFromFence(step, "pending", "git_proof")
-	return r.finishMutationReplay(ctx, agentcontract.NewPending(base, ref, agentcontract.RecoveryAction{Kind: "reconcile_operation", RequiredRefs: []string{"operation_id"}}), idempotency, durable)
+	return r.finishMutationReplay(ctx, response, idempotency, durable)
 }
 
 func (r runtime) finishMutationReplay(ctx context.Context, response agentcontract.Envelope, key store.MutationIdempotencyKey, durable bool) (agentcontract.Envelope, bool, error) {
@@ -387,44 +331,6 @@ func (r runtime) finishMutationReplay(ctx context.Context, response agentcontrac
 		return agentcontract.Envelope{}, false, err
 	}
 	return response, true, nil
-}
-
-func (r runtime) replayWorkflowAction(base agentcontract.Envelope, step store.FenceResult, prior store.MutationIdempotencyRecord) (agentcontract.Envelope, error) {
-	response := workflowActionReplayResult(base, step, r.Authority.now())
-	if response.Outcome != agentcontract.OutcomeOK {
-		if response.Outcome == agentcontract.OutcomeError && response.Error != nil {
-			response.Error.EffectState = agentcontract.EffectPossible
-		}
-		return response, nil
-	}
-	return r.recordedMutationResult(base, prior), nil
-}
-
-// workflowActionReplayResult classifies the retained operation before replay
-// reads a completed response's committed snapshot.
-func workflowActionReplayResult(base agentcontract.Envelope, step store.FenceResult, observed time.Time) agentcontract.Envelope {
-	state := agentcontract.OperationState(step.ResultKind)
-	if step.ResultKind == store.ResultFailedStale {
-		// failed_stale is a durable store classification, not a TS7 state.
-		state = agentcontract.OperationFailed
-	}
-	ref := agentcontract.OperationRef{ID: step.OpID, Kind: "workflow_action", Version: strconv.FormatInt(step.AttemptEpoch, 10), State: state, CurrentStep: step.StepID, UpdatedAt: observed}
-	switch step.ResultKind {
-	case store.ResultCompleted:
-		payload := json.RawMessage(step.ResultPayload)
-		if err := agentcontract.ValidateOperationPayload(base.Tool, base.Operation, payload, true); err != nil {
-			return coreError(base, "malformed_response", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "contact_operator", false)
-		}
-		return agentcontract.NewOKMutation(base, payload, decodeWorkflowChangedRefs(step.ChangedRefs), nil)
-	case store.ResultPending:
-		return agentcontract.NewPending(base, ref, agentcontract.RecoveryAction{Kind: "reconcile_operation", RequiredRefs: []string{"operation_id"}})
-	case store.ResultPartial:
-		return agentcontract.NewPartial(base, ref, []string{step.StepID}, agentcontract.TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: agentcontract.RecoveryAction{Kind: "reconcile_operation"}, EffectState: agentcontract.EffectPartial})
-	case store.ResultFailed, store.ResultFailedStale:
-		return agentcontract.NewPartial(base, ref, []string{step.StepID}, agentcontract.TypedError{Kind: "operation_conflict", RetrySafe: false, RecoveryAction: agentcontract.RecoveryAction{Kind: "reconcile_operation"}, EffectState: agentcontract.EffectPartial})
-	default:
-		return coreError(base, "malformed_response", "durable workflow result classification is unsupported", "contact_operator", false)
-	}
 }
 
 // validateObservationExternalVariant checks the mode-specific shape before any
@@ -453,22 +359,6 @@ func validateObservationExternalVariant(in *observationExternalInput) error {
 		return errors.New("external observation requires its xobs: identifier")
 	}
 	return nil
-}
-
-func decodeWorkflowChangedRefs(values []string) []agentcontract.ChangedRef {
-	type durableRef struct {
-		EntityKind string `json:"entity_kind"`
-		ID         string `json:"id"`
-		Version    int64  `json:"version"`
-	}
-	out := make([]agentcontract.ChangedRef, 0, len(values))
-	for _, value := range values {
-		var ref durableRef
-		if json.Unmarshal([]byte(value), &ref) == nil && ref.EntityKind != "" && ref.ID != "" && ref.Version > 0 {
-			out = append(out, agentcontract.ChangedRef{EntityKind: ref.EntityKind, ID: ref.ID, Version: strconv.FormatInt(ref.Version, 10)})
-		}
-	}
-	return out
 }
 
 func scopeFromMap(scope map[string]any) *agentcontract.Scope {
@@ -701,13 +591,18 @@ func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
 }
 
 func (r runtime) replayWorkflowActionTx(ctx context.Context, tx *store.Transaction, base agentcontract.Envelope, prior store.MutationIdempotencyRecord, scope map[string]any) (agentcontract.Envelope, error) {
-	step, err := store.StepTx(ctx, tx, prior.OperationID)
+	operation, err := store.OperationResultTx(ctx, tx, prior.OperationID)
 	if err != nil {
 		return agentcontract.Envelope{}, err
 	}
 	base.Replayed = true
 	base.ResolvedScope = scopeFromMap(scope)
-	return r.replayWorkflowAction(base, step, prior)
+	if err := agentcontract.ValidateOperationPayload(base.Tool, base.Operation, json.RawMessage(operation.ResultPayload), true); err != nil {
+		response := coreError(base, "malformed_response", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "contact_operator", false)
+		response.Error.EffectState = agentcontract.EffectPossible
+		return response, nil
+	}
+	return r.recordedMutationResult(base, prior), nil
 }
 
 func (r runtime) workflowActionReplayPreflight(ctx context.Context, base agentcontract.Envelope, digest string, grant Authority, in actionMutationInput, result *agentcontract.Envelope, resultRejected *bool) func(*store.Transaction) (bool, error) {
@@ -2103,9 +1998,6 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 		return r.mutateWorkflowAction(ctx, base, raw, grant, op)
 	}
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
-	if r.Tool == "concord_work_compact" {
-		return r.mutateCompaction(ctx, base, raw, digest, op)
-	}
 	plan := newMutationPlan(r.Envelope)
 	var answer agentcontract.Envelope
 	var err error
@@ -2143,10 +2035,6 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 		answer, err, handled = r.planProjectHandoffConsume(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.correct_delivery":
 		answer, err, handled = r.planCorrectDelivery(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_transition.outside_repair":
-		answer, err, handled = r.planOutsideRepairDisposition(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_transition.outside_repair_reconcile":
-		answer, err, handled = r.planOutsideRepairReconcile(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.set_memberships":
 		answer, err, handled = r.planSetMemberships(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.resolve_overlap":
@@ -2267,406 +2155,6 @@ func deriveMutationProductsTx(ctx context.Context, tx *store.Transaction, scope 
 	return result, nil
 }
 
-func (r runtime) mutateCompaction(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, op agentcontract.ContractOperation) (agentcontract.Envelope, error) {
-	var publish compactPublishInput
-	var reconcile compactReconcileInput
-	if op.ID == "concord_work_compact.publish" {
-		if err := decodeOperationInput(raw, &publish); err != nil {
-			return base, err
-		}
-	}
-	if op.ID == "concord_work_compact.reconcile" {
-		if err := decodeOperationInput(raw, &reconcile); err != nil {
-			return base, err
-		}
-	}
-	key := idempotencyKey(raw)
-	workID := publish.WorkID
-	if op.ID == "concord_work_compact.reconcile" {
-		workID = reconcile.WorkID
-	}
-	if workID == "" {
-		workID = "unknown-work"
-	}
-	opID := "mutation-" + digest[7:31]
-	if reconcile.OperationID != "" {
-		opID = reconcile.OperationID
-	}
-	scope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "work_ids": []string{workID}, "scope_version": r.Envelope.ScopeVersion}
-	claimScope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "work_ids": []string{workID}, "scope_version": r.Envelope.ScopeVersion}
-	var resolvedHome store.KnowledgeHome
-	inv := envelopeInvocation(r.Envelope, "work_compact", r.Operation)
-	if inv.HostAssertionDigest == "" {
-		inv.HostAssertionDigest = digest
-	}
-	// The host probes before the transactions below open (CD-0195 D2); each
-	// authorization inside matches the probed host with SQL only.
-	host, hostErr := r.probeInvocationHost(ctx)
-	if hostErr != nil {
-		return failureEnvelope(base, hostErr), nil
-	}
-	grant, err := r.Authority.Authorize(ctx, inv)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	if op.ID == "concord_work_compact.publish" {
-		var homeErr error
-		resolvedHome, homeErr = r.Store.ResolveCompactionHome(ctx, workID)
-		if homeErr != nil {
-			return failureEnvelope(base, homeErr), nil
-		}
-		if resolvedHome.HomeProjectID != publish.HomeProjectID || resolvedHome.HomeLocatorID != publish.HomeLocatorID {
-			return coreError(base, "ambiguous_scope", "caller home does not match the deterministic terminal-work home", "resolve_ambiguity", false), nil
-		}
-		if err := r.Store.CheckReviewedClosureContentHash(ctx, workID, publish.ContentDigest); err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		contentHash := sha256.Sum256([]byte(publish.Content))
-		actualHash := "sha256:" + hex.EncodeToString(contentHash[:])
-		if actualHash != publish.ContentDigest {
-			if err := r.Store.CheckReviewedClosureContentHash(ctx, workID, actualHash); err != nil {
-				return failureEnvelope(base, err), nil
-			}
-		}
-		claimScope["work_version"] = publish.ExpectedVersion
-		claimScope["content_digest"] = publish.ContentDigest
-		claimScope["home_project_id"] = resolvedHome.HomeProjectID
-		claimScope["home_locator_id"] = resolvedHome.HomeLocatorID
-		claimScope["head_ref"] = resolvedHome.HeadRef
-	}
-	acceptedScope, _ := json.Marshal(claimScope)
-	mutation := compactionMutation{runtime: r, base: base, raw: raw, digest: digest, op: op, publishInput: publish, reconcileInput: reconcile, key: key, workID: workID, opID: opID, scope: scope, resolvedHome: resolvedHome, inv: inv, host: host, grant: grant, acceptedScope: string(acceptedScope)}
-	if op.ID == "concord_work_compact.publish" {
-		return mutation.publish(ctx)
-	}
-	return mutation.reconcile(ctx)
-}
-
-type compactionMutation struct {
-	runtime
-	base              agentcontract.Envelope
-	raw               []byte
-	digest            string
-	op                agentcontract.ContractOperation
-	publishInput      compactPublishInput
-	reconcileInput    compactReconcileInput
-	key, workID, opID string
-	scope             map[string]any
-	resolvedHome      store.KnowledgeHome
-	inv               Invocation
-	host              store.ResolvedProjectHost
-	grant             Authority
-	acceptedScope     string
-	changed           []agentcontract.ChangedRef
-	resultPayload     json.RawMessage
-	retainedPinless   []string
-	result            agentcontract.Envelope
-}
-
-func (m *compactionMutation) captureResultTx(ctx context.Context, tx *store.Transaction) error {
-	r, workID := m.runtime, m.workID
-	pin, available, pinErr := store.ReadMutationWorkPinTxForRegistry(ctx, tx, r.Registry, workID, nil)
-	if pinErr != nil {
-		return pinErr
-	}
-	// Compaction archives a note without advancing the live work version.
-	m.changed = []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(pin.Version, 10)}}
-	var pins []store.WorkPin
-	var pinless []string
-	if available {
-		pins = []store.WorkPin{pin}
-	} else {
-		pinless = []string{workID}
-	}
-	var intents []agentcontract.NextIntent
-	var err error
-	m.resultPayload, intents, err = enrichMutationPayload(mutationPayload(m.changed, nil), pins)
-	if err != nil {
-		return err
-	}
-	m.retainedPinless = pinless
-	resultBase := m.base
-	resultBase.Omissions = append(resultBase.Omissions, mutationPinOmissions(pinless)...)
-	m.result = r.mutationResult(resultBase, m.resultPayload, m.changed, intents, pinless...)
-	if m.result.Outcome == agentcontract.OutcomeError {
-		return errors.New(m.result.Error.Message)
-	}
-	return nil
-}
-
-func (m *compactionMutation) publish(ctx context.Context) (agentcontract.Envelope, error) {
-	r, publish, base, workID := m.runtime, m.publishInput, m.base, m.workID
-	digest, inv, host, opID, grant, key, resolvedHome := m.digest, m.inv, m.host, m.opID, m.grant, m.key, m.resolvedHome
-	base.ResolvedScope = &agentcontract.Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
-	m.base = base
-	// CD-0243 D7: the durable intent locks exact content and home; it is not
-	// operator consent. ClaimStepAuthorized retains the publication fence.
-	claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: m.acceptedScope, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ContractDigest: agentcontract.ManifestDigest}
-	claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
-		if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
-			return err
-		}
-		_, err := r.deriveAuthorizedProductsTx(ctx, tx, m.scope, grant)
-		return err
-	})
-	if claimErr != nil {
-		return failureEnvelope(base, claimErr), nil
-	}
-	if claim.ResultKind == store.ResultCompleted {
-		changed := decodeChangedRefs(claim.ChangedRefs)
-		base.Replayed = claim.Replayed
-		base.ResolvedScope = &agentcontract.Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
-		resultPayload, derivedIntents, pinless, enrichErr := r.replayMutationPayload(json.RawMessage(claim.ResultPayload), changed)
-		if enrichErr != nil {
-			return failureEnvelope(base, enrichErr), nil
-		}
-		return r.finishPublishedCompaction(ctx, base, workID, resultPayload, changed, derivedIntents, pinless), nil
-	}
-	var committed store.CommittedNote
-	var verified store.VerifiedNote
-	completed, failedStep, publishErr := r.runPublication([]publicationStep{
-		{ID: "git_write", Phase: "git_publish", Run: func() (err error) {
-			committed, err = store.PublishCanonicalNote(ctx, resolvedHome, workID, publish.Content, publish.ContentDigest)
-			return err
-		}},
-		{ID: "commit_verification", Phase: "verify_commit", Run: func() (err error) {
-			verified, err = store.VerifyCommittedNote(ctx, resolvedHome.RepoPath, committed.CommitOID, committed.NotePath, publish.ContentDigest)
-			return err
-		}},
-		{ID: "sqlite_link", Phase: "record_locator", Run: func() error {
-			return store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: opID + ":link", WorkID: workID, ExpectedVersion: publish.ExpectedVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: resolvedHome, CommitOID: verified.CommitOID, NotePath: verified.NotePath, ExpectedHash: publish.ContentDigest, Reason: "agent compaction publish", WithinTx: func(tx *store.Transaction) error { return m.captureResultTx(ctx, tx) }})
-		}},
-	})
-	if publishErr != nil {
-		return pendingCompaction(base, workID, claim, failedStep, completed, publishErr), nil
-	}
-	changedJSON, _ := json.Marshal(m.changed[0])
-	complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: opID, AttemptEpoch: claim.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(retainCompactionPinless(m.resultPayload, m.retainedPinless)), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
-	if completeErr != nil {
-		return pendingCompaction(base, workID, claim, "operation_complete", completed, completeErr), nil
-	}
-	base.Replayed = complete.Replayed
-	return r.finishPublishedCompaction(ctx, base, workID, m.resultPayload, m.changed, *m.result.NextValidIntents, m.retainedPinless), nil
-}
-
-func (m *compactionMutation) reconcile(ctx context.Context) (agentcontract.Envelope, error) {
-	r, base, reconcile := m.runtime, m.base, m.reconcileInput
-	if reconcile.OperationID == "" && reconcile.WorkID != "" {
-		if reconcile.ExpectedWorkVersion <= 0 {
-			return coreError(base, "invalid_input", "orphan discovery requires expected_work_version", "reread_entities", false), nil
-		}
-		currentVersion, err := r.Store.TerminalWorkVersion(ctx, reconcile.WorkID)
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		if currentVersion != reconcile.ExpectedWorkVersion {
-			return coreError(base, "version_conflict", "terminal work version changed before orphan discovery", "reread_entities", false), nil
-		}
-		pending, err := r.Store.PendingOperationForWork(ctx, reconcile.WorkID)
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		reconcile.OperationID = pending.OperationID
-	}
-	if reconcile.OperationID == "" {
-		return coreError(base, "invalid_input", "reconcile requires an operation reference or terminal work identity", "reread_entities", false), nil
-	}
-	step, stepErr := store.Step(ctx, r.Store, reconcile.OperationID)
-	if stepErr != nil {
-		return failureEnvelope(base, stepErr), nil
-	}
-	if reconcile.ExpectedOperationVersion > 0 && step.AttemptEpoch != reconcile.ExpectedOperationVersion {
-		return coreError(base, "version_conflict", "durable operation version changed before reconcile", "reread_entities", false), nil
-	}
-	if step.WorkID != "" && reconcile.WorkID == "" {
-		reconcile.WorkID = step.WorkID
-	}
-	if step.ResultKind == store.ResultCompleted {
-		base.Replayed = true
-		changed := decodeChangedRefs(step.ChangedRefs)
-		resultPayload, derivedIntents, pinless, enrichErr := r.replayMutationPayload(json.RawMessage(step.ResultPayload), changed)
-		if enrichErr != nil {
-			return failureEnvelope(base, enrichErr), nil
-		}
-		return r.finishPublishedCompaction(ctx, base, reconcile.WorkID, resultPayload, changed, derivedIntents, pinless), nil
-	}
-	return m.reconcilePending(ctx, reconcile, step)
-}
-
-func (m *compactionMutation) reconcilePending(ctx context.Context, reconcile compactReconcileInput, step store.FenceResult) (agentcontract.Envelope, error) {
-	r, base, grant := m.runtime, m.base, m.grant
-	claimScope := map[string]any{}
-	_ = json.Unmarshal([]byte(step.AcceptedScopeSnapshot), &claimScope)
-	workVersion := reconcile.ExpectedWorkVersion
-	if workVersion == 0 {
-		workVersion = integerScopeValue(claimScope, "work_version")
-	}
-	proofDigest := reconcile.ExpectedProofDigest
-	if proofDigest == "" {
-		if value, ok := claimScope["content_digest"].(string); ok {
-			proofDigest = value
-		}
-	}
-	var home store.KnowledgeHome
-	var homeErr error
-	recordedProject, _ := claimScope["home_project_id"].(string)
-	recordedLocator, _ := claimScope["home_locator_id"].(string)
-	recordedHead, _ := claimScope["head_ref"].(string)
-	if recordedProject != "" && recordedLocator != "" {
-		home, homeErr = r.Store.KnowledgeHomeForLocator(ctx, recordedProject, recordedLocator, recordedHead)
-	} else {
-		home, homeErr = r.Store.ResolveCompactionHome(ctx, reconcile.WorkID)
-	}
-	if homeErr != nil {
-		return pendingCompaction(base, reconcile.WorkID, step, "resolve_home", nil, homeErr), nil
-	}
-	note, proofErr := store.FindVerifiedWorkNote(ctx, home, reconcile.WorkID, proofDigest)
-	if proofErr != nil {
-		return pendingCompaction(base, reconcile.WorkID, step, "git_proof", nil, proofErr), nil
-	}
-	if err := r.Store.CheckReviewedClosureContentHash(ctx, reconcile.WorkID, note.ContentHash); err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	if workVersion <= 0 {
-		return pendingCompaction(base, reconcile.WorkID, step, "resolve_work_version", []string{"operation_claimed", "git_proof"}, fmt.Errorf("durable publication did not retain terminal work version")), nil
-	}
-	m.workID = reconcile.WorkID
-	base.ResolvedScope = &agentcontract.Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{reconcile.WorkID}, ScopeVersion: r.Envelope.ScopeVersion}
-	m.base = base
-	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note", WithinTx: func(tx *store.Transaction) error { return m.captureResultTx(ctx, tx) }}); linkErr != nil {
-		return pendingCompaction(base, reconcile.WorkID, step, "sqlite_link", []string{"operation_claimed", "git_proof"}, linkErr), nil
-	}
-	changedJSON, _ := json.Marshal(m.changed[0])
-	complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: reconcile.OperationID, AttemptEpoch: step.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(retainCompactionPinless(m.resultPayload, m.retainedPinless)), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: idempotencyKey(m.raw) + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
-	if completeErr != nil {
-		return pendingCompaction(base, reconcile.WorkID, step, "operation_complete", []string{"operation_claimed", "git_proof", "sqlite_link"}, completeErr), nil
-	}
-	base.Replayed = complete.Replayed
-	return r.finishPublishedCompaction(ctx, base, m.workID, m.resultPayload, m.changed, *m.result.NextValidIntents, m.retainedPinless), nil
-}
-
-// Cleanup follows settlement, never the link callback. A deferred cleanup does
-// not turn a committed publication into a failure. A cleaned execution cannot
-// return the saved live pin or its artifact references.
-func (r runtime) finishPublishedCompaction(ctx context.Context, base agentcontract.Envelope, workID string, payload json.RawMessage, changed []agentcontract.ChangedRef, intents []agentcontract.NextIntent, pinless []string) agentcontract.Envelope {
-	cleanupErr := r.Store.CleanupPublishedTerminalWork(ctx, workID)
-	omitPin := cleanupErr == nil
-	if err := cleanupErr; err != nil {
-		kind, message, recovery := "unreachable", err.Error(), "retry reconciliation after the cleanup blocker is resolved"
-		var failure *store.Failure
-		if errors.As(err, &failure) {
-			kind, message, recovery = mapFailureKind(failure.Kind), failure.Detail, failure.RecoveryAction
-		}
-		base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: kind, SourceID: workID, Details: map[string]any{"message": message, "recovery_action": recovery}})
-		// Another collector may have completed after our preparation failed.
-		// Unknown or ambiguous absence must not revive a saved live pin.
-		if _, err := r.Store.ReadWorkItemSummary(ctx, workID); err != nil {
-			omitPin = true
-		}
-	}
-	if omitPin {
-		var object map[string]json.RawMessage
-		if err := json.Unmarshal(payload, &object); err != nil {
-			return failureEnvelope(base, err)
-		}
-		object["work_pins"] = json.RawMessage(`[]`)
-		object["next_valid_intents"] = json.RawMessage(`[]`)
-		var encodeErr error
-		payload, encodeErr = json.Marshal(object)
-		if encodeErr != nil {
-			return failureEnvelope(base, encodeErr)
-		}
-		pinless = pinlessMutationWorkIDs(changed, nil)
-		intents = nil
-	}
-	base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
-	return r.mutationResult(base, payload, changed, intents, pinless...)
-}
-
-// publicationStep is one phase of the CD-0006/PM6 cross-authority publication
-// seam. ID names the operation step an envelope reports as completed; Phase
-// names the cross-authority ordering position. The corpus uses both vocabularies
-// — `completed_steps` carries step IDs, `publication_order` carries phases — so
-// the pipeline carries both rather than conflating them.
-type publicationStep struct {
-	ID    string
-	Phase string
-	Run   func() error
-}
-
-// publicationPhases is the accepted publication order, declared as data. The
-// order is a contract (.concord/law/specs/agent-mutation-tool-contract.md: commit to git,
-// verify the commit, then append the SQLite compaction link), so it lives in one
-// declared sequence rather than being an emergent property of statement order.
-var publicationPhases = []string{"git_publish", "verify_commit", "record_locator"}
-
-// runPublication executes the publication steps in declared order and returns
-// the steps that actually completed. On failure it returns the honest completed
-// prefix and the step that failed, so a partial outcome tells the operator
-// exactly how far the cross-authority effect got.
-func (r runtime) runPublication(steps []publicationStep) ([]string, string, error) {
-	completed := make([]string, 0, len(steps)+1)
-	completed = append(completed, "operation_claimed")
-	for i, step := range steps {
-		if step.Phase != publicationPhases[i] {
-			return completed, step.ID, fmt.Errorf("publication step %d is %q but the accepted order requires %q", i, step.Phase, publicationPhases[i])
-		}
-		if err := step.Run(); err != nil {
-			return completed, step.ID, err
-		}
-		completed = append(completed, step.ID)
-		if r.Authority != nil && r.Authority.publicationObserver != nil {
-			if err := r.Authority.publicationObserver(step.Phase); err != nil {
-				return completed, step.ID, err
-			}
-		}
-	}
-	return completed, "", nil
-}
-
-func pendingCompaction(base agentcontract.Envelope, workID string, claim store.FenceResult, step string, completed []string, cause error) agentcontract.Envelope {
-	ref := operationRefFromFence(claim, "partial", step)
-	base.ResolvedScope = &agentcontract.Scope{WorkIDs: []string{workID}}
-	base.FailedStep = step
-	if len(completed) == 0 {
-		completed = []string{"operation_claimed"}
-	}
-	return agentcontract.NewPartial(base, ref, completed, agentcontract.TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: agentcontract.RecoveryAction{Kind: "reconcile_operation"}, EffectState: agentcontract.EffectPartial, Message: cause.Error()})
-}
-
-func decodeChangedRefs(values []string) []agentcontract.ChangedRef {
-	out := make([]agentcontract.ChangedRef, 0, len(values))
-	for _, value := range values {
-		var ref agentcontract.ChangedRef
-		if json.Unmarshal([]byte(value), &ref) == nil {
-			out = append(out, ref)
-		}
-	}
-	return out
-}
-
-func integerScopeValue(scope map[string]any, key string) int64 {
-	switch value := scope[key].(type) {
-	case float64:
-		return int64(value)
-	case int64:
-		return value
-	case int:
-		return int64(value)
-	default:
-		return 0
-	}
-}
-
-func timePtr(value time.Time) *time.Time { return &value }
-
-func operationRefFromFence(result store.FenceResult, state, step string) agentcontract.OperationRef {
-	if state == "" {
-		state = "pending"
-	}
-	return agentcontract.OperationRef{ID: result.OpID, Kind: "compaction", Version: strconv.FormatInt(result.AttemptEpoch, 10), State: agentcontract.OperationState(state), CurrentStep: step, UpdatedAt: time.Now().UTC()}
-}
-
 type storeMembership struct {
 	ProjectID string `json:"project_id"`
 	Role      string `json:"role"`
@@ -2760,70 +2248,6 @@ func (r runtime) enrichMutationPayloadTx(ctx context.Context, tx *store.Transact
 	}
 	enriched, intents, err := enrichMutationPayload(payload, pins)
 	return enriched, intents, pinless, err
-}
-
-// compactionPinlessKey retains, inside the completed step's payload, the work
-// items whose pin the original transaction could not read. It never reaches
-// the wire: a replay strips it and reports the same omission.
-const compactionPinlessKey = "retained_pinless_work_ids"
-
-func retainCompactionPinless(payload json.RawMessage, pinless []string) json.RawMessage {
-	if len(pinless) == 0 {
-		return payload
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &object); err != nil || object == nil {
-		return payload
-	}
-	encoded, err := json.Marshal(pinless)
-	if err != nil {
-		return payload
-	}
-	object[compactionPinlessKey] = encoded
-	retained, err := json.Marshal(object)
-	if err != nil {
-		return payload
-	}
-	return retained
-}
-
-// Compaction replays retain the original transaction's snapshot: its pins and
-// its recorded pin omissions. A missing pin with no retained omission is never
-// invented.
-func (r runtime) replayMutationPayload(payload json.RawMessage, changed []agentcontract.ChangedRef) (json.RawMessage, []agentcontract.NextIntent, []string, error) {
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &object); err != nil {
-		return nil, nil, nil, err
-	}
-	var result struct {
-		Pins []store.WorkPin `json:"work_pins"`
-	}
-	if err := json.Unmarshal(payload, &result); err != nil {
-		return nil, nil, nil, err
-	}
-	var retained []string
-	if raw, ok := object[compactionPinlessKey]; ok {
-		if err := json.Unmarshal(raw, &retained); err != nil {
-			return nil, nil, nil, err
-		}
-		delete(object, compactionPinlessKey)
-		stripped, err := json.Marshal(object)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		payload = stripped
-	}
-	pinless := pinlessMutationWorkIDs(changed, result.Pins)
-	for _, id := range pinless {
-		if !slices.Contains(retained, id) {
-			return nil, nil, nil, &store.Failure{Kind: store.KindOperationConflict, Op: "mutation_response", Detail: "committed response has no retained work pin or omission fact; reconcile the retained operation", RecoveryAction: "reconcile_operation", EffectPossible: true}
-		}
-	}
-	var intents []agentcontract.NextIntent
-	if len(result.Pins) > 0 {
-		intents = nextIntentsFromPin(result.Pins[0])
-	}
-	return payload, intents, pinless, nil
 }
 
 func pinlessMutationWorkIDs(changed []agentcontract.ChangedRef, pins []store.WorkPin) []string {

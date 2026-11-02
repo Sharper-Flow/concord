@@ -3,9 +3,7 @@
   "id": "CD-0005",
   "title": "Concord agent tool surface",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "agent-surface",
   "applies_to_domain_ids": [
@@ -42,9 +40,8 @@ CD-0042 identifies the current path by the generated manifest digest.
 
 ### D1. Canonical jobs and evaluation
 
-Concord supports eight end-to-end jobs: orient/choose work, explain blockage,
-capture need, transition with evidence, relate/scope, compact/reconcile, retrieve
-durable knowledge, and coordinate native operational work. Tool-neutral
+Concord supports orient/choose work, explain blockage, capture need, transition
+with evidence, relate/scope, and coordinate native operational work. Tool-neutral
 scenarios judge resulting state, communication, prohibited effects, and invariants;
 AJ5 includes version-pinned Domain-overlap resolution under CD-0222.
 
@@ -72,18 +69,17 @@ or mutate.
 
 Binding: [`../specs/agent-read-tool-contract.md`](../specs/agent-read-tool-contract.md).
 
-### D4. Four mutation tools
+### D4. Mutation tools
 
 ```text
 concord_work_define       capture | revise_intent
 concord_work_transition   lifecycle | workflow_action
 concord_work_relate       membership/link/supersession intents
-concord_work_compact      publish | reconcile
 ```
 
 One domain intent per call; no generic patch/mixed batch. SQLite effects are atomic.
-Git/external effects use ordered durable recovery. Native systems execute their own
-operations.
+Native systems execute their own external operations. Completion records reported
+delivery links under PM6 §1, not a Git publication or claim/settle protocol.
 
 Binding: [`../specs/agent-mutation-tool-contract.md`](../specs/agent-mutation-tool-contract.md).
 

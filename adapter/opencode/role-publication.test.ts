@@ -85,7 +85,7 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   // these numbers, which is a visible test change, never silent drift.
   // Exact catalog coverage and positive root sizes distinguish an empty
   // allowed list from a missing root.
-  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 112_311 }
+  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 107_149 }
   const registeredTotal = [...registeredBytes.values()].reduce((sum, size) => sum + size, 0)
   expect(registeredTotal).toBe(PRIMARY_BUDGET.bytes)
   expect([...registeredBytes.keys()].sort(), "registered byte accounting must cover the catalog exactly").toEqual(CATALOG)
@@ -98,7 +98,7 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   // loses exactly the work-state writers' roots.
   expect(projectedBytes("Concord-RTE")).toEqual(PRIMARY_BUDGET)
   expect(projectedBytes("Concord")).toEqual(PRIMARY_BUDGET)
-  const WRITERS = ["concord_work_compact", "concord_work_define", "concord_work_relate", "concord_work_transition"]
+  const WRITERS = ["concord_work_define", "concord_work_relate", "concord_work_transition"]
   const writerBytes = WRITERS.reduce((sum, tool) => sum + (registeredBytes.get(tool) ?? Number.NaN), 0)
   expect(projectedBytes("Concord-Planner")).toEqual({ allowed: CATALOG.filter((tool) => !WRITERS.includes(tool)), bytes: PRIMARY_BUDGET.bytes - writerBytes })
   expect(projectedBytes("concord-review")).toEqual(projectedBytes("Concord-Planner"))
@@ -123,7 +123,7 @@ test("grants select whole tools and never trim a published schema", async () => 
     const operations = contractOperations.filter((operation: any) => operation.tool === tool)
     expect(expanded.oneOf, tool).toHaveLength(operations.length)
   }
-  expect(registeredBytes.get("concord_work_transition")).toBe(63_923)
+  expect(registeredBytes.get("concord_work_transition")).toBe(62_206)
   expect(workflowActionPublicVariants.length).toBe(25)
 })
 

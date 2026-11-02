@@ -131,12 +131,12 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 		"workflow_actors":            `SELECT * FROM workflow_actors ORDER BY rowid`,
 		"workflow_contracts":         `SELECT * FROM workflow_contracts ORDER BY rowid`,
 		"workflow_evidence_bindings": `SELECT * FROM workflow_evidence_bindings ORDER BY rowid`,
-		"durable_operations":         `SELECT * FROM durable_operations ORDER BY rowid`,
+		"durable_operations":         `SELECT op_id,work_id,workflow_type_ref,workflow_type_digest,step_id,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest FROM durable_operations ORDER BY op_id`,
 		"idempotency_records":        `SELECT * FROM idempotency_records ORDER BY rowid`,
 		"effect_receipts":            `SELECT * FROM effect_receipts ORDER BY rowid`,
 		"store_sequences":            `SELECT * FROM store_sequences ORDER BY rowid`,
 		"work_context_findings":      `SELECT * FROM work_context_findings ORDER BY rowid`,
-		"workflow_instances":         `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,outside_repair_state,completion_payload,completion_occurred_at,unhealthy_verdict_seq FROM workflow_instances`,
+		"workflow_instances":         `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at,unhealthy_verdict_seq FROM workflow_instances`,
 		"workflow_step_epochs":       `SELECT work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload FROM workflow_step_epochs`,
 	}
 	want := map[string][][]any{}

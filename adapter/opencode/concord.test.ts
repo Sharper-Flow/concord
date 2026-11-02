@@ -46,7 +46,7 @@ const hostCall = (operation: string, input: Record<string, unknown>) => ({ reque
 
 test("exports exactly the generated tool names", () => {
   const names = [...source.matchAll(/export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(/g)].map((match) => match[1])
-  expect(names).toEqual(["product_view", "work_browse", "work_trace", "work_define", "domain", "work_transition", "work_relate", "work_compact"])
+  expect(names).toEqual(["product_view", "work_browse", "work_trace", "work_define", "domain", "work_transition", "work_relate"])
   expect(new Set(contractOperations.map((operation: any) => operation.tool))).toEqual(new Set(names.map((name) => `concord_${name}`)))
 })
 
@@ -59,7 +59,6 @@ test("published tool arguments expose a host-safe request shape", async () => {
     concord_domain: adapter.domain,
     concord_work_transition: adapter.work_transition,
     concord_work_relate: adapter.work_relate,
-    concord_work_compact: adapter.work_compact,
   } as const
   const actionInput = (schema: any, actionId: string) => {
     const expanded: any = expandedPublishedRequestSchema(schema)
@@ -217,7 +216,7 @@ test("published tool schemas type every enum node", () => {
       walk(item, `${path}.${key}`, seen)
     }
   }
-  for (const toolName of ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_work_define", "concord_domain", "concord_work_transition", "concord_work_relate", "concord_work_compact"]) {
+  for (const toolName of ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_work_define", "concord_domain", "concord_work_transition", "concord_work_relate"]) {
     walk(adapter.publishedRequestSchema(toolName), toolName, new Set())
   }
   expect(untyped).toEqual([])
@@ -232,7 +231,6 @@ test("all exported tools return one serialized Concord envelope", async () => {
     ["concord_domain", adapter.domain],
     ["concord_work_transition", adapter.work_transition],
     ["concord_work_relate", adapter.work_relate],
-    ["concord_work_compact", adapter.work_compact],
   ] as const
   for (const [toolName, exportedTool] of tools) {
     const operation = contractOperations.find((candidate: any) => candidate.tool === toolName)!.id.split(".")[1]
@@ -252,7 +250,7 @@ test("all exported tools return one serialized Concord envelope", async () => {
 })
 
 test("request-wrapped tools refuse a missing request wrapper before any host effect", async () => {
-  const tools = { product_view: adapter.product_view, work_browse: adapter.work_browse, work_trace: adapter.work_trace, work_define: adapter.work_define, domain: adapter.domain, work_transition: adapter.work_transition, work_relate: adapter.work_relate, work_compact: adapter.work_compact }
+  const tools = { product_view: adapter.product_view, work_browse: adapter.work_browse, work_trace: adapter.work_trace, work_define: adapter.work_define, domain: adapter.domain, work_transition: adapter.work_transition, work_relate: adapter.work_relate }
   let calls = 0
   adapter.configureConcordAdapter({ runner: { run: async () => { calls++; throw new Error("must not run") } } })
   for (const [name, exportedTool] of Object.entries(tools)) {
@@ -1220,8 +1218,6 @@ test("overlap resolution passes the generated adapter boundary", async () => {
 test("generated and adapter validators reject unknown top-level fields for every outcome", async () => {
   const variants: Array<[string, any, any, any]> = [
     ["ok", coreEnvelope("concord_product_view", "resolve", "ok", { items: [{}] }), adapter.product_view, hostCall("resolve", {})],
-    ["pending", coreEnvelope("concord_work_compact", "publish", "pending", { operation_ref: { id: "op-1", kind: "publish", version: "1", state: "pending", current_step: "git", updated_at: "2026-08-08T12:00:00Z" }, next_action: { kind: "reconcile_operation" } }), adapter.work_compact, hostCall("publish", {})],
-    ["partial", coreEnvelope("concord_work_compact", "publish", "partial", { operation_ref: { id: "op-1", kind: "publish", version: "1", state: "partial", current_step: "sqlite", updated_at: "2026-08-08T12:00:00Z" }, completed_steps: ["git"], error: { kind: "operation_conflict", retry_safe: true, recovery_action: { kind: "reconcile_operation" }, effect_state: "partial" } }), adapter.work_compact, hostCall("publish", {})],
     ["error", coreEnvelope("concord_work_transition", "lifecycle", "error", { error: { kind: "invalid_input", retry_safe: false, recovery_action: { kind: "reread_entities" }, effect_state: "none" } }), adapter.work_transition, hostCall("lifecycle", {})],
   ]
   for (const [name, original, tool, args] of variants) {

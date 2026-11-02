@@ -80,20 +80,16 @@ after its durable commit succeeds, under CD-0050 D2's durability guarantee.
 ### D2. The enumeration names every family the store commits durably
 
 The consequential transaction families are grant, client, and approval authority;
-workflow actions; cross-authority steps; and producer evidence.
+workflow actions; and producer evidence.
 
-Workflow completion commits inside the workflow action dispatch boundary
-family. Cross-authority fence entry points are declared in D3.
+Workflow completion commits inside the workflow action dispatch boundary family.
 
-### D3. The public fence entry points commit durably
+### D3. Consequential mutation entry points commit durably
 
-`ClaimStepAuthorized` and `CompleteStep` in
-`internal/store/fence.go` commit durably. A durable commit waits for no WAL
-reader, so the CD-0050 D4 failure mode does not occur.
-
-The conformance harness calls the fence cores with `durable=false` and checks
-ordinary-write correctness under CD-0045. CD-0046 owns population authority.
-The public entry points retain durable commits and their separate proof.
+Surviving consequential mutation entry points use D1's durable transaction.
+There is no step-claim or step-settlement entry point. The conformance harness
+checks ordinary-write correctness under CD-0045; CD-0046 owns population
+authority. Consequential acknowledgements retain their separate durability proof.
 
 ## Alternatives considered
 

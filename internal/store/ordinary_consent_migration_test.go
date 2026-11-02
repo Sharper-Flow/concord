@@ -163,22 +163,25 @@ func TestOrdinaryConsentMigrationRollsBackAtomically(t *testing.T) {
 	execSixClassSQL(t, db, `CREATE TABLE outside_repair_reconciliations_v158(collision TEXT)`)
 	tables := append([]string{"sqlite_schema", "schema_migrations", "write_guard"}, ordinaryConsentMigrationTables...)
 	before := sixClassSnapshot(t, db, tables...)
-	if err := Migrate(context.Background(), db); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err := migrateOrdinaryConsentFixture(db); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("migration did not reach the injected late collision: %v", err)
 	}
 	if got := sixClassSnapshot(t, db, tables...); !reflect.DeepEqual(got, before) {
 		t.Fatal("failed migration changed rows, schema, guards or manifest")
 	}
 	execSixClassSQL(t, db, `DROP TABLE outside_repair_reconciliations_v158`)
-	if err := Migrate(context.Background(), db); err != nil {
+	if err := migrateOrdinaryConsentFixture(db); err != nil {
 		t.Fatalf("retry after rollback: %v", err)
 	}
 	before = sixClassSnapshot(t, db, tables...)
-	if err := Migrate(context.Background(), db); err != nil {
+	if err := migrateOrdinaryConsentFixture(db); err != nil {
 		t.Fatal(err)
 	}
 	if got := sixClassSnapshot(t, db, tables...); !reflect.DeepEqual(got, before) {
 		t.Fatal("second migration pass changed state")
+	}
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("retire historical consent tables through the current migration tail: %v", err)
 	}
 }
 

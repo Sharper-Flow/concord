@@ -489,7 +489,6 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 		{`SELECT count(*) FROM active_research_consumers WHERE consumer_work_id=? AND required=1`, "work has a required research consumer"},
 		{`SELECT count(*) FROM active_research_consumers c JOIN active_research_packs p ON p.pack_id=c.pack_id WHERE p.owner_work_id=? AND c.required=1 AND c.consumer_work_id<>?`, "work has a required research consumer that depends on its findings"},
 		{`SELECT count(*) FROM active_research_packs WHERE owner_work_id=?`, "work still owns research packs; retire them through research_retire before removal"},
-		{`SELECT count(*) FROM durable_operations WHERE work_id=? AND (result_kind IS NULL OR result_kind IN ('pending','partial'))`, "work has an unreconciled durable operation"},
 	}
 	for _, check := range checks {
 		args := []any{req.WorkID}
@@ -509,7 +508,7 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 			return newFailure(KindInvalidRelation, "work_removal", "Linear confirmation names a different Product", false, "confirm the configured Product destination")
 		}
 	}
-	return requireReleasedWorkflowLawEnactmentQ(ctx, q, req.WorkID, "work_removal")
+	return requireReleasedWorkflowLawEnactmentQ(ctx, q, req.WorkID)
 }
 
 func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -567,7 +566,7 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 }
 
 func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) error {
-	if err := requireReleasedWorkflowLawEnactmentQ(ctx, tx, workID, "work_removal"); err != nil {
+	if err := requireReleasedWorkflowLawEnactmentQ(ctx, tx, workID); err != nil {
 		return err
 	}
 	// This order follows the FK graph. The table names are closed source-owned

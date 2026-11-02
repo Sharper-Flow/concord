@@ -32,9 +32,6 @@ func TestOperationPayloadValidationUsesGeneratedClosedSchemas(t *testing.T) {
 	if err := agentcontract.ValidateOperationPayload("concord_product_view", "resolve", []byte(`{"product_id":"p-1","unknown":true}`), false); err == nil {
 		t.Fatal("unknown property in union branch accepted")
 	}
-	if err := agentcontract.ValidateOperationPayload("concord_work_compact", "reconcile", []byte(`{"operation_id":"op-1","expected_operation_version":2,"idempotency_key":"idem-1","evidence":[{"kind":"artifact","authority":"test","locator_kind":"file","locator":"README.md","unknown":true}]}`), false); err == nil {
-		t.Fatal("unknown property inside union branch array accepted")
-	}
 	validResult := []byte(`{"changed_refs":[{"entity_kind":"work_item","id":"w-1","version":2}],"next_valid_intents":[]}`)
 	if err := agentcontract.ValidateOperationPayload("concord_work_relate", "resolve_overlap", validResult, true); err != nil {
 		t.Fatalf("valid generated mutation result rejected: %v", err)
@@ -95,7 +92,6 @@ func TestMutationResultProducerAcceptsCanonicalPayload(t *testing.T) {
 		{"concord_work_define", "capture"}, {"concord_work_define", "revise_intent"},
 		{"concord_work_transition", "lifecycle"}, {"concord_work_transition", "workflow_action"},
 		{"concord_work_relate", "set_memberships"}, {"concord_work_relate", "resolve_overlap"},
-		{"concord_work_compact", "publish"}, {"concord_work_compact", "reconcile"},
 	} {
 		t.Run(operation.tool+"."+operation.operation, func(t *testing.T) {
 			base := agentcontract.NewBase("mutation-result", operation.tool, operation.operation)
@@ -180,15 +176,6 @@ func TestStrictOperationUnions(t *testing.T) {
 		t.Fatal("resolve accepted product/project union overlap")
 	} else if got := err.Error(); !strings.Contains(got, "oneOf mismatch at $") || !strings.Contains(got, "product_id") || !strings.Contains(got, "project_id") || strings.Contains(got, "p-1") || strings.Contains(got, "pr-1") {
 		t.Fatalf("union diagnostic = %q, want accepted field variants without payload values", got)
-	}
-	if err := agentcontract.ValidateOperationPayload("concord_work_compact", "reconcile", []byte(`{"operation_id":"op-1","expected_operation_version":2,"idempotency_key":"idem"}`), false); err != nil {
-		t.Fatal(err)
-	}
-	if err := agentcontract.ValidateOperationPayload("concord_work_compact", "reconcile", []byte(`{"work_id":"w-1","expected_work_version":2,"idempotency_key":"idem"}`), false); err != nil {
-		t.Fatal(err)
-	}
-	if err := agentcontract.ValidateOperationPayload("concord_work_compact", "reconcile", []byte(`{"operation_id":"op-1","expected_operation_version":2,"work_id":"w-1","expected_work_version":2,"idempotency_key":"idem"}`), false); err == nil {
-		t.Fatal("reconcile accepted both branches")
 	}
 }
 

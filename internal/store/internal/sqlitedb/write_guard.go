@@ -17,8 +17,6 @@ type WriteGuard struct {
 
 func NewWriteGuard(tx *sql.Tx) WriteGuard { return WriteGuard{tx: tx} }
 
-func (g *WriteGuard) Active() bool { return g.depth > 0 }
-
 // Enter inserts the guard only at the outermost level. A collision refuses
 // instead of absorbing a stranded guard into an ordinary write scope.
 func (g *WriteGuard) Enter(ctx context.Context) error {

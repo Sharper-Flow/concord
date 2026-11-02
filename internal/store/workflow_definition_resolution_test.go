@@ -163,41 +163,26 @@ func seedResolutionSelection(t *testing.T, workID string, registry DefinitionReg
 	return s, owner
 }
 
-// runResolutionProducer claims and completes the execution step's durable
-// producer operation through the fence entry points, so every evidence binding
-// names a real completed producer of this work. The fence entry points keep
-// their builtin registry choice; the registry-threaded cores carry the caller
-// registry to the same claim/completion cores.
-func runResolutionProducer(s *Store, registry DefinitionRegistry, workID, principal string) (FenceResult, error) {
+func runResolutionProducer(s *Store, registry DefinitionRegistry, workID, principal string) (OperationResult, error) {
 	opID := "resolution-produce-" + workID
 	requestID := "request:" + opID
 	registered, ok := registry.Current(resolutionWorkflowRef)
 	if !ok {
-		return FenceResult{}, definitionFailure(KindDefinitionDigestMismatch, "local producer definition is not registered")
+		return OperationResult{}, definitionFailure(KindDefinitionDigestMismatch, "local producer definition is not registered")
 	}
-	claimed, err := claimStepAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
-		OpID: opID, WorkID: workID,
-		WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
-		StepID: "execution", StepKind: StepExternalEffect,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), AcceptedScopeSnapshot: `{}`,
-		PrincipalRef: principal, Tool: "workflow-resolution-test", IdempotencyKey: opID,
-		RequestID: requestID, ObservedAt: time.Unix(11, 0).UTC(), ContractDigest: testManifestDigest,
-	}, true, nil, registry)
-	if err != nil {
-		return FenceResult{}, err
-	}
-	completed, err := completeStepWithRegistry(context.Background(), s, CompleteRequest{
-		OpID: claimed.OpID, AttemptEpoch: claimed.AttemptEpoch, ResultKind: ResultCompleted,
-		EvidenceRefs: []string{"evidence:operator-verdict", "evidence:operator-review"},
-		ChangedRefs:  []string{workID},
-		PrincipalRef: principal, Tool: "workflow-resolution-test", IdempotencyKey: "complete:" + opID,
-		RequestID: requestID, ObservedAt: time.Unix(11, 1).UTC(),
-		CompletedAt: ptrTime(time.Unix(11, 2).UTC()),
-	}, true, registry)
-	if err != nil {
-		return FenceResult{}, err
-	}
-	return completed, nil
+	var result OperationResult
+	err := s.TransactDurable(context.Background(), func(tx *Transaction) error {
+		if _, err := VerifyWorkflowInstanceDefinitionTx(context.Background(), tx.tx, registry, workID); err != nil {
+			return err
+		}
+		_, err := tx.tx.Exec(`INSERT INTO durable_operations(op_id,work_id,workflow_type_ref,workflow_type_digest,step_id,accepted_inputs_digest,principal_ref,request_id,observed_at,contract_digest,evidence_refs,changed_refs) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, opID, workID, resolutionWorkflowRef, registered.Digest, "execution", testDigest("inputs"), principal, requestID, "2026-08-07T00:00:00Z", testManifestDigest, `["evidence:operator-verdict","evidence:operator-review"]`, workflowJSON([]string{workID}))
+		if err != nil {
+			return err
+		}
+		result, err = OperationResultTx(context.Background(), tx, opID)
+		return err
+	})
+	return result, err
 }
 
 // resolutionProducerFields names the completed producer operation one evidence
@@ -552,7 +537,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 	})
 
-	t.Run("durable producer claims and completes under the local pin", func(t *testing.T) {
+	t.Run("atomic producer result resolves under the local pin", func(t *testing.T) {
 		t.Parallel()
 		const workID = "resolution-producer"
 		definition := resolutionPolicyDefinition(t)
@@ -573,45 +558,6 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 			if !strings.Contains(evidenceRefs, subject) {
 				t.Fatalf("durable producer evidence %q does not carry the bound subject %s", evidenceRefs, subject)
 			}
-		}
-		// A claim naming another step of the same workflow refuses against the
-		// stored pin.
-		if _, err := claimStepAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
-			OpID: "resolution-claim-wrong-step-" + workID, WorkID: workID,
-			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
-			StepID: "proposal", StepKind: StepInternalSQLite,
-			AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), AcceptedScopeSnapshot: `{}`,
-			PrincipalRef: owner.PrincipalRef, Tool: "workflow-resolution-test", IdempotencyKey: "resolution-claim-wrong-step-" + workID,
-			RequestID: "request:resolution-claim-wrong-step-" + workID, ObservedAt: time.Unix(11, 3).UTC(), ContractDigest: testManifestDigest,
-		}, true, nil, registry); err == nil {
-			t.Fatal("claim with a step outside the pinned current step was accepted")
-		}
-		// Completing a stale attempt epoch refuses and leaves the current
-		// attempt without a result.
-		next, err := claimStepAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
-			OpID: "resolution-produce-" + workID, WorkID: workID,
-			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
-			StepID: "execution", StepKind: StepExternalEffect,
-			AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), AcceptedScopeSnapshot: `{}`,
-			PrincipalRef: owner.PrincipalRef, Tool: "workflow-resolution-test", IdempotencyKey: "resolution-produce-retry-" + workID,
-			RequestID: "request:resolution-produce-" + workID, ObservedAt: time.Unix(11, 4).UTC(), ContractDigest: testManifestDigest,
-		}, true, nil, registry)
-		if err != nil {
-			t.Fatalf("retry claim refused under the local pin: %v", err)
-		}
-		if _, err := completeStepWithRegistry(context.Background(), s, CompleteRequest{
-			OpID: next.OpID, AttemptEpoch: 1, ResultKind: ResultCompleted,
-			PrincipalRef: owner.PrincipalRef, Tool: "workflow-resolution-test", IdempotencyKey: "resolution-produce-stale-" + workID,
-			RequestID: "request:resolution-produce-" + workID, ObservedAt: time.Unix(11, 5).UTC(),
-		}, true, registry); err == nil {
-			t.Fatal("completion with a stale attempt epoch was accepted")
-		}
-		var pending int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE op_id=? AND attempt_epoch=? AND result_kind IS NULL`, next.OpID, next.AttemptEpoch).Scan(&pending); err != nil {
-			t.Fatal(err)
-		}
-		if pending != 1 {
-			t.Fatalf("the stale completion touched the current attempt: %d open rows, want 1", pending)
 		}
 	})
 

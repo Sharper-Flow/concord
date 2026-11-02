@@ -72,8 +72,8 @@ wrapper replaces `concord_knowledge`.
 
 Workflow mandates, Domain organization and research packs retain their
 owning semantics. Workflow contracts store no law or registry freshness hashes.
-A committed compaction note retains its verified home,
-path, commit and content-hash linkage on the compaction/work surface; it
+A historical work note retains its verified home,
+path, commit and content-hash linkage on the retained-work read surface; it
 does not require a law index.
 
 ## Other Products and upgrade

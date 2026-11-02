@@ -192,9 +192,6 @@ var implementedInvariants = map[string]func(t *testing.T, obs jobObservation){
 	"canonical_authority": invariantCanonicalAuthority,
 	"bounded_context":     invariantBoundedContext,
 	"no_silent_scope_cut": invariantNoSilentScopeCut,
-	// AJ6 binds the publication seam, so cross-authority ordering is now
-	// checkable from observed execution rather than assumed.
-	"ordered_cross_authority": invariantOrderedCrossAuthority,
 	// AJ3/AJ4/AJ5 mutation scenarios exercise the four core mutation
 	// invariants; the bindings write durable state that lets the
 	// checks run with real evidence rather than vacuous assertions.
@@ -209,47 +206,6 @@ var implementedInvariants = map[string]func(t *testing.T, obs jobObservation){
 // implementedInvariants.
 var uncheckedInvariants = map[string]string{
 	"stable_evolution": "requires contract version drift testing — not yet bound",
-}
-
-// invariantOrderedCrossAuthority enforces that a step sequence crossing git and
-// SQLite is ordered, attributed, and honest about partial outcomes.
-//
-// A cross-authority operation exposes its sequence one of two ways: a completed
-// publication reports the order it ran, and an interrupted one reports the steps
-// that finished. Both must be a prefix of the accepted order — an operation
-// cannot claim a later step completed without the ones before it — and an
-// interrupted operation must offer a way to recover.
-func invariantOrderedCrossAuthority(t *testing.T, obs jobObservation) {
-	t.Helper()
-	if order, ok := obs.Effects["publication_order"].([]any); ok {
-		if len(order) == 0 {
-			t.Error("ordered_cross_authority: publication_order is empty")
-		}
-		for i, phase := range order {
-			if i >= len(publicationPhases) {
-				t.Errorf("ordered_cross_authority: publication_order has %d phases, accepted order has %d", len(order), len(publicationPhases))
-				break
-			}
-			if phase != publicationPhases[i] {
-				t.Errorf("ordered_cross_authority: phase %d is %v, accepted order requires %q", i, phase, publicationPhases[i])
-			}
-		}
-	}
-	steps, ok := obs.Communication["completed_steps"].([]any)
-	if !ok {
-		return
-	}
-	if len(steps) == 0 {
-		t.Error("ordered_cross_authority: an interrupted operation reported no completed steps")
-		return
-	}
-	// A partial outcome must name a recovery route; a cross-authority effect
-	// that stopped halfway and offers no way forward is an orphan.
-	if outcome, _ := obs.Communication["outcome"].(string); outcome == string(agentcontract.OutcomePartial) {
-		if action, _ := obs.Communication["recovery_action"].(string); action == "" {
-			t.Error("ordered_cross_authority: partial outcome carries no recovery action")
-		}
-	}
 }
 
 func invariantCorrectScope(t *testing.T, obs jobObservation) {
@@ -938,8 +894,8 @@ func TestAgentJobsCorpus(t *testing.T) {
 
 	// The corpus count is pinned so scenario removal cannot masquerade as a
 	// complete binding run.
-	if len(corpus.Scenarios) != 16 {
-		t.Fatalf("corpus declares %d scenarios, want 16", len(corpus.Scenarios))
+	if len(corpus.Scenarios) != 14 {
+		t.Fatalf("corpus declares %d scenarios, want 14", len(corpus.Scenarios))
 	}
 
 	for _, sc := range corpus.Scenarios {
@@ -1117,16 +1073,6 @@ func envelopeToObservation(resp agentcontract.Envelope) jobObservation {
 	if resp.Outcome != "" {
 		obs.Communication["outcome"] = string(resp.Outcome)
 	}
-	// CD-0039 D7: a partial cross-authority outcome reports the steps that
-	// finished and its recovery route; the ordered-cross-authority invariant
-	// reads both from the envelope.
-	if len(resp.CompletedSteps) > 0 {
-		steps := make([]any, len(resp.CompletedSteps))
-		for i, step := range resp.CompletedSteps {
-			steps[i] = step
-		}
-		obs.Communication["completed_steps"] = steps
-	}
 	if resp.Error != nil && resp.Error.RecoveryAction.Kind != "" {
 		obs.Communication["recovery_action"] = resp.Error.RecoveryAction.Kind
 	}
@@ -1276,11 +1222,6 @@ func init() {
 	// Mutation bindings live in agent_jobs_mutations_bindings_test.go.
 	jobBindings["AJ3-capture-work"] = bindAJ3CaptureWork
 	jobBindings["AJ3-spec-conflict"] = bindAJ3SpecConflict
-	// AJ6 compaction bindings (#161). The handlers live in
-	// agent_jobs_compaction_bindings_test.go. The AJ7 knowledge retrieval
-	// bindings were retired with the public knowledge family.
-	jobBindings["AJ6-compact-terminal-work"] = bindAJ6CompactTerminalWork
-	jobBindings["AJ6-partial-publication"] = bindAJ6PartialPublication
 	jobBindings["AJ4-start-valid-work"] = bindAJ4StartValidWork
 	jobBindings["AJ4-complete-valid-work"] = bindAJ4CompleteValidWork
 	jobBindings["AJ4-completion-missing-evidence"] = bindAJ4CompletionMissingEvidence
@@ -1596,7 +1537,7 @@ func TestFixtureOverrideConsumptionIsProven(t *testing.T) {
 		t.Fatalf("reading a declared key reported %v, want no failure", reader.fatals)
 	}
 
-	// The unread key must survive as a finding. This is the AJ6 shape: the key
+	// The unread key must survive as a finding. The key
 	// is well-formed and nothing consumed it.
 	got := sc.overrides.unconsumed()
 	if len(got) != 1 || got[0] != "declared.unread" {

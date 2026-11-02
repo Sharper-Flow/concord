@@ -434,7 +434,7 @@ func (s *Store) establishKnowledgeSourceSetProofAtHomes(ctx context.Context, hom
 	}
 	sources, err := resolveKnowledgeQuerySources(ctx, s.db, productID, "check_mandated_laws")
 	if err != nil {
-		return ctx, nil // The transaction's boundary owns source-resolution refusal.
+		return ctx, err
 	}
 	seenHomes := map[string]bool{}
 	for _, source := range sources {

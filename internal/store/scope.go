@@ -185,7 +185,10 @@ func productKnowledgeHomeCandidates(ctx context.Context, q queryer, productID st
 		if err := rows.Scan(&home.HomeProjectID, &home.HomeLocatorID, &home.RepoPath); err != nil {
 			return nil, wrapFailure(KindUnavailable, "knowledge_home", "cannot decode Product knowledge home", true, "retry once the database is readable", err)
 		}
-		home.HeadRef = "HEAD"
+		home, err = currentLawHome(home)
+		if err != nil {
+			return nil, err
+		}
 		homes = append(homes, home)
 	}
 	if err := rows.Err(); err != nil {
@@ -206,7 +209,10 @@ func projectCanonicalHomeCandidates(ctx context.Context, q queryer, projectID st
 		if err := rows.Scan(&home.HomeProjectID, &home.HomeLocatorID, &home.RepoPath); err != nil {
 			return nil, wrapFailure(KindUnavailable, "knowledge_home", "cannot decode Project canonical locator", true, "retry once the database is readable", err)
 		}
-		home.HeadRef = "HEAD"
+		home, err = currentLawHome(home)
+		if err != nil {
+			return nil, err
+		}
 		homes = append(homes, home)
 	}
 	if err := rows.Err(); err != nil {

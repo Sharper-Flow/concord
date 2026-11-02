@@ -475,6 +475,12 @@ func initKnowledgeRepo(dir string) (string, error) {
 	if _, err := runKnowledgeGit(repo, "init", "--initial-branch=main"); err != nil {
 		return "", err
 	}
+	if _, err := runKnowledgeGit(repo, "symbolic-ref", "refs/remotes/origin/main", "refs/heads/main"); err != nil {
+		return "", err
+	}
+	if _, err := runKnowledgeGit(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"); err != nil {
+		return "", err
+	}
 	if _, err := runKnowledgeGit(repo, "config", "user.email", "test@example.invalid"); err != nil {
 		return "", err
 	}

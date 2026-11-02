@@ -258,6 +258,15 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	if !ok {
 		return base, errors.New("unsupported tool operation")
 	}
+	// These reads assemble current law or workflow pins; enriched mutation
+	// results publish pins too. Attach disclosure before size admission and
+	// replay, not after a mutation has committed its response.
+	if operationUsesCurrentLaw(op) {
+		base.Warnings = append(base.Warnings, agentcontract.Notice{
+			Kind: "law_remote_freshness_unchecked", SourceID: "origin/HEAD",
+			Details: map[string]any{"message": "Current law uses locally fetched origin/HEAD; remote freshness is unchecked. At the designated Git home, run git fetch origin and retry; no checkout advance is required."},
+		})
+	}
 	if op.ID == "concord_work_transition.workflow_action" {
 		var refusal *agentcontract.Envelope
 		ctx, refusal = preflightDispatchWorkflowAction(ctx, s, authority, request, env, registry, op, base)
@@ -288,6 +297,17 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		return coreError(base, "unreachable", "authority is not available", "contact_operator", true), nil
 	}
 	return dispatchAuthorizedRequest(ctx, s, authority, request, env, registry, op, base, budget)
+}
+
+func operationUsesCurrentLaw(op agentcontract.ContractOperation) bool {
+	switch op.ID {
+	case "concord_domain.list", "concord_domain.detail",
+		"concord_work_trace.continuity", "concord_work_trace.history", "concord_work_trace.mutation_result",
+		"concord_product_view.snapshot",
+		"concord_work_browse.list", "concord_work_browse.ready", "concord_work_browse.blocked", "concord_work_browse.scope":
+		return true
+	}
+	return slices.Contains(agentcontract.GeneratedPayloadRules[op.ResultSchema].Properties, "work_pins")
 }
 
 func preflightDispatchWorkflowAction(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op agentcontract.ContractOperation, base agentcontract.Envelope) (context.Context, *agentcontract.Envelope) {

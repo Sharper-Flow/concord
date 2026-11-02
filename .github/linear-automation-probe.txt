@@ -1,0 +1,2 @@
+Synthetic pull request fixture for observing issue-status automation.
+This fixture belongs only on disposable branches, never the default branch.

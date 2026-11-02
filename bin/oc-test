@@ -28,15 +28,16 @@
 # through the preflight-gate tier, because they vet, build, lint, and compile
 # every package, which is heavy on a shared host when several worktrees push
 # at once. Each admitted gate rejoins the queue per gate, so a contended slot
-# lengthens a push by the queue depth times the matched gate count. The
+# lengthens a push by about one full queue wait per matched gate. The
 # preflight tier passes no admission class of its own: its gates admit
-# themselves, and one wrapper around the whole battery would wait on the
-# shared admission slot those gates hold. When `oc-test-gate` is missing,
-# heavy tiers refuse; preflight-gate instead runs its one gate natively with
-# a warning, because a normal push must not lose a gate on a host that has no
-# admission route to enter. The
-# continuous-integration workflow does not use this wrapper; it calls the same
-# underlying commands natively so its behavior stays deterministic.
+# themselves, because one wrapper around the whole battery would hold the
+# shared admission slot, and every gate inside it would then wait on that
+# held slot. When `oc-test-gate` is missing, heavy tiers refuse;
+# preflight-gate instead runs its one gate natively with a warning, because
+# a normal push must not lose a gate on a host that has no admission route
+# to enter. The continuous-integration workflow does not use this wrapper; it
+# calls the same underlying commands natively so its behavior stays
+# deterministic.
 #
 # The tier above and the gate's admission class are separate vocabularies. A
 # tier names a workload this repository owns. An admission class names a
@@ -211,8 +212,9 @@ case "$tier" in
     # no_auto_install, and installing hooks is a one-time contributor step
     # documented in CONTRIBUTING.md.
     # No admission here: every gate command in lefthook.yml admits itself
-    # through the preflight-gate tier, and one wrapper around the whole
-    # battery would wait on the shared admission slot its gates hold.
+    # through the preflight-gate tier, because one wrapper around the whole
+    # battery would hold the shared admission slot, and every gate inside it
+    # would then wait on that held slot.
     if command -v lefthook >/dev/null 2>&1; then
       run_tier preflight none lefthook run pre-push
     else

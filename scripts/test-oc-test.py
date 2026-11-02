@@ -602,6 +602,7 @@ class TierRoutingTest(unittest.TestCase):
         result = self.run_wrapper("preflight-gate", "--", "probe", with_gate=False,
                                   failure="probe")
         self.assertEqual(result.returncode, 7, result.stderr)
+        self.assertEqual(result.gate_class, "")
         self.assertEqual([call["command"] for call in result.calls], ["probe"])
         self.assertIn("FAIL preflight-gate (exit 7)", result.stderr)
         self.assertNotIn("PASS preflight-gate", result.stdout)

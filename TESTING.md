@@ -78,10 +78,11 @@ queue their gate work instead of overlapping it. Heavy tiers fail closed if
 `oc-test-gate` is missing; `preflight-gate` instead runs its one gate natively
 with a warning, because a normal push must not lose a gate on a host without
 admission control. The `preflight` tier adds no admission of its own: its
-gates admit themselves. There is no repository scheduler or alternate lock. The host reports
-queue wait separately from execution when available. Full admission defaults to
-a 20-minute execution limit after admission; the existing host variable
-`OC_TEST_GATE_FULL_TIMEOUT` can set an explicitly justified run budget. Do not
+gates admit themselves. There is no repository scheduler or alternate lock.
+The host reports queue wait separately from execution when available. Full
+admission defaults to a 20-minute execution limit after admission; the
+existing host variable `OC_TEST_GATE_FULL_TIMEOUT` can set an explicitly
+justified run budget. Do not
 increase timeouts as a performance fix or disable required freshness checks.
 
 Keep discovery inside admission. Shell command substitution happens **before**

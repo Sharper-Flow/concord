@@ -99,8 +99,8 @@ busy shared slot, and the push fails closed with the host's remediation —
 never with a skipped gate. Recovery is to rerun the push itself through the
 host's long-running command route, which waits for admission within its
 budget; each gate rejoins the queue per gate, so a heavily contended slot
-lengthens a push by the queue depth times the matched gate count. Fix a
-failing gate before retrying a push; do not bypass the hook. CI remains the
+lengthens a push by about one full queue wait per matched gate. Fix a failing
+gate before retrying a push; do not bypass the hook. CI remains the
 verification owner. To diagnose a failure before retrying a push, run the
 same gates manually:
 

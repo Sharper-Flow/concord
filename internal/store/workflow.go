@@ -1722,6 +1722,20 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		}
 		return newFailure(KindMissingEvidence, "fold_event", "late criterion association requires its own verified association effect", false, "associate applicable producer receipts before recording completion")
 	}
+	if p.ActionID == "confirm_premise" && workflowLatePremiseConfirmationStep(entry.Definition, currentStep) {
+		// The confirmation event folds before its completion and closes the
+		// late route; join this action's own confirmation of the active
+		// version, recorded immediately before it, rather than re-test the
+		// post-confirmation state.
+		var paired bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_premise_confirmations c WHERE c.work_id=?1 AND c.confirmed_by=?3 AND c.contract_version=(SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=?1 AND superseded_by IS NULL) AND EXISTS(SELECT 1 FROM workflow_premise_confirmations WHERE work_id=?1 AND contract_version<c.contract_version)) AND (SELECT kind FROM effect_receipts WHERE subject_id=?1 AND effect_seq<?2 ORDER BY effect_seq DESC LIMIT 1)=?4`, event.SubjectID, event.Seq, p.ActorRef, WorkflowPremiseConfirmed).Scan(&paired); err != nil {
+			return workflowProjectionError(err, "cannot read late premise confirmation effect")
+		}
+		if paired {
+			return nil
+		}
+		return newFailure(KindMissingEvidence, "fold_event", "late premise confirmation requires its own confirmation of the active contract version", false, "confirm the active contract version before recording completion")
+	}
 	if p.ActionID == "request_correction" {
 		correctionRecovery, missing, recoveryErr := workflowCorrectionRequestAdmissionStateForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", registry)
 		if recoveryErr != nil {
@@ -1825,7 +1839,7 @@ func completeAdmittedWorkflowActionTx(ctx context.Context, tx *sql.Tx, event Eve
 		if _, ok := workflowActionExecutionMode(entry.Definition, p.ActionID); !ok {
 			return newFailure(KindInvariantViolation, "fold_event", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
 		}
-		advancesStep = workflowCompletedActionAdvances(entry.Definition, p)
+		advancesStep = workflowCompletedActionAdvances(entry.Definition, p) && definitionStepAllows(entry.Definition, currentStep, p.ActionID)
 		correction, err := validateWorkflowCorrectionCompletionTx(ctx, tx, event, scope, p, entry, currentStep)
 		if err != nil {
 			return err

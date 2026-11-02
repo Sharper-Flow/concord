@@ -23,6 +23,10 @@ type WorkflowAdmissionState struct {
 	// LateCriterionAssociation admits missing applicable proof at a terminal
 	// or confirmation step without moving it back to a producer.
 	LateCriterionAssociation bool
+	// LatePremiseConfirmation admits confirm_premise at a terminal step
+	// without moving it, when a contract update after confirmation left the
+	// active version unconfirmed.
+	LatePremiseConfirmation bool
 	// DesignStale reports a recorded design a contract correction
 	// invalidated.
 	DesignStale bool
@@ -236,11 +240,37 @@ func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID stri
 			state.AcceptanceDeliverablesMissing = subjectErr
 		}
 	}
-	// Fold confirmation prerequisites only at a step that declares it.
-	if state.ActiveContracts != 1 || !stepDeclaresAction(definition, state.Step, "confirm_premise") {
+	// Fold confirmation prerequisites only at a step that declares it or hosts
+	// the late confirmation.
+	if state.ActiveContracts != 1 {
 		return nil
 	}
+	if !stepDeclaresAction(definition, state.Step, "confirm_premise") {
+		if !workflowLatePremiseConfirmationStep(definition, state.Step) {
+			return nil
+		}
+		open, err := workflowLatePremiseConfirmationOpen(ctx, q, workID)
+		if err != nil || !open {
+			return err
+		}
+		state.LatePremiseConfirmation = true
+	}
 	return foldWorkflowConfirmationPrerequisites(ctx, q, workID, definition, state)
+}
+
+// workflowLatePremiseConfirmationOpen reports whether the active contract
+// version lacks the premise confirmation an earlier version of the same item
+// holds: an ordinary update after confirmation left it unconfirmed.
+func workflowLatePremiseConfirmationOpen(ctx context.Context, q queryer, workID string) (bool, error) {
+	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+	if err != nil {
+		return false, err
+	}
+	var open bool
+	if err := q.QueryRowContext(ctx, `SELECT NOT EXISTS(SELECT 1 FROM workflow_premise_confirmations WHERE work_id=?1 AND contract_version=?2) AND EXISTS(SELECT 1 FROM workflow_premise_confirmations WHERE work_id=?1 AND contract_version<?2)`, workID, version).Scan(&open); err != nil {
+		return false, wrapFailure(KindUnavailable, "workflow_action", "cannot read premise confirmations", true, "retry once the database is readable", err)
+	}
+	return open, nil
 }
 
 // foldWorkflowConfirmationPrerequisites folds the recorded investigation and,
@@ -399,6 +429,10 @@ func workflowAdmitConfirmationRefused(definition WorkflowDefinition, state Workf
 		decision.Failure = workflowFailureOf(state.AcceptanceDeliverablesMissing)
 		return true
 	}
+	if actionID == "complete" && state.LatePremiseConfirmation {
+		decision.Failure = newFailure(KindMissingEvidence, "workflow_action", "the active contract version is not confirmed: a contract update followed the premise confirmation", false, "confirm_premise at this step to confirm the active version")
+		return true
+	}
 	if actionID == "request_correction" && !state.CorrectionRequestRecovery {
 		decision.Failure = workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
 		return true
@@ -443,6 +477,8 @@ func workflowAdmissionStepAllows(definition WorkflowDefinition, state WorkflowAd
 		return state.EvidenceRecoveryRoute
 	case "request_correction":
 		return state.CorrectionRequestRecovery
+	case "confirm_premise":
+		return state.LatePremiseConfirmation
 	}
 	return false
 }

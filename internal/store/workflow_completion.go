@@ -163,7 +163,8 @@ func verifyWorkflowCompletionEvidenceAndScopeTx(ctx context.Context, tx *sql.Tx,
 		if mandateErr != nil {
 			return workflowClauseError(mandateErr, 3)
 		}
-		if err := checkMandatedLawsTx(ctx, tx, workID, mandated, contract.LawModifies, false); err != nil {
+		mandated, modified := workflowLawsWithoutRemovals(mandated, contract.LawModifies, contract.LawChange)
+		if err := checkMandatedLawsTx(ctx, tx, workID, mandated, modified, false); err != nil {
 			return workflowClauseError(err, 3)
 		}
 		if err := checkWorkflowLawChangeEnactmentTx(ctx, tx, workID, contract.LawChange, contract.ArchitectureBinding); err != nil {

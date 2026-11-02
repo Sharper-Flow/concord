@@ -56,6 +56,8 @@ checks the laws committed in the law folder and their declared relations;
 an explicit conflict may pass planning only when the endpoint whose record
 declares it is in `law_modifies`. Completion reruns the check without that
 exception, so only a Git-authorized law delta can resolve the conflict.
+A mandated law that the contract declares in `law_change_removals` satisfies
+completion by its verified absence, not its presence.
 
 CD-0036 binds contracts to law IDs without law or Domain registry freshness
 hashes. Later amendments, deletions and registry edits reconcile through Git;
@@ -284,6 +286,10 @@ and canonical payload, and only when their evidence still proves the current
 candidate. Changed or removed criteria gain no proof from retained verdicts.
 Evidence for a different candidate does not prove the current candidate.
 Version-bound premise confirmations stay bound to their recorded version.
+When an update follows the premise confirmation, the coordinator confirms the
+active version through `confirm_premise` at the terminal step, under the same
+confirmation prerequisites. That late confirmation does not move the step, and
+completion refuses until it is recorded.
 Current evidence, Review, confirmation, and completion checks remain required;
 unchanged valid proof needs no replacement merely because a contract version
 was appended ([CD-0242 D7](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)).

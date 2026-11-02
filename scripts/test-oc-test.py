@@ -15,6 +15,8 @@ import sys
 import tempfile
 import unittest
 
+import yaml
+
 
 _plan_spec = importlib.util.spec_from_file_location("local_test_plan", Path(__file__).with_name("local-test-plan.py"))
 PLANNER = importlib.util.module_from_spec(_plan_spec)
@@ -500,7 +502,8 @@ class TierRoutingTest(unittest.TestCase):
     def test_invalid_arguments_do_not_start_commands_or_request_admission(self):
         for args in ((), ("unknown",), ("full",), ("smoke", "extra"),
                      ("conformance", "extra"), ("targeted",), ("targeted", "--"),
-                     ("preflight", "extra"), ("preflight", "--"), ("broad",), ("plan",)):
+                     ("preflight", "extra"), ("preflight", "--"), ("broad",), ("plan",),
+                     ("preflight-gate",), ("preflight-gate", "--")):
             with self.subTest(args=args):
                 result = self.run_wrapper(*args)
                 self.assertEqual(result.returncode, 64, result.stderr)
@@ -510,7 +513,8 @@ class TierRoutingTest(unittest.TestCase):
     def test_usage_describes_supported_tiers(self):
         result = self.run_wrapper()
         self.assertEqual(result.returncode, 64)
-        for tier in ("smoke", "targeted", "broad", "plan", "conformance", "preflight"):
+        for tier in ("smoke", "targeted", "broad", "plan", "conformance", "preflight",
+                     "preflight-gate"):
             self.assertIn(tier, result.stderr)
 
     def test_conformance_keeps_exact_command_environment_and_admission(self):
@@ -535,9 +539,11 @@ class TierRoutingTest(unittest.TestCase):
         self.assertIn('CONCORD_ACCEPTANCE_RUNNER: "1"', block)
 
     def test_preflight_uses_the_installed_lefthook_binary(self):
+        # No admission here: the lefthook.yml gates admit themselves through
+        # the preflight-gate tier, so the battery adds no outer slot wait.
         result = self.run_wrapper("preflight")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.gate_class, "smoke")
+        self.assertEqual(result.gate_class, "")
         self.assertEqual(len(result.calls), 1)
         self.assertEqual(result.calls[0]["command"], "lefthook")
         self.assertEqual(result.calls[0]["args"], ["run", "pre-push"])
@@ -545,14 +551,13 @@ class TierRoutingTest(unittest.TestCase):
         self.assertEqual(result.calls[0]["selected_product"], "poison-product")
         self.assertIn("START preflight", result.stdout)
         self.assertIn("PASS preflight", result.stdout)
-        self.assertIn("WAIT admission", result.stdout)
+        self.assertNotIn("WAIT admission", result.stdout)
 
     def test_preflight_without_lefthook_runs_the_pinned_module(self):
         result = self.run_wrapper("preflight", commands=("go", "bun", "python3", "probe"))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.gate_class, "smoke")
+        self.assertEqual(result.gate_class, "")
         self.assertEqual(len(result.calls), 1)
-        self.assertEqual(result.calls[0]["command"], "go")
         self.assertEqual(result.calls[0]["args"], [
             "run", "github.com/evilmartians/lefthook/v2@v2.1.14", "run", "pre-push",
         ])
@@ -562,6 +567,67 @@ class TierRoutingTest(unittest.TestCase):
         self.assertEqual(result.returncode, 7, result.stderr)
         self.assertIn("FAIL preflight (exit 7)", result.stderr)
         self.assertNotIn("PASS preflight", result.stdout)
+
+    def test_preflight_gate_admits_one_command_under_smoke_admission(self):
+        args = ["a file.go", "", "$(exit 99)", "--flag"]
+        result = self.run_wrapper("preflight-gate", "--", "probe", *args)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.gate_class, "smoke")
+        self.assertEqual(len(result.calls), 1)
+        self.assertEqual(result.calls[0]["command"], "probe")
+        self.assertEqual(result.calls[0]["args"], args)
+        self.assertEqual(result.calls[0]["cwd"], result.repo_root)
+        self.assertEqual(result.calls[0]["selected_product"], "poison-product")
+        self.assertIn("START preflight-gate", result.stdout)
+        self.assertIn("WAIT admission: preflight-gate", result.stdout)
+        self.assertIn("PASS preflight-gate", result.stdout)
+
+    def test_preflight_gate_failure_propagates(self):
+        result = self.run_wrapper("preflight-gate", "--", "probe", failure="probe")
+        self.assertEqual(result.returncode, 7, result.stderr)
+        self.assertIn("FAIL preflight-gate (exit 7)", result.stderr)
+        self.assertNotIn("PASS preflight-gate", result.stdout)
+
+    def test_preflight_gate_without_gate_keeps_the_gate_running(self):
+        # A normal push must never lose a gate because its host has no
+        # admission route: the command runs natively, with a warning.
+        result = self.run_wrapper("preflight-gate", "--", "probe", with_gate=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.gate_class, "")
+        self.assertEqual([call["command"] for call in result.calls], ["probe"])
+        self.assertIn("oc-test-gate not found", result.stderr)
+        self.assertIn("not admission-controlled", result.stderr)
+
+    def test_preflight_gate_without_gate_still_blocks_the_push_on_failure(self):
+        result = self.run_wrapper("preflight-gate", "--", "probe", with_gate=False,
+                                  failure="probe")
+        self.assertEqual(result.returncode, 7, result.stderr)
+        self.assertEqual(result.gate_class, "")
+        self.assertEqual([call["command"] for call in result.calls], ["probe"])
+        self.assertIn("FAIL preflight-gate (exit 7)", result.stderr)
+        self.assertNotIn("PASS preflight-gate", result.stdout)
+
+
+class LefthookPreflightAdmissionTest(unittest.TestCase):
+    """A normal push enters host admission: every pre-push gate in
+    lefthook.yml runs through the preflight-gate tier, and the battery keeps
+    its within-push serialization."""
+
+    def test_every_pre_push_gate_runs_through_admission(self):
+        config = yaml.safe_load((REPOSITORY / "lefthook.yml").read_text())
+        commands = config["pre-push"]["commands"]
+        self.assertTrue(commands, "lefthook.yml lost its pre-push gates")
+        for name, spec in commands.items():
+            run = spec["run"]
+            with self.subTest(gate=name):
+                self.assertTrue(
+                    run.startswith("bin/oc-test preflight-gate -- "),
+                    f"gate {name} bypasses admission: {run!r}")
+                self.assertTrue(
+                    run.removeprefix("bin/oc-test preflight-gate -- ").strip(),
+                    f"gate {name} wraps an empty command")
+        self.assertFalse(config["pre-push"].get("parallel", True),
+                         "within-push gate serialization was lost")
 
 
 class FileSizeLimitTest(unittest.TestCase):
@@ -582,12 +648,16 @@ class FileSizeLimitTest(unittest.TestCase):
         self.assertNotIn("PASS broad", result.stdout)
 
     def test_every_tier_runs_under_the_default_limit_with_and_without_the_gate(self):
+        # preflight admits nothing itself and preflight-gate keeps its gate
+        # running, so both work without the host gate; the heavy tiers refuse.
+        native_without_gate = ("targeted", "preflight", "preflight-gate")
         for args in (("smoke",), ("conformance",), ("preflight",), ("broad", "--", "probe"),
+                     ("preflight-gate", "--", "probe"),
                      ("targeted", "--", "python3", "scripts/test-probe.py")):
             for with_gate in (True, False):
                 with self.subTest(args=args, with_gate=with_gate):
                     result = self.run_wrapper(*args, with_gate=with_gate)
-                    if not with_gate and args[0] != "targeted":
+                    if not with_gate and args[0] not in native_without_gate:
                         self.assertEqual(result.returncode, 69, result.stderr)
                         self.assertEqual(result.calls, [])
                         continue

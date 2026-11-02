@@ -26,12 +26,6 @@ type WorkflowAdmissionState struct {
 	// LateCriterionAssociation admits missing applicable proof at a terminal
 	// or confirmation step without moving it back to a producer.
 	LateCriterionAssociation bool
-	// LawPinStale reports a staleness the contract recovery admits: a
-	// deleted-law pin.
-	LawPinStale bool
-	// LawPinStaleError is the staleness boundary's refusal under the plain
-	// admission, nil when the pinned law is current.
-	LawPinStaleError error
 	// DesignStale reports a recorded design a contract correction
 	// invalidated.
 	DesignStale bool
@@ -181,11 +175,8 @@ type workflowAdmissionLoad struct {
 	registry DefinitionRegistry
 }
 
-// staleness folds law-pin, design, and artifact staleness.
+// staleness folds design and artifact staleness.
 func (l workflowAdmissionLoad) staleness(state *WorkflowAdmissionState) error {
-	lawErr := checkWorkflowLawRevisionStalenessTx(l.ctx, l.q, l.workID)
-	state.LawPinStaleError = lawErr
-	state.LawPinStale = lawErr != nil && workflowContractRecoveryStaleness(lawErr)
 	_, designErr := readCurrentWorkflowDesign(l.ctx, l.q, l.workID)
 	if designErr != nil {
 		return designErr
@@ -340,10 +331,6 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 			decision.Failure = workflowFailureOf(reviewErr)
 			return decision
 		}
-	}
-	if err := state.LawPinStaleError; err != nil {
-		decision.Failure = workflowFailureOf(err)
-		return decision
 	}
 	if workflowAdmitDeliveryRefused(definition, state, actionID, &decision) {
 		return decision

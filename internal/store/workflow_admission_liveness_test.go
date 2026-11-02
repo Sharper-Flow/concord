@@ -51,14 +51,11 @@ type admissionModelState struct {
 	review admissionModelReview
 	// Duplicate active contracts are corruption, not public authoring states.
 	contracts int64
-	// stale is the pin staleness: "" or "law" (a deleted-law pin every
-	// action refuses on).
-	stale string
 	// designStale is a recorded design a contract correction invalidated.
 	designStale bool
 	// artifactStale mirrors the artifact-staleness fold (CD-0201 D5): a
-	// bad verdict or a successor contract made the artifact the evaluator
-	// judges stale, and only fresh production at the declared route target
+	// bad verdict made the artifact the evaluator judges stale, and only
+	// fresh production at the declared route target
 	// clears it. While set, record_verdict admits only a non-ok verdict and
 	// confirm_premise refuses.
 	artifactStale bool
@@ -79,8 +76,8 @@ type admissionModelState struct {
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q done %v review %+v)",
-		s.step, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.done, s.review)
+	return fmt.Sprintf("(step %q contracts %d designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q done %v review %+v)",
+		s.step, s.contracts, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.done, s.review)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
@@ -119,15 +116,6 @@ func admissionStateActions(definition WorkflowDefinition, state admissionModelSt
 // action universe carries.
 var admissionRecoveryActions = []string{"record_verdict", "request_correction", "bind_evidence"}
 
-// admissionModelStaleError is the staleness boundary's refusal the model
-// folds for one staleness class.
-func admissionModelStaleError(stale string) error {
-	if stale == "law" {
-		return newFailure(KindStaleLawRevision, "workflow_law_revision", "the model's pinned law revision is stale", false, "update the workflow contract")
-	}
-	return nil
-}
-
 func admissionLateCriterionAssociation(definition WorkflowDefinition, state admissionModelState) bool {
 	// This dimension is derivable from the existing criterion state. Artifact
 	// staleness neither opens the route nor prevents supported reassessment.
@@ -143,7 +131,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	if state.done {
 		instance, lifecycle = "completed", "completed"
 	}
-	staleErr := admissionModelStaleError(state.stale)
 	delivery := workflowDeliveryAdmission{Started: state.started, ProofRequired: workflowRefineProofGateActive(definition, state.step)}
 	folded := WorkflowAdmissionState{
 		Step:                     state.step,
@@ -152,8 +139,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		RefinementWorkflow:       refinement,
 		ActiveContracts:          state.contracts,
 		LateCriterionAssociation: admissionLateCriterionAssociation(definition, state),
-		LawPinStale:              staleErr != nil && workflowContractRecoveryStaleness(staleErr),
-		LawPinStaleError:         staleErr,
 		DesignStale:              state.designStale,
 		ArtifactStale:            state.artifactStale,
 		Delivery:                 delivery,
@@ -420,14 +405,13 @@ func admissionProducesAtRouteTarget(definition WorkflowDefinition, stepID, actio
 	return false
 }
 
-// An ordinary contract update re-pins law without resetting execution. Changed
+// An ordinary contract update keeps execution in place. Changed
 // criteria need proof; unchanged dependencies keep their applicable proof.
 func admissionContractUpdateSuccessors(state admissionModelState) []admissionModelState {
 	if state.contracts != 1 || state.done {
 		return nil
 	}
 	successor := state
-	successor.stale = ""
 	changed := successor
 	changed.verdict, changed.review.current = "", false
 	successors := []admissionModelState{changed, successor}
@@ -440,7 +424,7 @@ func admissionContractUpdateSuccessors(state admissionModelState) []admissionMod
 }
 
 func TestCriterionAssociationModelKeepsUnchangedContractUpdate(t *testing.T) {
-	before := admissionModelState{step: "complete", contracts: 1, verdict: "ok", stale: "law"}
+	before := admissionModelState{step: "complete", contracts: 1, verdict: "ok"}
 	changed, unchanged := false, false
 	for _, successor := range admissionContractUpdateSuccessors(before) {
 		if successor.contracts != 1 {
@@ -495,28 +479,13 @@ func admissionAgentMovesWith(definition WorkflowDefinition, state admissionModel
 }
 
 func admissionAgentMoveName(before, after admissionModelState) string {
-	if before.stale != after.stale || before.verdict != after.verdict || before.review != after.review {
+	if before.verdict != after.verdict || before.review != after.review {
 		return "revise_intent"
 	}
 	if before.proof != after.proof {
 		return "bind_evidence:verification_report"
 	}
 	return "observation_record"
-}
-
-// admissionEnvironmentMoves are the moves no agent controls: a breaking law
-// cutover makes the active contract's pin stale (CD-0036).
-func admissionEnvironmentMoves(state admissionModelState) []admissionModelState {
-	if state.done || state.contracts != 1 {
-		return nil
-	}
-	var moves []admissionModelState
-	if state.stale == "" {
-		law := state
-		law.stale = "law"
-		moves = append(moves, law)
-	}
-	return moves
 }
 
 func admissionTerminalStep(definition WorkflowDefinition, step string) bool {
@@ -538,9 +507,9 @@ func admissionStepIndex(definition WorkflowDefinition, stepID string) int {
 // values the loader can fold there. A step at or before the contract step
 // holds no contract; a later step holds one. Duplicate active contracts are
 // corruption and have separate refusal proof.
-// Pin staleness exists only under a contract; the current loader never marks
-// a design stale. Verdicts and artifact staleness exist only from the first
-// verdict step on. A bad verdict makes an artifact stale; changed contract
+// The current loader never marks a design stale. Verdicts and artifact
+// staleness exist only from the first verdict step on. A bad verdict makes
+// an artifact stale; changed contract
 // content invalidates its Review and proof dependencies separately.
 func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admissionModelState] {
 	contractIndex := -1
@@ -608,9 +577,8 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 				contracts = []int64{1}
 			}
 			for _, count := range contracts {
-				stales, verdicts, artifacts := []string{""}, []string{""}, []bool{false}
+				verdicts, artifacts := []string{""}, []bool{false}
 				if count > 0 {
-					stales = []string{"", "law"}
 					if verdictIndex >= 0 && i >= verdictIndex {
 						verdicts = []string{"", "ok", "bad"}
 					}
@@ -618,17 +586,15 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 						artifacts = []bool{false, true}
 					}
 				}
-				for _, stale := range stales {
-					for _, verdict := range verdicts {
-						for _, artifactStale := range artifacts {
-							for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
-								if !withEvidence(admissionModelState{
-									step: step.ID, contracts: count, stale: stale,
-									verdict: verdict, artifactStale: artifactStale,
-									artifact: observation[0], observed: observation[1],
-								}) {
-									return
-								}
+				for _, verdict := range verdicts {
+					for _, artifactStale := range artifacts {
+						for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
+							if !withEvidence(admissionModelState{
+								step: step.ID, contracts: count,
+								verdict: verdict, artifactStale: artifactStale,
+								artifact: observation[0], observed: observation[1],
+							}) {
+								return
 							}
 						}
 					}
@@ -994,7 +960,6 @@ func TestAdmissionModelKeyRejectsInvalidFields(t *testing.T) {
 }
 
 var (
-	admissionKeyStales   = []string{"", "law"}
 	admissionKeyVerdicts = []string{"", "ok", "bad"}
 	admissionKeyMandates = []string{"", "missing", "bound"}
 )
@@ -1020,7 +985,6 @@ func admissionKeyCount(value int64) uint8 {
 func admissionModelKeyOf(steps []string, state admissionModelState) admissionModelKey {
 	var p admissionModelKeyPacker
 	p.put(admissionKeyCode(state.step, steps), admissionModelKeyStepBits)
-	p.put(admissionKeyCode(state.stale, admissionKeyStales), 2)
 	p.put(admissionKeyCode(state.verdict, admissionKeyVerdicts), 2)
 	p.put(admissionKeyCode(state.mandate, admissionKeyMandates), 2)
 	p.put(admissionKeyCount(state.contracts), 8)
@@ -1041,7 +1005,6 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 	p := admissionModelKeyPacker{key: key}
 	var state admissionModelState
 	state.step = steps[p.get(admissionModelKeyStepBits)]
-	state.stale = admissionKeyStales[p.get(2)]
 	state.verdict = admissionKeyVerdicts[p.get(2)]
 	state.mandate = admissionKeyMandates[p.get(2)]
 	state.contracts = int64(p.get(8))
@@ -1054,7 +1017,7 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 
 // admissionModelKeyFields is the number of admissionModelState fields
 // admissionModelKeyOf encodes.
-const admissionModelKeyFields = 13
+const admissionModelKeyFields = 12
 
 func TestAdmissionModelKeyEncodesEveryField(t *testing.T) {
 	if got := reflect.TypeOf(admissionModelState{}).NumField(); got != admissionModelKeyFields {
@@ -1088,7 +1051,7 @@ func TestAdmissionModelKeyRoundTrips(t *testing.T) {
 		}
 		for range 2000 {
 			check(admissionModelState{
-				step: pick(steps), stale: pick(admissionKeyStales), verdict: pick(admissionKeyVerdicts),
+				step: pick(steps), verdict: pick(admissionKeyVerdicts),
 				mandate: pick(admissionKeyMandates), contracts: random.Int64N(256),
 				designStale: flip(), artifactStale: flip(),
 				artifact: flip(), observed: flip(), started: flip(), proof: flip(), done: flip(),
@@ -1103,8 +1066,7 @@ func TestAdmissionModelKeyRoundTrips(t *testing.T) {
 // observation record, held as integer indices into the discovery order.
 // States are held as their keys: a definition reaches about a million, and
 // a pointer-free slice of words keeps the collector from rescanning them.
-// Environment edges stay out: the live propagation reads this graph, and
-// an environment move never makes a state live. Edge k runs from
+// Edge k runs from
 // edgeFrom[k] to edgeTo[k]; parent and via record the first edge into each
 // state by index; via indexes viaNames.
 type admissionModelGraph struct {
@@ -1116,9 +1078,8 @@ type admissionModelGraph struct {
 	edgeFrom, edgeTo []int32
 }
 
-// admissionReachableGraph is the breadth-first search over admitted moves,
-// the agent's own moves, and the environment's moves, from
-// the start state, in discovery order.
+// admissionReachableGraph is the breadth-first search over admitted moves
+// and the agent's own moves, from the start state, in discovery order.
 func admissionReachableGraph(definition WorkflowDefinition, start admissionModelState) admissionModelGraph {
 	steps := []string{""}
 	for _, step := range definition.StepGraph.Steps {
@@ -1152,7 +1113,7 @@ func admissionReachableGraph(definition WorkflowDefinition, start admissionModel
 			graph.parent = append(graph.parent, from)
 			graph.via = append(graph.via, viaOf(action))
 		}
-		if to != from && action != admissionEnvironmentMoveName {
+		if to != from {
 			graph.edgeFrom = append(graph.edgeFrom, from)
 			graph.edgeTo = append(graph.edgeTo, to)
 		}
@@ -1168,9 +1129,6 @@ func admissionReachableGraph(definition WorkflowDefinition, start admissionModel
 		for _, successor := range admissionAgentMovesWith(definition, state, func() bool { return slices.Contains(moves, "bind_evidence") }) {
 			link(int32(i), admissionAgentMoveName(state, successor), successor)
 		}
-		for _, successor := range admissionEnvironmentMoves(state) {
-			link(int32(i), admissionEnvironmentMoveName, successor)
-		}
 	}
 	return graph
 }
@@ -1180,13 +1138,9 @@ func (graph admissionModelGraph) state(i int32) admissionModelState {
 	return admissionModelStateOf(graph.steps, graph.keys[i])
 }
 
-// admissionEnvironmentMoveName labels the environment's edges: pin
-// staleness.
-const admissionEnvironmentMoveName = "environment"
-
 // admissionLiveGraphStates computes completion reachability from the
-// recorded edges. Neither an environment move nor an operator stop can
-// replace a missing completion path from another state.
+// recorded edges. An operator stop cannot replace a missing completion path
+// from another state.
 func admissionLiveGraphStates(graph admissionModelGraph) []bool {
 	live := make([]bool, len(graph.keys))
 	// The reverse adjacency in compressed form: the predecessors of state

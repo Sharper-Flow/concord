@@ -47,8 +47,8 @@
   [`priorities.md`](../constitution/priorities.md) Appendix A, and goal E's measure that follow-up items get closed
 - **Preserves:** CD-0159 D1, D3, D6, and D7, the authority tier and its checks;
   the ban on a silent scope cut and a substituted outcome in CD-0006 and
-  [CD-0012](CD-0012-bind-stated-goals-to-delivered-outcomes.md); CD-0036 D1
-  and D3 to D6, law revision identity and breaking cutovers;
+  [CD-0012](CD-0012-bind-stated-goals-to-delivered-outcomes.md); CD-0036's law
+  identity, amendment/replacement and Git reconciliation rules;
   [CD-0122](CD-0122-concord-workflow-scope-and-defect-repair.md), work outside
   the workflow; [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md),
   Linear as the only planning authority

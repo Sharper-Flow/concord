@@ -22,8 +22,8 @@ const (
 
 // WorkflowArchitectureBinding is the one contract-owned description of a
 // Product-changing work item's architectural and legislative footprint. The
-// outcome, mandate, law modifications, and law revision pins remain fields of
-// the composed workflow contract; this type owns only the additional binding.
+// outcome, mandate, and law modifications remain fields of the composed
+// workflow contract; this type owns only the additional binding.
 type WorkflowArchitectureBinding struct {
 	HomeDomainID            string                               `json:"home_domain_id"`
 	AffectedDomainIDs       []string                             `json:"affected_domain_ids"`
@@ -158,10 +158,10 @@ func uniqueDomainBindingIDs(values []string) bool {
 }
 
 // workflowLawAdditionMandateTeaching states the rule
-// architectureBindingRevisionMandate and validateLawModificationSubset
+// architectureBindingCurrentMandate and validateLawModificationSubset
 // enforce; the teaching projection beside this guard publishes the same
 // text, so the published guidance cannot drift from admission.
-const workflowLawAdditionMandateTeaching = "Every law addition must be authorized by spec_mandate of the contract being approved and must stay disjoint from law modifications and revisions; the store refuses an addition outside the mandate."
+const workflowLawAdditionMandateTeaching = "Every law addition must be authorized by spec_mandate of the contract being approved and must stay disjoint from law modifications and existing law; the store refuses an addition outside the mandate."
 
 // workflowArchitectureDomainTeaching states the Domain-membership rule the
 // binding guards above enforce: added and modified law must name a home
@@ -169,7 +169,7 @@ const workflowLawAdditionMandateTeaching = "Every law addition must be authorize
 // modifications must use current canonical relations.
 const workflowArchitectureDomainTeaching = "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
 
-func architectureBindingRevisionMandate(specMandate []string, additions []WorkflowLawAddition) ([]string, error) {
+func architectureBindingCurrentMandate(specMandate []string, additions []WorkflowLawAddition) ([]string, error) {
 	if err := validateLawModificationSubset(specMandate, []string{}); err != nil {
 		return nil, err
 	}
@@ -193,31 +193,7 @@ func currentWorkflowLawMandate(specMandate []string, binding *WorkflowArchitectu
 	if binding == nil {
 		return append([]string{}, specMandate...), nil
 	}
-	return architectureBindingRevisionMandate(specMandate, binding.LawAdditions)
-}
-
-func currentWorkflowLawMandateFromProjection(ctx context.Context, q queryer, workID string, contractVersion int64, specMandate []string) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT law_id FROM workflow_contract_law_additions WHERE work_id=? AND contract_version=? ORDER BY law_id`, workID, contractVersion)
-	if err != nil {
-		return nil, err
-	}
-	additions := []WorkflowLawAddition{}
-	for rows.Next() {
-		var lawID string
-		if err := rows.Scan(&lawID); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		additions = append(additions, WorkflowLawAddition{LawID: lawID})
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, err
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	return architectureBindingRevisionMandate(specMandate, additions)
+	return architectureBindingCurrentMandate(specMandate, binding.LawAdditions)
 }
 
 func workflowDefinitionObligations(definition WorkflowDefinition) map[string]struct{} {
@@ -326,7 +302,7 @@ func relationBindingKey(relation WorkflowDomainRelationModification) string {
 	return relation.SourceDomainID + "\x00" + relation.Kind + "\x00" + relation.TargetDomainID
 }
 
-func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, binding *WorkflowArchitectureBinding, specMandate, lawModifies []string, lawRevisions []WorkflowLawRevision) error {
+func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, binding *WorkflowArchitectureBinding, specMandate, lawModifies []string) error {
 	if binding == nil {
 		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "Product-changing contract is missing architecture_binding", false, "supply the complete architecture binding")
 	}
@@ -383,20 +359,17 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err := validateArchitectureBindingLawModifiesTx(snapshot, affected, lawModifies); err != nil {
 		return err
 	}
-	if err := validateArchitectureBindingLawAdditionsTx(snapshot, affected, binding.LawAdditions, specMandate, lawModifies, lawRevisions); err != nil {
+	if err := validateArchitectureBindingLawAdditionsTx(snapshot, affected, binding.LawAdditions, specMandate, lawModifies); err != nil {
 		return err
 	}
-	remaining, err := architectureBindingRevisionMandate(specMandate, binding.LawAdditions)
+	remaining, err := architectureBindingCurrentMandate(specMandate, binding.LawAdditions)
 	if err != nil {
 		return err
 	}
-	if err := validateWorkflowLawRevisions(remaining, lawRevisions); err != nil {
+	if err := checkMandatedLawsTx(ctx, tx, workID, remaining, lawModifies, true); err != nil {
 		return err
 	}
-	if err := validateArchitectureBindingRevisionsTx(snapshot, lawRevisions); err != nil {
-		return err
-	}
-	return validateArchitectureBindingObligationsTx(snapshot, definition, binding.VerificationObligations, lawRevisions)
+	return validateArchitectureBindingObligationsTx(snapshot, definition, binding.VerificationObligations, remaining)
 }
 
 // architectureBindingProductIDTx resolves the one Product whose primary
@@ -507,21 +480,15 @@ func validateArchitectureBindingLawModifiesTx(snapshot *lawFolderSnapshot, affec
 }
 
 // validateArchitectureBindingLawAdditionsTx refuses law additions that the
-// spec mandate does not authorize, that overlap law_modifies or governing
-// revisions, whose home Domain the binding does not affect, or that reuse an
-// existing Product law ID.
-func validateArchitectureBindingLawAdditionsTx(snapshot *lawFolderSnapshot, affected map[string]struct{}, additions []WorkflowLawAddition, specMandate, lawModifies []string, lawRevisions []WorkflowLawRevision) error {
+// spec mandate does not authorize, that overlap law_modifies, whose home
+// Domain the binding does not affect, or that reuse an existing Product law ID.
+func validateArchitectureBindingLawAdditionsTx(snapshot *lawFolderSnapshot, affected map[string]struct{}, additions []WorkflowLawAddition, specMandate, lawModifies []string) error {
 	for _, addition := range additions {
 		if _, inMandate := stringSet(specMandate)[addition.LawID]; !inMandate {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition is outside spec_mandate", false, "authorize every law addition in spec_mandate")
 		}
 		if slices.Contains(lawModifies, addition.LawID) {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition overlaps law_modifies", false, "choose addition or modification for a law ID")
-		}
-		for _, revision := range lawRevisions {
-			if revision.LawID == addition.LawID {
-				return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition overlaps a governing law revision", false, "exclude additions from law_revisions")
-			}
 		}
 		if _, ok := affected[addition.HomeDomainID]; !ok {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition home Domain is outside affected_domain_ids", false, "include each added law home Domain")
@@ -533,42 +500,20 @@ func validateArchitectureBindingLawAdditionsTx(snapshot *lawFolderSnapshot, affe
 	return nil
 }
 
-// validateArchitectureBindingRevisionsTx refuses governing law revisions
-// whose committed hash differs from the pinned hash.
-func validateArchitectureBindingRevisionsTx(snapshot *lawFolderSnapshot, lawRevisions []WorkflowLawRevision) error {
-	for _, revision := range lawRevisions {
-		record, ok := snapshot.Law(bareLawID(revision.LawID))
-		if !ok {
-			return newFailure(KindProjectionNotFound, "workflow_architecture_binding", "governing law revision is not current", false, "pin the current committed law hash")
-		}
-		if record.SHA256 != revision.ContentHash {
-			return newFailure(KindStaleRequiresReview, "workflow_architecture_binding", "governing law revision pin is stale", false, "reread and pin the current committed law hash")
-		}
-	}
-	return nil
-}
-
 // validateArchitectureBindingObligationsTx refuses verification obligations
 // the pinned workflow definition does not declare, that name non-current
-// law, or whose law no revision pins.
-func validateArchitectureBindingObligationsTx(snapshot *lawFolderSnapshot, definition WorkflowDefinition, obligations []WorkflowVerificationObligation, lawRevisions []WorkflowLawRevision) error {
+// law, or whose law is outside the current-law mandate.
+func validateArchitectureBindingObligationsTx(snapshot *lawFolderSnapshot, definition WorkflowDefinition, obligations []WorkflowVerificationObligation, mandated []string) error {
 	declared := workflowDefinitionObligations(definition)
 	for _, obligation := range obligations {
 		if _, ok := declared[obligation.ObligationID]; !ok {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "verification obligation is not declared by the pinned workflow definition", false, "reference a root, step, or rigor evidence obligation ID")
 		}
 		if _, ok := snapshot.Law(bareLawID(obligation.LawID)); !ok {
-			return newFailure(KindProjectionNotFound, "workflow_architecture_binding", "verification obligation names a non-current law", false, "reference a current pinned law revision")
+			return newFailure(KindProjectionNotFound, "workflow_architecture_binding", "verification obligation names a non-current law", false, "reference a current mandated law")
 		}
-		foundPin := false
-		for _, revision := range lawRevisions {
-			if revision.LawID == obligation.LawID {
-				foundPin = true
-				break
-			}
-		}
-		if !foundPin {
-			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "verification obligation law is not pinned", false, "pin every verified current law")
+		if !slices.Contains(mandated, obligation.LawID) {
+			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "verification obligation law is outside spec_mandate", false, "mandate every verified current law")
 		}
 	}
 	return nil
@@ -614,23 +559,7 @@ func persistWorkflowArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workI
 	if err != nil {
 		return err
 	}
-	homeProjectID, homeLocatorID, err := productKnowledgeHomeTx(ctx, tx, productID)
-	if err != nil {
-		return err
-	}
-	snapshot, err := lawSnapshotForSource(ctx, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID}, "workflow_architecture_binding")
-	if err != nil {
-		return err
-	}
-	// The stored registry hash records which committed registry approval
-	// validated the binding against. Nothing reads it back as a pin
-	// (CD-0222 D7).
-	registry, err := snapshot.Registry()
-	if err != nil {
-		return err
-	}
-	registryHash := domainRegistryContentHash(registry)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,?,?,?,?,?)`, workID, contractVersion, productID, registryHash, binding.HomeDomainID, architectureBindingProjectionHash(binding)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,?,?,?,?)`, workID, contractVersion, productID, binding.HomeDomainID, architectureBindingProjectionHash(binding)); err != nil {
 		return workflowProjectionError(err, "cannot record workflow architecture binding")
 	}
 	for _, domainID := range binding.AffectedDomainIDs {

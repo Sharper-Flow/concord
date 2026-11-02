@@ -56,7 +56,7 @@ authority; rank and precedence follow
 
 ### D6. Workflow law resolves through the home
 
-Workflow law pins, law context, and mandated-law checks resolve through the
+Workflow law identity, law context, and mandated-law checks resolve through the
 Product's designated home. File locators name that repository. Consequential
 transactions consume freshness proof established before they open; they
 never probe Git while holding the store connection.

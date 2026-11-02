@@ -17,14 +17,12 @@ func TestContinuityPayloadOmitsEmptyPeerSignals(t *testing.T) {
 	if !ok {
 		t.Fatalf("pinned payload type = %T", payload["pinned"])
 	}
-	for _, field := range []string{"unresolved_overlaps", "compatible_law_amendments"} {
-		if _, present := pinned[field]; present {
-			t.Fatalf("empty peer signal %q was emitted: %#v", field, pinned[field])
-		}
+	if _, present := pinned["unresolved_overlaps"]; present {
+		t.Fatalf("empty unresolved_overlaps was emitted: %#v", pinned["unresolved_overlaps"])
 	}
 }
 
-func TestContinuityRepinBytesAreStableAcrossRenders(t *testing.T) {
+func TestContinuityBytesAreStableAcrossRenders(t *testing.T) {
 	t.Parallel()
 	snapshot := store.ContinuitySnapshot{WorkID: "work-1", ProductIdentity: []string{"product-1"}, WorkflowStep: "execution", StepActions: []string{}, Boundaries: []store.ContextBoundary{}, SpecMandate: []string{}}
 	first, err := json.Marshal(ContinuityPayload(snapshot))
@@ -38,7 +36,7 @@ func TestContinuityRepinBytesAreStableAcrossRenders(t *testing.T) {
 	if !bytes.Equal(first, second) {
 		t.Fatalf("unchanged snapshot rendered different bytes")
 	}
-	if bytes.Contains(first, []byte("unresolved_overlaps")) || bytes.Contains(first, []byte("compatible_law_amendments")) {
+	if bytes.Contains(first, []byte("unresolved_overlaps")) {
 		t.Fatalf("empty peer signals leaked into the payload: %s", first)
 	}
 }

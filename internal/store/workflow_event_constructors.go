@@ -192,6 +192,9 @@ func workflowApprovalRequiredEvidence(definition WorkflowDefinition, fields map[
 }
 
 func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID string, fields map[string]json.RawMessage, contract map[string]any, spec, lawModifies []string) (map[string]any, error) {
+	if err := validateLawModificationSubset(spec, lawModifies); err != nil {
+		return nil, err
+	}
 	// On a canonical authoring head the contract records the explicit
 	// predicate array alone: the legacy outcome pair stays off the event, and
 	// the fold resolves the end state through the predicates whenever they
@@ -221,18 +224,6 @@ func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, definition Wo
 	if len(lawModifies) == 0 && !productChanging {
 		delete(contract, "law_modifies")
 	}
-	revisionMandate := spec
-	var revisionErr error
-	if productChanging {
-		revisionMandate, revisionErr = architectureBindingRevisionMandate(spec, binding.LawAdditions)
-	}
-	if revisionErr != nil {
-		return nil, revisionErr
-	}
-	revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, workID, revisionMandate, lawModifies)
-	if revisionErr != nil {
-		return nil, revisionErr
-	}
 	decisionDomains, decisionDomainErr := workflowSubmittedDecisionDomains(definition, fields)
 	if decisionDomainErr != nil {
 		return nil, decisionDomainErr
@@ -247,7 +238,6 @@ func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, definition Wo
 	if lawChange != nil {
 		contract["law_change"] = lawChange
 	}
-	contract["law_revisions"] = revisions
 	contract["law_boundary_version"] = 1
 	return contract, nil
 }

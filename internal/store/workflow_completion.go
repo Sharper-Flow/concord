@@ -74,9 +74,6 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	} else if active {
 		return newOutsideRepairRouteFailure("complete_workflow", "workflow completion refused: outside-repair disposition is active")
 	}
-	if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, event.SubjectID); err != nil {
-		return err
-	}
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}

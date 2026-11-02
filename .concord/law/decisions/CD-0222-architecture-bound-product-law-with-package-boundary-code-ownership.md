@@ -39,10 +39,9 @@ governs D1, D4, and D5: law mandates and enactment require approval only under i
 ## Context
 
 Concord already treats accepted specifications as human-enacted law. Workflow
-contracts pin exact law revisions, a spec mandate limits authorized amendments,
-breaking supersession marks stale exactly the contracts that consumed the
-superseded revision (CD-0242 D7), and completion refuses unresolved law
-conflicts. Those controls protect work that names the right law.
+contracts name governing law IDs, a spec mandate limits authorized amendments,
+and completion refuses unresolved law conflicts. Those controls protect work
+that names the right law.
 
 The Product model beneath them is inverted. `Product -> component` is documented
 as the primary knowledge path, but component is an opaque grouping label rather
@@ -167,14 +166,15 @@ Law may additionally declare bounded `applies_to_domain_ids`; applicability does
 not create another owner.
 
 An owner note's law link creates no additional law home or applicability.
-Workflow law reliance retains exact revision identity and source qualification.
+Workflow law reliance retains law identity and source qualification, not
+approval-time freshness hashes.
 A link to a test locates a check; it does not prove behavioral conformance.
 Owner notes are not accepted law records. Typed proof anchors keep
 CD-0249's closed kinds and resolution requirements.
 
 Each law file's in-file metadata carries its law-home fields, and the Domain
 registry stays an independent Git file. Exact law identity is
-`(law_id, content_hash)` from CD-0036, read from the committed law folder
+the law ID; committed reads carry their content digest and source, read from the committed law folder
 ([law-folder-authority](../constitution/law-folder-authority.md)).
 
 The active law graph obeys these pruning invariants:
@@ -213,7 +213,7 @@ family has its own owner, endpoint constraints, metadata, and graph rules.
 | Law | `supersedes`, `refines`, `subordinate_to`, `conflicts_with` | Law | CD-0015/CD-0036 rules remain authoritative |
 | Work | `home_in` | Domain | Exactly one for Product-changing work |
 | Work | `impacts`, `modifies` | Domain | Closed contract fields; all modified Domains are impacted |
-| Work | `governed_by`, `modifies`, `adds`, `verifies` | Law | Revision-pinned contract fields; modified/added law is operator-mandated |
+| Work | `governed_by`, `modifies`, `adds`, `verifies` | Law | Law-ID contract fields; modified/added law follows the approved mandate |
 | Work | `blocks`, `depends_on`, `raised_from`, `merged_into`, `supersedes` | Work | Closed work-pair grammar; `resolve_overlap` pins both contract versions |
 
 The Work→Work row above lists the work relations this record governs. PM4 owns the full
@@ -244,7 +244,7 @@ home_domain_id
 affected_domain_ids[]            # non-empty and includes home
 domain_modifies[]                 # subset of affected domains
 domain_relation_modifies[]        # exact source/kind/target tuples
-governing_law_revisions[]         # law_id + content_hash
+spec_mandate[]                   # governing and authorized law IDs
 law_modifies[]                    # subset authorized by spec_mandate
 law_additions[]                   # reserved law IDs + home Domain
 verification_obligations[]        # law_id + workflow obligation ID
@@ -255,7 +255,7 @@ The binding composes with, rather than duplicates, the outcome contract,
 
 - `home_domain_id` says where the work belongs;
 - affected and modified Domains say where architectural assumptions may change;
-- revision pins say which enacted law the operator approved;
+- governing law IDs name the mandate the contract approves;
 - `law_modifies` and `law_additions` bound legislative authority; and
 - verification obligations map workflow-owned proof requirements to the law they
   prove.
@@ -263,7 +263,9 @@ The binding composes with, rather than duplicates, the outcome contract,
 Every named Domain and law must resolve inside the derived Product scope. A
 modified Domain must be affected. A modified or added law must be owned by an
 affected Domain. Law modifications remain a subset of the approved mandate.
-The contract pins law revisions; local attachment mutations use expected versions.
+Law additions stay disjoint from modifications and existing law. Verification
+obligations name current mandated law and an obligation declared by the workflow
+definition. Local attachment mutations use expected versions.
 
 Workflow definitions with `changes_product_truth=false` cannot write Product law,
 Domain identity, Domain relations, or Product behavior. Research may recommend a
@@ -301,12 +303,13 @@ owns each authoritative workflow mutation. They apply at:
 
 The preflight validates local attachment versions and relation grammar.
 Contract approval and revision also validate the architecture binding against
-the current Domain registry and accepted law, and pin the law revisions.
+the current Domain registry and accepted law by identity and membership. Neither
+contract law hashes nor registry approval hashes are stored.
 
 A Product law or Domain registry change merged on main never invalidates work
-already in progress. After approval, no action compares the contract with the
-current Domain registry, and only a CD-0036 breaking cutover compares it with
-current law. Where a merged change overlaps the item's work, the item merges
+already in progress. After approval, no action compares contract freshness
+hashes with current law or the Domain registry, including after a law deletion.
+Where a merged change overlaps the item's work, the item merges
 main into its branch and fixes the conflict, as with any other code change.
 CD-0242 D7 then decides which of the item's records the changed candidate makes
 stale.
@@ -320,8 +323,10 @@ It refuses to admit stale or contradictory output into Product truth. A clean
 textual merge, passing tests, or a model's semantic-confidence score cannot
 satisfy this boundary.
 
-CD-0036 remains the authority for a breaking law cutover. A same-ID compatible
-amendment remains compatible because the operator enacted it as such.
+CD-0036 governs amendment, replacement and Git reconciliation. Current-law
+reads retain readable context and same-operation snapshot consistency. Exact
+enactment baselines and attribution remain proof of the item's delivered delta,
+not approval provenance or contract freshness checks.
 
 ### D8. Business grouping lives in Linear
 
@@ -516,9 +521,8 @@ graph. Product law approval does not authorize live-state cutover.
 - **CD-0024:** historical surface-version policy is closed by
   [CD-0042](CD-0042-pre-go-live-single-path.md); TS8 and TS9 own current surface
   identity and change evidence. D3's one-time exception is not reusable.
-- **CD-0036:** preserved. Breaking law supersession marks stale exactly the
-  contracts that consumed the superseded revision and composes with D7
-  (CD-0242 D7).
+- **CD-0036:** amendment/replacement and Git reconciliation apply without
+  contract freshness pins or deleted-law stops (CD-0242 D7).
 - **CD-0002/CD-0011:** SQLite is the sole local live-state
   authority under the existing falsifiers.
 

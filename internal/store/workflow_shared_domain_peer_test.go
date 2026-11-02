@@ -76,7 +76,7 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) *Store {
 			struct {
 				query string
 				args  []any
-			}{`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,1,?,?,?,?)`, []any{id, d7BoundaryProduct, hash, d7BoundaryDomain, hash}},
+			}{`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,1,?,?,?)`, []any{id, d7BoundaryProduct, d7BoundaryDomain, hash}},
 			struct {
 				query string
 				args  []any

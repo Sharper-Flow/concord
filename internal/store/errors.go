@@ -166,7 +166,6 @@ const (
 	KindLaneDefinitionDigestMismatch FailureKind = "lane_definition_digest_mismatch"
 	KindLaneDefinitionInvalid        FailureKind = "lane_definition_invalid"
 	KindUnauthorized                 FailureKind = "unauthorized"
-	KindStaleLawRevision             FailureKind = "stale_law_revision"
 	// KindUnauthorizedDispatch marks a worker-dispatch evidence write that
 	// names a work item with no authorized, unconsumed dispatch window at
 	// the current step epoch. CD-0059 makes this refusal structural: one
@@ -213,9 +212,6 @@ type Failure struct {
 	// failures that refuse a relation because of a structural violation
 	// (cycle, supersession target already taken, etc.).
 	Violations []string `json:"violations,omitempty"`
-	// StaleLawRevision carries the deleted law ID and its pinned digest without
-	// requiring callers to parse Detail.
-	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
 	// ExternalRefConflict identifies the live work item that owns a colliding
 	// external reference.
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`

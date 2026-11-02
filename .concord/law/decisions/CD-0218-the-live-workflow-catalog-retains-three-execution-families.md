@@ -77,7 +77,7 @@ The live families are implementation, break-fix, and research, each family's pla
 
 Attributed contract recording and premise confirmation remain separate from
 independent verdict evidence. Immutable job revisions, attempts, subject commits,
-packet/report identities, actor/session/Project/worktree bindings, law/research
+packet/report identities, actor/session/Project/worktree bindings, research
 pins, and operation/idempotency keys remain executable admission facts.
 
 One admission owner serves dispatch, delivery, correction, and closure; admission validates current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Host preauthorization remains at its own
@@ -91,11 +91,10 @@ Evidence binding can discharge an unverdicted
 active predicate through its existing owner. No acceptance-step bypass, stale
 design heuristic, or weakened evidence-kind check replaces that route.
 
-Ordinary stale-law and stale-Domain re-pinning keeps its existing admission at
-eligible running steps of every retained workflow family, including research.
-Currently eligible unhealthy-verdict correction also keeps its existing admission.
-An ordinary re-pin does not manufacture a producer return or evade that correction
-gate. Cancellation does not replace an existing admitted re-pin exit.
+Law and registry changes require no contract re-pin; they reconcile through
+Git under CD-0036. An ordinary update does not manufacture a producer return
+or evade an unhealthy verdict's correction gate. The bounded accepted-Review
+return follows workflow-engine contract §4.1.
 
 Exact shared-write conflicts, exclusive step claims, host-owned session/worktree
 placement under CD-0088 D1,

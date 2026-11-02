@@ -22,9 +22,6 @@ func seedMandateRecoveryItem(t *testing.T, workID string) *Store {
 	if _, err := db.Exec(`UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND superseded_by IS NULL`, workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,'spec:one',?)`, workID, "sha256:"+strings.Repeat("a", 64)); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
@@ -332,9 +329,7 @@ func TestBindEvidenceRefusedPastBindingStepOnceMandateBound(t *testing.T) {
 
 func TestRecordVerdictPassesAfterRecoveryBind(t *testing.T) {
 	const workID = "mandate-recovery-verdict"
-	f, _, refs := pReceiptFixture(t, workID, 1, 1, func(f workContextFixture) {
-		attachWorkflowLawPin(t, f.store, workID, "sha256:"+strings.Repeat("a", 64))
-	})
+	f, _, refs := pReceiptFixture(t, workID, 1, 1)
 	s := f.store
 	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
@@ -373,7 +368,7 @@ func TestBindEvidenceObligationRecoverableAfterMandateBound(t *testing.T) {
 	if _, err := seedTx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := seedTx.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,?, 'product',?,'root',?)`, workID, contractVersion, "sha256:"+strings.Repeat("d", 64), "sha256:"+strings.Repeat("c", 64)); err != nil {
+	if _, err := seedTx.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,?, 'product','root',?)`, workID, contractVersion, "sha256:"+strings.Repeat("c", 64)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := seedTx.Exec(`INSERT INTO workflow_contract_verification_obligations(work_id,contract_version,law_id,obligation_id) VALUES(?,?,'spec:one','verification')`, workID, contractVersion); err != nil {
@@ -420,7 +415,7 @@ func TestBindEvidenceObligationRefusedOnceSatisfied(t *testing.T) {
 	if _, err := seedTx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := seedTx.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,?,'product',?,'root',?)`, workID, contractVersion, "sha256:"+strings.Repeat("d", 64), "sha256:"+strings.Repeat("c", 64)); err != nil {
+	if _, err := seedTx.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,?,'product','root',?)`, workID, contractVersion, "sha256:"+strings.Repeat("c", 64)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := seedTx.Exec(`INSERT INTO workflow_contract_verification_obligations(work_id,contract_version,law_id,obligation_id) VALUES(?,?,'spec:one','review')`, workID, contractVersion); err != nil {

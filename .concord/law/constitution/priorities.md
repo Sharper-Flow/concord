@@ -126,7 +126,7 @@ workflows, and evidence serve that law. Agents enact and change law under R3.
   Product concordance.
 - Semantic analysis may suggest duplicate or conflicting law; it never owns
   persistence, supersession, or blocking.
-- Product-changing work declares its affected Domains and exact law revisions
+- Product-changing work declares its affected Domains and governing law IDs
   under [`CD-0222`](../decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
   D5.
 

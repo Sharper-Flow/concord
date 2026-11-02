@@ -97,7 +97,6 @@ type workflowContractApprovedPayload struct {
 	RouteConventions    []string                           `json:"route_conventions"`
 	SpecMandate         []string                           `json:"spec_mandate"`
 	LawModifies         []string                           `json:"law_modifies"`
-	LawRevisions        []WorkflowLawRevision              `json:"law_revisions"`
 	ArchitectureBinding *WorkflowArchitectureBinding       `json:"architecture_binding,omitempty"`
 	LawBoundaryVersion  int                                `json:"law_boundary_version,omitempty"`
 	RigorClass          string                             `json:"rigor_class"`
@@ -788,15 +787,15 @@ func validateWorkflowContractApprovalLaw(ctx context.Context, tx *sql.Tx, event 
 		if p.LawBoundaryVersion != 1 {
 			return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract must carry the current law boundary", false, "supply law_boundary_version=1")
 		}
-		for _, field := range []string{"spec_mandate", "law_modifies", "law_revisions", "architecture_binding"} {
+		for _, field := range []string{"spec_mandate", "law_modifies", "architecture_binding"} {
 			if _, present := contractFields[field]; !present {
 				return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract is missing composed field "+field, false, "supply every architecture-bound contract field")
 			}
 		}
-		if p.ArchitectureBinding == nil || p.LawRevisions == nil {
-			return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract contains null architecture-bound fields", false, "supply the complete architecture binding and law pins")
+		if p.ArchitectureBinding == nil {
+			return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract contains null architecture-bound fields", false, "supply the complete architecture binding")
 		}
-		if err := validateArchitectureBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.ArchitectureBinding, p.SpecMandate, p.LawModifies, p.LawRevisions); err != nil {
+		if err := validateArchitectureBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.ArchitectureBinding, p.SpecMandate, p.LawModifies); err != nil {
 			return err
 		}
 	} else {
@@ -805,11 +804,6 @@ func validateWorkflowContractApprovalLaw(ctx context.Context, tx *sql.Tx, event 
 		}
 		if len(p.LawModifies) != 0 {
 			if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.LawModifies); err != nil {
-				return err
-			}
-		}
-		if p.LawRevisions != nil {
-			if err := validateWorkflowLawRevisions(p.SpecMandate, p.LawRevisions); err != nil {
 				return err
 			}
 		}
@@ -886,11 +880,6 @@ func foldValidatedWorkflowContractApproval(ctx context.Context, tx *sql.Tx, even
 	if err := json.Unmarshal(event.Payload, &contractFields); err != nil {
 		return newFailure(KindInvalidPayload, "fold_event", "contract_approved payload is malformed", false, "repair the workflow contract payload")
 	}
-	if p.LawBoundaryVersion == 1 {
-		if _, present := contractFields["law_revisions"]; !present {
-			return newFailure(KindInvalidPayload, "fold_event", "current law-aware contract approval is missing law revision pins", false, "capture one current Git law hash for every mandated law ID")
-		}
-	}
 	registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
 	if definitionErr != nil {
 		return definitionErr
@@ -939,7 +928,7 @@ func validateWorkflowContractFacts(ctx context.Context, tx *sql.Tx, event Event,
 	if err := validateWorkflowContractApprovalLaw(ctx, tx, event, registered, contractFields, p, changesProductTruth); err != nil {
 		return err
 	}
-	if err := validateWorkflowApprovalLawRevisionBoundaryTx(ctx, tx, event.SubjectID, p, changesProductTruth); err != nil {
+	if err := validateWorkflowApprovalLawBoundaryTx(ctx, tx, event.SubjectID, p, changesProductTruth); err != nil {
 		return err
 	}
 	if p.ConsequenceClass != "internal_sqlite" && p.ConsequenceClass != "cross_authority" && p.ConsequenceClass != "external_effect" {
@@ -961,20 +950,15 @@ func validateWorkflowContractFacts(ctx context.Context, tx *sql.Tx, event Event,
 	return nil
 }
 
-func validateWorkflowApprovalLawRevisionBoundaryTx(ctx context.Context, tx *sql.Tx, workID string, p workflowContractApprovedPayload, changesProductTruth bool) error {
+func validateWorkflowApprovalLawBoundaryTx(ctx context.Context, tx *sql.Tx, workID string, p workflowContractApprovedPayload, changesProductTruth bool) error {
 	if p.LawBoundaryVersion != 1 {
 		return nil
 	}
 	if err := validateLawModificationSubset(p.SpecMandate, p.LawModifies); err != nil {
 		return err
 	}
-	if p.LawRevisions == nil && !changesProductTruth {
-		if err := checkMandatedLawsTx(ctx, tx, workID, p.SpecMandate, p.LawModifies, true); err != nil {
-			return err
-		}
-	}
-	if p.LawRevisions != nil && len(p.SpecMandate) == 0 && len(p.LawRevisions) != 0 {
-		return newFailure(KindInvalidPayload, "fold_event", "workflow law revision pins require a non-empty spec_mandate", false, "supply one pin for each mandated law")
+	if !changesProductTruth {
+		return checkMandatedLawsTx(ctx, tx, workID, p.SpecMandate, p.LawModifies, true)
 	}
 	return nil
 }
@@ -1002,13 +986,6 @@ func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Ev
 	for ordinal, predicate := range p.OutcomePredicates {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, predicate.PredicateID, ordinal, predicate.OutcomeKind, string(predicate.OutcomePayload)); err != nil {
 			return workflowProjectionError(err, "cannot record workflow contract predicate")
-		}
-	}
-	if p.LawRevisions != nil {
-		for _, revision := range p.LawRevisions {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,?,?,?)`, event.SubjectID, p.ContractVersion, revision.LawID, revision.ContentHash); err != nil {
-				return workflowProjectionError(err, "cannot record workflow law revision pin")
-			}
 		}
 	}
 	if changesProductTruth {

@@ -425,10 +425,9 @@ func seedAuthorityLawAdditions(t *testing.T, s *Store, workID string, version in
 			t.Errorf("remove write guard: %v", err)
 		}
 	}()
-	bindingHash := "sha256:" + strings.Repeat("b", 64)
 	projectionHash := "sha256:" + strings.Repeat("c", 64)
-	if _, err := db.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,?,?,?,?,?)`,
-		workID, version, productID, bindingHash, "product-root:authority-fixture", projectionHash); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,?,?,?,?)`,
+		workID, version, productID, "product-root:authority-fixture", projectionHash); err != nil {
 		t.Fatal(err)
 	}
 	for _, lawID := range lawIDs {

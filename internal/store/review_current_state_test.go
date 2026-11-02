@@ -36,9 +36,6 @@ func TestReviewCurrentKeepsSharedAdmissionGuards(t *testing.T) {
 		set  func(*WorkflowAdmissionState)
 		kind FailureKind
 	}{
-		{"stale authority", func(s *WorkflowAdmissionState) {
-			s.LawPinStaleError = newFailure(KindStaleRequiresReview, "test", "bound authority changed", false, "refresh the bound inputs")
-		}, KindStaleRequiresReview},
 		{"outside repair", func(s *WorkflowAdmissionState) { s.OutsideRepairActive = true }, KindOutsideRepairActive},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -305,7 +305,6 @@ func TestMigrateV60ToV61PreservesWorkflowContractForeignKeys(t *testing.T) {
 		"workflow_contract_law_modifications",
 		"workflow_candidate_sets",
 		"workflow_premise_confirmations",
-		"workflow_contract_law_revisions",
 	} {
 		var count int
 		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table+" WHERE work_id='work-v61' AND contract_version=1").Scan(&count); err != nil || count != 1 {
@@ -748,7 +747,7 @@ func TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T)
 	}
 }
 
-func TestMigrateV36ToV37AddsWorkflowLawRevisionProjection(t *testing.T) {
+func TestMigrateV36ToCurrentRetiresWorkflowLawPins(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v36.db")
 	ctx := context.Background()
@@ -779,11 +778,8 @@ func TestMigrateV36ToV37AddsWorkflowLawRevisionProjection(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='index' AND name='workflow_contract_law_revisions_reverse'`).Scan(&indexCount); err != nil {
 		t.Fatal(err)
 	}
-	if tableCount != 1 || indexCount != 1 {
+	if tableCount != 0 || indexCount != 0 {
 		t.Fatalf("law revision projection table/index = %d/%d", tableCount, indexCount)
-	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES('missing',1,'spec:law','sha256:`+strings.Repeat("a", 64)+`')`); err == nil {
-		t.Fatal("law revision projection write bypassed write guard or foreign keys")
 	}
 }
 

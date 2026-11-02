@@ -263,9 +263,8 @@ func sourceBoundInProof(ctx context.Context, home KnowledgeHome) bool {
 }
 
 // PrepareWorkLawProof verifies, before any transaction for the work opens,
-// the committed law and Domain registry that transaction may read. Every
-// admission fold compares the active contract's law pins with current law
-// (CD-0036), and a step that declares confirm_premise folds the
+// the committed law and Domain registry that transaction may read. Continuity
+// resolves bound law IDs, and a step that declares confirm_premise folds the
 // investigation artifact's Domain refs against the committed registry. The
 // verification resolves git heads and reads the committed law folder —
 // subprocesses the pooled connection must never hold inside a transaction

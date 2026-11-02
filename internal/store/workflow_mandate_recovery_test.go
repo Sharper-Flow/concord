@@ -18,7 +18,7 @@ func seedReservedLawAddition(t *testing.T, s *Store, workID string) {
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,1,'product',?,'root',?)`, workID, digest, digest); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,1,'product','root',?)`, workID, digest); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO workflow_law_addition_reservations(product_id,law_id,owner_work_id,owner_contract_version,home_domain_id) VALUES('product',?,?,1,'root')`, "CD-0189", workID); err != nil {

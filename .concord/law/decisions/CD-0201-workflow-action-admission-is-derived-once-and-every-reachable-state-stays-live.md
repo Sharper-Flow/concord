@@ -65,7 +65,7 @@ invariant). Request payload checks stay in the guards. Admission binds the
 recorded Review to its exact subject and dependencies before it decides.
 
 The derived admission state covers every condition the five sites read: the step and lifecycle, the instance state, the active
-contract count, the law and registry pin staleness, the breaking impact
+contract count, the breaking impact
 notices, design currency, the accepted Review disposition of the
 current candidate, recovery routes, evidence-binding recovery and
 the correction classifications. Contract content changes use the ordinary record

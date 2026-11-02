@@ -52,8 +52,9 @@ metadata, and the
 continuity read resolves the ones naming the current work item into that
 law's criteria. Its `law_context` carries them on the law's
 entry, so the agent reads which criterion each of this item's predicates
-discharges. The verdict path is unchanged, because the predicate verdicts and the
-law-revision pins already bind the item to the exact law it discharges.
+discharges. Predicate verdicts remain on the work item and bind their exact
+predicate and evidence subject; the contract names law by ID, without freshness
+pins.
 
 ## Alternatives considered
 

@@ -95,8 +95,7 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 // false when the action falls through to its pinned declaration.
 func workflowRouteActionDefinition(ctx context.Context, s *Store, registry DefinitionRegistry, entry RegisteredDefinition, workID, actionID string) (WorkflowActionDefinition, bool, error) {
 	if actionID == "request_correction" {
-		// Both discoveries fold admission, whose law-pin staleness reads
-		// committed law verified before the read opens (CD-0195 D2).
+		// Prepare any committed-law reads before the transaction (CD-0195 D2).
 		verified, err := s.PrepareWorkLawProof(ctx, workID)
 		if err != nil {
 			return WorkflowActionDefinition{}, false, err

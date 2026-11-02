@@ -10,9 +10,8 @@ import (
 )
 
 // workflowActionGuardPhase names the point in the dispatcher's sequence where
-// a guard runs. The phases are separate because the guards are not
-// independent: stale recovery selects payload validation and lifecycle
-// legality, and the claim guard runs after the durable operation is claimed.
+// a guard runs. Recovery guards precede payload validation; claim guards run
+// after the durable operation is claimed.
 type workflowActionGuardPhase int
 
 const (

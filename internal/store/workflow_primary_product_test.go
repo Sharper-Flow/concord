@@ -88,7 +88,7 @@ func TestWorkflowBindingProductFollowsThePrimaryMembership(t *testing.T) {
 		t.Fatalf("binding Product = %q, want the primary Product product", productID)
 	}
 	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	if err := validateArchitectureBindingTx(ctx, tx, workID, registered.Definition, &binding, []string{}, []string{}, nil); err != nil {
+	if err := validateArchitectureBindingTx(ctx, tx, workID, registered.Definition, &binding, []string{}, []string{}); err != nil {
 		t.Fatalf("cross-Product work refused architecture binding validation: %v", err)
 	}
 }

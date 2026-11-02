@@ -96,6 +96,13 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 			return err
 		}
 	}
+	if m.Name == "workflow_law_pin_retirement" {
+		// Earlier steps can materialize retained Review facts. Check again at
+		// the destructive boundary, after those steps have run.
+		if err := preflightWorkflowLawPinRetirementUpgrade(ctx, q); err != nil {
+			return err
+		}
+	}
 	if _, err := q.ExecContext(ctx, m.SQL); err != nil {
 		return wrapFailure(KindUnavailable, "migrate",
 			fmt.Sprintf("migration %d (%s) failed", m.Version, m.Name), false,
@@ -8458,6 +8465,15 @@ WHERE json_type(intent_json,'$.defect') IS NOT NULL;
 DELETE FROM write_guard;
 `,
 	},
+	{
+		Version:  176,
+		Name:     "workflow_law_pin_retirement",
+		Breaking: true,
+		SQL: `
+DROP TABLE workflow_contract_law_revisions;
+ALTER TABLE workflow_architecture_bindings DROP COLUMN domain_registry_content_hash;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -8845,6 +8861,9 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, lawIndex
 			return rollback(err)
 		}
 		if err := preflightRemoteLocatorUpgrade(ctx, tx); err != nil {
+			return rollback(err)
+		}
+		if err := preflightWorkflowLawPinRetirementUpgrade(ctx, tx); err != nil {
 			return rollback(err)
 		}
 	}

@@ -106,13 +106,11 @@ type ContinuitySnapshot struct {
 	// ObservationsTotal counts the whole population, so a reader knows when
 	// the paged concord_work_trace.observations read holds more. Read-time
 	// visibility: no gate consumes this.
-	Observations            []WorkObservation            `json:"observations"`
-	ObservationsTotal       int64                        `json:"observations_total"`
-	StaleLawRevision        *StaleLawRevision            `json:"stale_law_revision,omitempty"`
-	ChangesProductTruth     bool                         `json:"changes_product_truth"`
-	ArchitectureBinding     *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
-	CompatibleLawAmendments []CompatibleLawAmendment     `json:"compatible_law_amendments"`
-	WorkPin                 *WorkPin                     `json:"work_pin,omitempty"`
+	Observations        []WorkObservation            `json:"observations"`
+	ObservationsTotal   int64                        `json:"observations_total"`
+	ChangesProductTruth bool                         `json:"changes_product_truth"`
+	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+	WorkPin             *WorkPin                     `json:"work_pin,omitempty"`
 	// PendingProjectHandoff carries the frontier handoff addressed to the
 	// reading session's Project under the active contract, consumed or not,
 	// so every session of the receiving Project reads the bounded job
@@ -219,7 +217,6 @@ func continuityReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, ou
 	out.ProductIdentity = []string{}
 	out.SpecMandate = []string{}
 	out.StepActions = []string{}
-	out.CompatibleLawAmendments = []CompatibleLawAmendment{}
 	if err := publishedWorkAbsenceQ(ctx, tx, workID, "C19.Continuity"); err != nil {
 		return out, err
 	}
@@ -345,10 +342,8 @@ func continuityReadOutsideRepairTx(ctx context.Context, tx *sql.Tx, work string,
 }
 
 // continuityReadContractTx reads the one active contract and every enrichment
-// that hangs off it — predicates, architecture binding, self-repair, law
-// revisions and context, and stale-law and compatible-amendment scans. A
-// work item with no contract row leaves the
-// snapshot without one.
+// that hangs off it: predicates, architecture binding, self-repair and current
+// law context. A work item with no contract row leaves the snapshot without one.
 func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, activeContractVersion int64) error {
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
@@ -374,57 +369,15 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 		contract.ArchitectureBinding = binding
 		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract
-		revisions, revisionErr := readWorkflowLawRevisions(ctx, tx, work, contract.Version)
-		if revisionErr != nil {
-			return revisionErr
+		lawContext, lawErr := readWorkflowLawContext(ctx, tx, work, &contract)
+		if lawErr != nil {
+			return lawErr
 		}
-		contract.LawRevisions = revisions
-		if err := continuityResolveLawMandateTx(ctx, tx, work, out, &contract); err != nil {
-			return err
-		}
-		// A stale contract remains inspectable, but cannot supply readable
-		// current-law context for a law that no longer exists (CD-0036 D3/D6).
-		if out.StaleLawRevision == nil {
-			lawContext, lawErr := readWorkflowLawContext(ctx, tx, work, &contract)
-			if lawErr != nil {
-				return lawErr
-			}
-			out.LawContext = lawContext
-		}
+		out.LawContext = lawContext
 		out.SpecMandate = nonNilStrings(append([]string(nil), contract.SpecMandate...))
 	} else if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow contract", true, "retry once the database is readable", err)
 	}
-	return nil
-}
-
-// continuityResolveLawMandateTx scans the contract's spec mandate for stale
-// law revisions and, when none is stale, for compatible amendments.
-func continuityResolveLawMandateTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, contract *WorkflowReadContract) error {
-	if len(contract.SpecMandate) == 0 {
-		return nil
-	}
-	homeProjectID, homeLocatorID, homeErr := workflowLawHome(ctx, tx, work)
-	if homeErr != nil {
-		return homeErr
-	}
-	currentMandate, mandateErr := currentWorkflowLawMandate(contract.SpecMandate, contract.ArchitectureBinding)
-	if mandateErr != nil {
-		return mandateErr
-	}
-	stale, staleErr := findStaleWorkflowLawRevision(ctx, tx, homeProjectID, homeLocatorID, work, contract.Version, currentMandate)
-	if staleErr != nil {
-		return staleErr
-	}
-	out.StaleLawRevision = stale
-	if out.StaleLawRevision != nil {
-		return nil
-	}
-	amendments, amendErr := findCompatibleWorkflowLawAmendments(ctx, tx, homeProjectID, homeLocatorID, work, contract.Version, currentMandate)
-	if amendErr != nil {
-		return amendErr
-	}
-	out.CompatibleLawAmendments = amendments
 	return nil
 }
 

@@ -35,8 +35,8 @@
 //   - work_context.go, worker_packet_binding.go,
 //     worker_context_findings.go: declared immutable readings, findings,
 //     dispatch packets, and typed bounds.
-//   - workflow_dispatch.go, workflow_preflight.go: action admission and
-//     law-revision staleness inside the owning transaction.
+//   - workflow_dispatch.go, workflow_preflight.go: action admission inside the
+//     owning transaction.
 //   - workflow_domain_overlap.go: the resolve_overlap work-relation writer.
 //   - outside_repair.go: completion-receipt validation and persistence;
 //     internal/workflowproof owns the receipt model and authenticated collector.

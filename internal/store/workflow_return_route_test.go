@@ -102,7 +102,7 @@ func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, regis
 		"contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
 		"outcome_predicates": predicates,
 		"required_evidence":  requiredEvidence, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal",
+		"law_boundary_version": 1, "rigor_class": "prototype_internal",
 		"consequence_class": "internal_sqlite",
 	}
 	if registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth {

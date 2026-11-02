@@ -18,21 +18,6 @@ func orderedStrings(values []string) []string {
 	return result
 }
 
-// CompactionBoundary selects whether a compaction link revalidates law and
-// architecture before folding. The zero value runs the guard, so a caller that
-// says nothing is protected and an exemption must be written explicitly.
-type CompactionBoundary int
-
-const (
-	// CompactionBoundaryRevalidated runs the CD-0222 D7 boundary check in the
-	// transaction that folds the link.
-	CompactionBoundaryRevalidated CompactionBoundary = iota
-	// CompactionBoundaryRecoveryExempt skips that check. Reconciling an
-	// orphaned note is the closed recovery choice for a pending compaction, so
-	// guarding it would refuse the only way out of that condition.
-	CompactionBoundaryRecoveryExempt
-)
-
 // CompactionLinkRequest is the proof-backed PM6 linkage input. The helper
 // verifies the committed blob before constructing the domain event.
 type CompactionLinkRequest struct {
@@ -46,7 +31,6 @@ type CompactionLinkRequest struct {
 	NotePath        string
 	ExpectedHash    string
 	Reason          string
-	Boundary        CompactionBoundary
 	// WithinTx projects the result after the link is applied and before commit.
 	// An identical relink runs it in a transaction without repeating the event.
 	WithinTx func(*Transaction) error
@@ -80,9 +64,7 @@ type compactionLinkPayload struct {
 }
 
 // PublishCompactionLink verifies the committed note before appending the link
-// event and archived projection in the same SQLite transaction. The law-folder
-// snapshot the CD-0222 D7 boundary revalidates against is read before that
-// transaction opens: a git probe must never run inside one (CD-0195 D2).
+// event and archived projection in the same SQLite transaction.
 func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequest) error {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "publish_compaction_link", "store is not open", false, "open a store before publishing a compaction link")
@@ -104,16 +86,6 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 	}
 	if note.Kind != "work_note" || note.ID != req.WorkID {
 		return newFailure(KindInvalidNoteProof, "publish_compaction_link", "verified note identity does not match the work", false, "publish the canonical work note for the requested work ID")
-	}
-	// Only the revalidated boundary consumes the law proof. The recovery
-	// exemption must not refuse for a law home it never checks, so its
-	// verification is advisory, as for the work pin its result reports.
-	verified, proofErr := s.EstablishKnowledgeSourceSetProof(ctx, req.WorkID)
-	switch {
-	case proofErr == nil:
-		ctx = verified
-	case req.Boundary == CompactionBoundaryRevalidated:
-		return proofErr
 	}
 	var lifecycle string
 	if err := s.db.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id = ?`, req.WorkID).Scan(&lifecycle); err != nil {
@@ -182,21 +154,11 @@ func replayCompactionLinkTx(ctx context.Context, tx *Transaction, req Compaction
 	return nil
 }
 
-// publishCompactionLinkTx runs the CD-0222 D7 boundary check and the link fold
-// in the caller's transaction, so a law cutover cannot land between them.
-//
-// The subject of a compaction link is terminal, so the Domain-overlap half of
-// the check has an empty footprint by construction and the law-revision half is
-// what can refuse here. That refusal keeps output authorized under a superseded
-// law revision out of Product truth when the external git write is still in flight.
+// publishCompactionLinkTx validates the reviewed note and folds the link in
+// the caller's transaction.
 func publishCompactionLinkTx(ctx context.Context, tx *Transaction, req CompactionLinkRequest, operation Operation, contentHash string) error {
 	if err := checkReviewedClosureContentHashQ(ctx, tx.tx, req.WorkID, contentHash); err != nil {
 		return err
-	}
-	if req.Boundary == CompactionBoundaryRevalidated {
-		if err := CheckWorkflowConsequentialBoundaryTx(ctx, tx, req.WorkID); err != nil {
-			return err
-		}
 	}
 	_, err := ApplyOperationTx(ctx, tx, operation)
 	if err != nil {

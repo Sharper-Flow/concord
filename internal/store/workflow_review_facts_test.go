@@ -18,7 +18,6 @@ CREATE TABLE fold_guard(active INTEGER); INSERT INTO fold_guard VALUES(1);
 CREATE TABLE workflow_contracts(work_id TEXT,contract_version INTEGER,superseded_by INTEGER);
 CREATE TABLE workflow_contract_predicates(work_id TEXT,contract_version INTEGER,predicate_id TEXT,outcome_kind TEXT,outcome_payload TEXT);
 CREATE TABLE workflow_design_records(work_id TEXT,work_version INTEGER,approach TEXT,decisions TEXT,touched_refs TEXT,recorded_at TEXT);
-CREATE TABLE workflow_contract_law_revisions(work_id TEXT,contract_version INTEGER,law_id TEXT,content_hash TEXT);
 ` + workflowReviewFactsDDL); err != nil {
 		t.Fatal(err)
 	}
@@ -137,11 +136,8 @@ func TestG32ReviewBackfillUsesCallerGuard(t *testing.T) {
 	}
 }
 
-func TestChangedPinnedLawStalesAcceptedReview(t *testing.T) {
+func TestLawChangesPreserveAcceptedReview(t *testing.T) {
 	j, _ := retainedReviewFixture(t, "g32-pinned-law")
-	if _, err := j.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,'spec:one',?); DELETE FROM write_guard`, j.workID, "sha256:"+strings.Repeat("a", 64)); err != nil {
-		t.Fatal(err)
-	}
 	completeCurrentReviewForTest(t, j.fixture, "continue")
 	read := func() WorkflowReviewState {
 		t.Helper()
@@ -152,15 +148,14 @@ func TestChangedPinnedLawStalesAcceptedReview(t *testing.T) {
 		return state
 	}
 	before := read()
-	if !before.DependenciesCurrent || before.Dependencies.ArchitectureNotApplicable || before.Dependencies.ArchitectureDigest == "" {
-		t.Fatalf("pinned law is not an applicable architecture basis: %+v", before)
+	if !before.DependenciesCurrent {
+		t.Fatalf("Review dependencies are not current: %+v", before)
 	}
-	if _, err := j.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contract_law_revisions SET content_hash=? WHERE work_id=?; DELETE FROM write_guard`, "sha256:"+strings.Repeat("b", 64), j.workID); err != nil {
-		t.Fatal(err)
-	}
+	home := lawChangeFixtureHome(t, j.s)
+	commitFixtureLawFile(t, home, "spec:one", fixtureLawFolderLaw("spec:one")+"\nAn amended governing statement.\n")
 	after := read()
-	if after.DependenciesCurrent || after.Dependencies.ArchitectureDigest == before.Dependencies.ArchitectureDigest || !reflect.DeepEqual(after.Accepted, before.Accepted) {
-		t.Fatalf("changed law cached readiness or rewrote accepted Review: %+v", after)
+	if !after.DependenciesCurrent || !reflect.DeepEqual(after.Dependencies, before.Dependencies) || !reflect.DeepEqual(after.Accepted, before.Accepted) {
+		t.Fatalf("law amendment invalidated or rewrote accepted Review: %+v", after)
 	}
 }
 

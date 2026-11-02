@@ -2,7 +2,6 @@ package store
 
 import (
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -14,16 +13,7 @@ import (
 // SQL law/Domain projection row a workflow fixture used to seed is replaced
 // by real committed bytes in the synthetic home these helpers write: the law
 // folder and the independent Domain registry the pre-transaction proof reads
-// (law-folder-authority.md, Committed reads). Nothing here hardcodes the
-// digest of committed bytes; tests derive pins from the bytes they commit.
-
-// fixtureLawFolderLawHash derives the committed whole-file digest of one
-// fixture law the shared home writes through writeFixtureLawSource, so tests
-// pin the real committed bytes instead of a hardcoded hash.
-func fixtureLawFolderLawHash(lawID string) string {
-	sum := sha256.Sum256([]byte(fixtureLawFolderLaw(lawID)))
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
+// (law-folder-authority.md, Committed reads).
 
 // workflowFixtureLawPaths maps the fixture law IDs a workflow home commits to
 // their committed law-folder paths.
@@ -46,31 +36,6 @@ func committedLawFileHash(t *testing.T, repo, relativePath string) string {
 	}
 	sum := sha256.Sum256(content)
 	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-// workflowFixtureKnowledgeRepo resolves the checkout of the fixture Product's
-// designated knowledge home, wherever the fixture named it. An empty result
-// means the fixture designated no home, so no committed pin can be derived.
-func workflowFixtureKnowledgeRepo(t *testing.T, s *Store) string {
-	t.Helper()
-	var repo string
-	err := s.DatabaseForTesting().QueryRow(`SELECT l.normalized_value FROM product_knowledge_homes h JOIN project_locators l ON l.project_id=h.project_id AND l.locator_id=h.locator_id WHERE h.product_id='product' ORDER BY h.project_id, h.locator_id LIMIT 2`).Scan(&repo)
-	if err != nil && err != sql.ErrNoRows {
-		t.Fatal(err)
-	}
-	return repo
-}
-
-// workflowFixtureLawPin derives the committed digest of one fixture law from
-// the bytes the home actually carries, so an approval pins the current law
-// revision rather than a hardcoded hash.
-func workflowFixtureLawPin(t *testing.T, repo, lawID string) string {
-	t.Helper()
-	path, ok := workflowFixtureLawPaths[lawID]
-	if !ok {
-		t.Fatalf("fixture law %s has no committed path in the workflow home", lawID)
-	}
-	return committedLawFileHash(t, repo, path)
 }
 
 // workflowArchitectureFixtureRegistry is the committed Domain registry the

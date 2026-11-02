@@ -30,6 +30,7 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	useStampedBuild(t)
 	db, path := defectRetirementFixture(t)
 	before := retirementUpgradeSnapshot(t, db)
+	retainedBindings := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,product_id,home_domain_id,projection_hash FROM workflow_architecture_bindings ORDER BY rowid`)
 	if s, err := Open(t.Context(), path); err == nil {
 		s.Close()
 		t.Fatal("ordinary open crossed the breaking retirement")
@@ -61,12 +62,21 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 		t.Fatalf("applied migrations = %v, want %v", report.Applied, wantApplied)
 	}
 	for table, want := range before {
-		if table == "schema" || table == "schema_migrations" || table == "store_revision" || table == "work_items" {
+		switch table {
+		case "schema", "schema_migrations", "store_revision", "work_items", "workflow_contract_law_revisions":
 			continue
+		case "workflow_architecture_bindings":
+			want = retainedBindings
 		}
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM "`+table+`" ORDER BY rowid`); !reflect.DeepEqual(got, want) {
 			t.Errorf("unrelated table %s changed", table)
 		}
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name='workflow_contract_law_revisions' OR tbl_name='workflow_contract_law_revisions'`); len(got) != 0 {
+		t.Fatalf("retired law pin schema survives: %v", got)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT name FROM pragma_table_info('workflow_architecture_bindings') WHERE name='domain_registry_content_hash'`); len(got) != 0 {
+		t.Fatalf("retired registry hash column survives: %v", got)
 	}
 	backup, err := sql.Open(driverName, readOnlyDataSource(snapshot))
 	if err != nil {
@@ -274,6 +284,7 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 		}
 	}
 	before := retirementUpgradeSnapshot(t, db)
+	retainedBindings := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,product_id,home_domain_id,projection_hash FROM workflow_architecture_bindings ORDER BY rowid`)
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -292,12 +303,20 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 	}
 	for table, expected := range before {
 		switch table {
-		case "schema", "schema_migrations", "store_revision", "workflow_instances", "work_projects", "work_items":
+		case "schema", "schema_migrations", "store_revision", "workflow_instances", "work_projects", "work_items", "workflow_contract_law_revisions":
 			continue
+		case "workflow_architecture_bindings":
+			expected = retainedBindings
 		}
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM "`+table+`" ORDER BY rowid`); !reflect.DeepEqual(got, expected) {
 			t.Errorf("unrelated table %s changed", table)
 		}
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name='workflow_contract_law_revisions' OR tbl_name='workflow_contract_law_revisions'`); len(got) != 0 {
+		t.Fatalf("retired law pin schema survives: %v", got)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT name FROM pragma_table_info('workflow_architecture_bindings') WHERE name='domain_registry_content_hash'`); len(got) != 0 {
+		t.Fatalf("retired registry hash column survives: %v", got)
 	}
 	retirementUpgradeHealthy(t, db)
 }

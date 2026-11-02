@@ -44,14 +44,14 @@ failure and confirms the cause before it designs a fix.
 
 ## Keep Linear issues current
 
-The description holds the current problem, scope, end state and decisions.
-When an agreed decision changes them, patch the description in place so concurrent
-edits survive, and link the approval evidence.
-A comment holds one event a later reader needs that the description cannot hold:
-a quoted operator decision, a handoff, a blocker or a completion report.
-Before commenting, read the description and recent comments; amend the description
-or your own earlier comment instead of restating.
-Fold helper and delegated results into one synthesized finding; do not paste reports.
+The description holds the current problem, scope, end state and decisions. When
+an agreed decision changes them, patch the description in place so concurrent
+edits survive, and link the approval evidence. A comment holds one event a later
+reader needs that the description cannot hold: a quoted operator decision, a
+synthesized finding, a handoff, a blocker or a completion report. Before
+commenting, read the description and recent comments; amend the description or
+your own earlier comment instead of restating. Fold helper and delegated results
+into one synthesized finding; do not paste reports.
 
 ## Write for the later reader
 

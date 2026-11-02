@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -113,7 +114,7 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 			want = retainedBindings
 		}
 		retired := false
-		for _, name := range append(append([]string(nil), retiredWorktreeTables...), lawIndexRetiredPrefixes...) {
+		for _, name := range slices.Concat(retiredWorktreeTables, lawIndexRetiredPrefixes, []string{"work_messages", "work_observations"}) {
 			retired = retired || table == name
 		}
 		if !retired {

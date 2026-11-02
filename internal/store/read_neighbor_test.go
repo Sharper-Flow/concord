@@ -149,16 +149,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ExternalObservationsForWork", run: func() error {
-			observations, err := s.ExternalObservationsForWork(ctx, "neighbor-work", time.Now(), 10)
-			if err != nil {
-				return err
-			}
-			if len(observations) != 0 {
-				return fmt.Errorf("observations=%+v, want none", observations)
-			}
-			return nil
-		}},
 		{name: "LawAdditionReservations", run: func() error {
 			reservations, err := s.LawAdditionReservations(ctx, "prod")
 			if err != nil {

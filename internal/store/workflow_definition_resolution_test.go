@@ -459,7 +459,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		// Before Main associates the accepted Review with the criteria the
 		// deliverables check refuses.
 		const unassociatedID = "resolution-deliverables-unassociated"
-		s, _, _, _, _ := engineeringConfirmationFixture(t, unassociatedID, false, true)
+		s, _, _, _, _ := engineeringConfirmationFixture(t, unassociatedID, false)
 		var failure *Failure
 		if err := readDeliverables(t, s, definition, unassociatedID); !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("deliverables without the criterion association returned %v, want the missing-evidence refusal", err)

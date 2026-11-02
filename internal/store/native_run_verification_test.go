@@ -139,7 +139,7 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 	// The verification event names the shared observation; the fold answers
 	// both the generic record and the native-run rows bound to it.
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return AppendExternalObservationVerificationTx(ctx, tx, workID, "principal-1", time.Date(2026, 8, 20, 12, 2, 0, 0, time.UTC), ExternalObservationVerification{
+		return appendExternalObservationVerificationTx(ctx, tx, workID, "principal-1", time.Date(2026, 8, 20, 12, 2, 0, 0, time.UTC), ExternalObservationVerification{
 			ObservationID: observationID, VerificationMethod: VerifyTrustedClientReport,
 			VerifiedAt: "2026-08-20T12:02:00Z", VerifyingAuthorityRef: "client:verifier-1", Result: VerificationMatched,
 		})

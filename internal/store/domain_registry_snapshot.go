@@ -2,8 +2,8 @@ package store
 
 import "context"
 
-// Domain-registry consumers (work-context declarations, Domain observations,
-// investigation confirmation) read the committed Domain registry from the same
+// Domain-registry consumers (work-context declarations and Domain
+// observations) read the committed Domain registry from the same
 // knowledgeSourceSetProof every law boundary consumes. The proof is
 // established before the caller's transaction opens, because resolving the
 // head and reading the committed registry are Git subprocesses the pooled

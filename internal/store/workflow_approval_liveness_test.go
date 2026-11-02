@@ -3,8 +3,7 @@ package store
 // TestCoordinatorConfirmationLiveness is the model/fold conformance witness for the
 // workflow's confirmation exits: the abstract admission model and the real
 // fold agree on every seeded route — engineering work folds the coordinator
-// authority and holds no human-question exit, its confirmation still stands
-// behind the recorded-investigation prerequisite, correction stays a routine
+// authority and holds no human-question exit, correction stays a routine
 // admission route, and the acceptance fold stays total under a duplicated
 // active count.
 //
@@ -32,42 +31,6 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 		if !decision.Admitted {
 			t.Fatalf("engineering confirm_premise is no exit at all: %v", decision.Failure)
 		}
-	})
-
-	t.Run("the model folds the engineering investigation prerequisite like the fold", func(t *testing.T) {
-		t.Parallel()
-		const workID = "approval-liveness-engineering-unobserved"
-		f := rAcceptance(t, workID, []string{}, true, false)
-		s, registry, definition := f.store, BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation").Definition
-		unobserved := rAcceptanceModel()
-		unobserved.artifact = false
-		// The real fold over the seeded history: the investigation
-		// observation is absent, so the confirmation refuses with the
-		// folded missing-evidence prerequisite.
-		state := foldedApprovalAdmission(t, s, registry, definition, workID)
-		foldDecision := workflowAdmit(definition, state, "confirm_premise")
-		// The model lift over the same dimensions must reach the same
-		// decision: the confirmation without its recorded investigation folds
-		// the prerequisite refusal, never an open confirmation.
-		model := admissionWorkflowState(definition, unobserved)
-		modelDecision := workflowAdmit(definition, model, "confirm_premise")
-		var foldFailure, modelFailure *Failure
-		failureAs(foldDecision.Failure, &foldFailure)
-		failureAs(modelDecision.Failure, &modelFailure)
-		if foldDecision.Admitted != modelDecision.Admitted || foldDecision.Admitted || foldFailure == nil || modelFailure == nil || foldFailure.Kind != modelFailure.Kind {
-			t.Fatalf("model decision parity drifted: fold admitted=%v failure=%v, model admitted=%v failure=%v", foldDecision.Admitted, foldDecision.Failure, modelDecision.Admitted, modelDecision.Failure)
-		}
-		// The conformance view carries the prerequisite dimension, so a lift
-		// that omits it fails the comparison instead of drifting silently.
-		// Both views — the fold's and the model's — must report the refusal
-		// present, or the dimension compares two absent answers.
-		if !admissionConformanceViewOf(state).AcceptanceDeliverablesMissing {
-			t.Fatal("the conformance view of the real fold reports no missing deliverable; the dimension is not lifted")
-		}
-		if !admissionConformanceViewOf(model).AcceptanceDeliverablesMissing {
-			t.Fatal("the conformance view of the model lift reports no missing deliverable; the dimension is not lifted")
-		}
-		conformanceCheckpoint(t, s, registry, workID, definition, unobserved, "engineering without the recorded investigation")
 	})
 
 	t.Run("correction stays a routine admission route", func(t *testing.T) {

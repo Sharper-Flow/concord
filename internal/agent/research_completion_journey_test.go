@@ -17,8 +17,8 @@ func TestPublicResearchCompletionJourney(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_define", "work_transition", "research"})
-	// The confirmation investigation gate reads a current Domain registry; the home is
-	// a real committed knowledge repository, the way production derives it.
+	// Research finding refs name a current Domain of the committed registry; the
+	// home is a real committed knowledge repository, the way production derives it.
 	worktree := recoveryDomainRepository(t, s)
 	grant.Worktree = worktree
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

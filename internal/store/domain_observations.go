@@ -126,9 +126,9 @@ func foldDomainObservationRecorded(ctx context.Context, tx *sql.Tx, event Event)
 	if err := validateCurrentDomain(ctx, tx, p.ProductID, p.DomainID); err != nil {
 		return err
 	}
-	// A full window refuses and names the Domain. Eviction is
-	// rejected — dropping the oldest observation to admit a new one is the
-	// silent drop CD-0030 exists to prevent. Only open rows count.
+	// A full window refuses and names the Domain. Eviction is rejected:
+	// dropping the oldest observation to admit a new one would lose it
+	// silently. Only open rows count.
 	var open int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_observations WHERE product_id=? AND domain_id=? AND state=?`,
 		p.ProductID, p.DomainID, DomainObservationOpen).Scan(&open); err != nil {

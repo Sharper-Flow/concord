@@ -114,29 +114,6 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 	return ReadWorkPinTx(ctx, tx, workID)
 }
 
-// workStepFoldsRegistry reports whether the work's current step declares
-// confirm_premise or hosts its open late confirmation, whose fold checks the
-// investigation artifact's Domain refs against the committed registry. An unresolvable definition or step folds
-// nothing here; its owning path answers that refusal.
-func (s *Store) workStepFoldsRegistry(ctx context.Context, workID string) bool {
-	entry, err := VerifyWorkflowInstanceDefinition(ctx, s, nil, workID)
-	if err != nil {
-		return false
-	}
-	var step string
-	if err := s.db.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		return false
-	}
-	if stepDeclaresAction(entry.Definition, step, "confirm_premise") {
-		return true
-	}
-	if !workflowLatePremiseConfirmationStep(entry.Definition, step) {
-		return false
-	}
-	open, err := workflowLatePremiseConfirmationOpen(ctx, s.db, workID)
-	return err == nil && open
-}
-
 // ReadMutationWorkPinTxForRegistry is the registry-threaded opaque-Tx pin: a
 // caller registry verifies the stored pin through itself with no builtin
 // fallback, and a nil registry keeps the builtin convenience default. The

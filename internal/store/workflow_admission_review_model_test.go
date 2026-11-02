@@ -162,7 +162,7 @@ func TestAdmissionModelCurrentReviewControlsExecutionExit(t *testing.T) {
 
 func TestAdmissionModelRejectsSeededUnreviewedDeliveryEntry(t *testing.T) {
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	seeded := admissionModelState{step: "delivery", contracts: 1, started: true, artifact: true, observed: true}
+	seeded := admissionModelState{step: "delivery", contracts: 1, started: true}
 	if admissionHasExit(definition, seeded) {
 		t.Fatal("an invented delivery entry without its required preceding Review has an exit")
 	}
@@ -285,7 +285,7 @@ func TestAdmissionModelForwardReviewReadinessMatchesReturnDirection(t *testing.T
 		}
 		for _, disposition := range admissionReviewDispositions {
 			for _, verdict := range []string{"ok", "bad"} {
-				state := admissionModelState{step: step, contracts: 1, artifact: true, verdict: verdict,
+				state := admissionModelState{step: step, contracts: 1, verdict: verdict,
 					review: admissionModelReview{accepted: disposition, candidate: true, current: true}}
 				want := verdict == "bad" || disposition == "ready_for_final_proof"
 				if got := workflowAdmit(definition, admissionWorkflowState(definition, state), "confirm_premise"); got.Admitted != want {
@@ -359,7 +359,7 @@ func TestAdmissionModelConsumedReviewCannotRegainForwardAuthority(t *testing.T) 
 		if family == "workflow.break_fix" {
 			producer, evaluator = "repair", "verify"
 		}
-		state := admissionModelState{step: producer, contracts: 1, started: true, proof: true, artifact: true, verdict: "ok",
+		state := admissionModelState{step: producer, contracts: 1, started: true, proof: true, verdict: "ok",
 			review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true, consumed: true}}
 		if got := workflowAdmit(definition, admissionWorkflowState(definition, state), "record_delivery"); got.Admitted {
 			t.Errorf("%s: restored consumed report authorized delivery", family)

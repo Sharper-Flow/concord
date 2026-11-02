@@ -265,7 +265,7 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 								t.Fatal(err)
 							}
 							if err := s.Transact(ctx, func(tx *Transaction) error {
-								return AppendExternalObservationVerificationTx(ctx, tx, workID, "principal/operator", time.Unix(100, 0), ExternalObservationVerification{ObservationID: observationID, VerificationMethod: VerifyTrustedClientReport, VerifiedAt: time.Unix(100, 0).UTC().Format(time.RFC3339Nano), VerifyingAuthorityRef: "client/liveness-verifier", Result: VerificationMatched})
+								return appendExternalObservationVerificationTx(ctx, tx, workID, "principal/operator", time.Unix(100, 0), ExternalObservationVerification{ObservationID: observationID, VerificationMethod: VerifyTrustedClientReport, VerifiedAt: time.Unix(100, 0).UTC().Format(time.RFC3339Nano), VerifyingAuthorityRef: "client/liveness-verifier", Result: VerificationMatched})
 							}); err != nil {
 								t.Fatal(err)
 							}

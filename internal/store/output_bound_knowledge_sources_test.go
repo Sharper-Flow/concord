@@ -163,12 +163,11 @@ func init() {
 	registerOutputBound("/$defs/domain_observation/properties/refs/items/maxLength",
 		goInlineBound("internal/store/domain_observations.go", "validateObservationBounds", "utf8.RuneCountInString(ref)", boundCharacters))
 
-	// The refs array is folded under the same count guard the CD-0030
-	// work-observation fold applies before the row exists.
+	// The refs array is folded under its count guard before the row exists.
 	registerOutputBound("/$defs/domain_observation/properties/refs/maxItems", goInlineBound("internal/store/domain_observations.go", "validateObservationBounds", "len(refs)", boundItems))
 
-	// The statement is folded under the same full-string code-point guard the
-	// CD-0030 work-observation fold applies before the row exists.
+	// The statement is folded under its full-string code-point guard before
+	// the row exists.
 	registerOutputBound("/$defs/domain_observation/properties/statement/maxLength", goInlineBound("internal/store/domain_observations.go", "validateObservationBounds", "utf8.RuneCountInString(statement)", boundCharacters))
 
 	// Tag items ride the same fold validation: at most 32 code points per tag.

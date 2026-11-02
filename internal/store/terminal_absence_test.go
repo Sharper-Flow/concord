@@ -4,7 +4,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 )
 
 func publishedAbsenceFixture(t *testing.T) (*Store, KnowledgeHome, string, string) {
@@ -52,10 +51,6 @@ func assertPublishedExecutionAbsenceReaders(t *testing.T, s *Store, home Knowled
 		"pin":              func() error { _, err := ReadWorkPin(ctx, s, "work-published"); return err },
 		"continuity": func() error {
 			_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: "work-published"})
-			return err
-		},
-		"external observations": func() error {
-			_, err := s.ExternalObservationsForWork(ctx, "work-published", time.Now(), 10)
 			return err
 		},
 		"retirement": func() error {

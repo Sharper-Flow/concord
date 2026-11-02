@@ -331,8 +331,7 @@ func (fx readPopulationFixture) envelope(t *testing.T) CallEnvelope {
 
 // seedPopulationRows gives every declared primary row collection at least one
 // row: a peer work item bound to the child Domain, Domain observations,
-// a relation edge, a peer message, an external
-// observation, and a summary context boundary. Mutations and folds run
+// a relation edge, and a summary context boundary. Mutations and folds run
 // through the store's own APIs; the summary context boundary uses the store's
 // SQL fixture because no public store API authors that row.
 func (fx readPopulationFixture) seedPopulationRows(t *testing.T) {
@@ -343,7 +342,7 @@ func (fx readPopulationFixture) seedPopulationRows(t *testing.T) {
 }
 
 // seedPopulationPeerWork creates a second work item bound to the child Domain
-// beside the focus work, then folds a relation, messages it, and claims a resource.
+// beside the focus work, then folds a relation and claims a resource.
 // The started peer gives the Domain reads a second bound contract, and the
 // folded relation gives the relations read an edge.
 func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
@@ -398,39 +397,10 @@ func (fx readPopulationFixture) seedPopulationDomainRows(t *testing.T) {
 	}
 }
 
-// seedPopulationFocusRows captures one external observation for the focus work
-// through the store's fold API, then seeds a summary context boundary for the
+// seedPopulationFocusRows seeds a summary context boundary for the
 // continuity read, mirroring the store's own fixture for that table.
 func (fx readPopulationFixture) seedPopulationFocusRows(t *testing.T) {
 	t.Helper()
-	ctx := context.Background()
-	policy, ok := store.ExternalSubjectPolicyFor("environment")
-	if !ok {
-		t.Fatal("no reviewed external subject policy for environment")
-	}
-	if err := fx.store.Transact(ctx, func(tx *store.Transaction) error {
-		return store.AppendExternalObservationCaptureTx(ctx, tx, fx.workID, "human-1", fixedTime(), store.ExternalObservationCapture{
-			ObservationID:         "xobs:0123456789abcdef",
-			SubjectKind:           "environment",
-			SubjectRef:            "environment://prod",
-			CaptureMethod:         store.CaptureTrustedClientReport,
-			CapturedAt:            "2026-09-01T00:00:00Z",
-			ReportingAuthorityRef: "client:reporter-1",
-			ObservedUniverse: store.ObservedUniverse{
-				Shape: store.UniverseCollection, AppliedScope: "provider:services(env=prod)",
-				AnchorToken: "page-1", Coverage: store.CoveragePartial,
-				ObservedRefs: []string{"svc-a", "svc-b", "svc-c"},
-				TotalKind:    store.TotalGte, TotalValue: 4,
-				CanonicalIdentityKey: "service_name",
-				Omissions:            []string{"pagination-truncated:page-2"},
-			},
-			FreshnessPolicyRef:  store.PolicyRef(policy),
-			DivergencePolicyRef: store.PolicyRef(policy),
-		})
-	}); err != nil {
-		t.Fatalf("capture population external observation: %v", err)
-	}
-
 	registered, err := store.BuiltinWorkflowRegistry().Register(store.BuiltinWorkflowDefinitions()[0])
 	if err != nil {
 		t.Fatal(err)

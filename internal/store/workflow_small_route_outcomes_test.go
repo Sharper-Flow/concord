@@ -33,7 +33,6 @@ func smallImplementationAtRelease(t *testing.T) acceptDeliveryCandidate {
 		}
 	}
 	reviewGateRequireStep(t, c.f.store, c.f.workID, "acceptance")
-	seedPremiseDeliverablesInvestigation(t, c.f.store, c.f.workID)
 	if err := c.j.action(t, "record_verdict", criterionAssociationPayload(c.early.OperationRef, "predicate:return-route"), c.f.owner); err != nil {
 		t.Fatal(err)
 	}

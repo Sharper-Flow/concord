@@ -61,10 +61,6 @@ type admissionModelState struct {
 	artifactStale bool
 	// verdict is the latest predicate verdict: "", "ok", or "bad".
 	verdict string
-	// artifact is the recorded investigation artifact; observed is a
-	// same-work observation recorded after the latest verdict.
-	artifact bool
-	observed bool
 	// started anchors the current delivery-bearing epoch; proof is a green
 	// worktree-verify binding after that start. mandate is absent, missing,
 	// or bound under the active contract.
@@ -76,8 +72,8 @@ type admissionModelState struct {
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q contracts %d designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q done %v review %+v)",
-		s.step, s.contracts, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.done, s.review)
+	return fmt.Sprintf("(step %q contracts %d designStale %v artifactStale %v verdict %q started %v proof %v mandate %q done %v review %+v)",
+		s.step, s.contracts, s.designStale, s.artifactStale, s.verdict, s.started, s.proof, s.mandate, s.done, s.review)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
@@ -162,20 +158,12 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	}
 	// The acceptance gate folds the recorded verdict: without one,
 	// confirm_premise refuses and record_verdict on the same step stays the
-	// exit. The gate folds the recorded-investigation prerequisite beside it:
-	// without the observation the confirmation refuses, never admits behind an
-	// absent prerequisite. An earlier folded failure keeps its place, exactly
-	// as the loader preserves it. Evidence binding is outside the model.
+	// exit. An earlier folded failure keeps its place, exactly as the loader
+	// preserves it. Evidence binding is outside the model.
 	step := workflowStep(definition, state.step)
 	confirmation := step != nil && slices.Contains(step.Actions, "confirm_premise")
 	if state.contracts == 1 && confirmation && state.verdict == "" {
 		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a recorded workflow verdict", false, "record_verdict before confirming the premise")
-	}
-	// The confirmation folds the investigation prerequisite at every step
-	// that declares confirm_premise, exactly as the loader's prerequisite fold
-	// does.
-	if state.contracts == 1 && confirmation && folded.AcceptanceDeliverablesMissing == nil && !state.artifact {
-		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires the recorded investigation artifact", false, "record the investigation observation before confirming")
 	}
 	if confirmation && workflowDefinitionProducesDelivery(definition) && folded.AcceptanceDeliverablesMissing == nil && !(state.verdict == "bad" && admissionFailureEdgeTarget(definition, state.step) != "") {
 		folded.AcceptanceDeliverablesMissing = workflowAdmitReview(*folded.Review)
@@ -324,7 +312,7 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		}
 	case "record_verdict":
 		if workflowLateCriterionAssociationStep(definition, state.step) {
-			next.verdict, next.observed = "ok", false
+			next.verdict = "ok"
 			return []admissionModelState{next}
 		}
 		if next.artifactStale {
@@ -335,12 +323,11 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			// resolves no route evaluates nothing, so its verdicts fold
 			// unstale exactly as the loader does.
 			bad := next
-			bad.verdict, bad.observed = "bad", false
+			bad.verdict = "bad"
 			return []admissionModelState{bad}
 		}
 		ok, bad := next, next
 		ok.verdict, bad.verdict = "ok", "bad"
-		ok.observed, bad.observed = false, false
 		bad.artifactStale = true
 		return []admissionModelState{ok, bad}
 	case "confirm_premise":
@@ -462,11 +449,6 @@ func admissionAgentMovesWith(definition WorkflowDefinition, state admissionModel
 			successors = append(successors, updated)
 		}
 	}
-	if !state.artifact || !state.observed {
-		observed := state
-		observed.artifact, observed.observed = true, true
-		successors = append(successors, observed)
-	}
 	// A report can supply missing proof only while binding is admitted.
 	proves := state.started && !state.proof && workflowRefineProofGateActive(definition, state.step)
 	if !proves || !bindEvidenceAdmitted() {
@@ -479,13 +461,10 @@ func admissionAgentMovesWith(definition WorkflowDefinition, state admissionModel
 }
 
 func admissionAgentMoveName(before, after admissionModelState) string {
-	if before.verdict != after.verdict || before.review != after.review {
-		return "revise_intent"
-	}
 	if before.proof != after.proof {
 		return "bind_evidence:verification_report"
 	}
-	return "observation_record"
+	return "revise_intent"
 }
 
 func admissionTerminalStep(definition WorkflowDefinition, step string) bool {
@@ -588,14 +567,11 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 				}
 				for _, verdict := range verdicts {
 					for _, artifactStale := range artifacts {
-						for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
-							if !withEvidence(admissionModelState{
-								step: step.ID, contracts: count,
-								verdict: verdict, artifactStale: artifactStale,
-								artifact: observation[0], observed: observation[1],
-							}) {
-								return
-							}
+						if !withEvidence(admissionModelState{
+							step: step.ID, contracts: count,
+							verdict: verdict, artifactStale: artifactStale,
+						}) {
+							return
 						}
 					}
 				}
@@ -988,7 +964,7 @@ func admissionModelKeyOf(steps []string, state admissionModelState) admissionMod
 	p.put(admissionKeyCode(state.verdict, admissionKeyVerdicts), 2)
 	p.put(admissionKeyCode(state.mandate, admissionKeyMandates), 2)
 	p.put(admissionKeyCount(state.contracts), 8)
-	for _, set := range []bool{state.designStale, state.artifactStale, state.artifact, state.observed, state.started, state.proof, state.done} {
+	for _, set := range []bool{state.designStale, state.artifactStale, state.started, state.proof, state.done} {
 		var bit uint8
 		if set {
 			bit = 1
@@ -1008,7 +984,7 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 	state.verdict = admissionKeyVerdicts[p.get(2)]
 	state.mandate = admissionKeyMandates[p.get(2)]
 	state.contracts = int64(p.get(8))
-	for _, flag := range []*bool{&state.designStale, &state.artifactStale, &state.artifact, &state.observed, &state.started, &state.proof, &state.done} {
+	for _, flag := range []*bool{&state.designStale, &state.artifactStale, &state.started, &state.proof, &state.done} {
 		*flag = p.get(1) == 1
 	}
 	state.review = admissionUnpackReview(&p)
@@ -1017,7 +993,7 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 
 // admissionModelKeyFields is the number of admissionModelState fields
 // admissionModelKeyOf encodes.
-const admissionModelKeyFields = 12
+const admissionModelKeyFields = 10
 
 func TestAdmissionModelKeyEncodesEveryField(t *testing.T) {
 	if got := reflect.TypeOf(admissionModelState{}).NumField(); got != admissionModelKeyFields {
@@ -1054,7 +1030,7 @@ func TestAdmissionModelKeyRoundTrips(t *testing.T) {
 				step: pick(steps), verdict: pick(admissionKeyVerdicts),
 				mandate: pick(admissionKeyMandates), contracts: random.Int64N(256),
 				designStale: flip(), artifactStale: flip(),
-				artifact: flip(), observed: flip(), started: flip(), proof: flip(), done: flip(),
+				started: flip(), proof: flip(), done: flip(),
 				review: admissionModelReview{accepted: pick(admissionReviewDispositions), candidate: flip(), changed: flip(), current: flip(), blocked: flip(), consumed: flip()},
 			})
 		}

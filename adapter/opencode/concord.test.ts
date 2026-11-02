@@ -939,9 +939,9 @@ test("host publication round-trips check predicate payloads unchanged", async ()
 })
 
 test("confirm_premise refusals come from the core, not the adapter", async () => {
-  // The core owns the investigation-artifact gate and its refusal.
+  // The core owns the acceptance-deliverables gate and its refusal.
   const artifactRefusal = coreEnvelope("concord_work_transition", "workflow_action", "error", {
-    error: { kind: "missing_evidence", retry_safe: false, recovery_action: { kind: "provide_evidence" }, effect_state: "none", message: "premise confirmation requires a recorded investigation artifact naming a current Domain of the Product and another work item; its refs must hold the bare domain_id of the current Domain and the id of another work item" },
+    error: { kind: "missing_evidence", retry_safe: false, recovery_action: { kind: "provide_evidence" }, effect_state: "none", message: "premise confirmation requires a recorded workflow verdict" },
   })
   const first = runnerWithContext(artifactRefusal)
   const result: any = await runWorkflowAction(first,
@@ -949,7 +949,7 @@ test("confirm_premise refusals come from the core, not the adapter", async () =>
   expect(first.calls()).toBe(2)
   expect(result.outcome).toBe("error")
   expect(result.origin).toBe("core")
-  expect(result.error.message).toContain("investigation artifact")
+  expect(result.error.message).toContain("recorded workflow verdict")
 
 })
 

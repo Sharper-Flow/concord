@@ -149,7 +149,7 @@ func seedVerifiedNativeRunCapture(t *testing.T, s *Store, workID string) string 
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return AppendExternalObservationVerificationTx(ctx, tx, workID, "principal/operator", time.Date(2026, 9, 14, 0, 1, 0, 0, time.UTC), ExternalObservationVerification{
+		return appendExternalObservationVerificationTx(ctx, tx, workID, "principal/operator", time.Date(2026, 9, 14, 0, 1, 0, 0, time.UTC), ExternalObservationVerification{
 			ObservationID: observationID, VerificationMethod: VerifyTrustedClientReport,
 			VerifiedAt: "2026-09-14T00:01:00Z", VerifyingAuthorityRef: "client/concord-1", Result: VerificationMatched,
 		})

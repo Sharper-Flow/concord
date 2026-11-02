@@ -433,19 +433,3 @@ func FoldVerificationState(prior FoldedVerificationState, expectation Divergence
 		return prior
 	}
 }
-
-// FreshnessState reports D7 read-time freshness: a verified record whose
-// newest verification is older than the kind's declared bound is stale, and
-// elapsed time alone never proves divergence or absence.
-func FreshnessState(state FoldedVerificationState, newestVerificationAt, readAt time.Time, maxAgeSeconds int64) string {
-	if state != VerificationVerified {
-		return string(state)
-	}
-	if maxAgeSeconds <= 0 || newestVerificationAt.IsZero() {
-		return string(VerificationVerified)
-	}
-	if readAt.Sub(newestVerificationAt) > time.Duration(maxAgeSeconds)*time.Second {
-		return "stale"
-	}
-	return string(VerificationVerified)
-}

@@ -10,20 +10,20 @@ import (
 
 // Premise confirmation records the authenticated non-worker coordinator, with
 // no operator substitution. Every confirmation stays bound to its contract
-// version, and the recorded investigation and deliverables stay required.
+// version, and the acceptance deliverables stay required.
 
 // engineeringConfirmationSeed parks a workflow.implementation item at
 // acceptance on the live journey and records the routine actors.
 func engineeringConfirmationSeed(t *testing.T, workID string) (s *Store, owner, reviewer, operator, coordinator WorkflowActor) {
 	t.Helper()
-	return engineeringConfirmationFixture(t, workID, true, true)
+	return engineeringConfirmationFixture(t, workID, true)
 }
 
 // engineeringConfirmationFixture is engineeringConfirmationSeed with Main's
-// criterion association and the investigation each made optional.
-func engineeringConfirmationFixture(t *testing.T, workID string, associate, investigation bool) (s *Store, owner, reviewer, operator, coordinator WorkflowActor) {
+// criterion association made optional.
+func engineeringConfirmationFixture(t *testing.T, workID string, associate bool) (s *Store, owner, reviewer, operator, coordinator WorkflowActor) {
 	t.Helper()
-	f := rAcceptance(t, workID, []string{}, associate, investigation)
+	f := rAcceptance(t, workID, []string{}, associate)
 	actors := recordApprovalActors(t, f.store, workID)
 	return f.store, f.owner, actors.reviewer, actors.operator, actors.coordinator
 }
@@ -116,23 +116,16 @@ func TestEngineeringConfirmation(t *testing.T) {
 		}
 	})
 
-	t.Run("missing deliverables and investigation refuse through the constructor", func(t *testing.T) {
+	t.Run("missing deliverables refuse through the constructor", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-deliverables"
-		s, _, _, _, coordinator := engineeringConfirmationFixture(t, workID, false, true)
+		s, _, _, _, coordinator := engineeringConfirmationFixture(t, workID, false)
 		// Main has not associated the accepted Review with the criteria, so
 		// the acceptance deliverables the confirmation requires are absent.
 		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("engineering confirmation without deliverables returned %v, want the missing-evidence refusal", err)
-		}
-		// The investigation artifact is demanded on the no-question route.
-		noInvestigation := "engineering-confirm-investigation"
-		s2, _, _, _, coordinator2 := engineeringConfirmationFixture(t, noInvestigation, true, false)
-		_, err = runEngineeringConfirmation(t, s2, engineeringConfirmationDefinition(t), noInvestigation, ownerRefForTest(t, coordinator2), nil)
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "investigation artifact") {
-			t.Fatalf("engineering confirmation without investigation returned %v, want the missing-investigation refusal", err)
 		}
 	})
 

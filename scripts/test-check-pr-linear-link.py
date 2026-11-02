@@ -268,12 +268,11 @@ def test_non_work_branch_passes_without_a_body() -> None:
     assert "not a Concord work branch" in detail, detail
 
 
-# CON-1450: three merged slice pull requests on non-work branches carried a
-# documented closing word directly before an issue key in their squash
-# messages, and Linear moved CON-1320 and CON-1100 to Done within two seconds
-# of each merge while most of their scope stayed open. The sentences below are
-# verbatim from those pull request bodies, so the closing-word scan cannot
-# stop at work/work-* branches.
+# Linear ignores a negation before a closing word, so a slice that says it
+# does not complete its issue still moves that issue to Done at merge. These
+# sentences are verbatim from slice pull requests on non-work branches whose
+# merges did exactly that, so the closing-word scan cannot stop at
+# work/work-* branches.
 INCIDENT_SLICES = [
     ("con-1320-durable-owner", "This does not complete CON-1320."),
     ("fix-con-1100-law-rule-evidence", "This PR does not close CON-1100 or claim whole-record acceptance."),

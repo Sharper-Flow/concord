@@ -12,9 +12,9 @@ parses a closing magic word in the pull request title as well as the body
 
 The closing-word refusal applies to every pull request, whatever its branch:
 Linear parses a closing word before an issue key in any pull request title
-or body, and a squash merge carries both into the commit message, so a
-non-work slice PR worded `does not complete CON-1320` moved that open issue
-to Done at merge (CON-1450). The Related-to linkage line stays scoped to
+or body and ignores a negation before the word, and a squash merge carries
+both into the commit message, so a slice worded `does not complete ENG-123`
+moves ENG-123 to Done at merge. The Related-to linkage line stays scoped to
 managed work: the branch name marks it, and only `work/work-*` pull
 requests must carry the line; other branches have no linkage requirement.
 
@@ -108,8 +108,8 @@ def check_pr_link(head_ref: str, title: str, body: str) -> tuple[bool, str]:
     # Linear parses closing magic words in any pull request's title and body,
     # and a squash merge carries both into the commit message, so a PR worded
     # 'Fixes ENG-123' on any branch would change issue status without the
-    # Linear MCP server or the operator (CON-1450). Both surfaces get the
-    # same refusal on every pull request, whatever the head branch.
+    # Linear MCP server or the operator. Both surfaces get the same refusal
+    # on every pull request, whatever the head branch.
     for where, text in (("title", title), ("body", body)):
         closing = closing_phrases(text)
         if closing:

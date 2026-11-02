@@ -260,6 +260,18 @@ func validateWorkflowLawChangeRemovals(change *WorkflowLawChange, op string) err
 	return nil
 }
 
+// workflowLawsWithoutRemovals drops the contract's declared removals from the
+// mandated and modified laws that completion checks against current law. A
+// declared removal's end state is absence, which
+// checkWorkflowLawChangeEnactmentTx proves in the same clause.
+func workflowLawsWithoutRemovals(mandated, modified []string, change *WorkflowLawChange) ([]string, []string) {
+	if change == nil || len(change.Removals) == 0 {
+		return mandated, modified
+	}
+	removed := func(id string) bool { return slices.Contains(change.Removals, id) }
+	return slices.DeleteFunc(slices.Clone(mandated), removed), slices.DeleteFunc(slices.Clone(modified), removed)
+}
+
 // resolveWorkflowChangedLawsTx resolves changed law references through the
 // same Project-qualified identity as the mandated-law boundary, against the
 // verified law-folder snapshot. A law the committed folder no longer holds,
@@ -376,7 +388,7 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 	}
 	for _, id := range workflowLawInventoryDifferences(before, after) {
 		if !declaredLaws[id] {
-			return newFailure(KindOutcomeMismatch, "complete_workflow", "law "+id+" changed outside the active contract (CD-0230 D4)", false, "wait for the actual owner's verified completion; for this item's own change, restore the law or supersede the contract to declare it")
+			return newFailure(KindOutcomeMismatch, "complete_workflow", "law "+id+" changed outside the active contract (CD-0230 D4)", false, "wait for the actual owner's verified completion; for this item's own change, restore the law or declare it through revise_intent")
 		}
 	}
 	if err := checkWorkflowLawRegistryScope(before.Registry, after.Registry, binding); err != nil {
@@ -409,7 +421,7 @@ func checkWorkflowLawChangeEnactmentTx(ctx context.Context, tx *sql.Tx, workID s
 		}
 		resolution, ok := resolutions[reference]
 		if !ok {
-			return newFailure(KindMissingEvidence, "complete_workflow", "the enacted law revision is missing from the Git projection: "+reference, false, "merge the reviewed pull request that commits the enacted law file under the law folder, or supersede the contract to declare its intended law_change_removals")
+			return newFailure(KindMissingEvidence, "complete_workflow", "the enacted law revision is missing from the Git projection: "+reference, false, "merge the reviewed pull request that commits the enacted law file under the law folder, or declare its retirement in law_change_removals through revise_intent")
 		}
 		if resolution.tier != "derived" {
 			return newFailure(KindMissingEvidence, "complete_workflow", fmt.Sprintf("law %s must carry the derived tier, not %s (CD-0230 D4)", reference, resolution.tier), false, "record authority.tier derived on the changed law")

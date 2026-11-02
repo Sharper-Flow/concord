@@ -264,8 +264,8 @@ func sourceBoundInProof(ctx context.Context, home KnowledgeHome) bool {
 
 // PrepareWorkLawProof verifies, before any transaction for the work opens,
 // the committed law and Domain registry that transaction may read. Continuity
-// resolves bound law IDs, and a step that declares confirm_premise folds the
-// investigation artifact's Domain refs against the committed registry. The
+// resolves bound law IDs, and a step that declares or late-hosts confirm_premise
+// folds the investigation artifact's Domain refs against the committed registry. The
 // verification resolves git heads and reads the committed law folder —
 // subprocesses the pooled connection must never hold inside a transaction
 // (CD-0195 D2). A context that already carries a proof passes through; the
@@ -793,7 +793,7 @@ func mandatedLawProjectionFailure(ctx context.Context, q queryer, sources []Know
 		details = append(details, "mandated records are archived notes, not law files in the committed law folder: "+strings.Join(nonaccepted, ","))
 	}
 	details = append(details, "checked law snapshot commits: "+strings.Join(commits, ","))
-	failure := newFailure(KindProjectionNotFound, "check_mandated_laws", strings.Join(details, "; "), false, "verify the mandate IDs against the committed law folder at the checked snapshot commit; a missing law is enacted by adding its file under the law folder through an ordinary reviewed pull request")
+	failure := newFailure(KindProjectionNotFound, "check_mandated_laws", strings.Join(details, "; "), false, "verify the mandate IDs against the committed law folder at the checked snapshot commit; a missing law is enacted by adding its file under the law folder through an ordinary reviewed pull request; a law this work retires is declared in law_change_removals through revise_intent")
 	failure.CandidateIDs = missing
 	return failure
 }

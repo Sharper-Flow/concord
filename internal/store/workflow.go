@@ -1722,6 +1722,20 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		}
 		return newFailure(KindMissingEvidence, "fold_event", "late criterion association requires its own verified association effect", false, "associate applicable producer receipts before recording completion")
 	}
+	if p.ActionID == "confirm_premise" && workflowLatePremiseConfirmationStep(entry.Definition, currentStep) {
+		// The confirmation event folds before its completion and closes the
+		// late route; join this action's own confirmation of the active
+		// version, recorded immediately before it, rather than re-test the
+		// post-confirmation state.
+		var paired bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_premise_confirmations c WHERE c.work_id=?1 AND c.confirmed_by=?3 AND c.contract_version=(SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=?1 AND superseded_by IS NULL) AND EXISTS(SELECT 1 FROM workflow_premise_confirmations WHERE work_id=?1 AND contract_version<c.contract_version)) AND (SELECT kind FROM effect_receipts WHERE subject_id=?1 AND effect_seq<?2 ORDER BY effect_seq DESC LIMIT 1)=?4`, event.SubjectID, event.Seq, p.ActorRef, WorkflowPremiseConfirmed).Scan(&paired); err != nil {
+			return workflowProjectionError(err, "cannot read late premise confirmation effect")
+		}
+		if paired {
+			return nil
+		}
+		return newFailure(KindMissingEvidence, "fold_event", "late premise confirmation requires its own confirmation of the active contract version", false, "confirm the active contract version before recording completion")
+	}
 	if p.ActionID == "request_correction" {
 		correctionRecovery, missing, recoveryErr := workflowCorrectionRequestAdmissionStateForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", registry)
 		if recoveryErr != nil {
@@ -1773,10 +1787,12 @@ func admitWorkflowRecoveryEvidenceCompletionTx(ctx context.Context, tx *sql.Tx, 
 	return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind eligible recovery evidence", false, "bind an outstanding requirement or verification of an unverdicted active check")
 }
 
-// workflowCompletedActionAdvances reports whether a recorded action completion advances the pinned step.
+// workflowCompletedActionAdvances reports whether a recorded action completion
+// advances the pinned step: an advance-mode action its step declares. An
+// action admitted off-step through a recovery route never moves the step.
 func workflowCompletedActionAdvances(definition WorkflowDefinition, p workflowActionCompletedPayload) bool {
 	mode, ok := workflowActionExecutionMode(definition, p.ActionID)
-	return ok && mode == ActionAdvance
+	return ok && mode == ActionAdvance && definitionStepAllows(definition, p.StepID, p.ActionID)
 }
 
 func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
@@ -1987,9 +2003,10 @@ func workflowStepPassBoundary(ctx context.Context, q queryer, definition Workflo
 	return startSeq, true, nil
 }
 
-// advancingWorkflowActions lists the pinned actions whose completed fold moves
-// the instance between steps — the same mode test the completed-action fold
-// applies — so the pass boundary reads the fold's own step-transition rule.
+// advancingWorkflowActions lists the pinned advance-mode actions, the mode
+// test the completed-action fold applies to declared actions. A late
+// confirm_premise exit at a terminal step also matches, without moving the
+// step; the pass boundary reads only steps that record action starts.
 func advancingWorkflowActions(definition WorkflowDefinition) []string {
 	var advancing []string
 	for _, action := range definition.ActionDefinitions {

@@ -115,8 +115,8 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 }
 
 // workStepFoldsRegistry reports whether the work's current step declares
-// confirm_premise, whose fold checks the investigation artifact's Domain refs
-// against the committed registry. An unresolvable definition or step folds
+// confirm_premise or hosts its open late confirmation, whose fold checks the
+// investigation artifact's Domain refs against the committed registry. An unresolvable definition or step folds
 // nothing here; its owning path answers that refusal.
 func (s *Store) workStepFoldsRegistry(ctx context.Context, workID string) bool {
 	entry, err := VerifyWorkflowInstanceDefinition(ctx, s, nil, workID)
@@ -127,7 +127,14 @@ func (s *Store) workStepFoldsRegistry(ctx context.Context, workID string) bool {
 	if err := s.db.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		return false
 	}
-	return stepDeclaresAction(entry.Definition, step, "confirm_premise")
+	if stepDeclaresAction(entry.Definition, step, "confirm_premise") {
+		return true
+	}
+	if !workflowLatePremiseConfirmationStep(entry.Definition, step) {
+		return false
+	}
+	open, err := workflowLatePremiseConfirmationOpen(ctx, s.db, workID)
+	return err == nil && open
 }
 
 // ReadMutationWorkPinTxForRegistry is the registry-threaded opaque-Tx pin: a
@@ -355,6 +362,11 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	if state.LateCriterionAssociation && !workPinContainsAction(pin.NextValidIntents, "record_verdict") {
 		if decision := workflowAdmit(definition, state, "record_verdict"); decision.Admitted {
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "record_verdict"), pin.Version, "late_criterion_association"))
+		}
+	}
+	if state.LatePremiseConfirmation && !workPinContainsAction(pin.NextValidIntents, "confirm_premise") {
+		if decision := workflowAdmit(definition, state, "confirm_premise"); decision.Admitted {
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "confirm_premise"), pin.Version, "late_premise_confirmation"))
 		}
 	}
 	// The evidence-binding recovery advertises only when the pure decision

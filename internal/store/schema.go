@@ -8558,7 +8558,7 @@ INSERT INTO durable_operations_v178
  principal_ref,request_id,observed_at,completed_at,contract_digest
  FROM durable_operations o WHERE result_kind='completed'
  AND attempt_epoch=(SELECT MAX(p.attempt_epoch) FROM durable_operations p WHERE p.op_id=o.op_id AND p.result_kind='completed')
- AND NOT EXISTS(SELECT 1 FROM idempotency_records i WHERE i.op_id=o.op_id AND i.operation_kind IN ('claim','complete'));
+ AND op_id NOT IN (SELECT op_id FROM idempotency_records WHERE operation_kind IN ('claim','complete') AND op_id IS NOT NULL);
 DELETE FROM workflow_evidence_bindings
  WHERE json_extract(payload,'$.producer_run_ref') IN (SELECT op_id FROM durable_operations)
  AND json_extract(payload,'$.producer_run_ref') NOT IN (SELECT op_id FROM durable_operations_v178);

@@ -89,8 +89,12 @@ Repeat the setup after a fresh clone or host rebuild, or if the hook is removed.
 hook. `assert_lefthook_installed: true` makes an installed hook fail when it cannot
 find Lefthook; it cannot detect a missing hook.
 
-Push normally and let the installed hook run the selected gates. Fix a failing
-gate before retrying; do not bypass the hook. CI remains the verification owner.
+Push normally and let the installed hook run the selected gates. Each gate
+enters the host admission route (`oc-test-gate`'s shared heavy slot) through
+`bin/oc-test preflight-gate`, so concurrent pushes from linked worktrees queue
+their gate work instead of overlapping it; on a host without `oc-test-gate`
+the gate still runs, with a warning. Fix a failing gate before retrying a
+push; do not bypass the hook. CI remains the verification owner.
 To diagnose a failure before retrying a push, run the same gates manually:
 
 ```sh

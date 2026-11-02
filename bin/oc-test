@@ -3,12 +3,16 @@
 # Repository-local verification throttle wrapper.
 #
 # Tiers:
-#   smoke       Go packages CI tests without shards, adapter tests, and
-#               JSON/law validation.
-#   targeted    Bounded command shapes checked without executing discovery.
-#   broad       Explicit arbitrary command under full host admission.
-#   conformance Gated ten-process correctness conformance harness.
-#   preflight   Lefthook pre-push gates (lefthook.yml), pinned to v2.1.14.
+#   smoke          Go packages CI tests without shards, adapter tests, and
+#                  JSON/law validation.
+#   targeted       Bounded command shapes checked without executing discovery.
+#   broad          Explicit arbitrary command under full host admission.
+#   conformance    Gated ten-process correctness conformance harness.
+#   preflight      Lefthook pre-push gates (lefthook.yml), pinned to v2.1.14.
+#   preflight-gate One pre-push gate command under smoke admission; the gates
+#                  in lefthook.yml run through this tier, so a normal push
+#                  enters host admission without anyone invoking this wrapper
+#                  by hand.
 #
 # Smoke leaves out the packages CI splits into shard jobs (internal/store,
 # internal/agent, and cmd/concord). Its Go step is CI's "Test every package
@@ -19,11 +23,17 @@
 #   bin/oc-test broad -- bash -euo pipefail -c 'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 7)" ./internal/store'
 #
 # Host admission control is provided by `oc-test-gate` when it is installed.
-# When it is missing only targeted runs, after a warning. Smoke
+# Smoke
 # uses smoke admission; targeted uses ungated targeted admission; broad and conformance
-# uses full admission; preflight uses smoke admission because its gates vet,
-# build, lint, and compile every package, which is heavy on a shared host when
-# several worktrees push at once. The
+# uses full admission; the pre-push gates use smoke admission through the
+# preflight-gate tier, because they vet, build, lint, and compile every
+# package, which is heavy on a shared host when several worktrees push at
+# once. The preflight tier itself passes no admission class: its gates admit
+# themselves, and wrapping the whole battery would wait on the single shared
+# admission slot those gates already hold. When `oc-test-gate` is missing,
+# heavy tiers refuse; preflight-gate instead runs its one gate natively with a
+# warning, because a normal push must not lose a gate on a host that has no
+# admission route to enter. The
 # continuous-integration workflow does not use this wrapper; it calls the same
 # underlying commands natively so its behavior stays deterministic.
 #
@@ -53,15 +63,16 @@ cd "$repo_root"
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: bin/oc-test smoke | targeted -- <command> [args...] | broad -- <command> [args...] | plan <targeted|broad> -- <command> [args...] | read-go ARTIFACT_DIR [package=TestName ...] | conformance | preflight
+Usage: bin/oc-test smoke | targeted -- <command> [args...] | broad -- <command> [args...] | preflight-gate -- <command> [args...] | plan <targeted|broad> -- <command> [args...] | read-go ARTIFACT_DIR [package=TestName ...] | conformance | preflight
 
-  smoke        Go packages CI tests without shards, adapter suite, and JSON/law validation under host admission control
-  targeted     Go literal fragments/anchored names, adapter test files, or one Python check/test script with native arguments
-  broad        arbitrary caller command under full host admission (including suites/shards)
+  smoke          Go packages CI tests without shards, adapter suite, and JSON/law validation under host admission control
+  targeted       Go literal fragments/anchored names, adapter test files, or one Python check/test script with native arguments
+  broad          arbitrary caller command under full host admission (including suites/shards)
+  preflight-gate one pre-push gate command under smoke admission; runs natively, with a warning, when oc-test-gate is missing
   plan         print command/admission/selection JSON without discovery or execution
   read-go      compare named expectations with retained shared Go producer artifacts
   conformance  ten-process SQLite correctness harness under host admission control
-  preflight    Lefthook pre-push gates from lefthook.yml under smoke admission
+  preflight    Lefthook pre-push gates from lefthook.yml; the gates admit themselves
 
 Every tier limits each written file to OC_TEST_MAX_FILE_MIB (default 1024) MiB.
 USAGE
@@ -85,19 +96,28 @@ limit_file_size() {
   ulimit -f "$file_limit_kib"
 }
 
+# Policy when oc-test-gate is missing from PATH: `refuse` for heavy tiers,
+# `run` for a pre-push gate, which must keep running on a host that has no
+# admission route to enter.
+run_tier_missing=refuse
+
 # Run a workload, wrapped in host admission control when it is available.
 # The first argument is the tier this wrapper reports. The second is the
-# admission class the host gate understands.
+# admission class the host gate understands, or `none` for a workload whose
+# commands admit themselves through this wrapper (the preflight battery);
+# `none` is wrapper vocabulary, never an argument to the host gate.
 run_tier() {
   local tier="$1"
   local admission_class="$2"
   shift 2
 
   local -a gate=()
-  if command -v oc-test-gate >/dev/null 2>&1; then
+  if [[ "$admission_class" == none ]]; then
+    :
+  elif command -v oc-test-gate >/dev/null 2>&1; then
     gate=(oc-test-gate "$admission_class" --)
   else
-    if [[ "$admission_class" != targeted ]]; then
+    if [[ "$admission_class" != targeted && "$run_tier_missing" == refuse ]]; then
       printf 'bin/oc-test: %s requires oc-test-gate on PATH; refusing an unthrottled heavy workload.\n' "$tier" >&2
       exit 69
     fi
@@ -189,12 +209,22 @@ case "$tier" in
     # Never install or mutate git hooks from here: lefthook.yml sets
     # no_auto_install, and installing hooks is a one-time contributor step
     # documented in CONTRIBUTING.md.
+    # No admission here: every gate command in lefthook.yml admits itself
+    # through the preflight-gate tier, and one wrapper around the whole
+    # battery would wait on the shared admission slot its gates hold.
     if command -v lefthook >/dev/null 2>&1; then
-      run_tier preflight smoke lefthook run pre-push
+      run_tier preflight none lefthook run pre-push
     else
       printf 'bin/oc-test: lefthook binary not found on PATH; using the pinned module.\n' >&2
-      run_tier preflight smoke go run github.com/evilmartians/lefthook/v2@v2.1.14 run pre-push
+      run_tier preflight none go run github.com/evilmartians/lefthook/v2@v2.1.14 run pre-push
     fi
+    ;;
+  preflight-gate)
+    [[ $# -gt 0 ]] || usage
+    # One pre-push gate command, admitted by the host gate. A missing host
+    # gate must not strip the gate from a normal push: run it natively.
+    run_tier_missing=run
+    run_tier preflight-gate smoke "$@"
     ;;
   *)
     usage

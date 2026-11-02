@@ -71,9 +71,14 @@ bin/oc-test broad -- go test -timeout=15m ./internal/store
 bin/oc-test broad -- env -u CONCORD_SELECTED_PRODUCT_ID bun test adapter/opencode/
 ```
 
-`broad` and conformance use the existing host gate's `full` admission; smoke and
-preflight use its `smoke` admission. Heavy tiers fail closed if `oc-test-gate` is
-missing. There is no repository scheduler or alternate lock. The host reports
+`broad` and conformance use the existing host gate's `full` admission; smoke
+uses its `smoke` admission, and so does every pre-push gate, which
+`lefthook.yml` runs through `bin/oc-test preflight-gate` so concurrent pushes
+queue their gate work instead of overlapping it. Heavy tiers fail closed if
+`oc-test-gate` is missing; `preflight-gate` instead runs its one gate natively
+with a warning, because a normal push must not lose a gate on a host without
+admission control. The `preflight` tier adds no admission of its own: its
+gates admit themselves. There is no repository scheduler or alternate lock. The host reports
 queue wait separately from execution when available. Full admission defaults to
 a 20-minute execution limit after admission; the existing host variable
 `OC_TEST_GATE_FULL_TIMEOUT` can set an explicitly justified run budget. Do not

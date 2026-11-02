@@ -282,24 +282,6 @@
         {
           "required": [
             "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_work_browse"
-            },
-            "operation": {
-              "const": "messages"
-            },
-             "query_id": {
-              "const": "PM1.Q14"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
             "operation"
           ],
           "not": {
@@ -321,7 +303,6 @@
                 "research_source_record",
                 "research_freshness_set",
                 "research_retire",
-                "observation_record",
                 "issue_link_record"
               ],
               "type": "string"
@@ -372,47 +353,9 @@
             "operation": {
               "enum": [
                 "set_memberships",
-                "resolve_overlap",
-                "message_send",
-                "message_withdraw"
+                "resolve_overlap"
               ],
               "type": "string"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_work_trace"
-            },
-            "operation": {
-              "const": "observations"
-            },
-            "query_id": {
-              "const": "CD-0030.R1"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_work_trace"
-            },
-            "operation": {
-              "const": "external_observations"
-            },
-            "query_id": {
-              "const": "CD-0040.R1"
             }
           }
         }
@@ -478,17 +421,11 @@
             "capture",
             "continuity",
             "detail",
-            "external_observations",
             "history",
             "issue_link_record",
             "lifecycle",
             "list",
-            "message_send",
-            "message_withdraw",
-            "messages",
             "mutation_result",
-            "observation_record",
-            "observations",
             "ready",
             "relations",
             "research",
@@ -515,7 +452,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$"
+          "pattern": "^(PM1\\.Q(1[0-36]|[1-9])|CD-0020\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$"
         },
         "outcome": {
           "enum": [
@@ -933,17 +870,11 @@
             "capture",
             "continuity",
             "detail",
-            "external_observations",
             "history",
             "issue_link_record",
             "lifecycle",
             "list",
-            "message_send",
-            "message_withdraw",
-            "messages",
             "mutation_result",
-            "observation_record",
-            "observations",
             "ready",
             "relations",
             "research",
@@ -970,7 +901,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$"
+          "pattern": "^(PM1\\.Q(1[0-36]|[1-9])|CD-0020\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$"
         },
         "reason_code": {
           "type": "string",
@@ -1654,7 +1585,6 @@
                     "enum": [
                       "capture",
                       "issue_link_record",
-                      "observation_record",
                       "research_finding_record",
                       "research_freshness_set",
                       "research_retire",
@@ -1730,8 +1660,6 @@
                   },
                   "operation": {
                     "enum": [
-                      "message_send",
-                      "message_withdraw",
                       "resolve_overlap",
                       "set_memberships"
                     ],

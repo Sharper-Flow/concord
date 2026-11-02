@@ -9,49 +9,6 @@ import (
 	"time"
 )
 
-// seedComparisonObservation records the investigation artifact the operator
-// question gate requires: a current Domain ref and a different work item. The
-// ref reads the committed Domain registry; a fixture Product with no
-// designated home falls back to the fixture registry's child Domain, which
-// every committed workflow fixture registry declares.
-func seedComparisonObservation(t *testing.T, s *Store, workID string) {
-	t.Helper()
-	domainRef := "root"
-	if list, err := s.QueryDomainList(context.Background(), DomainListRequest{Product: "product", Limit: 1}); err == nil && len(list.Domains) > 0 {
-		domainRef = list.Domains[0].DomainID
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := enterWrite(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?)`, workID+"-compared", "task", "Investigation comparison", "needed", 0, "2026-09-09T00:00:00Z", "2026-09-09T00:00:00Z"); err != nil {
-		_ = leaveWrite(context.Background(), tx)
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO work_projects(work_id,project_id,role) VALUES(?,?,'secondary')`, workID+"-compared", "project"); err != nil {
-		_ = leaveWrite(context.Background(), tx)
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	observationKey := strings.Repeat("0", max(0, 12-len(workID))) + workID
-	if _, err := tx.Exec(`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, "obs:"+observationKey[len(observationKey)-12:]+"cmp0", workID, "investigation before question", `["`+domainRef+`","`+workID+`-compared"]`, `[]`, "2026-09-09T00:00:00Z"); err != nil {
-		_ = leaveWrite(context.Background(), tx)
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := leaveWrite(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-}
 func seedItemAtAcceptance(t *testing.T, workID string) (*Store, WorkflowActor, WorkflowActor) {
 	t.Helper()
 	return seedItemAtAcceptanceRequiring(t, workID, false, []string{"verification"})

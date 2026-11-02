@@ -34,8 +34,7 @@
         "concord_work_browse.list",
         "concord_work_browse.ready",
         "concord_work_browse.blocked",
-        "concord_work_browse.scope",
-        "concord_work_browse.messages"
+        "concord_work_browse.scope"
       ]
     },
     {
@@ -43,8 +42,6 @@
       "description": "Trace work history and relations.",
       "operations": [
         "concord_work_trace.history",
-        "concord_work_trace.observations",
-        "concord_work_trace.external_observations",
         "concord_work_trace.continuity",
         "concord_work_trace.mutation_result",
         "concord_work_trace.relations",
@@ -64,7 +61,6 @@
         "concord_work_define.research_source_record",
         "concord_work_define.research_freshness_set",
         "concord_work_define.research_retire",
-        "concord_work_define.observation_record",
         "concord_work_define.issue_link_record"
       ]
     },
@@ -85,8 +81,6 @@
       "description": "Change memberships and typed work relations.",
       "operations": [
         "concord_work_relate.set_memberships",
-        "concord_work_relate.message_send",
-        "concord_work_relate.message_withdraw",
         "concord_work_relate.resolve_overlap"
       ]
     },
@@ -221,26 +215,6 @@
       "supported_budget_seconds": 300
     },
     {
-      "id": "concord_work_browse.messages",
-      "tool": "concord_work_browse",
-      "kind": "read",
-      "query_id": "PM1.Q14",
-      "input_schema": "#/schemas/work_browse_messages_input",
-      "result_schema": "#/schemas/work_messages_page",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "request_id",
-        "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
       "id": "concord_work_trace.history",
       "tool": "concord_work_trace",
       "kind": "read",
@@ -253,46 +227,6 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_trace.observations",
-      "tool": "concord_work_trace",
-      "kind": "read",
-      "query_id": "CD-0030.R1",
-      "input_schema": "#/schemas/work_observation_input",
-      "result_schema": "#/schemas/work_observation_page",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "request_id",
-        "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_trace.external_observations",
-      "tool": "concord_work_trace",
-      "kind": "read",
-      "query_id": "CD-0040.R1",
-      "input_schema": "#/schemas/external_observation_input",
-      "result_schema": "#/schemas/external_observation_page",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "request_id",
-        "pagination": "limit",
         "output_bytes": 51200,
         "versions": [
           "1.0"
@@ -561,26 +495,6 @@
       "supported_budget_seconds": 300
     },
     {
-      "id": "concord_work_define.observation_record",
-      "tool": "concord_work_define",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_define_observation_record_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_define",
-      "consequence": "intent",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
       "id": "concord_work_define.issue_link_record",
       "tool": "concord_work_define",
       "kind": "mutation",
@@ -742,46 +656,6 @@
       "supported_budget_seconds": 300
     },
     {
-      "id": "concord_work_relate.message_send",
-      "tool": "concord_work_relate",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_relate_message_send_input",
-      "result_schema": "#/schemas/projectable_mutation_result",
-      "capability": "work_relate",
-      "consequence": "relation",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_relate.message_withdraw",
-      "tool": "concord_work_relate",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_relate_message_withdraw_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_relate",
-      "consequence": "relation",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
       "id": "concord_domain.list",
       "tool": "concord_domain",
       "kind": "read",
@@ -891,14 +765,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_list_result",
       "closed": true
     },
-    "external_observation_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/external_observation_input",
-      "closed": true
-    },
-    "external_observation_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/external_observation_page",
-      "closed": true
-    },
     "mutation_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/mutation_result",
       "closed": true
@@ -939,10 +805,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_list_input",
       "closed": true
     },
-    "work_browse_messages_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_messages_input",
-      "closed": true
-    },
     "work_browse_ready_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_ready_input",
       "closed": true
@@ -957,10 +819,6 @@
     },
     "work_define_issue_link_record_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_issue_link_record_input",
-      "closed": true
-    },
-    "work_define_observation_record_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_observation_record_input",
       "closed": true
     },
     "work_define_research_finding_record_input": {
@@ -999,32 +857,12 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_event_page",
       "closed": true
     },
-    "work_messages_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_messages_page",
-      "closed": true
-    },
-    "work_observation_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_observation_input",
-      "closed": true
-    },
-    "work_observation_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_observation_page",
-      "closed": true
-    },
     "work_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_page",
       "closed": true
     },
     "work_relate_memberships_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_memberships_input",
-      "closed": true
-    },
-    "work_relate_message_send_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_message_send_input",
-      "closed": true
-    },
-    "work_relate_message_withdraw_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_message_withdraw_input",
       "closed": true
     },
     "work_relate_resolve_overlap_input": {
@@ -1142,6 +980,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:d73f6b52a91e53195062aeee28e508035eb91f9176fdd15bcecd90bb4224fb8d",
-  "digest": "sha256:3e142fe781adde546cf69bb2a15754c6cda301d4c19e4bcb36c7c8b1b3919eb3"
+  "payload_digest": "sha256:fe7dde963e98c134569cbfa09e54ddd50417a28cd45ba17a70886974c988369c",
+  "digest": "sha256:eb8110bdc9aac75dbff7af89efbee2bf10b3ab8ae0cb18d4c9f86849d5b4385d"
 }

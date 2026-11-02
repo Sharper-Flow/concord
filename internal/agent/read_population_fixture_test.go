@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -86,6 +85,13 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 	// would occupy the identity the fold assigns.
 	fx.seedHostCheckout(t)
 	fx.seedPopulationRows(t)
+	response := dispatchMutation(t, s, fx.service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
+		"work_id": fx.workID, "expected_version": workVersion(t, s, fx.workID), "action_id": "checkpoint_context", "idempotency_key": "population-checkpoint",
+		"fields": map[string]any{"checkpoint_id": "population-checkpoint", "checkpoint_sequence": 1, "active_unit": "unit:population", "hypothesis": "Every read retains its rows", "diagnosis": "Read population coverage", "strategy": "Populate current surfaces", "touched_refs": []string{fx.workID}, "evidence_refs": []string{"artifact:population"}, "pending_questions": []string{}, "pending_decisions": []string{}},
+	})}, fx.envelope(t))
+	if response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("population checkpoint receipt: %+v", response.Error)
+	}
 	seedReadPopulationProducts(t, s)
 	return fx
 }
@@ -139,8 +145,7 @@ func seedReadPopulationProducts(t *testing.T, s *store.Store) {
 }
 
 // seedReadPopulationFocusWork creates the nonterminal work item every
-// work-scoped read targets, plus observations so the observation reads and the
-// continuity snapshot carry rows rather than empty pages.
+// work-scoped read targets.
 func seedReadPopulationFocusWork(t *testing.T, s *store.Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -149,20 +154,6 @@ func seedReadPopulationFocusWork(t *testing.T, s *store.Store) {
 		{EventID: "population-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: readPopulationWork, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"proj-web","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, readPopulationWork): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	observationEvents := make([]store.Event, 0, 3)
-	for i := 0; i < 3; i++ {
-		id := fmt.Sprintf("obs:%016x", i+1)
-		payload, _ := json.Marshal(map[string]any{
-			"observation_id": id,
-			"statement":      fmt.Sprintf("Population observation %d", i+1),
-			"refs":           []string{},
-			"tags":           []string{},
-		})
-		observationEvents = append(observationEvents, store.Event{EventID: fmt.Sprintf("population-observation-%d", i+1), Kind: "work.observation_recorded", SubjectType: store.SubjectWorkItem, SubjectID: readPopulationWork, Actor: "operator", OccurredAt: fixedTime().Add(+1), PayloadVersion: 1, Payload: payload})
-	}
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: observationEvents}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -382,11 +373,6 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 		ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, fx.workID): focusVersion, store.VersionRef(store.SubjectWorkItem, readPopulationPeer): peerVersion},
 	}); err != nil {
 		t.Fatalf("fold population relation: %v", err)
-	}
-	_, peerVersion = readWorkFromStore(t, fx.store, readPopulationPeer)
-	send := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_relate", Operation: "message_send", Input: json.RawMessage(`{"work_id":"` + readPopulationPeer + `","recipient_work_id":"` + fx.workID + `","body":"population message row","expected_version":` + strconv.FormatInt(peerVersion, 10) + `,"idempotency_key":"population-message"}`)}, fx.envelope(t))
-	if send.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("population message_send outcome=%s err=%+v", send.Outcome, send.Error)
 	}
 	// The peer starts last, after the setup mutations above.
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?,'workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, readPopulationPeer, breakFixFixtureDigest(t))

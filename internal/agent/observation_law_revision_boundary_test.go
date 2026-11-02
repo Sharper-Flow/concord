@@ -112,59 +112,6 @@ func execProjection(t *testing.T, s *store.Store, statements []string, args [][]
 	}
 }
 
-// externalCaptureInput is the attributed merge/ship result an agent reports
-// through the external observation surface.
-func externalCaptureInput(idempotencyKey, observationID string) map[string]any {
-	return map[string]any{
-		"work_id":         observationBoundaryWork,
-		"idempotency_key": idempotencyKey,
-		"external": map[string]any{
-			"kind":           "capture",
-			"observation_id": observationID,
-			"subject_kind":   "git_position",
-			"subject_ref":    "git:refs/heads/main",
-			"captured_at":    "2026-08-08T11:55:00Z",
-			"observed_universe": map[string]any{
-				"shape":                  "item",
-				"applied_scope":          "refs/heads/main at origin",
-				"anchor_token":           "commit:0123456789abcdef",
-				"coverage":               "complete",
-				"observed_refs":          []string{"refs/heads/main"},
-				"total_kind":             "eq",
-				"total_value":            1,
-				"completion_evidence":    "authoritative_item_read",
-				"canonical_identity_key": "ref_name",
-			},
-		},
-	}
-}
-
-// externalVerificationInput is the trusted-client re-attestation of a
-// previously captured external subject.
-func externalVerificationInput(idempotencyKey, observationID string) map[string]any {
-	return map[string]any{
-		"work_id":         observationBoundaryWork,
-		"idempotency_key": idempotencyKey,
-		"external": map[string]any{
-			"kind":                "verification",
-			"observation_id":      observationID,
-			"verification_method": "trusted_client_report",
-			"verified_at":         "2026-08-08T11:58:00Z",
-			"result":              "matched",
-		},
-	}
-}
-
-func dispatchObservation(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion string, input map[string]any) agentcontract.Envelope {
-	t.Helper()
-	raw, _ := json.Marshal(input)
-	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: raw}, mutationEnvelope(grant, scopeVersion))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return response
-}
-
 func scalarRow(t *testing.T, s *store.Store, query string, args ...any) int {
 	t.Helper()
 	var count int
@@ -172,61 +119,6 @@ func scalarRow(t *testing.T, s *store.Store, query string, args ...any) int {
 		t.Fatal(err)
 	}
 	return count
-}
-
-func TestExternalObservationAcceptsAfterLawDeletion(t *testing.T) {
-	t.Parallel()
-	boundary := seedObservationLawBoundary(t)
-	s, service, grant, scopeVersion := boundary.store, boundary.service, boundary.grant, boundary.scope
-	deleteObservationBoundaryLaw(t, boundary)
-	for i, input := range []map[string]any{externalCaptureInput("obs-deleted-1", "xobs:0123456789abcdef"), externalVerificationInput("obs-deleted-2", "xobs:0123456789abcdef")} {
-		response := dispatchObservation(t, s, service, grant, scopeVersion, input)
-		if response.Outcome != agentcontract.OutcomeOK {
-			t.Fatalf("external observation %d after law deletion refused: %+v", i, response.Error)
-		}
-	}
-	if got := scalarRow(t, s, `SELECT count(*) FROM external_observations WHERE work_id=?`, observationBoundaryWork); got != 1 {
-		t.Fatalf("captured and verified observations=%d, want 1", got)
-	}
-}
-
-func TestExternalObservationBoundaryAcceptsCurrentLawRevision(t *testing.T) {
-	t.Parallel()
-	boundary := seedObservationLawBoundary(t)
-	s, service, grant, scopeVersion := boundary.store, boundary.service, boundary.grant, boundary.scope
-
-	captured := dispatchObservation(t, s, service, grant, scopeVersion, externalCaptureInput("obs-current-1", "xobs:0123456789abcdef"))
-	if captured.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("current-law boundary refused the external capture: %+v", captured.Error)
-	}
-	verified := dispatchObservation(t, s, service, grant, scopeVersion, externalVerificationInput("obs-current-2", "xobs:0123456789abcdef"))
-	if verified.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("current-law boundary refused the external verification: %+v", verified.Error)
-	}
-	if got := scalarRow(t, s, `SELECT count(*) FROM external_observations WHERE work_id=?`, observationBoundaryWork); got != 1 {
-		t.Fatalf("accepted boundary recorded %d external observations, want 1", got)
-	}
-}
-
-// CD-0036 D4: recording what happened does not accept an attributed result.
-func TestLawDeletionAllowsRawObservation(t *testing.T) {
-	t.Parallel()
-	boundary := seedObservationLawBoundary(t)
-	s, service, grant, scopeVersion := boundary.store, boundary.service, boundary.grant, boundary.scope
-	deleteObservationBoundaryLaw(t, boundary)
-	response := dispatchObservation(t, s, service, grant, scopeVersion, map[string]any{
-		"work_id": observationBoundaryWork, "idempotency_key": "obs-stale-raw",
-		"statement": "The worker finished after the mandated law was deleted.",
-	})
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("raw observation refused after law deletion: %+v", response.Error)
-	}
-	if got := scalarRow(t, s, `SELECT count(*) FROM work_observations WHERE work_id=?`, observationBoundaryWork); got != 1 {
-		t.Fatalf("raw observation recorded %d observations, want 1", got)
-	}
-	if got := scalarRow(t, s, `SELECT count(*) FROM external_observations WHERE work_id=?`, observationBoundaryWork); got != 0 {
-		t.Fatalf("raw observation accepted %d external results, want 0", got)
-	}
 }
 
 func TestLawDeletionLeavesCancellationReachable(t *testing.T) {

@@ -1019,11 +1019,6 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 			t.Fatal(err)
 		}
 	}
-	refs := `["root","` + peerID + `"]`
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, "obs:"+strings.Repeat("a", 16), workID, "liveness investigation", refs, `[]`, "2026-09-12T00:00:00Z"); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
 	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)

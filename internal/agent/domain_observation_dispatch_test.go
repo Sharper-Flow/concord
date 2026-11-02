@@ -75,30 +75,6 @@ func TestDomainDetailReadsExistingOpenObservations(t *testing.T) {
 	}
 }
 
-// A dispatched concord_work_define.observation_record runs through the
-// pre-transaction registry proof and records its work-anchored observation.
-// The dispatch itself proves the wire: the proof establishment precedes the
-// transaction and the fold resolves from the returned context.
-func TestObservationRecordDispatchSucceedsWithCommittedRegistry(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define"})
-	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
-		t.Fatal(err)
-	}
-	assertRetiredDomainProjectionAbsent(t, s)
-	env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
-	request := InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: json.RawMessage(`{"work_id":"work-1","statement":"dispatched observation through the committed registry","refs":[],"tags":[],"idempotency_key":"observation-proof-wire"}`)}
-	response := dispatchMutation(t, s, service, request, env)
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("observation_record outcome=%s error=%+v", response.Outcome, response.Error)
-	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_observations`); got != 1 {
-		t.Fatalf("dispatched observation rows=%d, want the one recorded observation", got)
-	}
-	assertRetiredDomainProjectionAbsent(t, s)
-}
-
 // A committed-registry observation succeeds with no SQL Domain projection
 // rows, and a wrong or deprecated Domain refuses with no row written.
 func TestDomainObservationResolvesFromCommittedRegistryProof(t *testing.T) {

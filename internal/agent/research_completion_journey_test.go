@@ -63,7 +63,6 @@ func TestPublicResearchCompletionJourney(t *testing.T) {
 	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("first bug capture=%+v", first.Error)
 	}
-	bugID := (*first.ChangedRefs)[0].ID
 
 	research := capture("defect-journey-research",
 		`{"title":"Why uploads lose checksums","value_statement":"The cluster needs a root cause","kind":"research","project_ids":["project-1"],"idempotency_key":"defect-journey-research"}`)
@@ -100,17 +99,7 @@ func TestPublicResearchCompletionJourney(t *testing.T) {
 		t.Fatalf("record_conclusion=%+v", response.Error)
 	}
 
-	// The confirmation investigation gate reads an observation naming a
-	// current Domain of this Product and another work item; both are real.
 	_, rootDomain := recoveryRegistry(t, s)
-	observation := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: retryJSON(map[string]any{
-		"work_id": rcaID, "observation_id": "obs:a1b2c3d4e5f60718", "statement": "The checksum cluster investigation names its scope",
-		"refs": []string{rootDomain, bugID}, "idempotency_key": "defect-journey-observation",
-	})}, env)
-	if observation.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("observation_record=%+v", observation.Error)
-	}
-
 	// Main associates the approved criterion with a selected sourced
 	// research finding. A report reference alone is not criterion proof.
 	researchMutation := func(operation string, input map[string]any) agentcontract.Envelope {

@@ -219,17 +219,12 @@ outcomes from provider output.
 Every native-run record embeds the shared CD-0040 capture component and carries
 its verification participation: reads return the record unverified, diverged,
 or verified — never a bare status — and binding it as completion evidence
-requires the attributed record verified first. The generic external-observation
-variant of `concord_work_define.observation_record` (CD-0040 D10) records
-captures of, and verifications against, state outside Concord with the same
-shared component: exact provenance, an examined universe whose completeness is
-earned (witness, anchor, reconciled totals, zero unresolved omissions), and
-content-hashed freshness/divergence policy references derived from the
-reviewed per-kind register. Reporting and verifying authorities derive from the
-authenticated trusted client. External observations are non-authoritative:
-they may only supply or withhold a precondition checked by another operation;
-they never satisfy evidence, approval, transition, verdict, or completion
-except through the verified `native_run` evidence path above.
+requires the attributed record verified first. The shared component retains
+exact provenance, an examined universe whose completeness is earned (witness,
+anchor, reconciled totals, zero unresolved omissions), and content-hashed
+freshness/divergence policy references derived from the reviewed per-kind
+register. Reporting and verifying authorities derive from the authenticated
+trusted client.
 
 AJ8 native execution/rollback/reclamation is deliberately not claimed as a Concord
 mutation. Its Concord-visible intent/evidence/lifecycle uses define/transition;

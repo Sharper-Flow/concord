@@ -101,7 +101,6 @@ func lawUpgradeCompletionHistory(t *testing.T, s *Store, id string, owner Workfl
 	if err := lawUpgradeAction(t, s, id, owner, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{view.ResearchFindings[0].ViewID}}}}); err != nil {
 		t.Fatalf("ordinary research proof association before upgrade: %v", err)
 	}
-	insertInvestigationGateObservation(t, s, id, "obs:"+strings.Repeat("d", 16), []string{"root", "upgrade-proof-owner"})
 	if err := lawUpgradeAction(t, s, id, owner, "confirm_premise", map[string]any{}); err != nil {
 		t.Fatalf("ordinary coordinator confirmation before upgrade: %v", err)
 	}

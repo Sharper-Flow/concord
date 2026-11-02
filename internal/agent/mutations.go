@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -113,56 +111,12 @@ type researchSourceInput struct {
 	PublishedAt       string `json:"published_at"`
 	AccessedAt        string `json:"accessed_at"`
 }
-type messageSendInput struct {
-	WorkID          string `json:"work_id"`
-	RecipientWorkID string `json:"recipient_work_id"`
-	Broadcast       bool   `json:"broadcast"`
-	Body            string `json:"body"`
-	ExpectedVersion int64  `json:"expected_version"`
-	IdempotencyKey  string `json:"idempotency_key"`
-}
-type messageWithdrawInput struct {
-	WorkID          string `json:"work_id"`
-	MessageID       string `json:"message_id"`
-	ExpectedVersion int64  `json:"expected_version"`
-	IdempotencyKey  string `json:"idempotency_key"`
-}
 type issueLinkRecordInput struct {
 	WorkID          string `json:"work_id"`
 	HumanKey        string `json:"human_key"`
 	RemoteIssueUUID string `json:"remote_issue_uuid"`
 	URL             string `json:"url"`
 	IdempotencyKey  string `json:"idempotency_key"`
-}
-type observationRecordInput struct {
-	WorkID         string   `json:"work_id"`
-	ObservationID  string   `json:"observation_id"`
-	Statement      string   `json:"statement"`
-	Refs           []string `json:"refs"`
-	Tags           []string `json:"tags"`
-	IdempotencyKey string   `json:"idempotency_key"`
-	// External is the CD-0040 D10 variant: a capture of, or verification
-	// against, state outside Concord. Plain observations stay plain statements
-	// and satisfy no evidence or gate; the external variant is also
-	// non-authoritative and can only supply or withhold a precondition.
-	External *observationExternalInput `json:"external"`
-}
-
-type observationExternalInput struct {
-	Kind          string `json:"kind"`
-	ObservationID string `json:"observation_id"`
-	// capture fields
-	SubjectKind      string                  `json:"subject_kind"`
-	SubjectRef       string                  `json:"subject_ref"`
-	CapturedAt       string                  `json:"captured_at"`
-	SubjectDigest    string                  `json:"subject_digest"`
-	ObservedUniverse *store.ObservedUniverse `json:"observed_universe"`
-	// verification fields
-	VerificationMethod string   `json:"verification_method"`
-	VerifiedAt         string   `json:"verified_at"`
-	Result             string   `json:"result"`
-	CurrentDigest      string   `json:"current_digest"`
-	Omissions          []string `json:"omissions"`
 }
 type researchBindingInput struct {
 	PackID   string `json:"pack_id"`
@@ -331,34 +285,6 @@ func (r runtime) finishMutationReplay(ctx context.Context, response agentcontrac
 		return agentcontract.Envelope{}, false, err
 	}
 	return response, true, nil
-}
-
-// validateObservationExternalVariant checks the mode-specific shape before any
-// effect exists. Field-level bounds are owned by the store validator; this
-// keeps the two variants from being mixed into one call.
-func validateObservationExternalVariant(in *observationExternalInput) error {
-	switch in.Kind {
-	case "capture":
-		if in.SubjectKind == "" || in.SubjectRef == "" || in.CapturedAt == "" || in.ObservedUniverse == nil {
-			return errors.New("external capture requires subject kind, subject reference, capture time, and the observed universe")
-		}
-		if in.VerificationMethod != "" || in.VerifiedAt != "" || in.Result != "" {
-			return errors.New("external capture cannot carry verification fields")
-		}
-	case "verification":
-		if in.VerifiedAt == "" || in.Result == "" {
-			return errors.New("external verification requires the check time and result")
-		}
-		if in.SubjectKind != "" || in.SubjectRef != "" || in.CapturedAt != "" || in.ObservedUniverse != nil {
-			return errors.New("external verification cannot carry capture fields")
-		}
-	default:
-		return errors.New("external observation variant must be capture or verification")
-	}
-	if len(in.ObservationID) < 6 || len(in.ObservationID) > 32 {
-		return errors.New("external observation requires its xobs: identifier")
-	}
-	return nil
 }
 
 func scopeFromMap(scope map[string]any) *agentcontract.Scope {
@@ -1465,202 +1391,6 @@ func (r runtime) recordResearchRetirementTx(ctx context.Context, tx *store.Trans
 	return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: key, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: "[]", ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
 }
 
-// planSingleWorkEvent plans a mutation whose whole effect is one event on
-// the work item subject, guarded by the caller's expected version: versions,
-// scope, intents, and the effect come from the shared shape, so a builder
-// supplies only the event identity, its payload, and the subject ref the
-// result names. The effect marshals the payload map at execution time, so a
-// builder may add grant-dependent fields by mutating the map it passed.
-func (r runtime) planSingleWorkEvent(plan *mutationPlan, workID string, expectedVersion int64, intents []agentcontract.NextIntent, eventID, kind string, payload map[string]any, resultRef string) {
-	plan.scope["work_ids"] = []string{workID}
-	plan.intents = intents
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		payloadBytes, _ := json.Marshal(payload)
-		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: eventID, Kind: kind, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payloadBytes}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): expectedVersion}}); err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(expectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), []string{resultRef}, changed, nil
-	}
-}
-
-// planMessageSend plans concord_work_relate.message_send.
-func (r runtime) planMessageSend(_ context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in messageSendInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.RecipientWorkID == "" && !in.Broadcast {
-		return coreError(base, "invalid_input", "message requires a recipient work id or broadcast", "resolve_ambiguity", false), nil, true
-	}
-	if in.RecipientWorkID != "" && in.Broadcast {
-		return coreError(base, "invalid_input", "message cannot both target one work and broadcast", "resolve_ambiguity", false), nil, true
-	}
-	// The store fold and CHECK prohibit self-delivery. Refuse before approval
-	// because consent cannot authorize an effect the store must reject.
-	// CON-880 owns the pending Product-law decision; this refusal cites only
-	// the existing implementation invariant, not Product law.
-	if in.RecipientWorkID == in.WorkID {
-		// reread_entities, not contact_operator: the envelope schema
-		// couples an options-less invariant_violation to that recovery
-		// action, and the refusal must cross the boundary encodable.
-		refusal := coreError(base, "invariant_violation", "a direct message cannot be addressed to the sending work item itself: the store prohibits self-delivery (foldMessageSent and the work_messages CHECK constraint)", "reread_entities", false)
-		refusal.Error.Details = map[string]any{
-			"work_id":           in.WorkID,
-			"recipient_work_id": in.RecipientWorkID,
-			"invariant_sources": []string{
-				"internal/store/work_messages.go foldMessageSent rejects RecipientWorkID == event.SubjectID",
-				"internal/store/schema.go work_messages CHECK(recipient_work_id != sender_work_id)",
-			},
-		}
-		return refusal, nil, true
-	}
-	plan.scope["work_ids"] = []string{in.WorkID}
-	if in.RecipientWorkID != "" {
-		plan.scope["work_ids"] = []string{in.WorkID, in.RecipientWorkID}
-	}
-	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		// Broadcast resolves the recipient set now, inside the caller's
-		// transaction, so the fan-out sees a consistent Product snapshot.
-		recipients := []string{in.RecipientWorkID}
-		if in.Broadcast {
-			active, listErr := activeWorkIDsTx(ctx, tx, r.Envelope.SelectedProductID)
-			if listErr != nil {
-				return nil, nil, nil, listErr
-			}
-			// The sender is not its own recipient.
-			filtered := make([]string, 0, len(active))
-			for _, id := range active {
-				if id != in.WorkID {
-					filtered = append(filtered, id)
-				}
-			}
-			if len(filtered) == 0 {
-				return nil, nil, nil, fmt.Errorf("no active work in this Product to receive the broadcast")
-			}
-			recipients = filtered
-		}
-		// One event per (sender, recipient) pair advances the sender version
-		// once for each delivered message.
-		events := make([]store.Event, 0, len(recipients))
-		ids := make([]string, 0, len(recipients))
-		for i, recipient := range recipients {
-			messageID := messageIDFor(digest, recipient)
-			expected := in.ExpectedVersion + int64(i)
-			payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": expected, "resulting_version": expected + 1, "message_id": messageID, "recipient_work_id": recipient, "body": in.Body})
-			events = append(events, store.Event{EventID: digest + ":msg:" + recipient, Kind: "work.message_sent", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload})
-			ids = append(ids, messageID)
-		}
-		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+int64(len(recipients)), 10)}}
-		return mutationPayload(changed, plan.intents), ids, changed, nil
-	}
-	return agentcontract.Envelope{}, nil, false
-}
-
-// planMessageWithdraw plans concord_work_relate.message_withdraw.
-func (r runtime) planMessageWithdraw(_ context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in messageWithdrawInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	r.planSingleWorkEvent(plan, in.WorkID, in.ExpectedVersion,
-		[]agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}},
-		digest+":withdraw", "work.message_withdrawn",
-		map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "message_id": in.MessageID},
-		in.MessageID)
-	return agentcontract.Envelope{}, nil, false
-}
-
-// planObservationRecord plans concord_work_define.observation_record.
-func (r runtime) planObservationRecord(_ context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in observationRecordInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	plan.scope["work_ids"] = []string{in.WorkID}
-	switch {
-	case in.External != nil:
-		// CD-0040 D2/D3: the reporting or verifying authority is derived
-		// from the validated grant's trusted client. A caller-supplied
-		// authority name never reaches the record, and the agent surface
-		// can only ever claim attributed trusted-client reports — the
-		// core-owned Git probe is not reachable from agent input.
-		if err := validateObservationExternalVariant(in.External); err != nil {
-			return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil, true
-		}
-		plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "external_observations", QueryID: "CD-0040.R1", ReasonCode: "verify_external_observation", RequiredFields: []string{"work_id"}}}
-		plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-			return r.applyExternalObservationTx(ctx, tx, grant, in, plan.intents)
-		}
-	default:
-		plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "verify_observation_visible", RequiredFields: []string{"work_id"}}}
-		plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-			observationID := in.ObservationID
-			if observationID == "" {
-				sum := sha256.Sum256([]byte(digest))
-				observationID = "obs:" + hex.EncodeToString(sum[:8])
-			}
-			payload, _ := json.Marshal(map[string]any{"observation_id": observationID, "statement": in.Statement, "refs": in.Refs, "tags": in.Tags})
-			if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":observation", Kind: "work.observation_recorded", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []agentcontract.ChangedRef{{EntityKind: "observation", ID: observationID, Version: "1"}}
-			return mutationPayload(changed, plan.intents), []string{observationID}, changed, nil
-		}
-	}
-	return agentcontract.Envelope{}, nil, false
-}
-
-func (r runtime) applyExternalObservationTx(ctx context.Context, tx *store.Transaction, grant Authority, in observationRecordInput, intents []agentcontract.NextIntent) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-	if in.External.Kind == "capture" {
-		// The reviewed policy references are derived from the
-		// subject kind before validation, which requires the
-		// record to carry exactly the reviewed policy.
-		policy, _ := store.ExternalSubjectPolicyFor(in.External.SubjectKind)
-		capture := store.ExternalObservationCapture{
-			ObservationID:         in.External.ObservationID,
-			SubjectKind:           in.External.SubjectKind,
-			SubjectRef:            in.External.SubjectRef,
-			CaptureMethod:         store.CaptureTrustedClientReport,
-			CapturedAt:            in.External.CapturedAt,
-			ReportingAuthorityRef: "client:" + grant.ClientRef,
-			SubjectDigest:         in.External.SubjectDigest,
-			ObservedUniverse:      *in.External.ObservedUniverse,
-			FreshnessPolicyRef:    store.PolicyRef(policy),
-			DivergencePolicyRef:   store.PolicyRef(policy),
-		}
-		if err := store.ValidateExternalObservationCapture(capture); err != nil {
-			return nil, nil, nil, err
-		}
-		if err := store.AppendExternalObservationCaptureTx(ctx, tx, in.WorkID, grant.PrincipalRef, r.Authority.now(), capture); err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []agentcontract.ChangedRef{{EntityKind: "external_observation", ID: capture.ObservationID, Version: "1"}}
-		return mutationPayload(changed, intents), []string{capture.ObservationID}, changed, nil
-	}
-	verification := store.ExternalObservationVerification{
-		ObservationID:         in.External.ObservationID,
-		VerificationMethod:    store.VerifyTrustedClientReport,
-		VerifiedAt:            in.External.VerifiedAt,
-		VerifyingAuthorityRef: "client:" + grant.ClientRef,
-		Result:                store.VerificationResultKind(in.External.Result),
-		CurrentDigest:         in.External.CurrentDigest,
-		Omissions:             in.External.Omissions,
-	}
-	if err := store.ValidateExternalObservationVerification(verification); err != nil {
-		return nil, nil, nil, err
-	}
-	if err := store.AppendExternalObservationVerificationTx(ctx, tx, in.WorkID, grant.PrincipalRef, r.Authority.now(), verification); err != nil {
-		return nil, nil, nil, err
-	}
-	changed := []agentcontract.ChangedRef{{EntityKind: "external_observation", ID: verification.ObservationID, Version: "2"}}
-	return mutationPayload(changed, intents), []string{verification.ObservationID}, changed, nil
-}
-
 // planIssueLinkRecord plans concord_work_define.issue_link_record: record the
 // Linear issue identity the agent read from the Linear MCP server on one work
 // item. Concord makes no Linear call (CD-0213 D3, D7), and the record bumps no
@@ -2021,12 +1751,6 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 		answer, err, handled = r.planResearchSourceRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_freshness_set":
 		answer, err, handled = r.planResearchFreshnessSet(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_relate.message_send":
-		answer, err, handled = r.planMessageSend(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_relate.message_withdraw":
-		answer, err, handled = r.planMessageWithdraw(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_define.observation_record":
-		answer, err, handled = r.planObservationRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.issue_link_record":
 		answer, err, handled = r.planIssueLinkRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.project_handoff_record":
@@ -2054,41 +1778,7 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 	}
 	plan.scope["product_ids"] = preflightProducts
 	base.EvidenceRefs = append([]agentcontract.EvidenceRef{}, plan.evidenceRefs...)
-	proofCtx := ctx
-	if op.ID == "concord_work_define.observation_record" {
-		// The observation fold's Domain validation resolves the committed
-		// registry from the pre-transaction proof (CD-0195 D2: the git read
-		// runs with no transaction open). The Product follows the
-		// authenticated selection, falling back to the scope-derived Product
-		// of the observed work for an ambient call. An unreachable or
-		// invalid committed registry refuses here and no effect runs.
-		product := r.Envelope.SelectedProductID
-		if product == "" && len(preflightProducts) == 1 {
-			product = preflightProducts[0]
-		}
-		if product != "" {
-			verified, refusal := r.domainRegistryProofForObservation(proofCtx, base, product)
-			if refusal != nil {
-				return *refusal, nil
-			}
-			proofCtx = verified
-		}
-	}
-	return r.executeMutation(proofCtx, base, raw, digest, plan.scope, plan.plannedInitialDurability, plan.intents, plan.effect)
-}
-
-// domainRegistryProofForObservation establishes the committed Domain registry
-// proof the observation folds resolve their Domain validation from. It runs
-// after replay and scope admission, with no transaction open (CD-0195 D2), so
-// an exact replay keeps answering from its stored receipt without re-reading
-// the registry, and a refused observation writes nothing.
-func (r runtime) domainRegistryProofForObservation(ctx context.Context, base agentcontract.Envelope, productID string) (context.Context, *agentcontract.Envelope) {
-	verifiedCtx, proofErr := r.Store.EstablishDomainRegistryProof(ctx, productID)
-	if proofErr != nil {
-		refusal := failureEnvelope(base, proofErr)
-		return ctx, &refusal
-	}
-	return verifiedCtx, nil
+	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.plannedInitialDurability, plan.intents, plan.effect)
 }
 
 func (r runtime) deriveMutationProducts(ctx context.Context, scope map[string]any) ([]string, error) {
@@ -2766,13 +2456,4 @@ func researchBindingDeclarations(in []researchBindingInput) []store.ResearchBind
 		out = append(out, store.ResearchBindingDeclaration{PackID: b.PackID, Revision: b.Revision, UseRole: store.ResearchUseRole(b.UseRole), Required: b.Required})
 	}
 	return out
-}
-
-func messageIDFor(digest, recipient string) string {
-	sum := sha256.Sum256([]byte(digest + ":" + recipient))
-	return "msg:" + hex.EncodeToString(sum[:16])
-}
-
-func activeWorkIDsTx(ctx context.Context, tx *store.Transaction, productID string) ([]string, error) {
-	return store.ActiveWorkIDsTx(ctx, tx, productID)
 }

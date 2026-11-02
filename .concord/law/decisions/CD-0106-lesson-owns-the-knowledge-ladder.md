@@ -3,9 +3,7 @@
   "id": "CD-0106",
   "title": "lesson owns the knowledge ladder",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "product-memory",
   "applies_to_domain_ids": []
@@ -20,7 +18,7 @@
   lifetime
 - **Approval:** The operator approved the knowledge-ladder contract on
   2026-09-03 after shaping in Concord work-cec2c530525706b8574ce633.
-- **Related:** CD-0026, CD-0030, C8, and issue #771
+- **Related:** CD-0026, C8, and issue #771
 - **Preserves:** Concord authority for Product law and formalized knowledge;
   the lgrep and vision lean under C8
 
@@ -37,9 +35,7 @@ was session-ingested. The cross-Product recall capability had never been used.
 Every durable learning already had an owner. A procedure belongs to host
 instructions or a skill. A fact about one Product belongs to a `lesson`
 (CD-0026), committed in that Product's knowledge home through a reviewed
-pull request. An unproven notice belongs to a work observation (CD-0030)
-or, as readable history, to the retired Domain-observation store (CD-0068).
-Accepted law belongs to a `decision` or a
+pull request. Accepted law belongs to a `decision` or a
 `spec`. The seam CD-0086 defined pointed at the two kinds no agent can write,
 so every promotion needed a human edit.
 
@@ -58,8 +54,7 @@ surface names an episode namespace, memory id, or promotion state.
 
 Three rungs hold every durable learning, and each rung exists today.
 
-1. An observation holds an unproven notice. `work_observations` (CD-0030)
-   anchors on a work item. The retired `domain_observations` store
+1. An observation holds an unproven notice. The retired `domain_observations` store
    (CD-0068) keeps its rows readable and records nothing new.
 2. A `lesson` holds a proven Product-scoped learning. It is published
    through a reviewed pull request (CD-0026), committed as a file in the

@@ -95,6 +95,12 @@ func TestRetiredPlanningOperationsRefuseBeforeEffects(t *testing.T) {
 	}
 	before := snapshot()
 	for _, pair := range []struct{ tool, operation string }{
+		{"concord_work_relate", "message_send"},
+		{"concord_work_relate", "message_withdraw"},
+		{"concord_work_define", "observation_record"},
+		{"concord_work_browse", "messages"},
+		{"concord_work_trace", "observations"},
+		{"concord_work_trace", "external_observations"},
 		{"concord_domain", "active_work"},
 		{"concord_domain", "observation_record"},
 		{"concord_domain", "observation_dismiss"},

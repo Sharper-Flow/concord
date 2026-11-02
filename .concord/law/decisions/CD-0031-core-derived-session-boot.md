@@ -20,7 +20,7 @@
 **Status:** Accepted under operator approval.
 **Approval date:** 2026-08-16.
 **Approval:** Operator-approved GitHub issue #100 and implementation direction.
-**Related:** C18, CD-0016, CD-0018, CD-0029, CD-0030, issues #57, #99, #100.
+**Related:** C18, CD-0016, CD-0018, issues #57, #99, #100.
 
 ## Decision
 
@@ -44,7 +44,7 @@ managed action.
 - the selected Product and work IDs;
 - the canonical continuity payload, including workflow step, approved contract,
   complete `spec_mandate`, latest checkpoint,
-  boundary watermark, pending-message count, un-promoted observations, and typed restart availability.
+  boundary watermark, and typed restart availability.
 
 The packet is capped by its own 65,536-byte boot-packet bound, independently of
 the agent-envelope bound. The envelope's request and response
@@ -68,11 +68,8 @@ The operator session has its own managed identity and context,
 while this packet identifies an operator session through its own closed type and
 contract version. Neither surface accepts a generic fallback.
 
-Version 1 does not infer successor work from relations. CD-0030 observations are
-already part of canonical continuity, so a resumed session sees discoveries without
-pretending they are approved work. Promotion remains the separate CD-0018
-`raised_from` path. A later packet version may add a bounded relation projection if
-operator use shows that observation visibility is insufficient.
+Version 1 does not infer successor work from relations. Capturing work raised
+while working on another item remains the separate CD-0018 `raised_from` path.
 
 C18 remains unchanged in substance:
 

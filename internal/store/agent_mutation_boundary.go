@@ -225,30 +225,6 @@ func productsByIDsTx(ctx context.Context, tx *sql.Tx, ids []string, queryPrefix 
 	return out, nil
 }
 
-func ActiveWorkIDsTx(ctx context.Context, transaction *Transaction, productID string) ([]string, error) {
-	tx, err := transactionSQL(transaction, "active_work")
-	if err != nil {
-		return nil, err
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT w.id FROM work_items w WHERE w.lifecycle='in_progress' AND w.`+actionableWorkKindSQL+` AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) ORDER BY w.id LIMIT 100`, productID)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "active_work", "cannot read bounded in-progress work", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, wrapFailure(KindUnavailable, "active_work", "cannot scan bounded in-progress work", true, "retry once the database is readable", err)
-		}
-		out = append(out, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "active_work", "cannot scan bounded in-progress work", true, "retry once the database is readable", err)
-	}
-	return out, nil
-}
-
 // AgentMutationDigest is the one canonical mutation-digest implementation the
 // agent adapter's request digests and the store's live destructive-overlap
 // effect binding share: {Tool,Operation,Product,Project,Input} over the raw

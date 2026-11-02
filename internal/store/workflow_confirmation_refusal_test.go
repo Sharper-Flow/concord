@@ -2,45 +2,8 @@ package store
 
 import (
 	"context"
-	"errors"
-	"strings"
 	"testing"
 )
-
-// TestConfirmPremiseRefusalNamesTheMissingArtifact pins the confirmation
-// prerequisite's refusal: it names the missing investigation artifact and the
-// observation that satisfies it, so the caller is not sent to refresh context.
-func TestConfirmPremiseRefusalNamesTheMissingArtifact(t *testing.T) {
-	ctx := context.Background()
-	s := openTemp(t)
-	workID := "confirmation-refusal-artifact"
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
-	seedContractlessVerifyWorkflow(t, s, workID)
-	seedActiveBreakFixContract(t, s, workID)
-
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	err = requireRecordedInvestigationArtifact(ctx, tx, workID)
-
-	var failure *Failure
-	if !errors.As(err, &failure) {
-		t.Fatalf("confirm_premise without an investigation artifact must refuse, got %v", err)
-	}
-	if failure.Kind != KindMissingEvidence {
-		t.Fatalf("kind %q, want %q: %s", failure.Kind, KindMissingEvidence, failure.Detail)
-	}
-	if !strings.Contains(failure.Detail, "investigation artifact") {
-		t.Errorf("detail %q does not name the missing artifact", failure.Detail)
-	}
-	wantRemedy := "call concord_work_define.observation_record with this work_id and refs containing the bare domain_id of a current Product Domain"
-	if failure.RecoveryAction != wantRemedy {
-		t.Errorf("refusal remedy = %q, want %q", failure.RecoveryAction, wantRemedy)
-	}
-}
 
 // TestUnavailableConfirmationIsNotAdvertised holds the intent-projection side
 // of the confirmation gate. The pin states what the caller may do, and a
@@ -65,15 +28,10 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 		return workPinContainsAction(pin.NextValidIntents, "confirm_premise")
 	}
 
-	// The confirmation gate closes the action while the deliverables stand
-	// missing; the investigation artifact alone does not open it.
+	// The confirmation gate closes the action while deliverables are missing.
 	hidden := pinIntents()
 	if advertised(hidden) {
 		t.Fatal("pin advertised confirm_premise while its deliverables were missing")
-	}
-	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("6", 16), []string{"root", otherWorkID})
-	if still := pinIntents(); advertised(still) {
-		t.Fatalf("artifact read advertised confirmation before its verdict: %v", still.NextValidIntents)
 	}
 
 	// With the verdict recorded, the deliverables stand and the

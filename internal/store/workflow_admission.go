@@ -273,23 +273,10 @@ func workflowLatePremiseConfirmationOpen(ctx context.Context, q queryer, workID 
 	return open, nil
 }
 
-// foldWorkflowConfirmationPrerequisites folds the recorded investigation and,
-// at confirm_premise, the acceptance deliverables into the admission state. A
-// typed refusal is the confirmation's answer; an unreadable projection fails
-// the fold.
+// foldWorkflowConfirmationPrerequisites folds acceptance deliverables into the
+// admission state. A typed refusal is the confirmation's answer; an unreadable
+// projection fails the fold.
 func foldWorkflowConfirmationPrerequisites(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *WorkflowAdmissionState) error {
-	if artifactErr := requireRecordedInvestigationArtifact(ctx, q, workID); artifactErr != nil {
-		// A missing artifact and an artifact whose Domain refs this read
-		// cannot verify are both the confirmation's answer, not a failed fold.
-		var failure *Failure
-		if failureAs(artifactErr, &failure) && (failure.Kind == KindMissingEvidence || failure.Kind == KindStaleRequiresReview) {
-			if state.AcceptanceDeliverablesMissing == nil {
-				state.AcceptanceDeliverablesMissing = artifactErr
-			}
-			return nil
-		}
-		return artifactErr
-	}
 	if deliverablesErr := requireAcceptanceDeliverables(ctx, q, definition, workID); deliverablesErr != nil {
 		// A typed refusal is the confirmation's answer; only an unreadable
 		// projection fails the fold.

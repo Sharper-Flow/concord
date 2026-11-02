@@ -37,7 +37,6 @@ func seedPremiseDeliverablesInvestigation(t *testing.T, s *Store, workID string)
 	if len(list.Domains) != 1 {
 		t.Fatalf("read the current Domain: %d domains, want one", len(list.Domains))
 	}
-	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("d", 16), []string{list.Domains[0].DomainID})
 }
 
 func TestPreflightRefusesConfirmationMissingMandatedDeliverables(t *testing.T) {

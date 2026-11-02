@@ -135,7 +135,7 @@ re-litigate them silently.
 
 - **Decision (2026-09-03):** CD-0106 governs. Concord does
   not integrate, configure, or promote from episode.
-- **Ladder:** an observation (CD-0030) holds an unproven notice. A
+- **Ladder:** retained Domain observations hold unproven notices. A
   `lesson` (CD-0026) holds a proven Product-scoped learning, published at work
   completion. A `decision` or `spec` holds accepted law. No new kind, store, or
   global home is added. A procedure that applies to every Product belongs to

@@ -277,7 +277,6 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
 	})
 	advanceResolutionDelivery(t, s, registry, workID, owner)
-	seedResolutionInvestigation(t, s, workID)
 	// The absent-fact state the carry forward must preserve: the contract
 	// payload carries no decision_domains member, and the projection stores
 	// NULL absence.

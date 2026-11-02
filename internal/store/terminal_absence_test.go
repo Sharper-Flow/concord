@@ -54,10 +54,6 @@ func assertPublishedExecutionAbsenceReaders(t *testing.T, s *Store, home Knowled
 			_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: "work-published"})
 			return err
 		},
-		"observations": func() error {
-			_, err := s.ReadWorkObservations(ctx, WorkObservationsRequest{WorkID: "work-published"})
-			return err
-		},
 		"external observations": func() error {
 			_, err := s.ExternalObservationsForWork(ctx, "work-published", time.Now(), 10)
 			return err

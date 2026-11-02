@@ -43,7 +43,6 @@ func init() {
 	contractApprovedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "persistWorkflowContractApprovalTx", "time.RFC3339Nano")
 	boundaryRecordedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowContextBoundaryCrossed", "time.RFC3339Nano")
 	handoffRecordedAt := pkTimeLayoutWidthBound("internal/store/project_handoffs.go", "recordProjectHandoffCore", "time.RFC3339Nano")
-	observationRecordedAt := pkTimeLayoutWidthBound("internal/store/work_observations.go", "foldWorkObservationRecorded", "time.RFC3339Nano")
 	// advanceWorkEffectSeqTx retains the lexical maximum in
 	// work_items.last_progress_at. deriveWorkLivenessQ reads that column;
 	// workLivenessFromCounts copies it to LastProgress without reformatting.
@@ -84,7 +83,6 @@ func init() {
 		goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(ref)", boundBytes),
 		goInlineBound("internal/store/workflow_registry.go", "ValidReference", "len(value)", boundBytes))
 	criterionBindingsMax := goConstantBound("internal/store/knowledge_record.go", "maxCriterionBindings", boundItems)
-	observationWindow := goConstantBound("internal/store/workflow_continuity.go", "ContinuityObservationWindow", boundItems)
 	bindingMaxLawAdditions := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxLawAdditions", boundItems)
 	bindingMaxObligations := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxObligations", boundItems)
 
@@ -109,8 +107,6 @@ func init() {
 	// refusal form (expression > N beside a lower guard the helper never
 	// selects).
 	continuityPageLimit := goInlineBound("internal/store/workflow_continuity.go", "readWorkflowContinuityForRegistry", "req.Limit", boundItems)
-	observationRefBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(ref)", boundCharacters)
-	observationTagBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(tag)", boundCharacters)
 	productIdentityBound := goInlineBound("internal/store/workflow_continuity.go", "continuityReadIdentityTx", "len(out.ProductIdentity)", boundItems)
 	stepActionCount := goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(step.Actions)", boundItems)
 	commitOIDBound := goInlineBound("internal/store/work_context.go", "workContextCommitOID", "len(oid)", boundBytes)
@@ -142,9 +138,6 @@ func init() {
 	checkpointPendingQuestions := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowList", "p.PendingQuestions", 1, boundItems)
 	checkpointPendingDecisions := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowList", "p.PendingDecisions", 1, boundItems)
 	boundarySummary := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextBoundaryCrossed", "workflowString", "p.Summary", 1, boundBytes)
-	observationStatementGuard := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(statement)", boundCharacters)
-	observationRefsCount := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(refs)", boundItems)
-	observationTagsCount := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tags)", boundItems)
 	designApproachGuard := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContent", "len(p.Approach)", boundBytes)
 	designDecisionsCount := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContent", "len(p.Decisions)", boundItems)
 	designTouchedRefsGuard := goCallBound("internal/store/workflow_design.go", "validateWorkflowDesignContent", "workflowList", "", 1, boundItems)
@@ -240,13 +233,6 @@ func init() {
 
 	// Continuity snapshot windows and pinned fields.
 	registerOutputBound("/$defs/continuity_snapshot/properties/boundaries/properties/items/maxItems", continuityPageLimit)
-	registerOutputBound("/$defs/continuity_snapshot/properties/observations/items/properties/recorded_at/maxLength", observationRecordedAt)
-	registerOutputBound("/$defs/continuity_snapshot/properties/observations/items/properties/refs/items/maxLength", observationRefBound)
-	registerOutputBound("/$defs/continuity_snapshot/properties/observations/items/properties/refs/maxItems", observationRefsCount)
-	registerOutputBound("/$defs/continuity_snapshot/properties/observations/items/properties/statement/maxLength", observationStatementGuard)
-	registerOutputBound("/$defs/continuity_snapshot/properties/observations/items/properties/tags/items/maxLength", observationTagBound)
-	registerOutputBound("/$defs/continuity_snapshot/properties/observations/items/properties/tags/maxItems", observationTagsCount)
-	registerOutputBound("/$defs/continuity_snapshot/properties/observations/maxItems", observationWindow)
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/product_identity/maxItems", productIdentityBound)
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/spec_mandate/maxItems",
 		contractSpecMandate)

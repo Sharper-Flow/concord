@@ -184,7 +184,8 @@ DELETE FROM ` + guard); err != nil {
 		case WorkflowEvidenceBound:
 			return foldWorkflowEvidenceBound(ctx, tx, e)
 		case "work.observation_recorded":
-			return foldWorkObservationRecorded(ctx, tx, e)
+			_, err := tx.ExecContext(ctx, `INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES('obs:aaaaaaaaaaaaaaaa',?,'The corpus records an explicit observation','[]','[]',?)`, e.SubjectID, e.OccurredAt.UTC().Format(time.RFC3339Nano))
+			return err
 		case WorkflowCompleted:
 			return foldWorkflowCompleted(ctx, tx, e, nil)
 		case WorkflowDeliveryCorrected:
@@ -208,7 +209,7 @@ func assertEvidenceCorpus142(t *testing.T) {
 			continue
 		}
 		switch e.Kind {
-		case WorkflowContractApproved, WorkflowVerdictRecorded, WorkflowCompleted, WorkflowDeliveryCorrected:
+		case WorkflowContractApproved, WorkflowVerdictRecorded, WorkflowCompleted, WorkflowDeliveryCorrected, "work.observation_recorded":
 			continue
 		}
 		var p map[string]any
@@ -240,7 +241,6 @@ func assertEvidenceCorpus142(t *testing.T) {
 		`SELECT json_array(work_id,step_id,action_id,production_seq) FROM workflow_artifact_actions WHERE step_id='verify' ORDER BY work_id,step_id,action_id`,
 		`SELECT json_array(work_id,contract_version,supersession_seq) FROM workflow_contracts ORDER BY work_id,contract_version`,
 		`SELECT json_array(work_id,binding_seq,binding_id,actor,json_remove(payload,'$.expected_version','$.resulting_version')) FROM workflow_evidence_bindings ORDER BY work_id,binding_seq`,
-		`SELECT json_array(observation_id,recorded_seq) FROM work_observations ORDER BY observation_id`,
 	}
 	want := workerFactsQueryRows(t, live, queries)
 	advanceHistoricalPrefix(t, old.db, 152)

@@ -119,7 +119,6 @@ func TestWorkflowRegistryBoundary(t *testing.T) {
 		recordResolutionActors(t, s, route)
 		advanceResolutionToExecution(t, s, registry, route, ownerFor(route), []string{})
 		advanceResolutionDelivery(t, s, registry, route, ownerFor(route))
-		seedResolutionInvestigation(t, s, route)
 		routeVersion := readWorkVersion(t, s, route)
 		routeEvents := approvalEventCount(t, s, route)
 		if readWorkVersion(t, s, route) != routeVersion || approvalEventCount(t, s, route) != routeEvents || foldGuardRows(t, s) != 0 {

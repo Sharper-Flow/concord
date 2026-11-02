@@ -221,19 +221,6 @@ func (r runtime) readWorkScope(ctx context.Context, base agentcontract.Envelope,
 		r.Store.QueryQ6, r.q6)
 }
 
-func (r runtime) readWorkMessages(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in messagesInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	messages, err := r.Store.MessagesForWork(ctx, in.WorkID, effectiveLimit(in.Limit, in.Page))
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	meta := store.ResultMeta{QueryID: "PM1.Q14", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"sent_at"}}
-	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"messages": messages})
-}
-
 func (r runtime) readTraceHistory(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in historyInput
 	if err := decodeOperationInput(input, &in); err != nil {
@@ -255,36 +242,6 @@ func (r runtime) readTraceHistory(ctx context.Context, base agentcontract.Envelo
 		return response, err
 	}
 	return r.wrapCursor(ctx, response, string(binding), "summary")
-}
-
-func (r runtime) readTraceObservations(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in observationReadInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	return pagedQuery(r, ctx, base, in.Page, effectiveLimit(in.Limit, in.Page), pageBinding(in, func(p *observationReadInput) { p.Page.Cursor = nil }),
-		func(inner string, limit int) store.WorkObservationsRequest {
-			return store.WorkObservationsRequest{WorkID: in.WorkID, Limit: limit, Cursor: inner}
-		},
-		r.Store.ReadWorkObservations, r.observationPage)
-}
-
-func (r runtime) observationPage(base agentcontract.Envelope, page store.WorkObservationPage) (agentcontract.Envelope, error) {
-	return r.resultEnvelope(base, page.ResultMeta, r.scope(page.ResultMeta), map[string]any{"observations": page.Observations, "total": page.Total})
-}
-
-func (r runtime) readTraceExternalObservations(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in externalObservationReadInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	now := r.Authority.now()
-	externalObservations, err := r.Store.ExternalObservationsForWork(ctx, in.WorkID, now, effectiveLimit(in.Limit, in.Page))
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	meta := store.ResultMeta{QueryID: "CD-0040.R1", ContractVersion: "CD-0040/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: now.UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"created_event_seq", "observation_id"}}
-	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"external_observations": externalObservations})
 }
 
 func (r runtime) readTraceContinuity(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
@@ -321,8 +278,8 @@ func (r runtime) readTraceContinuity(ctx context.Context, base agentcontract.Env
 	// One captured snapshot is fitted to the envelope bound: every candidate
 	// is a complete prefix of the same read, measured as the final wire
 	// object with its authenticated cursor and notices. Complete-prefix
-	// reductions name their omissions explicitly; the paged observations read
-	// and the boundary cursor recover everything they drop.
+	// reductions name their omissions explicitly; the boundary cursor recovers
+	// everything they drop.
 	requested := len(snapshot.Boundaries)
 	response, size, err := FitContinuity(snapshot, continuityReq, agentcontract.MaxResultEnvelopeBytes, func(fitted store.ContinuitySnapshot) (agentcontract.Envelope, int, error) {
 		response, err := r.continuity(base, fitted)
@@ -331,12 +288,6 @@ func (r runtime) readTraceContinuity(ctx context.Context, base agentcontract.Env
 		}
 		if response, err = r.wrapCursor(ctx, response, string(binding), "continuity"); err != nil {
 			return response, 0, err
-		}
-		if len(fitted.Observations) < len(snapshot.Observations) {
-			if len(response.Omissions) >= agentcontract.MaxNotices {
-				return coreError(base, "limit_exceeded", "byte-bounded continuity page needs an observation omission notice but the omission limit is exhausted", "reduce_limit", false), 0, nil
-			}
-			response.Omissions = append(response.Omissions, agentcontract.Notice{Kind: "continuity_observations_reduced", Details: map[string]any{"captured": len(snapshot.Observations), "retained": len(fitted.Observations), "maximum_bytes": agentcontract.MaxResultEnvelopeBytes}})
 		}
 		if len(fitted.Boundaries) < requested {
 			if len(response.Omissions) >= agentcontract.MaxNotices {

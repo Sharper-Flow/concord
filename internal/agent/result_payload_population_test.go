@@ -88,16 +88,7 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 		Watermark:                "seq:1",
 		RestartAvailable:         false,
 		RestartUnavailableReason: "restart is unavailable",
-		PendingMessages:          1,
-		Observations: []store.WorkObservation{{
-			ObservationID: "obs:0123456789abcdef",
-			WorkID:        "work-1",
-			Statement:     "the observation",
-			Refs:          []string{"ref-1"},
-			Tags:          []string{"tag-1"},
-			RecordedAt:    "2026-01-01T00:00:00Z",
-		}},
-		ChangesProductTruth: true,
+		ChangesProductTruth:      true,
 	}
 }
 
@@ -972,28 +963,25 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 // an operation without an entry here is a failure, not a silent gap.
 func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]string {
 	t.Helper()
-	record, found, err := fx.store.LookupMutationIdempotency(t.Context(), store.MutationIdempotencyKey{PrincipalRef: fx.grant.PrincipalRef, Tool: "concord_work_relate", OperationKind: "message_send", IdempotencyKey: "population-message"})
+	record, found, err := fx.store.LookupMutationIdempotency(t.Context(), store.MutationIdempotencyKey{PrincipalRef: fx.grant.PrincipalRef, Tool: "concord_work_transition", OperationKind: "workflow_action", IdempotencyKey: "population-checkpoint"})
 	if err != nil || !found {
-		t.Fatalf("population message receipt missing: found=%t err=%v", found, err)
+		t.Fatalf("population workflow receipt missing: found=%t err=%v", found, err)
 	}
 	return map[string]string{
-		"concord_product_view.resolve":             `{"product_id":"prod-alpha"}`,
-		"concord_product_view.snapshot":            `{"product_id":"prod-alpha"}`,
-		"concord_work_browse.list":                 `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
-		"concord_work_browse.blocked":              `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
-		"concord_work_browse.ready":                `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
-		"concord_work_browse.scope":                `{"product_id":"prod-alpha","work_id":"` + fx.workID + `"}`,
-		"concord_work_browse.messages":             `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
-		"concord_work_trace.history":               `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
-		"concord_work_trace.observations":          `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
-		"concord_work_trace.external_observations": `{"work_id":"` + fx.workID + `","limit":20}`,
-		"concord_work_trace.relations":             `{"work_id":"` + fx.workID + `"}`,
-		"concord_work_trace.continuity":            `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
-		"concord_work_trace.mutation_result":       `{"source_tool":"concord_work_relate","source_operation":"message_send","idempotency_key":"population-message","digest":"` + mutationDocumentDigest([]byte(record.ResultPayload)) + `"}`,
-		"concord_work_trace.project_retirement":    `{"work_id":"` + fx.workID + `"}`,
-		"concord_work_trace.research":              `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","result_version":2,"page":{"cursor":null,"limit":20}}`,
-		"concord_domain.list":                      `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
-		"concord_domain.detail":                    `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
+		"concord_product_view.resolve":          `{"product_id":"prod-alpha"}`,
+		"concord_product_view.snapshot":         `{"product_id":"prod-alpha"}`,
+		"concord_work_browse.list":              `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
+		"concord_work_browse.blocked":           `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
+		"concord_work_browse.ready":             `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
+		"concord_work_browse.scope":             `{"product_id":"prod-alpha","work_id":"` + fx.workID + `"}`,
+		"concord_work_trace.history":            `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
+		"concord_work_trace.relations":          `{"work_id":"` + fx.workID + `"}`,
+		"concord_work_trace.continuity":         `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
+		"concord_work_trace.mutation_result":    `{"source_tool":"concord_work_transition","source_operation":"workflow_action","idempotency_key":"population-checkpoint","digest":"` + mutationDocumentDigest([]byte(record.ResultPayload)) + `"}`,
+		"concord_work_trace.project_retirement": `{"work_id":"` + fx.workID + `"}`,
+		"concord_work_trace.research":           `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","result_version":2,"page":{"cursor":null,"limit":20}}`,
+		"concord_domain.list":                   `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
+		"concord_domain.detail":                 `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 	}
 }
 
@@ -1019,7 +1007,7 @@ var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessa
 		if !page.DocumentComplete || page.Offset != 0 || page.TotalBytes != len(page.Data) || page.FragmentBytes != len(page.Data) || page.Digest != mutationDocumentDigest([]byte(page.Data)) {
 			t.Fatal("mutation result fragment lost the complete retained document")
 		}
-		if err := agentcontract.ValidateOperationPayload("concord_work_relate", "message_send", []byte(page.Data), true); err != nil {
+		if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", []byte(page.Data), true); err != nil {
 			t.Fatal(err)
 		}
 	},
@@ -1052,22 +1040,19 @@ var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessa
 // correct. Paths decode against the dispatched result bytes, so each name must
 // match the generated result schema, not the Go struct spelling.
 var readPopulationRows = map[string][]string{
-	"concord_product_view.resolve":             {"projects"},
-	"concord_product_view.snapshot":            {"previews"},
-	"concord_work_browse.list":                 {"items"},
-	"concord_work_browse.blocked":              {"items"},
-	"concord_work_browse.ready":                {"items"},
-	"concord_work_browse.scope":                {"memberships"},
-	"concord_work_browse.messages":             {"messages"},
-	"concord_work_trace.history":               {"entries"},
-	"concord_work_trace.observations":          {"observations"},
-	"concord_work_trace.external_observations": {"external_observations"},
-	"concord_work_trace.relations":             {"edges"},
-	"concord_work_trace.continuity":            {"boundaries.items"},
-	"concord_work_trace.project_retirement":    {"blockers"},
-	"concord_work_trace.research":              {"packs"},
-	"concord_domain.list":                      {"domains"},
-	"concord_domain.detail":                    {"current_law", "relations", "observations"},
+	"concord_product_view.resolve":          {"projects"},
+	"concord_product_view.snapshot":         {"previews"},
+	"concord_work_browse.list":              {"items"},
+	"concord_work_browse.blocked":           {"items"},
+	"concord_work_browse.ready":             {"items"},
+	"concord_work_browse.scope":             {"memberships"},
+	"concord_work_trace.history":            {"entries"},
+	"concord_work_trace.relations":          {"edges"},
+	"concord_work_trace.continuity":         {"boundaries.items"},
+	"concord_work_trace.project_retirement": {"blockers"},
+	"concord_work_trace.research":           {"packs"},
+	"concord_domain.list":                   {"domains"},
+	"concord_domain.detail":                 {"current_law", "relations", "observations"},
 }
 
 // readPopulationRowExemptions names every read whose probed input carries no

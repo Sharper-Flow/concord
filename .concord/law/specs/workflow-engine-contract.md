@@ -548,7 +548,7 @@ The step machine has no operator-specific step kind, question projection,
 withholding, semantic choice input, or decision-context digest. Planning and
 verdict steps use `internal_sqlite`; their actions keep their declared guards.
 Invoking `confirm_premise` records authenticated coordinator confirmation,
-subject to the recorded investigation and acceptance-deliverable requirements.
+subject to the acceptance-deliverable requirements.
 
 Agents ask operator questions through the host question tool when CD-0243 D2
 requires a decision and quote the answer in the ordinary workflow step record.

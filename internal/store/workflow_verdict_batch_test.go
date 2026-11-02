@@ -266,7 +266,6 @@ func TestWorkflowVerdictBatchOmissionStaysMissing(t *testing.T) {
 	if err != nil || !slices.Equal(missing, []string{"predicate:p2"}) {
 		t.Fatalf("missing=%v err=%v", missing, err)
 	}
-	seedComparisonObservation(t, f.store, f.workID)
 	err = runIssue933OperatorAction(t, f.store, f.workID, "confirm_premise", json.RawMessage(`{}`), f.owner)
 	if !hasFailureKind(err, KindMissingEvidence) || !strings.Contains(err.Error(), "predicate:p2") {
 		t.Fatalf("confirmation did not name omitted criterion: %v", err)

@@ -222,134 +222,6 @@ func readContinuityBoundaries(t *testing.T, ctx context.Context, r runtime, requ
 	}
 }
 
-func TestContinuityFortyObservationsWindowAndContinuation(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, _, _, engine := workflowEngineFixture(t, strings.Repeat("p", 2900))
-	engine("checkpoint_context", map[string]any{
-		"checkpoint_id": "window-checkpoint", "checkpoint_sequence": 1, "active_unit": strings.Repeat("u", 128),
-		"hypothesis": strings.Repeat("h", 1024), "diagnosis": strings.Repeat("d", 1024), "strategy": strings.Repeat("s", 1024),
-		"touched_refs":      []string{strings.Repeat("t", 128), strings.Repeat("r", 128)},
-		"evidence_refs":     []string{strings.Repeat("e", 128), strings.Repeat("f", 128)},
-		"pending_questions": []string{}, "pending_decisions": []string{},
-	})
-	// 40 * (512 + 256 + 32 + 16) = 32,640 bytes of statement/refs/tags.
-	// HTML escaping makes a legal population with these text sizes exceed the
-	// envelope when the window bounds the observations continuity embeds.
-	for i := range 40 {
-		payload, _ := json.Marshal(map[string]any{
-			"observation_id": fmt.Sprintf("obs:%016x", i), "statement": strings.Repeat("&", 512),
-			"refs": []string{strings.Repeat("r", 256)}, "tags": []string{strings.Repeat("t", 32), strings.Repeat("g", 16)},
-		})
-		if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{
-			EventID: fmt.Sprintf("window-observation-%d", i), Kind: store.WorkObservationRecorded,
-			SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", PayloadVersion: 1,
-			OccurredAt: fixedTime().Add(time.Duration(i) * time.Second), Payload: payload,
-		}}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	r := runtime{Store: s, Authority: service, Tool: "concord_work_trace", Operation: "continuity", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-	before, err := s.Revision(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, err := r.read(ctx, agentcontract.NewBase("observation-window", r.Tool, r.Operation), []byte(`{"work_id":"work-1","limit":1}`), "C19.Continuity")
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertBoundedRead(t, response)
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("fixed observation projection must fit: %+v", response.Error)
-	}
-	// A projection whose complete-prefix fit succeeds stays typed and
-	// inline: it pages never, and it claims no paged transport.
-	var branch map[string]json.RawMessage
-	if err := json.Unmarshal(response.Result, &branch); err != nil {
-		t.Fatal(err)
-	}
-	if _, paged := branch["projection_page"]; paged {
-		t.Fatal("a fitting projection must stay inline, not page")
-	}
-	var payload struct {
-		Observations []store.WorkObservation `json:"observations"`
-		Total        int64                   `json:"observations_total"`
-		Read         *collectionReadPointer  `json:"observations_read"`
-		Pinned       struct {
-			Checkpoint *store.ContextCheckpoint    `json:"latest_checkpoint"`
-			Contract   *store.WorkflowReadContract `json:"contract"`
-			Pin        *store.WorkPin              `json:"work_pin"`
-		} `json:"pinned"`
-	}
-	if err := json.Unmarshal(response.Result, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.Total != 40 || len(payload.Observations) == 0 || len(payload.Observations) >= 16 || payload.Read == nil {
-		t.Fatalf("window total=%d returned=%d read=%+v", payload.Total, len(payload.Observations), payload.Read)
-	}
-	if payload.Observations[0].ObservationID != "obs:0000000000000027" || payload.Observations[0].Statement != strings.Repeat("&", 512) {
-		t.Fatal("window did not retain the most recent complete observation")
-	}
-	if payload.Pinned.Checkpoint == nil || len(payload.Pinned.Checkpoint.Hypothesis) != 1024 || payload.Pinned.Contract == nil || len(payload.Pinned.Contract.Premise) != 2900 || payload.Pinned.Pin == nil {
-		t.Fatal("critical fixed projection lost durable content")
-	}
-	if payload.Read.Tool != "concord_work_trace" || payload.Read.Operation != "observations" {
-		t.Fatalf("unusable read pointer: %+v", payload.Read)
-	}
-	r.Operation = payload.Read.Operation
-	var input map[string]any
-	if err := json.Unmarshal(payload.Read.Input, &input); err != nil {
-		t.Fatal(err)
-	}
-	seen := map[string]bool{}
-	pages := 0
-	for {
-		raw, _ := json.Marshal(input)
-		page, err := r.read(ctx, agentcontract.NewBase("observations-continuation", r.Tool, r.Operation), raw, "CD-0030.R1")
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertBoundedRead(t, page)
-		if page.Outcome != agentcontract.OutcomeOK {
-			t.Fatalf("observation page refused: %+v", page.Error)
-		}
-		var result struct {
-			Observations []store.WorkObservation `json:"observations"`
-			Total        int64                   `json:"total"`
-		}
-		if err := json.Unmarshal(page.Result, &result); err != nil {
-			t.Fatal(err)
-		}
-		if result.Total != 40 || len(result.Observations) == 0 {
-			t.Fatal("page lost total or failed to advance")
-		}
-		for _, observation := range result.Observations {
-			if seen[observation.ObservationID] {
-				t.Fatal("duplicate observation")
-			}
-			seen[observation.ObservationID] = true
-			if observation.Statement != strings.Repeat("&", 512) || len(observation.Refs) != 1 || len(observation.Tags) != 2 {
-				t.Fatal("observation detail changed")
-			}
-		}
-		pages++
-		if page.NextCursor == nil {
-			break
-		}
-		input["page"] = map[string]any{"cursor": *page.NextCursor}
-		if pages > 40 {
-			t.Fatal("cursor did not advance")
-		}
-	}
-	if len(seen) != 40 || pages < 2 {
-		t.Fatalf("enumerated %d observations in %d pages", len(seen), pages)
-	}
-	after, err := s.Revision(ctx)
-	if err != nil || before != after {
-		t.Fatalf("read changed durable state: %d -> %d, %v", before, after, err)
-	}
-}
-
 // TestContinuityFixedProjectionEnvelopeLiveness holds the continuity read to
 // its liveness bound: a fixed projection that renders past the envelope even
 // with the observation window empty must still answer successfully at the
@@ -411,23 +283,6 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 		"finding_refs":     []string{},
 		"context_findings": findings,
 	})
-	// Forty admitted observations grow the windowed collection. Their
-	// ampersands cost six serialized bytes each, so even the first window
-	// slice overruns the envelope; the fixed projection must answer with
-	// the window reduced, never with a refusal.
-	for i := range 40 {
-		observation, _ := json.Marshal(map[string]any{
-			"observation_id": fmt.Sprintf("obs:%016x", i), "statement": strings.Repeat("&", 512),
-			"refs": []string{strings.Repeat("r", 256)}, "tags": []string{strings.Repeat("t", 32), strings.Repeat("g", 16)},
-		})
-		if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{
-			EventID: fmt.Sprintf("liveness-observation-%d", i), Kind: store.WorkObservationRecorded,
-			SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", PayloadVersion: 1,
-			OccurredAt: fixedTime().Add(time.Duration(i) * time.Second), Payload: observation,
-		}}}); err != nil {
-			t.Fatal(err)
-		}
-	}
 	// Fixture proof, before any read: with the observation window empty and
 	// one boundary kept, the fixed projection alone renders past the
 	// unchanged envelope bound, both work-context copies ride the captured
@@ -436,7 +291,7 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	windowless, err := captured.LimitWindow(store.ContinuityRequest{Work: "work-1", Limit: 1}, 0, 1)
+	windowless, err := captured.LimitWindow(store.ContinuityRequest{Work: "work-1", Limit: 1}, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,9 +310,6 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 	}
 	if captured.WorkContext == nil || len(captured.WorkContext.Findings) != 16 {
 		t.Fatal("fixture lost the top-level work-context view")
-	}
-	if captured.ObservationsTotal != 40 {
-		t.Fatalf("fixture observation total = %d, want 40", captured.ObservationsTotal)
 	}
 	t.Logf("fixed projection with no observation window renders %d serialized bytes against the %d-byte envelope", len(fixedBytes), agentcontract.MaxResultEnvelopeBytes)
 
@@ -518,8 +370,6 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 					Items      []store.ContextBoundary `json:"items"`
 					NextCursor *string                 `json:"next_cursor"`
 				} `json:"boundaries"`
-				ObservationsTotal int64                  `json:"observations_total"`
-				ObservationsRead  *collectionReadPointer `json:"observations_read"`
 			}
 			if err := json.Unmarshal(doc, &payload); err != nil {
 				t.Fatal(err)
@@ -540,9 +390,6 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 			if payload.Pinned.WorkContext == nil || len(payload.Pinned.WorkContext.Findings) != 16 {
 				t.Fatal("top-level work-context view lost from the reconstructed document")
 			}
-			if payload.ObservationsTotal != 40 || payload.ObservationsRead == nil || payload.ObservationsRead.Operation != "observations" {
-				t.Fatalf("observation population lost its count or read pointer: total=%d read=%+v", payload.ObservationsTotal, payload.ObservationsRead)
-			}
 			// Boundary continuation after fragment completion: the envelope
 			// cursor the completed document exposes resumes the history, and
 			// every continuation read of the same oversized projection pages
@@ -555,58 +402,6 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 				if summary != boundarySummary(int(sequence)) {
 					t.Fatalf("boundary %d changed across continuation", sequence)
 				}
-			}
-			observationReader := r
-			observationReader.Operation = payload.ObservationsRead.Operation
-			var observationInput map[string]any
-			if err := json.Unmarshal(payload.ObservationsRead.Input, &observationInput); err != nil {
-				t.Fatal(err)
-			}
-			observed := map[string]bool{}
-			for pages := 0; ; pages++ {
-				pageRaw, _ := json.Marshal(observationInput)
-				page, err := observationReader.read(ctx, agentcontract.NewBase("fixed-projection-observations", observationReader.Tool, observationReader.Operation), pageRaw, "CD-0030.R1")
-				if err != nil {
-					t.Fatal(err)
-				}
-				assertBoundedRead(t, page)
-				if page.Outcome != agentcontract.OutcomeOK {
-					t.Fatalf("observation continuation refused: %+v", page.Error)
-				}
-				var result struct {
-					Observations []store.WorkObservation `json:"observations"`
-					Total        int64                   `json:"total"`
-				}
-				if err := json.Unmarshal(page.Result, &result); err != nil {
-					t.Fatal(err)
-				}
-				if result.Total != 40 || len(result.Observations) == 0 {
-					t.Fatal("observation continuation lost its total or failed to advance")
-				}
-				for _, observation := range result.Observations {
-					if observed[observation.ObservationID] {
-						t.Fatalf("observation %s repeated", observation.ObservationID)
-					}
-					observed[observation.ObservationID] = true
-					if observation.Statement != strings.Repeat("&", 512) {
-						t.Fatalf("observation %s changed across continuation", observation.ObservationID)
-					}
-				}
-				pageField, ok := observationInput["page"].(map[string]any)
-				if !ok {
-					pageField = map[string]any{}
-					observationInput["page"] = pageField
-				}
-				if page.NextCursor == nil {
-					break
-				}
-				pageField["cursor"] = *page.NextCursor
-				if pages > 64 {
-					t.Fatal("observation cursor did not advance")
-				}
-			}
-			if len(observed) != 40 {
-				t.Fatalf("observation continuation reconstructed %d of 40 observations", len(observed))
 			}
 			after, err := s.Revision(ctx)
 			if err != nil || before != after {
@@ -886,19 +681,6 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 		"finding_refs":     []string{},
 		"context_findings": findings,
 	})
-	for i := range 8 {
-		observation, _ := json.Marshal(map[string]any{
-			"observation_id": fmt.Sprintf("obs:%016x", i), "statement": "😀 " + strings.Repeat("&", 500),
-			"refs": []string{strings.Repeat("r", 256)}, "tags": []string{strings.Repeat("t", 32)},
-		})
-		if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{
-			EventID: fmt.Sprintf("continuation-observation-%d", i), Kind: store.WorkObservationRecorded,
-			SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", PayloadVersion: 1,
-			OccurredAt: fixedTime().Add(time.Duration(i) * time.Second), Payload: observation,
-		}}}); err != nil {
-			t.Fatal(err)
-		}
-	}
 	// The research-bearing declaration: one bound A-owned pack
 	// whose selected finding links one source descriptor. The selected
 	// research rides the same oversized projection pages the generic members
@@ -987,7 +769,7 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	windowless, err := proof.LimitWindow(store.ContinuityRequest{Work: "work-1", Limit: 1}, 0, 1)
+	windowless, err := proof.LimitWindow(store.ContinuityRequest{Work: "work-1", Limit: 1}, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1118,15 +900,12 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 		if page == nil || page.NextKind == nil || *page.NextKind != "projection" || first.NextCursor == nil {
 			t.Fatal("fixture produced no projection continuation to drift past")
 		}
-		observation, _ := json.Marshal(map[string]any{
-			"observation_id": "obs:0123456789abcdef", "statement": strings.Repeat("&", 256),
-			"refs": []string{}, "tags": []string{},
-		})
+		version := workVersion(t, s, "work-1")
 		if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{
-			EventID: "continuation-drift-observation", Kind: store.WorkObservationRecorded,
-			SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", PayloadVersion: 1,
-			OccurredAt: fixedTime(), Payload: observation,
-		}}}); err != nil {
+			EventID: "continuation-watermark-drift", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem,
+			SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1,
+			Payload: retryJSON(map[string]any{"memberships": []map[string]any{{"project_id": "project-1", "role": "primary"}}, "expected_version": version, "resulting_version": version + 1}),
+		}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-1"): version}}); err != nil {
 			t.Fatal(err)
 		}
 		continued := request()

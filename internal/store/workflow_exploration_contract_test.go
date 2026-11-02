@@ -198,7 +198,6 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 			seedWork(t, s, livenessPeerWorkID)
 			seedWorkflowLaw(t, s)
 			livenessInitialize(t, s, workID, definition)
-			insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("c", 16), []string{"root", livenessPeerWorkID})
 			seedWorkflowAuthority(t, s, "liveness-authority", workID, livenessActor().PrincipalRef, "request/liveness", []string{livenessSubjectRef})
 			ctx := context.Background()
 			if workflowFamilyArchived(definition.Ref) {

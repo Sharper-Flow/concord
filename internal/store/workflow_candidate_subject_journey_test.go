@@ -142,7 +142,6 @@ func TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB(t *testing.T) {
 	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
 		t.Fatalf("associate independently reviewed report: %v", err)
 	}
-	seedComparisonObservation(t, f.store, f.workID)
 	if err := pConfirmReceiptPremise(t, f); err != nil {
 		t.Fatalf("confirm the reviewed candidate and report: %v", err)
 	}

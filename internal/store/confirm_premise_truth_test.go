@@ -38,7 +38,6 @@ func TestWorkPinEngineeringConfirmPremiseOmitsDigest(t *testing.T) {
 	workID := "confirm-pin-engineering"
 	f, _, refs := pReceiptFixture(t, workID, 1, 1)
 	s := f.store
-	seedComparisonObservation(t, s, workID)
 	missingPin, err := ReadWorkPin(ctx, s, workID)
 	if err != nil {
 		t.Fatalf("pin read without the verdict failed: %v", err)
@@ -64,47 +63,6 @@ func TestWorkPinEngineeringConfirmPremiseOmitsDigest(t *testing.T) {
 		}
 	}
 	t.Fatalf("engineering pin intents %v omit confirm_premise", pin.NextValidIntents)
-}
-
-// TestConfirmationRefusalNamesObservationRefFormat holds the discoverability side
-// of the premise gate: the confirmation refusal names the observation ref
-// format the gate enforces, so a refused caller can repair in one read
-// instead of reading the store source.
-func TestConfirmationRefusalNamesObservationRefFormat(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	workID, otherWorkID := "confirm-refusal-format", "confirm-refusal-format-other"
-	seedWork(t, s, workID)
-	seedWork(t, s, otherWorkID)
-	seedWorkflowLaw(t, s)
-	seedContractlessVerifyWorkflow(t, s, workID)
-	seedActiveBreakFixContract(t, s, workID)
-	// The committed registry decides the Domain ref: the proof is established
-	// per operation before the gate's transaction opens.
-	verified, proofErr := s.EstablishKnowledgeSourceSetProof(ctx, workID)
-	if proofErr != nil {
-		t.Fatal(proofErr)
-	}
-	ctx = verified
-	validate := func() error {
-		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		return requireRecordedInvestigationArtifact(ctx, tx, workID)
-	}
-	err := validate()
-	var failure *Failure
-	if !errors.As(err, &failure) {
-		t.Fatalf("confirm_premise without an investigation artifact must refuse, got %v", err)
-	}
-	for _, want := range []string{"bare domain_id", "another work item"} {
-		if !strings.Contains(failure.Detail, want) || !strings.Contains(failure.RecoveryAction, want) {
-			t.Fatalf("refusal detail %q / recovery %q must name the ref format %q", failure.Detail, failure.RecoveryAction, want)
-		}
-	}
 }
 
 // TestConfirmPremisePayloadValidation checks the closed action payload.

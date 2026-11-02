@@ -437,23 +437,6 @@ test("capture keeps its closed surface and source-free research inputs validate"
   expect((payloadSchemas as SchemaTable).work_summary.properties).not.toHaveProperty("size")
 })
 
-test("observation publication retains code-point bounds after reference expansion", async () => {
-  const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-  await publishRequestDefinition({ toolID: "concord_work_define" }, output)
-  const expanded: any = expandedPublishedRequestSchema(output.jsonSchema)
-  const input = expanded.oneOf.find((branch: any) => branch.properties.operation.const === "observation_record").properties.input
-  for (const [name, maximum] of [["statement", 512], ["refs", 256], ["tags", 32]] as const) {
-    const field = name === "statement" ? input.properties[name] : input.properties[name].items
-    expect([field.minLength, field.maxLength]).toEqual([1, maximum])
-    expect(field.description).toContain("code points")
-    expect(field.description).toContain("inclusive")
-    expect(field["x-maxBytes"]).toBeUndefined()
-  }
-  for (const [name, maximum] of [["refs", 16], ["tags", 8]] as const) {
-    expect(input.properties[name].maxItems).toBe(maximum)
-  }
-})
-
 test("every reachable enforced bound teaches its exact Bounds clause with role, value, unit and inclusive endpoints", () => {
   const payloadTable = payloadSchemas as unknown as SchemaTable
   const canonical = boundInventory(canonicalBoundRoots(), payloadTable)
@@ -464,7 +447,7 @@ test("every reachable enforced bound teaches its exact Bounds clause with role, 
     for (const finding of boundTeachingFindings(use.node, use.at)) findings.add(finding)
   }
   // Pinned teaching examples: exact role, value, unit, and inclusive endpoints.
-  expect(clauseTextsOf(payloadTable.work_define_observation_record_input.properties.statement)).toEqual(["Bounds: 1..512 code points inclusive"])
+  expect(clauseTextsOf(payloadTable.work_define_issue_link_record_input.properties.remote_issue_uuid)).toEqual(["Bounds: 2..128 code points inclusive"])
   expect(clauseTextsOf(payloadTable.reference)).toEqual(
     ["Bounds: 1..128 code points inclusive", "Bounds: 2..128 UTF-8 bytes inclusive"].sort(),
   )

@@ -969,7 +969,7 @@ for (const tampered of [false, true]) {
     adapter.configureConcordAdapter({ runner: { async run(argv, input) {
       if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
       const request = JSON.parse(input)
-      if (request.operation === "message_send") {
+      if (request.operation === "workflow_action") {
         writes++
         return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", fixture.envelope)), stderr: "" }
       }
@@ -978,7 +978,7 @@ for (const tampered of [false, true]) {
       const page = fixture.pages[reads++]
       return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", page)), stderr: "" }
     } } })
-    const raw = await adapter.work_relate.execute(hostCall("message_send", { work_id: "work-projection-0", recipient_work_id: "work-projection-1", body: "A complete message", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
+    const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "record_work_context", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
     const output = typeof raw === "string" ? raw : raw.output
     const result = JSON.parse(output.split("\n")[0])
     expect(result.outcome).toBe("ok")
@@ -1002,7 +1002,7 @@ for (const capacity of ["room", "warnings-full", "bytes-full"] as const) {
     const fixture = mutationProjectionFixture()
     fixture.pages[0].result.offset++
     const core = {
-      ...coreEnvelope("concord_work_relate", "message_send", "ok", {
+      ...coreEnvelope("concord_work_transition", "workflow_action", "ok", {
         ...fixture.envelope,
         warnings: [...fixture.envelope.warnings, ...(capacity === "warnings-full" ? Array.from({ length: 15 }, () => ({ kind: "core_note" })) : [])],
       }),
@@ -1020,7 +1020,7 @@ for (const capacity of ["room", "warnings-full", "bytes-full"] as const) {
     adapter.configureConcordAdapter({ runner: { async run(argv, input) {
       if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
       const request = JSON.parse(input)
-      if (request.operation === "message_send") {
+      if (request.operation === "workflow_action") {
         writes++
         return { exitCode: 0, stdout: JSON.stringify(core), stderr: "" }
       }
@@ -1028,7 +1028,7 @@ for (const capacity of ["room", "warnings-full", "bytes-full"] as const) {
       reads++
       return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", fixture.pages[0])), stderr: "" }
     } } })
-    const raw = await adapter.work_relate.execute(hostCall("message_send", { idempotency_key: "projection-key" }), contextFor())
+    const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "record_work_context", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
     const output = typeof raw === "string" ? raw : raw.output
     const result = JSON.parse(output)
     expect(writes).toBe(1)

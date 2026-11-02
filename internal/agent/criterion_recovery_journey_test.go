@@ -19,16 +19,6 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	f.env.SessionRef, f.env.AgentRef = "session-reevaluator", "agent-evaluator"
 	verdict := map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof}}}}
 	spineOK(t, f.action(t, "record_verdict", verdict))
-	spineOK(t, f.call(t, "concord_work_define", "observation_record", map[string]any{
-		"work_id": f.work, "statement": "The approved value criterion has checked production and accepted Review.",
-		"refs": []string{before.Pinned.Contract.ArchitectureBinding.HomeDomainID, f.proof}, "idempotency_key": "journey-initial-investigation",
-	}))
-
-	// Reassess the existing candidate without resetting its production step.
-	spineOK(t, f.call(t, "concord_work_define", "observation_record", map[string]any{
-		"work_id": f.work, "statement": "Recheck whether the existing candidate satisfies its approved value criterion.",
-		"refs": []string{before.Pinned.Contract.ArchitectureBinding.HomeDomainID, f.proof}, "idempotency_key": "journey-reevaluation",
-	}))
 	contract := f.read(t).Pinned.Contract
 	predicates := make([]map[string]any, 0, len(contract.OutcomePredicates))
 	for _, predicate := range contract.OutcomePredicates {

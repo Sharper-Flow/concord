@@ -3,9 +3,7 @@
   "id": "CD-0040",
   "title": "External observations prove presence; absence requires pinned completeness",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "product-root:concord",
   "applies_to_domain_ids": [
@@ -25,7 +23,7 @@
 - **Date:** 2026-08-17
 - **Scope:** External-state provenance, verification, scope completeness, and consumption; issue #89
 - **Approval:** Operator approved the carrier, probe, freshness, divergence, consumption, absence, decision-vehicle, and writer choices on 2026-08-17
-- **Related:** CD-0008 D2/D3/D5, CD-0014, CD-0022, CD-0030,
+- **Related:** CD-0008 D2/D3/D5, CD-0014, CD-0022,
   CD-0036 D3/D4, CD-0039, issues #87, #88, #174, TS3
   ([`agent-read-tool-contract.md`](../specs/agent-read-tool-contract.md)), TS7
   ([`agent-result-envelope.md`](../specs/agent-result-envelope.md))
@@ -67,11 +65,6 @@ The component supplies common identity, observed-universe, verification, and
 freshness semantics. Purpose-built domain records retain their
 own status vocabularies and invariants; each writes current rows through its owning operations ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Native-run phases, Git proof, external
 conditions, and backup validation do not collapse into one generic status table.
-
-A bounded generic fallback exists for observations that have no owning domain,
-such as one-off recovery artifacts or environment descriptions. It uses closed
-subject/capture vocabularies and cannot create workflow authority. It is not an
-arbitrary external-state table.
 
 ### D2. Applicability and examined universe are different axes
 
@@ -240,7 +233,7 @@ age, or frequency heuristic owns this classification.
 
 Reads always return the record with provenance, verification state, freshness,
 omissions, and attribution. TS3 read operations never record verification.
-An explicit D10 verification variant or a consequential preflight runs an
+A consequential preflight runs an
 accepted Git probe and records the result before the caller re-reads. Unverified, stale, partial, unreachable, and
 unverifiable records remain inspectable but never render as verified or
 `authoritative_empty`.
@@ -255,26 +248,6 @@ A permanently unverifiable source may be used only through an explicit
 operator-approved exception bound to the exact operation digest, subject, scope,
 and versions. The exception authorizes that one action despite missing proof; it
 never changes the record to verified or hides the omission.
-
-### D10. The generic writer extends `observation_record`
-
-The fallback uses the existing
-`concord_work_define.observation_record` operation. Its current work-scoped,
-grant-authenticated, idempotent, non-authoritative semantics remain. The input
-gains a closed external-observation variant for capture or verification, and the
-core records purpose-built external-observation rows. Plain CD-0030 observations remain plain statements and satisfy no evidence or
-gate. The external variant is also non-authoritative: it may only supply or
-withhold a precondition checked by another operation. It cannot positively
-satisfy evidence, approval, transition, verdict, or completion.
-
-Capturing a new observation remains forbidden on terminal work under CD-0030.
-Recording a verification for an observation that was captured while work was
-active remains allowed after terminal transition for audit and read-time
-inspection; it cannot change terminal work or reopen authority.
-
-Domain-specific records still write through their owning operations. A native
-run uses workflow actions; Git knowledge uses Git proof. The shared component does not create a second writer for
-those domains.
 
 ### D11. CD-0039 is amended before implementation
 
@@ -295,8 +268,7 @@ migration.
 
 ### D12. Surface and existing-record obligations
 
-No tenth tool is added. Purpose-built paths remain on their current operations;
-the generic fallback extends an existing operation. TS7's authority, freshness,
+Purpose-built paths remain on their owning operations. TS7's authority, freshness,
 omissions, watermarks, and stale/degraded refusals carry read status; no new
 success/error vocabulary is needed.
 
@@ -312,10 +284,6 @@ Recorded observations read back unchanged and never acquire external provenance 
 **One universal external-state table.** It cannot enforce phase-specific native
 status, Git proof, condition, backup, or domain invariants and would become an
 informal string namespace.
-
-**Domain records only.** It leaves recovery artifacts and genuine one-offs
-unrecordable until a full domain model exists, recreating the silence behind
-#89.
 
 **Caller-authored completeness boolean.** It gives the producer authority to
 claim it examined the whole world without a stable universe or completion
@@ -342,11 +310,6 @@ actionable.
 
 **Blocking reads.** It destroys historical evidence and prevents diagnosis.
 
-**Generic workflow action or operator-only CLI.** A workflow action gives a
-non-authoritative observation gate semantics; a CLI-only path removes agent
-reachability and grant/idempotency provenance. CD-0030's existing operation is
-the correct fallback boundary.
-
 **Core HTTP/provider probes in v1.** They add network, credential, redirect,
 SSRF, and provider-semantics authority without a concrete accepted need.
 
@@ -367,7 +330,5 @@ SSRF, and provider-semantics authority without a concrete accepted need.
 - Operator exception is single-use/bounded and does not change verification
   state.
 - Only accepted Git probes run inside Concord; non-Git reports remain attributed.
-- Existing CD-0030 observations stay non-authoritative and cannot satisfy
-  evidence, gates, or completion.
 - CD-0039 native-run reads always carry attribution and
   verification/freshness state.

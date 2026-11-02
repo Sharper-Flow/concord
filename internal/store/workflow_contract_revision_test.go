@@ -13,7 +13,6 @@ func pContractCriterionFixture(t *testing.T, id string) workflowReturnRouteFixtu
 	if err := runVerdictActionAs(t, f.store, id, "record_verdict", criterionAssociationPayload(ref, "predicate:first", "predicate:second"), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
-	seedComparisonObservation(t, f.store, id)
 	return f
 }
 

@@ -49,24 +49,10 @@ func TestCurrentLawSnapshotUsesDefaultBranchAuthority(t *testing.T) {
 			home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "canonical", RepoPath: repo, HeadRef: "HEAD"}
 			snapshot, err := loadLawFolderSnapshotAtHome(t.Context(), home)
 			if err != nil {
-				var failure *Failure
-				if !errors.As(err, &failure) || failure.Kind == "" {
-					t.Fatalf("expected default law or a typed authority/freshness refusal, got %v", err)
-				}
-				detail := strings.ToLower(failure.Detail)
-				recovery := strings.ToLower(failure.RecoveryAction)
-				namesDefault := func(text string) bool {
-					return strings.Contains(text, "default") || strings.Contains(text, "origin/head") || strings.Contains(text, "origin/main")
-				}
-				actionable := strings.Contains(recovery, "fetch") || strings.Contains(recovery, "refresh") || strings.Contains(recovery, "sync") || strings.Contains(recovery, "verify")
-				if !namesDefault(detail) || !namesDefault(recovery) || !actionable {
-					t.Fatalf("refusal does not identify default authority and its freshness recovery: %+v", failure)
-				}
-				t.Logf("default authority read refused with recovery: %v", err)
-				return
+				t.Fatalf("a resolvable origin/HEAD default must be read, not refused: %v", err)
 			}
 			if snapshot.CommitOID() != mergedHead {
-				t.Errorf("silently read checkout law: snapshot commit=%s checkout HEAD=%s; want explicit origin/HEAD default commit=%s or an authority/freshness refusal", snapshot.CommitOID(), checkoutHead, mergedHead)
+				t.Errorf("silently read checkout law: snapshot commit=%s checkout HEAD=%s; want origin/HEAD default commit=%s", snapshot.CommitOID(), checkoutHead, mergedHead)
 			}
 			if got, want := snapshot.LawIDs(), []string{"CURRENT-LAW", "MERGED-ONLY-LAW", "RETAINED-LAW"}; !slices.Equal(got, want) {
 				t.Errorf("law inventory=%v, want merged default inventory=%v (feature-only additions and removals are not law)", got, want)

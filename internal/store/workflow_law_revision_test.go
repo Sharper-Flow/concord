@@ -11,7 +11,7 @@ import (
 func TestWorkflowContractUpdateAcceptsPredicateArray(t *testing.T) {
 	t.Parallel()
 	const workID = "contract-update-predicate-array"
-	f := seedWorkContextFixture(t, workID)
+	f := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.implementation"), "execution", []string{}, nil)
 	contract := pContractSuccessor(t, f.store, workID, "Continue with the corrected contract.")
 	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, readWorkVersion(t, f.store, workID), nil); err != nil {
 		t.Fatalf("predicate-array contract update refused: %v", err)

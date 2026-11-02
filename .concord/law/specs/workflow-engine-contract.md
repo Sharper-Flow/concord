@@ -214,7 +214,8 @@ drift. No fallback definition or response-wording path is accepted.
 
 An action failure records its typed failure result; it does not invent a state.
 Recoverable failures leave the instance in `running` or `blocked` according to the
-definition edge. Each action is one expected-version-checked, idempotent domain
+definition edge. A completed, cancelled, or superseded instance is immutable.
+Each action is one expected-version-checked, idempotent domain
 transaction with its operation result and effect receipts. There is no separate
 step claim, takeover or claim/settle protocol. Native authorities own external
 execution. Completion keeps terminal work identity and reported delivery links,

@@ -320,7 +320,7 @@ func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, reques
 	// request's payload names.
 	if request.ActionID == "bind_evidence" {
 		var recoveryErr error
-		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(guards.ctx, guards.tx, request.WorkID, guards.entry.Definition, guards.currentStep, request.Payload, "workflow_action", request.EvidenceKinds...)
+		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(guards.ctx, guards.tx, request.WorkID, guards.entry.Definition, guards.currentStep, request.Payload, "workflow_action")
 		if recoveryErr != nil {
 			return recoveryErr
 		}

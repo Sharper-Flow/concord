@@ -559,7 +559,6 @@ profiles_generator = _load_cli_module("cli_safety_profiles", "generate-agent-pro
 work_kinds_generator = _load_cli_module("cli_safety_work_kinds", "generate-work-kinds.py")
 native_run_statuses_generator = _load_cli_module("cli_safety_native_run_statuses", "generate-native-run-statuses.py")
 relation_vocabulary_generator = _load_cli_module("cli_safety_relation_vocabulary", "generate-relation-vocabulary.py")
-durable_tier_budget_generator = _load_cli_module("cli_safety_durable_tier_budget", "generate-durable-tier-budget.py")
 class PublicationPinGenerationTests(unittest.TestCase):
     def test_pin_measures_the_production_publication(self):
         with unittest.mock.patch.object(generator.subprocess, "run") as run:
@@ -3307,7 +3306,6 @@ class GeneratorCLISafetyTests(unittest.TestCase):
         ("generate-work-kinds.py", work_kinds_generator, "VOCABULARY"),
         ("generate-native-run-statuses.py", native_run_statuses_generator, "VOCABULARY"),
         ("generate-relation-vocabulary.py", relation_vocabulary_generator, "VOCABULARY"),
-        ("generate-durable-tier-budget.py", durable_tier_budget_generator, "BUDGET"),
     )
     REFUSAL_ARGSETS = (
         ("unknown-flag", ["--unknown-option"]),

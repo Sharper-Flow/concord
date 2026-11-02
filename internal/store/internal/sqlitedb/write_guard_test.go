@@ -38,7 +38,7 @@ func TestWriteGuardNestingAndRollback(t *testing.T) {
 	}
 	defer tx.Rollback()
 	g := NewWriteGuard(tx)
-	if g.Active() || g.Close(ctx) != nil {
+	if g.depth > 0 || g.Close(ctx) != nil {
 		t.Fatal("unused guard is active or cannot close")
 	}
 	for range 2 {
@@ -46,13 +46,13 @@ func TestWriteGuardNestingAndRollback(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if !g.Active() || guardRows(t, tx) != 1 {
+	if g.depth == 0 || guardRows(t, tx) != 1 {
 		t.Fatal("nested entry did not retain exactly one guard")
 	}
-	if err := g.Close(ctx); err != nil || !g.Active() || guardRows(t, tx) != 1 {
+	if err := g.Close(ctx); err != nil || g.depth == 0 || guardRows(t, tx) != 1 {
 		t.Fatalf("nested close dropped its caller's guard: %v", err)
 	}
-	if err := g.Close(ctx); err != nil || g.Active() || guardRows(t, tx) != 0 {
+	if err := g.Close(ctx); err != nil || g.depth > 0 || guardRows(t, tx) != 0 {
 		t.Fatalf("outer close retained its guard: %v", err)
 	}
 	if err := g.Enter(ctx); err != nil {
@@ -81,7 +81,7 @@ func TestWriteGuardFlatAndScopedModes(t *testing.T) {
 	}
 	g := NewWriteGuard(tx)
 	var failure *Error
-	if err := g.Enter(ctx); !errors.As(err, &failure) || failure.Kind != InvariantViolation || failure.Op != "fold" || failure.RetrySafe || failure.EffectPossible || failure.Err != nil || g.Active() {
+	if err := g.Enter(ctx); !errors.As(err, &failure) || failure.Kind != InvariantViolation || failure.Op != "fold" || failure.RetrySafe || failure.EffectPossible || failure.Err != nil || g.depth > 0 {
 		t.Fatalf("scoped collision must refuse the flat writer's row: %v", err)
 	}
 	if guardRows(t, tx) != 1 {
@@ -127,7 +127,7 @@ func TestWriteGuardFailureFields(t *testing.T) {
 			}
 		})
 	}
-	if g.Active() || unopened.Active() {
+	if g.depth > 0 || unopened.depth > 0 {
 		t.Fatal("failed enter or outer close changed depth mutation timing")
 	}
 }

@@ -973,9 +973,8 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	if err := journey.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}, fixture.owner); err != nil {
 		t.Fatalf("completion after context records refused: %v", err)
 	}
-	// Closing the lifecycle keeps the context as claims: the closed item
-	// still answers every declared and historically reported finding verbatim,
-	// each still reported, and the reading reference unchanged.
+	// PM6 section 1: completion disposes the work context with the other
+	// workflow step records; it neither retains nor promotes its content.
 	var lifecycle string
 	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, fixture.workID).Scan(&lifecycle); err != nil {
 		t.Fatal(err)
@@ -987,37 +986,15 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read work context after close: %v", err)
 	}
-	if closed == nil || len(closed.RequiredReading) != 1 || closed.RequiredReading[0].Reason != readingMarker {
-		t.Fatalf("required reading after close = %+v", closed)
+	if closed != nil && (len(closed.RequiredReading) != 0 || len(closed.Findings) != 0) {
+		t.Fatalf("work context retained after completion = %+v", closed)
 	}
-	statements := map[string]string{}
-	for _, finding := range closed.Findings {
-		statements[finding.Statement] = finding.Status
-	}
-	for _, statement := range []string{findingMarker + "-A", findingMarker + "-B", workerMarker} {
-		if status, ok := statements[statement]; !ok || status != WorkContextFindingStatusReported {
-			t.Fatalf("finding %q after close has status %q (present %v), want reported; findings %v", statement, status, ok, statements)
-		}
-	}
-	rows, err := fixture.store.DatabaseForTesting().Query(`SELECT ? AS kind,declaration_payload FROM work_context_state WHERE work_id=? AND declaration_payload LIKE '%CON887-%'
-UNION ALL SELECT r.kind,f.finding FROM work_context_findings f JOIN effect_receipts r ON r.effect_seq=f.source_seq WHERE f.work_id=? AND f.finding LIKE '%CON887-%'`, WorkflowWorkContextRecorded, fixture.workID, fixture.workID)
-	if err != nil {
+	var retainedRows int
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM work_context_state WHERE work_id=?1)+(SELECT count(*) FROM work_context_findings WHERE work_id=?1)`, fixture.workID).Scan(&retainedRows); err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
-	carrying := map[string]bool{}
-	for rows.Next() {
-		var kind, payload string
-		if err := rows.Scan(&kind, &payload); err != nil {
-			t.Fatal(err)
-		}
-		carrying[kind] = true
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	if len(carrying) != 2 || !carrying[WorkflowWorkContextRecorded] || !carrying["worker.completed"] {
-		t.Fatalf("retained context marker sources = %v, want the declaration and historical report", carrying)
+	if retainedRows != 0 {
+		t.Fatalf("completion retained %d work context rows", retainedRows)
 	}
 	for _, probe := range []string{
 		`SELECT count(*) FROM workflow_context_checkpoints WHERE work_id=? AND (active_unit LIKE '%CON887-%' OR hypothesis LIKE '%CON887-%' OR diagnosis LIKE '%CON887-%' OR strategy LIKE '%CON887-%')`,

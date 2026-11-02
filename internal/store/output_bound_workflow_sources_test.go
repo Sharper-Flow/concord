@@ -355,7 +355,7 @@ func init() {
 			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinStepIntentsTx", target: "pin.NextValidIntents"},
 			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinRecoveryIntentsTx", target: "pin.NextValidIntents"},
 			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinCorrectionRequestIntentsTx", target: "pin.NextValidIntents"},
-		)) // the step-action loop is the guard-capped base; the recovery, correction, and checkpoint routes each append at most one fixed intent; the outside-repair path rebuilds the pin to one intent (workpin.go:256)
+		)) // the step-action loop is the guard-capped base; the recovery, correction, and checkpoint routes each append at most one fixed intent
 	registerOutputBound("/$defs/work_pin/properties/obligations/items/maxLength", evidenceKindLongest)
 	registerOutputBound("/$defs/work_pin/properties/obligations/maxItems", evidenceKindSlice)
 	registerOutputBound("/$defs/work_pin/properties/outstanding_evidence_kinds/maxItems", evidenceKindSlice)

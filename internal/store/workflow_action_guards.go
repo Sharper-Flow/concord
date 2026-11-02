@@ -263,7 +263,7 @@ func workflowEvidenceBindingRecoveryEligibility(ctx context.Context, q queryer, 
 
 // guardRecoveryEvidenceBind admits an outstanding requirement or verification
 // of an unverdicted active check, without reopening an already bound tuple.
-func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage, subject string, evidenceKinds ...string) (bool, error) {
+func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage, subject string) (bool, error) {
 	bindingStep := workflowEvidenceRecoveryBindingStep(definition, currentStep)
 	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
 		return false, nil

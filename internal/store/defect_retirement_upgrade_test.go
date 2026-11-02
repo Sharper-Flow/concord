@@ -201,7 +201,7 @@ func TestDefectRetirementCollectedAbsenceReaders(t *testing.T) {
 			retirementUpgradeExec(t, db, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('repo-alpha-web','proj-web','canonical_path',?,?,?,?)`, repo, repo, retirementUpgradeTime, retirementUpgradeTime)
 			retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
 			seedDefectRetirementWork(t, db, "work-published", test.kind, "completed", test.intent, "proj-web")
-			hash := seedArchivedWorkNote(t, &Store{db: db}, home, commit, notePath, content)
+			hash := seedArchivedWorkNote(t, &Store{db: db}, home, commit, notePath, "work-published", "proj-web")
 			beforeArchive := retirementUpgradeRows(t, db, `SELECT * FROM archived_work ORDER BY rowid`)
 			if _, err := Upgrade(t.Context(), path, nil); err != nil {
 				t.Fatal(err)

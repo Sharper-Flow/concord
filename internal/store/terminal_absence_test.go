@@ -22,7 +22,7 @@ func publishedAbsenceFixture(t *testing.T) (*Store, KnowledgeHome, string, strin
 	}
 	// The archived linkage is the compaction fold's retained row, seeded here
 	// from the note's own parsed metadata.
-	hash := seedArchivedWorkNote(t, s, home, commit, path, content)
+	hash := seedArchivedWorkNote(t, s, home, commit, path, "work-published", "proj-web")
 	return s, home, commit, hash
 }
 
@@ -194,7 +194,7 @@ func TestPublishedAbsenceRefusesAmbiguousCanonicalIdentity(t *testing.T) {
 	commit := commitKnowledgeRepo(t, repo, "second source")
 	home := KnowledgeHome{HomeProjectID: "proj-other", HomeLocatorID: "repo-other", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeLocator(t, s, home)
-	seedArchivedWorkNote(t, s, home, commit, ".concord/docs/work/other.md", note)
+	seedArchivedWorkNote(t, s, home, commit, ".concord/docs/work/other.md", "work-published", "proj-web")
 	err := publishedWorkAbsenceQ(t.Context(), s.db, "work-published", "absence_test")
 	assertFailureKind(t, err, KindAmbiguousScope)
 	if strings.Contains(err.Error(), ".concord/docs/work/") {
@@ -205,12 +205,12 @@ func TestPublishedAbsenceRefusesAmbiguousCanonicalIdentity(t *testing.T) {
 func TestPublishedAbsenceAmbiguityNamesOnlyInScopeHomes(t *testing.T) {
 	s, _, _, _ := publishedAbsenceFixture(t)
 	repo := initKnowledgeRepo(t)
-	note := strings.Replace(canonicalWorkNote("work-published"), "project_ids: [proj-web]", "project_ids: [proj-other]", 1)
+	note := canonicalWorkNoteForProject("work-published", "proj-other")
 	writeKnowledgeFile(t, repo, ".concord/docs/work/other.md", note)
 	commit := commitKnowledgeRepo(t, repo, "second source")
 	home := KnowledgeHome{HomeProjectID: "proj-other", HomeLocatorID: "repo-other", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeLocator(t, s, home)
-	seedArchivedWorkNote(t, s, home, commit, ".concord/docs/work/other.md", note)
+	seedArchivedWorkNote(t, s, home, commit, ".concord/docs/work/other.md", "work-published", "proj-other")
 	err := publishedWorkAbsenceInScopeQ(t.Context(), s.db, "work-published", "prod-alpha", "proj-web", "absence_test")
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindAmbiguousScope || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "repo-alpha-web" {

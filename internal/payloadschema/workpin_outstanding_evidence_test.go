@@ -49,12 +49,24 @@ func TestWorkPinOutstandingEvidenceKindsSchema(t *testing.T) {
 	}
 }
 
-func TestOutsideRepairWorkPinOmitsOutstandingEvidenceKinds(t *testing.T) {
+func TestWorkPinRequiresManagedWorkflowIdentity(t *testing.T) {
+	pin := outstandingEvidencePinFixture()
+	pin["workflow_type"], pin["step"] = "", ""
+	delete(pin, "workflow_definition_digest")
+	delete(pin, "obligations")
+	raw, err := json.Marshal(pin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate("work_pin", raw); err == nil {
+		t.Fatal("managed pin admitted empty workflow identity")
+	}
+}
+
+func TestWorkPinRefusesRetiredOutsideRepairDisposition(t *testing.T) {
 	for _, state := range []string{"active", "completed"} {
 		t.Run(state, func(t *testing.T) {
 			pin := outstandingEvidencePinFixture()
-			delete(pin, "workflow_definition_digest")
-			delete(pin, "obligations")
 			pin["outside_repair_disposition"] = map[string]any{
 				"work_id": "work-outstanding-schema", "reason": "repair",
 				"state": state, "recorded_at": "2026-10-17T00:00:00Z",
@@ -63,17 +75,12 @@ func TestOutsideRepairWorkPinOmitsOutstandingEvidenceKinds(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := Validate("work_pin", raw); err != nil {
-				t.Fatalf("held pin without managed debt: %v", err)
-			}
-			pin["outstanding_evidence_kinds"] = []string{}
-			raw, err = json.Marshal(pin)
-			if err != nil {
-				t.Fatal(err)
-			}
 			if err := Validate("work_pin", raw); err == nil {
-				t.Fatal("held pin admitted managed evidence-debt metadata")
+				t.Fatal("work pin admitted the retired outside-repair disposition")
 			}
 		})
+	}
+	if err := Validate("outside_repair_disposition", json.RawMessage(`{}`)); err == nil {
+		t.Fatal("retired outside_repair_disposition schema is still registered")
 	}
 }

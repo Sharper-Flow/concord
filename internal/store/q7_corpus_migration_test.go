@@ -131,13 +131,13 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 		case WorkflowActionCompleted:
 			return foldWorkflowActionCompleted(ctx, tx, e, nil)
 		case "work.transitioned":
-			return updateWorkLifecycle(ctx, tx, e, p.To, p.Expected, p.Resulting, nil)
+			return updateWorkLifecycle(ctx, tx, e, p.To, p.Expected, p.Resulting)
 		case "work.reopened", "work.reopened_from_superseded":
-			return updateWorkLifecycle(ctx, tx, e, "needed", p.Expected, p.Resulting, nil)
+			return updateWorkLifecycle(ctx, tx, e, "needed", p.Expected, p.Resulting)
 		case "work.superseded":
-			return updateWorkLifecycle(ctx, tx, e, "superseded", p.Expected, p.Resulting, nil)
+			return updateWorkLifecycle(ctx, tx, e, "superseded", p.Expected, p.Resulting)
 		case "workflow.outside_repair_reconciled":
-			return updateWorkLifecycle(ctx, tx, e, "completed", p.Expected, p.Resulting, nil)
+			return updateWorkLifecycle(ctx, tx, e, "completed", p.Expected, p.Resulting)
 		case WorkflowOverlapResolved:
 			target, current, resulting := e.SubjectID, p.Expected, p.Resulting
 			if p.Resolution == "supersedes" {
@@ -151,7 +151,7 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 				current = actual
 			}
 			e.SubjectID = target
-			return updateWorkLifecycle(ctx, tx, e, "superseded", current, resulting, nil)
+			return updateWorkLifecycle(ctx, tx, e, "superseded", current, resulting)
 		case "relation.added":
 			return insertRelation(ctx, tx, e, relationPayload{From: work, To: "q7-corpus-related", Kind: "depends_on"})
 		case "workflow.successor_linked":

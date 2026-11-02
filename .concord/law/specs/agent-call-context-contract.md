@@ -288,10 +288,6 @@ Idempotent request replay returns the committed result; no event replay exists
   the retry miss its original record.
 - Same key + different digest: fail `idempotency_conflict`; create no effect.
 - Original attempt not committed: a retry may execute normally.
-- Original cross-authority attempt partial/pending: return the same durable operation.
-  Before another external step, revalidate its pinned scope and versions; pause
-  for renewed authorization when those no longer apply, never start a second
-   external effect.
 
 Idempotency identity remains reconstructable for as long as the referenced
 recorded mutation or durable operation remains authoritative. No short time to live (TTL) may make a valid

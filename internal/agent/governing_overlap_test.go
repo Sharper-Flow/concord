@@ -18,7 +18,7 @@ func governingOverlapInput(input []byte, kind string) []byte {
 func TestGoverningCaptureStoresActualDeclaredSet(t *testing.T) {
 	for _, declaration := range []string{"omitted", "[]", `["audit_required"]`} {
 		t.Run(declaration, func(t *testing.T) {
-			s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
+			s, service, grant := agentJobsMutationPM1Fixture(t)
 			input := map[string]any{"title": "Capture genuine scope", "value_statement": "Preserve the declaration at capture", "kind": "task", "project_ids": []string{"proj-web"}, "idempotency_key": "declared-capture"}
 			want := "[]"
 			if declaration != "omitted" {
@@ -36,7 +36,7 @@ func TestGoverningCaptureStoresActualDeclaredSet(t *testing.T) {
 					}
 				}
 			}
-			env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
+			env := agentJobsMutationEnvelope(t, s, grant)
 			raw, _ := json.Marshal(input)
 			request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: raw}
 			response := dispatchMutation(t, s, service, request, env)

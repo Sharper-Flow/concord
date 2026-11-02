@@ -52,7 +52,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 	if err := s.RegisterTrustedClient(ctx, neighborClient, neighborKey, "2026-08-09T00:00:00Z"); err != nil {
 		t.Fatal(err)
 	}
-	knowledgeRepo, _ := seedNeighborKnowledgeHome(t, s)
+	seedNeighborKnowledgeHome(t, s)
 	toolRepo := seedNeighborToolRepo(t)
 	if err := s.AddProjectLocator(ctx, "proj", ProjectLocator{ID: "proj-canonical", Kind: LocatorCanonicalPath, Value: toolRepo}, 1); err != nil {
 		t.Fatal(err)
@@ -118,27 +118,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if entityVersion <= 0 {
 				return fmt.Errorf("version=%d", entityVersion)
-			}
-			return nil
-		}},
-		{name: "WorkLifecycle", run: func() error {
-			lifecycle, err := s.WorkLifecycle(ctx, "blocker")
-			if err != nil {
-				return err
-			}
-			if lifecycle == "" {
-				return fmt.Errorf("empty lifecycle")
-			}
-			return nil
-		}},
-		{name: "TerminalWorkVersion", absent: KindProjectionNotFound, run: func() error { _, err := s.TerminalWorkVersion(ctx, "blocker"); return err }},
-		{name: "AcceptedInputsDigest", run: func() error {
-			digest, err := s.AcceptedInputsDigest(ctx, "neighbor-result")
-			if err != nil {
-				return err
-			}
-			if digest == "" {
-				return fmt.Errorf("empty accepted inputs digest")
 			}
 			return nil
 		}},
@@ -328,28 +307,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if len(page.Packs) != 1 {
 				return fmt.Errorf("packs=%d, want 1", len(page.Packs))
-			}
-			return nil
-		}},
-
-		// Knowledge-home scope reads.
-		{name: "ResolveCompactionHome", run: func() error {
-			home, err := s.ResolveCompactionHome(ctx, "blocker")
-			if err != nil {
-				return err
-			}
-			if home.RepoPath != toolRepo {
-				return fmt.Errorf("home=%+v", home)
-			}
-			return nil
-		}},
-		{name: "KnowledgeHomeForLocator", run: func() error {
-			home, err := s.KnowledgeHomeForLocator(ctx, "home", "neighbor-locator", "")
-			if err != nil {
-				return err
-			}
-			if home.RepoPath != knowledgeRepo {
-				return fmt.Errorf("home=%+v", home)
 			}
 			return nil
 		}},

@@ -97,6 +97,18 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 		switch table {
 		case "schema", "schema_migrations", "store_revision", "workflow_contract_law_revisions":
 			continue
+		case "outside_repair_dispositions", "outside_repair_reconciliations":
+			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
+				t.Errorf("retired table %s survives: %v", table, rows)
+			}
+			continue
+		case "durable_operations":
+			digest := "sha256:" + strings.Repeat("d", 64)
+			wantOperations := [][]any{{"operation:retained", int64(1), "work-upgrade-from", "workflow.break_fix", digest, "repair", "internal_sqlite", digest, "{}", "completed", `{ "retained": true }`, "[]", "[]", "operator-upgrade", "request:retained", retirementUpgradeTime, retirementUpgradeTime, digest}}
+			if got := retirementUpgradeRows(t, db, `SELECT op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest FROM durable_operations ORDER BY rowid`); !reflect.DeepEqual(got, wantOperations) {
+				t.Errorf("retained completed operation changed: got %v, want %v", got, wantOperations)
+			}
+			continue
 		case "workflow_architecture_bindings":
 			want = retainedBindings
 		}

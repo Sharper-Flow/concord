@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"strings"
 )
 
@@ -143,108 +142,6 @@ func workExistsCore(ctx context.Context, q queryer, id string) (bool, error) {
 	var exists bool
 	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_items WHERE id=?)`, id).Scan(&exists)
 	return exists, err
-}
-
-// ResolveCompactionHome applies PM6's deterministic home order: a unique
-// Product-designated home wins; otherwise the unique primary work Project's
-// canonical path locator is used. Product-designated home candidates come from
-// the primary membership's Product alone: the primary Project's Product owns
-// the compaction home, so a secondary membership in another Product must not
-// widen the candidate set into an ambiguity. Multiple candidates are ambiguous
-// and never silently selected.
-func (s *Store) ResolveCompactionHome(ctx context.Context, workID string) (KnowledgeHome, error) {
-	if err := publishedWorkAbsenceQ(ctx, s.db, workID, "compaction_home"); err != nil {
-		return KnowledgeHome{}, err
-	}
-	return resolveCompactionHome(ctx, s.db, workID)
-}
-
-func resolveCompactionHome(ctx context.Context, q queryer, workID string) (KnowledgeHome, error) {
-	if workID == "" {
-		return KnowledgeHome{}, newFailure(KindInvalidOperation, "compaction_home", "work ID is empty", false, "supply a terminal work ID")
-	}
-	type candidate struct{ project, locator, value string }
-	var productHomes []candidate
-	rows, err := q.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id,pl.locator_value FROM product_knowledge_homes ph JOIN project_locators pl ON pl.locator_id=ph.locator_id AND pl.kind='canonical_path' WHERE ph.product_id IN (SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary') ORDER BY ph.project_id,ph.locator_id`, workID)
-	if err != nil {
-		return KnowledgeHome{}, wrapFailure(KindUnavailable, "compaction_home", "cannot resolve Product knowledge homes", true, "retry once the database is readable", err)
-	}
-	for rows.Next() {
-		var c candidate
-		if err := rows.Scan(&c.project, &c.locator, &c.value); err != nil {
-			rows.Close()
-			return KnowledgeHome{}, err
-		}
-		productHomes = append(productHomes, c)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return KnowledgeHome{}, err
-	}
-	if err := rows.Close(); err != nil {
-		return KnowledgeHome{}, err
-	}
-	if len(productHomes) == 1 {
-		c := productHomes[0]
-		return KnowledgeHome{HomeProjectID: c.project, HomeLocatorID: c.locator, RepoPath: c.value, HeadRef: "HEAD"}, nil
-	}
-	if len(productHomes) > 1 {
-		candidates := make([]string, 0, len(productHomes))
-		for _, c := range productHomes {
-			candidates = append(candidates, c.project+"/"+c.locator)
-		}
-		return KnowledgeHome{}, newAmbiguousScopeFailure("compaction_home", "multiple Product knowledge homes are eligible", "designate one Product knowledge home", candidates)
-	}
-	rows, err = q.QueryContext(ctx, `SELECT wp.project_id,pl.locator_id,pl.locator_value FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary' ORDER BY wp.project_id,pl.locator_id`, workID)
-	if err != nil {
-		return KnowledgeHome{}, wrapFailure(KindUnavailable, "compaction_home", "cannot resolve the primary Project locators", true, "retry once the database is readable", err)
-	}
-	var primaryLocators []candidate
-	for rows.Next() {
-		var c candidate
-		if err := rows.Scan(&c.project, &c.locator, &c.value); err != nil {
-			rows.Close()
-			return KnowledgeHome{}, err
-		}
-		primaryLocators = append(primaryLocators, c)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return KnowledgeHome{}, err
-	}
-	if err := rows.Close(); err != nil {
-		return KnowledgeHome{}, err
-	}
-	if len(primaryLocators) == 0 {
-		return KnowledgeHome{}, newFailure(KindUnknownScope, "compaction_home", "terminal work has no eligible canonical home", false, "designate a Product home or primary Project locator")
-	}
-	if len(primaryLocators) > 1 {
-		candidates := make([]string, 0, len(primaryLocators))
-		for _, c := range primaryLocators {
-			candidates = append(candidates, c.project+"/"+c.locator)
-		}
-		return KnowledgeHome{}, newAmbiguousScopeFailure("compaction_home", "primary work membership has multiple canonical locators", "leave exactly one eligible primary Project locator", candidates)
-	}
-	primary := primaryLocators[0]
-	return KnowledgeHome{HomeProjectID: primary.project, HomeLocatorID: primary.locator, RepoPath: primary.value, HeadRef: "HEAD"}, nil
-}
-
-func (s *Store) KnowledgeHomeForLocator(ctx context.Context, projectID, locatorID, headRef string) (KnowledgeHome, error) {
-	return knowledgeHomeForLocator(ctx, s.db, projectID, locatorID, headRef)
-}
-
-func knowledgeHomeForLocator(ctx context.Context, q queryer, projectID, locatorID, headRef string) (KnowledgeHome, error) {
-	var value string
-	if err := q.QueryRowContext(ctx, `SELECT locator_value FROM project_locators WHERE project_id=? AND locator_id=? AND kind='canonical_path'`, projectID, locatorID).Scan(&value); err != nil {
-		if err == sql.ErrNoRows {
-			return KnowledgeHome{}, newFailure(KindUnknownScope, "compaction_home", "recorded knowledge locator no longer exists", false, "restore the recorded canonical Project locator")
-		}
-		return KnowledgeHome{}, err
-	}
-	if headRef == "" {
-		headRef = "HEAD"
-	}
-	return KnowledgeHome{HomeProjectID: projectID, HomeLocatorID: locatorID, RepoPath: value, HeadRef: headRef}, nil
 }
 
 // resolveKnowledgeQueryHome resolves the Product's one designated canonical

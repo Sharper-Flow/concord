@@ -90,7 +90,7 @@ func TestDurableOperationsRepairPreservesRecordedDigests(t *testing.T) {
 		t.Fatal("the historical database is missing durable_operations.contract_digest")
 	}
 
-	if _, err := db.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest) VALUES('op-1',1,'work-1','workflow.implementation',1,'proposal','internal_sqlite','sha256:a','{}','principal','request','2026-01-01T00:00:00Z','sha256:kept')`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,result_kind) VALUES('op-1',1,'work-1','workflow.implementation',1,'proposal','internal_sqlite','sha256:a','{}','principal','request','2026-01-01T00:00:00Z','sha256:kept','completed')`); err != nil {
 		t.Fatalf("seed durable operation: %v", err)
 	}
 	if err := Migrate(ctx, db); err != nil {

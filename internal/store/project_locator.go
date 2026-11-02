@@ -307,27 +307,6 @@ func NormalizeProjectLocator(kind LocatorKind, value string) (string, error) {
 	}
 }
 
-func (s *Store) ProjectLocators(ctx context.Context, projectID string) ([]ProjectLocator, error) {
-	return projectLocators(ctx, s.db, projectID)
-}
-
-func projectLocators(ctx context.Context, q queryer, projectID string) ([]ProjectLocator, error) {
-	rows, err := q.QueryContext(ctx, `SELECT locator_id,project_id,kind,locator_value,normalized_value FROM project_locators WHERE project_id=? ORDER BY kind,normalized_value,locator_id`, projectID)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "project_locator", "cannot read Project locators", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	var out []ProjectLocator
-	for rows.Next() {
-		var l ProjectLocator
-		if err := rows.Scan(&l.ID, &l.ProjectID, &l.Kind, &l.Value, &l.NormalizedValue); err != nil {
-			return nil, err
-		}
-		out = append(out, l)
-	}
-	return out, rows.Err()
-}
-
 func (s *Store) ResolveProject(ctx context.Context, directory, worktree string) (ProjectResolution, error) {
 	return s.ResolveProjectWithRunner(ctx, directory, worktree, ExecGitRunner{})
 }

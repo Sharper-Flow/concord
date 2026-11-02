@@ -211,7 +211,7 @@ func TestRoutineCoordination(t *testing.T) {
 			t.Fatal(err)
 		}
 		var nonAssertionEventID string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT r.event_id FROM effect_receipts r JOIN workflow_phase_exits x ON x.exit_seq=r.effect_seq WHERE x.work_id=? AND x.action_id='confirm_premise' AND r.delivery_assertion=0 ORDER BY r.effect_seq LIMIT 1`, workID).Scan(&nonAssertionEventID); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT event_id FROM effect_receipts WHERE subject_id=? AND kind=? AND delivery_assertion=0 ORDER BY effect_seq LIMIT 1`, workID, WorkflowActionCompleted).Scan(&nonAssertionEventID); err != nil {
 			t.Fatal(err)
 		}
 

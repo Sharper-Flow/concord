@@ -229,7 +229,7 @@ jobs:
       - name: Test migration compatibility classifier
         run: python3 scripts/test-migration-compatibility.py
       - name: Check vocabulary generators
-        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-relation-vocabulary.py --check && python3 scripts/generate-durable-tier-budget.py --check
+        run: python3 scripts/generate-work-kinds.py --check && python3 scripts/generate-native-run-statuses.py --check && python3 scripts/generate-relation-vocabulary.py --check
       - name: Validate native-run vocabulary
         run: python3 scripts/check-native-run-statuses.py
       - name: Test native Go result artifacts

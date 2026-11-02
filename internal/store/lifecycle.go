@@ -433,8 +433,6 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *w
 		return newFailure(KindInvalidPayload, "fold_event", "work.transitioned payload has invalid lifecycle fields", false,
 			"supply accepted states and a non-empty reason")
 	}
-	// Resolve the hold before ordinary workflow gates can fail on the state
-	// under repair. The lifecycle writer rechecks the same admission boundary.
 	current, err := readWork(ctx, tx, event.SubjectID)
 	if err != nil {
 		return err
@@ -450,7 +448,7 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *w
 	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
-	if err := updateWorkLifecycle(ctx, tx, event, payload.To, current.version, payload.ResultingVersion, nil); err != nil {
+	if err := updateWorkLifecycle(ctx, tx, event, payload.To, current.version, payload.ResultingVersion); err != nil {
 		return err
 	}
 	if isTerminalLifecycle(payload.To) {
@@ -568,7 +566,7 @@ func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID); err != nil {
 		return err
 	}
-	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion, nil)
+	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
 }
 
 func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -632,7 +630,7 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := insertRelation(ctx, tx, event, relationPayload{From: payload.Successor, To: payload.Superseded, Kind: "supersedes"}); err != nil {
 		return err
 	}
-	if err := updateWorkLifecycle(ctx, tx, event, "superseded", predecessor.version, payload.ResultingVersion, nil); err != nil {
+	if err := updateWorkLifecycle(ctx, tx, event, "superseded", predecessor.version, payload.ResultingVersion); err != nil {
 		return err
 	}
 	if payload.SuccessorVersion != 0 && payload.SuccessorResultingVer != 0 {
@@ -709,7 +707,7 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 			// Historical composite reopen events carried a replacement label as
 			// caller metadata only. New mutation events include both endpoint
 			// versions and create the replacement edge below.
-			return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion, nil)
+			return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
 		}
 		if err := replaceSupersessionTx(ctx, tx, event, payload); err != nil {
 			return err
@@ -718,7 +716,7 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID, successor, payload.Replacement); err != nil {
 		return err
 	}
-	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion, nil)
+	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
 }
 
 func replaceSupersessionTx(ctx context.Context, tx *sql.Tx, event Event, payload workReopenedFromSupersededPayload) error {
@@ -964,7 +962,7 @@ func validateWorkVersion(subjectID string, current, expected, resulting int64) e
 	return nil
 }
 
-func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, current, resulting int64, scope *writeScope) error {
+func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, current, resulting int64) error {
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	var terminalTime any
 	if isTerminalLifecycle(lifecycle) {

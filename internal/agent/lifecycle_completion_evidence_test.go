@@ -15,8 +15,8 @@ import (
 // "completed" must therefore carry that evidence in evidence_refs, not only
 // in the transition event payload.
 func TestLifecycleCompletionEvidenceRefs(t *testing.T) {
-	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
+	s, service, grant := agentJobsMutationPM1Fixture(t)
+	env := agentJobsMutationEnvelope(t, s, grant)
 
 	_, preVersion := readWorkFromStore(t, s, "work-cross")
 	idempotencyKey := fmt.Sprintf("evidence-refs-cross-%d", preVersion)

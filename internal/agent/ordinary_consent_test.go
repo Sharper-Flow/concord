@@ -12,8 +12,8 @@ import (
 func TestOrdinaryTerminalLifecycleNeedsNoConsent(t *testing.T) {
 	for _, target := range []string{"completed", "cancelled"} {
 		t.Run(target, func(t *testing.T) {
-			s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-			env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
+			s, service, grant := agentJobsMutationPM1Fixture(t)
+			env := agentJobsMutationEnvelope(t, s, grant)
 			_, version := readWorkFromStore(t, s, "work-cross")
 			input := []byte(fmt.Sprintf(`{"work_id":"work-cross","expected_version":%d,"target":%q,"reason":"obsolete or verified work","idempotency_key":"ordinary-terminal","evidence":[{"kind":"verification","authority":"verifier","locator_kind":"test","locator":"verification-pass"}]}`, version, target))
 			request := InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}

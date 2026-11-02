@@ -9,6 +9,8 @@ package pm1fixture
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -87,7 +89,7 @@ type Event struct {
 	EvidenceRefs []string `json:"evidence_refs"`
 }
 
-// GitKnowledge carries the resolved compaction home of the seeded corpus.
+// GitKnowledge carries the knowledge home of the seeded corpus.
 type GitKnowledge struct {
 	Home store.KnowledgeHome
 }
@@ -369,7 +371,8 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: init knowledge repo: %w", err)
 	}
 	workPath := ".concord/docs/work/2026-08-03-auth-release.md"
-	if err := writeKnowledgeFile(repo, workPath, canonicalWorkNote("work-done", "2026-08-03T12:00:00Z")); err != nil {
+	workNote := canonicalWorkNote("work-done", "2026-08-03T12:00:00Z")
+	if err := writeKnowledgeFile(repo, workPath, workNote); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: write work note: %w", err)
 	}
 	if err := writeKnowledgeFile(repo, ".concord/law/decisions/CD-0002-state-authority.md", canonicalKnowledgeNote("CD-0002", "product-root:fixture-product")); err != nil {
@@ -386,26 +389,23 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 	if err := authorizeKnowledgeProductHome(ctx, s, "prod-alpha", home); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: authorize product home: %w", err)
 	}
-	note, err := store.VerifyCommittedNote(ctx, repo, commit, workPath, "")
-	if err != nil {
-		return GitKnowledge{}, err
-	}
-	lessonTags, _ := json.Marshal(note.LessonTags)
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?); DELETE FROM write_guard`, note.ID, note.Kind, note.Title, note.CompletedAt, note.OutcomeTag, string(lessonTags), note.TerminalState, note.Priority, note.Summary, note.SuccessorID, home.HomeProjectID, home.HomeLocatorID, note.NotePath, note.CommitOID, note.ContentHash); err != nil {
+	sum := sha256.Sum256([]byte(workNote))
+	contentHash := "sha256:" + hex.EncodeToString(sum[:])
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('work-done','work_note','Auth release','2026-08-03T12:00:00Z','shipped','["sqlite","state-authority"]','completed',2,'Bounded summary','',?,?,?,?,?); DELETE FROM write_guard`, home.HomeProjectID, home.HomeLocatorID, workPath, commit, contentHash); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: seed historical locator: %w", err)
 	}
 	for _, scope := range []struct {
 		table, column string
 		ids           []string
 	}{
-		{"archived_work_products", "product_id", note.ProductIDs},
-		{"archived_work_projects", "project_id", note.ProjectIDs},
-		{"archived_work_domains", "domain_id", note.DomainIDs},
-		{"archived_work_tags", "tag_id", note.TagIDs},
+		{"archived_work_products", "product_id", []string{"prod-alpha"}},
+		{"archived_work_projects", "project_id", []string{"proj-web"}},
+		{"archived_work_domains", "domain_id", []string{"auth"}},
+		{"archived_work_tags", "tag_id", []string{"auth", "release"}},
 	} {
 		for _, id := range scope.ids {
 			query := "INSERT INTO write_guard VALUES(1); INSERT INTO " + scope.table + "(home_project_id,home_locator_id,work_id," + scope.column + ") VALUES(?,?,?,?); DELETE FROM write_guard"
-			if _, err := s.DatabaseForTesting().ExecContext(ctx, query, home.HomeProjectID, home.HomeLocatorID, note.ID, id); err != nil {
+			if _, err := s.DatabaseForTesting().ExecContext(ctx, query, home.HomeProjectID, home.HomeLocatorID, "work-done", id); err != nil {
 				return GitKnowledge{}, fmt.Errorf("pm1fixture: seed historical scope: %w", err)
 			}
 		}
@@ -530,31 +530,21 @@ func trimNewline(s string) string {
 	return s
 }
 
+// canonicalWorkNote builds the committed historical work note the fixture's
+// archived locator names.
 func canonicalWorkNote(id, completed string) string {
-	return CanonicalWorkNote(id, completed, "completed", "proj-web")
-}
-
-// CanonicalWorkNote builds the canonical durable work note for a terminal work
-// item. terminalState and project vary because compaction verifies the note's
-// terminal state against the work item's own lifecycle, so publishing a note for
-// cancelled work needs a note that says cancelled.
-func CanonicalWorkNote(id, completed, terminalState, project string) string {
-	outcome := "shipped"
-	if terminalState != "completed" {
-		outcome = "abandoned"
-	}
 	return "---\n" +
 		"concord_work_id: " + id + "\n" +
 		"work_type: implementation\n" +
 		"title: Auth release\n" +
 		"completed_at: " + completed + "\n" +
-		"outcome_tag: " + outcome + "\n" +
+		"outcome_tag: shipped\n" +
 		"lesson_tags: [sqlite, state-authority]\n" +
-		"terminal_state: " + terminalState + "\n" +
+		"terminal_state: completed\n" +
 		"priority: 2\n" +
 		"summary: Bounded summary\n" +
 		"product_ids: [prod-alpha]\n" +
-		"project_ids: [" + project + "]\n" +
+		"project_ids: [proj-web]\n" +
 		"domain_ids: [auth]\n" +
 		"tag_ids: [auth, release]\n" +
 		"---\n\nDurable note.\n"

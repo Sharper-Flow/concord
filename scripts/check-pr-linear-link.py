@@ -10,8 +10,13 @@ change issue status outside that route, so this check refuses one. Linear
 parses a closing magic word in the pull request title as well as the body
 (https://linear.app/docs/github), so both surfaces get the same scan.
 
-The branch name marks Concord-managed work, not the author. Linkage applies
-only to `work/work-*`; other branches have no linkage requirement.
+The closing-word refusal applies to every pull request, whatever its branch:
+Linear parses a closing word before an issue key in any pull request title
+or body and ignores a negation before the word, and a squash merge carries
+both into the commit message, so a slice worded `does not complete ENG-123`
+moves ENG-123 to Done at merge. The Related-to linkage line stays scoped to
+managed work: the branch name marks it, and only `work/work-*` pull
+requests must carry the line; other branches have no linkage requirement.
 
 On `pull_request` events the body and head branch come from the event
 payload. A `merge_group` payload names only the queue branch
@@ -89,7 +94,9 @@ def closing_refusal(where: str, phrases: list[tuple[str, str]]) -> tuple[bool, s
     return False, (
         f"the {where} has the closing phrase{'' if len(phrases) == 1 else 's'} {quoted}, "
         f"which Linear treats as closing {' and '.join(keys)} if such an issue exists; "
-        "CD-0213 D5 leaves issue status changes to the Linear MCP server or the operator. "
+        "CD-0213 D5 leaves issue status changes to the Linear MCP server or the operator, "
+        "so never put a closing word directly before an issue key, not even to disclaim "
+        "completion: Linear ignores a negation before the word. "
         "This check cannot see which Linear teams and issues exist, so it treats any "
         "<TEAM>-<n> token directly after a closing word as an issue key. If the token is "
         "ordinary text, put another word between the closing word and the token, or drop "
@@ -100,15 +107,17 @@ def closing_refusal(where: str, phrases: list[tuple[str, str]]) -> tuple[bool, s
 
 def check_pr_link(head_ref: str, title: str, body: str) -> tuple[bool, str]:
     """Check one pull request. Returns (ok, detail)."""
-    if not WORK_BRANCH.match(head_ref or ""):
-        return True, f"head branch {head_ref!r} is not a Concord work branch; no linkage required"
-    # Linear parses closing magic words in the PR title as well as the body,
-    # so a work-branch PR titled 'Fixes ENG-123' would change issue status without
-    # the Linear MCP server or the operator. Both surfaces get the same refusal.
+    # Linear parses closing magic words in any pull request's title and body,
+    # and a squash merge carries both into the commit message, so a PR worded
+    # 'Fixes ENG-123' on any branch would change issue status without the
+    # Linear MCP server or the operator. Both surfaces get the same refusal
+    # on every pull request, whatever the head branch.
     for where, text in (("title", title), ("body", body)):
         closing = closing_phrases(text)
         if closing:
             return closing_refusal(where, closing)
+    if not WORK_BRANCH.match(head_ref or ""):
+        return True, f"head branch {head_ref!r} is not a Concord work branch; no linkage required"
     key = related_key(body)
     if key is None:
         return False, (

@@ -104,6 +104,11 @@ witness and never skip. A conformance test replays the real engine on
 witness paths and compares the loaded state with the abstract successor at
 every step, so the model cannot drift from the derivation.
 
+Duplicate active contracts are a corrupt projection, not a well-formed public
+authoring state. Refusal checks keep that projection readable without selecting
+a contract or granting contract-dependent authority, and name verified restore.
+The liveness model does not invent a workflow move for that external recovery.
+
 No runtime guard enforces the law. The law binds design and review through
 the checks alone. The model states which admission families it derives; an
 exit the model cannot prove is not counted, so the checks fail rather than

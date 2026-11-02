@@ -58,6 +58,10 @@ admits its engine-owned recovery action without a duplicate root declaration.
 Same-step and late-evidence recovery keep their own declared owners and do not
 gain a guessed cross-step route.
 
+The accepted-Review return in
+[workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates)
+uses the same declared producer target. It adds no trigger or guessed target.
+
 ### D2. Registration refuses missing or ambiguous routes
 
 A step recording verdicts, confirming a premise or hosting a late verdict needs
@@ -109,7 +113,10 @@ a retained fresh unhealthy verdict still needs its declared correction.
 
 Contract content changes follow [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates).
 An update does not manufacture fresh production or bypass an unhealthy verdict's
-declared correction route.
+declared correction route. When the update invalidates accepted Review,
+`request_correction` records the bounded return for fresh Review under that
+section. It retains proof provenance and consumes the source report once;
+neither the update nor return supplies fresh proof.
 
 ### D7. Liveness and conformance cover every declared route
 

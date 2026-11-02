@@ -33,6 +33,7 @@ func TestContractRevisionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 	if step := currentStep(t, s, workID); step != "release" {
 		t.Fatalf("revision reset release to %s", step)
 	}
+	bindCompletionClosure(t, s, workID, f.owner)
 	completion := workflowCompletedFixtureEvent("cd31-terminal", workID, actor, actor, readWorkVersion(t, s, workID))
 	err = CompleteWorkflow(t.Context(), s, completion)
 	var failure *Failure

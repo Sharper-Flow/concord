@@ -69,6 +69,11 @@ question is open for `confirm_premise`, and `workflowAdmit` refuses
 The preflight, the work pin, and execution read the same refusal. An
 unreadable read fails admission.
 
+The folded prerequisites also include current ready Review for forward
+confirmation in delivery-producing families, as defined in
+[workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates).
+This does not block an existing unhealthy-verdict failure-edge return.
+
 ### D2. Review recording checks its payload; delivery checks current state
 
 `record_review` validates its typed subject-bound report and dependencies.

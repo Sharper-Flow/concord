@@ -225,6 +225,10 @@ func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer,
 	if err != nil {
 		return nil, err
 	}
+	consumed, err := workflowReviewCorrectionConsumed(ctx, q, workID, seq, 0)
+	if err != nil || consumed {
+		return nil, err
+	}
 	return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{state.Review.Accepted.ReportRef}, SourceEventID: state.Review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: "the accepted current Review no longer covers the current candidate or depended-on revisions", Strategy: workflowReviewRecovery(fmt.Sprintf("return to step %q", target), "covering the current candidate")}, nil
 }
 
@@ -255,7 +259,7 @@ func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q querye
 		if err != nil {
 			return nil, workflowCorrectionMissingNone, err
 		}
-		if review.Accepted != nil && review.Candidate != nil && review.Accepted.Report.OutputCandidate == *review.Candidate && review.DependenciesCurrent && review.Accepted.Report.Disposition == "correction_required" {
+		if workflowReviewNeedsProducerReturn(review) {
 			predicates, err := workflowActiveContractPredicateIDs(ctx, q, workID, subject)
 			if err != nil {
 				return nil, workflowCorrectionMissingNone, err
@@ -271,7 +275,11 @@ func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q querye
 			if consumed {
 				return nil, workflowCorrectionMissingFreshReview, nil
 			}
-			return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{review.Accepted.ReportRef}, SourceEventID: review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: "the accepted current Review requires correction", Strategy: workflowReviewRecovery("perform the declared corrective work", "covering the corrected candidate")}, workflowCorrectionMissingNone, nil
+			diagnosis := "the accepted current Review requires correction"
+			if !review.DependenciesCurrent || review.Accepted.Report.OutputCandidate != *review.Candidate {
+				diagnosis = "the accepted Review no longer covers the current candidate or depended-on revisions"
+			}
+			return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{review.Accepted.ReportRef}, SourceEventID: review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: diagnosis, Strategy: workflowReviewRecovery("perform the declared corrective work", "covering the corrected candidate")}, workflowCorrectionMissingNone, nil
 		}
 	}
 	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
@@ -296,6 +304,11 @@ func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q querye
 		return nil, workflowCorrectionMissingNone, nil
 	}
 	return nil, workflowCorrectionMissingVerdict, nil
+}
+
+func workflowReviewNeedsProducerReturn(review WorkflowReviewState) bool {
+	return review.Accepted != nil && review.Candidate != nil &&
+		(!review.DependenciesCurrent || review.Accepted.Report.OutputCandidate != *review.Candidate || review.Accepted.Report.Disposition == "correction_required")
 }
 
 func workflowReviewReportSequence(ctx context.Context, q queryer, workID, reportRef string) (int64, error) {

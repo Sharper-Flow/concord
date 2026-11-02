@@ -110,7 +110,7 @@ func init() {
 	// principal/client/agent refs, project_locators.locator_id, agent_grants
 	// refs) store values that entered through the same admission or through
 	// smaller full-string guards; the actor fold re-guards every stored ref
-	// at 128 bytes (internal/store/workflow.go:foldWorkflowActorRecorded,
+	// at 128 bytes (internal/store/workflow.go:persistWorkflowActorTuple,
 	// workflowString at 128), so their prefix CHECKs prove nothing and are
 	// not cited. The remaining writers are all strictly smaller: Go-minted
 	// shapes (work-<24hex>, bootstrap-<48hex>, mutation-<24hex>, obs:
@@ -166,7 +166,7 @@ func init() {
 	// Stored driving-session identities have their own character-bound node.
 	// Workflow references retain the admission rule shared with ValidReference.
 	// The session writer is proven through the full-string Go guard, not the
-	// column's TEXT CHECK: foldWorkflowActorRecorded re-guards the stored
+	// column's TEXT CHECK: persistWorkflowActorTuple re-guards the stored
 	// session ref with workflowString(p.SessionRef, 128) (measured with
 	// len(), so 128 bytes) before the one workflow_actors insert, and the
 	// derivation below fails when the guard, its measurement, or the stored
@@ -439,22 +439,22 @@ func TestSharedSessionRefFoldBound(t *testing.T) {
 		"\treturn len(value) >= workflowStringMinBytes && len(value) <= upper\n}\n"
 	guardMutantDecl := "func workflowString(value string, upper int) bool {\n" +
 		"\treturn utf8.RuneCountInString(value) >= workflowStringMinBytes && utf8.RuneCountInString(value) <= upper\n}\n"
-	foldDecl := "func foldWorkflowActorRecorded(ctx context.Context, tx *sql.Tx, event Event) error {\n" +
+	foldDecl := "func persistWorkflowActorTuple(ctx context.Context, tx *sql.Tx, event Event, p workflowActorRecordedPayload) error {\n" +
 		"\tif !workflowString(p.SessionRef, 128) {\n" +
 		"\t\treturn nil\n" +
 		"\t}\n" +
 		"\t_, err := tx.ExecContext(ctx, `INSERT INTO workflow_actors(actor_ref,session_ref) VALUES(?,?)`, p.ActorRef, p.SessionRef)\n" +
 		"\treturn err\n}\n"
-	foldNoGuardDecl := "func foldWorkflowActorRecorded(ctx context.Context, tx *sql.Tx, event Event) error {\n" +
+	foldNoGuardDecl := "func persistWorkflowActorTuple(ctx context.Context, tx *sql.Tx, event Event, p workflowActorRecordedPayload) error {\n" +
 		"\t_, err := tx.ExecContext(ctx, `INSERT INTO workflow_actors(actor_ref,session_ref) VALUES(?,?)`, p.ActorRef, p.SessionRef)\n" +
 		"\treturn err\n}\n"
-	foldCapMutantDecl := "func foldWorkflowActorRecorded(ctx context.Context, tx *sql.Tx, event Event) error {\n" +
+	foldCapMutantDecl := "func persistWorkflowActorTuple(ctx context.Context, tx *sql.Tx, event Event, p workflowActorRecordedPayload) error {\n" +
 		"\tif !workflowString(p.SessionRef, 256) {\n" +
 		"\t\treturn nil\n" +
 		"\t}\n" +
 		"\t_, err := tx.ExecContext(ctx, `INSERT INTO workflow_actors(actor_ref,session_ref) VALUES(?,?)`, p.ActorRef, p.SessionRef)\n" +
 		"\treturn err\n}\n"
-	foldStoreMutantDecl := "func foldWorkflowActorRecorded(ctx context.Context, tx *sql.Tx, event Event) error {\n" +
+	foldStoreMutantDecl := "func persistWorkflowActorTuple(ctx context.Context, tx *sql.Tx, event Event, p workflowActorRecordedPayload) error {\n" +
 		"\tif !workflowString(p.SessionRef, 128) {\n" +
 		"\t\treturn nil\n" +
 		"\t}\n" +

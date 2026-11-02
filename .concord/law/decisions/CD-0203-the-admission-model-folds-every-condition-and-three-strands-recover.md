@@ -57,7 +57,10 @@ it hosts.
 ### D2. Premise confirmation uses the authenticated coordinator
 
 The active contract's coordinator confirmation records directly. Admission
-still requires the recorded investigation and verdict evidence. Work-pin,
+requires the recorded investigation and verdict evidence, and forward
+confirmation in delivery-producing families requires the current ready Review
+under [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates).
+Existing unhealthy-verdict failure returns keep their admission. Work-pin,
 continuity, and action admission use the same folded prerequisites.
 
 ### D3. The checks derive every admission condition

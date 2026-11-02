@@ -304,8 +304,30 @@ evidence solely to change the plan.
 Tests of ordinary contract validation, atomic refusals, provenance retention,
 unchanged-proof reuse, changed-criterion or candidate validity, current law
 pins, operator approval boundaries, and completion remain required.
-`request_correction` keeps its existing unhealthy-verdict recovery obligations;
-this section changes neither that route nor workflow stage or step-plan policy.
+`request_correction` keeps its existing unhealthy-verdict recovery obligations.
+Workflow stage and step-plan policy otherwise remain unchanged.
+
+An ordinary update can invalidate an accepted Review without changing the
+step. When that Review no longer covers the current candidate or depended-on
+criterion or architecture content, the authenticated coordinator may use
+`request_correction` to return to the existing declared producer. This return
+is available at the final nonterminal step as well as earlier steps with that
+declared return. It requires one active contract, the recorded accepted Review,
+the current candidate, diagnosis, strategy, affected predicates and bound
+evidence. It records the exact source report and consumes it at most once;
+another Review-based return requires a fresh accepted report.
+
+The update itself never moves the step. The explicit return retains prior
+evidence and Review provenance, supplies no current proof and accepts no
+criterion. Fresh Review follows the existing producer and evaluator steps;
+no late `record_review` admission or completed-instance reopening is added.
+Completion still requires current candidate-bound proof and a ready Review
+without remaining obligations or open in-scope blocking findings.
+
+In delivery-producing families, forward premise confirmation requires the
+same current ready Review as completion. An existing unhealthy-verdict
+failure-edge return keeps its existing admission; it does not advance to the
+final step or claim that the verdict became healthy.
 
 ## 5. V15 projections, constraints, and state tables
 

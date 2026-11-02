@@ -609,8 +609,9 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	const workID = "corrected-contract-liveness"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
-	current := workContextFixture{store: s, workID: workID, owner: fixture.owner, operator: fixture.operator}
-	journey := &candidateJourney{fixture: current, s: s, workID: workID, repo: reviewFixtureDirectory(t, s, workID), acceptor: fixture.owner}
+	journey := pReturnClaim(t, fixture, workID)
+	journey.acceptor = fixture.owner
+	current := journey.fixture
 	if err := reviseContractRecord(t, s, workID, fixture.owner, pContractSuccessor(t, s, workID, "The repaired subject has current proof."), readWorkVersion(t, s, workID), nil); err != nil {
 		t.Fatalf("revise the contract at the producer step: %v", err)
 	}
@@ -618,8 +619,7 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 		t.Fatalf("instance after the contract revision = %q, want repair", step)
 	}
 
-	// Source-qualified context: the declared reading binds an original
-	// source commit the correction returned to.
+	// Source-qualified context binds an immutable source commit.
 	const sourceProject = "liveness-source"
 	var productVersion int64
 	if err := s.db.QueryRow(`SELECT version FROM products WHERE id='product'`).Scan(&productVersion); err != nil {
@@ -628,7 +628,7 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{
 		projectCreatedEvent(sourceProject, "create-"+sourceProject),
 		operationEvent("add-"+sourceProject, "product_project.added", SubjectProduct, "product", map[string]any{
-			"product_id": "product", "project_id": sourceProject, "role": "secondary", "reason": "the corrected contract's pinned reading",
+			"product_id": "product", "project_id": sourceProject, "role": "secondary", "reason": "the revised contract's pinned reading",
 			"expected_version": productVersion, "resulting_version": productVersion + 1,
 		}),
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, sourceProject): 0, VersionRef(SubjectProduct, "product"): productVersion}}); err != nil {
@@ -645,16 +645,16 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	contextPayload, err := json.Marshal(map[string]any{
 		"required_reading": []map[string]any{reading},
 		"finding_refs":     []string{},
-		"context_findings": []map[string]any{{"kind": "direction", "statement": "the corrected contract repairs the returned subject", "subject_ref": "internal/store/workflow.go", "evidence_refs": []string{"internal/store/workflow.go"}, "domain_id": "product-root:product", "product_wide_rationale": "the finding is product-wide"}},
+		"context_findings": []map[string]any{{"kind": "direction", "statement": "the revised contract requires current repair proof", "subject_ref": "internal/store/workflow.go", "evidence_refs": []string{"internal/store/workflow.go"}, "domain_id": "product-root:product", "product_wide_rationale": "the finding is product-wide"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := runVerdictActionAs(t, s, workID, "record_work_context", contextPayload, 0, fixture.owner); err != nil {
-		t.Fatalf("source-qualified work context at the returned repair step: %v", err)
+		t.Fatalf("source-qualified work context at the repair step: %v", err)
 	}
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
-		t.Fatalf("the derived repair start after the producer return: %v", err)
+		t.Fatalf("the derived repair start after the contract revision: %v", err)
 	}
 	bindKind := func(kind, ref string) {
 		t.Helper()
@@ -668,8 +668,8 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	bindKind("review", "review:liveness-"+workID)
 	bindKind("artifact", "artifact:liveness-"+workID)
 	proof := journey.observeRun(t, "liveness-current")
-	qAcceptCriterionReview(t, current, proof.OperationRef)
 	journey.bindVerification(t, proof)
+	qAcceptCriterionReview(t, current, proof.OperationRef)
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:liveness-repair-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
 		t.Fatalf("record_delivery on the corrected contract: %v", err)
 	}
@@ -694,6 +694,7 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", criterionAssociationPayload(proof.OperationRef, "predicate:return-route"), 0, reviewer); err != nil {
 		t.Fatalf("fresh verdict on the corrected contract: %v", err)
 	}
+	seedPremiseDeliverablesInvestigation(t, s, workID)
 	if err := pConfirmReceiptPremise(t, current); err != nil {
 		t.Fatalf("confirm the corrected premise: %v", err)
 	}

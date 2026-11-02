@@ -119,19 +119,14 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 	if active || state.InstanceState == "outside_repair" {
 		return state, nil
 	}
-	// A duplicated contract projection is the supersede recovery's subject:
-	// workflowAdmitSupersede admits its route on the count alone, and the
-	// singular active-contract reader refuses duplicates. The conditional
-	// folds below that resolve one active contract degrade instead of
-	// refusing, so the loader stays total over the projection the recovery
-	// owns and every action still reaches its typed route.
+	// Keep corrupt duplicate projections readable without choosing a contract
+	// or authorizing contract-dependent actions. Recovery requires a verified restore.
 	l := workflowAdmissionLoad{ctx: ctx, q: q, workID: workID, definition: definition, currentStep: currentStep, subject: subject, duplicated: state.ActiveContracts > 1, registry: registry}
 	if err := l.staleness(&state); err != nil {
 		return WorkflowAdmissionState{}, err
 	}
 	// Duplicate active contracts leave no single criteria set to review
-	// against, so no Review stands: every Review-gated action stays closed
-	// while the supersede recovery the duplicates require stays reachable.
+	// against, so no Review stands and every Review-gated action stays closed.
 	review, reviewErr := loadWorkflowReviewState(ctx, q, workID)
 	if reviewErr != nil && l.duplicated && workflowDuplicateContractProjection(reviewErr) {
 		review, reviewErr = WorkflowReviewState{Findings: []ReviewFinding{}, PublicationOutstanding: true}, nil
@@ -209,9 +204,8 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) err
 	// The delivery gate's corrective return reads the Review state this fold
 	// already carries, so the gate branch derives from the folded state and
 	// never re-enters the loader; every other step folds the shared
-	// correction-request admission directly. Under a duplicated projection
-	// the singular active-contract reader refuses, and the duplicate
-	// recovery owns the route out, so the conditional folds degrade.
+	// correction-request admission directly. Duplicate projections remain
+	// readable, but grant no contract-dependent recovery authority.
 	if workflowStepIsDeliveryGate(workflowStep(l.definition, l.currentStep)) {
 		gateContext, gateErr := workflowDeliveryGateCorrectionContextFolded(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, *state)
 		if gateErr != nil && !(l.duplicated && workflowDuplicateContractProjection(gateErr)) {
@@ -297,7 +291,54 @@ func foldWorkflowConfirmationPrerequisites(ctx context.Context, q queryer, workI
 			state.AcceptanceDeliverablesMissing = deliverablesErr
 		}
 	}
+	if state.AcceptanceDeliverablesMissing == nil {
+		err := workflowForwardConfirmationReview(ctx, q, workID, definition, state.Step, state.Review)
+		if err != nil {
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
+				return err
+			}
+			state.AcceptanceDeliverablesMissing = err
+		}
+	}
 	return nil
+}
+
+// A failure-edge confirmation returns to production; only forward confirmation
+// requires the Review that will authorize final proof.
+func workflowForwardConfirmationReview(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step string, review *WorkflowReviewState) error {
+	if !workflowDefinitionProducesDelivery(definition) {
+		return nil
+	}
+	if stepDeclaresAction(definition, step, "record_verdict") {
+		for _, edge := range definition.StepGraph.Edges {
+			if edge.From != step || edge.Kind != WorkflowEdgeFailure {
+				continue
+			}
+			version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+			if err != nil {
+				return err
+			}
+			verdicts, err := latestWorkflowVerdicts(ctx, q, workID, version)
+			if err != nil {
+				return err
+			}
+			for _, verdict := range verdicts {
+				if verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
+					return nil
+				}
+			}
+			break
+		}
+	}
+	if review == nil {
+		state, err := loadWorkflowReviewState(ctx, q, workID)
+		if err != nil {
+			return err
+		}
+		review = &state
+	}
+	return workflowAdmitReview(*review)
 }
 
 func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) WorkflowAdmissionDecision {

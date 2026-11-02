@@ -519,7 +519,7 @@ func workflowVerdictReceiptAssociations(ctx context.Context, tx queryer, workID,
 		seen[entry.PredicateID] = true
 	}
 	// An omitted contract_version resolves the active contract exactly as
-	// confirm_premise does, so a verdict recorded after any supersession
+	// confirm_premise does, so a verdict recorded after any contract update
 	// lands on the contract the confirmation reads instead of deadlocking
 	// between versions.
 	contractVersion := workflowFieldInt(fields, "contract_version", 0)
@@ -651,7 +651,11 @@ func validateWorkflowCoordinatorConfirmationTx(ctx context.Context, tx *sql.Tx, 
 	if err := requireAcceptanceDeliverables(ctx, tx, definition, request.WorkID); err != nil {
 		return err
 	}
-	return nil
+	var step string
+	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&step); err != nil {
+		return workflowProjectionError(err, "cannot read the premise confirmation step")
+	}
+	return workflowForwardConfirmationReview(ctx, tx, request.WorkID, definition, step, nil)
 }
 
 func workflowLinkSuccessorEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {

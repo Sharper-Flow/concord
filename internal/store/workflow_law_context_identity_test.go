@@ -42,6 +42,29 @@ func TestLawContextAbsentOwnHomeReferencesKeepOnlyContractIdentity(t *testing.T)
 			t.Fatalf("absent %s = %+v, %v; want %+v", id, laws, err, want)
 		}
 	}
-	_, err = resolveLawContextSubjects(ctx, "project", "workflow-law-locator", repo, workID, []WorkflowLawContextLaw{{LawID: "other-project/spec:missing", Roles: []string{"added"}}})
+	_, err = resolveLawContextSubjects(ctx, "project", "workflow-law-locator", repo, workID, []WorkflowLawContextLaw{{LawID: "other-project/spec:missing", Roles: []string{"mandated"}}})
 	requireFailureKind(t, err, KindProjectionNotFound, "foreign-home absence is not own-home absence")
+}
+
+func TestLawContextQualifiedReservedAdditionKeepsIdentity(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	const workID = "qualified-reserved-addition"
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	repo := workflowLawFixtureRepo(t, s)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"other-project/spec:missing", "other-project/spec:one"} {
+		roles := []string{"added", "mandated"}
+		laws, err := resolveLawContextSubjects(ctx, "project", "workflow-law-locator", repo, workID, []WorkflowLawContextLaw{{
+			LawID: id, Roles: roles, Kind: "spec", Status: "accepted", Title: "stale title", Path: "stale-path", Criteria: []WorkflowLawContextCriterionBinding{{Criterion: 1, PredicateID: "predicate:stale"}},
+		}})
+		want := []WorkflowLawContextLaw{{LawID: id, Roles: roles}}
+		if err != nil || !reflect.DeepEqual(laws, want) {
+			t.Errorf("qualified reserved addition %s = %+v, %v; want identity only %+v", id, laws, err, want)
+		}
+	}
 }

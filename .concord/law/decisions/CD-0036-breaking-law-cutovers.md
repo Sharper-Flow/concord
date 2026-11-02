@@ -75,8 +75,9 @@ Continuity resolves current readable law and Domain context by ID. It exposes
 neither stale-law pin refusals nor pinned/current compatible-amendment hashes.
 An own-home bound law missing from the verified committed snapshot carries
 status `absent`, its law ID, contract roles and obligation IDs, without a title,
-kind, file path or criteria. Reserved additions retain their identity and roles
-before publication. Foreign-home references, missing Domains, and unreadable
+kind, file path or criteria. Reserved additions, including foreign-qualified
+additions, retain only their identity and roles before publication, without an
+`absent` status. Other foreign-home references, missing Domains, and unreadable
 locators for present law files still refuse. Same-operation snapshot
 revalidation remains required. No compatibility decoder or alternate pin list
 replaces the retired contract data.

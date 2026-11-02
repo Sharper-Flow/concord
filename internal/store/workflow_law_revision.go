@@ -136,8 +136,9 @@ const (
 // registry inside the caller's transaction. It returns nil when the contract
 // binds no law and no Domain. Missing own-home laws retain their contract
 // identity and roles with status absent, except reserved additions, which
-// carry identity and roles only. Foreign-home references and missing Domains
-// refuse. Every advertised file locator must open inside the knowledge home.
+// carry identity and roles only, including foreign-qualified additions. Other
+// foreign-home references and missing Domains refuse. Every advertised file
+// locator must open inside the knowledge home.
 func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, contract *WorkflowReadContract) (*WorkflowLawContext, error) {
 	if contract == nil {
 		return nil, nil
@@ -378,6 +379,10 @@ func resolveLawContextSubjects(ctx context.Context, homeProjectID, homeLocatorID
 			return nil, parseErr
 		}
 		if qualified && projectID != homeProjectID {
+			if slices.Contains(laws[index].Roles, lawContextRoleAdded) {
+				laws[index] = WorkflowLawContextLaw{LawID: laws[index].LawID, Roles: laws[index].Roles}
+				continue
+			}
 			failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law reference names a different knowledge home", false, "resolve the law through its designated Product knowledge home")
 			failure.CandidateIDs = []string{laws[index].LawID}
 			return nil, failure

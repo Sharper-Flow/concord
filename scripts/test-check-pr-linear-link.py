@@ -256,6 +256,15 @@ def test_a_title_refusal_quotes_the_title_phrase() -> None:
     assert REWORD in detail, detail
 
 
+def test_the_refusal_names_the_rule_and_the_link_fix() -> None:
+    body = "Related to CON-427\n\nThe decoder reads complete UTF-8 sequences.\n"
+    ok, detail = guard.check_pr_link("work/work-abc", "feat: add a thing", body)
+    assert not ok, detail
+    assert "never put a closing word directly before an issue key" in detail, detail
+    assert "Linear ignores a negation before the word" in detail, detail
+    assert "'Related to <TEAM>-<n>' line in the body" in detail, detail
+
+
 def test_rewording_the_prose_passes() -> None:
     body = "Related to CON-427\n\nThe decoder reads complete, valid UTF-8 sequences.\n"
     ok, detail = guard.check_pr_link("work/work-abc", "feat: add a thing", body)

@@ -94,7 +94,9 @@ def closing_refusal(where: str, phrases: list[tuple[str, str]]) -> tuple[bool, s
     return False, (
         f"the {where} has the closing phrase{'' if len(phrases) == 1 else 's'} {quoted}, "
         f"which Linear treats as closing {' and '.join(keys)} if such an issue exists; "
-        "CD-0213 D5 leaves issue status changes to the Linear MCP server or the operator. "
+        "CD-0213 D5 leaves issue status changes to the Linear MCP server or the operator, "
+        "so never put a closing word directly before an issue key, not even to disclaim "
+        "completion: Linear ignores a negation before the word. "
         "This check cannot see which Linear teams and issues exist, so it treats any "
         "<TEAM>-<n> token directly after a closing word as an issue key. If the token is "
         "ordinary text, put another word between the closing word and the token, or drop "

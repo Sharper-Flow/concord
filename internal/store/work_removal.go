@@ -508,7 +508,7 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 			return newFailure(KindInvalidRelation, "work_removal", "Linear confirmation names a different Product", false, "confirm the configured Product destination")
 		}
 	}
-	return requireReleasedWorkflowLawEnactmentQ(ctx, q, req.WorkID, "work_removal")
+	return requireReleasedWorkflowLawEnactmentQ(ctx, q, req.WorkID)
 }
 
 func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -566,7 +566,7 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 }
 
 func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) error {
-	if err := requireReleasedWorkflowLawEnactmentQ(ctx, tx, workID, "work_removal"); err != nil {
+	if err := requireReleasedWorkflowLawEnactmentQ(ctx, tx, workID); err != nil {
 		return err
 	}
 	// This order follows the FK graph. The table names are closed source-owned

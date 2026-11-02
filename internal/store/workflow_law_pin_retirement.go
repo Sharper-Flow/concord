@@ -108,7 +108,11 @@ func workflowLawPinRetirementStrandsReview(ctx context.Context, q queryer, regis
 	if err != nil {
 		return false, err
 	}
-	return !workflowAdmit(definition, state, "record_review").Admitted, nil
+	if workflowAdmit(definition, state, "record_review").Admitted {
+		return false, nil
+	}
+	target := workflowCorrectionReturnTarget(definition, step)
+	return !stepDeclaresAction(definition, target, "record_review") || !workflowAdmit(definition, state, "request_correction").Admitted, nil
 }
 
 // Only the cutover preflight reads the retiring digest inputs. Accepted reports

@@ -129,11 +129,11 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 		t.Fatalf("corrective return recorded %d delivery assertions, want none", count)
 	}
 
-	// The consumed gate correction does not re-fire: without a non-ok
-	// verdict, the correction request at the repair step is unsupported.
+	// The consumed gate correction does not re-fire: the inapplicable Review
+	// funded one return, so another needs a fresh accepted Review.
 	repeat := runVerdictActionAs(t, s, workID, "request_correction", reviewGateCorrectionPayload(c.early.OperationRef), 0, fixture.owner)
-	if repeat == nil || !strings.Contains(repeat.Error(), "non-ok verification verdict") {
-		t.Fatalf("repeat return = %v, want an unsupported-correction refusal", repeat)
+	if repeat == nil || !strings.Contains(repeat.Error(), "already consumed the accepted Review") {
+		t.Fatalf("repeat return = %v, want the consumed-Review refusal", repeat)
 	}
 
 	// A terminal instance refuses the corrective return outright.

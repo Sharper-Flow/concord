@@ -430,7 +430,13 @@ func admissionContractUpdateSuccessors(state admissionModelState) []admissionMod
 	successor.stale = ""
 	changed := successor
 	changed.verdict, changed.review.current = "", false
-	return []admissionModelState{changed, successor}
+	successors := []admissionModelState{changed, successor}
+	if state.review.accepted != "" && !state.review.current {
+		restored := changed
+		restored.review.current = true
+		successors = append(successors, restored)
+	}
+	return successors
 }
 
 func TestCriterionAssociationModelKeepsUnchangedContractUpdate(t *testing.T) {

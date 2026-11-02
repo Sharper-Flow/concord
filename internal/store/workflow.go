@@ -1779,7 +1779,7 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		return newFailure(KindMissingEvidence, "fold_event", "late criterion association requires its own verified association effect", false, "associate applicable producer receipts before recording completion")
 	}
 	if p.ActionID == "request_correction" {
-		correctionRecovery, missing, recoveryErr := workflowCorrectionRequestAdmissionStateForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq, registry)
+		correctionRecovery, missing, recoveryErr := workflowCorrectionRequestAdmissionStateForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", registry)
 		if recoveryErr != nil {
 			return recoveryErr
 		}
@@ -1882,7 +1882,11 @@ func completeAdmittedWorkflowActionTx(ctx context.Context, tx *sql.Tx, event Eve
 			return newFailure(KindInvariantViolation, "fold_event", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
 		}
 		advancesStep = workflowCompletedActionAdvances(entry.Definition, p)
-		if err := validateWorkflowCorrectionCompletionTx(ctx, tx, event, scope, p, entry, currentStep); err != nil {
+		correction, err := validateWorkflowCorrectionCompletionTx(ctx, tx, event, scope, p, entry, currentStep)
+		if err != nil {
+			return err
+		}
+		if err := recordWorkflowReviewCorrectionFundingTx(ctx, tx, event, correction); err != nil {
 			return err
 		}
 	}
@@ -1906,24 +1910,22 @@ func completeAdmittedWorkflowActionTx(ctx context.Context, tx *sql.Tx, event Eve
 	return persistWorkflowActionCompletionTx(ctx, tx, event, p, entry, advancesStep, nextStep)
 }
 
-func validateWorkflowCorrectionCompletionTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string) error {
+func validateWorkflowCorrectionCompletionTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string) (*WorkflowCorrectionContext, error) {
 	if p.ActionID == "request_correction" {
-		// The fold derives the correction request once — excludeSeq keeps
-		// its own in-flight completion out of the anchor's settled-entry judgment — and
-		// the payload check binds against that derivation.
-		context, missing, contextErr := workflowCorrectionRequestAdmissionForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq, scopeDefinitionRegistry(scope))
+		context, missing, contextErr := workflowCorrectionRequestAdmissionForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", scopeDefinitionRegistry(scope))
 		if contextErr != nil {
-			return contextErr
+			return nil, contextErr
 		}
 		if context == nil {
-			return workflowCorrectionRequestUnavailableFailure("fold_event", missing)
+			return nil, workflowCorrectionRequestUnavailableFailure("fold_event", missing)
 		}
 		correctionPayload, _ := json.Marshal(map[string]any{"diagnosis": p.CorrectionDiagnosis, "strategy": p.CorrectionStrategy, "predicate_ids": p.CorrectionPredicateIDs, "evidence_refs": p.CorrectionEvidenceRefs})
 		if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, correctionPayload, "fold_event", context); err != nil {
-			return err
+			return nil, err
 		}
+		return context, nil
 	}
-	return nil
+	return nil, nil
 }
 
 func persistWorkflowActionCompletionTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, advancesStep bool, nextStep string) error {
@@ -2280,18 +2282,7 @@ func workflowNextStep(definition WorkflowDefinition, current string) string {
 }
 
 func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, current, actionID string, registry DefinitionRegistry, beforeSeq int64) (string, error) {
-	step := workflowStep(definition, current)
-	if actionID != "confirm_premise" || step == nil || !slices.Contains(step.Actions, "record_verdict") {
-		return workflowNextStep(definition, current), nil
-	}
-	hasFailureEdge := false
-	for _, edge := range definition.StepGraph.Edges {
-		if edge.From == current && edge.Kind == WorkflowEdgeFailure {
-			hasFailureEdge = true
-			break
-		}
-	}
-	if !hasFailureEdge {
+	if actionID != "confirm_premise" || workflowConfirmationFailureEdge(definition, current) == "" {
 		return workflowNextStep(definition, current), nil
 	}
 	var contractCount int
@@ -2305,21 +2296,46 @@ func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, d
 	if err != nil {
 		return "", err
 	}
-	verdicts, err := latestWorkflowVerdictsBefore(ctx, tx, workID, contract.Version, beforeSeq)
+	target, err := workflowConfirmationFailureTarget(ctx, tx, workID, definition, current, contract.Version, beforeSeq)
+	if err != nil || target != "" {
+		return target, err
+	}
+	return workflowNextStep(definition, current), nil
+}
+
+// workflowConfirmationFailureEdge names the failure-edge target of a verdict
+// step's premise confirmation, or "" when that confirmation only advances.
+func workflowConfirmationFailureEdge(definition WorkflowDefinition, current string) string {
+	step := workflowStep(definition, current)
+	if step == nil || !slices.Contains(step.Actions, "record_verdict") {
+		return ""
+	}
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From == current && edge.Kind == WorkflowEdgeFailure {
+			return edge.To
+		}
+	}
+	return ""
+}
+
+// workflowConfirmationFailureTarget returns the failure-edge target when any
+// latest verdict before beforeSeq (0 reads all) is non-ok or incomparable,
+// otherwise "": the confirmation then advances forward.
+func workflowConfirmationFailureTarget(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, current string, contractVersion, beforeSeq int64) (string, error) {
+	target := workflowConfirmationFailureEdge(definition, current)
+	if target == "" {
+		return "", nil
+	}
+	verdicts, err := latestWorkflowVerdictsBefore(ctx, q, workID, contractVersion, beforeSeq)
 	if err != nil {
 		return "", err
 	}
 	for _, verdict := range verdicts {
 		if verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
-			for _, edge := range definition.StepGraph.Edges {
-				if edge.From == current && edge.Kind == WorkflowEdgeFailure {
-					return edge.To, nil
-				}
-			}
-			break
+			return target, nil
 		}
 	}
-	return workflowNextStep(definition, current), nil
+	return "", nil
 }
 
 func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {

@@ -797,7 +797,7 @@ func livenessBindRecordedState(ctx context.Context, s *Store, workID, actionID s
 		if err != nil {
 			return nil, err
 		}
-		correction, _, err := workflowCorrectionRequestAdmissionForRegistry(ctx, s.db, workID, entry.Definition, step, "liveness", 0, BuiltinWorkflowRegistry())
+		correction, _, err := workflowCorrectionRequestAdmissionForRegistry(ctx, s.db, workID, entry.Definition, step, "liveness", BuiltinWorkflowRegistry())
 		if err != nil {
 			return nil, err
 		}

@@ -9,10 +9,16 @@ import (
 )
 
 type workflowReviewFacts struct {
-	Candidate *ReviewCandidate               `json:"candidate"`
-	Accepted  *WorkflowAcceptedReview        `json:"accepted"`
-	Findings  []ReviewFinding                `json:"findings"`
-	Sources   map[string]reviewFindingSource `json:"finding_sources,omitempty"`
+	Candidate         *ReviewCandidate                 `json:"candidate"`
+	Accepted          *WorkflowAcceptedReview          `json:"accepted"`
+	Findings          []ReviewFinding                  `json:"findings"`
+	Sources           map[string]reviewFindingSource   `json:"finding_sources,omitempty"`
+	CorrectionFunding *workflowReviewCorrectionFunding `json:"correction_funding,omitempty"`
+}
+
+type workflowReviewCorrectionFunding struct {
+	ReportRef     string `json:"report_ref"`
+	CorrectionRef string `json:"correction_ref"`
 }
 
 func readWorkflowReviewFacts(ctx context.Context, q queryer, work string) (WorkflowReviewState, error) {
@@ -31,6 +37,7 @@ func readWorkflowReviewFacts(ctx context.Context, q queryer, work string) (Workf
 	}
 	state.Candidate, state.Accepted = facts.Candidate, facts.Accepted
 	state.findingSources = facts.Sources
+	state.correctionFunding = facts.CorrectionFunding
 	if facts.Findings != nil {
 		state.Findings = facts.Findings
 	}
@@ -38,7 +45,7 @@ func readWorkflowReviewFacts(ctx context.Context, q queryer, work string) (Workf
 }
 
 func writeWorkflowReviewFacts(ctx context.Context, q migrationRunner, work string, state WorkflowReviewState) error {
-	raw, err := json.Marshal(workflowReviewFacts{Candidate: state.Candidate, Accepted: state.Accepted, Findings: state.Findings, Sources: state.findingSources})
+	raw, err := json.Marshal(workflowReviewFacts{Candidate: state.Candidate, Accepted: state.Accepted, Findings: state.Findings, Sources: state.findingSources, CorrectionFunding: state.correctionFunding})
 	if err != nil {
 		return err
 	}
@@ -93,10 +100,26 @@ func applyWorkflowAcceptedReview(state *WorkflowReviewState, accepted WorkflowAc
 		findings[local] = finding
 	}
 	state.Accepted = &accepted
+	state.correctionFunding = nil
 	candidate := accepted.Report.OutputCandidate
 	state.Candidate = &candidate
 	state.DependenciesCurrent = state.Dependencies != nil && sameReviewDependencies(accepted.Report.Dependencies, *state.Dependencies)
 	setWorkflowReviewFindings(state, findings)
+}
+
+func recordWorkflowReviewCorrectionFundingTx(ctx context.Context, tx *sql.Tx, event Event, correction *WorkflowCorrectionContext) error {
+	if correction == nil || correction.SourceEventID == "" {
+		return nil
+	}
+	state, err := readWorkflowReviewFacts(ctx, tx, event.SubjectID)
+	if err != nil {
+		return err
+	}
+	if state.Accepted == nil || state.Accepted.ReportRef != correction.SourceEventID || state.correctionConsumed() {
+		return newFailure(KindInvariantViolation, "fold_event", "correction funding must name the unconsumed accepted Review", false, "reread the current work pin")
+	}
+	state.correctionFunding = &workflowReviewCorrectionFunding{ReportRef: correction.SourceEventID, CorrectionRef: event.EventID}
+	return writeWorkflowReviewFacts(ctx, tx, event.SubjectID, state)
 }
 
 func advanceWorkflowRecordedReviewTx(ctx context.Context, tx *sql.Tx, event Event, action workflowActionCompletedPayload) error {

@@ -225,9 +225,8 @@ func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer,
 	if err != nil {
 		return nil, err
 	}
-	consumed, err := workflowReviewCorrectionConsumed(ctx, q, workID, seq, 0)
-	if err != nil || consumed {
-		return nil, err
+	if state.Review.correctionConsumed() {
+		return nil, nil
 	}
 	return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{state.Review.Accepted.ReportRef}, SourceEventID: state.Review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: "the accepted current Review no longer covers the current candidate or depended-on revisions", Strategy: workflowReviewRecovery(fmt.Sprintf("return to step %q", target), "covering the current candidate")}, nil
 }
@@ -253,7 +252,7 @@ func workflowCorrectionRequestUnavailableFailure(subject, missing string) *Failu
 	}
 }
 
-func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64, registry DefinitionRegistry) (*WorkflowCorrectionContext, string, error) {
+func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, registry DefinitionRegistry) (*WorkflowCorrectionContext, string, error) {
 	if workflowCorrectionReturnTarget(definition, currentStep) != "" {
 		review, err := loadWorkflowReviewState(ctx, q, workID)
 		if err != nil {
@@ -268,18 +267,10 @@ func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q querye
 			if err != nil {
 				return nil, workflowCorrectionMissingNone, err
 			}
-			consumed, err := workflowReviewCorrectionConsumed(ctx, q, workID, seq, excludeSeq)
-			if err != nil {
-				return nil, workflowCorrectionMissingNone, err
-			}
-			if consumed {
+			if review.correctionConsumed() {
 				return nil, workflowCorrectionMissingFreshReview, nil
 			}
-			diagnosis := "the accepted current Review requires correction"
-			if !review.DependenciesCurrent || review.Accepted.Report.OutputCandidate != *review.Candidate {
-				diagnosis = "the accepted Review no longer covers the current candidate or depended-on revisions"
-			}
-			return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{review.Accepted.ReportRef}, SourceEventID: review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: diagnosis, Strategy: workflowReviewRecovery("perform the declared corrective work", "covering the corrected candidate")}, workflowCorrectionMissingNone, nil
+			return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{review.Accepted.ReportRef}, SourceEventID: review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: workflowReviewReturnDiagnosis(review), Strategy: workflowReviewRecovery("perform the declared corrective work", "covering the corrected candidate")}, workflowCorrectionMissingNone, nil
 		}
 	}
 	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
@@ -311,20 +302,21 @@ func workflowReviewNeedsProducerReturn(review WorkflowReviewState) bool {
 		(!review.DependenciesCurrent || review.Accepted.Report.OutputCandidate != *review.Candidate || review.Accepted.Report.Disposition == "correction_required")
 }
 
+func workflowReviewReturnDiagnosis(review WorkflowReviewState) string {
+	if !review.DependenciesCurrent || review.Accepted.Report.OutputCandidate != *review.Candidate {
+		return "the accepted Review no longer covers the current candidate or depended-on revisions"
+	}
+	return "the accepted current Review requires correction"
+}
+
 func workflowReviewReportSequence(ctx context.Context, q queryer, workID, reportRef string) (int64, error) {
 	var seq int64
 	err := q.QueryRowContext(ctx, `SELECT effect_seq FROM effect_receipts WHERE event_id=? AND subject_type='work_item' AND subject_id=?`, reportRef, workID).Scan(&seq)
 	return seq, err
 }
 
-func workflowReviewCorrectionConsumed(ctx context.Context, q queryer, workID string, reportSeq, excludeSeq int64) (bool, error) {
-	var consumed int
-	err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_phase_exits WHERE work_id=? AND action_id='request_correction' AND exit_seq>? AND exit_seq<>?`, workID, reportSeq, excludeSeq).Scan(&consumed)
-	return consumed != 0, err
-}
-
-func workflowCorrectionRequestAdmissionStateForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64, registry DefinitionRegistry) (bool, string, error) {
-	context, missing, err := workflowCorrectionRequestAdmissionForRegistry(ctx, q, workID, definition, currentStep, subject, excludeSeq, registry)
+func workflowCorrectionRequestAdmissionStateForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, registry DefinitionRegistry) (bool, string, error) {
+	context, missing, err := workflowCorrectionRequestAdmissionForRegistry(ctx, q, workID, definition, currentStep, subject, registry)
 	return context != nil, missing, err
 }
 

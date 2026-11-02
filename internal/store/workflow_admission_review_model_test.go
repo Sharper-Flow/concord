@@ -38,6 +38,9 @@ func admissionReviewState(state admissionModelState) *WorkflowReviewState {
 			Report: ReviewBlock{Disposition: r.accepted, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: dependencies,
 				Assessments: []ReviewAssessment{}, Findings: []ReviewFinding{}, RemainingObligations: []ReviewObligation{}}}
 	}
+	if r.consumed {
+		view.correctionFunding = &workflowReviewCorrectionFunding{ReportRef: "report:model:review", CorrectionRef: "report:model:correction"}
+	}
 	if r.changed && view.Candidate != nil {
 		view.Candidate.Commit = strings.Repeat("e", 40)
 	}
@@ -347,4 +350,41 @@ func TestWellFormedReviewEnumerationRetainsPostEntryInvalidation(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestAdmissionModelConsumedReviewCannotRegainForwardAuthority(t *testing.T) {
+	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
+		definition := mustBuiltinDefinition(t, family).Definition
+		producer, evaluator := "execution", "acceptance"
+		if family == "workflow.break_fix" {
+			producer, evaluator = "repair", "verify"
+		}
+		state := admissionModelState{step: producer, contracts: 1, started: true, proof: true, artifact: true, verdict: "ok",
+			review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true, consumed: true}}
+		if got := workflowAdmit(definition, admissionWorkflowState(definition, state), "record_delivery"); got.Admitted {
+			t.Errorf("%s: restored consumed report authorized delivery", family)
+		}
+		state.step = evaluator
+		if got := workflowAdmit(definition, admissionWorkflowState(definition, state), "confirm_premise"); got.Admitted {
+			t.Errorf("%s: restored consumed report authorized forward confirmation", family)
+		}
+		state.step = definition.StepGraph.TerminalSteps[0]
+		if got := workflowAdmit(definition, admissionWorkflowState(definition, state), "complete"); got.Admitted {
+			t.Errorf("%s: restored consumed report authorized completion", family)
+		}
+	}
+}
+
+func TestAdmissionModelContractRestorationKeepsConsumption(t *testing.T) {
+	state := admissionModelState{step: "execution", contracts: 1,
+		review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, consumed: true}}
+	for _, restored := range admissionContractUpdateSuccessors(state) {
+		if restored.review.current {
+			if !restored.review.consumed || restored.review.accepted != state.review.accepted {
+				t.Fatalf("criterion restoration replaced the accepted report or its consumption: %s", restored)
+			}
+			return
+		}
+	}
+	t.Fatal("ordinary updates cannot restore the accepted Review's criterion content in the model")
 }

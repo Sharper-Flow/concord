@@ -317,6 +317,14 @@ the current candidate, diagnosis, strategy, affected predicates and bound
 evidence. It records the exact source report and consumes it at most once;
 another Review-based return requires a fresh accepted report.
 
+Only a recorded binding from a corrective return to its funding Review
+consumes that report. An unhealthy-verdict return does not consume a Review
+that did not fund it. A report without that binding may fund one return even
+when an earlier use is unknown; the new return records the binding and prevents
+reuse. Correction discharge and restored criterion content do not clear that
+binding. A consumed report cannot authorize delivery, forward confirmation or
+completion; a fresh accepted Review replaces it.
+
 The update itself never moves the step. The explicit return retains prior
 evidence and Review provenance, supplies no current proof and accepts no
 criterion. Fresh Review follows the existing producer and evaluator steps;

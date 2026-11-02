@@ -32,6 +32,7 @@ type WorkflowReviewState struct {
 	DependenciesCurrent    bool                    `json:"dependencies_current"`
 	PublicationOutstanding bool                    `json:"publication_outstanding"`
 	findingSources         map[string]reviewFindingSource
+	correctionFunding      *workflowReviewCorrectionFunding
 }
 
 type workflowReviewCandidateView struct {
@@ -221,6 +222,9 @@ func workflowAdmitReview(state WorkflowReviewState) error {
 	if state.Accepted == nil || state.Candidate == nil {
 		return reviewFailure(KindMissingEvidence, "current candidate has no recorded Review", "obtain independent Review and record its subject-bound report")
 	}
+	if state.correctionConsumed() {
+		return reviewFailure(KindMissingEvidence, "accepted Review already funded a corrective return", "obtain and record a fresh independent Review of the current candidate")
+	}
 	if !state.DependenciesCurrent || state.Accepted.Report.OutputCandidate != *state.Candidate {
 		return reviewFailure(KindStaleRequiresReview, "recorded Review does not cover the current candidate and dependencies", "review the exact current candidate and dependencies")
 	}
@@ -231,6 +235,11 @@ func workflowAdmitReview(state WorkflowReviewState) error {
 		return reviewFailure(KindMissingEvidence, "Review has not reached ready_for_final_proof without remaining obligations", "finish the recorded obligations and record the independent Review outcome")
 	}
 	return nil
+}
+
+func (state WorkflowReviewState) correctionConsumed() bool {
+	return state.Accepted != nil && state.correctionFunding != nil &&
+		state.correctionFunding.ReportRef == state.Accepted.ReportRef && state.correctionFunding.CorrectionRef != ""
 }
 
 func decodeRecordedReview(payload json.RawMessage) (*ReviewBlock, error) {

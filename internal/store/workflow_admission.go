@@ -219,7 +219,7 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) err
 			state.CorrectionRequestContext = gateContext
 		}
 	} else {
-		correctionRequestContext, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmissionForRegistry(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, 0, l.registry)
+		correctionRequestContext, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmissionForRegistry(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, l.registry)
 		if correctionRequestErr != nil && !(l.duplicated && workflowDuplicateContractProjection(correctionRequestErr)) {
 			return correctionRequestErr
 		}
@@ -310,25 +310,14 @@ func workflowForwardConfirmationReview(ctx context.Context, q queryer, workID st
 	if !workflowDefinitionProducesDelivery(definition) {
 		return nil
 	}
-	if stepDeclaresAction(definition, step, "record_verdict") {
-		for _, edge := range definition.StepGraph.Edges {
-			if edge.From != step || edge.Kind != WorkflowEdgeFailure {
-				continue
-			}
-			version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
-			if err != nil {
-				return err
-			}
-			verdicts, err := latestWorkflowVerdicts(ctx, q, workID, version)
-			if err != nil {
-				return err
-			}
-			for _, verdict := range verdicts {
-				if verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
-					return nil
-				}
-			}
-			break
+	if workflowConfirmationFailureEdge(definition, step) != "" {
+		version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+		if err != nil {
+			return err
+		}
+		target, err := workflowConfirmationFailureTarget(ctx, q, workID, definition, step, version, 0)
+		if err != nil || target != "" {
+			return err
 		}
 	}
 	if review == nil {

@@ -114,7 +114,7 @@ func workflowRouteActionDefinition(ctx context.Context, s *Store, registry Defin
 		if err != nil {
 			return WorkflowActionDefinition{}, false, err
 		}
-		available, missing, err := workflowCorrectionRequestAdmissionStateForRegistry(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action", 0, registry)
+		available, missing, err := workflowCorrectionRequestAdmissionStateForRegistry(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action", registry)
 		if err != nil {
 			return WorkflowActionDefinition{}, false, err
 		}

@@ -109,7 +109,7 @@ func TestTerminalContractUpdateReturnsForCurrentReview(t *testing.T) {
 			}
 			reviewGateRequireStep(t, j.s, j.workID, producer)
 			entry := mustBuiltinDefinition(t, family)
-			correction, missing, err := workflowCorrectionRequestAdmissionForRegistry(t.Context(), j.s.db, j.workID, entry.Definition, terminal, "test", 0, BuiltinWorkflowRegistry())
+			correction, missing, err := workflowCorrectionRequestAdmissionForRegistry(t.Context(), j.s.db, j.workID, entry.Definition, terminal, "test", BuiltinWorkflowRegistry())
 			if err != nil || correction != nil || missing != workflowCorrectionMissingFreshReview {
 				t.Fatalf("same accepted report can fund another terminal return: %+v %s %v", correction, missing, err)
 			}

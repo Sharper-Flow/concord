@@ -194,7 +194,7 @@ not claim those runtime outcomes are complete.
 | Doc | Link |
 |---|---|
 | [`specs-as-laws.md`](./specs-as-laws.md) §2 | The guiding principle: specs are laws; law-change authority follows CD-0230 D4. |
-| [`../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | **Accepted CD-0012** — the counterpart direction. This document governs scope **contraction** under spec-law pressure; CD-0012 governs outcome **substitution and dilution**, reusing this document's three-option flow and audit shape. Nothing in this document is altered by it. |
+| [`../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | **Accepted CD-0012** — the counterpart direction. This document governs scope **contraction** under spec-law pressure; CD-0012 governs outcome **substitution and dilution** through explicit clarification, ordinary contract revision, or deferral. Contract updates do not waive law-conflict resolution or permit silent contraction. |
 | [`../law/decisions/CD-0036-breaking-law-cutovers.md`](../law/decisions/CD-0036-breaking-law-cutovers.md) | **Accepted CD-0036** — exact revision pins, compatible same-ID amendments, and digest-based staleness on law supersession (CD-0242 D7). |
 | [`../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | **Accepted CD-0222** — Domain-owned law, architecture-bound work contracts, Git reconciliation of concurrent changes, and retained SQLite execution authority. CD-0213 places business grouping in Linear. |
 

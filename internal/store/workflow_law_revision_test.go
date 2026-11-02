@@ -8,24 +8,23 @@ import (
 	"testing"
 )
 
-func TestWorkflowContractRecoveryPayloadAcceptsPredicateArray(t *testing.T) {
+func TestWorkflowContractUpdateAcceptsPredicateArray(t *testing.T) {
 	t.Parallel()
-	raw := mustJSONValue(map[string]any{
-		"contract_version": 2, "premise": "continue with the corrected contract",
-		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:first", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:first", "immutable_subject_ref": "commit:first", "expected_result": "pass"}}},
-		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"rigor_class": "prototype_internal", "supersede_reason": "correct the accepted premise", "audit_evidence": []string{"evidence:audit"},
-	})
-	if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, raw); err != nil {
-		t.Fatalf("predicate-array successor payload refused: %v", err)
+	const workID = "contract-update-predicate-array"
+	f := closureBindingFixture(t, workID, "execution")
+	contract := pContractSuccessor(t, f.store, workID, "Continue with the corrected contract.")
+	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, readWorkVersion(t, f.store, workID), nil); err != nil {
+		t.Fatalf("predicate-array contract update refused: %v", err)
 	}
-	legacyAndArray := mustJSONValue(map[string]any{
-		"contract_version": 2, "premise": "ambiguous outcome shape", "outcome_predicates": []map[string]any{{"predicate_id": "predicate:first", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check"}}},
-		"outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"rigor_class": "prototype_internal", "supersede_reason": "ambiguous", "audit_evidence": []string{"evidence:audit"},
-	})
-	if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, legacyAndArray); err == nil {
-		t.Fatal("successor payload accepted both outcome shapes")
+	contract = pContractSuccessor(t, f.store, workID, "Reject an ambiguous outcome shape.")
+	contract["outcome_kind"] = "check"
+	contract["outcome_payload"] = map[string]any{"kind": "check"}
+	version := readWorkVersion(t, f.store, workID)
+	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, version, nil); !hasFailureKind(err, KindInvalidPayload) {
+		t.Fatalf("contract update with both outcome shapes = %v, want invalid_payload", err)
+	}
+	if got := readWorkVersion(t, f.store, workID); got != version {
+		t.Fatalf("refused contract update changed work version from %d to %d", version, got)
 	}
 }
 
@@ -58,10 +57,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 			s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeVerdict: true, includePremise: true})
 			actor := workflowActorForRef(t, s, completion.Actor)
 			cutoverLawProjection(t, s)
-			recordCompleteStepContradictionObservation(t, s, workID, actor)
-			if _, action, err := WorkflowActionDefinitionFor(t.Context(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil || action.ID != "supersede_contract" {
-				t.Fatalf("discover correction: action=%+v err=%v", action, err)
-			}
+			step := currentStep(t, s, workID)
 			binding, err := readWorkflowArchitectureBinding(t.Context(), s.db, workID, 1)
 			if err != nil {
 				t.Fatal(err)
@@ -69,11 +65,11 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 			successor := map[string]any{
 				"contract_version": 2, "premise": "continue under successor law",
 				"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor-law", "immutable_subject_ref": "commit:successor-law", "expected_result": "pass"}}},
-				"required_evidence":  []string{"verification", "review"}, "route_conventions": []string{"complete_step_correction"}, "spec_mandate": tc.mandate, "law_modifies": []string{}, "rigor_class": "prototype_internal",
-				"supersede_reason": "move to the accepted successor law", "audit_evidence": []string{"evidence:law-cutover"}, "decision_domains": []string{}, "architecture_binding": binding,
+				"required_evidence":  []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": tc.mandate, "law_modifies": []string{}, "rigor_class": "prototype_internal",
+				"decision_domains": []string{}, "architecture_binding": binding,
 			}
 			version := readWorkVersion(t, s, workID)
-			err = runVerdictActionAs(t, s, workID, "supersede_contract", mustJSONValue(successor), 0, actor)
+			err = reviseContractRecord(t, s, workID, actor, successor, version, nil)
 			if tc.refused {
 				var failure *Failure
 				if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || !strings.Contains(failure.Detail, "spec:one") {
@@ -92,7 +88,10 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("ordinary deleted-law contract update: %v", err)
+			}
+			if got := readWorkVersion(t, s, workID); got != version+1 {
+				t.Fatalf("ordinary update work version=%d, want %d", got, version+1)
 			}
 			var mandateJSON string
 			if err := s.db.QueryRow(`SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=2`, workID).Scan(&mandateJSON); err != nil {
@@ -112,17 +111,38 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 			if err := s.db.QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=2`, workID).Scan(&newConfirmations); err != nil || newConfirmations != 0 {
 				t.Fatalf("new confirmations=%d err=%v", newConfirmations, err)
 			}
-			if got := currentStep(t, s, workID); got != "execution" {
-				t.Fatalf("corrected step=%q", got)
-			}
-			version = readWorkVersion(t, s, workID)
-			if err := runVerdictActionAs(t, s, workID, "start_execution", mustJSONValue(map[string]any{}), 0, actor); err != nil {
-				t.Fatal(err)
-			}
-			if readWorkVersion(t, s, workID) <= version || currentStep(t, s, workID) != "execution" {
-				t.Fatal("ordinary action did not advance the corrected work")
+			if got := currentStep(t, s, workID); got != step {
+				t.Fatalf("contract revision reset step %q to %q", step, got)
 			}
 		})
+	}
+}
+
+func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
+	t.Parallel()
+	const workID = "law-deletion-execution-recovery"
+	s := seedLawRevisionPendingReview(t, workID)
+	var approvedBy string
+	if err := s.db.QueryRow(`SELECT approved_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&approvedBy); err != nil {
+		t.Fatal(err)
+	}
+	actor := workflowActorForRef(t, s, approvedBy)
+	cutoverLawProjection(t, s)
+	successor := pContractSuccessor(t, s, workID, "continue with current accepted law")
+	successor["spec_mandate"] = []string{}
+	successor["law_modifies"] = []string{}
+	if err := reviseContractRecord(t, s, workID, actor, successor, readWorkVersion(t, s, workID), nil); err != nil {
+		t.Fatalf("deleted-law recovery at execution: %v", err)
+	}
+	if version, active := activeContractState(t, s, workID); version != 2 || active != 1 {
+		t.Fatalf("recovery active contract=%d count=%d, want 2/1", version, active)
+	}
+	var mandate string
+	if err := s.db.QueryRow(`SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=2`, workID).Scan(&mandate); err != nil || mandate != "[]" {
+		t.Fatalf("dropped mandate=%q err=%v, want []", mandate, err)
+	}
+	if got := currentStep(t, s, workID); got != "execution" {
+		t.Fatalf("recovery changed execution step: %q", got)
 	}
 }
 

@@ -54,7 +54,6 @@ func workflowFixtureBase() WorkflowDefinition {
 		RecoveryRoutes: []WorkflowRecoveryRoute{
 			{Step: "acceptance", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
 			{Step: "release", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
-			{Step: "release", Trigger: WorkflowRecoveryTriggerDisprovedPremiseAtComplete, Action: "supersede_contract", Target: "execution"},
 		}}
 }
 

@@ -227,8 +227,8 @@ func TestWorkflowRegistryBoundary(t *testing.T) {
 		if err != nil || !available {
 			t.Fatalf("duplicate-active mutation pin = available %v, %v, want the readable pin", available, err)
 		}
-		if len(pin.NextValidIntents) != 1 || pin.NextValidIntents[0].ActionID != "supersede_contract" || pin.NextValidIntents[0].ReasonCode != "operator_contract_correction" {
-			t.Fatalf("duplicate-active intents = %+v, want only the operator_contract_correction recovery", pin.NextValidIntents)
+		if len(pin.NextValidIntents) != 0 {
+			t.Fatalf("duplicate-active intents = %+v, want no action authority", pin.NextValidIntents)
 		}
 		poolPin, err := ReadWorkPin(ctx, s, workID)
 		if err != nil {

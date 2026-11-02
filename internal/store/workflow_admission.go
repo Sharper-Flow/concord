@@ -31,8 +31,9 @@ type WorkflowAdmissionState struct {
 	DesignStale bool
 	// ArtifactStale reports the artifact the current step's evaluation
 	// judges has gone stale: a bad verdict landed after the artifact was
-	// last produced at the route target (CD-0201 D5). A supersession
-	// invalidates only the Review and proof whose digests it changes
+	// last produced at the route target (CD-0201 D5). An ordinary contract
+	// update keeps the step and design, and invalidates only the Review
+	// and proof whose digests it changes
 	// (CD-0242 D7). While set, record_verdict admits only a non-ok verdict
 	// and confirm_premise refuses; only fresh production at the declared
 	// route target clears it.
@@ -57,14 +58,8 @@ type WorkflowAdmissionState struct {
 	// AcceptanceDeliverablesMissing holds a confirmation prerequisite refusal
 	// or the shared acceptance-subject refusal at the complete step.
 	AcceptanceDeliverablesMissing error
-	// CompleteStepCorrection reports the shared complete-step correction
-	// admission passes at the pinned complete step.
-	CompleteStepCorrection bool
-	// ContractCorrectionAvailable reports the ordinary contract correction
-	// admission passes at the current step.
-	ContractCorrectionAvailable bool
-	Delivery                    workflowDeliveryAdmission
-	Mandate                     workflowMandateAdmission
+	Delivery                      workflowDeliveryAdmission
+	Mandate                       workflowMandateAdmission
 }
 
 // WorkflowAdmissionDecision is the pure admission answer for one action over
@@ -118,19 +113,14 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 	if active || state.InstanceState == "outside_repair" {
 		return state, nil
 	}
-	// A duplicated contract projection is the supersede recovery's subject:
-	// workflowAdmitSupersede admits its route on the count alone, and the
-	// singular active-contract reader refuses duplicates. The conditional
-	// folds below that resolve one active contract degrade instead of
-	// refusing, so the loader stays total over the projection the recovery
-	// owns and every action still reaches its typed route.
+	// Keep corrupt duplicate projections readable without choosing a contract
+	// or authorizing contract-dependent actions. Recovery requires a verified restore.
 	l := workflowAdmissionLoad{ctx: ctx, q: q, workID: workID, definition: definition, currentStep: currentStep, subject: subject, duplicated: state.ActiveContracts > 1, registry: registry}
 	if err := l.staleness(&state); err != nil {
 		return WorkflowAdmissionState{}, err
 	}
 	// Duplicate active contracts leave no single criteria set to review
-	// against, so no Review stands: every Review-gated action stays closed
-	// while the supersede recovery the duplicates require stays reachable.
+	// against, so no Review stands and every Review-gated action stays closed.
 	review, reviewErr := loadWorkflowReviewState(ctx, q, workID)
 	if reviewErr != nil && l.duplicated && workflowDuplicateContractProjection(reviewErr) {
 		review, reviewErr = WorkflowReviewState{Findings: []ReviewFinding{}, PublicationOutstanding: true}, nil
@@ -155,18 +145,6 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 		}
 		state.LateCriterionAssociation = len(missing) != 0
 	}
-	if atComplete := workflowCompleteStepCorrectionStep(definition, currentStep); atComplete {
-		completeCorrection, completeErr := workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject, 0)
-		if completeErr != nil {
-			return WorkflowAdmissionState{}, completeErr
-		}
-		state.CompleteStepCorrection = completeCorrection
-	}
-	contractCorrection, contractCorrectionErr := workflowContractCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
-	if contractCorrectionErr != nil {
-		return WorkflowAdmissionState{}, contractCorrectionErr
-	}
-	state.ContractCorrectionAvailable = contractCorrection
 	delivery, deliveryErr := loadWorkflowDeliveryAdmission(ctx, q, workID, definition, currentStep)
 	if deliveryErr != nil {
 		return WorkflowAdmissionState{}, deliveryErr
@@ -217,9 +195,8 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) err
 	// The delivery gate's corrective return reads the Review state this fold
 	// already carries, so the gate branch derives from the folded state and
 	// never re-enters the loader; every other step folds the shared
-	// correction-request admission directly. Under a duplicated projection
-	// the singular active-contract reader refuses, and the duplicate
-	// recovery owns the route out, so the conditional folds degrade.
+	// correction-request admission directly. Duplicate projections remain
+	// readable, but grant no contract-dependent recovery authority.
 	if workflowStepIsDeliveryGate(workflowStep(l.definition, l.currentStep)) {
 		gateContext, gateErr := workflowDeliveryGateCorrectionContextFolded(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, *state)
 		if gateErr != nil && !(l.duplicated && workflowDuplicateContractProjection(gateErr)) {
@@ -233,7 +210,7 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) err
 			state.CorrectionRequestContext = gateContext
 		}
 	} else {
-		correctionRequestContext, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmissionForRegistry(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, 0, l.registry)
+		correctionRequestContext, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmissionForRegistry(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, l.registry)
 		if correctionRequestErr != nil && !(l.duplicated && workflowDuplicateContractProjection(correctionRequestErr)) {
 			return correctionRequestErr
 		}
@@ -305,12 +282,48 @@ func foldWorkflowConfirmationPrerequisites(ctx context.Context, q queryer, workI
 			state.AcceptanceDeliverablesMissing = deliverablesErr
 		}
 	}
+	if state.AcceptanceDeliverablesMissing == nil {
+		err := workflowForwardConfirmationReview(ctx, q, workID, definition, state.Step, state.Review)
+		if err != nil {
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
+				return err
+			}
+			state.AcceptanceDeliverablesMissing = err
+		}
+	}
 	return nil
+}
+
+// A failure-edge confirmation returns to production; only forward confirmation
+// requires the Review that will authorize final proof.
+func workflowForwardConfirmationReview(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step string, review *WorkflowReviewState) error {
+	if !workflowDefinitionProducesDelivery(definition) {
+		return nil
+	}
+	if workflowConfirmationFailureEdge(definition, step) != "" {
+		version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+		if err != nil {
+			return err
+		}
+		target, err := workflowConfirmationFailureTarget(ctx, q, workID, definition, step, version, 0)
+		if err != nil || target != "" {
+			return err
+		}
+	}
+	if review == nil {
+		state, err := loadWorkflowReviewState(ctx, q, workID)
+		if err != nil {
+			return err
+		}
+		review = &state
+	}
+	return workflowAdmitReview(*review)
 }
 
 func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) WorkflowAdmissionDecision {
 	decision := WorkflowAdmissionDecision{}
-	if workflowAdmitInstanceRefused(definition, state, actionID, &decision) {
+	if workflowAdmitInstanceRefused(definition, state, &decision) {
 		return decision
 	}
 	if state.Review != nil && workflowDefinitionProducesDelivery(definition) && actionID == "complete" {
@@ -318,9 +331,6 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 			decision.Failure = workflowFailureOf(reviewErr)
 			return decision
 		}
-	}
-	if actionID == "supersede_contract" {
-		return workflowAdmitSupersede(definition, state, decision)
 	}
 	if workflowAdmitDeliveryRefused(definition, state, actionID, &decision) {
 		return decision
@@ -338,12 +348,12 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 // workflowAdmitInstanceRefused answers the refusals no action can pass:
 // outside repair or a terminal or archived instance. Each phase below reports
 // true when it decided the action, with decision filled.
-func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
+func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowAdmissionState, decision *WorkflowAdmissionDecision) bool {
 	if state.OutsideRepairActive {
 		decision.Failure = newOutsideRepairRouteFailure("workflow_action", "managed workflow action refused: outside-repair disposition is active")
 		return true
 	}
-	if workflowCompletedInstanceActionImmutable(state.InstanceState, actionID, state.Lifecycle) {
+	if workflowCompletedInstanceActionImmutable(state.InstanceState) {
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 		return true
 	}
@@ -387,7 +397,7 @@ func workflowAdmitConfirmationRefused(definition WorkflowDefinition, state Workf
 		return true
 	}
 	if declared && state.ActiveContracts > 1 {
-		decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "premise confirmation requires exactly one active workflow contract", false, "supersede_contract naming every active contract version")
+		decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "premise confirmation requires exactly one active workflow contract", false, "restore a verified backup into a new path with concord restore, then swap")
 		return true
 	}
 	// The artifact-staleness answer is the admission's (CD-0201 D5): while
@@ -450,49 +460,4 @@ func workflowAdmissionStepAllows(definition WorkflowDefinition, state WorkflowAd
 		return state.CorrectionRequestRecovery
 	}
 	return false
-}
-
-// workflowAdmitSupersede classifies one supersede_contract request's recovery
-// route over the folded state. The payload's route declaration stays a
-// payload check at the calling guard; the state answer is the shape refusal,
-// the recovery classification, and the typed refusals.
-func workflowAdmitSupersede(definition WorkflowDefinition, state WorkflowAdmissionState, decision WorkflowAdmissionDecision) WorkflowAdmissionDecision {
-	if workflowCompletedInstanceSupersedeOffShape(state.InstanceState, definition, state.Step) {
-		// The duplicate recoveries belong to running earlier
-		// steps. A completed instance off the supported shape would fold
-		// without the return that reopens the work.
-		decision.Failure = workflowCompletedInstanceOffShapeFailure("workflow_action")
-		return decision
-	}
-	if state.ActiveContracts == 0 {
-		decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires an active workflow contract", false, "restore a verified backup into a new path with concord restore, then swap")
-		return decision
-	}
-	atCompleteStep := workflowCompleteStepCorrectionStep(definition, state.Step)
-	if atCompleteStep {
-		// A duplicated projection at this step recovers through the same
-		// complete-step correction: the successor names every active version
-		// and the instance returns to its external-effect step (CD-0203 D1).
-		decision.RecoveryRoute = state.CompleteStepCorrection
-		if !decision.RecoveryRoute {
-			decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
-			return decision
-		}
-		decision.Admitted = true
-		return decision
-	}
-	if state.ActiveContracts > 1 {
-		// Recovery owns the ambiguous projection. The normal authority check
-		// cannot run first because it deliberately refuses duplicate state.
-		decision.RecoveryRoute = true
-		decision.Admitted = true
-		return decision
-	}
-	decision.RecoveryRoute = state.ContractCorrectionAvailable
-	if !decision.RecoveryRoute {
-		decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
-		return decision
-	}
-	decision.Admitted = true
-	return decision
 }

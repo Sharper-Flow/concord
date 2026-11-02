@@ -151,8 +151,8 @@ export function expandedPublishedRequestSchema(published: unknown): unknown {
 // admission) is checked where it lives, never through the factored parent
 // view that carries only the shared constraints. Inspection only: the
 // published compact document stays the admitted input.
-export function actionFieldsBranches(actionInput: unknown): any[] {
-  const fields = (actionInput as any)?.properties?.fields;
+export function actionFieldsBranches(actionInput: unknown, fieldName: string = "fields"): any[] {
+  const fields = (actionInput as any)?.properties?.[fieldName];
   if (fields === null || typeof fields !== "object" || Array.isArray(fields)) return [];
   if (Array.isArray((fields as any).oneOf)) return (fields as any).oneOf;
   if (Array.isArray((fields as any).anyOf)) return (fields as any).anyOf;
@@ -167,7 +167,7 @@ def require_delivery_rule_teaching(defs: dict) -> None:
     a projection drops the rule.
 
     The rule's owner is the outcome_predicates array shared by
-    approve_contract and supersede_contract.
+    approve_contract and complete contract record updates.
     """
     items = defs.get("workflow_action_outcome_predicates")
     text = items.get("description") if isinstance(items, dict) else None
@@ -305,7 +305,7 @@ def validate_persisted_manifest(manifest, ir):
     schema_validate(manifest, ir, ir, "manifest")
 
 
-def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict]:
+def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict, list[dict]]:
     result = subprocess.run(
         ["go", "run", "./scripts/workflow-action-contracts"],
         cwd=ROOT,
@@ -315,7 +315,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
         check=True,
     )
     projection = json.loads(result.stdout)
-    if set(projection) != {"schema_version", "actions", "workflows", "teaching", "schema_refs"} or projection["schema_version"] != "2.0":
+    if set(projection) != {"schema_version", "actions", "workflows", "teaching", "schema_refs", "contract_updates"} or projection["schema_version"] != "2.0":
         fail("workflow action contract projection is invalid")
     schema_refs = projection["schema_refs"]
     if set(schema_refs) != {"current"}:
@@ -357,7 +357,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
             fail(f"workflow outcome contract projection names no predicate kinds: {workflow.get('ref')}")
         if not isinstance(workflow["allowed_outcome_tokens"], list):
             fail(f"workflow outcome contract projection has no token list: {workflow.get('ref')}")
-    return actions, workflows, teaching, schema_refs
+    return actions, workflows, teaching, schema_refs, projection["contract_updates"]
 
 
 def validate_workflow_cross_field(action: dict, payload: dict) -> None:
@@ -1168,7 +1168,7 @@ def project_schema_guidance(document: dict, names: list[str], *, bounds_only: bo
     return projected
 
 
-def project_workflow_action_schema(document: dict, actions: list[dict], workflows: list[dict], teaching: dict) -> tuple[dict, list[dict]]:
+def project_workflow_action_schema(document: dict, actions: list[dict], workflows: list[dict], teaching: dict, contract_updates: list[dict]) -> tuple[dict, list[dict]]:
     projected = copy.deepcopy(document)
     remove_generated_guidance(projected)
     defs = projected["$defs"]
@@ -1295,7 +1295,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
             # this variant at all, so supplying it is a structural refusal.
             properties.pop("fields", None)
         else:
-            # One path for every action, supersede_contract included: the
+            # One path for every action: the
             # engine registry's declarations (fields plus the action's
             # cross-field rules) produce the closed shape, so no action's
             # branch is hand-authored.
@@ -1335,10 +1335,15 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     defs["work_transition_action_input"] = copy.deepcopy(variant_wrapper) | {"anyOf": current_variant_refs}
     defs["work_transition_action_public_input"] = copy.deepcopy(variant_wrapper) | {"anyOf": [{"$ref": f"#/$defs/{variant['schema']}"} for variant in public_variants]}
     require_delivery_rule_teaching(defs)
+    update_branches = [workflow_payload_object_schema(payload, defs, field_teaching)
+                       for payload in contract_updates]
+    defs["workflow_contract_update"] = closed_field_union(update_branches, defs, "workflow_contract_update")
+    defs["work_define_revise_input"]["properties"]["contract"] = {"$ref": "#/$defs/workflow_contract_update"}
     install_retained_output_twins(defs)
-    contracts = {"approve_contract", "supersede_contract"}
+    contracts = {"approve_contract"}
     guidance_names = [f"work_transition_action_variant_{action}" for action in sorted(contracts)]
     guidance_names.extend(variant["schema"] for variant in public_variants if variant["action_id"] in contracts)
+    guidance_names.append("workflow_contract_update")
     projected = project_schema_guidance(projected, guidance_names)
     return projected, public_variants
 
@@ -1784,7 +1789,7 @@ export function envelopeFailurePath(value: unknown): string | null {{
 // store's ValidateOperationPayload stays the closed admission boundary; this
 // checks only what the advertised surface teaches. The published request is
 // one compact branch per operation, with the workflow actions grouped under
-// their operation, and approve_contract's and supersede_contract's fields is
+// their operation, and approve_contract's fields are
 // one closed object: every contract declares its decision domains. The
 // traversal expands the passed document's own local references and factored
 // unions, so every check below reads the legacy-effective view of the actual
@@ -1804,6 +1809,11 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
       .filter((fields) => fields?.properties?.outcome_predicates !== undefined)
       .map((fields) => ({{ actionId: input?.properties?.action_id?.const, fields }})),
   );
+  for (const branch of requestBranches.filter((branch) => branch?.properties?.operation?.const === "revise_intent")) {{
+    for (const fields of actionFieldsBranches(branch?.properties?.input, "contract")) {{
+      if (fields?.properties?.outcome_predicates !== undefined) carriers.push({{ actionId: "revise_intent", fields }});
+    }}
+  }}
   if (carriers.length === 0) {{
     gaps.push("outcome_predicates items carry 0 per-kind branches, expected the 4 strict variants");
   }}
@@ -1845,7 +1855,7 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
     gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
   }}
   // Every fields branch that carries outcome_predicates on every carrier
-  // action (approve_contract and supersede_contract) must teach the rule,
+  // action must teach the rule,
   // or a drop from one branch hides behind its siblings.
   const delivery: unknown = carrier.fields.properties.outcome_predicates?.description;
   if (typeof delivery !== "string" || delivery.split(" Accepted shape:", 1)[0] !== {json.dumps(DELIVERY_RULE_PREDICATE_DESCRIPTION)}) {{
@@ -2001,12 +2011,12 @@ def main() -> int:
             fixture_path.write_text(expected_fixture)
         ir = json.loads(IR.read_text())
         payload = json.loads(PAYLOAD.read_text())
-        actions, workflows, teaching, schema_refs = load_workflow_action_contracts()
+        actions, workflows, teaching, schema_refs, contract_updates = load_workflow_action_contracts()
         bun = shutil.which("bun")
         if bun is None and (not check or os.environ.get("CONCORD_REQUIRE_BUN") == "1"):
             fail("Bun is not installed: the publication measurement requires Bun, so write mode and strict check refuse rather than skip it")
         validate_current_schema_refs(schema_refs, payload.get("$defs", {}))
-        projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching)
+        projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching, contract_updates)
         prune_payload_definitions(projected_payload, manifest, public_variants, schema_refs["current"])
         input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]
                        if operation["id"] != "concord_work_transition.workflow_action"]

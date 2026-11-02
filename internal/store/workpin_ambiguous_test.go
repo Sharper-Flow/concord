@@ -9,11 +9,9 @@ import (
 
 // A work pin is the one point-in-time projection a caller needs to prepare an
 // action. For an item whose contract projection is ambiguous the pin stops
-// early by design: it reports the item's position and the one recovery route,
-// and stops. The struct it returns must still be a complete pin. The watermark
-// is assigned before that early return, so the escape-hatch pin carries the
-// watermark required by closed-schema response validation even while the
-// contract projection remains ambiguous.
+// early by design: it reports the item's position without granting action
+// authority. The watermark required by closed-schema response validation must
+// still be present while the contract projection remains ambiguous.
 
 // TestWorkPinAmbiguousContractsCarryWatermark is the reproduction. It builds a
 // workflow with two active contracts and holds the pin to the shape every
@@ -39,7 +37,7 @@ DELETE FROM write_guard`, actorRef, actorRef); err != nil {
 
 	pin, err := ReadWorkPin(ctx, s, "workpin-ambiguous")
 	if err != nil {
-		t.Fatalf("the ambiguous pin must stay readable so the operator can reach recovery: %v", err)
+		t.Fatalf("the ambiguous pin must stay readable without granting authority: %v", err)
 	}
 	if pin.Version != version {
 		t.Fatalf("pin version=%d, want %d", pin.Version, version)
@@ -58,13 +56,7 @@ DELETE FROM write_guard`, actorRef, actorRef); err != nil {
 	if watermark, _ := decoded["watermark"].(string); !strings.HasPrefix(watermark, "seq:") {
 		t.Fatalf("serialized ambiguous pin watermark=%q, want a sequence watermark", watermark)
 	}
-	offersRecovery := false
-	for _, intent := range pin.NextValidIntents {
-		if intent.ActionID == "supersede_contract" {
-			offersRecovery = true
-		}
-	}
-	if !offersRecovery {
-		t.Fatal("the ambiguous pin must keep advertising the supersede_contract recovery")
+	if len(pin.NextValidIntents) != 0 {
+		t.Fatalf("ambiguous pin grants action authority: %+v", pin.NextValidIntents)
 	}
 }

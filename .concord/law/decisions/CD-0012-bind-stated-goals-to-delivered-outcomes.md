@@ -3,9 +3,7 @@
   "id": "CD-0012",
   "title": "Bind stated goals to delivered outcomes",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "workflow-engine",
   "applies_to_domain_ids": []
@@ -88,18 +86,19 @@ not the supporting evidence, determines the shape below.
 
 A valid attributed contract, current-version premise confirmation by the authenticated non-worker coordinator, independent evaluation, and every outcome/evidence obligation are required. Operator decisions remain conversational under CD-0243. Identities active work needs derive at the integration boundary ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
-### D1. The outcome contract has three parts with three revision authorities
+### D1. The outcome contract has three parts with separate revision rules
 
 Every work item carries an **outcome contract** composed of three separable parts. Each
 part has a different mutability rule, and separating them is the point.
 
 | Part | Content | Revision authority | Effect of revision |
 |---|---|---|---|
-| **Premise** | Why this work exists, in the operator's terms. Durable. | Authenticated coordinator through attributed supersession; operator decisions follow CD-0243 | Not an edit. A changed premise supersedes the item with a successor. |
-| **Required end-state** | One or more falsifiable postconditions over the world after delivery, carrying the operative verb. | Authenticated coordinator through attributed supersession; operator decisions follow CD-0243 | Not an edit. See D6. |
+| **Premise** | Why this work exists, in the operator's terms. Durable. | Authenticated coordinator through an ordinary complete contract update; operator decisions follow CD-0243 | Append the next retained contract version on the same work item; earlier content remains immutable. |
+| **Required end-state** | One or more falsifiable postconditions over the world after delivery, carrying the operative verb. | Authenticated coordinator through an ordinary complete contract update; operator decisions follow CD-0243 | Append the next retained contract version under D6; earlier content remains immutable. |
 | **Candidate set** | The specific instances the end-state ranges over. | The executing agent, during execution | Records a revision in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Premise and required end-state are untouched and no re-approval occurs. |
 
-The candidate set is deliberately the mutable part. R5 §5.1 shows that a contract which
+Candidate-set revision changes instances without revising the premise or required
+end-state. R5 §5.1 shows that a contract which
 forbids in-place revision of the instance list converts a recoverable framing error into a
 structurally guaranteed wrong outcome, because the executing party is forbidden from
 acting on the discovery that the list is wrong. Research must remain free to invalidate
@@ -207,22 +206,33 @@ its own failure, and that an agent which cannot surface a better target will eit
 the finding or smuggle it. Forward-linking is the channel that lets the better target be
 surfaced without being substituted.
 
-Where the operator does want the current item redirected, that is a **legislative moment**,
-and it mirrors the three options in [`specs-as-laws.md`](../../docs/specs-as-laws.md) §4:
+An explicit redirection of the current item follows the ordinary approval
+classes in [CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
+Contract revision does not itself enact Product law. The choices are:
 
 | Option | Meaning |
 |---|---|
 | **(a) Clarify** | The discovery is already within the approved end-state; no contract change. |
-| **(b) Revise the end-state** | The operator changes what must be delivered. The prior contract is superseded, not edited; the store keeps current state under CD-0242 D2. Revision re-enters planning under CD-0006 D5 — which already requires that "a new execution-time conflict stops and returns to planning" — and execution resumes only against the superseding contract. |
+| **(b) Revise the end-state** | The authenticated coordinator records the complete contract through the ordinary `revise_intent` update in [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates), with any required operator decision recorded. The next retained version becomes current without creating another item or resetting the workflow step. Execution proceeds only against that recorded contract. |
 | **(c) Consciously defer** | The operator keeps the approved end-state and records the discovery as separate work. |
 
-Never silent, and never the agent's decision. This extends CD-0215 D7 — "no automatic
-conversion of a research conclusion into a binding decision" — from research conclusions
-to in-flight discoveries generally.
+A new execution-time law conflict still stops work and returns to planning for
+resolution under CD-0006 D5. After that resolution, an ordinary contract update
+records any changed plan; conflict resolution does not require a workflow-step
+reset. A contract update neither resolves law by itself nor permits a silent
+scope substitution. Decisions reserved by CD-0243 remain with the operator.
+CD-0215 D7's ban on automatic conversion of research conclusions into binding
+decisions remains required for in-flight discoveries.
 
 ### D7. Verification is independent of the executing agent
 
-The approving authority authors the end-state check at approval, and it stays immutable for that contract: an execution-time write to it is refused, and the executing agent may not author, re-select, weaken, or disable it.
+The authorized contract author records the end-state check, and it stays
+immutable within that contract version. An in-place write to a retained
+version's check is refused. A change uses the attributed complete contract
+update in [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates),
+not an executing agent's unrecorded re-selection, weakening, or disabling of
+the check used to judge its delivery. Retained evidence does not prove changed
+criteria or a different candidate; independent verification remains required.
 
 Main dispatches Review, which inspects the accumulated solution and reports; Implement cannot accept its own result ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
@@ -335,8 +345,9 @@ follow the existing corpus conventions; this decision does not itself modify
 
 1. A work item is captured with no required end-state and is accepted at capture; the same
    item is approved at planning with its required end-state recorded alongside the CD-0006
-   D10 spec mandate; completion is then verified against that recorded approved contract
-   and not against any later-authored assertion (D2).
+   D10 spec mandate; completion is then verified against the current recorded contract,
+   not an unrecorded assertion. An ordinary update retains prior version-addressed
+   content without treating it as proof of changed criteria (D1, D2).
 2. A change contract approved with no required end-state is refused at approval (D4).
 3. A change contract whose required end-state already holds before execution is refused as
    vacuous (D4).
@@ -347,18 +358,19 @@ follow the existing corpus conventions; this decision does not itself modify
    refused when the subject is relocated rather than removed (D3, D5).
 7. Candidate-set revision during execution succeeds without re-approval, records its revision in one
     transaction, and leaves premise and required end-state byte-identical (D1, CD-0242 D2).
-8. Premise revision is refused as an in-place edit and is representable only as
-   supersession with a successor item (D1).
-9. An execution-time write to the approved required end-state is refused rather than
-   merged (D7, authorship fencing).
+8. Premise revision appends the next retained contract version through the
+   ordinary record update; it neither edits earlier content nor creates a successor item (D1).
+9. An in-place write to a retained version's required end-state is refused
+   rather than merged (D7, authorship fencing).
 10. Work discovered mid-execution that lies outside the approved end-state produces
     forward-linked successor work and does not close the current item (D6).
-11. End-state revision by the operator supersedes the prior contract, re-enters planning
-    before execution resumes, writes current rows, and records which option
-    was chosen, by whom, and when (D6, CD-0006 D5), matching the audit shape in
-    [`specs-as-laws.md`](../../docs/specs-as-laws.md) §6 under CD-0242 D2.
-12. An executing agent attempting to author, replace, or disable its own end-state check is
-    refused (D7).
+11. End-state revision records the complete next contract version atomically
+     with the ordinary intent update, preserving the workflow step and evidence.
+     Required conflict resolution and operator decisions precede execution
+     against that version; current criteria and candidate still need valid proof (D6).
+12. An executing agent attempting to replace or disable its end-state check
+     outside the attributed contract update, or to bypass independent verification,
+     is refused (D7).
 13. A review pass that committed corrective edits is accepted after its verified
     candidate without a further review, and completion records Main's accepted
     disposition instead of a distinct verdict actor (D7, CD-0242 D5).

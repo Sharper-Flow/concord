@@ -6,8 +6,8 @@ func TestBuiltinWorkflowDefinitionCanonicalDigests(t *testing.T) {
 	// The complete canonical identity covers steps, routes and action payloads;
 	// intentional definition changes must update these digests.
 	want := map[string]string{
-		"workflow.implementation": "sha256:4a8482030e531fdbd2908159497e41a6e6b512665f8dde1afd123aee7b1e216c",
-		"workflow.break_fix":      "sha256:970a721a90e9536e93dd5bc30180828a98da44186c40894b6a13fa3cedcb7335",
+		"workflow.implementation": "sha256:6be7ed08473901cdd13a7a39cfdecc28154213603a618cac86c2e234a681aa7f",
+		"workflow.break_fix":      "sha256:587af15ced4b0b295341fad71a696befb4445e35741a9034f1a951e9078d1be9",
 		"workflow.research":       "sha256:a4e299e75b26865219f2a790d6c3c53e221df256ffaa91ed4d3ac5ec4c797a08",
 	}
 	definitions := BuiltinWorkflowDefinitions()

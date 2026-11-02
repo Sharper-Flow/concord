@@ -148,7 +148,7 @@
       }
     },
     "recoveryRoutes": {
-      "description": "CD-0201 D1 recovery-route table: the only owner of cross-step correction. A table-less definition whose steps record verdicts or confirm premises refuses registration. Each trigger pairs with one action (unhealthy_verdict with request_correction on a step that records a verdict or confirms a premise; disproved_premise_at_complete with supersede_contract on the complete action step), and targets must be the producer steps that reach the route step through forward edges.",
+      "description": "CD-0201 D1 recovery-route table: the only owner of cross-step correction. A table-less definition whose steps record verdicts or confirm premises refuses registration. The unhealthy_verdict trigger pairs with request_correction on a step that records a verdict or confirms a premise. Targets must be producer steps that reach the route step through forward edges.",
       "type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/recoveryRoute"}
     },
     "recoveryRoute": {
@@ -156,8 +156,8 @@
       "required": ["step", "trigger", "action", "target"],
       "properties": {
         "step": {"$ref": "#/$defs/id"},
-        "trigger": {"type": "string", "enum": ["unhealthy_verdict", "disproved_premise_at_complete"]},
-        "action": {"type": "string", "enum": ["request_correction", "supersede_contract"]},
+        "trigger": {"type": "string", "enum": ["unhealthy_verdict"]},
+        "action": {"type": "string", "enum": ["request_correction"]},
         "target": {"$ref": "#/$defs/id"}
       }
     }

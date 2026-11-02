@@ -3,9 +3,7 @@
   "id": "CD-0143",
   "title": "Verdict correction returns to the external effect",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "workflow-engine",
   "applies_to_domain_ids": [],
@@ -29,7 +27,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-13
-- **Scope:** Correction of delivered work after an unhealthy verification verdict
+- **Scope:** Declared producer returns after an unhealthy verification verdict or
+  an accepted Review that no longer applies
 - **Related:** CD-0013, CD-0124, CD-0138, CD-0209, CD-0242
 - **Preserves:** Contract authority, native evidence, applicable approvals,
   subject bindings and fail-closed completion
@@ -44,10 +43,15 @@ verdict healthy.
 
 ### D1. Admit one typed verdict-correction action
 
-`request_correction` requires delivered work and a current unhealthy verdict,
-diagnosis, strategy, affected predicates/findings and bound evidence. An
-authenticated coordinator records it. No subagent failure disposition is a
-prerequisite or alternate ground.
+For an unhealthy-verdict correction, `request_correction` requires delivered
+work and a current unhealthy verdict, diagnosis, strategy, affected
+predicates/findings and bound evidence. An authenticated coordinator records
+it. No subagent failure disposition is a prerequisite or alternate ground.
+
+An accepted Review made inapplicable by candidate or dependency changes also
+supports the bounded producer return defined in
+[workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates).
+That return does not assert an unhealthy verdict or make old proof current.
 
 ### D2. Return to the declared external effect
 

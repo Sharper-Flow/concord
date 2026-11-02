@@ -18,10 +18,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0033"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0036"
     },
     {
@@ -209,7 +205,7 @@ required-review checks.
 | CD-0230 D4, D5 | Law-change authority, approval classes, listed gaps, recovery |
 | CD-0013 D11 | Conversational operator decisions and routine actions |
 | CD-0006 D5, D10; CD-0159 D4; CD-0218 D1; CD-0222 D1, D4, D5 | Law mandates and enactment require approval only under D2 |
-| CD-0033; CD-0122; CD-0166; CD-0198; CD-0215; CD-0217; CD-0222 D6; CD-0229 | Operator consent for their operations applies only under D2; D5 governs recovery |
+| CD-0122; CD-0166; CD-0198; CD-0215; CD-0217; CD-0222 D6; CD-0229 | Operator consent for their operations applies only under D2; D5 governs recovery |
 | CD-0154 D2 | Four roles, optional RTE and Planner, direct operator routing |
 | TS1, TS4, TS9 contracts; TS5 §5; clarifications TS1–TS9 binding; PM9 contract; CD-0029 | Retained approval gaps for overlap, cancellation, removal, repair, reconciliation, and research deletion apply only under D2 |
 
@@ -238,10 +234,10 @@ requires operator consent only when a D2 class applies.
 | CD-0210 D1, D2 and reconciliation criteria | Outside-repair disposition and reconciliation require operator consent only under D2 |
 | CD-0216 retirement contract | Physical research-pack deletion requires operator consent only under D2 |
 | CD-0218 D2 | Recovery consent follows D2; current admission and safety requirements remain |
-| `priorities.md` quality and visibility clauses | Law-change and contract-supersession approval follows D2, not seriousness |
+| `priorities.md` quality and visibility clauses | Law-change and contract-update approval follows D2, not seriousness |
 | TS4 operation rows and overlap criteria; TS8 overlap proofs; TS1 and clarifications overlap summaries | Version-pinned overlap resolutions retain their scope checks; conversational operator approval follows D2 |
 | PM6 publication sequence and content lock; TS4 publication row; PM9 payload summary | The durable publication intent freezes exact content and home; it is not operator approval |
-| Workflow-engine contract and workflows outcome-contract and transition tables | Conversational operator decisions about contracts and supersession follow D2 |
+| Workflow-engine contract and workflows outcome-contract and transition tables | Conversational operator decisions about contracts follow D2 |
 | PM10 emergency-salvage recovery record | The recovery record remains required; operator consent follows D2, not the absence of a verified snapshot alone |
 | CD-0015 relation authoring and `law_modifies`; CD-0040 D7 | Law-relation, law-delta, and freshness-policy revisions follow D4; they require operator approval only under D2 |
 

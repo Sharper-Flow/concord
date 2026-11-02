@@ -30,13 +30,8 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 		"work_id": f.work, "statement": "The approved value criterion has checked production and accepted Review.",
 		"refs": []string{before.Pinned.Contract.ArchitectureBinding.HomeDomainID, f.proof}, "idempotency_key": "journey-initial-investigation",
 	}))
-	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
-		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise",
-		"idempotency_key": "journey-initial-confirm",
-	}))
 
-	// Reopen evaluation of the existing candidate, not its production. The
-	// observation supplies the existing close-step correction route's premise.
+	// Reassess the existing candidate without resetting its production step.
 	spineOK(t, f.call(t, "concord_work_define", "observation_record", map[string]any{
 		"work_id": f.work, "statement": "Recheck whether the existing candidate satisfies its approved value criterion.",
 		"refs": []string{before.Pinned.Contract.ArchitectureBinding.HomeDomainID, f.proof}, "idempotency_key": "journey-reevaluation",
@@ -48,19 +43,16 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 			"outcome_kind": predicate.OutcomeKind, "outcome_payload": json.RawMessage(predicate.OutcomePayload)})
 	}
 	successor := map[string]any{
-		"contract_version": contract.Version + 1, "predecessor_contract_versions": []int64{contract.Version},
-		"premise": contract.Premise, "outcome_predicates": predicates, "required_evidence": contract.RequiredEvidence,
-		"route_conventions": []string{"complete_step_correction"}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"contract_version": contract.Version + 1,
+		"premise":          contract.Premise, "outcome_predicates": predicates, "required_evidence": contract.RequiredEvidence,
+		"route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"architecture_binding": contract.ArchitectureBinding, "rigor_class": "prototype_internal", "decision_domains": []string{},
-		"supersede_reason": "Re-evaluate the existing candidate without changing its requirement.", "audit_evidence": []string{f.proof},
 	}
-	spineOK(t, f.action(t, "supersede_contract", successor))
-	spineOK(t, f.action(t, "checkpoint_repair", map[string]any{}))
-	for _, binding := range []store.WorkPinEvidence{proof,
-		{EvidenceKind: "review", ImmutableSubjectRef: f.read(t).Pinned.Pin.Review.Accepted.ReportRef},
-		{EvidenceKind: "artifact", ImmutableSubjectRef: candidate.Commit},
-	} {
-		spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": binding.EvidenceKind, "evidence_ref": binding.ImmutableSubjectRef}))
+	beforeRevision := f.read(t)
+	updated, _ := dispatchContractRevisionResult(t, f.s, f.service, f.env, f.work, beforeRevision.Pinned.Pin.Version, successor, "journey-revise-unchanged")
+	spineOK(t, updated)
+	if after := f.read(t); after.Pinned.Step != beforeRevision.Pinned.Step || !slices.Contains(after.Pinned.Pin.VerdictEvidence, proof) {
+		t.Fatal("ordinary revision reset the step or discarded valid proof")
 	}
 	if review := f.read(t).Pinned.Pin.Review; *review.Candidate != candidate || !review.DependenciesCurrent {
 		t.Fatal("evaluation-admission correction lost production or its applicable Review")
@@ -76,20 +68,18 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	changed["immutable_subject_ref"] = "commit:reevaluated-value"
 	predicates[0]["outcome_payload"] = changed
 	successor["contract_version"] = contract.Version + 1
-	successor["predecessor_contract_versions"] = []int64{contract.Version}
 	successor["route_conventions"] = []string{}
-	successor["supersede_reason"] = "Require attribution to the reassessed value subject."
-	spineOK(t, f.action(t, "supersede_contract", successor))
-	delivery := map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}
+	updated, _ = dispatchContractRevisionResult(t, f.s, f.service, f.env, f.work, f.read(t).Pinned.Pin.Version, successor, "journey-revise-subject")
+	spineOK(t, updated)
 	version := f.read(t).Pinned.Pin.Version
-	refused := f.action(t, "record_delivery", delivery)
-	if refused.Error == nil || refused.Error.Kind != "stale_requires_review" || refused.Error.Message != "recorded Review does not cover the current candidate and dependencies" || refused.Error.EffectState != agentcontract.EffectNone || f.read(t).Pinned.Pin.Version != version {
+	refused := f.action(t, "confirm_premise", map[string]any{})
+	if refused.Error == nil || refused.Error.EffectState != agentcontract.EffectNone || f.read(t).Pinned.Pin.Version != version || f.read(t).Pinned.Pin.Review.DependenciesCurrent {
 		t.Fatalf("changed obligation used the old Review or committed an effect: %+v", refused.Error)
 	}
 	f.review(t, "correction_required", "")
 	report := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": report}))
-	if unmet := f.action(t, "record_delivery", delivery); unmet.Error == nil || unmet.Error.Kind != "missing_evidence" || unmet.Error.Message != "Review has not reached ready_for_final_proof without remaining obligations" || unmet.Error.EffectState != agentcontract.EffectNone {
+	if unmet := f.action(t, "confirm_premise", map[string]any{}); unmet.Error == nil || unmet.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("an unmet changed obligation left execution without correction: %+v", unmet.Error)
 	}
 	spineOK(t, f.action(t, "request_correction", map[string]any{

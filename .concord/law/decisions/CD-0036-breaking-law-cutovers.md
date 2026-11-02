@@ -18,7 +18,7 @@
 - **Scope:** Product-law evolution and workflow contracts
 - **Approval:** Operator approval for CD-0036
 - **Related:** CD-0006 D5/D10/R3, CD-0012, CD-0013, CD-0015,
-  CD-0016, CD-0027, CD-0033
+  CD-0016, CD-0027
 
 ## Context
 

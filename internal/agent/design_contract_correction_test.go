@@ -2,18 +2,16 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.T) {
+func TestContractReassessmentPreservesDesignAndRefusesInlineReplacement(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -41,11 +39,9 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 		t.Fatal("initial approved contract has no design record")
 	}
 	fields["contract_version"] = 2
-	fields["supersede_reason"] = "reassess the unchanged approved outcome and architecture"
-	fields["audit_evidence"] = []string{"evidence:design-correction"}
-	corrected, version := dispatchWorkflowActionResult(t, s, service, env, version, "supersede_contract", fields, "design-correction-supersede")
+	corrected, version := dispatchContractRevisionResult(t, s, service, env, "work-1", version, fields, "design-correction-revise")
 	if corrected.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("supersede contract: %+v", corrected.Error)
+		t.Fatalf("revise contract: %+v", corrected.Error)
 	}
 	after, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1"})
 	if err != nil {
@@ -59,38 +55,16 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 	}
 	fields["contract_version"] = 3
 	fields["premise"] = "Use a replacement approach rather than the original design"
-	fields["supersede_reason"] = "replace the architecture explicitly with the corrected objective"
 	fields["design_record"] = map[string]any{
 		"approach":     "Use the replacement approach",
 		"decisions":    []map[string]any{{"id": "decision:replacement", "question": "Which approach?", "choice": "replacement", "rationale": "Matches the corrected objective", "rejected": []string{"original"}}},
 		"touched_refs": []string{"internal/store/workflow_design.go"},
 	}
-	replaced, version := dispatchWorkflowActionResult(t, s, service, env, version, "supersede_contract", fields, "design-correction-replace")
-	if replaced.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("replace design with contract: %+v", replaced.Error)
-	}
-	current, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if current.Contract == nil || current.Contract.Version != 3 || current.DesignRecord == nil || current.DesignRecord.Approach != "Use the replacement approach" {
-		t.Fatalf("replacement pair not current: contract=%+v design=%+v", current.Contract, current.DesignRecord)
-	}
-	wantDecisions := []store.WorkflowDesignDecision{{ID: "decision:replacement", Question: "Which approach?", Choice: "replacement", Rationale: "Matches the corrected objective", Rejected: []string{"original"}}}
-	if !reflect.DeepEqual(current.DesignRecord.Decisions, wantDecisions) || !reflect.DeepEqual(current.DesignRecord.TouchedRefs, []string{"internal/store/workflow_design.go"}) || current.DesignRecord.WorkVersion <= after.DesignRecord.WorkVersion {
-		t.Fatalf("replacement content was not recorded: %+v", current.DesignRecord)
-	}
 	eventsBefore := workEventCount(t, s, "work-1")
 	designsBefore := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`)
-	fields["contract_version"] = 4
-	fields["design_record"].(map[string]any)["decisions"].([]map[string]any)[0]["choice"] = strings.Repeat("x", 1025)
-	raw, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "supersede_contract", "fields": fields, "idempotency_key": "design-correction-invalid"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	refused, _ := dispatchContractRevisionResult(t, s, service, env, "work-1", version, fields, "design-correction-invalid")
 	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" {
-		t.Fatalf("oversized replacement accepted: %+v", refused.Error)
+		t.Fatalf("inline design replacement accepted: %+v", refused.Error)
 	}
 	if workOneVersion(t, s) != version {
 		t.Fatal("invalid replacement changed work version")
@@ -99,7 +73,7 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(unchanged.Contract, current.Contract) || !reflect.DeepEqual(unchanged.DesignRecord, current.DesignRecord) {
+	if !reflect.DeepEqual(unchanged.Contract, after.Contract) || !reflect.DeepEqual(unchanged.DesignRecord, after.DesignRecord) {
 		t.Fatal("invalid replacement changed the current contract or design")
 	}
 	if workEventCount(t, s, "work-1") != eventsBefore || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`) != designsBefore {

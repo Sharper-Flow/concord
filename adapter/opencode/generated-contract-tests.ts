@@ -130,8 +130,8 @@ export function expandedPublishedRequestSchema(published: unknown): unknown {
 // admission) is checked where it lives, never through the factored parent
 // view that carries only the shared constraints. Inspection only: the
 // published compact document stays the admitted input.
-export function actionFieldsBranches(actionInput: unknown): any[] {
-  const fields = (actionInput as any)?.properties?.fields;
+export function actionFieldsBranches(actionInput: unknown, fieldName: string = "fields"): any[] {
+  const fields = (actionInput as any)?.properties?.[fieldName];
   if (fields === null || typeof fields !== "object" || Array.isArray(fields)) return [];
   if (Array.isArray((fields as any).oneOf)) return (fields as any).oneOf;
   if (Array.isArray((fields as any).anyOf)) return (fields as any).anyOf;
@@ -148,7 +148,7 @@ export function actionFieldsBranches(actionInput: unknown): any[] {
 // store's ValidateOperationPayload stays the closed admission boundary; this
 // checks only what the advertised surface teaches. The published request is
 // one compact branch per operation, with the workflow actions grouped under
-// their operation, and approve_contract's and supersede_contract's fields is
+// their operation, and approve_contract's fields are
 // one closed object: every contract declares its decision domains. The
 // traversal expands the passed document's own local references and factored
 // unions, so every check below reads the legacy-effective view of the actual
@@ -168,6 +168,11 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
       .filter((fields) => fields?.properties?.outcome_predicates !== undefined)
       .map((fields) => ({ actionId: input?.properties?.action_id?.const, fields })),
   );
+  for (const branch of requestBranches.filter((branch) => branch?.properties?.operation?.const === "revise_intent")) {
+    for (const fields of actionFieldsBranches(branch?.properties?.input, "contract")) {
+      if (fields?.properties?.outcome_predicates !== undefined) carriers.push({ actionId: "revise_intent", fields });
+    }
+  }
   if (carriers.length === 0) {
     gaps.push("outcome_predicates items carry 0 per-kind branches, expected the 4 strict variants");
   }
@@ -209,7 +214,7 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
     gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
   }
   // Every fields branch that carries outcome_predicates on every carrier
-  // action (approve_contract and supersede_contract) must teach the rule,
+  // action must teach the rule,
   // or a drop from one branch hides behind its siblings.
   const delivery: unknown = carrier.fields.properties.outcome_predicates?.description;
   if (typeof delivery !== "string" || delivery.split(" Accepted shape:", 1)[0] !== "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.") {
@@ -287,4 +292,4 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
   return pass(evaluated);
 }
 
-export const PINNED_PUBLISHED_TOTAL_BYTES = 102760;
+export const PINNED_PUBLISHED_TOTAL_BYTES = 111783;

@@ -38,33 +38,6 @@ func TestRecoveryRouteAbsenceHasOneCanonicalEncoding(t *testing.T) {
 	}
 }
 
-func TestCurrentCompleteStepCorrectionRoutesCoverOnlySupportedFamilies(t *testing.T) {
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		t.Run(definition.Ref, func(t *testing.T) {
-			want := ""
-			switch definition.Ref {
-			case "workflow.implementation":
-				want = "execution"
-			case "workflow.break_fix":
-				want = "repair"
-			}
-			count := 0
-			for _, route := range workflowRecoveryRoutes(definition) {
-				if route.Trigger != WorkflowRecoveryTriggerDisprovedPremiseAtComplete {
-					continue
-				}
-				count++
-				if want == "" || route.Target != want || route.Action != "supersede_contract" || !stepDeclaresAction(definition, route.Step, "complete") {
-					t.Fatalf("unsupported complete-step correction route: %+v", route)
-				}
-			}
-			if (want != "" && count != 1) || (want == "" && count != 0) {
-				t.Fatalf("complete-step correction route count = %d for target %q", count, want)
-			}
-		})
-	}
-}
-
 func TestCurrentRecoveryRoutesAreDeclaredAndDefensive(t *testing.T) {
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		if len(definition.RecoveryRoutes) == 0 {
@@ -94,11 +67,8 @@ func TestRecoveryRouteRegistrationRefusals(t *testing.T) {
 	evaluator := slices.IndexFunc(base.RecoveryRoutes, func(r WorkflowRecoveryRoute) bool {
 		return r.Step == "acceptance" && r.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict
 	})
-	complete := slices.IndexFunc(base.RecoveryRoutes, func(r WorkflowRecoveryRoute) bool {
-		return r.Trigger == WorkflowRecoveryTriggerDisprovedPremiseAtComplete
-	})
-	if evaluator < 0 || complete < 0 {
-		t.Fatal("current definition lacks the evaluator or completion route under test")
+	if evaluator < 0 {
+		t.Fatal("current definition lacks the evaluator route under test")
 	}
 	for name, mutate := range map[string]func(*WorkflowDefinition){
 		"missing evaluator route": func(d *WorkflowDefinition) {
@@ -110,8 +80,6 @@ func TestRecoveryRouteRegistrationRefusals(t *testing.T) {
 		"unknown action":                            func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Action = "unknown_action" },
 		"unknown target":                            func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Target = "nonexistent" },
 		"unhealthy trigger pairs wrong action":      func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Action = "supersede_contract" },
-		"complete trigger pairs wrong action":       func(d *WorkflowDefinition) { d.RecoveryRoutes[complete].Action = "request_correction" },
-		"complete trigger off the complete step":    func(d *WorkflowDefinition) { d.RecoveryRoutes[complete].Step = "acceptance" },
 		"unhealthy trigger on a non-evaluator step": func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Step = "design" },
 		"target is the route step":                  func(d *WorkflowDefinition) { d.RecoveryRoutes[evaluator].Target = d.RecoveryRoutes[evaluator].Step },
 		"target is terminal":                        func(d *WorkflowDefinition) { d.RecoveryRoutes[0].Target = "release" },
@@ -212,21 +180,5 @@ func TestRecoveryRouteTargetMustProduceArtifact(t *testing.T) {
 	definition.RecoveryRoutes[0].Target = "inspection"
 	if err := validateWorkflowRecoveryRoutes(definition); err == nil {
 		t.Fatal("recovery accepted an upstream non-producer")
-	}
-}
-
-func TestDeclaredEvaluatorAdmitsObjectiveRevision(t *testing.T) {
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		for _, route := range workflowRecoveryRoutes(definition) {
-			if route.Trigger != WorkflowRecoveryTriggerUnhealthyVerdict || stepDeclaresAction(definition, route.Step, "complete") {
-				continue
-			}
-			if !workflowContractCorrectionCheckpoint(definition, route.Step) {
-				t.Errorf("%s %s refuses objective revision", definition.Ref, route.Step)
-			}
-			if !admissionContractCorrection(definition, admissionModelState{step: route.Step, contracts: 1, verdict: "bad", artifactStale: true}) {
-				t.Errorf("%s %s model refuses objective revision", definition.Ref, route.Step)
-			}
-		}
 	}
 }

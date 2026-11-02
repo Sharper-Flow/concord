@@ -3,9 +3,7 @@
   "id": "CD-0053",
   "title": "The three un-mandated predecessor strengths are answered",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "product-root:concord",
   "applies_to_domain_ids": [
@@ -87,9 +85,9 @@ Concord's outcome contract makes unrepresentable:
 - **The typed outcome contract (CD-0012):** every work item carries premise,
   required end-state, and candidate set, each with its own revision
   authority. A weaker delivered end-state fails completion
-  (`WF04-weaker-delivery`); a changed premise
-  supersedes the item rather than silently re-scoping it
-  (`WF11-end-state-supersession-audit`).
+  (`WF04-weaker-delivery`). A changed premise enters through an ordinary
+  [contract update](../specs/workflow-engine-contract.md#41-ordinary-contract-updates),
+  retaining prior content and evidence rather than silently re-scoping work.
 - **Governing requirements at capture (CD-0035):** law captured with work is
   bound at capture time and governs completion, rather than being re-argued
   at a gate.

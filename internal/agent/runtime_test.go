@@ -19,24 +19,24 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-func TestSupersedeContractPayloadIsRepresentableAtAgentBoundary(t *testing.T) {
+func TestContractRevisionPayloadIsRepresentableAtAgentBoundary(t *testing.T) {
 	t.Parallel()
 	payload, err := json.Marshal(map[string]any{
-		"work_id": "work-stale", "expected_version": 7, "action_id": "supersede_contract", "idempotency_key": "supersede-contract",
-		"fields": map[string]any{
+		"work_id": "work-stale", "expected_version": 7, "idempotency_key": "revise-contract", "title": "Updated plan", "value_statement": "Current law", "kind": "task", "reason": "Update the plan",
+		"contract": map[string]any{
 			// The canonical authoring shape carries explicit outcome
 			// predicates alone; the legacy outcome pair left the union
 			// (CD-0218 D2).
 			"contract_version": 2, "premise": "continue under the accepted successor law",
 			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:successor", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor", "immutable_subject_ref": "commit:successor", "expected_result": "pass"}}},
-			"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:successor"}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "supersede_reason": "replace the stale contract", "audit_evidence": []string{"evidence:audit"},
+			"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:successor"}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "decision_domains": []string{},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", payload, false); err != nil {
-		t.Fatalf("supersede_contract payload is not representable at the agent boundary: %v", err)
+	if err := agentcontract.ValidateOperationPayload("concord_work_define", "revise_intent", payload, false); err != nil {
+		t.Fatalf("contract revision payload is not representable at the agent boundary: %v", err)
 	}
 }
 

@@ -189,23 +189,21 @@ func lawUpgradeRefusal(t *testing.T, s *Store, id string, clause int, run func()
 	lawUpgradeNoBaseline(t, s, id)
 }
 
-func lawUpgradeContractFields(successor bool) map[string]any {
+func lawUpgradeContractFields(update bool) map[string]any {
 	fields := map[string]any{
 		"premise": "Record the bounded research result", "decision_domains": []string{},
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}},
 		"required_evidence":  []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
 	}
-	if successor {
+	if update {
 		fields["contract_version"] = 2
-		fields["supersede_reason"] = "Retain the remaining research scope"
-		fields["audit_evidence"] = []string{"evidence:upgrade"}
 	}
 	return fields
 }
 
 func TestWorkflowLawUpgradeContractRoutes(t *testing.T) {
 	for _, definitionRef := range []string{"workflow.research", "workflow.implementation", "workflow.break_fix"} {
-		for _, action := range []string{"approve_contract", "supersede_contract"} {
+		for _, action := range []string{"approve_contract", "revise_intent"} {
 			t.Run(definitionRef+"/"+action, func(t *testing.T) {
 				id := "upgrade-" + definitionRef + "-" + action
 				contract := 0
@@ -213,7 +211,7 @@ func TestWorkflowLawUpgradeContractRoutes(t *testing.T) {
 				if definitionRef != "workflow.research" {
 					step = "planning"
 				}
-				if action == "supersede_contract" {
+				if action == "revise_intent" {
 					contract = 1
 					step = "conclude"
 					if definitionRef == "workflow.implementation" {
@@ -230,6 +228,9 @@ func TestWorkflowLawUpgradeContractRoutes(t *testing.T) {
 					fields["architecture_binding"] = map[string]any{"home_domain_id": "root", "affected_domain_ids": []string{"root"}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}
 				}
 				lawUpgradeRefusal(t, s, id, 0, func() error {
+					if action == "revise_intent" {
+						return reviseContractRecord(t, s, id, owner, fields, readWorkVersion(t, s, id), nil)
+					}
 					return lawUpgradeAction(t, s, id, owner, action, fields)
 				})
 				pin, err := ReadWorkPin(t.Context(), s, id)

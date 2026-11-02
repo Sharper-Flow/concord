@@ -389,16 +389,25 @@ func TestWorkflowContractRevisionAdvancesEffectFrontier(t *testing.T) {
 	t.Parallel()
 	source, actor := qContractRevisionFixture(t, "revision-source")
 	var sourceVersion int64
-	if err := source.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='revision-source'`).Scan(&sourceVersion); err != nil {
+	var kind string
+	if err := source.DatabaseForTesting().QueryRow(`SELECT version,kind FROM work_items WHERE id='revision-source'`).Scan(&sourceVersion, &kind); err != nil {
 		t.Fatal(err)
 	}
-	supersede := workflowEventWithActor("revision-supersede", WorkflowContractSuperseded, "revision-source", actor, map[string]any{"work_id": "revision-source", "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "refresh approved contract", "audit_evidence": []string{"evidence:audit"}})
-	frontierHideNewEffects(t, source)
-	tx, err := source.db.BeginTx(context.Background(), nil)
+	revision := workflowEventWithActor("revision-update", "work.intent_revised", "revision-source", actor, map[string]any{
+		"title": "Updated plan", "value_statement": "Retain valid proof", "kind": kind, "tags": []string{},
+		"expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "reason": "refresh the contract",
+		"contract": pContractSuccessor(t, source, "revision-source", "An ordinary revised plan."),
+	})
+	ctx, err := source.EstablishKnowledgeSourceSetProof(context.Background(), "revision-source")
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-source"): sourceVersion}}, newWriteScope(tx))
+	frontierHideNewEffects(t, source)
+	tx, err := source.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{revision}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-source"): sourceVersion}}, newWriteScope(tx))
 	if err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
@@ -406,9 +415,9 @@ func TestWorkflowContractRevisionAdvancesEffectFrontier(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	wantIDs := []string{supersede.EventID}
+	wantIDs := []string{revision.EventID}
 	if !reflect.DeepEqual(result.EventIDs, wantIDs) {
-		t.Fatalf("supersession event IDs = %v, want %v", result.EventIDs, wantIDs)
+		t.Fatalf("revision event IDs = %v, want %v", result.EventIDs, wantIDs)
 	}
 	var receiptCount, lastEffect, maximumReceipt int64
 	if err := source.db.QueryRow(`SELECT count(*),max(effect_seq),(SELECT last FROM store_sequences WHERE name='effect') FROM effect_receipts WHERE event_id=?`, wantIDs[0]).Scan(&receiptCount, &maximumReceipt, &lastEffect); err != nil || receiptCount != 1 || maximumReceipt != lastEffect {
@@ -419,7 +428,10 @@ func TestWorkflowContractRevisionAdvancesEffectFrontier(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resultingVersion != sourceVersion+1 {
-		t.Fatalf("supersession committed version=%d, want %d", resultingVersion, sourceVersion+1)
+		t.Fatalf("revision committed version=%d, want %d", resultingVersion, sourceVersion+1)
+	}
+	if active, err := activeWorkflowContractVersion(ctx, source.db, "revision-source", "test"); err != nil || active != 2 {
+		t.Fatalf("revised contract version = %d, %v; want 2", active, err)
 	}
 	var frontier, latest int64
 	if err := source.DatabaseForTesting().QueryRow(`SELECT effect_seq,(SELECT MAX(effect_seq) FROM effect_receipts WHERE subject_type='work_item' AND subject_id='revision-source') FROM work_items WHERE id='revision-source'`).Scan(&frontier, &latest); err != nil {
@@ -429,11 +441,11 @@ func TestWorkflowContractRevisionAdvancesEffectFrontier(t *testing.T) {
 		t.Fatalf("effect frontier = %d, want %d", frontier, latest)
 	}
 	var receiptSeq int64
-	if err := source.DatabaseForTesting().QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=? AND kind=? AND subject_id='revision-source'`, result.EventIDs[0], WorkflowContractSuperseded).Scan(&receiptSeq); err != nil {
+	if err := source.DatabaseForTesting().QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=? AND kind=? AND subject_id='revision-source'`, result.EventIDs[0], "work.intent_revised").Scan(&receiptSeq); err != nil {
 		t.Fatal(err)
 	}
 	if receiptSeq != latest {
-		t.Fatalf("supersession receipt sequence = %d, want %d", receiptSeq, latest)
+		t.Fatalf("revision receipt sequence = %d, want %d", receiptSeq, latest)
 	}
 }
 

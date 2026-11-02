@@ -18,7 +18,7 @@ func TestLawChangeRetiredInputsRefuseCurrentContracts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, action := range []string{"approve_contract", "supersede_contract"} {
+		for _, action := range []string{"approve_contract", "revise_intent"} {
 			t.Run(ref+"/"+action, func(t *testing.T) {
 				fields := map[string]any{
 					"premise":            "Revise the declared law inside this contract.",
@@ -27,23 +27,22 @@ func TestLawChangeRetiredInputsRefuseCurrentContracts(t *testing.T) {
 					"law_modifies":       []string{"law:fixture"},
 					"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law", "immutable_subject_ref": "commit:law", "expected_result": "pass"}}},
 				}
-				validate := func(raw json.RawMessage) error {
-					if action == "supersede_contract" {
-						return validateWorkflowContractRecoveryPayload(live.Definition, raw)
-					}
-					return validateWorkflowActionPayload(live.Definition, action, raw)
-				}
-				if action == "supersede_contract" {
+				definition := live.Definition
+				var published map[string]any
+				if action == "revise_intent" {
+					// Exercise the shared payload validator with the update declaration,
+					// not workflow-action admission.
+					definition.ActionDefinitions = []WorkflowActionDefinition{{ID: action, Payload: WorkflowContractUpdatePayload(live.Definition)}}
 					fields["contract_version"] = 2
 					fields["required_evidence"] = []string{}
 					fields["route_conventions"] = []string{}
 					fields["spec_mandate"] = []string{}
 					fields["rigor_class"] = "prototype_internal"
-					fields["supersede_reason"] = "Revise the declared law."
-					fields["audit_evidence"] = []string{"evidence:law"}
+					published = defs["workflow_contract_update"].(map[string]any)
+				} else {
+					variant := defs["work_transition_action_variant_"+action].(map[string]any)
+					published = variant["properties"].(map[string]any)["fields"].(map[string]any)
 				}
-				variant := defs["work_transition_action_variant_"+action].(map[string]any)
-				published := variant["properties"].(map[string]any)["fields"].(map[string]any)
 				assert := func(want bool) {
 					t.Helper()
 					raw := mustJSONValue(fields)
@@ -53,7 +52,7 @@ func TestLawChangeRetiredInputsRefuseCurrentContracts(t *testing.T) {
 					if err := decoder.Decode(&value); err != nil {
 						t.Fatal(err)
 					}
-					coreErr := validate(raw)
+					coreErr := validateWorkflowActionPayload(definition, action, raw)
 					publishedErr := payloadschema.ValidateValue(value, published, document, "fields")
 					if (coreErr == nil) != want || (publishedErr == nil) != want {
 						t.Errorf("fields=%s core=%v publication=%v, want admission %v", raw, coreErr, publishedErr, want)

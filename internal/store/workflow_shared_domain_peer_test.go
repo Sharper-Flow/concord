@@ -78,7 +78,7 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) *Store {
 			struct {
 				query string
 				args  []any
-			}{`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,1,?,?,?,?)`, []any{id, d7BoundaryProduct, hash, d7BoundaryDomain, hash}},
+			}{`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,1,?,?,?)`, []any{id, d7BoundaryProduct, d7BoundaryDomain, hash}},
 			struct {
 				query string
 				args  []any
@@ -215,27 +215,6 @@ func runSupersedeRecoveryFold(t *testing.T, s *Store, workID string, payload jso
 		return err
 	}
 	return tx.Commit()
-}
-
-// Two executing items that modify the same Domain and the same law do not block
-// each other at any consequential boundary (CD-0222 D6): the later one merges
-// the earlier one's changes, and the boundary check admits both.
-func TestConsequentialBoundariesAdmitASharedDomainPeer(t *testing.T) {
-	t.Parallel()
-	for _, step := range []string{"planning", "execution", "acceptance", "release"} {
-		t.Run(step, func(t *testing.T) {
-			ctx := context.Background()
-			workID, otherID := "shared-peer-"+step, "shared-peer-other-"+step
-			s := seedD7BoundaryOverlap(t, workID, otherID, step)
-			for _, id := range []string{workID, otherID} {
-				if err := s.Transact(ctx, func(tx *Transaction) error {
-					return CheckWorkflowConsequentialBoundaryTx(ctx, tx, id)
-				}); err != nil {
-					t.Fatalf("boundary for %s beside a shared-Domain peer = %v, want admitted", id, err)
-				}
-			}
-		})
-	}
 }
 
 // The execution claim, owned by the durable fence transaction, admits a step

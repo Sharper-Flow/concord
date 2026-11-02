@@ -84,8 +84,6 @@ func companionFields(err *TypedError) {
 		err.CurrentVersions = []ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "2"}}
 	case "budget_refused":
 		err.SupportedBudgetSeconds = 30
-	case "stale_law_revision":
-		err.StaleLawRevision = coupledStaleLawRevision()
 	}
 }
 
@@ -147,41 +145,6 @@ func TestPublicRecoveryHonorsEnforcedCouplings(t *testing.T) {
 		if got := PublicRecovery(kind, "reread_entities"); got != want {
 			t.Errorf("PublicRecovery(%q, %q) = %q, want %q", kind, "reread_entities", got, want)
 		}
-	}
-}
-
-func TestCoordinationRecoveryPreservesSupportedOwnerAction(t *testing.T) {
-	t.Parallel()
-	for _, action := range []string{"reconcile_operation", "reread_entities", "use_declared_route"} {
-		t.Run(action, func(t *testing.T) {
-			if got := PublicRecovery("stale_law_revision", action); got != action {
-				t.Errorf("PublicRecovery(stale_law_revision, %q) = %q, want owner action", action, got)
-			}
-			typed := TypedError{Kind: "stale_law_revision", RecoveryAction: RecoveryAction{Kind: action}, EffectState: EffectNone}
-			companionFields(&typed)
-			if action == "use_declared_route" {
-				typed.RecoveryAction.RequiredRefs = []string{"supersede_contract"}
-			}
-			out := NewCoreError(NewBase("owner-action", "concord_work_transition", "workflow_action"), typed)
-			if _, err := out.Encode(); err != nil {
-				t.Fatalf("supported owner action must serialize with typed details: %v", err)
-			}
-			typed.StaleLawRevision = nil
-			if err := validateError(typed); err == nil {
-				t.Fatal("missing typed companion passed validation")
-			}
-		})
-	}
-}
-
-// coupledStaleLawRevision builds the smallest stale law block the envelope
-// contract accepts.
-func coupledStaleLawRevision() *StaleLawRevision {
-	hash := "sha256:" + strings.Repeat("a", 64)
-	return &StaleLawRevision{
-		OldLawID:        "law-old",
-		OldContentHash:  hash,
-		RecoveryActions: []string{"supersede_contract"},
 	}
 }
 

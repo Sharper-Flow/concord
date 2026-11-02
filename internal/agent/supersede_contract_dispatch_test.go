@@ -152,16 +152,10 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		t.Fatalf("correction result cannot be serialized: %v", err)
 	}
 	// A peer writing the same Domain is coordination, not a gate: the
-	// corrected contract still reaches its consequential boundary, and the
-	// correction resolves nothing on the peer's behalf.
+	// correction succeeds without resolving anything on the peer's behalf.
 	if stage == "shared-writer" || stage == "shared-domain" {
 		if resolutions := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); resolutions != 0 {
 			t.Fatalf("contract correction silently resolved %d overlaps", resolutions)
-		}
-		if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-			return store.CheckWorkflowConsequentialBoundaryTx(context.Background(), tx, "work-1")
-		}); err != nil {
-			t.Fatalf("a shared-Domain peer blocked the corrected contract: %v", err)
 		}
 	}
 	committedVersion := workOneVersion(t, s)
@@ -194,8 +188,8 @@ func seedContractCorrectionPeer(t *testing.T, s *store.Store) {
 		INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES('correction-peer','workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z');
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 		SELECT 'correction-peer',contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1;
-		INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash)
-		SELECT 'correction-peer',contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash FROM workflow_architecture_bindings WHERE work_id='work-1' AND contract_version=1;
+		INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash)
+		SELECT 'correction-peer',contract_version,product_id,home_domain_id,projection_hash FROM workflow_architecture_bindings WHERE work_id='work-1' AND contract_version=1;
 		INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id)
 		SELECT 'correction-peer',contract_version,domain_id FROM workflow_contract_affected_domains WHERE work_id='work-1' AND contract_version=1;
 		INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id)

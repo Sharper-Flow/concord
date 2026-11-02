@@ -23,7 +23,7 @@
   CD-0077, CD-0156, CD-0198. The D5 owner must resolve its current successor
   identities before cutover.
 - **Related:** CD-0007, CD-0012, CD-0013, CD-0036, CD-0039, CD-0077,
-  CD-0156, CD-0172, CD-0186, CD-0198, CD-0215
+  CD-0156, CD-0172, CD-0198, CD-0215
 
 [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 governs D1: Product-law changes require approval only under its six classes. Workflow-family and repository-law-route requirements remain required.
@@ -77,25 +77,22 @@ The live families are implementation, break-fix, and research, each family's pla
 
 Attributed contract recording and premise confirmation remain separate from
 independent verdict evidence. Immutable job revisions, attempts, subject commits,
-packet/report identities, actor/session/Project/worktree bindings, law/research
+packet/report identities, actor/session/Project/worktree bindings, research
 pins, and operation/idempotency keys remain executable admission facts.
 
 One admission owner serves dispatch, delivery, correction, and closure; admission validates current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Host preauthorization remains at its own
 boundaries. No caller-supplied echo replaces dispatch-owned provenance.
 
 Complete-step contract correction remains confined to implementation and
-break-fix under CD-0172 and CD-0186. The declared producer return supplies fresh
+break-fix under CD-0172. The declared producer return supplies fresh
 design and proof after correction. Evidence binding can discharge an unverdicted
 active predicate through its existing owner. No acceptance-step bypass, stale
 design heuristic, or weakened evidence-kind check replaces that route.
 
-Ordinary stale-law and stale-Domain re-pinning keeps its existing admission at
-eligible running steps of every retained workflow family, including research.
 Duplicate-contract recovery and currently eligible earlier-step correction also
-keep their existing admission. CD-0186 limits the complete-step disproved-premise
-correction route, not ordinary stale recovery. Preserve both independently; an
-ordinary re-pin does not manufacture a producer return or evade the correction
-gate. Cancellation does not replace an existing admitted re-pin exit.
+keep their existing admission. Law and registry changes require no contract
+re-pin; they reconcile through Git under CD-0036. This does not weaken
+CD-0172's complete-step correction gate or manufacture a producer return.
 
 Exact shared-write conflicts, exclusive step claims, host-owned session/worktree
 placement under CD-0088 D1,

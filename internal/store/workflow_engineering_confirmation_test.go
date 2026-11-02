@@ -200,7 +200,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:research-report-exit", "ordinal": 0, "outcome_kind": "outcome",
 				"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}},
 			"required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{},
-			"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
+			"law_modifies": []string{}, "law_boundary_version": 1,
 			"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 			"decision_domains": []string{"product"},
 		}

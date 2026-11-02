@@ -1023,9 +1023,6 @@ func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if err != nil {
 		return err
 	}
-	if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, req.WorkID); err != nil {
-		return err
-	}
 	// Every registered item workflow definition lives under the workflow.*
 	// namespace (validWorkflowRef). A claim naming such a ref claims a step of
 	// the item's own workflow, so its identity and step must match the stored

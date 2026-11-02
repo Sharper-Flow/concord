@@ -10,11 +10,6 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CD-0222 D7: external observation capture and verification is the surface that
-// accepts an attributed merge or ship result into Product truth, so it is a
-// consequential boundary and must validate law revision pins as well as active
-// Domain overlaps.
-
 const (
 	observationBoundaryWork    = "work-holder"
 	observationBoundaryOldLaw  = "spec:one"
@@ -26,7 +21,7 @@ const (
 )
 
 // observationLawBoundary is the seeded boundary fixture: an active workflow
-// contract on work-holder that mandates and pins one committed law, with the
+// contract on work-holder that mandates one committed law, with the
 // committed home the law resolves through.
 type observationLawBoundary struct {
 	store   *store.Store
@@ -34,26 +29,19 @@ type observationLawBoundary struct {
 	grant   Authority
 	scope   string
 	home    store.KnowledgeHome
-	pinHash string
 }
 
 // seedObservationLawBoundary gives work-holder an active workflow contract that
-// mandates and pins one law committed at product-1's designated home, and
+// mandates one law committed at product-1's designated home, and
 // returns the fixture with that law still carried by the committed folder.
-// Callers that want the stale condition call deleteObservationBoundaryLaw
-// afterwards.
 func seedObservationLawBoundary(t *testing.T) observationLawBoundary {
 	t.Helper()
 	s, service, grant := observationFixture(t)
 
-	// The boundary law is committed content at the designated home
-	// (law-folder-authority.md, Committed reads): the contract pins the exact
-	// whole-file revision the folder carries, and the stale variants cut the
-	// law away with a committed removal.
 	boundary := observationLawBoundary{store: s, service: service, grant: grant}
 	boundary.home = observationCommittedHome(t, s)
 	registry := committedProductRegistry(t, s)
-	boundary.pinHash = commitAgentFixtureLaw(t, boundary.home.RepoPath, observationBoundaryLawPath,
+	commitAgentFixtureLaw(t, boundary.home.RepoPath, observationBoundaryLawPath,
 		agentFixtureLawFrontmatter(observationBoundaryOldLaw, registry.RootDomainID, "The observation boundary fixture registry declares no child Domain, so this law has no child home available."))
 
 	actorRef := "actor:" + strings.Repeat("a", 64)
@@ -61,12 +49,10 @@ func seedObservationLawBoundary(t *testing.T) observationLawBoundary {
 		[]string{
 			`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-1','agent','2026-08-08T12:00:00Z')`,
 			`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'accept the merge result','internal_sqlite','[]','[]','2026-08-08T12:00:00Z',?,?,'[]',1,'prototype_internal')`,
-			`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,?,?)`,
 		},
 		[][]any{
 			{actorRef},
 			{observationBoundaryWork, actorRef, `["` + observationBoundaryOldLaw + `"]`},
-			{observationBoundaryWork, observationBoundaryOldLaw, boundary.pinHash},
 		})
 
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
@@ -90,26 +76,20 @@ func observationCommittedHome(t *testing.T, s *store.Store) store.KnowledgeHome 
 }
 
 // deleteObservationBoundaryLaw removes the mandated law from the committed
-// folder without a replacement (CD-0036 D2). The contract still pins its
-// deleted revision.
+// folder without a replacement (CD-0036 D2).
 func deleteObservationBoundaryLaw(t *testing.T, boundary observationLawBoundary) {
 	t.Helper()
 	retireAgentFixtureLaw(t, boundary.home.RepoPath, observationBoundaryLawPath)
 	assertObservationBoundaryCutover(t, boundary)
 }
 
-// assertObservationBoundaryCutover proves the fixture actually created the
-// stale condition: the contract still pins the committed revision, and the
-// committed law folder no longer carries the law.
+// assertObservationBoundaryCutover proves the committed law folder no longer
+// carries the law.
 func assertObservationBoundaryCutover(t *testing.T, boundary observationLawBoundary) {
 	t.Helper()
-	var pinned string
-	if err := boundary.store.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=1 AND law_id=?`, observationBoundaryWork, observationBoundaryOldLaw).Scan(&pinned); err != nil {
-		t.Fatal(err)
-	}
 	remaining := gitRun(t, boundary.home.RepoPath, "ls-tree", "HEAD", "--", observationBoundaryLawPath)
-	if pinned != boundary.pinHash || strings.TrimSpace(remaining) != "" {
-		t.Fatalf("deletion not established: pinned=%q committed tree entry=%q", pinned, strings.TrimSpace(remaining))
+	if strings.TrimSpace(remaining) != "" {
+		t.Fatalf("deletion not established: committed tree entry=%q", strings.TrimSpace(remaining))
 	}
 }
 
@@ -194,87 +174,22 @@ func scalarRow(t *testing.T, s *store.Store, query string, args ...any) int {
 	return count
 }
 
-// TestExternalObservationBoundaryRefusesStaleLawRevision proves the CD-0222 D7
-// law-revision half runs at the boundary that accepts an attributed merge or
-// ship result, in the transaction that owns the observation write. Both
-// variants of that boundary are covered: the capture that admits the result
-// and the verification that re-attests it.
-func TestExternalObservationBoundaryRefusesStaleLawRevision(t *testing.T) {
+func TestExternalObservationAcceptsAfterLawDeletion(t *testing.T) {
 	t.Parallel()
-	for _, variant := range []struct {
-		name  string
-		input func(idempotencyKey, observationID string) map[string]any
-	}{
-		{name: "capture", input: externalCaptureInput},
-		{name: "verification", input: externalVerificationInput},
-	} {
-		t.Run(variant.name, func(t *testing.T) {
-			runStaleLawBoundaryRefusal(t, variant.input)
-		})
-	}
-}
-
-func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observationID string) map[string]any) {
-	t.Helper()
-	ctx := context.Background()
 	boundary := seedObservationLawBoundary(t)
 	s, service, grant, scopeVersion := boundary.store, boundary.service, boundary.grant, boundary.scope
 	deleteObservationBoundaryLaw(t, boundary)
-
-	eventsBefore := agentCurrentEffects(t, s)
-	versionBefore := scalarRow(t, s, `SELECT version FROM work_items WHERE id=?`, observationBoundaryWork)
-	contractsBefore := scalarRow(t, s, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, observationBoundaryWork)
-
-	response := dispatchObservation(t, s, service, grant, scopeVersion, build("obs-stale-1", "xobs:0123456789abcdef"))
-
-	if response.Outcome != agentcontract.OutcomeError || response.Error == nil {
-		t.Fatalf("stale-law boundary accepted the external result: outcome=%s changed=%+v", response.Outcome, response.ChangedRefs)
+	for i, input := range []map[string]any{externalCaptureInput("obs-deleted-1", "xobs:0123456789abcdef"), externalVerificationInput("obs-deleted-2", "xobs:0123456789abcdef")} {
+		response := dispatchObservation(t, s, service, grant, scopeVersion, input)
+		if response.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("external observation %d after law deletion refused: %+v", i, response.Error)
+		}
 	}
-	if response.Error.Kind != "stale_law_revision" {
-		t.Fatalf("boundary refusal kind=%q, want stale_law_revision (error=%+v)", response.Error.Kind, response.Error)
-	}
-	stale := response.Error.StaleLawRevision
-	if stale == nil {
-		t.Fatal("stale-law refusal carries no typed stale_law_revision detail")
-	}
-	if stale.OldLawID != observationBoundaryOldLaw || stale.OldContentHash != boundary.pinHash {
-		t.Fatalf("refusal old law=%q hash=%q, want %q %q", stale.OldLawID, stale.OldContentHash, observationBoundaryOldLaw, boundary.pinHash)
-	}
-	if strings.Join(stale.RecoveryActions, ",") != "supersede_contract,terminal_work" {
-		t.Fatalf("refusal recovery choices=%v, want [supersede_contract terminal_work]", stale.RecoveryActions)
-	}
-	if response.Error.RecoveryAction.Kind != "reconcile_operation" {
-		t.Fatalf("refusal recovery action=%q, want reconcile_operation", response.Error.RecoveryAction.Kind)
-	}
-
-	// The refusal left no effect: no event, no observation row, no version
-	// move, and the pinned contract still stands.
-	if got := agentCurrentEffects(t, s); got != eventsBefore {
-		t.Fatalf("refused boundary changed current rows or receipts: got=%s baseline=%s", got, eventsBefore)
-	}
-	if got := scalarRow(t, s, `SELECT count(*) FROM external_observations WHERE work_id=?`, observationBoundaryWork); got != 0 {
-		t.Fatalf("refused boundary recorded %d external observations, want 0", got)
-	}
-	if got := scalarRow(t, s, `SELECT version FROM work_items WHERE id=?`, observationBoundaryWork); got != versionBefore {
-		t.Fatalf("refused boundary changed work version=%d, want %d", got, versionBefore)
-	}
-	if got := scalarRow(t, s, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, observationBoundaryWork); got != contractsBefore {
-		t.Fatalf("refused boundary changed the active contract count=%d, want %d", got, contractsBefore)
-	}
-
-	// D7: read-only inspection remains available while the boundary refuses.
-	browse, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "scope", Input: json.RawMessage(`{"product_id":"product-1","work_id":"` + observationBoundaryWork + `"}`)}, mutationEnvelope(grant, scopeVersion))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if browse.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("read-only scope inspection refused while the mutation boundary refused: %+v", browse.Error)
+	if got := scalarRow(t, s, `SELECT count(*) FROM external_observations WHERE work_id=?`, observationBoundaryWork); got != 1 {
+		t.Fatalf("captured and verified observations=%d, want 1", got)
 	}
 }
 
-// TestExternalObservationBoundaryAcceptsCurrentLawRevision is the control: the
-// same fixture without the law cutover accepts the same external result, so the
-// refusal above is attributable to the stale pin and not to the fixture.
 func TestExternalObservationBoundaryAcceptsCurrentLawRevision(t *testing.T) {
 	t.Parallel()
 	boundary := seedObservationLawBoundary(t)
@@ -294,7 +209,7 @@ func TestExternalObservationBoundaryAcceptsCurrentLawRevision(t *testing.T) {
 }
 
 // CD-0036 D4: recording what happened does not accept an attributed result.
-func TestStaleLawBoundaryAllowsRawObservation(t *testing.T) {
+func TestLawDeletionAllowsRawObservation(t *testing.T) {
 	t.Parallel()
 	boundary := seedObservationLawBoundary(t)
 	s, service, grant, scopeVersion := boundary.store, boundary.service, boundary.grant, boundary.scope
@@ -314,11 +229,7 @@ func TestStaleLawBoundaryAllowsRawObservation(t *testing.T) {
 	}
 }
 
-// TestStaleLawBoundaryLeavesRecoveryReachable proves the exemption the new
-// check inherits is the right one. supersede_contract and terminal_work are the
-// only recovery choices the stale-law refusal offers; guarding the operations
-// that enact them would close the refusal's own way out.
-func TestStaleLawBoundaryLeavesRecoveryReachable(t *testing.T) {
+func TestLawDeletionLeavesCancellationReachable(t *testing.T) {
 	t.Parallel()
 	boundary := seedObservationLawBoundary(t)
 	s, service, grant, scopeVersion := boundary.store, boundary.service, boundary.grant, boundary.scope
@@ -337,7 +248,7 @@ func TestStaleLawBoundaryLeavesRecoveryReachable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("the stale-law boundary refused its own terminal_work recovery: %+v", response.Error)
+		t.Fatalf("law deletion refused terminal_work cancellation: %+v", response.Error)
 	}
 	if lifecycle, got := readWorkFromStore(t, s, observationBoundaryWork); lifecycle != "cancelled" || got != int64(version+1) {
 		t.Fatalf("terminal recovery = %s v%d, want cancelled v%d", lifecycle, got, version+1)

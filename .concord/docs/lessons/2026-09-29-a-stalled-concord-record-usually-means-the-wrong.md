@@ -1,6 +1,6 @@
 Four items (work-ffd855dd, work-13e6717f, work-e103255e, work-aad52b54) shipped code but left the record open. Each predecessor session concluded it was blocked. None was.
 
-1. A supersede_contract refusal does not establish that every correction route is unavailable. Read the current step, the pinned contract, and the declared recovery intents. Ordinary stale-contract recovery and the complete-step correction route have separate admission rules (CD-0186; internal/store/workflow_dispatch.go; internal/store/workflow_action_guards.go).
+1. A supersede_contract refusal does not establish that every correction route is unavailable. Read the current step, the pinned contract, and the declared recovery intents. The complete-step correction route keeps CD-0172's admission rules (internal/store/workflow_dispatch.go; internal/store/workflow_action_guards.go).
 
 2. Coordinator premise confirmation requires an investigation artifact. requireRecordedInvestigationArtifact (internal/store/workflow_confirmation_investigation.go) requires a work observation whose refs resolve to a current Product Domain and, when the Product holds another work item, a different work item. File paths and pull request URLs do not satisfy it.
 

@@ -2106,23 +2106,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "if": {
             "properties": {
               "kind": {
-                "const": "stale_law_revision"
-              }
-            },
-            "required": [
-              "kind"
-            ]
-          },
-          "then": {
-            "required": [
-              "stale_law_revision"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "kind": {
                 "const": "missing_evidence"
               }
             },
@@ -2348,35 +2331,6 @@ const GeneratedEnvelopeSchemaDocument = `{
               },
               {
                 "$ref": "#/$defs/adapterReconciled"
-              },
-              {
-                "additionalProperties": false,
-                "properties": {
-                  "old_content_hash": {
-                    "pattern": "^sha256:[0-9a-f]{64}$",
-                    "type": "string"
-                  },
-                  "old_law_id": {
-                    "maxLength": 256,
-                    "minLength": 2,
-                    "type": "string"
-                  },
-                  "recovery_actions": {
-                    "items": {
-                      "maxLength": 128,
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "maxItems": 4,
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "old_law_id",
-                  "old_content_hash",
-                  "recovery_actions"
-                ],
-                "type": "object"
               }
             ]
           },
@@ -2435,7 +2389,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "not_terminal",
             "outcome_mismatch",
             "stale_requires_review",
-            "stale_law_revision",
             "degraded_not_allowed",
             "unreachable",
             "invalid_cursor",
@@ -2473,36 +2426,6 @@ const GeneratedEnvelopeSchemaDocument = `{
         },
         "retry_safe": {
           "type": "boolean"
-        },
-        "stale_law_revision": {
-          "additionalProperties": false,
-          "properties": {
-            "old_content_hash": {
-              "pattern": "^sha256:[0-9a-f]{64}$",
-              "type": "string"
-            },
-            "old_law_id": {
-              "maxLength": 256,
-              "minLength": 2,
-              "type": "string"
-            },
-            "recovery_actions": {
-              "items": {
-                "maxLength": 128,
-                "minLength": 1,
-                "type": "string"
-              },
-              "maxItems": 4,
-              "minItems": 1,
-              "type": "array"
-            }
-          },
-          "required": [
-            "old_law_id",
-            "old_content_hash",
-            "recovery_actions"
-          ],
-          "type": "object"
         },
         "supported_budget_seconds": {
           "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind.",

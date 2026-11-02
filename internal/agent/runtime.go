@@ -852,9 +852,6 @@ func storeFailureEnvelope(base agentcontract.Envelope, sf *store.Failure) agentc
 }
 
 func projectStoreFailureDetails(out *agentcontract.Envelope, sf *store.Failure) {
-	if sf.StaleLawRevision != nil {
-		out.Error.StaleLawRevision = &agentcontract.StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
-	}
 	if sf.ExternalRefConflict != nil {
 		out.Error.ExternalRefConflict = &agentcontract.ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
 	}
@@ -996,8 +993,6 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "degraded_not_allowed"
 	case store.KindResearchConsumerBlocked:
 		return "stale_requires_review"
-	case store.KindStaleLawRevision:
-		return "stale_law_revision"
 	}
 	// A store kind whose value is already a public kind passes through. The
 	// cases above are the genuine renames, where the store's name and the
@@ -1503,14 +1498,6 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	pinned := map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "step_actions": stepActions, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "latest_checkpoint": snapshot.LatestCheckpoint, "design_record": snapshot.DesignRecord}
 	if snapshot.WorkPin != nil {
 		pinned["work_pin"] = snapshot.WorkPin
-	}
-	// Empty peer signals stay out of the prompt. This keeps the unchanged
-	// projection's bytes stable while non-empty signals remain visible.
-	if len(snapshot.CompatibleLawAmendments) > 0 {
-		pinned["compatible_law_amendments"] = snapshot.CompatibleLawAmendments
-	}
-	if snapshot.StaleLawRevision != nil {
-		pinned["stale_law_revision"] = snapshot.StaleLawRevision
 	}
 	// The contract's resolved law and Domain references, and the recorded
 	// proposal, ride the pinned projection when present. The absent fields

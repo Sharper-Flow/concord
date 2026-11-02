@@ -28,28 +28,28 @@ func admissionReviewViewOf(state *WorkflowReviewState) admissionReviewView {
 }
 
 type admissionConformanceView struct {
-	Step, Lifecycle, InstanceState                                    string
-	RefinementWorkflow                                                bool
-	ActiveContracts                                                   int64
-	LateCriterionAssociation, LawPinStale, DesignStale, ArtifactStale bool
-	Review                                                            admissionReviewView
-	CorrectionRequestRecovery                                         bool
-	AcceptanceDeliverablesMissing                                     bool
-	CompleteStepCorrection, ContractCorrectionAvailable               bool
-	DeliveryStarted, DeliveryProofRequired, DeliveryProofReady        bool
-	DeliveryFailure, DeliveryProofFailure                             bool
-	MandatePresent, MandateMissing                                    bool
-	MandateBindingStep                                                string
-	MandateAddedByContract                                            bool
-	MandateCorrectionAction                                           string
-	MandateFailure                                                    bool
+	Step, Lifecycle, InstanceState                             string
+	RefinementWorkflow                                         bool
+	ActiveContracts                                            int64
+	LateCriterionAssociation, DesignStale, ArtifactStale       bool
+	Review                                                     admissionReviewView
+	CorrectionRequestRecovery                                  bool
+	AcceptanceDeliverablesMissing                              bool
+	CompleteStepCorrection, ContractCorrectionAvailable        bool
+	DeliveryStarted, DeliveryProofRequired, DeliveryProofReady bool
+	DeliveryFailure, DeliveryProofFailure                      bool
+	MandatePresent, MandateMissing                             bool
+	MandateBindingStep                                         string
+	MandateAddedByContract                                     bool
+	MandateCorrectionAction                                    string
+	MandateFailure                                             bool
 }
 
 func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConformanceView {
 	view := admissionConformanceView{
 		Step: state.Step, Lifecycle: state.Lifecycle, InstanceState: state.InstanceState,
 		RefinementWorkflow: state.RefinementWorkflow, ActiveContracts: state.ActiveContracts,
-		LawPinStale: state.LawPinStale, DesignStale: state.DesignStale,
+		DesignStale:              state.DesignStale,
 		LateCriterionAssociation: state.LateCriterionAssociation, ArtifactStale: state.ArtifactStale,
 		Review: admissionReviewViewOf(state.Review), CorrectionRequestRecovery: state.CorrectionRequestRecovery,
 		AcceptanceDeliverablesMissing: state.AcceptanceDeliverablesMissing != nil,

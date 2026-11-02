@@ -47,8 +47,8 @@ func rReviseContract(t *testing.T, s *Store, workID, actorRef string, domains []
 		"contract_version": active + 1, "premise": "deliver the checked change under its revised decision fact",
 		"outcome_predicates": successorPredicates,
 		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"law_boundary_version": 1,
+		"rigor_class":          "prototype_internal", "consequence_class": "internal_sqlite",
 		"decision_domains": domains,
 		// The same Domain write authority the seeded contract carries, plus
 		// the committed registry's Product root for root-scope selections.

@@ -162,7 +162,7 @@ func contractRequestCorrectionState(t *testing.T, s *store.Store, workID string)
 		"workflow_contracts", "workflow_contract_predicates", "workflow_architecture_bindings",
 		"workflow_contract_affected_domains", "workflow_contract_domain_modifications",
 		"workflow_contract_domain_relation_modifications", "workflow_contract_law_modifications",
-		"workflow_contract_law_revisions", "workflow_contract_law_additions",
+		"workflow_contract_law_additions",
 		"workflow_law_addition_reservations", "workflow_contract_verification_obligations",
 	} {
 		state[table] = countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM `+table)

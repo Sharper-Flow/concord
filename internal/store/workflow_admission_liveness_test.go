@@ -52,9 +52,6 @@ type admissionModelState struct {
 	// contracts is the active contract count: 2 is the duplicated
 	// projection the supersede recovery owns.
 	contracts int64
-	// stale is the pin staleness: "" or "law" (a deleted-law pin every
-	// action refuses on).
-	stale string
 	// designStale is a recorded design a contract correction invalidated.
 	designStale bool
 	// artifactStale mirrors the artifact-staleness fold (CD-0201 D5): a
@@ -80,8 +77,8 @@ type admissionModelState struct {
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q done %v review %+v)",
-		s.step, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.done, s.review)
+	return fmt.Sprintf("(step %q contracts %d designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q done %v review %+v)",
+		s.step, s.contracts, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.done, s.review)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
@@ -119,15 +116,6 @@ func admissionStateActions(definition WorkflowDefinition, state admissionModelSt
 // admissionRecoveryActions are the off-step recovery actions every state's
 // action universe carries.
 var admissionRecoveryActions = []string{"supersede_contract", "record_verdict", "request_correction", "bind_evidence"}
-
-// admissionModelStaleError is the staleness boundary's refusal the model
-// folds for one staleness class.
-func admissionModelStaleError(stale string) error {
-	if stale == "law" {
-		return newFailure(KindStaleLawRevision, "workflow_law_revision", "the model's pinned law revision is stale", false, "supersede the workflow contract")
-	}
-	return nil
-}
 
 func admissionLateCriterionAssociation(definition WorkflowDefinition, state admissionModelState) bool {
 	// This dimension is derivable from the existing criterion state. Artifact
@@ -181,7 +169,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	if state.done {
 		instance, lifecycle = "completed", "completed"
 	}
-	staleErr := admissionModelStaleError(state.stale)
 	delivery := workflowDeliveryAdmission{Started: state.started, ProofRequired: workflowRefineProofGateActive(definition, state.step)}
 	folded := WorkflowAdmissionState{
 		Step:                        state.step,
@@ -190,8 +177,6 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		RefinementWorkflow:          refinement,
 		ActiveContracts:             state.contracts,
 		LateCriterionAssociation:    admissionLateCriterionAssociation(definition, state),
-		LawPinStale:                 staleErr != nil && workflowContractRecoveryStaleness(staleErr),
-		LawPinStaleError:            staleErr,
 		DesignStale:                 state.designStale,
 		ArtifactStale:               state.artifactStale,
 		CompleteStepCorrection:      admissionCompleteStepCorrection(definition, state),
@@ -453,14 +438,14 @@ func admissionProducesAtRouteTarget(definition WorkflowDefinition, stepID, actio
 }
 
 // admissionSupersedeSuccessors folds the contract supersession: a successor
-// contract re-pins the law. Changed criterion content needs new proof;
+// contract changes its declared facts. Changed criterion content needs new proof;
 // unchanged content keeps its applicable association (CD-0242 D7).
 // at the pinned complete step it returns the instance to the correction
 // target; without a successor the instance returns to the contract step with
 // no contract.
 func admissionSupersedeSuccessors(definition WorkflowDefinition, state admissionModelState) []admissionModelState {
 	successor := state
-	successor.contracts, successor.stale, successor.verdict, successor.observed = 1, "", "", false
+	successor.contracts, successor.verdict, successor.observed = 1, "", false
 	if target := workflowDisprovedPremiseAtCompleteRouteTarget(definition, state.step); target != "" {
 		successor = admissionEnterStep(definition, successor, target)
 		return admissionSupersedeCriterionVariants(state, []admissionModelState{successor})
@@ -474,7 +459,7 @@ func admissionSupersedeSuccessors(definition WorkflowDefinition, state admission
 	}
 	if contractStep, err := workflowDefinitionContractStep(definition); err == nil {
 		reset := admissionEnterStep(definition, state, contractStep)
-		reset.contracts, reset.stale, reset.verdict, reset.observed = 0, "", "", false
+		reset.contracts, reset.verdict, reset.observed = 0, "", false
 		// A supersession changes no artifact staleness (CD-0242 D7).
 		reset.mandate = ""
 		successors = append(successors, reset)
@@ -505,7 +490,7 @@ func admissionSupersedeCriterionVariants(previous admissionModelState, changed [
 
 func TestCriterionAssociationModelKeepsUnchangedSupersession(t *testing.T) {
 	d := mustBuiltinDefinition(t, "workflow.research").Definition
-	before := admissionModelState{step: "complete", contracts: 1, verdict: "ok", stale: "law"}
+	before := admissionModelState{step: "complete", contracts: 1, verdict: "ok"}
 	changed, unchanged := false, false
 	for _, successor := range admissionSupersedeSuccessors(d, before) {
 		if successor.contracts != 1 {
@@ -559,21 +544,6 @@ func admissionAgentMoveName(before, after admissionModelState) string {
 		return "bind_evidence:verification_report"
 	}
 	return "observation_record"
-}
-
-// admissionEnvironmentMoves are the moves no agent controls: a breaking law
-// cutover makes the active contract's pin stale (CD-0036).
-func admissionEnvironmentMoves(state admissionModelState) []admissionModelState {
-	if state.done || state.contracts != 1 {
-		return nil
-	}
-	var moves []admissionModelState
-	if state.stale == "" {
-		law := state
-		law.stale = "law"
-		moves = append(moves, law)
-	}
-	return moves
 }
 
 func admissionTerminalStep(definition WorkflowDefinition, step string) bool {
@@ -665,9 +635,8 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 				contracts = []int64{1, 2}
 			}
 			for _, count := range contracts {
-				stales, designs, verdicts, artifacts := []string{""}, []bool{false}, []string{""}, []bool{false}
+				designs, verdicts, artifacts := []bool{false}, []string{""}, []bool{false}
 				if count > 0 {
-					stales = []string{"", "law"}
 					if design {
 						designs = []bool{false, true}
 					}
@@ -678,18 +647,16 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) iter.Seq[admission
 						artifacts = []bool{false, true}
 					}
 				}
-				for _, stale := range stales {
-					for _, designStale := range designs {
-						for _, verdict := range verdicts {
-							for _, artifactStale := range artifacts {
-								for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
-									if !withEvidence(admissionModelState{
-										step: step.ID, contracts: count, stale: stale,
-										designStale: designStale, verdict: verdict, artifactStale: artifactStale,
-										artifact: observation[0], observed: observation[1],
-									}) {
-										return
-									}
+				for _, designStale := range designs {
+					for _, verdict := range verdicts {
+						for _, artifactStale := range artifacts {
+							for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
+								if !withEvidence(admissionModelState{
+									step: step.ID, contracts: count,
+									designStale: designStale, verdict: verdict, artifactStale: artifactStale,
+									artifact: observation[0], observed: observation[1],
+								}) {
+									return
 								}
 							}
 						}
@@ -1056,7 +1023,6 @@ func TestAdmissionModelKeyRejectsInvalidFields(t *testing.T) {
 }
 
 var (
-	admissionKeyStales   = []string{"", "law"}
 	admissionKeyVerdicts = []string{"", "ok", "bad"}
 	admissionKeyMandates = []string{"", "missing", "bound"}
 )
@@ -1082,7 +1048,6 @@ func admissionKeyCount(value int64) uint8 {
 func admissionModelKeyOf(steps []string, state admissionModelState) admissionModelKey {
 	var p admissionModelKeyPacker
 	p.put(admissionKeyCode(state.step, steps), admissionModelKeyStepBits)
-	p.put(admissionKeyCode(state.stale, admissionKeyStales), 2)
 	p.put(admissionKeyCode(state.verdict, admissionKeyVerdicts), 2)
 	p.put(admissionKeyCode(state.mandate, admissionKeyMandates), 2)
 	p.put(admissionKeyCount(state.contracts), 8)
@@ -1103,7 +1068,6 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 	p := admissionModelKeyPacker{key: key}
 	var state admissionModelState
 	state.step = steps[p.get(admissionModelKeyStepBits)]
-	state.stale = admissionKeyStales[p.get(2)]
 	state.verdict = admissionKeyVerdicts[p.get(2)]
 	state.mandate = admissionKeyMandates[p.get(2)]
 	state.contracts = int64(p.get(8))
@@ -1116,7 +1080,7 @@ func admissionModelStateOf(steps []string, key admissionModelKey) admissionModel
 
 // admissionModelKeyFields is the number of admissionModelState fields
 // admissionModelKeyOf encodes.
-const admissionModelKeyFields = 13
+const admissionModelKeyFields = 12
 
 func TestAdmissionModelKeyEncodesEveryField(t *testing.T) {
 	if got := reflect.TypeOf(admissionModelState{}).NumField(); got != admissionModelKeyFields {
@@ -1150,7 +1114,7 @@ func TestAdmissionModelKeyRoundTrips(t *testing.T) {
 		}
 		for range 2000 {
 			check(admissionModelState{
-				step: pick(steps), stale: pick(admissionKeyStales), verdict: pick(admissionKeyVerdicts),
+				step: pick(steps), verdict: pick(admissionKeyVerdicts),
 				mandate: pick(admissionKeyMandates), contracts: random.Int64N(256),
 				designStale: flip(), artifactStale: flip(),
 				artifact: flip(), observed: flip(), started: flip(), proof: flip(), done: flip(),
@@ -1214,7 +1178,7 @@ func admissionReachableGraph(definition WorkflowDefinition, start admissionModel
 			graph.parent = append(graph.parent, from)
 			graph.via = append(graph.via, viaOf(action))
 		}
-		if to != from && action != admissionEnvironmentMoveName {
+		if to != from {
 			graph.edgeFrom = append(graph.edgeFrom, from)
 			graph.edgeTo = append(graph.edgeTo, to)
 		}
@@ -1230,9 +1194,6 @@ func admissionReachableGraph(definition WorkflowDefinition, start admissionModel
 		for _, successor := range admissionAgentMovesWith(definition, state, func() bool { return slices.Contains(moves, "bind_evidence") }) {
 			link(int32(i), admissionAgentMoveName(state, successor), successor)
 		}
-		for _, successor := range admissionEnvironmentMoves(state) {
-			link(int32(i), admissionEnvironmentMoveName, successor)
-		}
 	}
 	return graph
 }
@@ -1241,10 +1202,6 @@ func admissionReachableGraph(definition WorkflowDefinition, start admissionModel
 func (graph admissionModelGraph) state(i int32) admissionModelState {
 	return admissionModelStateOf(graph.steps, graph.keys[i])
 }
-
-// admissionEnvironmentMoveName labels the environment's edges: pin
-// staleness.
-const admissionEnvironmentMoveName = "environment"
 
 // admissionLiveGraphStates computes completion reachability from the
 // recorded edges. Neither an environment move nor an operator stop can

@@ -86,16 +86,12 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 	if err := json.Unmarshal([]byte(modifies), &wantModifies); err != nil {
 		t.Fatal(err)
 	}
-	wantRevisions, err := readWorkflowLawRevisions(ctx, s.db, workID, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
 	wantBinding, err := readWorkflowArchitectureBinding(ctx, s.db, workID, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(contract.LawModifies, nonNilStrings(wantModifies)) || !reflect.DeepEqual(contract.LawRevisions, wantRevisions) || !reflect.DeepEqual(contract.ArchitectureBinding, wantBinding) || !reflect.DeepEqual(workflow.ArchitectureBinding, wantBinding) {
-		t.Fatalf("selected contract law and binding = %+v %+v %+v, want v1's %+v %+v %+v", contract.LawModifies, contract.LawRevisions, contract.ArchitectureBinding, wantModifies, wantRevisions, wantBinding)
+	if !reflect.DeepEqual(contract.LawModifies, nonNilStrings(wantModifies)) || !reflect.DeepEqual(contract.ArchitectureBinding, wantBinding) || !reflect.DeepEqual(workflow.ArchitectureBinding, wantBinding) {
+		t.Fatalf("selected contract law and binding = %+v %+v, want v1's %+v %+v", contract.LawModifies, contract.ArchitectureBinding, wantModifies, wantBinding)
 	}
 	registered, ok := BuiltinWorkflowRegistry().Current(pinRef)
 	if !ok || registered.Definition.ChangesProductTruth == nil {

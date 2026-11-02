@@ -14,7 +14,6 @@ type WorkflowReadRequest struct {
 	// ContractVersion, when nonzero, selects one recorded contract version
 	// instead of the active one. The contract, architecture binding, and
 	// Product-truth flag then describe that version from its own pin; the
-	// stale-law check belongs to the active contract and is omitted; the
 	// instance fields stay current. A version the work
 	// never had refuses unknown_scope.
 	ContractVersion int64
@@ -33,7 +32,6 @@ type WorkflowReadContract struct {
 	RouteConventions    []string                     `json:"route_conventions"`
 	SpecMandate         []string                     `json:"spec_mandate"`
 	LawModifies         []string                     `json:"law_modifies"`
-	LawRevisions        []WorkflowLawRevision        `json:"law_revisions"`
 	RigorClass          string                       `json:"rigor_class"`
 	ChangesProductTruth *bool                        `json:"changes_product_truth,omitempty"`
 	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
@@ -114,9 +112,6 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 	if contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, q, workID, contract.Version); err != nil {
 		return contract, err
 	}
-	if contract.LawRevisions, err = readWorkflowLawRevisions(ctx, q, workID, contract.Version); err != nil {
-		return contract, err
-	}
 	if contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, q, workID, contract.Version); err != nil {
 		return contract, err
 	}
@@ -189,7 +184,6 @@ type WorkflowReadProjection struct {
 	Contract            *WorkflowReadContract        `json:"contract,omitempty"`
 	CandidateIDs        []string                     `json:"candidate_ids"`
 	CompletionWarnings  []string                     `json:"completion_warnings"`
-	StaleLawRevision    *StaleLawRevision            `json:"stale_law_revision,omitempty"`
 	ChangesProductTruth bool                         `json:"changes_product_truth"`
 	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
 	ProposalRecord      *WorkflowProposalRecord      `json:"proposal_record,omitempty"`
@@ -299,20 +293,6 @@ func readWorkflowProjectionContractTx(ctx context.Context, q queryer, request Wo
 		contract.ChangesProductTruth = &changes
 		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract
-		if len(contract.SpecMandate) != 0 {
-			homeProjectID, homeLocatorID, homeErr := workflowLawHome(ctx, q, request.WorkID)
-			if homeErr != nil {
-				return homeErr
-			}
-			currentMandate, mandateErr := currentWorkflowLawMandate(contract.SpecMandate, contract.ArchitectureBinding)
-			if mandateErr != nil {
-				return mandateErr
-			}
-			out.StaleLawRevision, err = findStaleWorkflowLawRevision(ctx, q, homeProjectID, homeLocatorID, request.WorkID, contract.Version, currentMandate)
-			if err != nil {
-				return err
-			}
-		}
 	}
 	return nil
 }

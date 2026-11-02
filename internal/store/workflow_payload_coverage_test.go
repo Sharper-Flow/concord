@@ -13,7 +13,7 @@ import (
 // This test derives the action-to-field reads from dispatcher control flow and
 // compares them with the current registry contracts. It contains no duplicate
 // expected field inventory. The only exclusions are the singular approval
-// compatibility fields and stale-law recovery.
+// compatibility fields and contract recovery.
 func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 	t.Parallel()
 	files := map[string]*ast.File{}

@@ -124,9 +124,8 @@ func init() {
 
 	// law_id: two writer families. Contract-fold mandated and modified law
 	// lists hold each entry to 128 bytes via
-	// internal/store/workflow.go:workflowList (workflowString at 128);
-	// law revisions must equal a mandate entry exactly, so they inherit that
-	// bound. Architecture-binding law additions and obligations are held to
+	// internal/store/workflow.go:workflowList (workflowString at 128).
+	// Architecture-binding law additions and obligations are held to
 	// 2..256 bytes by the no-argument store guards (validLawBindingID /
 	// validWorkflowObligationID), and the knowledge-side admission caps law
 	// subjects at maxManifestID code points; the binding and knowledge

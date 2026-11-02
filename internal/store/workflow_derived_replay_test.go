@@ -53,13 +53,8 @@ func TestNonProductChangingLawRevision(t *testing.T) {
 			if scenario.successor {
 				contractVersion = 2
 				modifies = []string{"spec:one"}
-				revisions, err := readWorkflowLawRevisions(ctx, s.DatabaseForTesting(), workID, 1)
-				if err != nil {
-					t.Fatal(err)
-				}
 				fields["contract_version"] = contractVersion
 				fields["law_modifies"] = modifies
-				fields["law_revisions"] = revisions
 				fields["law_boundary_version"] = 1
 				fields["required_evidence"] = []string{"verification"}
 				fields["route_conventions"] = []string{}

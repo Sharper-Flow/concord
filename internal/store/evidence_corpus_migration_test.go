@@ -344,7 +344,7 @@ func assertEvidenceSupersession142(t *testing.T) {
 		"successor_contract": map[string]any{
 			"contract_version": 2, "premise": "deliver the checked change", "consequence_class": "internal_sqlite",
 			"required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-			"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "decision_domains": []string{},
+			"law_boundary_version": 1, "rigor_class": "prototype_internal", "decision_domains": []string{},
 			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}},
 		},
 	})

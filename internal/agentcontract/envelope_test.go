@@ -429,22 +429,6 @@ func TestOutcomeMismatchIsClosedAndCannotDowngrade(t *testing.T) {
 	}
 }
 
-func TestStaleLawRevisionRequiresSHA256Proofs(t *testing.T) {
-	t.Parallel()
-	base := NewBase("stale-law", "concord_work_transition", "workflow_action")
-	valid := NewCoreError(base, TypedError{
-		Kind: "stale_law_revision", RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectNone,
-		StaleLawRevision: &StaleLawRevision{OldLawID: "spec:old", OldContentHash: "sha256:" + strings.Repeat("a", 64), RecoveryActions: []string{"supersede_contract"}},
-	})
-	if _, err := valid.Encode(); err != nil {
-		t.Fatalf("valid stale law revision rejected: %v", err)
-	}
-	valid.Error.StaleLawRevision.OldContentHash = "sha256:not-a-proof"
-	if _, err := valid.Encode(); err == nil {
-		t.Fatal("stale law revision accepted an invalid old content hash")
-	}
-}
-
 func TestEnvelopeAllowsBoundedListErrorDetails(t *testing.T) {
 	t.Parallel()
 	e := NewBase("req", "concord_work_define", "capture")

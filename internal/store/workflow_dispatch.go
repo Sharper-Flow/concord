@@ -95,8 +95,7 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 // false when the action falls through to its pinned declaration.
 func workflowRouteActionDefinition(ctx context.Context, s *Store, registry DefinitionRegistry, entry RegisteredDefinition, workID, actionID string) (WorkflowActionDefinition, bool, error) {
 	if actionID == "supersede_contract" || actionID == "request_correction" {
-		// Both discoveries fold admission, whose law-pin staleness reads
-		// committed law verified before the read opens (CD-0195 D2).
+		// Prepare any committed-law reads before the transaction (CD-0195 D2).
 		verified, err := s.PrepareWorkLawProof(ctx, workID)
 		if err != nil {
 			return WorkflowActionDefinition{}, false, err
@@ -160,7 +159,7 @@ func workflowDeclaredActionDefinition(definition WorkflowDefinition, actionID st
 // through loadWorkflowAdmissionStateTx, and workflowAdmitSupersede — the same
 // pure decision the preflight, the guard, the work pin, and the dispatch fold
 // consume — classifies the recovery. Discovery keeps no per-site predicate of
-// its own: the shape refusal, the stale-law and duplicate classification, and
+// its own: the shape refusal, duplicate classification, and
 // the complete-step gate are the fold's answer, so no surface can refuse a
 // recovery route another surface admits.
 func workflowSupersedeContractDiscovery(ctx context.Context, s *Store, registry DefinitionRegistry, entry RegisteredDefinition, workID string) (WorkflowActionDefinition, error) {

@@ -50,10 +50,9 @@ func TestWorkflowSupersedeDuplicateRecoveryAdmissionAgreesAcrossPinPreflightAndF
 
 	duplicateActiveWorkflowContract(ctx, t, f.store, f.workID)
 	// The pinned definition is Product-changing, so the successor carries the
-	// predecessor's architecture binding unchanged: the same registry hash and
-	// home Domain the duplicate projection already records.
-	var registryHash, homeDomain string
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT domain_registry_content_hash,home_domain_id FROM workflow_architecture_bindings WHERE work_id=? ORDER BY contract_version LIMIT 1`, f.workID).Scan(&registryHash, &homeDomain); err != nil {
+	// predecessor's home Domain unchanged.
+	var homeDomain string
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT home_domain_id FROM workflow_architecture_bindings WHERE work_id=? ORDER BY contract_version LIMIT 1`, f.workID).Scan(&homeDomain); err != nil {
 		t.Fatal(err)
 	}
 	binding := map[string]any{

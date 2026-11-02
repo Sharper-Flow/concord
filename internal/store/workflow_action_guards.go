@@ -348,8 +348,7 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 // recovery classification needs: the reserved route convention is payload
 // state, and the recovery classification itself is the folded admission
 // decision the dispatch fold already ran, so the guard records it for the
-// later validation stages instead of re-deriving the stale-law and duplicate
-// conditions.
+// later validation stages instead of re-deriving recovery conditions.
 func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
 	fields, fieldsErr := workflowActionObject(g.defaultedPayload())
 	if fieldsErr != nil {

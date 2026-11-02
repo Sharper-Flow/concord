@@ -59,10 +59,8 @@ requirements fix the position of a control, the order of five sections, and the
 default tab of a strip. Each records what one change built. Each now binds every
 later change.
 
-Concord enforces harder than the predecessor did. CD-0036 pins each law by
-content hash. CD-0222 binds it to a home Domain. The checks rerun in a
-transaction at every consequential action. Admitting a build transcript as law
-therefore costs more under Concord than under the predecessor.
+CD-0222 binds law to a home Domain. Admitting a build transcript as law
+therefore gives an implementation detail continuing architectural authority.
 
 The law file is the place to fix it. A law file's authored metadata carries
 its stable ID, title, and authority standing; kind and acceptance come from
@@ -101,7 +99,7 @@ version names its `law_id` in an `exists` or `absent` predicate's `subjects`,
 
 Every other record kind is `legislated` only when that contract version
 names its `law_id` in an `exists` or `absent` predicate's `subjects`.
-`law_revisions` and `spec_mandate` do not establish legislative standing.
+`spec_mandate` does not establish legislative standing.
 
 A record outside the closed D5 default cohort is `derived` until an
 operator-approved contract meets this test. The test reads the
@@ -220,7 +218,7 @@ this correction. Promotion still requires D2. The D5 cohort stays closed.
   whose `legislated_by` or `contract_version` is absent.
 - A store test proves that each non-default legislative claim meets D2's
   Product-changing condition and record-kind reference rules.
-- A store test refuses a non-default claim backed only by read-law pins,
+- A store test refuses a non-default claim backed only by a read-law mandate,
   and reports an absent work as unverified without changing the tier.
 - A law-metadata test refuses non-work IDs and out-of-cohort D5 vehicle claims.
 - A store test proves that a conflict a `derived` record declares records a

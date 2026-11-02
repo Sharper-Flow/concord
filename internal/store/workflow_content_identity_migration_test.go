@@ -86,6 +86,7 @@ ORDER BY CASE name WHEN 'projects' THEN 0 WHEN 'project_locators' THEN 1 ELSE 2 
 	oldValues := map[string]map[string]string{
 		"durable_operations":             {"workflow_type_version": "26"},
 		"workflow_contracts":             {"definition_version": "26"},
+		"workflow_architecture_bindings": {"domain_registry_content_hash": "'sha256:" + strings.Repeat("a", 64) + "'"},
 		"workflow_overlap_resolutions":   {"approval_ref": "'approval:historical'"},
 		"outside_repair_dispositions":    {"approval_ref": "'approval:historical'"},
 		"outside_repair_reconciliations": {"approval_ref": "'approval:historical'"},

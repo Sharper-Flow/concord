@@ -173,6 +173,9 @@ func workflowApprovalRequiredEvidence(definition WorkflowDefinition, fields map[
 }
 
 func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64, contract map[string]any, spec, lawModifies []string) ([]Event, error) {
+	if err := validateLawModificationSubset(spec, lawModifies); err != nil {
+		return nil, err
+	}
 	// On a canonical authoring head the contract records the explicit
 	// predicate array alone: the legacy outcome pair stays off the event, and
 	// the fold resolves the end state through the predicates whenever they
@@ -202,18 +205,6 @@ func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definit
 	if len(lawModifies) == 0 && !productChanging {
 		delete(contract, "law_modifies")
 	}
-	revisionMandate := spec
-	var revisionErr error
-	if productChanging {
-		revisionMandate, revisionErr = architectureBindingRevisionMandate(spec, binding.LawAdditions)
-	}
-	if revisionErr != nil {
-		return nil, revisionErr
-	}
-	revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, request.WorkID, revisionMandate, lawModifies)
-	if revisionErr != nil {
-		return nil, revisionErr
-	}
 	decisionDomains, decisionDomainErr := workflowSubmittedDecisionDomains(definition, "approval", fields)
 	if decisionDomainErr != nil {
 		return nil, decisionDomainErr
@@ -228,7 +219,6 @@ func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definit
 	if lawChange != nil {
 		contract["law_change"] = lawChange
 	}
-	contract["law_revisions"] = revisions
 	contract["law_boundary_version"] = 1
 	approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
 	approvalEvent.PayloadVersion = workflowContractLawChangePayloadVersion
@@ -324,22 +314,13 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	}
 	lawModifies := workflowFieldStrings(fields, "law_modifies")
 	specMandate := workflowFieldStrings(fields, "spec_mandate")
+	if err := validateLawModificationSubset(specMandate, lawModifies); err != nil {
+		return nil, err
+	}
 	productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
 	binding, bindingErr := workflowContractProductGuard(ctx, tx, request.WorkID, fields, lawModifies, productChanging, "successor", "supply the complete successor architecture binding")
 	if bindingErr != nil {
 		return nil, bindingErr
-	}
-	revisionMandate := specMandate
-	var revisionErr error
-	if productChanging {
-		revisionMandate, revisionErr = architectureBindingRevisionMandate(specMandate, binding.LawAdditions)
-		if revisionErr != nil {
-			return nil, revisionErr
-		}
-	}
-	revisions, revisionErr := deriveWorkflowLawRevisionsTx(ctx, tx, request.WorkID, revisionMandate, lawModifies)
-	if revisionErr != nil {
-		return nil, revisionErr
 	}
 	decisionDomains, decisionDomainErr := workflowSubmittedDecisionDomains(definition, "successor", fields)
 	if decisionDomainErr != nil {
@@ -350,7 +331,7 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 		"contract_version": next, "premise": premise, "outcome_predicates": workflowFieldRaw(fields, "outcome_predicates"), "outcome_kind": workflowFieldStringDefault(fields, "outcome_kind", ""),
 		"outcome_payload": workflowFieldRaw(fields, "outcome_payload"), "required_evidence": workflowFieldStrings(fields, "required_evidence"),
 		"route_conventions": workflowFieldStrings(fields, "route_conventions"), "spec_mandate": specMandate, "law_modifies": lawModifies,
-		"law_revisions": revisions, "law_boundary_version": 1, "rigor_class": workflowFieldStringDefault(fields, "rigor_class", ""), "consequence_class": string(ActionInternalSQLite),
+		"law_boundary_version": 1, "rigor_class": workflowFieldStringDefault(fields, "rigor_class", ""), "consequence_class": string(ActionInternalSQLite),
 	}
 	if decisionDomains != nil {
 		successor["decision_domains"] = decisionDomains

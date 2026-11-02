@@ -248,8 +248,6 @@ func init() {
 	registerOutputBound("/$defs/continuity_snapshot/properties/observations/items/properties/tags/items/maxLength", observationTagBound)
 	registerOutputBound("/$defs/continuity_snapshot/properties/observations/items/properties/tags/maxItems", observationTagsCount)
 	registerOutputBound("/$defs/continuity_snapshot/properties/observations/maxItems", observationWindow)
-	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/compatible_law_amendments/maxItems",
-		contractSpecMandate) // at most one amendment per mandated law (workflow_law_revision.go:438-462)
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/product_identity/maxItems", productIdentityBound)
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/spec_mandate/maxItems",
 		contractSpecMandate)
@@ -390,8 +388,6 @@ func init() {
 		inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/properties/decision_domains/maxItems"),
 		inputBound("/$defs/work_transition_action_variant_supersede_contract/properties/fields/oneOf/1/properties/decision_domains/maxItems")))
 	registerOutputBound("/$defs/workflow_contract/properties/law_modifies/maxItems", contractLawModifies)
-	registerOutputBound("/$defs/workflow_contract/properties/law_revisions/maxItems",
-		contractSpecMandate) // pins correspond one-to-one with spec_mandate (workflow_law_revision.go:165-167)
 	registerOutputBound("/$defs/workflow_contract/properties/outcome_predicates/items/properties/outcome_payload/maxLength",
 		goConstantBound("internal/store/workflow_outcome.go", "maxWorkflowPredicateBytes", boundBytes)) // the fold stores the raw admitted predicate text (workflow.go:1097), whose only length guard is DecodeWorkflowPredicate's 64 KiB input refusal (workflow_outcome.go:74)
 	registerOutputBound("/$defs/workflow_contract/properties/outcome_predicates/maxItems", contractOutcomePredicates)
@@ -555,8 +551,6 @@ func init() {
 	registerOutputBound("/$defs/workflow_read/properties/candidate_ids/maxItems", readPageLimit)
 	registerOutputBound("/$defs/workflow_read/properties/completion_warnings/maxItems",
 		pkGuardArgBound("internal/store/workflow.go", "foldWorkflowCompleted", "workflowList", "p.Warnings", 1, boundItems))
-	registerOutputBound("/$defs/workflow_stale_law_revision/properties/recovery_actions/maxItems",
-		workflowSplitConstItemsBound("internal/store/workflow_law_revision.go", "staleLawRecoveryActions", ","))
 }
 
 // ---------------------------------------------------------------------------

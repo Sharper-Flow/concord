@@ -1,14 +1,7 @@
 package store
 
-// The decision-fact write boundary for a carried historical contract: a
-// synthetic legacy v1 definition pins the work, the legacy contract stores
-// NULL absence, and a real WorkflowDefinitionSelected carry event moves the
-// instance to the same-ref consequence_v1 v2 without rewriting any seeded
-// state. Recovery is a complete flat supersede_contract action payload that
-// carries the explicit decision_domains fact, authored through the actual
-// workflowSupersedeContractEvents constructor and folded through the
-// registered fold, so the successor stores [] at its own version and the
-// engineering confirmation proceeds under the carried new policy.
+// Contract writes preserve the exact decision-domain fact and version-bound
+// confirmation attribution, both at initial approval and at ordinary revision.
 
 import (
 	"context"
@@ -19,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 func authoredDecisionDomainSets() [][]string {
@@ -128,7 +123,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		}
 	})
 
-	t.Run("all canonical decision facts persist on complete successors without mutating the predecessor", func(t *testing.T) {
+	t.Run("all canonical decision facts persist on ordinary updates without mutating the predecessor", func(t *testing.T) {
 		t.Parallel()
 		for _, set := range authoredDecisionDomainSets() {
 			workID := "decision-fact-successor-write-" + factWriteSetLabel(set)
@@ -139,10 +134,20 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			ownerRef := ownerRefForTest(t, owner)
 			baselineVersion := readWorkVersion(t, s, workID)
 			predecessorPayload := factWriteEventDigestByID(t, s, "resolution-contract-"+workID)
-			appendWorkflowEventsWithRegistry(t, s, registry, Operation{
-				Events:           []Event{factWriteSuccessorEvent(t, s, workID, ownerRef, set, true)},
-				ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baselineVersion},
-			})
+			event := factWriteContractUpdateEvent(t, s, workID, ownerRef, set, true)
+			if err := factWriteApplyUpdateEvent(t, s, registry, event); err != nil {
+				t.Fatal(err)
+			}
+			var envelope map[string]json.RawMessage
+			if err := json.Unmarshal(event.Payload, &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if member, present := factWritePayloadMember(t, string(envelope["contract"])); !present || member != workflowJSON(set) {
+				t.Fatalf("ordinary update input fact=%q, present=%v; want %s", member, present, workflowJSON(set))
+			}
+			if want, err := effectPayloadDigest(event.Payload); err != nil || factWriteEventDigestByID(t, s, event.EventID) != want {
+				t.Fatalf("ordinary update receipt did not preserve submitted bytes: %v", err)
+			}
 			expected := workflowJSON(set)
 			if stored := storedDecisionDomains(t, s, workID, 2); stored != expected {
 				t.Fatalf("the complete successor for %s stored decision_domains %q, want the exact canonical bytes %q", expected, stored, expected)
@@ -171,7 +176,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 	t.Run("broken successor facts refuse atomically beside a live confirmation", func(t *testing.T) {
 		t.Parallel()
 		const workID = "decision-fact-broken-successor"
-		s, registry, _, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
+		s, registry, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
 		ownerRef := ownerRefForTest(t, owner)
 		for _, fact := range []struct {
 			name  string
@@ -185,9 +190,8 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			{name: "nonstring object", value: map[string]any{"ui_ux": true}},
 		} {
 			baselineEvents := approvalEventCount(t, s, workID)
-			event := factWriteSuccessorEvent(t, s, workID, ownerRef, fact.value, true)
-			operation := Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baselineVersion}}
-			err := tryAppendWorkflowEventsWithRegistry(s, registry, operation)
+			event := factWriteContractUpdateEvent(t, s, workID, ownerRef, fact.value, true)
+			err := factWriteApplyUpdateEvent(t, s, registry, event)
 			var failure *Failure
 			if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidPayload {
 				t.Fatalf("the successor with the %s fact returned %v, want the typed invalid-payload refusal", fact.name, err)
@@ -206,10 +210,9 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		ownerRef := ownerRefForTest(t, owner)
 		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := approvalEventCount(t, s, workID)
-		event := factWriteSuccessorEvent(t, s, workID, ownerRef, []string{"product"}, true)
-		operation := Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baselineVersion}}
+		event := factWriteContractUpdateEvent(t, s, workID, ownerRef, []string{"product"}, true)
 		// The empty registry carries nothing that could fall back to the builtin.
-		missingErr := tryAppendWorkflowEventsWithRegistry(s, NewWorkflowDefinitionRegistry(), operation)
+		missingErr := factWriteApplyUpdateEvent(t, s, NewWorkflowDefinitionRegistry(), event)
 		var missingFailure *Failure
 		if missingErr == nil || !failureAs(missingErr, &missingFailure) {
 			t.Fatalf("the complete successor under a registry missing the pinned definition returned %v, want a typed refusal", missingErr)
@@ -257,13 +260,12 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		confirmID := factWriteLatestEventID(t, s, workID, WorkflowPremiseConfirmed)
 		confirmEvent := factWriteEventDigestByID(t, s, confirmID)
 		confirmActor := latestApprovalEventActor(t, s, workID, WorkflowPremiseConfirmed)
-		contractID := factWriteLatestEventID(t, s, workID, WorkflowContractApproved, WorkflowContractSuperseded)
+		contractID := factWriteLatestEventID(t, s, workID, WorkflowContractApproved)
 		contractEvent := factWriteEventDigestByID(t, s, contractID)
 		baselineVersion := readWorkVersion(t, s, workID)
-		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
-			Events:           []Event{factWriteSuccessorEvent(t, s, workID, ownerRef, []string{"product"}, true)},
-			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baselineVersion},
-		})
+		if err := factWriteApplyUpdateEvent(t, s, registry, factWriteContractUpdateEvent(t, s, workID, ownerRef, []string{"product"}, true)); err != nil {
+			t.Fatal(err)
+		}
 		if stored := storedDecisionDomains(t, s, workID, 2); stored != `["product"]` {
 			t.Fatalf("the decision successor stored decision_domains %q, want the exact [\"product\"] fact", stored)
 		}
@@ -325,13 +327,12 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		confirmID := factWriteLatestEventID(t, s, workID, WorkflowPremiseConfirmed)
 		confirmEvent := factWriteEventDigestByID(t, s, confirmID)
 		confirmActor := latestApprovalEventActor(t, s, workID, WorkflowPremiseConfirmed)
-		contractID := factWriteLatestEventID(t, s, workID, WorkflowContractApproved, WorkflowContractSuperseded)
+		contractID := factWriteLatestEventID(t, s, workID, WorkflowContractApproved)
 		contractEvent := factWriteEventDigestByID(t, s, contractID)
 		baselineVersion := readWorkVersion(t, s, workID)
-		appendWorkflowEventsWithRegistry(t, s, registry, Operation{
-			Events:           []Event{factWriteSuccessorEvent(t, s, workID, ownerRefForTest(t, owner), []string{}, true)},
-			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baselineVersion},
-		})
+		if err := factWriteApplyUpdateEvent(t, s, registry, factWriteContractUpdateEvent(t, s, workID, ownerRefForTest(t, owner), []string{}, true)); err != nil {
+			t.Fatal(err)
+		}
 		if stored := storedDecisionDomains(t, s, workID, base+1); stored != "[]" {
 			t.Fatalf("the engineering successor stored decision_domains %q, want the exact [] fact", stored)
 		}
@@ -379,27 +380,6 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		assertNoFoldGuardRows(t, s)
 	})
 
-	t.Run("the clone-only successor refuses under the new policy with the confirmed predecessor preserved", func(t *testing.T) {
-		t.Parallel()
-		const workID = "decision-fact-clone-only-successor"
-		s, registry, _, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
-		ownerRef := ownerRefForTest(t, owner)
-		baselineEvents := approvalEventCount(t, s, workID)
-		event := factWriteCloneOnlyEvent(t, s, workID, ownerRef)
-		operation := Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baselineVersion}}
-		err := tryAppendWorkflowEventsWithRegistry(s, registry, operation)
-		var failure *Failure
-		if err == nil {
-			s.Close()
-			t.Fatal("the clone-only successor with no supplied contract was accepted under the consequence_v1 pin; the new policy must refuse the legacy clone route atomically")
-		}
-		if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "cannot use the legacy clone route") {
-			s.Close()
-			t.Fatalf("the clone-only successor returned %v, want the typed clone-route refusal", err)
-		}
-		assertFactWritePredecessorPreserved(t, s, workID, baselineVersion, baselineEvents, ownerRef)
-	})
-
 	t.Run("the copied decision-fact declaration selects on the new policy and keeps every legacy declaration byte-identical", func(t *testing.T) {
 		t.Parallel()
 
@@ -426,16 +406,16 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if initialErr != nil {
 			t.Fatalf("the initial declaration selection refused the pinned closed action: %v", initialErr)
 		}
-		recovery := workflowDecisionFactRecoveryActionDefinition(newPolicy)
+		update := WorkflowContractUpdatePayload(newPolicy)
 		for _, selected := range []struct {
 			name    string
-			action  WorkflowActionDefinition
+			payload WorkflowPayloadDefinition
 			builtin []WorkflowPayloadField
 		}{
-			{name: "the initial approve_contract declaration", action: initial, builtin: builtinActionPolicies["approve_contract"].Payload.Fields},
-			{name: "the supersede_contract recovery declaration", action: recovery, builtin: workflowContractRecoveryPayloadFields()},
+			{name: "the initial approve_contract declaration", payload: initial.Payload, builtin: builtinActionPolicies["approve_contract"].Payload.Fields},
+			{name: "the contract update declaration", payload: update, builtin: BuiltinWorkflowContractUpdateFields()},
 		} {
-			fields := selected.action.Payload.Fields
+			fields := selected.payload.Fields
 			if !reflect.DeepEqual(fields, factWriteExpectedSelection(selected.builtin)) {
 				t.Fatalf("%s fields differ from the released fields plus the law-change inputs and canonical decision fact", selected.name)
 			}
@@ -453,7 +433,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		// Empty-list bounds and the closed enum through the shared payload
 		// value validator: the empty engineering list stays legal and every
 		// member answers to the canonical set.
-		factField := recovery.Payload.Fields[len(recovery.Payload.Fields)-1]
+		factField := update.Fields[len(update.Fields)-1]
 		for _, probe := range []struct {
 			raw  string
 			want bool
@@ -480,7 +460,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if reflect.ValueOf(builtinFields).Pointer() == reflect.ValueOf(initial.Payload.Fields).Pointer() {
 			t.Fatal("the selected initial declaration shares the builtin policy backing storage")
 		}
-		aliasProbe := workflowDecisionFactRecoveryActionDefinition(newPolicy).Payload.Fields[len(recovery.Payload.Fields)-1]
+		aliasProbe := WorkflowContractUpdatePayload(newPolicy).Fields[len(update.Fields)-1]
 		aliasProbe.Enum[0] = "mutated"
 		if workflowDecisionDomainSet[0] != "increased_spending" {
 			t.Fatalf("the fact enum aliases the canonical set: %v", workflowDecisionDomainSet)
@@ -499,15 +479,13 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if absentErr != nil || !reflect.DeepEqual(absent, WorkflowActionDefinition{}) {
 			t.Fatalf("the absent initial selection = %+v (err %v), want the zero action with no fabricated declaration", absent, absentErr)
 		}
-		if legacy := workflowDecisionFactRecoveryActionDefinition(WorkflowDefinition{}); !reflect.DeepEqual(legacy, workflowContractRecoveryActionDefinition()) {
-			t.Fatalf("the legacy recovery declaration = %+v, want the released supersede_contract declaration byte-identical", legacy)
+		if legacy := WorkflowContractUpdatePayload(WorkflowDefinition{}); !legacy.Closed || !reflect.DeepEqual(legacy.Fields, BuiltinWorkflowContractUpdateFields()) {
+			t.Fatalf("legacy contract update declaration = %+v, want the closed base fields", legacy)
 		}
 
-		// The canonical recovery projection filters the supplied selected
-		// declaration instead of restating it: the fact keeps its declared
-		// requiredness and closed enum, the paired outcome authoring shape
-		// drops, and the explicit predicate array stays required.
-		canonical := workflowCanonicalContractRecoveryPayloadFields(recovery.Payload.Fields)
+		// The update declaration requires the explicit predicate array and
+		// the policy's canonical fact, with no paired outcome fields.
+		canonical := update.Fields
 		var canonicalFact *WorkflowPayloadField
 		for index := range canonical {
 			switch canonical[index].Name {
@@ -529,9 +507,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			}
 		}
 
-		// Unaffected declarations: no unrelated action, no released recovery
-		// base, and no canonical publication carries the fact before its
-		// consumer threads it.
+		// Unrelated actions and policy-independent base fields carry no fact.
 		for _, actionID := range []string{"record_verdict", "confirm_premise", "record_alignment"} {
 			for _, field := range currentActionDefinition(actionID, true).Payload.Fields {
 				if field.Name == "decision_domains" {
@@ -539,12 +515,12 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 				}
 			}
 		}
-		for _, field := range workflowContractRecoveryActionDefinition().Payload.Fields {
+		for _, field := range BuiltinWorkflowContractUpdateFields() {
 			if field.Name == "decision_domains" {
-				t.Fatal("the released supersede_contract base carries the decision fact")
+				t.Fatal("the base contract update fields carry a policy-specific decision fact")
 			}
 		}
-		for _, action := range BuiltinWorkflowCanonicalRecoveryActionDefinitions() {
+		for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {
 			for _, field := range action.Payload.Fields {
 				if field.Name == "decision_domains" {
 					t.Fatalf("the legacy canonical publication for %s carries an undeclared decision fact", action.ID)
@@ -553,21 +529,10 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		}
 	})
 
-	// The constructor checks bind the write boundary's constructors and
-	// declaration consumers to the same canonical fact the fold gates carry:
-	// the actual approve_contract and supersede_contract constructors emit
-	// and preserve the exact typed bytes for all canonical sets, refuse
-	// every broken and absent shape typed before any durable effect, and the
-	// dispatch, closed-validation, preflight, and work-pin surfaces agree
-	// with the copied declaration owner while every legacy declaration stays
-	// byte-identical. Each constructor drive opens one short transaction and
-	// rolls it back before any store-backed assertion, because the store
-	// pools one connection.
-
 	t.Run("submitted JSON null stays absent regardless of whitespace", func(t *testing.T) {
 		definition := approvalRouteDefinition(t)
 		for _, raw := range []json.RawMessage{nil, json.RawMessage(`null`), json.RawMessage(" \nnull\t")} {
-			_, err := workflowSubmittedDecisionDomains(definition, "approval", map[string]json.RawMessage{"decision_domains": raw})
+			_, err := workflowSubmittedDecisionDomains(definition, map[string]json.RawMessage{"decision_domains": raw})
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload {
 				t.Fatalf("submitted decision_domains %q returned %v, want invalid_payload", raw, err)
@@ -631,90 +596,10 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		}
 	})
 
-	t.Run("the supersede constructor emits and folds every canonical decision fact exactly without mutating the predecessor", func(t *testing.T) {
-		t.Parallel()
-		for _, set := range authoredDecisionDomainSets() {
-			workID := "decision-fact-successor-ctor-" + factWriteSetLabel(set)
-			definition := approvalRouteDefinition(t)
-			registry, registered := newResolutionRegistry(t, definition)
-			s, owner := seedResolutionSelection(t, workID, registry, registered)
-			advanceResolutionPrefix(t, s, registry, workID, owner, []string{}, false)
-			ownerRef := ownerRefForTest(t, owner)
-			baselineVersion := readWorkVersion(t, s, workID)
-			predecessorPayload := factWriteEventDigestByID(t, s, "resolution-contract-"+workID)
-			raw, fields := factWriteSuccessorPayload(t, workID, set, true)
-			events, constructErr := factWriteConstructSuccessorContract(t, s, definition, workID, ownerRef, raw, fields, baselineVersion)
-			if constructErr != nil {
-				s.Close()
-				t.Fatalf("the supersede constructor for %s refused the complete decision fact: %v", workflowJSON(set), constructErr)
-			}
-			if len(events) != 1 {
-				s.Close()
-				t.Fatalf("the supersede constructor for %s returned %d events, want the one supersession event", workflowJSON(set), len(events))
-			}
-			expected := workflowJSON(set)
-			var envelope map[string]json.RawMessage
-			if err := json.Unmarshal(events[0].Payload, &envelope); err != nil {
-				t.Fatal(err)
-			}
-			successorRaw, recorded := envelope["successor_contract"]
-			if !recorded {
-				s.Close()
-				t.Fatalf("the supersede constructor event for %s recorded no successor_contract", expected)
-			}
-			if member, present := factWritePayloadMember(t, string(successorRaw)); !present || member != expected {
-				s.Close()
-				t.Fatalf("the supersede constructor's successor contract for %s recorded decision_domains %q (present %v), want the exact canonical member %q", expected, member, present, expected)
-			}
-			appendWorkflowEventsWithRegistry(t, s, registry, Operation{
-				Events:           events,
-				ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baselineVersion},
-			})
-			if stored := storedDecisionDomains(t, s, workID, 2); stored != expected {
-				t.Fatalf("the folded successor for %s stored decision_domains %q, want the exact canonical bytes %q", expected, stored, expected)
-			}
-			if stored := storedDecisionDomains(t, s, workID, 1); stored != "[]" {
-				t.Fatalf("the superseded predecessor for %s stored %q, want its recorded [] fact immutable", expected, stored)
-			}
-			var supersededBy int64
-			if err := s.DatabaseForTesting().QueryRow(`SELECT superseded_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&supersededBy); err != nil {
-				t.Fatal(err)
-			}
-			if supersededBy != 2 {
-				t.Fatalf("the superseded predecessor for %s names superseded_by=%d, want the successor version 2", expected, supersededBy)
-			}
-			if factWriteEventDigestByID(t, s, "resolution-contract-"+workID) != predecessorPayload {
-				t.Fatalf("the successor fold for %s rewrote the predecessor contract event bytes", expected)
-			}
-			assertFactWriteProjectedDomains(t, s, registry, workID, 2, set)
-			if version := readWorkVersion(t, s, workID); version != baselineVersion+1 {
-				t.Fatalf("the successor fold for %s left the work at version %d, want the one derived advance from %d", expected, version, baselineVersion)
-			}
-			s.Close()
-		}
-	})
-
-	t.Run("the supersede constructor refuses absent and broken decision facts typed beside the confirmed predecessor", func(t *testing.T) {
-		t.Parallel()
-		const workID = "decision-fact-successor-ctor-refuse"
-		s, _, definition, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
-		ownerRef := ownerRefForTest(t, owner)
-		for _, factCase := range factWriteBrokenFacts() {
-			baselineEvents := approvalEventCount(t, s, workID)
-			raw, fields := factWriteSuccessorPayload(t, workID, factCase.fact, factCase.present)
-			_, constructErr := factWriteConstructSuccessorContract(t, s, definition, workID, ownerRef, raw, fields, baselineVersion)
-			var failure *Failure
-			if constructErr == nil || !failureAs(constructErr, &failure) || failure.Kind != KindInvalidPayload {
-				t.Fatalf("the supersede constructor with the %s fact returned %v, want the typed invalid-payload refusal", factCase.name, constructErr)
-			}
-			assertFactWritePredecessorPreserved(t, s, workID, baselineVersion, baselineEvents, ownerRef)
-		}
-	})
-
-	t.Run("the complete successor direct fold refuses missing and null facts beside the confirmed predecessor", func(t *testing.T) {
+	t.Run("ordinary updates refuse missing and null facts beside the confirmed predecessor", func(t *testing.T) {
 		t.Parallel()
 		const workID = "decision-fact-successor-absent"
-		s, registry, _, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
+		s, registry, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
 		ownerRef := ownerRefForTest(t, owner)
 		for _, factCase := range []struct {
 			name    string
@@ -725,14 +610,13 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			{name: "explicit null", fact: nil, present: true},
 		} {
 			baselineEvents := approvalEventCount(t, s, workID)
-			event := factWriteSuccessorEvent(t, s, workID, ownerRef, factCase.fact, factCase.present)
-			operation := Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baselineVersion}}
-			err := tryAppendWorkflowEventsWithRegistry(s, registry, operation)
+			event := factWriteContractUpdateEvent(t, s, workID, ownerRef, factCase.fact, factCase.present)
+			err := factWriteApplyUpdateEvent(t, s, registry, event)
 			var failure *Failure
 			if err == nil {
 				t.Fatalf("the %s successor folded with no typed refusal; an omission must not bypass the constructor's required decision fact", factCase.name)
 			}
-			if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "absence is a legacy shape") {
+			if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload {
 				t.Fatalf("the %s successor returned %v, want the typed absent-fact refusal", factCase.name, err)
 			}
 			assertFactWritePredecessorPreserved(t, s, workID, baselineVersion, baselineEvents, ownerRef)
@@ -759,14 +643,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 		if !reflect.DeepEqual(initialAction, expectedInitial) {
 			t.Fatalf("dispatch resolved the declared initial action %+v, want the pinned declaration with the law-change inputs appended", initialAction)
 		}
-		_, recoveryAction, err := WorkflowActionDefinitionFor(ctx, s, registry, workID, "supersede_contract")
-		if err != nil {
-			t.Fatalf("the supersede recovery discovery refused beside the active contract: %v", err)
-		}
-		if !reflect.DeepEqual(recoveryAction, workflowDecisionFactRecoveryActionDefinition(definition)) {
-			t.Fatalf("discovery resolved the new-policy recovery declaration %+v, want the copied declaration owner's selection", recoveryAction)
-		}
-		assertFactWriteFieldsCarryFact(t, "the discovered recovery declaration", recoveryAction.Payload.Fields, workflowContractRecoveryPayloadFields())
+		assertFactWriteFieldsCarryFact(t, "the contract update declaration", WorkflowContractUpdatePayload(definition).Fields, BuiltinWorkflowContractUpdateFields())
 
 		// Closed payload validation admits the new-policy initial action only
 		// with the required fact and refuses every absent or broken shape.
@@ -788,69 +665,50 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			t.Fatal("closed validation accepted an initial action payload with a noncanonical fact order")
 		}
 
-		// The recovery payload validator admits the complete successor only
-		// with the required fact beside the new policy.
-		recoveryComplete, _ := factWriteSuccessorPayload(t, workID, []string{"product"}, true)
-		if err := validateWorkflowContractRecoveryPayload(definition, recoveryComplete); err != nil {
-			t.Fatalf("recovery validation refused the complete successor payload carrying the required fact: %v", err)
-		}
-		recoveryMissing, _ := factWriteSuccessorPayload(t, workID, nil, false)
-		if err := validateWorkflowContractRecoveryPayload(definition, recoveryMissing); err == nil {
-			t.Fatal("recovery validation accepted a successor payload missing the required decision fact")
-		}
-		recoveryNull, _ := factWriteSuccessorPayload(t, workID, nil, true)
-		if err := validateWorkflowContractRecoveryPayload(definition, recoveryNull); err == nil {
-			t.Fatal("recovery validation accepted a successor payload whose decision fact is explicit null")
-		}
-		recoveryBroken, _ := factWriteSuccessorPayload(t, workID, []string{"product", "product"}, true)
-		if err := validateWorkflowContractRecoveryPayload(definition, recoveryBroken); err == nil {
-			t.Fatal("recovery validation accepted a successor payload with a duplicate fact member")
-		}
 	})
 
-	t.Run("the recovery intent validates the required fact through preflight and the work pin advertises it", func(t *testing.T) {
+	t.Run("the optional contract update input validates decision facts at schema and store boundaries", func(t *testing.T) {
 		t.Parallel()
-		const workID = "decision-fact-recovery-intent"
-		s, registry, _, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
-		preflight := func(raw json.RawMessage) error {
-			return WorkflowActionPreflightWithRegistry(context.Background(), s, registry, WorkflowActionPreflightRequest{
-				WorkID: workID, ExpectedVersion: baselineVersion, ActionID: "supersede_contract", Payload: raw, Actor: owner,
-			})
-		}
-		completeRaw, _ := factWriteSuccessorPayload(t, workID, []string{"ui_ux"}, true)
-		if err := preflight(completeRaw); err != nil {
-			t.Fatalf("preflight refused the recovery intent carrying the required decision fact: %v", err)
-		}
-		missingRaw, _ := factWriteSuccessorPayload(t, workID, nil, false)
-		var missingFailure *Failure
-		if err := preflight(missingRaw); err == nil || !failureAs(err, &missingFailure) || missingFailure.Kind != KindInvalidPayload {
-			t.Fatalf("preflight answered %v for the recovery intent missing the required decision fact, want the typed invalid-payload refusal", err)
-		}
-		disagreeingRaw, _ := factWriteSuccessorPayload(t, workID, []string{"product", "product"}, true)
-		var disagreeingFailure *Failure
-		if err := preflight(disagreeingRaw); err == nil || !failureAs(err, &disagreeingFailure) {
-			t.Fatalf("preflight answered %v for the recovery intent with a disagreeing decision fact, want a typed refusal", err)
-		}
-
-		// The work pin's required-field projection advertises the fact on the
-		// supersede_contract recovery intent the confirmed predecessor keeps
-		// open, so the operator supplies it on the first attempt.
-		snapshot := approvalContinuitySnapshot(t, s, registry, workID)
-		if snapshot.WorkPin == nil {
-			t.Fatal("the continuity snapshot carried no work pin beside the confirmed predecessor")
-		}
-		advertised := false
-		for _, intent := range snapshot.WorkPin.NextValidIntents {
-			if intent.ActionID != "supersede_contract" {
-				continue
+		const workID = "decision-fact-update-input"
+		s, registry, owner, baselineVersion := seedFactWriteConfirmedEngineering(t, workID)
+		ownerRef := ownerRefForTest(t, owner)
+		inputFor := func(event Event) map[string]any {
+			var input map[string]any
+			if err := json.Unmarshal(event.Payload, &input); err != nil {
+				t.Fatal(err)
 			}
-			advertised = true
-			if !slices.Contains(intent.RequiredFields, "decision_domains") {
-				t.Fatalf("the work pin's supersede_contract intent projects required fields %v, want the decision_domains fact advertised", intent.RequiredFields)
+			delete(input, "resulting_version")
+			input["work_id"], input["idempotency_key"] = workID, "decision-fact-update-input"
+			return input
+		}
+		for _, factCase := range factWriteBrokenFacts() {
+			event := factWriteContractUpdateEvent(t, s, workID, ownerRef, factCase.fact, factCase.present)
+			if err := payloadschema.Validate("work_define_revise_input", factWriteAuthoringJSON(t, inputFor(event))); err == nil {
+				t.Fatalf("update schema admitted %s decision fact", factCase.name)
+			}
+			baselineEvents := approvalEventCount(t, s, workID)
+			if err := factWriteApplyUpdateEvent(t, s, registry, event); !hasFailureKind(err, KindInvalidPayload) {
+				t.Fatalf("store update with %s decision fact = %v, want invalid_payload", factCase.name, err)
+			}
+			assertFactWritePredecessorPreserved(t, s, workID, baselineVersion, baselineEvents, ownerRef)
+		}
+		event := factWriteContractUpdateEvent(t, s, workID, ownerRef, []string{"ui_ux"}, true)
+		input := inputFor(event)
+		if err := payloadschema.Validate("work_define_revise_input", factWriteAuthoringJSON(t, input)); err != nil {
+			t.Fatalf("update schema refused the complete decision fact: %v", err)
+		}
+		delete(input, "contract")
+		if err := payloadschema.Validate("work_define_revise_input", factWriteAuthoringJSON(t, input)); err != nil {
+			t.Fatalf("contract was not optional in revise_intent: %v", err)
+		}
+		for _, value := range []any{nil, map[string]any{"unknown_field": true}} {
+			input["contract"] = value
+			if err := payloadschema.Validate("work_define_revise_input", factWriteAuthoringJSON(t, input)); err == nil {
+				t.Fatalf("update schema admitted an invalid complete contract: %v", value)
 			}
 		}
-		if !advertised {
-			t.Fatal("the work pin advertised no supersede_contract intent beside the confirmed predecessor")
+		if err := factWriteApplyUpdateEvent(t, s, registry, event); err != nil {
+			t.Fatalf("store update refused the complete decision fact: %v", err)
 		}
 	})
 
@@ -1412,46 +1270,37 @@ func factWriteInitialContractEvent(t *testing.T, s *Store, workID, ownerRef stri
 	return resolutionEvent("decision-fact-initial-contract-"+workID, WorkflowContractApproved, workID, ownerRef, version, payload)
 }
 
-// factWriteSuccessorEvent authors the versioned contract_superseded event
-// whose complete successor contract carries an optional decision fact, the
-// complete-successor shape the class-revision witnesses fold through the
-// registered fold. The successor supersedes the active contract and keeps its
-// predicates and architecture binding. present false omits the member from
-// the successor alone.
-func factWriteSuccessorEvent(t *testing.T, s *Store, workID, actorRef string, fact any, present bool) Event {
+func factWriteContractUpdateEvent(t *testing.T, s *Store, workID, actorRef string, fact any, present bool) Event {
 	t.Helper()
-	ctx := context.Background()
 	version := readWorkVersion(t, s, workID)
-	previous := factWriteActiveContract(t, s, workID)
-	predicates, err := readWorkflowContractPredicates(ctx, s.DatabaseForTesting(), workID, previous)
-	if err != nil {
-		t.Fatal(err)
-	}
-	successorPredicates := make([]map[string]any, 0, len(predicates))
-	for ordinal, predicate := range predicates {
-		successorPredicates = append(successorPredicates, map[string]any{"predicate_id": predicate.PredicateID, "ordinal": ordinal, "outcome_kind": predicate.OutcomeKind, "outcome_payload": json.RawMessage(predicate.OutcomePayload)})
-	}
-	successor := map[string]any{
-		"contract_version": previous + 1, "premise": "the reclassified accepted change",
-		"outcome_predicates": successorPredicates,
-		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"law_revisions": []any{}, "law_boundary_version": 1,
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-	}
-	binding, err := readWorkflowArchitectureBinding(ctx, s.DatabaseForTesting(), workID, previous)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if binding != nil {
-		successor["architecture_binding"] = *binding
-	}
+	contract := pContractSuccessor(t, s, workID, "The reclassified accepted change.")
+	delete(contract, "decision_domains")
 	if present {
-		successor["decision_domains"] = fact
+		contract["decision_domains"] = fact
 	}
-	return resolutionEvent("decision-fact-successor-"+workID, WorkflowContractSuperseded, workID, actorRef, version, map[string]any{
-		"previous_contract_version": previous, "predecessor_contract_versions": []int64{previous}, "new_contract_version": previous + 1,
-		"supersede_reason": "reclassify the delivered work", "audit_evidence": []string{"audit:decision-fact-successor-" + workID},
-		"successor_contract": successor,
+	var kind string
+	if err := s.db.QueryRow(`SELECT kind FROM work_items WHERE id=?`, workID).Scan(&kind); err != nil {
+		t.Fatal(err)
+	}
+	return Event{EventID: "decision-fact-update-" + workID, Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actorRef, OccurredAt: time.Unix(12, version).UTC(), PayloadVersion: 1, Payload: factWriteAuthoringJSON(t, map[string]any{
+		"title": "Updated contract", "value_statement": "Retain the declared decision fact", "kind": kind, "tags": []string{},
+		"reason": "Reclassify the delivered work", "expected_version": version, "resulting_version": version + 1, "contract": contract,
+	})}
+}
+
+func factWriteApplyUpdateEvent(t *testing.T, s *Store, registry DefinitionRegistry, event Event) error {
+	t.Helper()
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), event.SubjectID)
+	if err != nil {
+		return err
+	}
+	var payload workIntentPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+	return ApplyOperation(ctx, s, Operation{
+		Events: []Event{event}, Registry: registry,
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, event.SubjectID): payload.ExpectedVersion},
 	})
 }
 
@@ -1481,17 +1330,6 @@ func factWriteLatestEventID(t *testing.T, s *Store, workID string, kinds ...stri
 	return eventID
 }
 
-// factWriteCloneOnlyEvent authors the legacy clone-only supersession shape:
-// no successor contract member at all.
-func factWriteCloneOnlyEvent(t *testing.T, s *Store, workID, actorRef string) Event {
-	t.Helper()
-	version := readWorkVersion(t, s, workID)
-	return resolutionEvent("decision-fact-clone-only-"+workID, WorkflowContractSuperseded, workID, actorRef, version, map[string]any{
-		"previous_contract_version": 1, "predecessor_contract_versions": []int64{1}, "new_contract_version": 2,
-		"supersede_reason": "revise without supplying the successor contract", "audit_evidence": []string{"audit:decision-fact-clone-only-" + workID},
-	})
-}
-
 // factWriteEventDigestByID reads the immutable payload identity of one effect.
 func factWriteEventDigestByID(t *testing.T, s *Store, eventID string) string {
 	t.Helper()
@@ -1505,7 +1343,7 @@ func factWriteEventDigestByID(t *testing.T, s *Store, eventID string) string {
 // seedFactWriteConfirmedEngineering seeds the consequence_v1 route to the
 // acceptance step with an explicit engineering fact and records the executing
 // coordinator's confirmation through the constructor+fold seam. It returns the baseline work version.
-func seedFactWriteConfirmedEngineering(t *testing.T, workID string) (*Store, DefinitionRegistry, WorkflowDefinition, WorkflowActor, int64) {
+func seedFactWriteConfirmedEngineering(t *testing.T, workID string) (*Store, DefinitionRegistry, WorkflowActor, int64) {
 	t.Helper()
 	s, registry, definition, owner := seedApprovalItemAtAcceptance(t, workID, []string{})
 	if _, err := confirmResolutionPremise(t, s, registry, definition, workID, owner, nil, nil); err != nil {
@@ -1514,7 +1352,7 @@ func seedFactWriteConfirmedEngineering(t *testing.T, workID string) (*Store, Def
 	if confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, 1); !ok || confirmed != ownerRefForTest(t, owner) {
 		t.Fatalf("the confirmed seed's confirmation row = %q (present %v), want the executing coordinator", confirmed, ok)
 	}
-	return s, registry, definition, owner, readWorkVersion(t, s, workID)
+	return s, registry, owner, readWorkVersion(t, s, workID)
 }
 
 // assertFactWriteInitialNoEffect holds the refusal invariant for an initial
@@ -1629,38 +1467,6 @@ func factWriteApproveFields(t *testing.T, workID string, fact any, present bool)
 	return fields
 }
 
-// factWriteSuccessorPayload composes the complete supersede_contract recovery
-// payload the carried-successor witness authors: every declared recovery
-// field, the explicit predicate array, and an optional decision fact member.
-// It returns the raw payload bytes beside their decoded fields.
-func factWriteSuccessorPayload(t *testing.T, workID string, fact any, present bool) (json.RawMessage, map[string]json.RawMessage) {
-	t.Helper()
-	payload := map[string]any{
-		"contract_version": 2,
-		"premise":          "revise the active contract onto the explicit decision fact",
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		}},
-		"required_evidence": []string{"verification"},
-		"route_conventions": []string{},
-		"spec_mandate":      []string{},
-		"law_modifies":      []string{},
-		"rigor_class":       "prototype_internal",
-		"supersede_reason":  "the active contract holds no explicit decision fact",
-		"audit_evidence":    []string{"audit:decision-fact-successor-" + workID},
-	}
-	if present {
-		payload["decision_domains"] = fact
-	}
-	raw := factWriteAuthoringJSON(t, payload)
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		t.Fatal(err)
-	}
-	return raw, fields
-}
-
 // factWriteAuthoringJSON encodes one composed authoring payload.
 func factWriteAuthoringJSON(t *testing.T, authoring map[string]any) json.RawMessage {
 	t.Helper()
@@ -1702,29 +1508,6 @@ func factWriteConstructInitialContract(t *testing.T, s *Store, definition Workfl
 		WorkID: workID, ExpectedVersion: expected, ActionID: "approve_contract",
 		OperationID: "decision-fact-initial-" + workID, Now: time.Unix(12, 0).UTC(),
 	}, ownerRef, fields, "decision-fact-initial-"+workID, expected)
-	if err := tx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	return events, constructErr
-}
-
-// factWriteConstructSuccessorContract drives the actual supersede_contract
-// constructor in one short transaction and rolls the transaction back before
-// any store-backed assertion, because the store pools one connection.
-func factWriteConstructSuccessorContract(t *testing.T, s *Store, definition WorkflowDefinition, workID, ownerRef string, raw json.RawMessage, fields map[string]json.RawMessage, expected int64) ([]Event, error) {
-	t.Helper()
-	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
-	if err != nil {
-		return nil, err
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	events, constructErr := workflowSupersedeContractEvents(ctx, tx, definition, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: expected, ActionID: "supersede_contract",
-		OperationID: "decision-fact-successor-" + workID, Now: time.Unix(12, 0).UTC(),
-	}, ownerRef, raw, fields, "decision-fact-successor-"+workID, expected)
 	if err := tx.Rollback(); err != nil {
 		t.Fatal(err)
 	}

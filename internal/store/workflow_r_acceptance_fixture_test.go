@@ -1,10 +1,7 @@
 package store
 
 import (
-	"encoding/json"
-	"fmt"
 	"testing"
-	"time"
 )
 
 // rAcceptance seeds a workflow.implementation item at acceptance through the
@@ -12,8 +9,8 @@ import (
 // accepted Review, Main's criterion association when associate is set, and the
 // recorded investigation. domains is the active contract's decision fact; a
 // investigation false leaves the investigation unrecorded. A
-// non-empty fact supersedes the seeded engineering contract through the
-// registered fold before the candidate is reviewed, so every proof binds the
+// non-empty fact revises the seeded engineering contract through the
+// ordinary update before the candidate is reviewed, so every proof binds the
 // decision-bearing successor.
 func rAcceptance(t *testing.T, workID string, domains []string, associate, investigation bool) acceptanceRecoveryFixture {
 	t.Helper()
@@ -26,48 +23,27 @@ func rAcceptance(t *testing.T, workID string, domains []string, associate, inves
 	return qAssociateCurrentProof(t, f, "", associate, investigation)
 }
 
-// rReviseContract supersedes the active contract with a successor that keeps
+// rReviseContract updates the active contract with a successor that keeps
 // its predicates and declares domains as the decision fact.
 func rReviseContract(t *testing.T, s *Store, workID, actorRef string, domains []string) {
 	t.Helper()
-	var active int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&active); err != nil {
+	var actor WorkflowActor
+	if err := s.db.QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&actor.PrincipalRef, &actor.ClientRef, &actor.AgentRef, &actor.SessionRef, &actor.ActorClass); err != nil {
 		t.Fatal(err)
-	}
-	predicates, err := readWorkflowContractPredicates(t.Context(), s.db, workID, active)
-	if err != nil {
-		t.Fatal(err)
-	}
-	successorPredicates := make([]map[string]any, 0, len(predicates))
-	for ordinal, predicate := range predicates {
-		successorPredicates = append(successorPredicates, map[string]any{"predicate_id": predicate.PredicateID, "ordinal": ordinal, "outcome_kind": predicate.OutcomeKind, "outcome_payload": json.RawMessage(predicate.OutcomePayload)})
 	}
 	version := readWorkVersion(t, s, workID)
-	successor := map[string]any{
-		"contract_version": active + 1, "premise": "deliver the checked change under its revised decision fact",
-		"outcome_predicates": successorPredicates,
-		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-		"decision_domains": domains,
-		// The same Domain write authority the seeded contract carries, plus
-		// the committed registry's Product root for root-scope selections.
-		"architecture_binding": WorkflowArchitectureBinding{
-			HomeDomainID: "root", AffectedDomainIDs: []string{"root", "product-root:product"},
-			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
-			VerificationObligations: []WorkflowVerificationObligation{},
-		},
+	successor := pContractSuccessor(t, s, workID, "deliver the checked change under its revised decision fact")
+	successor["decision_domains"] = domains
+	// The same Domain write authority the seeded contract carries, plus
+	// the committed registry's Product root for root-scope selections.
+	successor["architecture_binding"] = WorkflowArchitectureBinding{
+		HomeDomainID: "root", AffectedDomainIDs: []string{"root", "product-root:product"},
+		DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
+		VerificationObligations: []WorkflowVerificationObligation{},
 	}
-	id := fmt.Sprintf("r-revise-%s-%d", workID, active+1)
-	event := workflowTypedEvent(id, WorkflowContractSuperseded, workID, actorRef, time.Unix(14, 0).UTC(), version, map[string]any{
-		"previous_contract_version": active, "predecessor_contract_versions": []int64{active}, "new_contract_version": active + 1,
-		"supersede_reason": "revise the decision the delivered work carries", "audit_evidence": []string{"audit:" + id},
-		"successor_contract": successor,
-	})
-	appendWorkflowEventsWithRegistry(t, s, BuiltinWorkflowRegistry(), Operation{
-		Events:           []Event{withPinnedDecisionFact(t, mustBuiltinDefinition(t, "workflow.implementation").Definition, event)},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
-	})
+	if err := reviseContractRecord(t, s, workID, actor, successor, version, nil); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // rComplete runs the ordinary public completion as the executing coordinator.

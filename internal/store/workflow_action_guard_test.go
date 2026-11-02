@@ -22,7 +22,6 @@ import (
 // payload and enforced by validateWorkflowActionPayload like every other
 // payload-shape rule (CON-412).
 var guardedActions = map[string]workflowActionGuardPhase{
-	"supersede_contract":     guardPhaseRecovery,
 	"request_correction":     guardPhaseRecovery,
 	"complete":               guardPhaseBoundary,
 	"record_verdict":         guardPhaseBoundary,

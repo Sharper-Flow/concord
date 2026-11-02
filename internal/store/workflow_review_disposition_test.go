@@ -29,12 +29,18 @@ func TestBlockingReviewDispositionRecordsWithoutAdvancing(t *testing.T) {
 			if currentStep(t, j.s, j.workID) != step || pin.Review == nil || pin.Review.Accepted == nil || pin.Review.Accepted.Report.Disposition != disposition {
 				t.Fatalf("recording lost the disposition or advanced execution: %+v", pin.Review)
 			}
-			recovery := "request_correction"
-			if disposition == "revision_required" {
-				recovery = "supersede_contract"
-			}
-			if workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "record_review") || !workPinContainsAction(pin.NextValidIntents, recovery) {
+			if workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "record_review") || (disposition == "correction_required" && !workPinContainsAction(pin.NextValidIntents, "request_correction")) {
 				t.Fatalf("corrective Review lost its hold or engineering recovery: %+v", pin.NextValidIntents)
+			}
+			if disposition == "revision_required" {
+				contract := contractRecordUpdate(t, j.s, j.workID)
+				if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, contract, pin.Version, nil); err != nil {
+					t.Fatalf("ordinary revision after blocking Review: %v", err)
+				}
+				updated := issue1013Pin(t, j.s, j.workID)
+				if updated.Step != step || updated.Review == nil || updated.Review.Accepted == nil || updated.Review.Accepted.Report.Disposition != disposition || workPinContainsAction(updated.NextValidIntents, "record_delivery") {
+					t.Fatalf("contract update lost the blocking Review or advanced execution: %+v", updated)
+				}
 			}
 			acceptCurrentReviewForTest(t, j.fixture, "ready_for_final_proof")
 			reviewGateStartStep(t, j.s, j.workID, step, "start_execution", j.fixture.owner)

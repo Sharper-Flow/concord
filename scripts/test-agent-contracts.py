@@ -528,8 +528,8 @@ class ContractGuidanceProjectionTests(unittest.TestCase):
             generator.check_schema_keywords({"items": {"unknown_constraint": True}})
 
     def test_contract_fields_publish_schema_derived_examples(self):
-        actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
-        projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching)
+        actions, workflows, teaching, _, contract_updates = generator.load_workflow_action_contracts()
+        projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching, contract_updates)
         for name in ("workflow_outcome_subject", "workflow_outcome_surface"):
             with self.subTest(schema=name):
                 field = projected["$defs"][name]
@@ -1569,7 +1569,7 @@ class AdapterHostDiagnosticTests(unittest.TestCase):
 class DeliveryDecidableTeachingTests(unittest.TestCase):
     """CD-0184: the authoring schema teaches that acceptance is decidable at
     delivery. The outcome_predicates array shared by approve_contract and
-    supersede_contract carries the rule, and the generator refuses a
+    ordinary contract updates carries the rule, and the generator refuses a
     projection that drops it.
     """
 
@@ -1689,7 +1689,7 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.actions, cls.workflows, cls.teaching, cls.schema_refs = generator.load_workflow_action_contracts()
+        cls.actions, cls.workflows, cls.teaching, cls.schema_refs, cls.contract_updates = generator.load_workflow_action_contracts()
 
     def action(self, action_id):
         return next(action for action in self.actions if action["id"] == action_id)
@@ -1796,7 +1796,7 @@ class LiveAuthoringClosureTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.actions, cls.workflows, cls.teaching, cls.schema_refs = generator.load_workflow_action_contracts()
+        cls.actions, cls.workflows, cls.teaching, cls.schema_refs, cls.contract_updates = generator.load_workflow_action_contracts()
 
     def test_the_live_projection_is_the_approved_closed_set(self):
         live_ids = {action["id"] for action in self.actions}
@@ -1864,6 +1864,7 @@ class ProjectionAdmissionTests(unittest.TestCase):
         return json.dumps({
             "schema_version": "2.0", "actions": actions, "workflows": [],
             "teaching": teaching, "schema_refs": {"current": []},
+            "contract_updates": [],
         })
 
     def load(self, projection):
@@ -1897,11 +1898,12 @@ class ProjectionAdmissionTests(unittest.TestCase):
 class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
-        cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching)
+        actions, workflows, teaching, _, contract_updates = generator.load_workflow_action_contracts()
+        cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching, contract_updates)
         cls.actions = actions
         cls.workflows = workflows
         cls.teaching = teaching
+        cls.contract_updates = contract_updates
 
     def test_retired_decision_fields_are_absent_and_refused(self):
         for action in self.actions:
@@ -1939,7 +1941,7 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
         # variant after projection, even when the projected document starts
         # from a previous generation that still carried one: the drop is
         # explicit, and the closed core input names only live action IDs.
-        projected, _ = generator.project_workflow_action_schema(payload_schema, self.actions, self.workflows, self.teaching)
+        projected, _ = generator.project_workflow_action_schema(payload_schema, self.actions, self.workflows, self.teaching, self.contract_updates)
         defs = projected["$defs"]
         live_ids = {action["id"] for action in self.actions}
         for action_id in sorted(RETIRED_PUBLISHED_ACTIONS):
@@ -2075,8 +2077,8 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
 class NativeOracleRequestProjectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
-        cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching)
+        actions, workflows, teaching, _, contract_updates = generator.load_workflow_action_contracts()
+        cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching, contract_updates)
 
     def validate(self, value, name):
         generator.schema_validate(value, self.projected["$defs"][name], self.projected)
@@ -2117,8 +2119,8 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
                     generator.schema_validate(invalid, schema, root)
 
     def test_projection_is_idempotent_and_keeps_native_navigation_without_attempts(self):
-        actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
-        repeated, _ = generator.project_workflow_action_schema(self.projected, actions, workflows, teaching)
+        actions, workflows, teaching, _, contract_updates = generator.load_workflow_action_contracts()
+        repeated, _ = generator.project_workflow_action_schema(self.projected, actions, workflows, teaching, contract_updates)
         self.assertEqual(repeated, self.projected)
         generator.check_schema_keywords(self.projected)
         generator.check_payload_closed(self.projected)
@@ -2791,7 +2793,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.actions, cls.workflows, cls.teaching, cls.schema_refs = generator.load_workflow_action_contracts()
+        cls.actions, cls.workflows, cls.teaching, cls.schema_refs, cls.contract_updates = generator.load_workflow_action_contracts()
         cls.defs = payload_schema["$defs"]
 
     def _variants(self):
@@ -2989,7 +2991,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
 
             by_value = {combination["value"]: combination for combination in combinations}
             # A kind-match declaration expands one alternative group into
-            # per-kind branches (outcome_kind consts on supersede_contract):
+            # per-kind branches with outcome_kind consts:
             # each is registry-declared through the match, not through a
             # combination, so it carries no requires/forbids to expand.
             kind_match_fields = {match["field"] for match in cross.get("kind_matches", [])}

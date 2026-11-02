@@ -2,12 +2,11 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 )
 
-func TestPredispatchContractCorrectionPreservesExecutionIdentity(t *testing.T) {
+func TestPredispatchContractRevisionPreservesExecutionIdentity(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	const workID = "predispatch-replay"
@@ -31,21 +30,14 @@ func TestPredispatchContractCorrectionPreservesExecutionIdentity(t *testing.T) {
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: workVersion(workID, 2)}); err != nil {
 		t.Fatal(err)
 	}
-	var unsupportedDesign map[string]any
-	if err := json.Unmarshal(issue1013SuccessorContract(), &unsupportedDesign); err != nil {
-		t.Fatal(err)
-	}
+	unsupportedDesign := pContractSuccessor(t, s, workID, "corrected predicate subject")
 	unsupportedDesign["design_record"] = map[string]any{
 		"approach":     "A design for work without a typed design",
 		"decisions":    []map[string]any{{"id": "decision:unsupported", "question": "Which approach?", "choice": "new", "rationale": "Synthetic input", "rejected": []string{}}},
 		"touched_refs": []string{"src/work.go"},
 	}
-	raw, err := json.Marshal(unsupportedDesign)
-	if err != nil {
-		t.Fatal(err)
-	}
 	version := readWorkVersion(t, s, workID)
-	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", raw, owner)
+	err = reviseContractRecord(t, s, workID, owner, unsupportedDesign, version, nil)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload {
 		t.Fatalf("designless workflow acquired a design: %v", err)
@@ -58,7 +50,7 @@ func TestPredispatchContractCorrectionPreservesExecutionIdentity(t *testing.T) {
 	if err != nil || contractVersion != 1 {
 		t.Fatalf("refused design addition partially changed the contract: %d err=%v", contractVersion, err)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", issue1013SuccessorContract(), owner); err != nil {
+	if err := reviseContractRecord(t, s, workID, owner, pContractSuccessor(t, s, workID, "corrected predicate subject"), version, nil); err != nil {
 		t.Fatalf("correct before dispatch: %v", err)
 	}
 	pin, err := ReadWorkPin(ctx, s, workID)

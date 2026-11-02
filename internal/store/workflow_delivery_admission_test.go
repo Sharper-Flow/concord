@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -197,12 +198,16 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 	}
 }
 
-func TestDeliveryProofKeepsDuplicateContractRecoveryReachable(t *testing.T) {
+func TestDeliveryProofKeepsAmbiguousContractUpdateAtomic(t *testing.T) {
 	const workID = "delivery-proof-duplicate-contract"
 	c := acceptDeliveryCandidateAt(t, workID, "workflow.implementation", "refine", false)
+	contract := pContractSuccessor(t, c.f.store, workID, "Retain the current delivery proof.")
 	duplicateActiveWorkflowContract(context.Background(), t, c.f.store, workID)
-	_, action, err := WorkflowActionDefinitionFor(context.Background(), c.f.store, BuiltinWorkflowRegistry(), workID, "supersede_contract")
-	if err != nil || action.ID != "supersede_contract" {
-		t.Fatalf("supersede_contract discovery at refine with duplicate contracts = %+v, %v", action, err)
+	before := lawUpgradeSnapshot(t, c.f.store)
+	assertRecoveryRefusalWithoutEffect(t, c.f.store, workID, KindInvariantViolation, func() error {
+		return reviseContractRecord(t, c.f.store, workID, c.f.owner, contract, readWorkVersion(t, c.f.store, workID), nil)
+	})
+	if after := lawUpgradeSnapshot(t, c.f.store); !reflect.DeepEqual(before, after) {
+		t.Fatal("refused ambiguous contract update changed application tables")
 	}
 }

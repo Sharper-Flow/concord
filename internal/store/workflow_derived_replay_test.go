@@ -1,10 +1,8 @@
 package store
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
-	"time"
 )
 
 func TestNonProductChangingLawRevision(t *testing.T) {
@@ -20,7 +18,6 @@ func TestNonProductChangingLawRevision(t *testing.T) {
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
 			s := openTemp(t)
 			const workID = "research-law-revision"
 			actor := WorkflowActor{PrincipalRef: "principal:law-replay", ClientRef: "client:law-replay", AgentRef: "agent:law-replay", SessionRef: "session:law-replay", ActorClass: ActorAgent}
@@ -53,60 +50,11 @@ func TestNonProductChangingLawRevision(t *testing.T) {
 			if scenario.successor {
 				contractVersion = 2
 				modifies = []string{"spec:one"}
-				revisions, err := readWorkflowLawRevisions(ctx, s.DatabaseForTesting(), workID, 1)
-				if err != nil {
-					t.Fatal(err)
-				}
-				fields["contract_version"] = contractVersion
+				fields = pContractSuccessor(t, s, workID, "Preserve the approved derived-law revision.")
 				fields["law_modifies"] = modifies
-				fields["law_revisions"] = revisions
-				fields["law_boundary_version"] = 1
-				fields["required_evidence"] = []string{"verification"}
-				fields["route_conventions"] = []string{}
-				fields["rigor_class"] = "prototype_internal"
-				fields["consequence_class"] = "internal_sqlite"
-				// The successor declares spec:one, so its recorded contract
-				// carries the canonical law_change fact the constructor would
-				// derive: build it through the production derive helper rather
-				// than authoring bytes, and keep the raw law-change inputs off
-				// the successor contract, whose payload shape is closed.
-				lawChangeInputs := map[string]json.RawMessage{
-					workflowLawChangeReasonField: json.RawMessage(`"Carry the derived revision into the successor contract."`),
-				}
-				// The store pools one connection: resolve the pinned definition
-				// before the derive transaction parks it.
-				definition := pinnedWorkflowDefinitionForTest(t, s, workID)
-				ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
-				if err != nil {
-					t.Fatal(err)
-				}
-				tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-				if err != nil {
-					t.Fatal(err)
-				}
-				lawChange, err := deriveWorkflowLawChangeTx(ctx, tx, definition, workID, lawChangeInputs, modifies, nil)
-				if rollbackErr := tx.Rollback(); rollbackErr != nil {
-					t.Fatal(rollbackErr)
-				}
-				if err != nil {
-					t.Fatal(err)
-				}
-				fields["law_change"] = lawChange
+				fields["law_change_reason"] = "Carry the derived revision into the successor contract."
 				version = readWorkVersion(t, s, workID)
-				actorRef, err := WorkflowActorRef(actor)
-				if err != nil {
-					t.Fatal(err)
-				}
-				event := workflowEventWithActor("research-law-successor", WorkflowContractSuperseded, workID, actorRef, map[string]any{
-					"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-					"previous_contract_version": 1, "new_contract_version": contractVersion,
-					"supersede_reason": "Revise the derived record.", "audit_evidence": []string{"evidence:law-revision"},
-					"successor_contract": fields,
-				})
-				event.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
-				event.OccurredAt = time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
-				event = withPinnedDecisionFact(t, pinnedWorkflowDefinitionForTest(t, s, workID), event)
-				if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+				if err := reviseContractRecord(t, s, workID, actor, fields, version, nil); err != nil {
 					t.Fatalf("live successor fold: %v", err)
 				}
 			}

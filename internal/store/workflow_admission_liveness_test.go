@@ -118,7 +118,7 @@ func admissionStateActions(definition WorkflowDefinition, state admissionModelSt
 
 // admissionRecoveryActions are the off-step recovery actions every state's
 // action universe carries.
-var admissionRecoveryActions = []string{"supersede_contract", "record_verdict", "request_correction", "bind_evidence"}
+var admissionRecoveryActions = []string{"record_verdict", "request_correction", "bind_evidence"}
 
 // admissionModelStaleError is the staleness boundary's refusal the model
 // folds for one staleness class.
@@ -135,43 +135,6 @@ func admissionLateCriterionAssociation(definition WorkflowDefinition, state admi
 	return state.contracts == 1 && state.verdict != "ok" && workflowLateCriterionAssociationStep(definition, state.step)
 }
 
-// admissionContractCorrection folds the ordinary contract correction route.
-func admissionContractCorrection(definition WorkflowDefinition, state admissionModelState) bool {
-	step := workflowStep(definition, state.step)
-	if step == nil {
-		return false
-	}
-	producing := slices.ContainsFunc(step.Actions, func(action string) bool {
-		switch action {
-		case "record_proposal", "record_design", "record_finding", "record_report", "start_execution", "checkpoint_repair", "checkpoint_refine":
-			return true
-		}
-		return false
-	})
-	checkpoint := slices.Contains(step.Actions, "complete") ||
-		(workflowUnhealthyVerdictRouteTarget(definition, state.step) != "" && !admissionTerminalStep(definition, state.step)) ||
-		(slices.Contains(step.Actions, "confirm_premise") && !admissionTerminalStep(definition, state.step)) ||
-		(producing && !admissionTerminalStep(definition, state.step))
-	switch {
-	case !checkpoint:
-		return false
-	case slices.Contains(step.Actions, "complete"):
-		return admissionCompleteStepCorrection(definition, state)
-	case slices.Contains(step.Actions, "confirm_premise"):
-		return true
-	case state.contracts > 1:
-		return true
-	case state.contracts != 1:
-		return false
-	}
-	return true
-}
-
-// admissionCompleteStepCorrection folds the CD-0172 complete-step route.
-func admissionCompleteStepCorrection(definition WorkflowDefinition, state admissionModelState) bool {
-	return workflowCompleteStepCorrectionStep(definition, state.step) && !state.done && state.contracts >= 1 && state.observed
-}
-
 // admissionWorkflowState lifts the abstract model state into the folded
 // WorkflowAdmissionState workflowAdmit decides over, applying the loader's
 // rules to the model's dimensions.
@@ -184,20 +147,18 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	staleErr := admissionModelStaleError(state.stale)
 	delivery := workflowDeliveryAdmission{Started: state.started, ProofRequired: workflowRefineProofGateActive(definition, state.step)}
 	folded := WorkflowAdmissionState{
-		Step:                        state.step,
-		Lifecycle:                   lifecycle,
-		InstanceState:               instance,
-		RefinementWorkflow:          refinement,
-		ActiveContracts:             state.contracts,
-		LateCriterionAssociation:    admissionLateCriterionAssociation(definition, state),
-		LawPinStale:                 staleErr != nil && workflowContractRecoveryStaleness(staleErr),
-		LawPinStaleError:            staleErr,
-		DesignStale:                 state.designStale,
-		ArtifactStale:               state.artifactStale,
-		CompleteStepCorrection:      admissionCompleteStepCorrection(definition, state),
-		ContractCorrectionAvailable: admissionContractCorrection(definition, state),
-		Delivery:                    delivery,
-		Review:                      admissionReviewState(state),
+		Step:                     state.step,
+		Lifecycle:                lifecycle,
+		InstanceState:            instance,
+		RefinementWorkflow:       refinement,
+		ActiveContracts:          state.contracts,
+		LateCriterionAssociation: admissionLateCriterionAssociation(definition, state),
+		LawPinStale:              staleErr != nil && workflowContractRecoveryStaleness(staleErr),
+		LawPinStaleError:         staleErr,
+		DesignStale:              state.designStale,
+		ArtifactStale:            state.artifactStale,
+		Delivery:                 delivery,
+		Review:                   admissionReviewState(state),
 	}
 	if folded.Delivery.ProofRequired {
 		folded.Delivery.ProofReady = state.proof
@@ -213,7 +174,7 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		}
 	}
 	if state.contracts > 1 {
-		folded.Mandate.Failure = newFailure(KindInvariantViolation, "workflow_action", "workflow contract projection has multiple active contracts", false, "use the typed operator recovery for duplicate active contracts")
+		folded.Mandate.Failure = newFailure(KindInvariantViolation, "workflow_action", "workflow contract projection has multiple active contracts", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	// The acceptance gate folds the recorded verdict: without one,
 	// confirm_premise refuses and record_verdict on the same step stays the
@@ -335,9 +296,8 @@ func admissionDeclaresAction(definition WorkflowDefinition, actionID string) boo
 
 // admissionSuccessors is the abstract successor set of one admitted action
 // over one model state. A Review records any typed disposition; a verdict
-// records ok or not; a contract
-// supersession carries a design record or not, and runs with or without a
-// successor contract. The step move is definition-owned: an advance-mode
+// records ok or not. Ordinary contract updates keep the step and design.
+// The step move is definition-owned: an advance-mode
 // action follows the forward edge, and every other mode keeps the step.
 func admissionSuccessors(definition WorkflowDefinition, state admissionModelState, actionID string) []admissionModelState {
 	if admissionContinuityAction(actionID) {
@@ -404,8 +364,6 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 	case "complete":
 		next.done = true
 		return []admissionModelState{next}
-	case "supersede_contract":
-		return admissionSupersedeSuccessors(definition, state)
 	default:
 		mode, modeOK := workflowActionExecutionMode(definition, actionID)
 		// CD-0198 D3: on a derived-start pin the step's qualifying
@@ -452,62 +410,23 @@ func admissionProducesAtRouteTarget(definition WorkflowDefinition, stepID, actio
 	return false
 }
 
-// admissionSupersedeSuccessors folds the contract supersession: a successor
-// contract re-pins the law. Changed criterion content needs new proof;
-// unchanged content keeps its applicable association (CD-0242 D7).
-// at the pinned complete step it returns the instance to the correction
-// target; without a successor the instance returns to the contract step with
-// no contract.
-func admissionSupersedeSuccessors(definition WorkflowDefinition, state admissionModelState) []admissionModelState {
+// An ordinary contract update re-pins law without resetting execution. Changed
+// criteria need proof; unchanged dependencies keep their applicable proof.
+func admissionContractUpdateSuccessors(state admissionModelState) []admissionModelState {
+	if state.contracts != 1 || state.done {
+		return nil
+	}
 	successor := state
-	successor.contracts, successor.stale, successor.verdict, successor.observed = 1, "", "", false
-	if target := workflowDisprovedPremiseAtCompleteRouteTarget(definition, state.step); target != "" {
-		successor = admissionEnterStep(definition, successor, target)
-		return admissionSupersedeCriterionVariants(state, []admissionModelState{successor})
-	}
-	successors := []admissionModelState{successor}
-	if admissionDeclaresAction(definition, "record_design") {
-		withoutDesign := successor
-		withoutDesign.designStale = true
-		successors[0].designStale = false
-		successors = append(successors, withoutDesign)
-	}
-	if contractStep, err := workflowDefinitionContractStep(definition); err == nil {
-		reset := admissionEnterStep(definition, state, contractStep)
-		reset.contracts, reset.stale, reset.verdict, reset.observed = 0, "", "", false
-		// A supersession changes no artifact staleness (CD-0242 D7).
-		reset.mandate = ""
-		successors = append(successors, reset)
-	}
-	return admissionSupersedeCriterionVariants(state, successors)
+	successor.stale = ""
+	changed := successor
+	changed.verdict, changed.review.current = "", false
+	return []admissionModelState{changed, successor}
 }
 
-func admissionSupersedeCriterionVariants(previous admissionModelState, changed []admissionModelState) []admissionModelState {
-	for i := range changed {
-		changed[i].review.current = false
-	}
-	if previous.contracts != 1 || previous.verdict != "ok" && previous.review.accepted == "" {
-		return changed
-	}
-	for _, successor := range changed {
-		if successor.contracts != 1 {
-			continue
-		}
-		unchanged := successor
-		unchanged.verdict = previous.verdict
-		if !successor.designStale {
-			unchanged.review.current = previous.review.current
-		}
-		changed = append(changed, unchanged)
-	}
-	return changed
-}
-
-func TestCriterionAssociationModelKeepsUnchangedSupersession(t *testing.T) {
-	d := mustBuiltinDefinition(t, "workflow.research").Definition
+func TestCriterionAssociationModelKeepsUnchangedContractUpdate(t *testing.T) {
 	before := admissionModelState{step: "complete", contracts: 1, verdict: "ok", stale: "law"}
 	changed, unchanged := false, false
-	for _, successor := range admissionSupersedeSuccessors(d, before) {
+	for _, successor := range admissionContractUpdateSuccessors(before) {
 		if successor.contracts != 1 {
 			continue
 		}
@@ -519,7 +438,7 @@ func TestCriterionAssociationModelKeepsUnchangedSupersession(t *testing.T) {
 		}
 	}
 	if !changed || !unchanged {
-		t.Fatalf("supersession lost a criterion-content class: changed=%v unchanged=%v", changed, unchanged)
+		t.Fatalf("contract update lost a criterion-content class: changed=%v unchanged=%v", changed, unchanged)
 	}
 }
 
@@ -538,6 +457,9 @@ func admissionAgentMovesWith(definition WorkflowDefinition, state admissionModel
 		return nil
 	}
 	var successors []admissionModelState
+	if state.stale == "law" {
+		successors = append(successors, admissionContractUpdateSuccessors(state)...)
+	}
 	if !state.artifact || !state.observed {
 		observed := state
 		observed.artifact, observed.observed = true, true
@@ -555,6 +477,9 @@ func admissionAgentMovesWith(definition WorkflowDefinition, state admissionModel
 }
 
 func admissionAgentMoveName(before, after admissionModelState) string {
+	if before.stale == "law" && after.stale == "" {
+		return "revise_intent"
+	}
 	if before.proof != after.proof {
 		return "bind_evidence:verification_report"
 	}
@@ -1305,9 +1230,9 @@ func admissionModelPath(graph admissionModelGraph, i int32) string {
 }
 
 // admissionSuccessor is the primary successor of one action: the first
-// member of admissionSuccessors, the completed outcome of a
-// dispatch, the ok verdict, and the supersession that carries a design
-// record. The conformance replay names the outcome it performs.
+// member of admissionSuccessors, such as a completed dispatch or an ok
+// verdict. Ordinary contract updates keep the step and design.
+// The conformance replay names the outcome it performs.
 func admissionSuccessor(definition WorkflowDefinition, state admissionModelState, actionID string) admissionModelState {
 	return admissionSuccessors(definition, state, actionID)[0]
 }

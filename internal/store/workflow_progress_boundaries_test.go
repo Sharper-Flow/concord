@@ -37,10 +37,18 @@ func TestRepeatedCorrectionKeepsCoordinatorRoutes(t *testing.T) {
 		if pin.Step != "repair" || pin.Correction == nil {
 			t.Fatalf("cycle %d lost its producer/direction: %+v", cycle, pin)
 		}
-		for _, action := range []string{"record_work_context", "record_review", "supersede_contract"} {
+		for _, action := range []string{"record_work_context", "record_review"} {
 			if _, _, err := WorkflowActionDefinitionFor(t.Context(), j.s, BuiltinWorkflowRegistry(), j.workID, action); err != nil {
 				t.Fatalf("cycle %d hid coordinator action %s: %v", cycle, action, err)
 			}
+		}
+		contract := contractRecordUpdate(t, j.s, j.workID)
+		if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, contract, pin.Version, nil); err != nil {
+			t.Fatalf("cycle %d contract update: %v", cycle, err)
+		}
+		updated := issue1013Pin(t, j.s, j.workID)
+		if updated.Step != pin.Step || !reflect.DeepEqual(updated.Correction, pin.Correction) {
+			t.Fatalf("cycle %d contract update changed correction direction: %+v -> %+v", cycle, pin.Correction, updated.Correction)
 		}
 	}
 }

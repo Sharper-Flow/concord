@@ -21,7 +21,7 @@ func TestWorkflowEvidenceCurrentFactsWithoutLog(t *testing.T) {
 	})}}); err != nil {
 		t.Fatal(err)
 	}
-	bound, err := workflowEvidenceTupleBound(ctx, s.db, work, "verification", "evidence:gate-proof", 0)
+	bound, err := workflowEvidenceTupleBound(ctx, s.db, work, "verification", "evidence:gate-proof")
 	if err != nil || !bound {
 		t.Fatalf("positive binding fixture: bound=%v err=%v", bound, err)
 	}
@@ -49,15 +49,15 @@ func TestWorkflowEvidenceCurrentFactsWithoutLog(t *testing.T) {
 			return inTx(func(tx *sql.Tx) (any, error) { return workPinVerdictEvidenceTx(ctx, tx, work) })
 		},
 		"G24-tuple": func() (any, error) {
-			return workflowEvidenceTupleBound(ctx, s.db, work, "verification", "evidence:gate-proof", 0)
+			return workflowEvidenceTupleBound(ctx, s.db, work, "verification", "evidence:gate-proof")
 		},
-		"G24-kind": func() (any, error) { return workflowEvidenceKindBound(ctx, s.db, work, "verification", 0) },
+		"G24-kind": func() (any, error) { return workflowEvidenceKindBound(ctx, s.db, work, "verification") },
 		"G24-reference": func() (any, error) {
-			return workflowEvidenceReferenceBound(ctx, s.db, work, "evidence:gate-proof", "workflow_action", 0)
+			return workflowEvidenceReferenceBound(ctx, s.db, work, "evidence:gate-proof", "workflow_action")
 		},
 		"G24-verification-order": func() (any, error) { return workflowVerificationBindingsAfter(ctx, s.db, work, 0, "workflow_action") },
 		"G24-requirements": func() (any, error) {
-			return unboundWorkflowEvidenceRequirements(ctx, s.db, work, []workflowEvidenceRequirement{{Kind: "verification"}, {Reference: "evidence:gate-proof"}}, 0, 0)
+			return unboundWorkflowEvidenceRequirements(ctx, s.db, work, []workflowEvidenceRequirement{{Kind: "verification"}, {Reference: "evidence:gate-proof"}}, 0)
 		},
 	})
 }

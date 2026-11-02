@@ -12,11 +12,6 @@ import (
 func mandateFixtureAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step, actionID string) error {
 	const subject = "workflow_action"
 	state := WorkflowAdmissionState{}
-	var err error
-	state.ContractCorrectionAvailable, err = workflowContractCorrectionAvailable(ctx, q, workID, definition, step, subject)
-	if err != nil {
-		return err
-	}
 	mandate, err := loadWorkflowMandateAdmission(ctx, q, workID, definition, step, subject, state)
 	if err != nil {
 		return err

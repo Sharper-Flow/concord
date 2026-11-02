@@ -14,14 +14,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0172"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0186"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0201"
     },
     {
@@ -38,7 +30,7 @@
 - **Scope:** Declared correction routes, artifact staleness, current work pins,
   registration, liveness and conformance
 - **Related:** CD-0013, CD-0122, CD-0124, CD-0138, CD-0143,
-  CD-0166, CD-0172, CD-0186, CD-0201, CD-0204, CD-0242
+  CD-0166, CD-0201, CD-0204, CD-0242
 
 ## Context
 
@@ -56,10 +48,9 @@ and bound evidence. Recovery fabricates no workflow record.
 
 `recovery_routes` is an optional closed table of step, trigger, action and
 target. An absent or empty table has the same omitted canonical encoding.
-`unhealthy_verdict` pairs only with `request_correction`;
-`disproved_premise_at_complete` pairs only with `supersede_contract`.
+`unhealthy_verdict` pairs only with `request_correction`.
 The unhealthy route belongs to a verdict, premise-confirmation or declared
-late-verdict step. The disproved-premise route belongs to a complete step.
+late-verdict step.
 
 The target must be a declared, nonterminal upstream producer, distinct from
 the source step, and must not declare `approve_contract`. The route table
@@ -79,7 +70,7 @@ version, work-kind whitelist or guessed table fills a missing declaration.
 ### D3. One reader supplies every consumer
 
 `workflowRecoveryRoutes` returns a defensive copy of the declared table.
-Admission, effects, staleness, work-pin intents, complete-step correction,
+Admission, effects, staleness, work-pin intents,
 late-verdict recovery, liveness and conformance use that same reader.
 No graph walk, nearest-effect ordering or correction prose selects the target.
 
@@ -98,7 +89,7 @@ never production. Native Task execution supplies no production authority.
 
 Every step in the declared producer-to-evaluator span carries that producer's
 staleness. A verdict that is not healthy or is incomparable makes it stale.
-Contract supersession invalidates only dependencies whose digests changed
+An ordinary contract update invalidates only dependencies whose digests changed
 under CD-0242 D7. Current rows, expected versions and the admission model own
 the same staleness fact; a failed read is not a false bit.
 
@@ -113,14 +104,12 @@ claiming production happened.
 
 An admitted unhealthy-verdict correction records its exact bindings and returns
 to the producer. The pin names fresh production, re-evaluation and the remaining
-verdict or premise action. Noncomplete contract supersession holds the step;
+verdict or premise action. An ordinary contract update holds the step;
 a retained fresh unhealthy verdict still needs its declared correction.
 
-Complete-step supersession remains limited to implementation and break-fix
-under CD-0172 and CD-0186. It binds the exact successor and route convention,
-holds while the successor lands and returns to the declared producer.
-An unhealthy verdict is not the disproved-premise trigger; neither trigger
-grants the other's authority. No other family or step gains that route.
+Contract content changes follow [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates).
+An update does not manufacture fresh production or bypass an unhealthy verdict's
+declared correction route.
 
 ### D7. Liveness and conformance cover every declared route
 

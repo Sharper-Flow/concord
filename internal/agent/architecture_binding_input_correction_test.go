@@ -64,7 +64,7 @@ func TestInvokeResearchArchitectureBindingCorrection(t *testing.T) {
 		t.Fatalf("refusal mutated version/events/contracts: %v -> %v", before, after)
 	}
 	assertInputCorrection(t, refused, nil, "architecture_binding")
-	if !strings.Contains(refused.Error.Message, "non-Product-changing approval cannot carry architecture_binding") {
+	if !strings.Contains(refused.Error.Message, "non-Product-changing contract cannot carry architecture_binding") {
 		t.Fatalf("refusal lost the non-Product-changing boundary: %+v", refused.Error)
 	}
 	if refused.RequestID != env.RequestID || refused.Tool != "concord_work_transition" || refused.Operation != "workflow_action" {

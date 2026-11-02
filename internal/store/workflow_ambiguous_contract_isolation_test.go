@@ -6,10 +6,7 @@ import (
 	"testing"
 )
 
-// The recovery that retires duplicate contracts runs through the law-revision
-// staleness boundary before it can retire anything, so refusing an ambiguous
-// projection there left supersede_contract unreachable and the duplicates in
-// place. The boundary reads the pins of one approved contract; an ambiguous
+// The law-revision boundary reads the pins of one approved contract; an ambiguous
 // projection names none to read, exactly as an absent one does.
 func TestLawRevisionStalenessAdmitsAnAmbiguousProjection(t *testing.T) {
 	ctx := context.Background()
@@ -48,8 +45,7 @@ func duplicateActiveContractForTest(ctx context.Context, t *testing.T, s *Store,
 	}
 }
 
-// Relaxing the law-revision gate keeps the operator recovery reachable. It must
-// not make an ambiguous projection ordinarily actionable: a normal action still
+// An ambiguous projection is not ordinarily actionable: a normal action still
 // has no single contract to read, so it refuses.
 func TestNormalWorkflowActionRefusesAnAmbiguousProjection(t *testing.T) {
 	ctx := context.Background()

@@ -78,7 +78,7 @@ subject is a production system.
 
 The generated schema that agents read when they write contracts states the
 rule at the field and names only published predicate fields. The `outcome_predicates` array shared by `approve_contract`
-and `supersede_contract` carries the rule in its description.
+and the complete `contract` in `revise_intent` carries the rule in its description.
 `advertisedAdmissionTeachingGaps` reports a gap when the published schema
 drops the rule, so generation and its tests fail on drift.
 

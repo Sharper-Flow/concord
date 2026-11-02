@@ -13,18 +13,32 @@ import (
 func pOverlapContractFacts(t *testing.T, s *Store, event Event) Event {
 	t.Helper()
 	definition := pinnedWorkflowDefinitionForTest(t, s, event.SubjectID)
-	event = withPinnedDecisionFact(t, definition, event)
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(event.Payload, &fields); err != nil {
 		t.Fatal(err)
 	}
-	contract := fields
-	if event.Kind == WorkflowContractSuperseded {
-		contract = map[string]json.RawMessage{}
-		if err := json.Unmarshal(fields["successor_contract"], &contract); err != nil {
+	if event.Kind == "work.intent_revised" {
+		var contract map[string]json.RawMessage
+		if err := json.Unmarshal(fields["contract"], &contract); err != nil {
 			t.Fatal(err)
 		}
+		if workflowDeclaresDecisionDomains(definition) {
+			if _, declared := contract["decision_domains"]; !declared {
+				contract["decision_domains"] = mustJSONValue([]string{})
+			}
+		}
+		// The ordinary update derives law-change facts in its fold. Its closed
+		// input accepts declarations, not caller-supplied derived facts.
+		fields["contract"] = mustJSONValue(contract)
+		event.Payload = mustJSONValue(fields)
+		event.PayloadVersion = CurrentEventPayloadVersion(event.Kind)
+		return event
 	}
+	event = withPinnedDecisionFact(t, definition, event)
+	if err := json.Unmarshal(event.Payload, &fields); err != nil {
+		t.Fatal(err)
+	}
+	contract := fields
 	var modifies []string
 	var binding *WorkflowArchitectureBinding
 	if err := json.Unmarshal(contract["law_modifies"], &modifies); err != nil {
@@ -53,12 +67,7 @@ func pOverlapContractFacts(t *testing.T, s *Store, event Event) Event {
 		}
 		contract["law_change"] = mustJSONValue(change)
 	}
-	if event.Kind == WorkflowContractSuperseded {
-		fields["successor_contract"] = mustJSONValue(contract)
-		event.PayloadVersion = workflowContractSupersededLawChangePayloadVersion
-	} else {
-		event.PayloadVersion = workflowContractLawChangePayloadVersion
-	}
+	event.PayloadVersion = workflowContractLawChangePayloadVersion
 	event.Payload = mustJSONValue(fields)
 	return event
 }

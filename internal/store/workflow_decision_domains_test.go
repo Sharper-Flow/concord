@@ -241,62 +241,49 @@ func TestDecisionDomains(t *testing.T) {
 		}
 	})
 
-	t.Run("successor correction reclassifies only through supersession", func(t *testing.T) {
+	t.Run("ordinary revision retains the predecessor classification", func(t *testing.T) {
 		t.Parallel()
 		s := openTemp(t)
 		defer s.Close()
-		ownerRef := seedDecisionDomainsItemFatal(t, s, "decision-successor", []string{"product"})
+		seedDecisionDomainsItemFatal(t, s, "decision-successor", []string{"product"})
 		var version int64
 		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='decision-successor'`).Scan(&version); err != nil {
 			t.Fatal(err)
 		}
-		successor := map[string]any{
-			"contract_version": int64(2), "premise": "the corrected decision-bearing premise",
-			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:research-report-exit", "ordinal": 0, "outcome_kind": "outcome",
-				"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}},
-			"required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{},
-			"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-			"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-			"decision_domains": []string{"preference", "ui_ux"},
-		}
-		supersede := workflowEventWithActor("decision-successor-supersede", WorkflowContractSuperseded, "decision-successor", ownerRef, map[string]any{
-			"work_id": "decision-successor", "expected_version": version, "resulting_version": version + 1,
-			"previous_contract_version": 1, "new_contract_version": 2,
-			"supersede_reason": "correct the declared decision domains", "audit_evidence": []string{"evidence:domain-audit"},
-			"successor_contract": successor,
-		})
-		supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-successor"): version}}); err != nil {
+		successor := pContractSuccessor(t, s, "decision-successor", "the corrected decision-bearing premise")
+		successor["decision_domains"] = []string{"security", "ui_ux"}
+		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/decision-successor", ActorClass: ActorAgent}
+		if err := reviseContractRecord(t, s, "decision-successor", owner, successor, version, nil); err != nil {
 			t.Fatalf("successor correction refused: %v", err)
 		}
 		if stored := storedDecisionDomains(t, s, "decision-successor", 1); stored != `["product"]` {
 			t.Fatalf("superseded predecessor stored %q, want its recorded fact immutable", stored)
 		}
-		if stored := storedDecisionDomains(t, s, "decision-successor", 2); stored != `["preference","ui_ux"]` {
+		if stored := storedDecisionDomains(t, s, "decision-successor", 2); stored != `["security","ui_ux"]` {
 			t.Fatalf("successor stored %q, want the corrected set", stored)
 		}
-		if domains := projectedDecisionDomains(t, s, "decision-successor"); !reflect.DeepEqual(domains, []string{"preference", "ui_ux"}) {
+		if domains := projectedDecisionDomains(t, s, "decision-successor"); !reflect.DeepEqual(domains, []string{"security", "ui_ux"}) {
 			t.Fatalf("active contract projected %v, want the corrected set", domains)
 		}
 	})
 
-	t.Run("current supersession refuses the legacy clone route atomically", func(t *testing.T) {
+	t.Run("ordinary revision requires a complete contract atomically", func(t *testing.T) {
 		t.Parallel()
 		s := openTemp(t)
 		defer s.Close()
-		ownerRef := seedDecisionDomainsItemFatal(t, s, "decision-clone", []string{"ui_ux"})
+		seedDecisionDomainsItemFatal(t, s, "decision-clone", []string{"ui_ux"})
 		var version int64
 		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='decision-clone'`).Scan(&version); err != nil {
 			t.Fatal(err)
 		}
-		clone := workflowEventWithActor("decision-clone-supersede", WorkflowContractSuperseded, "decision-clone", ownerRef, map[string]any{
-			"work_id": "decision-clone", "expected_version": version, "resulting_version": version + 1,
-			"previous_contract_version": 1, "new_contract_version": 2,
-			"supersede_reason": "legacy revision", "audit_evidence": []string{"evidence:clone-audit"},
-		})
-		err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{clone}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-clone"): version}})
-		if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "cannot use the legacy clone route") {
-			t.Fatalf("legacy clone error = %v, want the current supersession refusal", err)
+		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/decision-clone", ActorClass: ActorAgent}
+		before := contractRecordEffectSnapshot(t, s, "decision-clone")
+		err := reviseContractRecord(t, s, "decision-clone", owner, map[string]any{"contract_version": 2}, version, nil)
+		if !hasFailureKind(err, KindInvalidPayload) {
+			t.Fatalf("incomplete contract revision = %v", err)
+		}
+		if after := contractRecordEffectSnapshot(t, s, "decision-clone"); after != before {
+			t.Fatal("incomplete revision changed effects")
 		}
 		if decisionContractCount(t, s, "decision-clone") != 1 || readWorkVersion(t, s, "decision-clone") != version {
 			t.Fatal("refused clone changed the contract population or work version")
@@ -306,51 +293,36 @@ func TestDecisionDomains(t *testing.T) {
 		}
 	})
 
-	t.Run("successor version boundary governs the inner fact", func(t *testing.T) {
+	t.Run("ordinary revision requires the declared decision fact", func(t *testing.T) {
 		t.Parallel()
 		s := openTemp(t)
 		defer s.Close()
-		ownerRef := seedDecisionDomainsItemFatal(t, s, "decision-successor-boundary", []string{"product"})
+		seedDecisionDomainsItemFatal(t, s, "decision-successor-boundary", []string{"product"})
 		var version int64
 		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='decision-successor-boundary'`).Scan(&version); err != nil {
 			t.Fatal(err)
 		}
-		successor := map[string]any{
-			"contract_version": int64(2), "premise": "the corrected decision-bearing premise",
-			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:research-report-exit", "ordinal": 0, "outcome_kind": "outcome",
-				"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}},
-			"required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{},
-			"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-			"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-			"decision_domains": []string{"preference", "ui_ux"},
+		successor := pContractSuccessor(t, s, "decision-successor-boundary", "the corrected decision-bearing premise")
+		delete(successor, "decision_domains")
+		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/decision-successor-boundary", ActorClass: ActorAgent}
+		before := contractRecordEffectSnapshot(t, s, "decision-successor-boundary")
+		if err := reviseContractRecord(t, s, "decision-successor-boundary", owner, successor, version, nil); !hasFailureKind(err, KindInvalidPayload) {
+			t.Fatalf("revision without the declared decision fact = %v", err)
 		}
-		forged := workflowEventWithActor("decision-boundary-forged", WorkflowContractSuperseded, "decision-successor-boundary", ownerRef, map[string]any{
-			"work_id": "decision-successor-boundary", "expected_version": version, "resulting_version": version + 1,
-			"previous_contract_version": 1, "new_contract_version": 2,
-			"supersede_reason": "successor claims a fact its recorded supersession predates", "audit_evidence": []string{"evidence:boundary-audit"},
-			"successor_contract": successor,
-		})
-		forged.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion - 1
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{forged}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-successor-boundary"): version}}); err == nil {
-			t.Fatal("a supersession recorded below its own boundary installed a successor carrying the fact, want refusal")
+		if after := contractRecordEffectSnapshot(t, s, "decision-successor-boundary"); after != before {
+			t.Fatal("refused decision fact revision changed effects")
 		}
 		if count := decisionContractCount(t, s, "decision-successor-boundary"); count != 1 {
 			t.Fatalf("refused forged successor left %d contract rows, want the original 1", count)
 		}
-		declared := workflowEventWithActor("decision-boundary-declared", WorkflowContractSuperseded, "decision-successor-boundary", ownerRef, map[string]any{
-			"work_id": "decision-successor-boundary", "expected_version": version, "resulting_version": version + 1,
-			"previous_contract_version": 1, "new_contract_version": 2,
-			"supersede_reason": "correct the declared decision domains", "audit_evidence": []string{"evidence:boundary-audit"},
-			"successor_contract": successor,
-		})
-		declared.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{declared}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-successor-boundary"): version}}); err != nil {
+		successor["decision_domains"] = []string{"security", "ui_ux"}
+		if err := reviseContractRecord(t, s, "decision-successor-boundary", owner, successor, version, nil); err != nil {
 			t.Fatalf("declared successor correction refused: %v", err)
 		}
 		if stored := storedDecisionDomains(t, s, "decision-successor-boundary", 1); stored != `["product"]` {
 			t.Fatalf("superseded predecessor stored %q, want its recorded fact immutable", stored)
 		}
-		if stored := storedDecisionDomains(t, s, "decision-successor-boundary", 2); stored != `["preference","ui_ux"]` {
+		if stored := storedDecisionDomains(t, s, "decision-successor-boundary", 2); stored != `["security","ui_ux"]` {
 			t.Fatalf("successor stored %q, want the corrected set", stored)
 		}
 	})

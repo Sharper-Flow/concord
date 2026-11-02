@@ -9,18 +9,18 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestSupersedeContractDispatchAdvertisesCorrectionAndRefusesStaleVersion(t *testing.T) {
+func TestContractRevisionDispatchPreservesPinAndRefusesStaleVersion(t *testing.T) {
 	t.Parallel()
 	for _, stage := range []string{"before-start", "after-start", "acceptance", "shared-writer", "shared-domain"} {
 		t.Run(stage, func(t *testing.T) {
-			testSupersedeContractDispatch(t, stage)
+			testContractRevisionDispatch(t, stage)
 		})
 	}
 }
 
-func testSupersedeContractDispatch(t *testing.T, stage string) {
+func testContractRevisionDispatch(t *testing.T, stage string) {
 	t.Helper()
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	// The initial contract is engineering. The successor's serious registry
 	// correction is recorded by the authenticated coordinator.
 	version := seedAgentWorkflowAt(t, s, grant, currentImplementationFixtureDefinition(t))
@@ -64,18 +64,9 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if stage == "shared-writer" || stage == "shared-domain" {
 		seedContractCorrectionPeer(t, s)
 	}
-	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
+	continuityBefore, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1"})
 	if err != nil {
 		t.Fatal(err)
-	}
-	advertised := false
-	for _, intent := range pin.NextValidIntents {
-		if intent.ActionID == "supersede_contract" && intent.ExpectedVersion == version {
-			advertised = true
-		}
-	}
-	if !advertised {
-		t.Errorf("correction advertised=%v at %s: %+v", advertised, stage, pin.NextValidIntents)
 	}
 
 	successorBinding := workflowArchitectureBindingForSeededRegistry(t, s)
@@ -95,20 +86,8 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		"spec_mandate":      []string{},
 		"law_modifies":      []string{},
 		"rigor_class":       "prototype_internal",
-		"supersede_reason":  "correct the accepted premise",
-		"audit_evidence":    []string{"evidence:supersede-dispatch"},
-		"design_record": map[string]any{
-			"approach":     "corrected design",
-			"decisions":    []map[string]any{{"id": "decision:corrected", "question": "Which approach?", "choice": "corrected", "rationale": "Matches the approved objective", "rejected": []string{"original"}}},
-			"touched_refs": []string{"src/work.go"},
-		},
 	}
-	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "supersede_contract", "fields": fields, "idempotency_key": "supersede-contract-dispatch"}
-	raw, err := json.Marshal(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	approvedRaw := raw
+	approvedRaw := contractRevisionInput(t, s, "work-1", version, fields, "contract-revision-dispatch")
 	var stale map[string]any
 	if err := json.Unmarshal(approvedRaw, &stale); err != nil {
 		t.Fatal(err)
@@ -118,13 +97,13 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: staleRaw}, env)
+	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: staleRaw}, env)
 	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "version_conflict" || workOneVersion(t, s) != version {
 		t.Fatalf("stale version admitted correction: outcome=%s error=%+v", refused.Outcome, refused.Error)
 	}
-	response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
+	response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: approvedRaw}, env)
 	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("approved supersede=%+v", response.Error)
+		t.Fatalf("contract revision=%+v", response.Error)
 	}
 	var activeVersion int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&activeVersion); err != nil {
@@ -134,8 +113,8 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		t.Fatalf("active contract version=%d, want 2", activeVersion)
 	}
 	continuity, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1"})
-	if err != nil || continuity.DesignRecord == nil || continuity.DesignRecord.Approach != "corrected design" {
-		t.Fatalf("approved correction did not replace the design: %+v err=%v", continuity.DesignRecord, err)
+	if err != nil || continuity.DesignRecord == nil || continuity.DesignRecord.Approach != continuityBefore.DesignRecord.Approach {
+		t.Fatalf("contract revision changed the design: %+v err=%v", continuity.DesignRecord, err)
 	}
 	var actorClass string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT a.actor_class FROM workflow_contracts c JOIN workflow_actors a ON a.actor_ref=c.approved_by WHERE c.work_id='work-1' AND c.contract_version=2`).Scan(&actorClass); err != nil {
@@ -165,11 +144,11 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		}
 	}
 	committedVersion := workOneVersion(t, s)
-	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
+	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: approvedRaw}, env)
 	if replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed || workOneVersion(t, s) != committedVersion {
 		t.Fatalf("correction replay mutated work or failed: outcome=%s replayed=%v error=%+v", replayed.Outcome, replayed.Replayed, replayed.Error)
 	}
-	if designs := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`); designs != 2 {
+	if designs := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`); designs != 1 {
 		t.Fatalf("replayed correction changed design history: rows=%d", designs)
 	}
 }

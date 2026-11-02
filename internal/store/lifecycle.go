@@ -51,19 +51,21 @@ type workTransitionPayload struct {
 }
 
 type workIntentPayload struct {
-	Title            string   `json:"title"`
-	ValueStatement   string   `json:"value_statement"`
-	Kind             string   `json:"kind"`
-	Task             *string  `json:"task,omitempty"`
-	Priority         int64    `json:"priority"`
-	Urgency          string   `json:"urgency,omitempty"`
-	Tags             []string `json:"tags"`
-	ComponentID      string   `json:"component_id,omitempty"`
-	WorkflowTypeRef  string   `json:"workflow_type_ref,omitempty"`
-	Reason           string   `json:"reason,omitempty"`
-	EvidenceRefs     []string `json:"evidence_refs,omitempty"`
-	ExpectedVersion  int64    `json:"expected_version"`
-	ResultingVersion int64    `json:"resulting_version"`
+	Title            string          `json:"title"`
+	ValueStatement   string          `json:"value_statement"`
+	Kind             string          `json:"kind"`
+	Task             *string         `json:"task,omitempty"`
+	Priority         int64           `json:"priority"`
+	Urgency          string          `json:"urgency,omitempty"`
+	Tags             []string        `json:"tags"`
+	ComponentID      string          `json:"component_id,omitempty"`
+	WorkflowTypeRef  string          `json:"workflow_type_ref,omitempty"`
+	Reason           string          `json:"reason,omitempty"`
+	EvidenceRefs     []string        `json:"evidence_refs,omitempty"`
+	ExpectedVersion  int64           `json:"expected_version"`
+	ResultingVersion int64           `json:"resulting_version"`
+	Contract         json.RawMessage `json:"contract,omitempty"`
+	Actor            *WorkflowActor  `json:"actor,omitempty"`
 }
 
 // workIntentProjection is the stored intent_json shape. Creation and revision
@@ -274,7 +276,7 @@ func validateCaptureExternalRefTx(ctx context.Context, tx *sql.Tx, payload workC
 	return nil
 }
 
-func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
@@ -343,7 +345,27 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 	if affected, _ := result.RowsAffected(); affected != 1 {
 		return newFailure(KindProjectionNotFound, "fold_event", "work item does not exist at expected version", false, "reload the work item before revising intent")
 	}
+	if payload.Contract != nil {
+		return foldWorkIntentContractRevision(ctx, tx, event, scope, payload)
+	}
 	return nil
+}
+
+func foldWorkIntentContractRevision(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, payload workIntentPayload) error {
+	if payload.Actor != nil {
+		actor := payload.Actor
+		ref, err := WorkflowActorRef(*actor)
+		if err != nil {
+			return err
+		}
+		if event.Actor != ref {
+			return newFailure(KindInvalidPayload, "revise_intent", "contract actor does not match the event actor", false, "supply the authenticated actor tuple")
+		}
+		if err := persistWorkflowActorTuple(ctx, tx, event, workflowActorRecordedPayload{ActorRef: ref, PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, ActorClass: string(actor.ActorClass)}); err != nil {
+			return err
+		}
+	}
+	return reviseWorkflowContractTx(ctx, tx, event, scope, payload.Contract)
 }
 
 func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) error {

@@ -352,16 +352,3 @@ func recordRuntimeStateWriter(ctx context.Context, tx *sql.Tx, subject runtimeSt
 	}
 	return nil
 }
-
-func recordRuntimeContractWriter(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64) error {
-	var pin WorkflowDefinitionPin
-	err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_contracts
-		WHERE work_id=? AND contract_version=? AND definition_digest<>''`, workID, contractVersion).Scan(&pin.Ref, &pin.Digest)
-	if err == sql.ErrNoRows {
-		return nil
-	}
-	if err != nil {
-		return compatibilityReadFailure(err)
-	}
-	return recordRuntimeStateWriter(ctx, tx, workflowStateWriter(pin))
-}

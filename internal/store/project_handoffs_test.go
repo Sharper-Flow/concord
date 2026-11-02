@@ -176,27 +176,14 @@ func seedProjectHandoffContract(t *testing.T, s *Store, workID string, workVersi
 	}
 }
 
-// seedReplacementProjectHandoffContract supersedes the active contract with
+// seedReplacementProjectHandoffContract revises the active contract to
 // version 2, so the active contract version moves past a handoff recorded
 // under version 1.
 func seedReplacementProjectHandoffContract(t *testing.T, s *Store, workID string, workVersion int64) {
 	t.Helper()
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: "session/source", ActorClass: ActorAgent}
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	successor := map[string]any{
-		"contract_version": int64(2), "premise": "cross-project handoff fixture v2", "decision_domains": []string{}, "outcome_kind": "outcome",
-		"outcome_payload":   map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}},
-		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-	}
-	supersede := workflowEventWithActor("ph-contract-2-"+workID, WorkflowContractSuperseded, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": workVersion, "resulting_version": workVersion + 1, "previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "fixture contract replacement", "audit_evidence": []string{"audit:handoff-fixture"}, "successor_contract": successor,
-	})
-	supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): workVersion}}); err != nil {
+	successor := pContractSuccessor(t, s, workID, "cross-project handoff fixture v2")
+	if err := reviseContractRecord(t, s, workID, owner, successor, workVersion, nil); err != nil {
 		t.Fatal(err)
 	}
 }

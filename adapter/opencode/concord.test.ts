@@ -1218,10 +1218,10 @@ test("overlap resolution and stale-law refusal pass the generated adapter bounda
   const staleLaw = coreEnvelope("concord_work_transition", "lifecycle", "error", {
     error: {
       kind: "stale_law_revision", retry_safe: false,
-      recovery_action: { kind: "use_declared_route", required_refs: ["supersede_contract", "terminal_work"] }, effect_state: "none",
+      recovery_action: { kind: "use_declared_route", required_refs: ["revise_intent", "terminal_work"] }, effect_state: "none",
       stale_law_revision: {
         old_law_id: "law-old", old_content_hash: `sha256:${"a".repeat(64)}`,
-        recovery_actions: ["supersede_contract", "terminal_work"],
+        recovery_actions: ["revise_intent", "terminal_work"],
       },
     },
   })
@@ -1230,7 +1230,7 @@ test("overlap resolution and stale-law refusal pass the generated adapter bounda
   expect(stale.error.kind).toBe("stale_law_revision")
   expect(stale.error.stale_law_revision).toEqual({
     old_law_id: "law-old", old_content_hash: `sha256:${"a".repeat(64)}`,
-    recovery_actions: ["supersede_contract", "terminal_work"],
+    recovery_actions: ["revise_intent", "terminal_work"],
   })
   const withRevision = (revision: unknown) => ({ ...staleLaw, error: { ...staleLaw.error, stale_law_revision: revision } })
   for (const extra of [

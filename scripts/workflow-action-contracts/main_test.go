@@ -48,7 +48,7 @@ var retiredPublishedActions = []string{
 	"rollback_run", "run_analysis", "start_action",
 	"start_poc", "start_run",
 	"record_reproduction", "record_root_cause", "start_repair", "start_refine",
-	"record_worker_failure", "record_discovery",
+	"record_worker_failure", "record_discovery", "supersede_contract",
 }
 
 var liveActionIDs = []string{
@@ -58,7 +58,7 @@ var liveActionIDs = []string{
 	"record_conclusion", "record_delivery", "record_design", "record_diagnosis",
 	"record_finding", "record_proposal", "record_report", "record_review",
 	"record_verdict", "record_work_context", "request_correction", "revise_candidates",
-	"start_execution", "supersede_contract",
+	"start_execution",
 }
 
 // TestCurrentFieldsetAdditionProjectsVariants holds the variant shape: two
@@ -150,12 +150,12 @@ func TestPublicPayloadDivergenceKeepsThePair(t *testing.T) {
 // integration: the shipped heads and the canonical recovery list fold into
 // exactly the current authorable actions, no retired published action
 // is authorable, retained versions add no variant to a live action, the
-// canonical verdict and supersede shapes are the declared ones, and
+// canonical verdict and contract update shapes are the declared ones, and
 // record_diagnosis is present (CD-0218 D1/D2).
 func TestShippedBuiltinsProjectTheLiveSurfaceOnly(t *testing.T) {
 	contracts, err := collectActionContracts(
 		store.BuiltinWorkflowDefinitions(),
-		store.BuiltinWorkflowCanonicalRecoveryActionDefinitions(),
+		store.BuiltinWorkflowRecoveryActionDefinitions(),
 	)
 	if err != nil {
 		t.Fatalf("shipped builtins refused: %v", err)
@@ -210,21 +210,12 @@ func TestShippedBuiltinsProjectTheLiveSurfaceOnly(t *testing.T) {
 	if len(verdict.CrossField.Alternatives[0].Forbids) != 0 {
 		t.Fatalf("record_verdict cross-field keeps forbids the canonical payload does not declare: %#v", verdict.CrossField.Alternatives[0].Forbids)
 	}
-	// Canonical supersede authoring carries the explicit outcome_predicates
-	// array alone; the paired outcome shape is not authorable.
-	supersede := contracts["supersede_contract"]
-	if len(supersede.Variants) != 1 {
-		t.Fatalf("supersede_contract variants = %d, want the canonical recovery shape", len(supersede.Variants))
+	updateFields := map[string]bool{}
+	for _, f := range store.BuiltinWorkflowContractUpdateFields() {
+		updateFields[f.Name] = f.Required
 	}
-	supersedeFields := map[string]bool{}
-	for _, f := range supersede.Variants[0].Payload.Fields {
-		supersedeFields[f.Name] = f.Required
-	}
-	if !supersedeFields["outcome_predicates"] || supersedeFields["outcome_kind"] || supersedeFields["outcome_payload"] {
-		t.Fatalf("supersede_contract canonical payload drifted: %#v", supersedeFields)
-	}
-	if len(supersede.CrossField.Alternatives) != 1 || len(supersede.CrossField.KindMatches) != 0 {
-		t.Fatalf("supersede_contract cross-field = %#v, want the predicates group without the paired kind match", supersede.CrossField)
+	if !updateFields["outcome_predicates"] || !updateFields["contract_version"] || updateFields["outcome_kind"] || updateFields["outcome_payload"] {
+		t.Fatalf("contract update payload drifted: %#v", updateFields)
 	}
 	review := contracts["record_review"]
 	if len(review.Variants) != 1 {
@@ -253,8 +244,8 @@ func TestShippedBuiltinsProjectTheLiveSurfaceOnly(t *testing.T) {
 
 // TestCanonicalCrossFieldRulesProjectAndRefuse holds the projection rule:
 // a rule part naming only undeclared fields drops, a vacuous forbids entry
-// drops, a part declaring an undeclared required field or partially
-// overlapping the declared set refuses, and a fully declared rule passes
+// drops, a combination declaring an undeclared required field refuses,
+// and a fully declared rule passes
 // through unchanged.
 func TestCanonicalCrossFieldRulesProjectAndRefuse(t *testing.T) {
 	// The projection binds rules to declared field names, so these
@@ -273,23 +264,6 @@ func TestCanonicalCrossFieldRulesProjectAndRefuse(t *testing.T) {
 	if len(projected.Alternatives[0].Forbids) != 0 {
 		t.Fatalf("projected forbids = %#v, want the vacuous entries dropped", projected.Alternatives[0].Forbids)
 	}
-	// A partially overlapping group is a structural disagreement: the
-	// paired supersede group declares one half without the other.
-	var canonicalRecoveryFields []store.WorkflowPayloadField
-	for _, action := range store.BuiltinWorkflowCanonicalRecoveryActionDefinitions() {
-		if action.ID == "supersede_contract" {
-			canonicalRecoveryFields = action.Payload.Fields
-			break
-		}
-	}
-	if len(canonicalRecoveryFields) == 0 {
-		t.Fatal("canonical recovery publication omits supersede_contract")
-	}
-	partialSupersede := append(append([]store.WorkflowPayloadField{}, canonicalRecoveryFields...),
-		store.WorkflowPayloadField{Name: "outcome_kind", ValueType: store.PayloadString})
-	if _, err := store.WorkflowActionCanonicalCrossFieldRules("supersede_contract", partialSupersede); err == nil {
-		t.Fatal("a group partially overlapping the declared set projected instead of refusing")
-	}
 	// A fully declared rule passes through with its combinations intact.
 	diagnosisNames := []store.WorkflowPayloadField{
 		{Name: "reproduction", ValueType: store.PayloadString}, {Name: "searched", ValueType: store.PayloadString},
@@ -307,18 +281,6 @@ func TestCanonicalCrossFieldRulesProjectAndRefuse(t *testing.T) {
 	// A combination requiring an undeclared field refuses.
 	if _, err := store.WorkflowActionCanonicalCrossFieldRules("record_diagnosis", diagnosisNames[:3]); err == nil {
 		t.Fatal("a combination requiring an undeclared field projected instead of refusing")
-	}
-	// Canonical supersede recovers the predicates group and drops the
-	// paired kind match.
-	supersede, err := store.WorkflowActionCanonicalCrossFieldRules("supersede_contract", canonicalRecoveryFields)
-	if err != nil {
-		t.Fatalf("canonical supersede projection refused: %v", err)
-	}
-	if len(supersede.Alternatives) != 1 || len(supersede.Alternatives[0].Fields) != 1 || supersede.Alternatives[0].Fields[0] != "outcome_predicates" {
-		t.Fatalf("projected supersede alternatives = %#v, want the predicates group alone", supersede.Alternatives)
-	}
-	if len(supersede.KindMatches) != 0 {
-		t.Fatalf("projected supersede kind matches = %#v, want the paired match dropped", supersede.KindMatches)
 	}
 }
 

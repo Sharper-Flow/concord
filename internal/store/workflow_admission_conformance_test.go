@@ -35,7 +35,6 @@ type admissionConformanceView struct {
 	Review                                                            admissionReviewView
 	CorrectionRequestRecovery                                         bool
 	AcceptanceDeliverablesMissing                                     bool
-	CompleteStepCorrection, ContractCorrectionAvailable               bool
 	DeliveryStarted, DeliveryProofRequired, DeliveryProofReady        bool
 	DeliveryFailure, DeliveryProofFailure                             bool
 	MandatePresent, MandateMissing                                    bool
@@ -53,8 +52,6 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 		LateCriterionAssociation: state.LateCriterionAssociation, ArtifactStale: state.ArtifactStale,
 		Review: admissionReviewViewOf(state.Review), CorrectionRequestRecovery: state.CorrectionRequestRecovery,
 		AcceptanceDeliverablesMissing: state.AcceptanceDeliverablesMissing != nil,
-		CompleteStepCorrection:        state.CompleteStepCorrection,
-		ContractCorrectionAvailable:   state.ContractCorrectionAvailable,
 		DeliveryStarted:               state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
 		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,
 		MandatePresent: state.Mandate.Present, MandateMissing: state.Mandate.LawID != "", MandateBindingStep: state.Mandate.BindingStep,

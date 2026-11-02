@@ -100,7 +100,7 @@ or terminal-note changes.
 | Operation | Required domain input | Core effect |
 |---|---|---|
 | `capture` | title, value statement, work kind, at least one Project membership, the governing requirements the work carries when its target scope declares any, optional workflow type/priority/tags/external reference | Create one `work_item` plus its complete initial membership set in one SQLite transaction. |
-| `revise_intent` | work ID, expected version, complete replacement intent block, reason | Replace only the closed mutable intent block in one recorded mutation. Omitted fields are intentionally absent because the block is complete—not patch semantics. |
+| `revise_intent` | work ID, expected version, complete replacement intent block, reason, optional complete `contract` | Replace the closed mutable intent block and, when supplied, append the next retained contract version atomically. Omitted intent fields are intentionally absent because the block is complete—not patch semantics. An omitted `contract` leaves contract content unchanged. |
 
 The mutable intent block is closed: title, value statement, work kind, priority,
 tags, and accepted workflow-type reference. Identity, lifecycle,
@@ -117,6 +117,11 @@ requirements in `violations`, `contact_operator` recovery, the operator's three
 applicable set or fail, and the only path to a reduced set is an operator-approved
 scope cut resolved through the `cross_scope` capability.
 
+The optional `contract` is separate from the intent block. Its validation,
+version-addressed provenance, retained evidence, and current-proof requirements
+follow [workflow-engine contract §4.1](workflow-engine-contract.md#41-ordinary-contract-updates).
+It changes no workflow step or operator approval boundary.
+
 `capture` is one item only. Multiple discovered needs become separate explicit
 calls so each receives independent identity, value, scope, and conflict handling.
 
@@ -130,8 +135,8 @@ offered by the work item's accepted workflow definition.
 | `lifecycle` | work ID, expected version, target `needed|in_progress|completed|cancelled`, reason, required evidence | Validate PM4 transition and workflow obligations; write the current rows atomically. |
 | `workflow_action` | work ID, expected version, stable action ID offered by the current workflow version, required fields/evidence | Execute the workflow-defined domain action atomically or reject it; action ID is authoritative data, not a caller-invented command. |
 
-`superseded` is excluded from lifecycle input. Contract supersession goes through the attributed
-`supersede_contract` action, and an overlap resolution that terminalizes a
+`superseded` is excluded from lifecycle input. Contract changes use
+`concord_work_define.revise_intent`; an overlap resolution that terminalizes a
 work item goes through `concord_work_relate.resolve_overlap` with `supersedes`
 or `merged_into`, which commits the relation and the terminal transition
 together. Reopening

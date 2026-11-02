@@ -70,6 +70,26 @@ func TestWorkflowHealthyFrontierWrittenByCurrentVerdict(t *testing.T) {
 	if err != nil || expected == 0 || got != expected {
 		t.Fatalf("current verdict writer frontier = %d, %v; want %d", got, err, expected)
 	}
+	for _, changed := range []bool{false, true} {
+		contract := pContractSuccessor(t, f.store, work, "Keep only proof of the current criterion.")
+		if changed {
+			contract["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["check_ref"] = "check:changed-frontier"
+		}
+		if err := reviseContractRecord(t, f.store, work, f.owner, contract, readWorkVersion(t, f.store, work), nil); err != nil {
+			t.Fatal(err)
+		}
+		version, err := activeWorkflowContractVersion(t.Context(), f.store.db, work, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := expected
+		if changed {
+			want = 0
+		}
+		if got, err := workflowLatestComparableHealthySequence(t.Context(), f.store.db, work, version); err != nil || got != want {
+			t.Fatalf("changed=%v: revised contract frontier=%d, %v; want %d", changed, got, err, want)
+		}
+	}
 }
 
 func TestWorkflowHealthyBasisRequiresEveryComparablePredicate(t *testing.T) {
@@ -99,7 +119,6 @@ func TestWorkflowHealthyBasisRequiresEveryComparablePredicate(t *testing.T) {
 			pin.definitionRef = "workflow.changed"
 			b.pins[2] = pin
 		}},
-		{name: "complete correction cutoff", mutate: func(b *workflowHealthBasis, _ []workflowHealthVerdict) { b.cutoff = 12 }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			basis := workflowHealthBasis{version: 2, history: workflowContractPredicateHistoryData{

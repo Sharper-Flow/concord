@@ -113,20 +113,9 @@ func reviewGateAcceptor(workID string) WorkflowActor {
 
 func reviewGateChangeRecordedCriterion(t *testing.T, j *candidateJourney) {
 	t.Helper()
-	owner, err := WorkflowActorRef(j.fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
 	successor := pContractSuccessor(t, j.s, j.workID, "changed criterion")
-	delete(successor, "audit_evidence")
-	delete(successor, "supersede_reason")
-	successor["outcome_kind"] = "check"
 	successor["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "fail"
-	version := readWorkVersion(t, j.s, j.workID)
-	successor["law_revisions"], successor["law_boundary_version"], successor["consequence_class"] = []WorkflowLawRevision{}, 1, "internal_sqlite"
-	event := workflowEventWithActor("gate-criterion-successor", WorkflowContractSuperseded, j.workID, owner, map[string]any{"work_id": j.workID, "expected_version": version, "resulting_version": version + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "changed criterion", "audit_evidence": []string{"evidence:return-route-artifact"}, "successor_contract": successor})
-	event = withPinnedDecisionFact(t, pinnedWorkflowDefinitionForTest(t, j.s, j.workID), event)
-	if err := applyWorkflowTestOperation(t.Context(), j.s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, j.workID): version}}); err != nil {
+	if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, successor, readWorkVersion(t, j.s, j.workID), nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -293,15 +282,8 @@ func TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview(t *testing.
 				t.Fatal(err)
 			}
 			successor := pContractSuccessor(t, j.s, j.workID, "changed criterion")
-			delete(successor, "audit_evidence")
-			delete(successor, "supersede_reason")
-			successor["outcome_kind"] = "check"
 			successor["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "fail"
-			version := readWorkVersion(t, j.s, j.workID)
-			successor["law_revisions"], successor["law_boundary_version"], successor["consequence_class"] = []WorkflowLawRevision{}, 1, "internal_sqlite"
-			event := workflowEventWithActor("p-gate-successor", WorkflowContractSuperseded, j.workID, owner, map[string]any{"work_id": j.workID, "expected_version": version, "resulting_version": version + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "changed criterion", "audit_evidence": []string{"evidence:return-route-artifact"}, "successor_contract": successor})
-			event = withPinnedDecisionFact(t, pinnedWorkflowDefinitionForTest(t, j.s, j.workID), event)
-			if err := applyWorkflowTestOperation(t.Context(), j.s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, j.workID): version}}); err != nil {
+			if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, successor, readWorkVersion(t, j.s, j.workID), nil); err != nil {
 				t.Fatal(err)
 			}
 			pin := issue1013Pin(t, j.s, j.workID)

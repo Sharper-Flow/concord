@@ -42,7 +42,6 @@ func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 				{Step: "refine", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
 				{Step: "acceptance", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
 				{Step: "release", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
-				{Step: "release", Trigger: WorkflowRecoveryTriggerDisprovedPremiseAtComplete, Action: "supersede_contract", Target: "execution"},
 			},
 		},
 		{
@@ -75,7 +74,6 @@ func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 				{Step: "refine", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair"},
 				{Step: "verify", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair"},
 				{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair"},
-				{Step: "complete", Trigger: WorkflowRecoveryTriggerDisprovedPremiseAtComplete, Action: "supersede_contract", Target: "repair"},
 			},
 		},
 		{

@@ -37,14 +37,14 @@ func recoveryBindPayload() json.RawMessage {
 
 // Fixture assertions separate declared requirements from predicate recovery.
 func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) ([]workflowEvidenceRequirement, error) {
-	required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if err != nil {
 		if workflowMissingContractProjection(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations, cutoff)
+	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
 }
 
 func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
@@ -52,35 +52,9 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 	subject := "ci:required-checks:corrected-subject"
 	f, repo, refs := pReceiptFixture(t, workID, 1, 1, func(f workContextFixture) {
 		s := f.store
-		// Fold the successor to isolate evidence recovery from correction routing.
-		version := readWorkVersion(t, s, workID)
-		actor, _ := WorkflowActorRef(f.owner)
-		contract, err := readWorkflowContractVersion(t.Context(), s.db, workID, 1)
-		if err != nil {
-			t.Fatal(err)
-		}
-		successor := map[string]any{
-			"premise": contract.Premise, "rigor_class": contract.RigorClass,
-			"required_evidence": contract.RequiredEvidence, "route_conventions": contract.RouteConventions,
-			"spec_mandate": contract.SpecMandate, "law_modifies": contract.LawModifies, "law_revisions": contract.LawRevisions,
-		}
-		var lawBoundaryVersion int
-		var consequenceClass string
-		if err := s.db.QueryRow(`SELECT law_boundary_version,consequence_class FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&lawBoundaryVersion, &consequenceClass); err != nil {
-			t.Fatal(err)
-		}
-		successor["law_boundary_version"] = lawBoundaryVersion
-		successor["consequence_class"] = consequenceClass
-		if contract.DecisionDomains != nil {
-			successor["decision_domains"] = contract.DecisionDomains
-		}
-		if contract.ArchitectureBinding != nil {
-			successor["architecture_binding"] = contract.ArchitectureBinding
-		}
-		successor["contract_version"] = 2
+		successor := pContractSuccessor(t, s, workID, "Correct the checked subject.")
 		successor["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:p0", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:github/required-checks", "immutable_subject_ref": subject, "expected_result": "pass"}}}
-		event := workflowEventWithActor(workID+":successor", WorkflowContractSuperseded, workID, actor, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "Correct the checked subject.", "audit_evidence": []string{"evidence:corrected-check"}, "successor_contract": successor})
-		if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		if err := reviseContractRecord(t, s, workID, f.owner, successor, readWorkVersion(t, s, workID), nil); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -306,9 +280,9 @@ func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, _, before := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract")
+			_, _, before := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "checkpoint_context")
 			if before != nil {
-				t.Fatalf("discover correction before corrupting the predicate: %v", before)
+				t.Fatalf("discover context checkpoint before corrupting the predicate: %v", before)
 			}
 			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contract_predicates SET outcome_kind=?,outcome_payload=? WHERE work_id=? AND contract_version=1; DELETE FROM write_guard`, test.kind, test.payload, workID); err != nil {
 				t.Fatal(err)
@@ -317,7 +291,7 @@ func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
 			if state.EvidenceRecoveryRoute || err != nil {
 				t.Errorf("binding availability with a %s predicate = (%t, %v), want a hidden route without an action-independent failure", test.name, state.EvidenceRecoveryRoute, err)
 			}
-			if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil {
+			if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "checkpoint_context"); err != nil {
 				t.Errorf("binding predicate validation blocked another action's discovery: %v", err)
 			}
 			payload := json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"ci:result"}`)

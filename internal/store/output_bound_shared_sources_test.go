@@ -266,7 +266,7 @@ func init() {
 // fold applies to the stored workflow_actors.session_ref. Four live facts
 // must hold together, and each fails closed:
 //
-//   - foldWorkflowActorRecorded routes p.SessionRef through exactly one
+//   - persistWorkflowActorTuple routes p.SessionRef through exactly one
 //     workflowString call whose upper operand is the constant 128;
 //   - workflowString's return is the pinned len() shape, so the guard
 //     measures the complete string in bytes and a measurement change fails
@@ -280,7 +280,7 @@ func init() {
 func sharedSessionRefFoldBound() outputBoundSource {
 	const (
 		file       = "internal/store/workflow.go"
-		fold       = "foldWorkflowActorRecorded"
+		fold       = "persistWorkflowActorTuple"
 		guard      = "workflowString"
 		field      = "p.SessionRef"
 		guardShape = "len(value) >= workflowStringMinBytes && len(value) <= upper"

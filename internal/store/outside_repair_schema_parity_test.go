@@ -102,7 +102,9 @@ for (const probe of probes) {
   const failures = [];
   const fields = fieldsFor(probe.action);
   let admit = false;
-  if (probe.mode === "definition") {
+  if (probe.mode === "request") {
+    admit = validateAgainstSchema(publishedRequestSchema(probe.tool), probe.value, failures);
+  } else if (probe.mode === "definition") {
     const document = { $defs: payloadSchemas, $ref: "#/$defs/" + probe.definition };
     admit = validateAgainstSchema(document, probe.value, failures);
   } else if (!fields) {
@@ -329,24 +331,8 @@ func TestOutsideRepairUnicodeParity(t *testing.T) {
 	}
 }
 
-// TestOutsideRepairOutcomeKindParity pins the payload-only equality between
-// an outcome predicate's declared outcome_kind and its outcome_payload kind,
-// on the wire forms that carry it: one outcome_predicates item on
-// approve_contract, the canonical outcome_predicates array on
-// supersede_contract, and the retained-pin outcome pair the engine recovery
-// declaration still enforces for replay. The equality depends on no live
-// context, so both admission boundaries must hold it. Core validation
-// refuses the mismatched item through the generated items def
-// (payloadschema.Validate, the same def the payload validators bind), the
-// canonical mismatched array through the successor-contract payload
-// validator over a pinned canonical head, and the mismatched pair through
-// the same validator's engine tier; the production host publication must
-// refuse the canonical forms beside them. At the base commit all mismatch
-// assertions fail: the base items def published outcome_kind and
-// outcome_payload independently and the base published successor fields
-// carried the same independence, so the publication admitted both mismatched
-// forms, and the base core payload validators admitted them too — the base
-// fold refused the mismatch only after the payload boundaries accepted it.
+// Predicate kind equality holds at initial approval and at the optional
+// revise_intent.contract boundary, in the host publication and the store.
 func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 	t.Parallel()
 	const itemsRef = "workflow_action_outcome_predicates"
@@ -360,33 +346,27 @@ func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 		return map[string]any{"predicate_id": "predicate:outside-repair", "ordinal": 0, "outcome_kind": kind, "outcome_payload": checkPayload()}
 	}
 	items := func(kind string) []any { return []any{predicate(kind)} }
-	// supersedeFields builds the canonical successor contract: the explicit
-	// outcome_predicates array is the one authorable outcome form
-	// (CD-0218 D1/D2), required and per-kind closed.
-	supersedeFields := func(kind string) map[string]any {
-		return map[string]any{
-			"contract_version": 2, "premise": "outside-repair successor premise", "outcome_predicates": items(kind),
-			"required_evidence": []any{}, "route_conventions": []any{}, "spec_mandate": []any{}, "law_modifies": []any{},
-			"rigor_class": "prototype_internal", "supersede_reason": "outside-repair supersede reason", "audit_evidence": []any{"evidence:outside-repair"},
-			"decision_domains": []any{},
-		}
+	f := seedWorkContextFixture(t, "outside-repair-update")
+	defer f.store.Close()
+	updateInput := func(kind string) map[string]any {
+		contract := pContractSuccessor(t, f.store, f.workID, "The current predicate uses the matching outcome kind.")
+		contract["outcome_predicates"] = items(kind)
+		return map[string]any{"work_id": f.workID, "expected_version": readWorkVersion(t, f.store, f.workID), "title": "Updated plan", "value_statement": "Keep matching predicate kinds", "kind": "task", "reason": "Revise the plan", "idempotency_key": "outside-repair-update", "contract": contract}
 	}
-	// retainedPinFields builds the legacy outcome pair the engine recovery
-	// declaration still carries for recorded history: a retained pin that
-	// replays under the paired shape answers to the kind-match rule.
-	retainedPinFields := func(kind string) map[string]any {
-		fields := supersedeFields(kind)
-		delete(fields, "outcome_predicates")
-		fields["outcome_kind"] = kind
-		fields["outcome_payload"] = checkPayload()
-		delete(fields, "decision_domains")
-		return fields
-	}
+	mismatch, control := updateInput("exists"), updateInput("check")
+	unknown := updateInput("check")
+	unknown["contract"].(map[string]any)["unknown_field"] = true
+	withoutContract := updateInput("check")
+	delete(withoutContract, "contract")
 	probes := []map[string]any{
 		{"id": "approve-item-mismatch", "mode": "field", "action": "approve_contract", "field": "outcome_predicates", "value": items("exists")},
 		{"id": "approve-item-control", "mode": "field", "action": "approve_contract", "field": "outcome_predicates", "value": items("check")},
-		{"id": "supersede-array-mismatch", "mode": "fields", "action": "supersede_contract", "fields": supersedeFields("exists")},
-		{"id": "supersede-array-control", "mode": "fields", "action": "supersede_contract", "fields": supersedeFields("check")},
+	}
+	for _, probe := range []struct {
+		id    string
+		input map[string]any
+	}{{"update-mismatch", mismatch}, {"update-control", control}, {"update-unknown", unknown}, {"update-omitted", withoutContract}} {
+		probes = append(probes, map[string]any{"id": probe.id, "mode": "request", "tool": "concord_work_define", "value": map[string]any{"operation": "revise_intent", "input": probe.input}})
 	}
 	published := outsideRepairPublishedVerdicts(t, probes)
 	require := func(id string) outsideRepairPublication {
@@ -409,28 +389,29 @@ func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 	if verdict := require("approve-item-control"); !verdict.Admit {
 		t.Errorf("the published approve_contract outcome_predicates refuse the matching-kind control item: %v", verdict.Failures)
 	}
-	// The canonical supersede array: one item whose outcome_kind "exists"
-	// disagrees with its check outcome_payload, against the pinned
-	// canonical head the live authoring selector resolves.
-	if err := validateWorkflowContractRecoveryPayload(currentWorkflowDefinition(t), outsideRepairRaw(t, supersedeFields("exists"))); err == nil {
-		t.Error("the successor-contract payload validator admits an outcome_predicates item whose outcome_kind and outcome_payload.kind disagree")
-	} else if arrayControl := validateWorkflowContractRecoveryPayload(currentWorkflowDefinition(t), outsideRepairRaw(t, supersedeFields("check"))); arrayControl != nil {
-		t.Fatalf("the successor-contract payload validator refuses the matching-kind control array: %v", arrayControl)
+	for _, probe := range []struct {
+		id    string
+		input map[string]any
+		admit bool
+	}{{"update-mismatch", mismatch, false}, {"update-control", control, true}, {"update-unknown", unknown, false}, {"update-omitted", withoutContract, true}} {
+		if err := payloadschema.Validate("work_define_revise_input", outsideRepairRaw(t, probe.input)); (err == nil) != probe.admit {
+			t.Errorf("core update schema %s: %v; want admit=%v", probe.id, err, probe.admit)
+		}
+		if verdict := require(probe.id); verdict.Admit != probe.admit {
+			t.Errorf("published update schema %s: admit=%v, failures=%v; want %v", probe.id, verdict.Admit, verdict.Failures, probe.admit)
+		}
 	}
-	if verdict := require("supersede-array-mismatch"); verdict.Admit {
-		t.Errorf("the published supersede_contract fields admit a mismatched outcome item; failures: %v", verdict.Failures)
+	for _, input := range []map[string]any{mismatch, unknown} {
+		before := contractRecordEffectSnapshot(t, f.store, f.workID)
+		if err := reviseContractRecord(t, f.store, f.workID, f.owner, input["contract"].(map[string]any), readWorkVersion(t, f.store, f.workID), nil); !hasFailureKind(err, KindInvalidPayload) {
+			t.Fatalf("invalid update returned %v, want invalid_payload", err)
+		}
+		if after := contractRecordEffectSnapshot(t, f.store, f.workID); after != before {
+			t.Fatal("refused update changed durable state")
+		}
 	}
-	if verdict := require("supersede-array-control"); !verdict.Admit {
-		t.Errorf("the published supersede_contract fields refuse the matching-kind control array: %v", verdict.Failures)
-	}
-	// The retained-pin outcome pair keeps its kind-match rule on the engine
-	// tier: the pair fields left canonical authoring, so the published
-	// canonical variant carries no pair leg and the equality is held by the
-	// recovery declaration replay reads.
-	if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, outsideRepairRaw(t, retainedPinFields("exists"))); err == nil {
-		t.Error("the engine recovery validator admits a retained-pin outcome pair whose outcome_kind and outcome_payload.kind disagree")
-	} else if pairControl := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, outsideRepairRaw(t, retainedPinFields("check"))); pairControl != nil {
-		t.Fatalf("the engine recovery validator refuses the matching-kind retained-pin control pair: %v", pairControl)
+	if err := reviseContractRecord(t, f.store, f.workID, f.owner, control["contract"].(map[string]any), readWorkVersion(t, f.store, f.workID), nil); err != nil {
+		t.Fatalf("matching-kind control update refused: %v", err)
 	}
 }
 

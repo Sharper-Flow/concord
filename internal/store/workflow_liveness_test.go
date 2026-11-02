@@ -52,9 +52,6 @@ func livenessActionDefinition(definition WorkflowDefinition, actionID string) (W
 	if action, err := workflowDeclaredActionDefinition(definition, actionID); err == nil {
 		return action, true
 	}
-	if actionID == "supersede_contract" {
-		return workflowDecisionFactRecoveryActionDefinition(definition), true
-	}
 	return workflowRecoveryActionDefinition(actionID)
 }
 
@@ -98,9 +95,6 @@ func livenessVariants(action WorkflowActionDefinition) []map[string]string {
 	const routingEnumMax = 4
 	enums := make([]WorkflowPayloadField, 0, 2)
 	for _, field := range action.Payload.Fields {
-		if action.ID == "supersede_contract" && field.Name == "outcome_kind" {
-			continue // This sampler uses the outcome_predicates arm.
-		}
 		if len(field.Enum) > 1 && len(field.Enum) <= routingEnumMax {
 			enums = append(enums, field)
 		}
@@ -417,9 +411,6 @@ func livenessPayload(definition WorkflowDefinition, action WorkflowActionDefinit
 		// These journeys change no law. Law-change declarations are valid
 		// only when the contract actually changes law.
 		if slices.ContainsFunc(workflowLawChangeFields(), func(lawField WorkflowPayloadField) bool { return lawField.Name == field.Name }) {
-			continue
-		}
-		if action.ID == "supersede_contract" && (field.Name == "outcome_kind" || field.Name == "outcome_payload") {
 			continue
 		}
 		if value, ok := livenessOutcomeField(definition, field); ok {
@@ -792,9 +783,6 @@ func livenessBindRecordedState(ctx context.Context, s *Store, workID, actionID s
 		var version int64
 		if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(contract_version),0) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&version); err != nil {
 			return nil, err
-		}
-		if actionID == "supersede_contract" {
-			version++
 		}
 		if version > 0 {
 			bound["contract_version"] = version

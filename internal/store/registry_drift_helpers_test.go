@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -66,39 +65,6 @@ func seedRootWriterPeer(t *testing.T, s *Store, peerID, approverRef string) {
 		`INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('`+peerID+`',1,'root')`,
 	)
 	setWorkLifecycleForTesting(t, s, peerID, "in_progress")
-}
-
-// returnRouteSuccessorPayload is a fully supplied engineering successor
-// contract for the return-route fixture.
-func returnRouteSuccessorPayload(contractVersion int64, workID string, predecessor int64, domainModifies ...string) json.RawMessage {
-	if domainModifies == nil {
-		domainModifies = []string{}
-	}
-	fields := map[string]any{
-		"contract_version":              contractVersion,
-		"decision_domains":              []string{},
-		"predecessor_contract_versions": []int64{predecessor},
-		"premise":                       "revise the approved contract",
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:return-route", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		}},
-		"required_evidence": []string{"verification"},
-		"route_conventions": []string{},
-		"spec_mandate":      []string{},
-		"law_modifies":      []string{},
-		"rigor_class":       "prototype_internal",
-		"supersede_reason":  "the operator corrected the approved contract",
-		"audit_evidence":    []string{"evidence:contract-correction"},
-		"architecture_binding": WorkflowArchitectureBinding{
-			HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
-			DomainModifies: domainModifies, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
-		},
-	}
-	if len(domainModifies) != 0 {
-		fields["law_change_reason"] = "keep the approved Domain authority"
-	}
-	return mustJSONValue(fields)
 }
 
 // activeContractState returns the newest active contract version and the

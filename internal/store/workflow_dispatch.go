@@ -90,11 +90,11 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 }
 
 // workflowRouteActionDefinition resolves the actions whose definition depends
-// on the folded state rather than the pinned step: the late verdict, contract
-// supersession, worker failure recovery, and the correction routes. found is
+// on the folded state rather than the pinned step: the late verdict
+// and the correction request. found is
 // false when the action falls through to its pinned declaration.
 func workflowRouteActionDefinition(ctx context.Context, s *Store, registry DefinitionRegistry, entry RegisteredDefinition, workID, actionID string) (WorkflowActionDefinition, bool, error) {
-	if actionID == "supersede_contract" || actionID == "request_correction" {
+	if actionID == "request_correction" {
 		// Both discoveries fold admission, whose law-pin staleness reads
 		// committed law verified before the read opens (CD-0195 D2).
 		verified, err := s.PrepareWorkLawProof(ctx, workID)
@@ -108,9 +108,6 @@ func workflowRouteActionDefinition(ctx context.Context, s *Store, registry Defin
 		// Discovery returns the same hold-mode declaration as ordinary
 		// association. Folded admission, not discovery, proves availability.
 		action, err := workflowDeclaredActionDefinition(entry.Definition, actionID)
-		return action, err == nil, err
-	case "supersede_contract":
-		action, err := workflowSupersedeContractDiscovery(ctx, s, registry, entry, workID)
 		return action, err == nil, err
 	case "request_correction":
 		currentStep, err := workflowDiscoveryCurrentStep(ctx, s, workID)
@@ -153,44 +150,6 @@ func workflowDeclaredActionDefinition(definition WorkflowDefinition, actionID st
 		return action, nil
 	}
 	return WorkflowActionDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared by the pinned definition", false, "reread_entities")
-}
-
-// workflowSupersedeContractDiscovery answers supersede_contract's discovery
-// from the shared admission: one read transaction folds the instance history
-// through loadWorkflowAdmissionStateTx, and workflowAdmitSupersede — the same
-// pure decision the preflight, the guard, the work pin, and the dispatch fold
-// consume — classifies the recovery. Discovery keeps no per-site predicate of
-// its own: the shape refusal, the stale-law and duplicate classification, and
-// the complete-step gate are the fold's answer, so no surface can refuse a
-// recovery route another surface admits.
-func workflowSupersedeContractDiscovery(ctx context.Context, s *Store, registry DefinitionRegistry, entry RegisteredDefinition, workID string) (WorkflowActionDefinition, error) {
-	var action WorkflowActionDefinition
-	if err := s.readSnapshot(ctx, func(q queryer) error {
-		return workflowSupersedeContractDiscoveryTx(ctx, q, registry, entry, workID, &action)
-	}); err != nil {
-		return WorkflowActionDefinition{}, err
-	}
-	return action, nil
-}
-
-func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx queryer, registry DefinitionRegistry, entry RegisteredDefinition, workID string, action *WorkflowActionDefinition) error {
-	var currentStep string
-	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindProjectionNotFound, "workflow_action", "workflow instance is not recorded", false, "reread_entities")
-		}
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
-	}
-	state, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, currentStep, "workflow_action", registry)
-	if stateErr != nil {
-		return stateErr
-	}
-	decision := workflowAdmit(entry.Definition, state, "supersede_contract")
-	if decision.Admitted {
-		*action = workflowDecisionFactRecoveryActionDefinition(entry.Definition)
-		return nil
-	}
-	return decision.Failure
 }
 
 // ApplyWorkflowActionTx records one action's durable operation and event-folded
@@ -354,11 +313,7 @@ func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, reques
 	if err := runWorkflowActionGuard(guards, guardPhaseBoundary); err != nil {
 		return err
 	}
-	if guards.staleRecovery {
-		if err := validateWorkflowContractRecoveryPayload(guards.entry.Definition, request.Payload); err != nil {
-			return err
-		}
-	} else if err := validateWorkflowActionPayload(guards.entry.Definition, request.ActionID, request.Payload); err != nil {
+	if err := validateWorkflowActionPayload(guards.entry.Definition, request.ActionID, request.Payload); err != nil {
 		return err
 	}
 	if err := runWorkflowActionGuard(guards, guardPhasePostValidation); err != nil {
@@ -618,8 +573,6 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		return workflowRecordAlignmentEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "record_diagnosis":
 		return workflowRecordDiagnosisEvents(ctx, tx, request, actor, fields, eventID, expected)
-	case "supersede_contract":
-		return workflowSupersedeContractEvents(ctx, tx, definition, request, actor, raw, fields, eventID, expected)
 	case "record_review":
 		return workflowRecordedReviewEvents(request, actor, eventID, expected)
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":

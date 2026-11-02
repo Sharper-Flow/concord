@@ -18,29 +18,20 @@ func TestHistoricalReadCarriesContractDecisionDomains(t *testing.T) {
 		t.Parallel()
 		s := openTemp(t)
 		defer s.Close()
-		ownerRef := seedDecisionDomainsItemFatal(t, s, "decision-historical-read", []string{"product"})
+		seedDecisionDomainsItemFatal(t, s, "decision-historical-read", []string{"product"})
 		var version int64
 		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='decision-historical-read'`).Scan(&version); err != nil {
 			t.Fatal(err)
 		}
-		successor := map[string]any{
-			"contract_version": int64(2), "premise": "the corrected decision-bearing premise",
-			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:research-report-exit", "ordinal": 0, "outcome_kind": "outcome",
-				"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}},
-			"required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{},
-			"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-			"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-			"decision_domains": []string{"preference", "ui_ux"},
-		}
-		supersede := workflowEventWithActor("decision-historical-read-supersede", WorkflowContractSuperseded, "decision-historical-read", ownerRef, map[string]any{
-			"work_id": "decision-historical-read", "expected_version": version, "resulting_version": version + 1,
-			"previous_contract_version": 1, "new_contract_version": 2,
-			"supersede_reason": "correct the declared decision domains", "audit_evidence": []string{"evidence:domain-audit"},
-			"successor_contract": successor,
-		})
-		supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-historical-read"): version}}); err != nil {
+		successor := pContractSuccessor(t, s, "decision-historical-read", "the corrected decision-bearing premise")
+		successor["decision_domains"] = []string{"ui_ux"}
+		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/decision-historical-read", ActorClass: ActorAgent}
+		if err := reviseContractRecord(t, s, "decision-historical-read", owner, successor, version, nil); err != nil {
 			t.Fatalf("successor correction refused: %v", err)
+		}
+		// Current authoring excludes preference; historical readers still decode it.
+		if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET decision_domains='["preference","ui_ux"]' WHERE work_id='decision-historical-read' AND contract_version=2; DELETE FROM write_guard`); err != nil {
+			t.Fatal(err)
 		}
 		for _, testCase := range []struct {
 			name            string

@@ -33,24 +33,23 @@ func TestWorkflowLawRevisionSameIDAmendmentRemainsCompatible(t *testing.T) {
 	}
 }
 
-func TestWorkflowContractRecoveryPayloadAcceptsPredicateArray(t *testing.T) {
+func TestWorkflowContractUpdateAcceptsPredicateArray(t *testing.T) {
 	t.Parallel()
-	raw := mustJSONValue(map[string]any{
-		"contract_version": 2, "premise": "continue with the corrected contract",
-		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:first", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:first", "immutable_subject_ref": "commit:first", "expected_result": "pass"}}},
-		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"rigor_class": "prototype_internal", "supersede_reason": "correct the accepted premise", "audit_evidence": []string{"evidence:audit"},
-	})
-	if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, raw); err != nil {
-		t.Fatalf("predicate-array successor payload refused: %v", err)
+	const workID = "contract-update-predicate-array"
+	f := closureBindingFixture(t, workID, "execution")
+	contract := pContractSuccessor(t, f.store, workID, "Continue with the corrected contract.")
+	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, readWorkVersion(t, f.store, workID), nil); err != nil {
+		t.Fatalf("predicate-array contract update refused: %v", err)
 	}
-	legacyAndArray := mustJSONValue(map[string]any{
-		"contract_version": 2, "premise": "ambiguous outcome shape", "outcome_predicates": []map[string]any{{"predicate_id": "predicate:first", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check"}}},
-		"outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"rigor_class": "prototype_internal", "supersede_reason": "ambiguous", "audit_evidence": []string{"evidence:audit"},
-	})
-	if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, legacyAndArray); err == nil {
-		t.Fatal("successor payload accepted both outcome shapes")
+	contract = pContractSuccessor(t, f.store, workID, "Reject an ambiguous outcome shape.")
+	contract["outcome_kind"] = "check"
+	contract["outcome_payload"] = map[string]any{"kind": "check"}
+	version := readWorkVersion(t, f.store, workID)
+	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, version, nil); !hasFailureKind(err, KindInvalidPayload) {
+		t.Fatalf("contract update with both outcome shapes = %v, want invalid_payload", err)
+	}
+	if got := readWorkVersion(t, f.store, workID); got != version {
+		t.Fatalf("refused contract update changed work version from %d to %d", version, got)
 	}
 }
 
@@ -93,7 +92,7 @@ func TestWorkflowLawRevisionDeletionRefusesPinnedConsumer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deletion check: %v", err)
 	}
-	if got == nil || got.OldLawID != "spec:old" || got.OldContentHash != oldHash || strings.Join(got.RecoveryActions, ",") != "supersede_contract,terminal_work" {
+	if got == nil || got.OldLawID != "spec:old" || got.OldContentHash != oldHash || strings.Join(got.RecoveryActions, ",") != "revise_intent,terminal_work" {
 		t.Fatalf("deletion diagnosis = %+v, want deleted spec:old, its pinned hash, and closed recovery actions", got)
 	}
 }
@@ -172,7 +171,7 @@ func TestWorkflowStaleLawBoundaryNamesRecoveryWithoutApproval(t *testing.T) {
 		t.Errorf("boundary recovery=%q, want reconcile_operation", failure.RecoveryAction)
 	}
 	stale := failure.StaleLawRevision
-	if stale == nil || stale.OldLawID != "spec:one" || stale.OldContentHash != oldHash || strings.Join(stale.RecoveryActions, ",") != "supersede_contract,terminal_work" {
+	if stale == nil || stale.OldLawID != "spec:one" || stale.OldContentHash != oldHash || strings.Join(stale.RecoveryActions, ",") != "revise_intent,terminal_work" {
 		t.Fatalf("boundary lost typed recovery choices: %+v", stale)
 	}
 }
@@ -195,12 +194,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 			actor := workflowActorForRef(t, s, completion.Actor)
 			attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 			cutoverLawProjection(t, s)
-			// At the current fixture's completion step, correction also requires the
-			// contradiction recorded after proof (CD-0172 D1).
-			recordCompleteStepContradictionObservation(t, s, workID, actor)
-			if _, action, err := WorkflowActionDefinitionFor(t.Context(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil || action.ID != "supersede_contract" {
-				t.Fatalf("discover production deleted-law recovery: action=%+v err=%v", action, err)
-			}
+			step := currentStep(t, s, workID)
 			binding, err := readWorkflowArchitectureBinding(t.Context(), s.db, workID, 1)
 			if err != nil {
 				t.Fatal(err)
@@ -208,31 +202,13 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 			successor := map[string]any{
 				"contract_version": 2, "premise": "continue under successor law",
 				"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor-law", "immutable_subject_ref": "commit:successor-law", "expected_result": "pass"}}},
-				"required_evidence":  []string{"verification", "review"}, "route_conventions": []string{"complete_step_correction"}, "spec_mandate": []string{"spec:two"}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
-				"supersede_reason": "move to the accepted successor law", "audit_evidence": []string{"evidence:law-cutover"}, "decision_domains": []string{}, "architecture_binding": binding,
+				"required_evidence":  []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:two"}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
+				"decision_domains": []string{}, "architecture_binding": binding,
 			}
 			successor["spec_mandate"] = tc.mandate
 			version := readWorkVersion(t, s, workID)
-			ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			scope, err := beginWrite(context.Background(), tx)
-			if err != nil {
-				tx.Rollback()
-				t.Fatal(err)
-			}
-			result, err := applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-				WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(successor), Actor: actor,
-				AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "recontract-recover", OperationID: "recontract-recover", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-recover", RequestID: "request:recontract-recover", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 3, 0, time.UTC),
-			})
-			_ = scope.close(context.Background())
+			err = reviseContractRecord(t, s, workID, actor, successor, version, nil)
 			if tc.refused {
-				_ = tx.Rollback()
 				var failure *Failure
 				if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || !strings.Contains(failure.Detail, "spec:one") {
 					t.Fatalf("complete successor retaining deleted law = %v, want projection_not_found naming spec:one", err)
@@ -250,14 +226,10 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 				return
 			}
 			if err != nil {
-				tx.Rollback()
-				t.Fatalf("production stale-contract recovery route: %v", err)
+				t.Fatalf("ordinary deleted-law contract update: %v", err)
 			}
-			if err := tx.Commit(); err != nil {
-				t.Fatal(err)
-			}
-			if result.ResultingVersion == 0 {
-				t.Fatal("successor contract approval did not produce a workflow result")
+			if got := readWorkVersion(t, s, workID); got != version+1 {
+				t.Fatalf("ordinary update work version=%d, want %d", got, version+1)
 			}
 			pins, err := readWorkflowLawRevisions(t.Context(), s.db, workID, 2)
 			if err != nil {
@@ -279,64 +251,10 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=2`, workID).Scan(&successorConfirmationCount); err != nil || successorConfirmationCount != 0 {
 				t.Fatalf("successor premise confirmations=%d err=%v, want zero", successorConfirmationCount, err)
 			}
-			if got := currentStep(t, s, workID); got != "execution" {
-				t.Fatalf("recontracted workflow step=%q, want unchanged execution step", got)
-			}
-			version = result.ResultingVersion
-			startCtx, err := s.PrepareWorkflowActionProof(context.Background(), "start_execution", workID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			tx, err = s.DatabaseForTesting().BeginTx(startCtx, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			scope2, err := beginWrite(startCtx, tx)
-			if err != nil {
-				tx.Rollback()
-				t.Fatal(err)
-			}
-			startResult, err := applyWorkflowActionRawTx(startCtx, tx, scope2, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "start_execution", Payload: mustJSONValue(map[string]any{}), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "recontract-start", OperationID: "recontract-start", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-start", RequestID: "request:recontract-start", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
-			_ = scope2.close(startCtx)
-			if err != nil {
-				tx.Rollback()
-				t.Fatalf("ordinary post-recovery action: %v", err)
-			}
-			if err := tx.Commit(); err != nil {
-				t.Fatal(err)
-			}
-			if startResult.ResultingVersion <= version || currentStep(t, s, workID) != "execution" {
-				t.Fatalf("post-recovery action result=%d step=%q", startResult.ResultingVersion, currentStep(t, s, workID))
+			if got := currentStep(t, s, workID); got != step {
+				t.Fatalf("contract revision reset step %q to %q", step, got)
 			}
 		})
-	}
-}
-
-func TestWorkflowLawRevisionRecoveryActionIsStaleOnlyAndApprovalRequired(t *testing.T) {
-	t.Parallel()
-	staleWork := "law-recovery-action-stale"
-	staleStore, _ := seedCompletionGateCase(t, staleWork, completionGateCase{requiredEvidence: []string{"verification", "review"}, omitClosure: true})
-	attachWorkflowLawPin(t, staleStore, staleWork, "sha256:"+strings.Repeat("a", 64))
-	cutoverLawProjection(t, staleStore)
-	_, action, err := WorkflowActionDefinitionFor(context.Background(), staleStore, BuiltinWorkflowRegistry(), staleWork, "supersede_contract")
-	if err != nil {
-		t.Fatalf("stale recovery action definition: %v", err)
-	}
-	if action.ID != "supersede_contract" {
-		t.Fatalf("stale recovery action=%+v, want supersede_contract", action)
-	}
-
-	currentWork := "law-recovery-action-current"
-	currentFixture := closureBindingFixture(t, currentWork, "release")
-	currentStore := currentFixture.store
-	attachWorkflowLawPin(t, currentStore, currentWork, "sha256:"+strings.Repeat("a", 64))
-	if _, _, err := WorkflowActionDefinitionFor(context.Background(), currentStore, BuiltinWorkflowRegistry(), currentWork, "supersede_contract"); err == nil {
-		t.Fatal("non-stale workflow exposed the contract recovery action")
-	} else {
-		var failure *Failure
-		if !failureAs(err, &failure) || failure.Kind != KindInvalidOperation {
-			t.Fatalf("non-stale recovery error=%v, want invalid_operation", err)
-		}
 	}
 }
 
@@ -359,16 +277,10 @@ func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
 	}
 	actor := workflowActorForRef(t, s, approvedBy)
 	cutoverLawProjection(t, s)
-	if _, action, err := WorkflowActionDefinitionFor(t.Context(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil || action.ID != "supersede_contract" {
-		t.Fatalf("deleted-law recovery at execution unavailable: action=%+v err=%v", action, err)
-	}
 	successor := pContractSuccessor(t, s, workID, "continue with current accepted law")
 	successor["spec_mandate"] = []string{}
 	successor["law_modifies"] = []string{}
-	if err := issue1013Preflight(t, s, workID, "supersede_contract", mustJSONValue(successor), actor); err != nil {
-		t.Fatalf("deleted-law recovery preflight: %v", err)
-	}
-	if err := runVerdictActionAs(t, s, workID, "supersede_contract", mustJSONValue(successor), 0, actor); err != nil {
+	if err := reviseContractRecord(t, s, workID, actor, successor, readWorkVersion(t, s, workID), nil); err != nil {
 		t.Fatalf("deleted-law recovery at execution: %v", err)
 	}
 	if version, active := activeContractState(t, s, workID); version != 2 || active != 1 {
@@ -380,34 +292,6 @@ func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
 	}
 	if got := currentStep(t, s, workID); got != "execution" {
 		t.Fatalf("recovery changed execution step: %q", got)
-	}
-}
-
-func TestWorkflowLawRevisionCloneRecoveryRefusesDeletedMandate(t *testing.T) {
-	t.Parallel()
-	workID := "law-recovery-requires-successor-pin"
-	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
-	cutoverLawProjection(t, s)
-	// The clone wall reads committed law, so the proof is verified after the
-	// cutover and before the transaction opens.
-	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	currentVersion := readWorkVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = validateClonedWorkflowContractLawRevisionsTx(ctx, tx, workID, []int64{1})
-	_ = tx.Rollback()
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "retain a deleted mandated law") {
-		t.Fatalf("clone recovery retaining deleted law error=%v, want invalid_payload", err)
-	}
-	if got := readWorkVersion(t, s, workID); got != currentVersion {
-		t.Fatalf("clone validation changed version: %d, want %d", got, currentVersion)
 	}
 }
 

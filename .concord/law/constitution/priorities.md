@@ -189,15 +189,13 @@ view is fresh enough to act on.
 - Specs, decisions, runbooks, and durable workflow documents remain browsable
   through their Domain home; knowledge does not live only in chat history or a
   flat workflow list.
-- **Scope boundary (CD-0033):** "without blind spots" covers what enters Product
+- **Scope boundary:** "without blind spots" covers what enters Product
   truth, not the session channel that directs agent labor. Operator direction
   given out-of-band is legitimate and invisible to Concord by design; when it
-  changes a required end-state, it binds through contract supersession — the
-  single write path, operator-approved only when a CD-0243 D2 class applies —
-  and completion's premise confirmation
-  names the recorded premise, so an unsuperseded redirect surfaces as a premise
-  the operator will not recognize. The blind spot that remains is documented,
-  not accidental.
+  changes a required end-state, the agent records the complete contract through
+  the ordinary update in [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates)
+  before continuing against it. Operator approval follows CD-0243 D2; a chat
+  message neither updates the contract nor waives current acceptance checks.
 
 See [`../../docs/design-constraints.md`](../../docs/design-constraints.md) §2, §5 for the staleness
 and read-path constraints.

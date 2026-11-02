@@ -3,9 +3,7 @@
   "id": "CD-0073",
   "title": "A scenario override is honored by its binding or it is not in the corpus",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "repository-verification",
   "applies_to_domain_ids": []
@@ -22,7 +20,7 @@
   2026-08-25 in the session that produced this record, choosing it over the three
   alternatives enumerated in
   [issue #179](https://github.com/Sharper-Flow/concord/issues/179)
-- **Related:** CD-0033 (the corpus is the accepted oracle), #178 (which surfaced
+- **Related:** #178 (which surfaced
   the unread keys while binding AJ6)
 - **Preserves:** Every existing assertion, invariant, and deferral; the free-form
   typing of `fixture_override` in `contracts/agent-jobs-scenarios.schema.json`;

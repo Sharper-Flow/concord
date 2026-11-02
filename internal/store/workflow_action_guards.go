@@ -35,7 +35,6 @@ type workflowActionGuardContext struct {
 	// the entry through: nil selects the builtin registry.
 	registry DefinitionRegistry
 
-	staleRecovery             bool
 	recoveryBind              bool
 	correctionRequestRecovery bool
 	correctionRequestMissing  string
@@ -61,7 +60,6 @@ type workflowActionGuard struct {
 // runs in. An action acquires a guard only by appearing here; the dispatcher
 // consults this table at each phase point in its sequence.
 var workflowActionGuards = map[string]workflowActionGuard{
-	"supersede_contract":     {guardPhaseRecovery, guardSupersedeContractRecovery},
 	"request_correction":     {guardPhaseRecovery, guardRequestCorrectionRecovery},
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
 	"record_verdict":         {guardPhaseBoundary, guardRecordVerdictArtifactFreshness},
@@ -148,11 +146,10 @@ func workflowSpecMandate(ctx context.Context, q queryer, workID, subject string)
 }
 
 // workflowEvidenceReferenceBound reports a durable evidence binding naming
-// the reference inside the accepted history. afterSeq bounds that history:
-// bindings at or before it do not count, and zero admits the whole history.
-func workflowEvidenceReferenceBound(ctx context.Context, q queryer, workID, reference, subject string, afterSeq int64) (bool, error) {
+// the reference in the evidence history.
+func workflowEvidenceReferenceBound(ctx context.Context, q queryer, workID, reference, subject string) (bool, error) {
 	var count int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq>? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, afterSeq, reference).Scan(&count); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, reference).Scan(&count); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect spec-mandate evidence", true, "retry once the workflow evidence projection is readable", err)
 	}
 	return count != 0, nil
@@ -169,27 +166,6 @@ func stepDeclaresAction(definition WorkflowDefinition, stepID, actionID string) 
 		}
 	}
 	return false
-}
-
-// workflowContractCorrectionAvailable reports whether operator-approved
-// contract correction is open on the current step. Approval and contract
-// version checks stay at the action boundary; the complete step also requires
-// its contradiction observation.
-func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
-	if !workflowContractCorrectionCheckpoint(definition, currentStep) {
-		return false, nil
-	}
-	if stepDeclaresAction(definition, currentStep, "complete") {
-		return workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject, 0)
-	}
-	if stepDeclaresAction(definition, currentStep, "confirm_premise") {
-		return true, nil
-	}
-	var contracts int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&contracts); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the active workflow contract", true, "retry once the workflow projection is readable", err)
-	}
-	return contracts > 0, nil
 }
 
 func workflowEvidenceBindingStep(definition WorkflowDefinition, currentStep string) string {
@@ -245,7 +221,7 @@ func workflowEvidenceBindingRecoveryEligibility(ctx context.Context, q queryer, 
 	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
 		return state, nil
 	}
-	required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if err != nil {
 		if workflowMissingContractProjection(err) {
 			return state, nil
@@ -282,7 +258,7 @@ func workflowEvidenceBindingRecoveryEligibility(ctx context.Context, q queryer, 
 			requirements = append(requirements, workflowEvidenceRequirement{Kind: string(EvidenceVerification), Reference: approved.ImmutableSubjectRef})
 		}
 	}
-	state.Requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements, cutoff, beforeSeq)
+	state.Requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements, beforeSeq)
 	return state, err
 }
 
@@ -312,12 +288,12 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 		}
 		return false, nil
 	}
-	_, _, _, cutoff, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
+	_, _, _, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if inputsErr != nil {
 		return false, inputsErr
 	}
 	if reference != "" {
-		exactBound, exactErr := workflowEvidenceTupleBound(ctx, q, workID, kind, reference, cutoff)
+		exactBound, exactErr := workflowEvidenceTupleBound(ctx, q, workID, kind, reference)
 		if exactErr != nil {
 			return false, exactErr
 		}
@@ -342,119 +318,6 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 		return true, nil
 	}
 	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence requires an outstanding contract evidence requirement or an unbound verification subject for an unverdicted active check", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
-}
-
-// guardSupersedeContractRecovery keeps the supersede payload checks the
-// recovery classification needs: the reserved route convention is payload
-// state, and the recovery classification itself is the folded admission
-// decision the dispatch fold already ran, so the guard records it for the
-// later validation stages instead of re-deriving the stale-law and duplicate
-// conditions.
-func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
-	fields, fieldsErr := workflowActionObject(g.defaultedPayload())
-	if fieldsErr != nil {
-		return fieldsErr
-	}
-	atCompleteStep := workflowCompleteStepCorrectionStep(g.entry.Definition, g.currentStep)
-	declaresRoute := slices.Contains(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
-	if declaresRoute && !atCompleteStep {
-		return newFailure(KindInvalidPayload, "workflow_action", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
-	}
-	if atCompleteStep && !declaresRoute {
-		// The payload satisfies its own declaration; what refuses is the step
-		// state, so the refusal is an operation refusal, not a payload one.
-		return newFailure(KindInvalidPayload, "workflow_action", "complete-step correction requires complete_step_correction in fields.route_conventions", false, "declare complete_step_correction in the successor route conventions")
-	}
-	g.staleRecovery = g.admissionDecision != nil && g.admissionDecision.RecoveryRoute
-	return nil
-}
-
-func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, currentStep string) bool {
-	step := workflowStep(definition, currentStep)
-	if step == nil {
-		return false
-	}
-	if stepDeclaresAction(definition, currentStep, "complete") {
-		// The pinned complete step is a correction checkpoint whose admission
-		// the complete-step state gate owns, so every surface that asks the
-		// shared predicate evaluates the same conditions.
-		return true
-	}
-	if slices.Contains(definition.StepGraph.TerminalSteps, currentStep) {
-		return false
-	}
-	if workflowUnhealthyVerdictRouteTarget(definition, currentStep) != "" {
-		return true
-	}
-	if slices.Contains(step.Actions, "confirm_premise") {
-		return true
-	}
-	// Contract revision follows the step's authored outcome or producing
-	// start, independently of Review intake or execution delegation.
-	for _, action := range step.Actions {
-		switch action {
-		case "record_proposal", "record_design", "record_finding", "record_report", "start_execution", "checkpoint_repair", "checkpoint_refine":
-			return true
-		}
-	}
-	return false
-}
-
-// workflowCompleteStepCorrectionAvailable reports whether the pinned complete
-// step of a break-fix or implementation workflow admits operator-approved
-// contract correction. Every condition is state the action boundary, work pin,
-// and preflight can read without the successor payload: the work item is
-// nonterminal, at least one approved contract is active, no worker attempt is
-// unsettled, and a same-work observation was recorded after the latest
-// recorded verdict. Any other work kind or pinned shape refuses.
-// A zero beforeSeq reads the current log; a fold bounds history before its
-// supersession so later events cannot change that event's admission.
-func workflowCompleteStepCorrectionAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, beforeSeq int64) (bool, error) {
-	if workflowDisprovedPremiseAtCompleteRouteTarget(definition, currentStep) == "" {
-		// The declared complete-step correction route is the shape: only a
-		// disproved_premise_at_complete route seats the CD-0172 return, and
-		// registration pins it on a step that declares the complete action.
-		return false, nil
-	}
-	var lifecycle string
-	if err := q.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot read the work item lifecycle", true, "retry once the work item is readable", err)
-	}
-	if lifecycle == "completed" || lifecycle == "cancelled" || lifecycle == "superseded" {
-		return false, nil
-	}
-	var contracts int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&contracts); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the active workflow contract", true, "retry once the workflow projection is readable", err)
-	}
-	// A duplicated projection takes the same route: the successor names
-	// every active version, so the correction both repairs the projection
-	// and returns the instance (CD-0203 D1).
-	if contracts == 0 {
-		return false, nil
-	}
-	return workflowContradictionObservationRecorded(ctx, q, workID, subject, beforeSeq)
-}
-
-// workflowContradictionObservationRecorded reports a same-work observation
-// recorded after the latest verdict. Verdicts closed verification when they
-// were recorded, so a record that postdates the newest verdict carries
-// information verification did not hold: the contradiction that justifies
-// replacing an otherwise satisfied contract. The observation kind carries
-// generic append authority, so a public route can record it at the pinned
-// complete step, where no declared action binds workflow evidence. The
-// predicate reads the record's existence and ordering, never its content:
-// the contradiction claim itself rides the successor's audit evidence and
-// the verified operator approval (CD-0172).
-func workflowContradictionObservationRecorded(ctx context.Context, q queryer, workID, subject string, beforeSeq int64) (bool, error) {
-	var recorded int
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_observations e
-		WHERE e.work_id=? AND (?=0 OR e.recorded_seq<?)
-		AND e.recorded_seq > COALESCE((SELECT MAX(v.verdict_seq) FROM workflow_predicate_verdicts v
-			WHERE v.work_id=? AND (?=0 OR v.verdict_seq<?)), 0))`, workID, beforeSeq, beforeSeq, workID, beforeSeq, beforeSeq).Scan(&recorded); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect work observations", true, "retry once the work observation projection is readable", err)
-	}
-	return recorded != 0, nil
 }
 
 func guardCompleteBoundary(g *workflowActionGuardContext) error {
@@ -834,7 +697,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 // completed-action fold never moves the step on them, whatever execution mode
 // a pinned definition declares (CD-0112 D1).
 func workflowActionOmitsGenericCompletion(actionID string) bool {
-	return actionID == "checkpoint_context" || actionID == "cross_context_boundary" || actionID == "supersede_contract" || actionID == "record_work_context"
+	return actionID == "checkpoint_context" || actionID == "cross_context_boundary" || actionID == "record_work_context"
 }
 
 // workflowActionAdvancesStep reports whether a completed action moves the

@@ -437,44 +437,40 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	}
 	successorBinding := binding
 	successorBinding.DomainModifies = []string{"root"}
-	successor := map[string]any{
-		"contract_version": int64(2), "premise": "revised Product law binding", "outcome_kind": "check",
-		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:architecture-v2", "immutable_subject_ref": "commit:architecture-v2", "expected_result": "pass"},
-		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one", "law:new"}, "law_modifies": []string{},
-		"law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: fixtureLawFolderLawHash("spec:one")}}, "law_boundary_version": 1,
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": successorBinding,
-	}
-	supersede := workflowEventWithActor("architecture-binding-supersede", WorkflowContractSuperseded, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
-		"work_id": workID, "expected_version": int64(5), "resulting_version": int64(6), "previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "revised Domain footprint", "audit_evidence": []string{"audit:architecture-v2"}, "successor_contract": successor,
-	})
-	supersede = pOverlapContractFacts(t, s, supersede)
-	var supersedeFields map[string]any
-	if err := json.Unmarshal(supersede.Payload, &supersedeFields); err != nil {
-		t.Fatal(err)
-	}
+	successor := pContractSuccessor(t, s, workID, "revised Product law binding")
+	successor["architecture_binding"] = successorBinding
+	successor["law_change_reason"] = "Revise the declared Domain footprint."
+	successor["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:architecture-v2", "immutable_subject_ref": "commit:architecture-v2", "expected_result": "pass"}}}
 	absentSuccessor := map[string]any{}
 	for key, value := range successor {
 		absentSuccessor[key] = value
 	}
 	absentSuccessor["architecture_binding"] = missingRelationBinding
-	supersedeFields["successor_contract"] = absentSuccessor
-	absentSupersede := workflowEventWithActor("architecture-binding-absent-supersede", WorkflowContractSuperseded, workID, event.Actor, supersedeFields)
-	absentSupersede.PayloadVersion = supersede.PayloadVersion
-	absentSupersede = withPinnedDecisionFact(t, definition.Definition, absentSupersede)
-	assertAbsentRelationAtomic(absentSupersede, 5, 1)
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 5}}); err != nil {
+	beforeRevision := contractRecordEffectSnapshot(t, s, workID)
+	err = reviseContractRecord(t, s, workID, actor, absentSuccessor, 5, nil)
+	var relationFailure *Failure
+	if !failureAs(err, &relationFailure) || relationFailure.Kind != KindInvalidPayload || relationFailure.Op != "workflow_architecture_binding" {
+		t.Fatalf("absent relation revision = %v, want typed architecture refusal", err)
+	}
+	if after := contractRecordEffectSnapshot(t, s, workID); after != beforeRevision {
+		t.Fatal("absent relation revision changed effects")
+	}
+	if err := reviseContractRecord(t, s, workID, actor, successor, 5, nil); err != nil {
 		t.Fatalf("bound successor rejected: %v", err)
 	}
 	var oldModifications int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contract_domain_modifications WHERE work_id=? AND contract_version=1 AND domain_id='child'`, workID).Scan(&oldModifications); err != nil || oldModifications != 1 {
 		t.Fatalf("historical binding was rewritten: count=%d err=%v", oldModifications, err)
 	}
-	clone := workflowEventWithActor("architecture-binding-clone", WorkflowContractSuperseded, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
-		"work_id": workID, "expected_version": int64(6), "resulting_version": int64(7), "previous_contract_version": int64(2), "new_contract_version": int64(3), "supersede_reason": "invalid clone", "audit_evidence": []string{"audit:clone"},
-	})
-	clone.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractSuperseded)
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{clone}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 6}}); err == nil {
-		t.Fatal("Product-changing contract accepted clone-without-successor revision")
+	incomplete := pContractSuccessor(t, s, workID, "An incomplete Product-changing revision")
+	incomplete["law_change_reason"] = "Revise the declared Domain footprint."
+	delete(incomplete, "architecture_binding")
+	beforeRevision = contractRecordEffectSnapshot(t, s, workID)
+	if err := reviseContractRecord(t, s, workID, actor, incomplete, 6, nil); err == nil {
+		t.Fatal("Product-changing contract accepted revision without architecture binding")
+	}
+	if after := contractRecordEffectSnapshot(t, s, workID); after != beforeRevision {
+		t.Fatal("incomplete Product-changing revision changed effects")
 	}
 	projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
 	if err != nil {
@@ -564,36 +560,19 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 			t.Fatal(err)
 		}
 		current := pContractSuccessor(t, s, workID, contract.Premise)
-		delete(current, "supersede_reason")
-		delete(current, "audit_evidence")
 		var successor map[string]any
 		if err := json.Unmarshal(mustJSONValue(current), &successor); err != nil {
 			t.Fatal(err)
 		}
-		var consequence string
-		var lawBoundary int
-		if err := s.db.QueryRow(`SELECT consequence_class,law_boundary_version FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&consequence, &lawBoundary); err != nil {
-			t.Fatal(err)
-		}
-		successor["consequence_class"], successor["law_boundary_version"] = consequence, lawBoundary
-		// The successor pins the hash of the committed spec:one fixture law,
-		// not a hardcoded digest: the supersession validates the pin against
-		// the verified snapshot.
+		// The update derives its law pin from the committed snapshot.
 		successor["contract_version"] = 2
 		successor["required_evidence"] = []string{"verification", "review"}
 		successor["spec_mandate"] = []string{"spec:one"}
 		successor["law_modifies"] = []string{"spec:one"}
-		successor["law_revisions"] = []WorkflowLawRevision{{LawID: "spec:one", ContentHash: fixtureLawFolderLawHash("spec:one")}}
+		successor["law_change_reason"] = "Require law-bound verification."
 		successor["architecture_binding"].(map[string]any)["verification_obligations"] = []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}
 		version := readWorkVersion(t, s, workID)
-		ownerRef, _ := WorkflowActorRef(f.owner)
-		event := workflowEventWithActor(workID+":successor", WorkflowContractSuperseded, workID, ownerRef, map[string]any{
-			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "previous_contract_version": 1, "new_contract_version": 2,
-			"supersede_reason": "Require law-bound verification.", "audit_evidence": []string{"evidence:architecture-obligation"}, "successor_contract": successor,
-		})
-		event.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractSuperseded)
-		event = pOverlapContractFacts(t, s, event)
-		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		if err := reviseContractRecord(t, s, workID, f.owner, successor, version, nil); err != nil {
 			t.Fatal(err)
 		}
 		seedWorkflowAuthority(t, s, "architecture-obligation-spec", workID, "principal:spec", "request:spec", []string{"spec:one"})

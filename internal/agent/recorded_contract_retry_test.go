@@ -59,12 +59,16 @@ func TestContractStructuralRefusalsDeliverCompleteGuidance(t *testing.T) {
 		{"long unknown", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","` + strings.Repeat("x", 1000) + `":true,"fields":{}}`, "member name sha256:"},
 		{"missing fields", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example"}`, "fields"},
 		{"unmatched alternative", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","fields":{"premise":"A bounded change.","decision_domains":[],"outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"bogus"}]}}`, "alternative outcome_kind=\"exists\""},
-		{"many missing", `{"work_id":"work-example","expected_version":1,"action_id":"supersede_contract","idempotency_key":"request-example","fields":{"decision_domains":[]}}`, "contract_version"},
+		{"many missing", `{"work_id":"work-example","expected_version":1,"title":"Updated plan","value_statement":"Clear intent","kind":"task","reason":"Revise the plan","idempotency_key":"request-example","contract":{"decision_domains":[]}}`, "contract_version"},
 		{"unknown nested", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","fields":{"premise":"A bounded change.","extra":true,"outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"exists","outcome_payload":{"kind":"exists","surface":"source","subjects":["example"]}}]}}`, "extra"},
-		{"extended unknown", `{"work_id":"work-example","expected_version":1,"action_id":"supersede_contract","idempotency_key":"request-example","fields":{"contract_version":1,"premise":"A bounded change.","decision_domains":[],"required_evidence":[],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"production_internal","supersede_reason":"A bounded reason.","audit_evidence":["evidence:one"],"extra":true,"outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"exists","outcome_payload":{"kind":"exists","surface":"source","subjects":["example"]}}]}}`, "extra"},
+		{"extended unknown", `{"work_id":"work-example","expected_version":1,"title":"Updated plan","value_statement":"Clear intent","kind":"task","reason":"Revise the plan","idempotency_key":"request-example","contract":{"contract_version":2,"premise":"A bounded change.","decision_domains":[],"required_evidence":[],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"production_internal","extra":true,"outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"exists","outcome_payload":{"kind":"exists","surface":"source","subjects":["example"]}}]}}`, "extra"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := Dispatch(context.Background(), nil, nil, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(tc.input)}, CallEnvelope{RequestID: "request-example"})
+			tool, operation := "concord_work_transition", "workflow_action"
+			if tc.name == "many missing" || tc.name == "extended unknown" {
+				tool, operation = "concord_work_define", "revise_intent"
+			}
+			out, err := Dispatch(context.Background(), nil, nil, InvokeRequest{Tool: tool, Operation: operation, Input: json.RawMessage(tc.input)}, CallEnvelope{RequestID: "request-example"})
 			if err != nil || out.Error == nil {
 				t.Fatalf("missing typed refusal: %+v, %v", out, err)
 			}

@@ -1177,9 +1177,9 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		if err == nil || !errors.As(err, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.Detail, "bytes of canonical JSON") {
 			t.Fatalf("legacy-gap declaration refusal = %v, want %s naming the whole-view byte bound", err, KindLimitExceeded)
 		}
-		// The optional reduction is named, and the mandatory supersession or
-		// stop route is explicitly conditional — named for the state it
-		// describes, never an unconditional command about this overflow.
+		// The optional reduction is named. The ordinary contract update or
+		// stop route is conditional on mandatory context exceeding the bound;
+		// the update keeps the current step and design.
 		if !strings.Contains(failure.RecoveryAction, "reduce the declaration's optional context") {
 			t.Fatalf("legacy-gap remedy = %q, want the optional reduction named", failure.RecoveryAction)
 		}
@@ -1278,14 +1278,14 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		// refusals carry. At this edge — a whole view one byte over its
 		// bound while the unframed mandatory members fit inside it — the
 		// text must still name the optional reduction and the explicitly
-		// conditional mandatory supersession or stop route, never an
+		// conditional mandatory contract update or stop route, never an
 		// approximate measurement's false promise.
 		recovery := workContextOverflowRecovery()
 		if !strings.Contains(recovery, "reduce the declaration's optional context") {
 			t.Fatalf("boundary recovery text = %q, want the optional reduction named", recovery)
 		}
-		if !strings.Contains(recovery, "if mandatory context alone exceeds the bound") || !strings.Contains(recovery, "supersede the active contract") || !strings.Contains(recovery, "stop the work") {
-			t.Fatalf("boundary recovery text = %q, want the mandatory supersession or stop route explicitly conditional; the unframed members fit inside the bound, so an unconditional mandatory command would be as false as an optional-only promise", recovery)
+		if !strings.Contains(recovery, "if mandatory context alone exceeds the bound") || !strings.Contains(recovery, "revise_intent with complete contract content only when the agreed scope permits reducing mandatory context") || !strings.Contains(recovery, "stop the work") {
+			t.Fatalf("boundary recovery text = %q, want the mandatory contract update or stop route explicitly conditional; the unframed members fit inside the bound, so an unconditional mandatory command would be as false as an optional-only promise", recovery)
 		}
 	})
 
@@ -1299,11 +1299,11 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 			t.Fatalf("33-open-slot read = %v, want %s refusing past the 32 shared slots", readErr, KindLimitExceeded)
 		}
 		// The open ranked blockers cannot be dropped by a later declaration,
-		// so the recovery must name the approved contract supersession or
+		// so the recovery must name the ordinary contract update or
 		// stop route rather than promise that dropping findings repairs the
 		// view.
-		if !strings.Contains(failure.RecoveryAction, "supersede the active contract") || !strings.Contains(failure.RecoveryAction, "stop the work") {
-			t.Fatalf("33-open-slot refusal remedy = %q, want the mandatory supersession or stop route; the overflow rides open ranked slots no declaration can drop", failure.RecoveryAction)
+		if !strings.Contains(failure.RecoveryAction, "revise_intent with complete contract content") || !strings.Contains(failure.RecoveryAction, "stop the work") {
+			t.Fatalf("33-open-slot refusal remedy = %q, want the mandatory contract update or stop route; the overflow rides open ranked slots no declaration can drop", failure.RecoveryAction)
 		}
 	})
 
@@ -1312,12 +1312,12 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		defer fixture.store.Close()
 		seedMandatoryNativeEvidence(t, fixture, 24)
 		// The read refuses on the evidence no declaration can reduce alone,
-		// and the refusal names the approved contract supersession or stop
+		// and the refusal names the ordinary contract update or stop
 		// route, never a promise that dropping research repairs it.
 		_, readErr := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
 		var failure *Failure
-		if readErr == nil || !errors.As(readErr, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.RecoveryAction, "supersede the active contract") {
-			t.Fatalf("mandatory-only read = %v, want %s naming the approved contract supersession or stop remedy", readErr, KindLimitExceeded)
+		if readErr == nil || !errors.As(readErr, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.RecoveryAction, "revise_intent with complete contract content") {
+			t.Fatalf("mandatory-only read = %v, want %s naming the ordinary contract update or stop remedy", readErr, KindLimitExceeded)
 		}
 		// The mandatory evidence stays retained: the qualified completion
 		// and its bytes survive untouched beside the refusal.

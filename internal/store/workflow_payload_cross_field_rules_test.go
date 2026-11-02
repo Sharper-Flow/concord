@@ -33,7 +33,7 @@ func declaredActionPayloads(t *testing.T) map[string]WorkflowPayloadDefinition {
 			payloads[action.ID] = action.Payload
 		}
 	}
-	for _, action := range BuiltinWorkflowCanonicalRecoveryActionDefinitions() {
+	for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {
 		payloads[action.ID] = action.Payload
 	}
 	for _, action := range BuiltinWorkflowDecisionFactActionDefinitions() {
@@ -126,8 +126,7 @@ func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 		// The published variants generate from the canonical projection of
 		// the engine declaration onto the declared fields, so the
 		// differential enumerates the same rules the publication names:
-		// canonical record_verdict drops the single-form group, and the
-		// canonical recovery contract drops the legacy outcome pair.
+		// canonical record_verdict drops the single-form group.
 		projected, err := WorkflowActionCanonicalCrossFieldRules(actionID, payload.Fields)
 		if err != nil {
 			t.Fatalf("canonical cross-field projection for %s refused: %v", actionID, err)
@@ -156,9 +155,6 @@ func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 			encoded, err := json.Marshal(fields)
 			if err != nil {
 				t.Fatal(err)
-			}
-			if actionID == "supersede_contract" {
-				return validateWorkflowContractRecoveryPayload(currentWorkflowDefinition(t), encoded)
 			}
 			return validateWorkflowActionPayload(WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{ID: actionID, Payload: payload}}}, actionID, encoded)
 		}

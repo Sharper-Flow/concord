@@ -240,8 +240,8 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 	if stale.OldLawID != observationBoundaryOldLaw || stale.OldContentHash != boundary.pinHash {
 		t.Fatalf("refusal old law=%q hash=%q, want %q %q", stale.OldLawID, stale.OldContentHash, observationBoundaryOldLaw, boundary.pinHash)
 	}
-	if strings.Join(stale.RecoveryActions, ",") != "supersede_contract,terminal_work" {
-		t.Fatalf("refusal recovery choices=%v, want [supersede_contract terminal_work]", stale.RecoveryActions)
+	if strings.Join(stale.RecoveryActions, ",") != "revise_intent,terminal_work" {
+		t.Fatalf("refusal recovery choices=%v, want [revise_intent terminal_work]", stale.RecoveryActions)
 	}
 	if response.Error.RecoveryAction.Kind != "reconcile_operation" {
 		t.Fatalf("refusal recovery action=%q, want reconcile_operation", response.Error.RecoveryAction.Kind)
@@ -315,7 +315,7 @@ func TestStaleLawBoundaryAllowsRawObservation(t *testing.T) {
 }
 
 // TestStaleLawBoundaryLeavesRecoveryReachable proves the exemption the new
-// check inherits is the right one. supersede_contract and terminal_work are the
+// check inherits is the right one. revise_intent and terminal_work are the
 // only recovery choices the stale-law refusal offers; guarding the operations
 // that enact them would close the refusal's own way out.
 func TestStaleLawBoundaryLeavesRecoveryReachable(t *testing.T) {

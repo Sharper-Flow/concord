@@ -92,8 +92,8 @@ func TestStaleLawHoldsLateVerdictUntilRePin(t *testing.T) {
 
 	// The ordinary stale-law re-pin: the successor mandates the accepted
 	// successor law and carries no Domain write authority.
-	successor := mustJSONValue(map[string]any{
-		"contract_version": 2, "predecessor_contract_versions": []int64{1},
+	successor := map[string]any{
+		"contract_version": 2,
 		"decision_domains": []string{},
 		"premise":          "re-pin the approved contract to the accepted successor law",
 		"outcome_predicates": []map[string]any{{
@@ -102,12 +102,10 @@ func TestStaleLawHoldsLateVerdictUntilRePin(t *testing.T) {
 		}},
 		"required_evidence": []string{"verification"}, "route_conventions": []string{},
 		"spec_mandate": []string{"spec:two"}, "law_modifies": []string{},
-		"rigor_class":      "prototype_internal",
-		"supersede_reason": "the approved contract pins a deleted law",
-		"audit_evidence":   []string{"evidence:law-rescan"},
-	})
-	if err := runVerdictActionAs(t, s, workID, "supersede_contract", successor, 0, owner); err != nil {
-		t.Fatalf("successor-law supersede: %v", err)
+		"rigor_class": "prototype_internal",
+	}
+	if err := reviseContractRecord(t, s, workID, owner, successor, readWorkVersion(t, s, workID), nil); err != nil {
+		t.Fatalf("successor-law contract update: %v", err)
 	}
 	if version, active := activeContractState(t, s, workID); version != 2 || active != 1 {
 		t.Fatalf("active contracts after re-pin = version %d count %d, want exactly version 2", version, active)

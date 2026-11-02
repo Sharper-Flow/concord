@@ -252,22 +252,6 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 		return pin, contractErr
 	}
 	if len(activeContractVersions) > 1 {
-		// Duplicate recovery belongs to earlier, running steps. At complete,
-		// the one-active-contract gate refuses it, a terminal instance
-		// cannot run any earlier-step recovery, and a completed instance
-		// keeps the route closed on every shape but the complete-step
-		// correction admission. The advertisement is the shared admission's
-		// answer, not a per-site predicate: the loader folds the duplicated
-		// projection, and workflowAdmitSupersede classifies the recovery, so
-		// the pin, the preflight, and the fold answer identically for the
-		// same state.
-		state, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, registered.Definition, pin.Step, "work_pin", registry)
-		if stateErr != nil {
-			return pin, stateErr
-		}
-		if decision := workflowAdmit(registered.Definition, state, "supersede_contract"); decision.Admitted {
-			pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(registered.Definition), pin.Version, "operator_contract_correction")}
-		}
 		return pin, nil
 	}
 	var activeContractVersion int64
@@ -473,40 +457,15 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 	return nil
 }
 
-// workPinRecoveryIntentsTx completes the intent set with every recovery and
-// correction route the folded admission state admits: worker-failure and
-// contract correction, the delivery-gate correction request,
-// the rejected-worker-result correction, and the terminal-state
-// selections that close the set. Every append consumes the pure decision,
-// so a route the folded state owns but another folded condition refuses —
-// staleness, terminal immutability, the hold — stays hidden.
+// Correction requests use folded admission; terminal instances expose no actions.
 func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, instanceState string, state WorkflowAdmissionState) error {
-	admits := func(actionID string) bool {
-		decision := workflowAdmit(definition, state, actionID)
-		return decision.Admitted
-	}
-	// The contract recovery advertises exactly the pure decision's answer:
-	// the stale-law and duplicate recoveries the fold admits at a running
-	// step, and the ordinary correction admission, but never a terminal,
-	// off-shape, or gate-refused state. The correction checkpoint's own
-	// answer is not the advertisement's gate — the stale-law recovery stays
-	// offered at a step whose correction checkpoint refuses.
-	if !workPinContainsAction(pin.NextValidIntents, "supersede_contract") && admits("supersede_contract") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(definition), pin.Version, "operator_contract_correction"))
-	}
 	if err := workPinCorrectionRequestIntentsTx(ctx, tx, workID, pin, definition, state); err != nil {
 		return err
 	}
-	// A completed instance with nonterminal work retains only the admitted
-	// complete-step contract correction. Every other action remains immutable.
 	if !isTerminalLifecycle(instanceState) {
 		return nil
 	}
-	if instanceState == "completed" && admits("supersede_contract") {
-		pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(definition), pin.Version, "operator_contract_correction")}
-	} else {
-		pin.NextValidIntents = []WorkPinIntent{}
-	}
+	pin.NextValidIntents = []WorkPinIntent{}
 	return nil
 }
 
@@ -688,9 +647,6 @@ func workPinIntents(definition WorkflowDefinition, stepID string, version int64)
 		}
 		intents = append(intents, WorkPinIntent{Tool: "concord_work_transition", Operation: "workflow_action", ReasonCode: "declared_step_action", ActionID: action.ID, RequiredFields: fields, ExpectedVersion: version})
 	}
-	if stepDeclaresAction(definition, stepID, "confirm_premise") && workflowContractCorrectionCheckpoint(definition, stepID) {
-		intents = append(intents, workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(definition), version, "operator_contract_correction"))
-	}
 	return intents
 }
 
@@ -754,11 +710,11 @@ func workPinOutstandingEvidenceKindsTx(ctx context.Context, q queryer, workID st
 		requirements = recovery.Requirements
 	}
 	if requirements == nil {
-		required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+		required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
 		if err != nil {
 			return nil, err
 		}
-		requirements, err = outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations, cutoff)
+		requirements, err = outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
 		if err != nil {
 			return nil, err
 		}

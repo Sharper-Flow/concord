@@ -236,9 +236,9 @@ func boundedStringList(values []string, upper int, itemMin, itemMax int) bool {
 	return true
 }
 
-func parseRFC3339(value string) (time.Time, bool) {
-	parsed, err := time.Parse(time.RFC3339, value)
-	return parsed, err == nil
+func parseRFC3339(value string) bool {
+	_, err := time.Parse(time.RFC3339, value)
+	return err == nil
 }
 
 // ValidateObservedUniverse enforces the D4 structure. The invalid combinations
@@ -357,7 +357,7 @@ func ValidateExternalObservationCapture(capture ExternalObservationCapture) erro
 	default:
 		return newFailure(KindInvalidPayload, "external_observation", "capture method is not in the closed vocabulary", false, "supply trusted_client_report or git_probe")
 	}
-	if _, ok := parseRFC3339(capture.CapturedAt); !ok {
+	if !parseRFC3339(capture.CapturedAt) {
 		return newFailure(KindInvalidPayload, "external_observation", "captured_at must be RFC3339", false, "supply the capture time as RFC3339")
 	}
 	if !boundedString(capture.ReportingAuthorityRef, 1, 256) {
@@ -392,7 +392,7 @@ func ValidateExternalObservationVerification(verification ExternalObservationVer
 	default:
 		return newFailure(KindInvalidPayload, "external_observation", "verification method is not in the closed vocabulary", false, "supply trusted_client_report or git_probe")
 	}
-	if _, ok := parseRFC3339(verification.VerifiedAt); !ok {
+	if !parseRFC3339(verification.VerifiedAt) {
 		return newFailure(KindInvalidPayload, "external_observation", "verified_at must be RFC3339", false, "supply the check time as RFC3339")
 	}
 	if !boundedString(verification.VerifyingAuthorityRef, 1, 256) {

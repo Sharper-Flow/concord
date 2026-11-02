@@ -946,7 +946,7 @@ func livenessReplay(t *testing.T, definition WorkflowDefinition, path []liveness
 	workID := livenessWorkID
 	s := openTemp(t)
 	seedStepWork(t, s, workID)
-	livenessSeedKnowledgeHome(t, s, workID)
+	livenessSeedKnowledgeHome(t, s)
 	livenessInitialize(t, s, workID, definition)
 	for index, move := range path {
 		if err := livenessApply(ctx, s, workID, move, index); err != nil {
@@ -980,7 +980,7 @@ func livenessInitialize(t *testing.T, s *Store, workID string, definition Workfl
 
 // livenessSeedKnowledgeHome records a peer work item and the Product's
 // committed knowledge home the explorer's contract bindings resolve against.
-func livenessSeedKnowledgeHome(t *testing.T, s *Store, workID string) {
+func livenessSeedKnowledgeHome(t *testing.T, s *Store) {
 	t.Helper()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)

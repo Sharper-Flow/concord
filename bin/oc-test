@@ -23,16 +23,17 @@
 #   bin/oc-test broad -- bash -euo pipefail -c 'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 7)" ./internal/store'
 #
 # Host admission control is provided by `oc-test-gate` when it is installed.
-# Smoke
-# uses smoke admission; targeted uses ungated targeted admission; broad and conformance
-# uses full admission; the pre-push gates use smoke admission through the
-# preflight-gate tier, because they vet, build, lint, and compile every
-# package, which is heavy on a shared host when several worktrees push at
-# once. The preflight tier itself passes no admission class: its gates admit
-# themselves, and wrapping the whole battery would wait on the single shared
-# admission slot those gates already hold. When `oc-test-gate` is missing,
-# heavy tiers refuse; preflight-gate instead runs its one gate natively with a
-# warning, because a normal push must not lose a gate on a host that has no
+# Smoke uses smoke admission; targeted uses ungated targeted admission; broad
+# and conformance use full admission; the pre-push gates use smoke admission
+# through the preflight-gate tier, because they vet, build, lint, and compile
+# every package, which is heavy on a shared host when several worktrees push
+# at once. Each admitted gate rejoins the queue per gate, so a contended slot
+# lengthens a push by the queue depth times the matched gate count. The
+# preflight tier passes no admission class of its own: its gates admit
+# themselves, and one wrapper around the whole battery would wait on the
+# shared admission slot those gates hold. When `oc-test-gate` is missing,
+# heavy tiers refuse; preflight-gate instead runs its one gate natively with
+# a warning, because a normal push must not lose a gate on a host that has no
 # admission route to enter. The
 # continuous-integration workflow does not use this wrapper; it calls the same
 # underlying commands natively so its behavior stays deterministic.

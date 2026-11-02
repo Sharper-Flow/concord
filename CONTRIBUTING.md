@@ -93,9 +93,16 @@ Push normally and let the installed hook run the selected gates. Each gate
 enters the host admission route (`oc-test-gate`'s shared heavy slot) through
 `bin/oc-test preflight-gate`, so concurrent pushes from linked worktrees queue
 their gate work instead of overlapping it; on a host without `oc-test-gate`
-the gate still runs, with a warning. Fix a failing gate before retrying a
-push; do not bypass the hook. CI remains the verification owner.
-To diagnose a failure before retrying a push, run the same gates manually:
+the gate still runs, with a warning. Under contention a gate can also be
+refused admission (exit 75): the host does not let some callers wait on a
+busy shared slot, and the push fails closed with the host's remediation —
+never with a skipped gate. Recovery is to rerun the push itself through the
+host's long-running command route, which waits for admission within its
+budget; each gate rejoins the queue per gate, so a heavily contended slot
+lengthens a push by the queue depth times the matched gate count. Fix a
+failing gate before retrying a push; do not bypass the hook. CI remains the
+verification owner. To diagnose a failure before retrying a push, run the
+same gates manually:
 
 ```sh
 bin/oc-test preflight

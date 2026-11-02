@@ -598,9 +598,17 @@ class TierRoutingTest(unittest.TestCase):
         self.assertIn("oc-test-gate not found", result.stderr)
         self.assertIn("not admission-controlled", result.stderr)
 
+    def test_preflight_gate_without_gate_still_blocks_the_push_on_failure(self):
+        result = self.run_wrapper("preflight-gate", "--", "probe", with_gate=False,
+                                  failure="probe")
+        self.assertEqual(result.returncode, 7, result.stderr)
+        self.assertEqual([call["command"] for call in result.calls], ["probe"])
+        self.assertIn("FAIL preflight-gate (exit 7)", result.stderr)
+        self.assertNotIn("PASS preflight-gate", result.stdout)
+
 
 class LefthookPreflightAdmissionTest(unittest.TestCase):
-    """A normal push enters host admission (CON-1549): every pre-push gate in
+    """A normal push enters host admission: every pre-push gate in
     lefthook.yml runs through the preflight-gate tier, and the battery keeps
     its within-push serialization."""
 

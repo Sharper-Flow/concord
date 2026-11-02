@@ -11,12 +11,12 @@
 # `*` also crosses directory boundaries, and matching is case-insensitive
 # against the repository-relative path.
 #
-# Admission (CON-1549): every gate command runs through
-# `bin/oc-test preflight-gate`, which enters the host admission route
-# (oc-test-gate's shared heavy slot, smoke class) before running the gate.
-# Concurrent pushes from linked worktrees therefore queue their heavy gate
-# work instead of overlapping it. On a host without oc-test-gate the gate
-# still runs natively, with a warning: a normal push never loses a gate.
+# Admission: every gate command runs through `bin/oc-test preflight-gate`,
+# which enters the host admission route (oc-test-gate's shared heavy slot,
+# smoke class) before running the gate. Concurrent pushes from linked
+# worktrees therefore queue their heavy gate work instead of overlapping it.
+# On a host without oc-test-gate the gate still runs natively, with a
+# warning: a normal push never loses a gate.
 #
 # `no_auto_install: true` keeps `lefthook run pre-push` (what
 # `bin/oc-test preflight` executes) from touching the installed hooks.
@@ -29,8 +29,7 @@ no_auto_install: true
 pre-push:
   # Serial, not parallel, within one push. Across pushes, the admission in
   # preflight-gate serializes the heavy gate work on the shared host; every
-  # agent worktree runs these whole-repository Go gates on push, and five of
-  # them at once per push saturated it before admission existed.
+  # agent worktree runs these whole-repository Go gates on push.
   parallel: false
   commands:
     gofmt:

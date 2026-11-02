@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"strings"
 	"testing"
 )
@@ -19,7 +18,6 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
 			s := openTemp(t)
 			const workID = "research-law-successor"
 			actor := WorkflowActor{PrincipalRef: "principal:law-successor", ClientRef: "client:law-successor", AgentRef: "agent:law-successor", SessionRef: "session:law-successor", ActorClass: ActorAgent}

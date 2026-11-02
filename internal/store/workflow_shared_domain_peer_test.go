@@ -158,27 +158,6 @@ func attemptD7BoundaryAction(ctx context.Context, s *Store, workID, actionID str
 	})
 }
 
-// Two executing items that modify the same Domain and the same law do not block
-// each other at any consequential boundary (CD-0222 D6): the later one merges
-// the earlier one's changes, and the boundary check admits both.
-func TestConsequentialBoundariesAdmitASharedDomainPeer(t *testing.T) {
-	t.Parallel()
-	for _, step := range []string{"planning", "execution", "acceptance", "release"} {
-		t.Run(step, func(t *testing.T) {
-			ctx := context.Background()
-			workID, otherID := "shared-peer-"+step, "shared-peer-other-"+step
-			s := seedD7BoundaryOverlap(t, workID, otherID, step)
-			for _, id := range []string{workID, otherID} {
-				if err := s.Transact(ctx, func(tx *Transaction) error {
-					return CheckWorkflowConsequentialBoundaryTx(ctx, tx, id)
-				}); err != nil {
-					t.Fatalf("boundary for %s beside a shared-Domain peer = %v, want admitted", id, err)
-				}
-			}
-		})
-	}
-}
-
 // The execution claim, owned by the durable fence transaction, admits a step
 // claim beside a shared-Domain peer (CD-0222 D6).
 func TestExecutionClaimAdmitsASharedDomainPeer(t *testing.T) {

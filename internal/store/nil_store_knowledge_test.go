@@ -17,9 +17,5 @@ func TestUnopenedStoreKnowledgeMethods(t *testing.T) {
 			_, err := s.EstablishKnowledgeSourceSetProofForProject(ctx, "project-1")
 			return err
 		}},
-		{"WorkflowInstanceDefinition", func(s *Store) error {
-			_, _, err := s.WorkflowInstanceDefinition(ctx, "work-1")
-			return err
-		}},
 	})
 }

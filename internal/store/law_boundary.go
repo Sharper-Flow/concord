@@ -802,7 +802,7 @@ func mandatedLawProjectionFailure(ctx context.Context, q queryer, sources []Know
 		details = append(details, "mandated records are archived notes, not law files in the committed law folder: "+strings.Join(nonaccepted, ","))
 	}
 	details = append(details, "checked law snapshot commits: "+strings.Join(commits, ","))
-	failure := newFailure(KindProjectionNotFound, "check_mandated_laws", strings.Join(details, "; "), false, "verify the mandate IDs against the committed law folder at the checked snapshot commit; a missing law is enacted by adding its file under the law folder through an ordinary reviewed pull request; a law this work retires is declared in law_change_removals through revise_intent")
+	failure := newFailure(KindProjectionNotFound, "check_mandated_laws", strings.Join(details, "; "), false, "verify the mandate IDs against the committed law folder at the checked snapshot commit; publish missing law through an ordinary reviewed pull request, or revise the contract to remove an unrelated missing mandate; completion permits an absent law only when the active contract declares it in law_modifies")
 	failure.CandidateIDs = missing
 	return failure
 }

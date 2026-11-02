@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -13,13 +12,19 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestReviseInitializesVerifiedProductLawBaseline(t *testing.T) {
+func TestReviseInitializesProductWorkflow(t *testing.T) {
 	ctx := t.Context()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define"})
-	if _, initialized, err := s.WorkflowInstanceDefinition(ctx, "work-1"); err != nil || initialized {
-		t.Fatalf("fixture must have no workflow instance: initialized=%v error=%v", initialized, err)
+	if _, err := store.VerifyWorkflowInstanceDefinition(ctx, s, store.BuiltinWorkflowRegistry(), "work-1"); err == nil {
+		t.Fatal("fixture must have no workflow instance")
 	}
-	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
+	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Initialization itself reads no Git: unavailable knowledge metadata must
+	// not refuse the revision that starts the workflow.
+	if err := os.Rename(filepath.Join(home.RepoPath, ".git"), filepath.Join(home.RepoPath, "unavailable-git")); err != nil {
 		t.Fatal(err)
 	}
 	input, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "kind": "task", "title": "Verified revised start", "value_statement": "Initialize from accepted Product law", "workflow_type_ref": "workflow.implementation", "reason": "Initialize the existing item", "idempotency_key": "revise-verified-start"})
@@ -30,34 +35,25 @@ func TestReviseInitializesVerifiedProductLawBaseline(t *testing.T) {
 	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("revise initialization: %+v error=%v", response.Error, err)
 	}
-	var baseline string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT baseline_json FROM workflow_law_baselines WHERE work_id='work-1'`).Scan(&baseline); err != nil || !strings.Contains(baseline, "project-1/CD-0001") {
-		t.Fatalf("revise omitted the verified start law: baseline=%s error=%v", baseline, err)
+	if _, err := store.VerifyWorkflowInstanceDefinition(ctx, s, store.BuiltinWorkflowRegistry(), "work-1"); err != nil {
+		t.Fatalf("revise omitted workflow initialization: %v", err)
 	}
 }
 
-func TestCaptureLawBaselineUsesPreTransactionProofAndReplays(t *testing.T) {
+func TestCaptureProductWorkflowReplaysWithoutKnowledge(t *testing.T) {
 	ctx := t.Context()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define"})
 	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	// No explicit rebuild: capture must verify the source before its transaction.
 	env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
-	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Verified start","value_statement":"Capture the accepted law inventory","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-verified-start"}`)}
+	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Product workflow","value_statement":"Capture the bounded task","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-verified-start"}`)}
 	response, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || response.Outcome != agentcontract.OutcomeOK || response.ChangedRefs == nil || len(*response.ChangedRefs) != 1 {
 		t.Fatalf("capture: %+v error=%v", response, err)
 	}
 	id := (*response.ChangedRefs)[0].ID
-	var baseline string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT baseline_json FROM workflow_law_baselines WHERE work_id=?`, id).Scan(&baseline); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(baseline, "project-1/CD-0001") {
-		t.Fatalf("capture omitted the verified source law: %s", baseline)
-	}
 	if err := os.Rename(filepath.Join(home.RepoPath, ".git"), filepath.Join(home.RepoPath, "unavailable-git")); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +61,7 @@ func TestCaptureLawBaselineUsesPreTransactionProofAndReplays(t *testing.T) {
 	if err != nil || replayed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("exact capture replay re-probed unavailable knowledge: %+v error=%v", replayed, err)
 	}
-	reviseInput, err := json.Marshal(map[string]any{"work_id": id, "expected_version": 4, "kind": "task", "title": "Retained current pin", "value_statement": "Keep the existing workflow identity", "workflow_type_ref": "workflow.implementation", "reason": "Update the task without replacing its law baseline", "idempotency_key": "revise-retained-start"})
+	reviseInput, err := json.Marshal(map[string]any{"work_id": id, "expected_version": 4, "kind": "task", "title": "Retained current pin", "value_statement": "Keep the existing workflow identity", "workflow_type_ref": "workflow.implementation", "reason": "Update the task without replacing its workflow identity", "idempotency_key": "revise-retained-start"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,23 +69,15 @@ func TestCaptureLawBaselineUsesPreTransactionProofAndReplays(t *testing.T) {
 	if err != nil || revised.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("retained current pin acquired an initialization-only Git dependency: %+v error=%v", revised, err)
 	}
-	var after string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT baseline_json FROM workflow_law_baselines WHERE work_id=?`, id).Scan(&after); err != nil || after != baseline {
-		t.Fatalf("replay replaced owning-start evidence: error=%v", err)
-	}
 }
 
 func TestWorkflowUnclassifiedLawChangeAdmission(t *testing.T) {
 	for _, tier := range []string{"derived", "legislated"} {
-		t.Run(tier, func(t *testing.T) { testWorkflowLawChangeAdmission(t, tier, false) })
+		t.Run(tier, func(t *testing.T) { testWorkflowLawChangeAdmission(t, tier) })
 	}
 }
 
-func TestWorkflowLawRemovalAdmission(t *testing.T) {
-	testWorkflowLawChangeAdmission(t, "legislated", true)
-}
-
-func testWorkflowLawChangeAdmission(t *testing.T, tier string, removing bool) {
+func testWorkflowLawChangeAdmission(t *testing.T, tier string) {
 	t.Helper()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
@@ -147,10 +135,6 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string, removing bool) {
 	fields["spec_mandate"] = []string{lawID}
 	fields["law_modifies"] = []string{lawID}
 	fields["decision_domains"] = []string{}
-	fields["law_change_reason"] = "The law needs a bounded amendment."
-	if removing {
-		fields["law_change_removals"] = []string{lawID}
-	}
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}}
 	for _, action := range []string{"approve_contract", "revise_intent"} {
 		var response agentcontract.Envelope
@@ -171,23 +155,13 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string, removing bool) {
 		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("%s of %s law: %+v", action, tier, response.Error)
 		}
-		var eventActor, changeJSON string
+		var eventActor string
 		if err := db.QueryRow(`SELECT actor FROM effect_receipts WHERE subject_id='work-1' AND kind IN (?,?) ORDER BY effect_seq DESC LIMIT 1`, store.WorkflowContractApproved, "work.intent_revised").Scan(&eventActor); err != nil {
 			t.Fatal(err)
 		}
 		wantActor := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
 		if eventActor != wantActor {
 			t.Fatalf("law contract actor=%s, want coordinator %s", eventActor, wantActor)
-		}
-		if err := db.QueryRow(`SELECT law_change FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&changeJSON); err != nil {
-			t.Fatal(err)
-		}
-		var change store.WorkflowLawChange
-		if err := json.Unmarshal([]byte(changeJSON), &change); err != nil {
-			t.Fatal(err)
-		}
-		if change.Reason != fields["law_change_reason"] || len(change.LawIDs) != 1 || change.LawIDs[0] != lawID {
-			t.Fatalf("law contract lost its declared change: %s", changeJSON)
 		}
 	}
 }

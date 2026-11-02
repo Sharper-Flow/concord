@@ -49,7 +49,7 @@ DELETE FROM write_guard`, testManifestDigest, testManifestDigest, testManifestDi
 		t.Fatalf("current instance=%s/%s/%d/v%d err=%v", state, model, unhealthy, version, err)
 	}
 	var edges, receipts, guards int
-	if err := db.QueryRow(`SELECT (SELECT count(*) FROM workflow_impact_edges WHERE work_id='source' AND target_work_id='successor' AND edge_kind='forward_link'),(SELECT count(*) FROM effect_receipts),(SELECT count(*) FROM sqlite_schema WHERE type='trigger' AND name IN ('workflow_instances_guard_insert','workflow_instances_guard_update','workflow_instances_guard_delete','workflow_law_baselines_completed'))`).Scan(&edges, &receipts, &guards); err != nil || edges != 1 || receipts != 1 || guards != 4 {
+	if err := db.QueryRow(`SELECT (SELECT count(*) FROM workflow_impact_edges WHERE work_id='source' AND target_work_id='successor' AND edge_kind='forward_link'),(SELECT count(*) FROM effect_receipts),(SELECT count(*) FROM sqlite_schema WHERE type='trigger' AND name IN ('workflow_instances_guard_insert','workflow_instances_guard_update','workflow_instances_guard_delete'))`).Scan(&edges, &receipts, &guards); err != nil || edges != 1 || receipts != 1 || guards != 3 {
 		t.Fatalf("retained edges=%d receipts=%d guards=%d err=%v", edges, receipts, guards, err)
 	}
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='awaiting_condition' WHERE work_id='source'`); err == nil {

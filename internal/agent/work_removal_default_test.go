@@ -250,9 +250,6 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	ctx := t.Context()
 	s, service, grant, root := worktreeDispatchFixture(t)
 	seedContinuityWorkflow(t, s, "work-1")
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_law_baselines WHERE work_id='work-1'`) != 1 {
-		t.Fatal("fixture lacks its owning-start law baseline")
-	}
 	// The contract's mandated law is committed content at the work's resolved
 	// canonical home (law-folder-authority.md, Committed reads): the fixture
 	// commits the independent registry and law into the home's repository.
@@ -317,13 +314,10 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	}
 	out := removalDispatch(t, s, service, env, in)
 	if out.Outcome != agentcontract.OutcomeOK {
-		if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_law_baselines WHERE work_id='work-1'`) != 1 {
+		if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 0 {
 			t.Fatalf("failed managed shelving left a partial removal effect: %+v", out.Error)
 		}
 		t.Fatalf("managed shelving: %+v", out.Error)
-	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_law_baselines WHERE work_id='work-1'`) != 0 {
-		t.Fatal("removed work retained its owning-start law baseline")
 	}
 	var retainedHandoff, retainedLinear string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT handoff_json,linear_confirmation_json FROM work_removal_operations WHERE operation_id='managed-removal' AND state='committed'`).Scan(&retainedHandoff, &retainedLinear); err != nil {
@@ -345,9 +339,6 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restored.Close()
-	if countRows(t, restored.DatabaseForTesting(), `SELECT count(*) FROM workflow_law_baselines WHERE work_id='work-1'`) != 0 {
-		t.Fatal("restore resurrected the removed work's law baseline")
-	}
 	if countRows(t, restored.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 0 || countRows(t, restored.DatabaseForTesting(), `SELECT count(*) FROM workflow_instances WHERE work_id='work-1'`) != 0 || countRows(t, restored.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations WHERE operation_id='managed-removal' AND state='committed'`) != 1 {
 		t.Fatal("restore resurrected removed execution or lost its receipt")
 	}

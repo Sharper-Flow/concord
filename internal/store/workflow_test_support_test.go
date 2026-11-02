@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -262,59 +261,12 @@ func applyWorkflowTestOperationDirect(ctx context.Context, s *Store, operation O
 	if err != nil {
 		return err
 	}
-	err = applyWorkflowFixtureOperationTx(ctx, tx, operation, BuiltinWorkflowRegistry())
+	err = applyWorkflowOperationTxWithRegistry(ctx, tx, operation, newWriteScope(tx), BuiltinWorkflowRegistry())
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
 	return tx.Commit()
-}
-
-// Event-seeded fixtures model the owning start at the first definition selection,
-// before any contract in the same operation can consume its law inventory.
-func applyWorkflowFixtureOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, registry DefinitionRegistry) error {
-	for index, event := range operation.Events {
-		if event.Kind != WorkflowDefinitionSelected {
-			continue
-		}
-		var existing int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&existing); err != nil {
-			return err
-		}
-		if existing != 0 {
-			continue
-		}
-		prefix := Operation{Events: operation.Events[:index+1], ExpectedVersions: operation.ExpectedVersions}
-		if err := applyWorkflowOperationTxWithRegistry(ctx, tx, prefix, newWriteScope(tx), registry); err != nil {
-			return err
-		}
-		guard, err := beginWrite(ctx, tx)
-		if err != nil {
-			return err
-		}
-		if err := initializeWorkflowLawBaselineTx(ctx, tx, event.SubjectID); err != nil {
-			_ = guard.close(ctx)
-			return err
-		}
-		if err := guard.close(ctx); err != nil {
-			return err
-		}
-		if index == len(operation.Events)-1 {
-			return nil
-		}
-		expected := make(map[SubjectRef]int64, len(operation.ExpectedVersions))
-		for subject, version := range operation.ExpectedVersions {
-			expected[subject] = version
-		}
-		for _, applied := range prefix.Events {
-			subject := VersionRef(applied.SubjectType, applied.SubjectID)
-			if _, present := expected[subject]; present {
-				expected[subject]++
-			}
-		}
-		return applyWorkflowFixtureOperationTx(ctx, tx, Operation{Events: operation.Events[index+1:], ExpectedVersions: expected}, registry)
-	}
-	return applyWorkflowOperationTxWithRegistry(ctx, tx, operation, newWriteScope(tx), registry)
 }
 
 func shiftWorkflowTestEventVersions(event Event, shift int64) Event {
@@ -411,7 +363,6 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	if err != nil {
 		return err
 	}
-	ctx = s.EstablishLawCandidateProof(ctx, event.SubjectID)
 	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot begin workflow completion", true, "retry once the database is writable", err)

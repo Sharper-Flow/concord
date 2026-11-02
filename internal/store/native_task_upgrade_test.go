@@ -129,7 +129,7 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 		"agent_clients":              `SELECT * FROM agent_clients ORDER BY rowid`,
 		"agent_client_keys":          `SELECT * FROM agent_client_keys ORDER BY rowid`,
 		"workflow_actors":            `SELECT * FROM workflow_actors ORDER BY rowid`,
-		"workflow_contracts":         `SELECT * FROM workflow_contracts ORDER BY rowid`,
+		"workflow_contracts":         `SELECT ` + retainedWorkflowContractColumns + ` FROM workflow_contracts ORDER BY rowid`,
 		"workflow_evidence_bindings": `SELECT * FROM workflow_evidence_bindings ORDER BY rowid`,
 		"durable_operations":         `SELECT op_id,work_id,workflow_type_ref,workflow_type_digest,step_id,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest FROM durable_operations ORDER BY op_id`,
 		"idempotency_records":        `SELECT * FROM idempotency_records ORDER BY rowid`,

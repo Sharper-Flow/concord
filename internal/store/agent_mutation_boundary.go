@@ -132,13 +132,6 @@ func CompleteMutationResponseTx(ctx context.Context, transaction *Transaction, i
 	return nil
 }
 
-func (s *Store) WorkflowInstanceDefinition(ctx context.Context, workID string) (WorkflowInstanceDefinition, bool, error) {
-	if s == nil || s.db == nil {
-		return WorkflowInstanceDefinition{}, false, newFailure(KindUnavailable, "workflow_instance", "store is not open", false, "open the authority database")
-	}
-	return workflowInstanceDefinition(ctx, s.db, workID)
-}
-
 func WorkflowInstanceDefinitionTx(ctx context.Context, transaction *Transaction, workID string) (WorkflowInstanceDefinition, bool, error) {
 	tx, err := transactionSQL(transaction, "workflow_instance")
 	if err != nil {

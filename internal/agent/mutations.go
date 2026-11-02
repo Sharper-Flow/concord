@@ -567,9 +567,8 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base agentco
 }
 
 // knowledgeSourceProofForAction prepares the knowledge-source proof the
-// action verifies inside its transaction (store.PrepareWorkflowActionProof),
-// and for completion the Git proof of which changed laws the reviewed
-// candidate never edited. It runs after replay and approval admission, with
+// action verifies inside its transaction (store.PrepareWorkflowActionProof).
+// It runs after replay and approval admission, with
 // no transaction open (CD-0195 D2). A non-nil envelope carries the refusal.
 func (r runtime) knowledgeSourceProofForAction(ctx context.Context, base agentcontract.Envelope, actionID, workID string) (context.Context, *agentcontract.Envelope) {
 	verifiedCtx, proofErr := r.Store.PrepareWorkflowActionProof(ctx, actionID, workID)
@@ -577,11 +576,7 @@ func (r runtime) knowledgeSourceProofForAction(ctx context.Context, base agentco
 		refusal := failureEnvelope(base, proofErr)
 		return ctx, &refusal
 	}
-	ctx = verifiedCtx
-	if actionID == "complete" {
-		ctx = r.Store.EstablishLawCandidateProof(ctx, workID)
-	}
-	return ctx, nil
+	return verifiedCtx, nil
 }
 
 // researchContextSelectionPacks extracts the research pack identities one
@@ -999,19 +994,6 @@ func (r runtime) planReviseIntent(ctx context.Context, base agentcontract.Envelo
 		verifiedCtx, proofErr = r.Store.EstablishKnowledgeSourceSetProof(ctx, in.WorkID)
 		if proofErr != nil {
 			return failureEnvelope(base, proofErr), nil, true
-		}
-	}
-	if in.WorkflowTypeRef != "" {
-		_, initialized, readErr := r.Store.WorkflowInstanceDefinition(ctx, in.WorkID)
-		if readErr != nil {
-			return failureEnvelope(base, readErr), nil, true
-		}
-		if !initialized {
-			var proofErr error
-			verifiedCtx, proofErr = r.Store.EstablishKnowledgeSourceSetProof(ctx, in.WorkID)
-			if proofErr != nil {
-				return failureEnvelope(base, proofErr), nil, true
-			}
 		}
 	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {

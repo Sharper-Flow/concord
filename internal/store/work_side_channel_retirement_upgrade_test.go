@@ -43,10 +43,11 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	if err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 178 {
 		t.Fatalf("verified predecessor = %+v, %v", verified, err)
 	}
+	contracts := retainedWorkflowContractRows(t, db)
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
-	retired := map[string]bool{"work_messages": true, "work_observations": true}
+	retired := map[string]bool{"work_messages": true, "work_observations": true, "workflow_law_baselines": true}
 	for table, want := range before {
 		if retired[table] {
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table); len(rows) != 0 {
@@ -57,9 +58,15 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 		if table == "schema" || table == "schema_migrations" || table == "store_revision" {
 			continue
 		}
+		if table == "workflow_contracts" {
+			continue
+		}
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM "`+table+`" ORDER BY rowid`); !reflect.DeepEqual(got, want) {
 			t.Errorf("unrelated current authority %s changed", table)
 		}
+	}
+	if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, contracts) {
+		t.Errorf("unrelated current authority workflow_contracts changed")
 	}
 	backup, err := sql.Open(driverName, readOnlyDataSource(snapshot))
 	if err != nil {

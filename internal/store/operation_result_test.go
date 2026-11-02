@@ -76,7 +76,7 @@ func TestAtomicOperationMigrationRetiresClaimsAndIntermediateResults(t *testing.
 	if got := retirementUpgradeRows(t, db, `SELECT result_payload FROM durable_operations WHERE op_id='ordinary-history'`); !reflect.DeepEqual(got, [][]any{{`{"retained":true}`}}) {
 		t.Fatalf("historical ordinary result changed=%v", got)
 	}
-	for _, table := range []string{"archived_work", "active_research_packs", "effect_receipts", "workflow_law_baselines", "workflow_delivery_state"} {
+	for _, table := range []string{"archived_work", "active_research_packs", "effect_receipts", "workflow_delivery_state"} {
 		if after := retirementUpgradeRows(t, db, "SELECT * FROM "+table+" ORDER BY rowid"); !reflect.DeepEqual(after, before[table]) {
 			t.Errorf("atomic retirement changed %s", table)
 		}
@@ -193,7 +193,7 @@ func TestAtomicOperationMigrationSurvivorSet(t *testing.T) {
 	if got := retirementUpgradeRows(t, db, `SELECT * FROM idempotency_records`+replayOrder); !reflect.DeepEqual(got, wantReplays) {
 		t.Fatalf("full replay survivors = %v, want %v", got, wantReplays)
 	}
-	for _, table := range []string{"effect_receipts", "workflow_evidence_bindings", "archived_work", "active_research_packs", "workflow_law_baselines", "workflow_delivery_state"} {
+	for _, table := range []string{"effect_receipts", "workflow_evidence_bindings", "archived_work", "active_research_packs", "workflow_delivery_state"} {
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM `+table+` ORDER BY rowid`); !reflect.DeepEqual(got, before[table]) {
 			t.Errorf("migration changed retained %s", table)
 		}

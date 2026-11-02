@@ -42,13 +42,11 @@ func TestInvokeContractRequestCorrection(t *testing.T) {
 			fields := workflowContractFieldsForSeededRegistry(t, s)
 			binding := fields["architecture_binding"].(map[string]any)
 			root := binding["home_domain_id"].(string)
-			fields["law_change_reason"] = "Correct the bounded engineering law without changing an operator decision."
 
 			var field, diagnostic string
 			var correct func()
 			if name == "missing_modified_law_home_domain" {
-				// Keep the source-backed law and its owning-start baseline, but
-				// place its canonical home outside this request's affected set.
+				// Place the current law's canonical home outside the affected set.
 				fields["spec_mandate"] = []string{"CD-0002"}
 				fields["law_modifies"] = []string{"CD-0002"}
 				field = "affected_domain_ids"

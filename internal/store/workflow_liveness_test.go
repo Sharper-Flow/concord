@@ -408,11 +408,6 @@ func livenessListItem(field, itemRef string, index int64) string {
 func livenessPayload(definition WorkflowDefinition, action WorkflowActionDefinition, variant map[string]string) (json.RawMessage, error) {
 	fields := map[string]any{}
 	for _, field := range action.Payload.Fields {
-		// These journeys change no law. Law-change declarations are valid
-		// only when the contract actually changes law.
-		if slices.ContainsFunc(workflowLawChangeFields(), func(lawField WorkflowPayloadField) bool { return lawField.Name == field.Name }) {
-			continue
-		}
 		if value, ok := livenessOutcomeField(definition, field); ok {
 			fields[field.Name] = value
 			continue

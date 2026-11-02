@@ -8576,6 +8576,13 @@ DROP TABLE work_messages;
 DROP TABLE work_observations;
 `,
 	},
+	{
+		Version: 180, Name: "retire_workflow_law_attribution", Breaking: true,
+		SQL: `
+DROP TABLE workflow_law_baselines;
+ALTER TABLE workflow_contracts DROP COLUMN law_change;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

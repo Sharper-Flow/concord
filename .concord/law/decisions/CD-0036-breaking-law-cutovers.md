@@ -66,8 +66,11 @@ and Domain membership in the owning SQLite transaction; no approval
 event, folding, or replay exists ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 No later mutating preflight compares a contract's approval-time law or registry
-hashes. Exact enactment baselines, before-states and attribution remain separate
-proof of the law delta the item actually delivers.
+hashes. Concord retains no owning-start law inventory, enactment before-state,
+per-item law attribution or registry delta. Completion neither attributes a
+merged change to its owner nor checks publication of declared additions or
+removals. Independent review and the committed law folder prove the delivered
+law delta under CD-0222 D1.
 
 ### D6. Typed refusal and continuity
 
@@ -100,5 +103,9 @@ replaces the retired contract data.
 - Approval and actions carry no persistent law or registry freshness hashes.
 - Law amendments, deletions and unrelated registry edits do not cause a
   contract-freshness refusal.
-- Current-law identity, Domain scope, evidence dependencies and exact enactment
-  attribution retain their own checks.
+- Current-law identity, Domain scope and evidence dependencies retain their own
+  checks.
+- `internal/store.TestLawAttributionStateRetired` proves obsolete attribution
+  state is absent. `internal/store.TestLawAttributionVerifiedSnapshotUpgrade`
+  proves the destructive upgrade preserves a verified predecessor snapshot and
+  surviving current state.

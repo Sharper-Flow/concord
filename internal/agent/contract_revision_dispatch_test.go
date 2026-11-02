@@ -40,9 +40,6 @@ func testContractRevisionDispatch(t *testing.T, stage string) {
 	}
 	contractFields := workflowContractFieldsFixture()
 	contractFields["architecture_binding"] = binding
-	if len(binding["domain_modifies"].([]string)) != 0 {
-		contractFields["law_change_reason"] = "Correct the declared Domain registry."
-	}
 	contract, _ := approvedWorkflowContract(t, s, service, env, version, contractFields, "supersede-approve-contract")
 	if contract.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract=%+v", contract.Error)
@@ -76,7 +73,6 @@ func testContractRevisionDispatch(t *testing.T, stage string) {
 		"contract_version":     2,
 		"premise":              "corrected premise",
 		"architecture_binding": successorBinding,
-		"law_change_reason":    "Correct the security-relevant Domain registry declaration.",
 		"outcome_predicates": []map[string]any{{
 			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:workflow", "expected_result": "pass"},

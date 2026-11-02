@@ -241,17 +241,11 @@ const GeneratedEnvelopeSchemaDocument = `{
             "capture",
             "continuity",
             "detail",
-            "external_observations",
             "history",
             "issue_link_record",
             "lifecycle",
             "list",
-            "message_send",
-            "message_withdraw",
-            "messages",
             "mutation_result",
-            "observation_record",
-            "observations",
             "ready",
             "relations",
             "research",
@@ -300,7 +294,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$",
+          "pattern": "^(PM1\\.Q(1[0-36]|[1-9])|CD-0020\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$",
           "type": "string"
         },
         "replayed": {
@@ -924,17 +918,11 @@ const GeneratedEnvelopeSchemaDocument = `{
             "capture",
             "continuity",
             "detail",
-            "external_observations",
             "history",
             "issue_link_record",
             "lifecycle",
             "list",
-            "message_send",
-            "message_withdraw",
-            "messages",
             "mutation_result",
-            "observation_record",
-            "observations",
             "ready",
             "relations",
             "research",
@@ -960,7 +948,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0020\\.R1|CD-0030\\.R1|CD-0040\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$",
+          "pattern": "^(PM1\\.Q(1[0-36]|[1-9])|CD-0020\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult)|C22\\.Domain(List|Detail))$",
           "type": "string"
         },
         "reason_code": {
@@ -1048,7 +1036,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                     "enum": [
                       "capture",
                       "issue_link_record",
-                      "observation_record",
                       "research_finding_record",
                       "research_freshness_set",
                       "research_retire",
@@ -1124,8 +1111,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "properties": {
                   "operation": {
                     "enum": [
-                      "message_send",
-                      "message_withdraw",
                       "resolve_overlap",
                       "set_memberships"
                     ],
@@ -1572,24 +1557,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           ]
         },
         {
-          "properties": {
-            "operation": {
-              "const": "messages"
-            },
-            "query_id": {
-              "const": "PM1.Q14"
-            },
-            "tool": {
-              "const": "concord_work_browse"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
           "not": {
             "required": [
               "query_id"
@@ -1606,7 +1573,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "research_source_record",
                 "research_freshness_set",
                 "research_retire",
-                "observation_record",
                 "issue_link_record"
               ],
               "type": "string"
@@ -1657,9 +1623,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "operation": {
               "enum": [
                 "set_memberships",
-                "resolve_overlap",
-                "message_send",
-                "message_withdraw"
+                "resolve_overlap"
               ],
               "type": "string"
             },
@@ -1670,42 +1634,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "required": [
             "tool",
             "operation"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "observations"
-            },
-            "query_id": {
-              "const": "CD-0030.R1"
-            },
-            "tool": {
-              "const": "concord_work_trace"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "external_observations"
-            },
-            "query_id": {
-              "const": "CD-0040.R1"
-            },
-            "tool": {
-              "const": "concord_work_trace"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
           ]
         }
       ]

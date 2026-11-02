@@ -7,34 +7,13 @@ import (
 	"time"
 )
 
-// refs and tags are optional on both observation anchors. A nil slice must
-// reach the projection as an empty JSON array: every column that receives one
+// refs and tags are optional on a Domain observation. A nil slice must reach
+// the projection as an empty JSON array: every column that receives one
 // declares json_type(...)='array', so rendering nil as null failed the CHECK.
-// On the work anchor the fold reported that violation as a duplicate
-// observation id, which named neither the real cause nor a usable recovery.
 
 func TestObservationAcceptsAbsentRefsAndTags(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-
-	work := observationFixture(t)
-	workEvent := Event{
-		EventID: "obs-no-lists", Kind: "work.observation_recorded",
-		SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "agent",
-		OccurredAt: time.Unix(10, 0).UTC(), PayloadVersion: 1,
-		Payload: json.RawMessage(`{"observation_id":"obs:00000000000000aa","statement":"no lists supplied"}`),
-	}
-	if err := foldTestEvent(t, work, workEvent); err != nil {
-		t.Fatalf("work observation without refs or tags: %v", err)
-	}
-	page, err := work.ReadWorkObservations(ctx, WorkObservationsRequest{WorkID: "work-99", Limit: 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	rows := page.Observations
-	if len(rows) != 1 || len(rows[0].Refs) != 0 || len(rows[0].Tags) != 0 {
-		t.Fatalf("work observation = %+v", rows)
-	}
 
 	domain := domainObservationFixture(t)
 	domainEvent := Event{

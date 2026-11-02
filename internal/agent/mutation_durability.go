@@ -27,7 +27,6 @@ var mutationDurabilityDeclarations = map[string]mutationDurability{
 	"concord_work_define.research_source_record":      {},
 	"concord_work_define.research_freshness_set":      {},
 	"concord_work_define.research_retire":             {},
-	"concord_work_define.observation_record":          {},
 	"concord_work_define.issue_link_record":           {},
 	"concord_work_transition.lifecycle":               {},
 	"concord_work_transition.remove":                  {initial: true, replay: true},
@@ -36,8 +35,6 @@ var mutationDurabilityDeclarations = map[string]mutationDurability{
 	"concord_work_transition.project_handoff_consume": {},
 	"concord_work_relate.set_memberships":             {},
 	"concord_work_relate.resolve_overlap":             {initial: true, replay: true},
-	"concord_work_relate.message_send":                {},
-	"concord_work_relate.message_withdraw":            {},
 	"concord_work_transition.correct_delivery":        {initial: true, replay: true},
 }
 

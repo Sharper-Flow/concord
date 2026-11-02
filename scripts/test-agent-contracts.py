@@ -1355,9 +1355,9 @@ class EnvelopeOperationVocabularyTests(unittest.TestCase):
         self.assertTrue(any("unsatisfiable" in f and "concord_work_trace.continuity" in f for f in found), found)
 
     def test_operation_removed_from_the_next_intent_enum_is_rejected(self):
-        value = copy.deepcopy(envelope_schema); value["$defs"]["nextIntent"]["properties"]["operation"]["enum"].remove("messages")
+        value = copy.deepcopy(envelope_schema); value["$defs"]["nextIntent"]["properties"]["operation"]["enum"].remove("ready")
         found = self.findings(value)
-        self.assertTrue(any("nextIntent" in f and "concord_work_browse.messages" in f for f in found), found)
+        self.assertTrue(any("nextIntent" in f and "concord_work_browse.ready" in f for f in found), found)
 
     def test_new_tool_operation_pair_without_an_enum_entry_is_rejected(self):
         value = copy.deepcopy(envelope_schema)

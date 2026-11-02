@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"testing"
-	"time"
 )
 
 func TestUnopenedStoreWorkItemMethods(t *testing.T) {
@@ -12,18 +11,6 @@ func TestUnopenedStoreWorkItemMethods(t *testing.T) {
 	assertUnopenedStoreTypedFailure(t, []nilStoreCase{
 		{"ReadWorkItemSummary", func(s *Store) error {
 			_, err := s.ReadWorkItemSummary(ctx, "work-1")
-			return err
-		}},
-		{"ReadWorkObservations", func(s *Store) error {
-			_, err := s.ReadWorkObservations(ctx, WorkObservationsRequest{WorkID: "work-1", Limit: 10})
-			return err
-		}},
-		{"MessagesForWork", func(s *Store) error {
-			_, err := s.MessagesForWork(ctx, "work-1", 10)
-			return err
-		}},
-		{"ExternalObservationsForWork", func(s *Store) error {
-			_, err := s.ExternalObservationsForWork(ctx, "work-1", time.Time{}, 10)
 			return err
 		}},
 	})

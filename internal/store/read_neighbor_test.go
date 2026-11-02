@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -42,7 +41,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 	seedResearchWork(t, s, "neighbor-research")
 	actor, version := continuityTestWorkflow(t, s, "neighbor-work")
 	seedWorkflowLaw(t, s)
-	insertInvestigationGateObservation(t, s, "neighbor-work", "obs:"+strings.Repeat("3", 16), []string{"root", "blocker"})
 	pack := createSimplePack(t, s, "neighbor-pack", "neighbor-research")
 	if _, err := s.db.Exec(`INSERT INTO durable_operations(op_id,work_id,workflow_type_ref,step_id,accepted_inputs_digest,principal_ref,request_id,observed_at,contract_digest) VALUES('neighbor-result','work-1','fixture.atomic','execute',?,'agent-1','request:neighbor','2026-08-07T00:00:00Z',?)`, testDigest("inputs"), testManifestDigest); err != nil {
 		t.Fatal(err)
@@ -151,26 +149,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ReadWorkObservations", run: func() error {
-			page, err := s.ReadWorkObservations(ctx, WorkObservationsRequest{WorkID: "neighbor-work", Limit: 10})
-			if err != nil {
-				return err
-			}
-			if len(page.Observations) != 1 {
-				return fmt.Errorf("observations=%d, want 1", len(page.Observations))
-			}
-			return nil
-		}},
-		{name: "ExternalObservationsForWork", run: func() error {
-			observations, err := s.ExternalObservationsForWork(ctx, "neighbor-work", time.Now(), 10)
-			if err != nil {
-				return err
-			}
-			if len(observations) != 0 {
-				return fmt.Errorf("observations=%+v, want none", observations)
-			}
-			return nil
-		}},
 		{name: "LawAdditionReservations", run: func() error {
 			reservations, err := s.LawAdditionReservations(ctx, "prod")
 			if err != nil {
@@ -257,16 +235,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		}},
 		{name: "WorkflowActionPreflightWithRegistry", run: func() error {
 			return WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), preflightRequest)
-		}},
-		{name: "requireRecordedInvestigationArtifactSnapshot", run: func() error {
-			// The investigation precondition reads the committed Domain
-			// registry inside its read-only transaction; the source-set proof
-			// is established before that transaction opens.
-			proofed, err := s.EstablishKnowledgeSourceSetProof(ctx, "neighbor-work")
-			if err != nil {
-				return err
-			}
-			return requireRecordedInvestigationArtifactSnapshot(proofed, s, "neighbor-work")
 		}},
 		{name: "readSnapshot activeWorkflowContractVersions", run: func() error {
 			var versions []int64
@@ -408,16 +376,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		}},
 
 		// Work-context reads.
-		{name: "MessagesForWork", run: func() error {
-			messages, err := s.MessagesForWork(ctx, "blocker", 10)
-			if err != nil {
-				return err
-			}
-			if len(messages) != 0 {
-				return fmt.Errorf("messages=%+v, want none", messages)
-			}
-			return nil
-		}},
 		{name: "GoverningRequirementsForProjectIDs", run: func() error {
 			refs, err := s.GoverningRequirementsForProjectIDs(ctx, []string{"proj"})
 			if err != nil {
@@ -497,18 +455,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 		})
 	}
-}
-
-// requireRecordedInvestigationArtifactSnapshot runs the investigation-artifact
-// precondition in one read-only transaction, so the Product work-item count and
-// the investigation-ref reads see one snapshot (CD-0173 D2).
-func requireRecordedInvestigationArtifactSnapshot(ctx context.Context, s *Store, workID string) error {
-	tx, err := beginReadTx(ctx, s.db)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "workflow_confirmation", "cannot open a consistent investigation snapshot", true, "retry once the database is readable", err)
-	}
-	defer tx.Rollback()
-	return requireRecordedInvestigationArtifact(ctx, tx, workID)
 }
 
 // requireReadNeighborAbsence accepts only the seeded absence's typed failure.

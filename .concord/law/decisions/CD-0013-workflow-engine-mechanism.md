@@ -231,7 +231,7 @@ one disposition that Main records against its exact subject and dependencies
 without Concord attesting a subagent producer ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 A premise confirmation records the authenticated coordinator after
-investigation and acceptance deliverables pass. A UI/UX change requiring
+acceptance deliverables pass. A UI/UX change requiring
 approval retains the operator's review and acceptance at the current contract
 version; contract approval alone does not satisfy that acceptance. Minor
 corrections introducing no new design or interaction need no fresh UI/UX

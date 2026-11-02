@@ -14,7 +14,7 @@ func durableCommitCount(t *testing.T, s *store.Store) uint64 {
 	return s.DurableCommits()
 }
 
-func TestOrdinaryObservationKeepsNormalDurability(t *testing.T) {
+func TestOrdinaryIssueLinkKeepsNormalDurability(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant := crossProductPolicyFixture(t, []agentcontract.Capability{"product_read", "work_define", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -22,7 +22,7 @@ func TestOrdinaryObservationKeepsNormalDurability(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := durableCommitCount(t, s)
-	request := InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: json.RawMessage(`{"work_id":"work-1","statement":"ordinary progress","idempotency_key":"normal-observation"}`)}
+	request := InvokeRequest{Tool: "concord_work_define", Operation: "issue_link_record", Input: json.RawMessage(`{"work_id":"work-1","human_key":"CON-42","remote_issue_uuid":"remote-42","url":"https://linear.app/example/issue/CON-42","idempotency_key":"normal-link"}`)}
 	result, err := Dispatch(ctx, s, service, request, mutationEnvelope(grant, scopeVersion))
 	if err != nil || result.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("ordinary observation=%+v err=%v", result, err)
@@ -61,7 +61,7 @@ func TestMutationReplayDurabilityBindings(t *testing.T) {
 				t.Fatal(err)
 			}
 			env := mutationEnvelope(grant, scopeVersion)
-			request := InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: json.RawMessage(`{"work_id":"work-1","statement":"replay binding","idempotency_key":"replay-binding"}`)}
+			request := InvokeRequest{Tool: "concord_work_define", Operation: "issue_link_record", Input: json.RawMessage(`{"work_id":"work-1","human_key":"CON-42","remote_issue_uuid":"remote-42","url":"https://linear.app/example/issue/CON-42","idempotency_key":"replay-binding"}`)}
 			result, err := Dispatch(ctx, s, service, request, env)
 			if err != nil || result.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("initial observation=%+v err=%v", result, err)
@@ -116,7 +116,7 @@ func TestMutationReplayDurabilityBindings(t *testing.T) {
 }
 
 func TestDurableCommitFailureEnvelopePreservesPossibleEffect(t *testing.T) {
-	base := agentcontract.NewBase("durable-failure", "concord_work_relate", "message_send")
+	base := agentcontract.NewBase("durable-failure", "concord_work_transition", "workflow_action")
 	err := &store.Failure{Kind: store.KindUnavailable, Op: "durable_transaction", Detail: "cannot finish the durable commit", RetrySafe: true, EffectPossible: true}
 	response := failureEnvelope(base, err)
 	if response.Error == nil || response.Error.Kind != "unreachable" || response.Error.EffectState != agentcontract.EffectPossible {

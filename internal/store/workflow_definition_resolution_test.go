@@ -22,8 +22,7 @@ import (
 // Seed constraints: the pin exists only through the WorkflowDefinitionSelected
 // fold; the contract carries the explicit decision_domains fact; evidence
 // binds only against a completed durable producer operation claimed and
-// completed through the fence entry points; the investigation artifact is a
-// work.observation_recorded fold. No raw projection or authority-row insert,
+// completed through the fence entry points. No raw projection or authority-row insert,
 // pin flip, step reposition, prepare row, or replay override seeds any state.
 //
 // The negative subtests hold the refusals: a fold scope from another
@@ -311,27 +310,6 @@ func runResolutionAction(s *Store, registry DefinitionRegistry, workID, action s
 	return tx.Commit()
 }
 
-// seedResolutionInvestigation records the engineering confirmation route's
-// investigation artifact through the real observation fold: a
-// work.observation_recorded event whose refs hold the Product's current
-// Domain and another work item of that Product, beside the Domain registry
-// fixture the ref resolution reads.
-func seedResolutionInvestigation(t *testing.T, s *Store, workID string) {
-	t.Helper()
-	other := workID + "-compared"
-	seedWork(t, s, other)
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "resolution-investigation-" + workID, Kind: WorkObservationRecorded, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "actor:test", OccurredAt: time.Unix(8, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkObservationRecorded),
-		Payload: mustJSONValue(map[string]any{
-			"observation_id": "obs:" + strings.Repeat("a", 16), "statement": "technical investigation",
-			"refs": []string{"root", other}, "tags": []string{},
-		}),
-	}}}); err != nil {
-		t.Fatalf("record investigation observation: %v", err)
-	}
-}
-
 // confirmResolutionPremise drives the confirm_premise constructor wrapper —
 // the entry dispatch itself calls — and folds the produced event through the
 // registered fold. The proof the constructor's law and Domain reads
@@ -481,7 +459,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		// Before Main associates the accepted Review with the criteria the
 		// deliverables check refuses.
 		const unassociatedID = "resolution-deliverables-unassociated"
-		s, _, _, _, _ := engineeringConfirmationFixture(t, unassociatedID, false, true)
+		s, _, _, _, _ := engineeringConfirmationFixture(t, unassociatedID, false)
 		var failure *Failure
 		if err := readDeliverables(t, s, definition, unassociatedID); !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("deliverables without the criterion association returned %v, want the missing-evidence refusal", err)

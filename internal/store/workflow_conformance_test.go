@@ -339,7 +339,6 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 				return nil, nil, err
 			}
 		}
-		seedPremiseDeliverablesInvestigation(t, s, workID)
 		if proof == "weaker_delivery" || proof == "one_conjunct_weaker" {
 			// Exercise the ordered completion gate, not acceptance's earlier
 			// premise-deliverables refusal. Neither proof nor confirmation is seeded.

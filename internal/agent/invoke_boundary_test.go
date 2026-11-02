@@ -41,17 +41,17 @@ func TestInvokeShapesUnsupportedOperationAsTypedEnvelope(t *testing.T) {
 func TestInvokePreEffectInputCorrection(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant := observationFixture(t)
+	s, service, grant := crossProductPolicyFixture(t, []agentcontract.Capability{"product_read", "work_define", "cross_scope"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	input := map[string]any{"work_id": "work-holder", "statement": strings.Repeat("x", 832), "idempotency_key": "input-correction"}
+	input := map[string]any{"work_id": "work-1", "human_key": "CON-42", "remote_issue_uuid": strings.Repeat("x", 832), "url": "https://linear.app/example/issue/CON-42", "idempotency_key": "input-correction"}
 	invoke := func() agentcontract.Envelope {
 		t.Helper()
 		raw, _ := json.Marshal(input)
-		response, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: raw}, env))
+		response, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: "concord_work_define", Operation: "issue_link_record", Input: raw}, env))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -61,20 +61,20 @@ func TestInvokePreEffectInputCorrection(t *testing.T) {
 		return response
 	}
 	refused := invoke()
-	assertInputCorrection(t, refused, nil, "$.statement")
-	for _, fragment := range []string{"maxLength", "$.statement", "832", "512"} {
+	assertInputCorrection(t, refused, nil, "$.remote_issue_uuid")
+	for _, fragment := range []string{"maxLength", "$.remote_issue_uuid", "832", "128"} {
 		if !strings.Contains(refused.Error.Message, fragment) {
 			t.Errorf("missing %q in %q", fragment, refused.Error.Message)
 		}
 	}
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_observations WHERE work_id='work-holder'`).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("refusal wrote observations: count=%d err=%v", count, err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_issue_links WHERE work_id='work-1'`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("refusal wrote issue links: count=%d err=%v", count, err)
 	}
-	input["statement"] = "A corrected bounded observation."
+	input["remote_issue_uuid"] = "remote-42"
 	corrected := invoke()
 	if corrected.Outcome != agentcontract.OutcomeOK || corrected.Replayed {
-		t.Fatalf("correcting only statement under unchanged authority failed: %+v", corrected)
+		t.Fatalf("correcting only issue identity under unchanged authority failed: %+v", corrected)
 	}
 	if replay := invoke(); replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("committed correction must keep idempotency: %+v", replay)

@@ -946,7 +946,7 @@ func livenessReplay(t *testing.T, definition WorkflowDefinition, path []liveness
 	workID := livenessWorkID
 	s := openTemp(t)
 	seedStepWork(t, s, workID)
-	livenessSeedInvestigation(t, s, workID)
+	livenessSeedKnowledgeHome(t, s)
 	livenessInitialize(t, s, workID, definition)
 	for index, move := range path {
 		if err := livenessApply(ctx, s, workID, move, index); err != nil {
@@ -956,16 +956,6 @@ func livenessReplay(t *testing.T, definition WorkflowDefinition, path []liveness
 	return s, workID
 }
 
-// livenessSeedInvestigation records the investigation premise confirmation
-// requires: one current Domain of the work item's Product, plus a second work
-// item, named by one observation.
-//
-// No workflow action produces this state. The gate reads the observation
-// projection, which concord_work_define fills from a different tool surface, so
-// an instance whose only exit is premise confirmation waits on evidence its own
-// declared actions cannot record. Seeding it here keeps the explorer measuring
-// the workflow graph rather than re-reporting that one cross-surface gate at
-// every checkpoint step.
 // livenessInitialize pins the definition as the actor the explorer then acts
 // as. The selecting session is recorded as the instance's executor, and a
 // checkpoint must come from that executor, so selecting as one identity and
@@ -988,7 +978,9 @@ func livenessInitialize(t *testing.T, s *Store, workID string, definition Workfl
 	}
 }
 
-func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
+// livenessSeedKnowledgeHome records a peer work item and the Product's
+// committed knowledge home the explorer's contract bindings resolve against.
+func livenessSeedKnowledgeHome(t *testing.T, s *Store) {
 	t.Helper()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
@@ -1019,11 +1011,6 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 			t.Fatal(err)
 		}
 	}
-	refs := `["root","` + peerID + `"]`
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, "obs:"+strings.Repeat("a", 16), workID, "liveness investigation", refs, `[]`, "2026-09-12T00:00:00Z"); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
 	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
@@ -1043,8 +1030,8 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 
 // livenessFixtureRegistry is the committed Domain registry the liveness
 // explorer's Product reads: the Product root the registry schema derives from
-// the product key, the current "root" Domain the investigation artifacts
-// name, and the "liveness" Domain the synthesized bindings home to.
+// the product key, the current "root" Domain, and the "liveness" Domain the
+// synthesized bindings home to.
 const livenessFixtureRegistry = `{"schema_version":"1.0","product_key":"liveness","root_domain_id":"product-root:liveness","domains":[{"domain_id":"product-root:liveness","name":"Liveness Product","purpose":"Governs the liveness explorer fixture.","status":"current","architecture_relations":[]},{"domain_id":"root","name":"Root","purpose":"Current liveness fixture Domain.","status":"current","parent_domain_id":"product-root:liveness","architecture_relations":[]},{"domain_id":"liveness","name":"Liveness","purpose":"Explorer domain for synthesized bindings.","status":"current","parent_domain_id":"product-root:liveness","architecture_relations":[]}]}` + "\n"
 
 // livenessStateMoves builds every action variant the step declares.

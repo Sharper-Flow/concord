@@ -163,13 +163,6 @@ type workScopeInput struct {
 	Limit     int       `json:"limit,omitempty"`
 	OneOf     string    `json:"one_of"`
 }
-type messagesInput struct {
-	ProductID string    `json:"product_id"`
-	WorkID    string    `json:"work_id"`
-	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit,omitempty"`
-}
-
 type researchReadInput struct {
 	ProductID string    `json:"product_id"`
 	PackID    string    `json:"pack_id"`
@@ -192,18 +185,6 @@ type historyInput struct {
 	ContractVersion int64     `json:"contract_version,omitempty"`
 	Page            pageInput `json:"page"`
 	Limit           int       `json:"limit,omitempty"`
-}
-type observationReadInput struct {
-	WorkID string    `json:"work_id"`
-	Page   pageInput `json:"page"`
-	Limit  int       `json:"limit,omitempty"`
-}
-type externalObservationReadInput struct {
-	WorkID string    `json:"work_id"`
-	Page   pageInput `json:"page"`
-	// Limit keeps its CD-0040 evidence-fixed bound (schema maximum 64); the
-	// page object is the unified TS3 §3 shape around it.
-	Limit int `json:"limit,omitempty"`
 }
 type continuityInput struct {
 	WorkID string    `json:"work_id"`
@@ -1124,14 +1105,8 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readWorkBlocked(ctx, base, input)
 	case "concord_work_browse.scope":
 		return r.readWorkScope(ctx, base, input)
-	case "concord_work_browse.messages":
-		return r.readWorkMessages(ctx, base, input)
 	case "concord_work_trace.history":
 		return r.readTraceHistory(ctx, base, input)
-	case "concord_work_trace.observations":
-		return r.readTraceObservations(ctx, base, input)
-	case "concord_work_trace.external_observations":
-		return r.readTraceExternalObservations(ctx, base, input)
 	case "concord_work_trace.continuity":
 		return r.readTraceContinuity(ctx, base, input)
 	case "concord_work_trace.mutation_result":
@@ -1507,10 +1482,6 @@ func pruneWorkflowReadObject(value, properties map[string]any) {
 // ContinuityPayload is the single public rendering of CD-0016 continuity.
 // Session boot and the concord_work_trace.continuity read share this exact shape.
 func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
-	observations := snapshot.Observations
-	if observations == nil {
-		observations = []store.WorkObservation{}
-	}
 	stepActions := snapshot.StepActions
 	if stepActions == nil {
 		stepActions = []string{}
@@ -1548,12 +1519,6 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 		"pinned":             pinned,
 		"boundaries":         map[string]any{"count": snapshot.BoundaryCount, "items": snapshot.Boundaries, "next_cursor": snapshot.NextCursor, "watermark": snapshot.Watermark},
 		"typed_availability": map[string]any{"restart": "unavailable", "reason": snapshot.RestartUnavailableReason},
-		"pending_messages":   snapshot.PendingMessages,
-		"observations":       observations,
-		"observations_total": snapshot.ObservationsTotal,
-		// The window holds only the newest observations; this read pages the
-		// whole population, newest first, in full detail.
-		"observations_read": map[string]any{"tool": "concord_work_trace", "operation": "observations", "input": map[string]any{"work_id": snapshot.WorkID}},
 	}
 	// An instance-less work item states its workflow absence as typed
 	// information: the step is null because no instance pins one, and the
@@ -1567,16 +1532,15 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 }
 
 // FitContinuity renders the largest complete prefix of one captured
-// continuity snapshot whose serialized form fits maximum bytes. It first
-// shrinks the newest-observation window, which the paged observations read
-// backs, and then the boundary page, which its cursor resumes. render returns
+// continuity snapshot whose serialized form fits maximum bytes. It shrinks
+// the boundary page, which its cursor resumes. render returns
 // the caller's final wire object and its size, so session boot and the
-// continuity read measure what they emit. When even one boundary and no
-// observations exceed maximum, the smallest rendering returns with its size
+// continuity read measure what they emit. When even one boundary
+// exceeds maximum, the smallest rendering returns with its size
 // and the caller refuses.
 func FitContinuity[T any](snapshot store.ContinuitySnapshot, req store.ContinuityRequest, maximum int, render func(store.ContinuitySnapshot) (T, int, error)) (T, int, error) {
-	window := func(observations, boundaries int) (T, int, error) {
-		fitted, err := snapshot.LimitWindow(req, observations, boundaries)
+	window := func(boundaries int) (T, int, error) {
+		fitted, err := snapshot.LimitWindow(req, boundaries)
 		if err != nil {
 			var zero T
 			return zero, 0, err
@@ -1605,11 +1569,7 @@ func FitContinuity[T any](snapshot store.ContinuitySnapshot, req store.Continuit
 		return best, size, true, nil
 	}
 	boundaries := max(len(snapshot.Boundaries), 1)
-	out, size, ok, err := largest(0, len(snapshot.Observations), func(n int) (T, int, error) { return window(n, boundaries) })
-	if err != nil || ok {
-		return out, size, err
-	}
-	out, size, _, err = largest(1, boundaries, func(n int) (T, int, error) { return window(0, n) })
+	out, size, _, err := largest(1, boundaries, window)
 	return out, size, err
 }
 

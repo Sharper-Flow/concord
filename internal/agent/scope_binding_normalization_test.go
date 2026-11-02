@@ -1,14 +1,11 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
-	"github.com/sharper-flow/concord/internal/store"
 )
 
 // A scope list that names the same work item twice must not mask a
@@ -64,7 +61,7 @@ func TestNormalizeScopeListPreservesUniqueOrderBytesAndOwnership(t *testing.T) {
 	if !reflect.DeepEqual(resolved.WorkIDs, []string{"w-1", "w-2"}) || !reflect.DeepEqual(resolved.ProjectIDs, []string{"p-2", "p-1"}) {
 		t.Fatalf("resolved scope work=%v project=%v want unique first-occurrence order", resolved.WorkIDs, resolved.ProjectIDs)
 	}
-	refusal := agentcontract.NewCoreError(agentcontract.NewBase("scope-binding", "concord_work_relate", "message_send"), agentcontract.TypedError{Kind: "unauthorized", RecoveryAction: agentcontract.RecoveryAction{Kind: "contact_operator"}, EffectState: agentcontract.EffectNone})
+	refusal := agentcontract.NewCoreError(agentcontract.NewBase("scope-binding", "concord_work_transition", "workflow_action"), agentcontract.TypedError{Kind: "unauthorized", RecoveryAction: agentcontract.RecoveryAction{Kind: "contact_operator"}, EffectState: agentcontract.EffectNone})
 	refusal.ResolvedScope = resolved
 	if err := refusal.Validate(); err != nil {
 		t.Fatalf("resolved scope with repeated identities rejected: %v", err)
@@ -100,84 +97,4 @@ func TestScopeListValuesPreservesUniqueJSONBytesAndOwnership(t *testing.T) {
 			}
 		}
 	}
-}
-
-// assertSelfSendInvariantRefusal holds the shared regression shape:
-// an authorized direct self-addressed message_send answers with an
-// encodable typed invariant_violation, effect state none, naming the store
-// invariant's two sources, and leaves no message, version, or approval
-// challenge effect behind.
-func assertSelfSendInvariantRefusal(t *testing.T, s *store.Store, response agentcontract.Envelope, workID string, dispatchErr error) {
-	t.Helper()
-	if dispatchErr != nil {
-		t.Fatalf("self-addressed send returned err=%v", dispatchErr)
-	}
-	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invariant_violation" {
-		t.Fatalf("self-addressed send wants invariant_violation: outcome=%s error=%+v", response.Outcome, response.Error)
-	}
-	if response.Error.EffectState != agentcontract.EffectNone {
-		t.Fatalf("self-addressed send effect_state=%s want none", response.Error.EffectState)
-	}
-	if response.Error.RetrySafe {
-		t.Fatal("self-addressed send must not be retry-safe")
-	}
-	if response.Error.RecoveryAction.Kind != "reread_entities" {
-		t.Fatalf("self-addressed send recovery=%s want reread_entities (the envelope schema couples an options-less invariant_violation to it)", response.Error.RecoveryAction.Kind)
-	}
-	encoded, err := json.Marshal(response)
-	if err != nil {
-		t.Fatalf("the refusal envelope does not marshal: %v", err)
-	}
-	for _, source := range []string{
-		"internal/store/work_messages.go foldMessageSent",
-		"internal/store/schema.go work_messages CHECK(recipient_work_id != sender_work_id)",
-	} {
-		if !strings.Contains(string(encoded), source) {
-			t.Fatalf("refusal does not name invariant source %q: %s", source, encoded)
-		}
-	}
-	sources, ok := response.Error.Details["invariant_sources"].([]string)
-	if !ok || len(sources) != 2 {
-		t.Fatalf("invariant provenance missing: %+v", response.Error.Details)
-	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_messages`); got != 0 {
-		t.Fatalf("self-addressed send left %d messages", got)
-	}
-	if version := workVersion(t, s, workID); version != 2 {
-		t.Fatalf("self-addressed send changed the sender version to %d", version)
-	}
-}
-
-// TestMessageSendSelfRecipientRefusedAsInvariantSingleProduct holds the
-// single-Product case: the refusal precedes any effect, so the store fold
-// and its CHECK constraint are never reached with a self-addressed event.
-func TestMessageSendSelfRecipientRefusedAsInvariantSingleProduct(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, grant := messagesFixture(t)
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, _ := json.Marshal(map[string]any{"work_id": "work-sender", "recipient_work_id": "work-sender", "body": "a coordinator cannot hand off to itself", "expected_version": 2, "idempotency_key": "msg-self-1"})
-	response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "message_send", Input: raw}, mutationEnvelope(grant, scopeVersion))
-	assertSelfSendInvariantRefusal(t, s, response, "work-sender", dispatchErr)
-}
-
-// TestMessageSendSelfRecipientRefusedAsInvariantCrossProduct holds the
-// observed failure shape: on shared cross-Product work the unfixed core
-// bound the shared work twice into the refusal, and the duplicate binding
-// made the refusal envelope unmarshalable, so the operator never received
-// the typed outcome at all.
-func TestMessageSendSelfRecipientRefusedAsInvariantCrossProduct(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, grant := crossProductDispatchFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "recipient_work_id": "work-1", "body": "a coordinator cannot leave a durable handoff on its own shared work item", "expected_version": 2, "idempotency_key": "msg-self-cross-1"})
-	response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "message_send", Input: raw}, mutationEnvelope(grant, scopeVersion))
-	assertSelfSendInvariantRefusal(t, s, response, "work-1", dispatchErr)
 }

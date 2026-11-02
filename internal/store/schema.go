@@ -8569,6 +8569,13 @@ ALTER TABLE durable_operations_v178 RENAME TO durable_operations;
 DELETE FROM write_guard;
 `,
 	},
+	{
+		Version: 179, Name: "retire_work_messages_and_observations", Breaking: true,
+		SQL: `
+DROP TABLE work_messages;
+DROP TABLE work_observations;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

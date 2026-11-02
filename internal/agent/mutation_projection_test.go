@@ -37,13 +37,6 @@ func TestMutationProjectionCorrectionMutations(t *testing.T) {
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": reportRef}))
 	correction := map[string]any{"diagnosis": correctionText, "strategy": correctionText, "predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{reportRef}}
 	spineOK(t, f.action(t, "request_correction", correction))
-	if err := f.service.ExpandTrustedClientPolicy(t.Context(), f.env.ClientRef, TrustedClientPolicy{Capabilities: []agentcontract.Capability{"work_relate"}}); err != nil {
-		t.Fatal(err)
-	}
-	f.env.ScopeVersion, _, _ = f.s.ScopeVersion(t.Context(), "project-1")
-	if err := seedActiveBroadcastRecipient(t.Context(), f.s, "work-projection-recipient"); err != nil {
-		t.Fatal(err)
-	}
 	state := f.read(t)
 	if state.Pinned.Pin.Correction == nil || state.Pinned.Pin.Correction.Diagnosis != correctionText || state.Pinned.Pin.Correction.Strategy != correctionText || len(state.Pinned.Pin.Review.Findings) != 2 {
 		t.Fatal("Review correction did not retain its complete context and blockers")
@@ -55,7 +48,6 @@ func TestMutationProjectionCorrectionMutations(t *testing.T) {
 		{"correction", "concord_work_transition", "workflow_action", map[string]any{
 			"action_id": "request_correction", "fields": correction,
 		}},
-		{"message", "concord_work_relate", "message_send", map[string]any{"recipient_work_id": "work-projection-recipient", "body": "The failed job needs its recorded correction."}},
 	} {
 		t.Run(vector.name, func(t *testing.T) {
 			if vector.operation == "workflow_action" {
@@ -216,7 +208,6 @@ func mutationProjectionState(t *testing.T, s *store.Store) map[string]string {
 	t.Helper()
 	state := premiseConsentSnapshot(t, s)
 	for name, query := range map[string]string{
-		"messages":                 `SELECT json_group_array(json_array(message_id,sender_work_id,recipient_work_id,body,state)) FROM (SELECT * FROM work_messages ORDER BY message_id)`,
 		"idempotency":              `SELECT json_group_array(json_array(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_payload,changed_refs,authorized_scope_snapshot)) FROM (SELECT * FROM idempotency_records ORDER BY principal_ref,tool,operation_kind,idempotency_key)`,
 		"idempotency_observations": `SELECT json_group_array(json_array(idempotency_key,replayed_count,last_observed_at)) FROM (SELECT * FROM idempotency_records ORDER BY principal_ref,tool,operation_kind,idempotency_key)`,
 	} {
@@ -278,11 +269,7 @@ func requireMutationProjectionReadRefusals(t *testing.T, f *spineFixture, origin
 		{"Project scope", "unauthorized", func(r *runtime, _ map[string]any) { r.Envelope.AmbientProjectID = "another-project" }},
 		{"source pair", "invalid_input", func(_ *runtime, in map[string]any) { in["source_tool"] = "concord_work_browse" }},
 		{"crossed source pair", "invalid_input", func(_ *runtime, in map[string]any) {
-			if in["source_operation"] == "message_send" {
-				in["source_tool"] = "concord_work_transition"
-			} else {
-				in["source_tool"] = "concord_work_relate"
-			}
+			in["source_tool"] = "concord_work_relate"
 		}},
 		{"unknown field", "invalid_input", func(_ *runtime, in map[string]any) { in["offset"] = 0 }},
 	} {
@@ -418,8 +405,7 @@ func TestMutationProjectionRequiresRetainedIdentity(t *testing.T) {
 	}{
 		{"no identity", "concord_work_transition", "workflow_action", "", false},
 		{"retained workflow identity", "concord_work_transition", "workflow_action", "original-key", true},
-		{"retained message identity", "concord_work_relate", "message_send", "original-key", true},
-		{"unsupported operation", "concord_work_relate", "message_withdraw", "original-key", false},
+		{"unsupported operation", "concord_work_define", "issue_link_record", "original-key", false},
 	} {
 		t.Run(vector.name, func(t *testing.T) {
 			r := runtime{Tool: vector.tool, Operation: vector.operation, mutationIdempotencyKey: vector.key}

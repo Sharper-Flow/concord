@@ -24,7 +24,7 @@ func advanceWorkEffectSeqTx(ctx context.Context, tx *sql.Tx, event Event) error 
 	}
 	progress := ""
 	switch event.Kind {
-	case "work.message_sent", "work.message_withdrawn", "workflow.overlap_resolved":
+	case "workflow.overlap_resolved":
 	default:
 		progress = event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	}

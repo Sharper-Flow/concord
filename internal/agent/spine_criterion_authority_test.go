@@ -31,10 +31,6 @@ func TestSpineMainAssociatesCurrentProofAcrossSessions(t *testing.T) {
 			}
 		})
 	}
-	spineOK(t, f.call(t, "concord_work_define", "observation_record", map[string]any{
-		"work_id": f.work, "statement": "The current producer receipt supports the approved criterion and unchanged accepted Review.",
-		"refs": []string{f.read(t).Pinned.Contract.ArchitectureBinding.HomeDomainID, f.proof}, "idempotency_key": "spine-main-proof-investigation",
-	}))
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
 		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise",
 		"idempotency_key": "spine-main-proof-confirm",

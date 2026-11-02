@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -141,24 +143,51 @@ func TestVerificationFoldCoversTheRequiredMatrix(t *testing.T) {
 	}
 }
 
-func TestFreshnessStateUsesTheKindBound(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, 8, 20, 12, 30, 0, 0, time.UTC)
-	verified := time.Date(2026, 8, 20, 12, 29, 0, 0, time.UTC) // 60s old
-	if state := FreshnessState(VerificationVerified, verified, now, 300); state != "verified" {
-		t.Fatalf("a verified record inside its bound read as %s", state)
+// appendExternalObservationCaptureTx appends one capture event through the
+// shared operation path, as the native-run and verification folds receive it.
+func appendExternalObservationCaptureTx(ctx context.Context, tx *Transaction, workID, actor string, now time.Time, capture ExternalObservationCapture) error {
+	payload, err := json.Marshal(externalObservationCapturedPayload{ExternalObservationCapture: capture, WorkID: workID})
+	if err != nil {
+		return err
 	}
-	stale := time.Date(2026, 8, 20, 12, 20, 0, 0, time.UTC) // 600s old
-	if state := FreshnessState(VerificationVerified, stale, now, 300); state != "stale" {
-		t.Fatalf("a verified record outside its bound did not read as stale: %s", state)
-	}
-	// Unverified is a legitimate answer and never renders as verified.
-	if state := FreshnessState(VerificationUnverified, verified, now, 300); state != "unverified" {
-		t.Fatalf("an unverified record read as %s", state)
-	}
+	_, err = ApplyOperationTx(ctx, tx, Operation{Events: []Event{{
+		EventID: capture.ObservationID + ":captured", Kind: EventExternalObservationCaptured, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: actor, OccurredAt: now, PayloadVersion: 1, Payload: payload,
+	}}})
+	return err
 }
 
-// The generic writer and its fold: capture and verification.
+// appendExternalObservationVerificationTx appends one verification event bound
+// to a prior capture.
+func appendExternalObservationVerificationTx(ctx context.Context, tx *Transaction, workID, actor string, now time.Time, verification ExternalObservationVerification) error {
+	payload, err := json.Marshal(externalObservationVerifiedPayload{ExternalObservationVerification: verification, WorkID: workID})
+	if err != nil {
+		return err
+	}
+	_, err = ApplyOperationTx(ctx, tx, Operation{Events: []Event{{
+		EventID: verification.ObservationID + ":verified:" + now.UTC().Format("20060102T150405.000000000"), Kind: EventExternalObservationVerified, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: actor, OccurredAt: now, PayloadVersion: 1, Payload: payload,
+	}}})
+	return err
+}
+
+type externalObservationProjection struct {
+	state, reporter, verifier string
+}
+
+func readExternalObservationProjection(t *testing.T, s *Store, workID, observationID string) externalObservationProjection {
+	t.Helper()
+	var row externalObservationProjection
+	var verifier sql.NullString
+	if err := s.DatabaseForTesting().QueryRow(`SELECT verification_state,reporting_authority_ref,verifying_authority_ref FROM external_observations WHERE work_id=? AND observation_id=?`, workID, observationID).Scan(&row.state, &row.reporter, &verifier); err != nil {
+		t.Fatal(err)
+	}
+	row.verifier = verifier.String
+	return row
+}
+
+// The verification fold classifies against the capture's reviewed policy and
+// keeps both attributions.
 func TestExternalObservationCaptureAndVerify(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -174,32 +203,24 @@ func TestExternalObservationCaptureAndVerify(t *testing.T) {
 		t.Fatalf("environment policy drifted from the reviewed register: %+v", policy)
 	}
 
-	// Issue #89 case 1 — fresh verified: append a matched verification and
-	// read the record back with its derived state.
+	// Issue #89 case 1 — fresh verified.
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return AppendExternalObservationVerificationTx(ctx, tx, "work-ext", "principal-1", time.Date(2026, 8, 20, 12, 1, 0, 0, time.UTC), ExternalObservationVerification{
+		return appendExternalObservationVerificationTx(ctx, tx, "work-ext", "principal-1", time.Date(2026, 8, 20, 12, 1, 0, 0, time.UTC), ExternalObservationVerification{
 			ObservationID: "xobs:0123456789abcdef", VerificationMethod: VerifyTrustedClientReport,
 			VerifiedAt: "2026-08-20T12:01:00Z", VerifyingAuthorityRef: "client:verifier-1", Result: VerificationMatched,
 		})
 	}); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := s.ExternalObservationsForWork(ctx, "work-ext", time.Date(2026, 8, 20, 12, 2, 0, 0, time.UTC), 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 1 || rows[0].VerificationState != VerificationVerified || rows[0].FreshnessState != "verified" {
-		t.Fatalf("verified capture read back wrong: %+v", rows)
-	}
-	// Attribution survives: the read carries who reported and who verified.
-	if rows[0].ReportingAuthorityRef != "client:reporter-1" || rows[0].VerifyingAuthority != "client:verifier-1" {
-		t.Fatalf("read dropped attribution: %+v", rows[0])
+	row := readExternalObservationProjection(t, s, "work-ext", "xobs:0123456789abcdef")
+	if row.state != string(VerificationVerified) || row.reporter != "client:reporter-1" || row.verifier != "client:verifier-1" {
+		t.Fatalf("verified capture projected wrong: %+v", row)
 	}
 
 	// Issue #89 case 4 — diverged-but-expected: the environment kind
 	// pre-declares a bounded drift window, so divergence classifies expected.
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return AppendExternalObservationVerificationTx(ctx, tx, "work-ext", "principal-1", time.Date(2026, 8, 20, 12, 3, 0, 0, time.UTC), ExternalObservationVerification{
+		return appendExternalObservationVerificationTx(ctx, tx, "work-ext", "principal-1", time.Date(2026, 8, 20, 12, 3, 0, 0, time.UTC), ExternalObservationVerification{
 			ObservationID: "xobs:0123456789abcdef", VerificationMethod: VerifyTrustedClientReport,
 			VerifiedAt: "2026-08-20T12:03:00Z", VerifyingAuthorityRef: "client:verifier-1", Result: VerificationDiverged,
 			CurrentDigest: "sha256:" + "1111111111111111111111111111111111111111111111111111111111111111",
@@ -207,18 +228,13 @@ func TestExternalObservationCaptureAndVerify(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	rows, err = s.ExternalObservationsForWork(ctx, "work-ext", time.Date(2026, 8, 20, 12, 4, 0, 0, time.UTC), 10)
-	if err != nil {
-		t.Fatal(err)
+	if row := readExternalObservationProjection(t, s, "work-ext", "xobs:0123456789abcdef"); row.state != string(VerificationDivergedExpected) {
+		t.Fatalf("pre-declared drift did not classify expected: %+v", row)
 	}
-	if len(rows) != 1 || rows[0].VerificationState != VerificationDivergedExpected {
-		t.Fatalf("pre-declared drift did not classify expected: %+v", rows)
-	}
-
 }
 
-// Issue #89 case 2 — stale unverified: a captured record that nothing ever
-// verified reads as exactly that, forever legible.
+// Issue #89 case 2 — a captured record that nothing ever verified stays
+// unverified.
 func TestUnverifiedCaptureStaysLegiblyUnverified(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -228,12 +244,8 @@ func TestUnverifiedCaptureStaysLegiblyUnverified(t *testing.T) {
 	}
 	defer s.Close()
 	seedExternalObservationFixture(t, s)
-	rows, err := s.ExternalObservationsForWork(ctx, "work-ext", time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC), 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 1 || rows[0].VerificationState != VerificationUnverified || rows[0].FreshnessState != "unverified" {
-		t.Fatalf("an unverified capture did not stay legibly unverified: %+v", rows)
+	if row := readExternalObservationProjection(t, s, "work-ext", "xobs:0123456789abcdef"); row.state != string(VerificationUnverified) || row.verifier != "" {
+		t.Fatalf("an unverified capture did not stay unverified: %+v", row)
 	}
 }
 
@@ -249,7 +261,7 @@ func TestVerificationRequiresItsCapture(t *testing.T) {
 	defer s.Close()
 	seedExternalObservationFixture(t, s)
 	err = s.Transact(ctx, func(tx *Transaction) error {
-		return AppendExternalObservationVerificationTx(ctx, tx, "work-ext", "principal-1", time.Date(2026, 8, 20, 12, 1, 0, 0, time.UTC), ExternalObservationVerification{
+		return appendExternalObservationVerificationTx(ctx, tx, "work-ext", "principal-1", time.Date(2026, 8, 20, 12, 1, 0, 0, time.UTC), ExternalObservationVerification{
 			ObservationID: "xobs:ffffffffffffffff", VerificationMethod: VerifyTrustedClientReport,
 			VerifiedAt: "2026-08-20T12:01:00Z", VerifyingAuthorityRef: "client:verifier-1", Result: VerificationMatched,
 		})
@@ -268,7 +280,7 @@ func seedExternalObservationFixture(t *testing.T, s *Store) {
 			return err
 		}
 		// Issue #89 case 3 — scope-incomplete: the capture declares what it
-		// examined and what it did not, so omissions are visible at read time.
+		// examined and what it did not.
 		partial := ObservedUniverse{
 			Shape: UniverseCollection, AppliedScope: "provider:services(env=prod)",
 			AnchorToken: "page-2", Coverage: CoveragePartial,
@@ -277,7 +289,7 @@ func seedExternalObservationFixture(t *testing.T, s *Store) {
 			CanonicalIdentityKey: "service_name",
 			Omissions:            []string{"pagination-truncated:page-3", "auth-filtered:svc-x"},
 		}
-		return AppendExternalObservationCaptureTx(ctx, tx, "work-ext", "principal-1", time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC), ExternalObservationCapture{
+		return appendExternalObservationCaptureTx(ctx, tx, "work-ext", "principal-1", time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC), ExternalObservationCapture{
 			ObservationID: "xobs:0123456789abcdef", SubjectKind: "environment",
 			SubjectRef: "environment://prod", CaptureMethod: CaptureTrustedClientReport,
 			CapturedAt: "2026-08-20T12:00:00Z", ReportingAuthorityRef: "client:reporter-1",

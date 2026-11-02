@@ -18,7 +18,7 @@ import (
 )
 
 func mutationProjectionSupported(tool, operation string) bool {
-	return tool == "concord_work_relate" && operation == "message_send" || tool == "concord_work_transition" && operation == "workflow_action"
+	return tool == "concord_work_transition" && operation == "workflow_action"
 }
 
 func mutationDocumentDigest(document []byte) string {

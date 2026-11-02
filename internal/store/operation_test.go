@@ -365,18 +365,4 @@ func TestNonVersionedWorkEventsLeaveUpdatedAtOnTheVersionedWrite(t *testing.T) {
 		t.Fatalf("updated_at = %q, want the created write %q", got, createdStamp[:19]+"Z")
 	}
 
-	// A work_item-subject event that performs no versioned write leaves
-	// updated_at on the created write.
-	observationAt := time.Date(2026, 8, 9, 9, 30, 5, 120000000, time.UTC)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		stampedWorkEvent(t, "la-obs", WorkObservationRecorded, "work-la", map[string]any{
-			"observation_id": "obs:0123456789abcdef", "statement": "The fold recorded activity without a versioned write.", "refs": []string{}, "tags": []string{},
-		}, observationAt),
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	if got := updatedAt(); got != createdStamp[:19]+"Z" {
-		t.Fatalf("updated_at = %q, want the unchanged versioned write", got)
-	}
-
 }

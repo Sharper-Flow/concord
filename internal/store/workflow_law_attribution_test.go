@@ -1,10 +1,8 @@
 package store
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -87,8 +85,6 @@ func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, ca
 			t.Fatal(err)
 		}
 	}
-	observation := fmt.Sprintf("obs:%x", sha256.Sum256([]byte(id)))[:20]
-	insertInvestigationGateObservation(t, s, id, observation, []string{"agent-surface", "inventory-seed"})
 	if confirm == nil {
 		confirm = func(f acceptanceRecoveryFixture) error {
 			return f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, id), nil, nil)

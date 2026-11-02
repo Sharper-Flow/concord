@@ -70,7 +70,6 @@ func TestCriterionAssociationAtPremiseQuestionWithoutDeclaration(t *testing.T) {
 		t.Fatal(err)
 	}
 	f, ref := seedCriterionAssociationAtStep(t, workID, mustBuiltinDefinition(t, "workflow.research"), "conclude")
-	seedComparisonObservation(t, f.store, workID)
 	preflight := func(action string, payload json.RawMessage) error {
 		request := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: readWorkVersion(t, f.store, workID), ActionID: action, Payload: payload, Actor: f.owner}
 		return WorkflowActionPreflightWithRegistry(t.Context(), f.store, registry, request)

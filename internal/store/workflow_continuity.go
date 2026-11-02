@@ -94,23 +94,12 @@ type ContinuitySnapshot struct {
 	// NativeRuns carries the attributed native-run reports for this work
 	// item, newest phase per run, with reporter, subject, evidence, and both
 	// times alongside the status (CD-0039 D1/D4).
-	NativeRuns               []NativeRunReport `json:"native_runs"`
-	RestartAvailable         bool              `json:"restart_available"`
-	RestartUnavailableReason string            `json:"restart_unavailable_reason"`
-	// PendingMessages counts sent peer messages awaiting this work's next
-	// session (CD-0029). The pointer survives restarts because the snapshot
-	// itself is re-derived per call.
-	PendingMessages int64 `json:"pending_messages"`
-	// Observations carries the newest window of the work's un-promoted
-	// observations (CD-0030 D2), at most ContinuityObservationWindow.
-	// ObservationsTotal counts the whole population, so a reader knows when
-	// the paged concord_work_trace.observations read holds more. Read-time
-	// visibility: no gate consumes this.
-	Observations        []WorkObservation            `json:"observations"`
-	ObservationsTotal   int64                        `json:"observations_total"`
-	ChangesProductTruth bool                         `json:"changes_product_truth"`
-	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
-	WorkPin             *WorkPin                     `json:"work_pin,omitempty"`
+	NativeRuns               []NativeRunReport            `json:"native_runs"`
+	RestartAvailable         bool                         `json:"restart_available"`
+	RestartUnavailableReason string                       `json:"restart_unavailable_reason"`
+	ChangesProductTruth      bool                         `json:"changes_product_truth"`
+	ArchitectureBinding      *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+	WorkPin                  *WorkPin                     `json:"work_pin,omitempty"`
 	// PendingProjectHandoff carries the frontier handoff addressed to the
 	// reading session's Project under the active contract, consumed or not,
 	// so every session of the receiving Project reads the bounded job
@@ -390,20 +379,13 @@ func (snapshot *ContinuitySnapshot) limitBoundaries(work string, offset, limit i
 	snapshot.NextCursor = &next
 }
 
-// LimitWindow returns a copy of one captured snapshot that keeps complete
-// prefixes: at most observations of the newest observation window and at
-// most boundaries of the boundary page. A caller fitting a byte budget uses
-// it, so every fitted variant derives from the same read transaction. The
-// observation total stays the population count; a truncated boundary page
-// carries a cursor that resumes at its first dropped boundary.
-func (snapshot ContinuitySnapshot) LimitWindow(req ContinuityRequest, observations, boundaries int) (ContinuitySnapshot, error) {
+// LimitWindow keeps a complete boundary prefix of one captured snapshot,
+// with a cursor that resumes at its first dropped boundary.
+func (snapshot ContinuitySnapshot) LimitWindow(req ContinuityRequest, boundaries int) (ContinuitySnapshot, error) {
 	// A boundary page that keeps no boundary cannot advance its cursor, so a
 	// non-empty page keeps at least one.
-	if observations < 0 || boundaries < 1 {
-		return snapshot, newFailure(KindInvalidPayload, "C19.Continuity", "continuity window bounds are out of range", false, "keep at least one boundary and no negative observation window")
-	}
-	if observations < len(snapshot.Observations) {
-		snapshot.Observations = append([]WorkObservation{}, snapshot.Observations[:observations]...)
+	if boundaries < 1 {
+		return snapshot, newFailure(KindInvalidPayload, "C19.Continuity", "continuity window bounds are out of range", false, "keep at least one boundary")
 	}
 	if boundaries < len(snapshot.Boundaries) {
 		offset, err := continuityOffset(req.Cursor, req.Work)
@@ -417,8 +399,7 @@ func (snapshot ContinuitySnapshot) LimitWindow(req ContinuityRequest, observatio
 }
 
 // continuityReadTrailingTx fills the snapshot's trailing scalar and list
-// fields: watermark, restart availability, pending messages, observations,
-// and native runs.
+// fields: watermark, restart availability, and native runs.
 func continuityReadTrailingTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
 	watermark, err := readWorkEffectSeq(ctx, tx, work)
 	if err != nil {
@@ -427,27 +408,13 @@ func continuityReadTrailingTx(ctx context.Context, tx *sql.Tx, work string, out 
 	out.Watermark = "seq:" + strconv.FormatInt(watermark, 10)
 	out.RestartAvailable = false
 	out.RestartUnavailableReason = "typed restart is deliberately excluded (CD-0027); pinned continuity is re-derived per call"
-	// Tx-scoped: this function holds a read transaction, and a second
-	// connection would deadlock on SQLite's single writer.
-	if countErr := tx.QueryRowContext(ctx, `SELECT count(*) FROM work_messages WHERE recipient_work_id=? AND state='sent'`, work).Scan(&out.PendingMessages); countErr != nil {
-		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot count pending messages", true, "retry once the database is readable", countErr)
-	}
 	nativeRuns, nativeErr := readWorkflowNativeRunsTx(ctx, tx, work)
 	if nativeErr != nil {
 		return nativeErr
 	}
 	out.NativeRuns = nativeRuns
-	page, err := observationsPageForWork(ctx, tx, WorkObservationsRequest{WorkID: work, Limit: ContinuityObservationWindow})
-	if err != nil {
-		return err
-	}
-	out.Observations, out.ObservationsTotal = page.Observations, page.Total
 	return nil
 }
-
-// ContinuityObservationWindow bounds the newest observations continuity
-// carries. The whole population pages through concord_work_trace.observations.
-const ContinuityObservationWindow = 16
 
 // readContinuityInstanceForRegistryTx is the registry-threaded continuity
 // instance phase: a caller registry verifies the stored pin and seats the

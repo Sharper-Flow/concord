@@ -128,7 +128,7 @@ func TestLawFreshnessDisclosureThroughInvoke(t *testing.T) {
 			requireLawFreshnessNotice(t, invoke("concord_product_view", "snapshot", map[string]any{"product_id": "product-1"}))
 			for _, response := range []agentcontract.Envelope{
 				invoke("concord_product_view", "resolve", map[string]any{"product_id": "product-1"}),
-				invoke("concord_work_browse", "messages", map[string]any{"product_id": "product-1", "work_id": workID}),
+				invoke("concord_work_trace", "relations", map[string]any{"work_id": workID}),
 			} {
 				for _, warning := range response.Warnings {
 					if warning.Kind == "law_remote_freshness_unchecked" {

@@ -20,20 +20,17 @@ import (
 // op: the fields the op requires for reasons other than pagination. A
 // paginated op missing here is a missing maintenance entry, not a skip.
 var paginationBaseInputs = map[string]map[string]any{
-	"concord_product_view.resolve":             {},
-	"concord_product_view.snapshot":            {},
-	"concord_work_browse.list":                 {},
-	"concord_work_browse.ready":                {},
-	"concord_work_browse.blocked":              {},
-	"concord_work_browse.scope":                {"product_id": "prod-alpha", "work_id": "work-done"},
-	"concord_work_browse.messages":             {"product_id": "prod-alpha", "work_id": "work-done"},
-	"concord_work_trace.history":               {"work_id": "work-done"},
-	"concord_work_trace.observations":          {"work_id": "work-done"},
-	"concord_work_trace.external_observations": {"work_id": "work-done"},
-	"concord_work_trace.continuity":            {"work_id": "work-done"},
-	"concord_work_trace.mutation_result":       {"source_tool": "concord_work_relate", "source_operation": "message_send", "idempotency_key": "pagination-message", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
-	"concord_work_trace.research":              {"product_id": "prod-alpha", "work_id": "work-done"},
-	"concord_domain.list":                      {"product_id": "prod-alpha"},
+	"concord_product_view.resolve":       {},
+	"concord_product_view.snapshot":      {},
+	"concord_work_browse.list":           {},
+	"concord_work_browse.ready":          {},
+	"concord_work_browse.blocked":        {},
+	"concord_work_browse.scope":          {"product_id": "prod-alpha", "work_id": "work-done"},
+	"concord_work_trace.history":         {"work_id": "work-done"},
+	"concord_work_trace.continuity":      {"work_id": "work-done"},
+	"concord_work_trace.mutation_result": {"source_tool": "concord_work_transition", "source_operation": "workflow_action", "idempotency_key": "pagination-workflow", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+	"concord_work_trace.research":        {"product_id": "prod-alpha", "work_id": "work-done"},
+	"concord_domain.list":                {"product_id": "prod-alpha"},
 }
 
 // paginatedReadOperations derives the paginated read set from the generated

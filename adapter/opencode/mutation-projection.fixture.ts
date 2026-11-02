@@ -18,7 +18,7 @@ export function largeMutationPayload() {
   }
 }
 
-export function mutationProjectionFixture(payload: Record<string, any> = largeMutationPayload(), tool = "concord_work_relate", operation = "message_send", key = "projection-key") {
+export function mutationProjectionFixture(payload: Record<string, any> = largeMutationPayload(), tool = "concord_work_transition", operation = "workflow_action", key = "projection-key") {
   const document = JSON.stringify(payload)
   const digest = `sha256:${createHash("sha256").update(document).digest("hex")}`
   const total_bytes = Buffer.byteLength(document)

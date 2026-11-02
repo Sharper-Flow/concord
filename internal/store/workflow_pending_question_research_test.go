@@ -1,0 +1,163 @@
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+)
+
+// CD-0129 D3: recorded open questions require bound research at contract
+// approval.
+func TestPendingQuestionsRequireBoundResearchRevision(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	workID := "investigation-gate-research"
+	actor, version := continuityTestWorkflow(t, s, workID)
+	_, err := continuityAction(t, s, workID, version, "checkpoint_context", "investigation-gate-checkpoint", map[string]any{
+		"active_unit":       "unit:implementation",
+		"hypothesis":        "hypothesis:one",
+		"diagnosis":         "diagnosis:one",
+		"strategy":          "strategy:one",
+		"touched_refs":      []string{"ref:file"},
+		"evidence_refs":     []string{"evidence:one"},
+		"pending_questions": []string{"question:technical"},
+		"pending_decisions": []string{},
+	}, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := requireResearchForPendingQuestions(context.Background(), s.DatabaseForTesting(), workID); err == nil {
+		t.Fatal("approval admitted recorded pending questions without research")
+	} else {
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
+			t.Fatalf("pending-question refusal=%v, want missing evidence", err)
+		} else if !strings.Contains(failure.RecoveryAction, "research_bindings") || !strings.Contains(failure.RecoveryAction, "approving action") {
+			t.Fatalf("pending-question recovery=%q, want research_bindings on the approving action", failure.RecoveryAction)
+		}
+	}
+
+	pack := createSimplePack(t, s, "investigation-gate-research", workID)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = BindResearchRelianceTx(context.Background(), tx, workID, []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}}, time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC))
+	leaveErr := leaveWrite(context.Background(), tx)
+	if err == nil {
+		err = leaveErr
+	}
+	if err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireResearchForPendingQuestions(context.Background(), s.DatabaseForTesting(), workID); err != nil {
+		t.Fatalf("bound research revision did not admit approval: %v", err)
+	}
+}
+
+func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
+	s := openTemp(t)
+	workID := "investigation-gate-same-action"
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	actor := WorkflowActor{PrincipalRef: "principal:investigation", ClientRef: "client:investigation", AgentRef: "agent:investigation", SessionRef: "session:investigation", ActorClass: ActorAgent}
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	version := int64(4)
+	for _, action := range []string{"record_proposal", "record_alignment"} {
+		version = issue31WorkflowAction(t, s, workID, version, action, "same-action-"+action, actor)
+	}
+	version, err = continuityAction(t, s, workID, version, "checkpoint_context", "same-action-checkpoint", map[string]any{
+		"active_unit":       "unit:implementation",
+		"hypothesis":        "hypothesis:one",
+		"diagnosis":         "diagnosis:one",
+		"strategy":          "strategy:one",
+		"touched_refs":      []string{"ref:file"},
+		"evidence_refs":     []string{"evidence:one"},
+		"pending_questions": []string{"question:technical"},
+		"pending_decisions": []string{},
+	}, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pack := createSimplePack(t, s, "same-action", workID)
+	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
+	if err := applyPendingQuestionApproval(t, s, workID, version, "same-action-refusal", actor, approval, nil); err == nil {
+		t.Fatal("approve_contract admitted pending questions without research_bindings")
+	} else {
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
+			t.Fatalf("pending-question refusal=%v, want missing evidence", err)
+		}
+		if failure.Detail != "contract approval requires a research pack revision for recorded pending questions" || !strings.Contains(failure.RecoveryAction, "add research_bindings to the approving action") {
+			t.Fatalf("planning exit did not name its missing requirement and admitted recovery: %+v", failure)
+		}
+		if readWorkVersion(t, s, workID) != version || readInstanceStep(t, s, workID) != "planning" {
+			t.Fatal("missing research advanced the planning exit")
+		}
+	}
+	if err := applyPendingQuestionApproval(t, s, workID, version, "same-action-approval", actor, approval, []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}}); err != nil {
+		t.Fatalf("approve_contract with same-action research_bindings refused: %v", err)
+	}
+	var consumers int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_consumers WHERE consumer_work_id=? AND pack_id=? AND revision=?`, workID, pack.PackID, 1).Scan(&consumers); err != nil {
+		t.Fatal(err)
+	}
+	if consumers != 1 {
+		t.Fatalf("same-action research binding count=%d, want 1", consumers)
+	}
+	if readInstanceStep(t, s, workID) != "design" {
+		t.Fatal("the refusal's same-action research recovery did not admit the planning exit")
+	}
+}
+
+func applyPendingQuestionApproval(t *testing.T, s *Store, workID string, version int64, operationID string, actor WorkflowActor, payload json.RawMessage, bindings []ResearchBindingDeclaration) error {
+	t.Helper()
+	payload = testApprovalPayload(t, s, workID, "approve_contract", payload)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
+	if err != nil {
+		return err
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor,
+		AcceptedInputsDigest: "sha256:pending-question-research", IdempotencyIdentity: operationID, OperationID: operationID,
+		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
+		RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), ResearchBindings: bindings,
+	})
+	if leaveErr := leaveWrite(context.Background(), tx); actionErr == nil {
+		actionErr = leaveErr
+	}
+	if actionErr != nil {
+		_ = tx.Rollback()
+		return actionErr
+	}
+	return tx.Commit()
+}

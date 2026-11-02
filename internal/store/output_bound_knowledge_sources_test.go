@@ -161,22 +161,21 @@ func init() {
 	// admits each ref up to 256 code points through its inline comparison pair,
 	// and the domain_observations refs CHECK bounds only the array count.
 	registerOutputBound("/$defs/domain_observation/properties/refs/items/maxLength",
-		goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(ref)", boundCharacters))
+		goInlineBound("internal/store/domain_observations.go", "validateObservationBounds", "utf8.RuneCountInString(ref)", boundCharacters))
 
-	// The refs array is folded under the same count guard the CD-0030
-	// work-observation fold applies before the row exists.
-	registerOutputBound("/$defs/domain_observation/properties/refs/maxItems", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(refs)", boundItems))
+	// The refs array is folded under its count guard before the row exists.
+	registerOutputBound("/$defs/domain_observation/properties/refs/maxItems", goInlineBound("internal/store/domain_observations.go", "validateObservationBounds", "len(refs)", boundItems))
 
-	// The statement is folded under the same full-string code-point guard the
-	// CD-0030 work-observation fold applies before the row exists.
-	registerOutputBound("/$defs/domain_observation/properties/statement/maxLength", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(statement)", boundCharacters))
+	// The statement is folded under its full-string code-point guard before
+	// the row exists.
+	registerOutputBound("/$defs/domain_observation/properties/statement/maxLength", goInlineBound("internal/store/domain_observations.go", "validateObservationBounds", "utf8.RuneCountInString(statement)", boundCharacters))
 
 	// Tag items ride the same fold validation: at most 32 code points per tag.
 	registerOutputBound("/$defs/domain_observation/properties/tags/items/maxLength",
-		goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(tag)", boundCharacters))
+		goInlineBound("internal/store/domain_observations.go", "validateObservationBounds", "utf8.RuneCountInString(tag)", boundCharacters))
 
 	// The tags array is folded under the same count guard.
-	registerOutputBound("/$defs/domain_observation/properties/tags/maxItems", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tags)", boundItems))
+	registerOutputBound("/$defs/domain_observation/properties/tags/maxItems", goInlineBound("internal/store/domain_observations.go", "validateObservationBounds", "len(tags)", boundItems))
 
 	// ------------------------------------------------------------------
 	// domain registry (embedded in C22 results)

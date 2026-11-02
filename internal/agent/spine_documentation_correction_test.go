@@ -29,10 +29,6 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 	f.review(t, "ready_for_final_proof", f.proof)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	f.advanceToAcceptance(t)
-	spineOK(t, f.call(t, "concord_work_define", "observation_record", map[string]any{
-		"work_id": f.work, "statement": "Only the Value documentation changed from eight to seven; the unchanged implementation and its check both return seven.",
-		"refs": []string{f.read(t).Pinned.Contract.ArchitectureBinding.HomeDomainID, f.proof}, "idempotency_key": "doc-correction-observation",
-	}))
 	spineOK(t, f.action(t, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof}}}}))
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
 		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise", "idempotency_key": "doc-correction-confirm",

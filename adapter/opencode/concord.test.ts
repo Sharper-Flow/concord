@@ -939,9 +939,9 @@ test("host publication round-trips check predicate payloads unchanged", async ()
 })
 
 test("confirm_premise refusals come from the core, not the adapter", async () => {
-  // The core owns the investigation-artifact gate and its refusal.
+  // The core owns the acceptance-deliverables gate and its refusal.
   const artifactRefusal = coreEnvelope("concord_work_transition", "workflow_action", "error", {
-    error: { kind: "missing_evidence", retry_safe: false, recovery_action: { kind: "provide_evidence" }, effect_state: "none", message: "premise confirmation requires a recorded investigation artifact naming a current Domain of the Product and another work item; its refs must hold the bare domain_id of the current Domain and the id of another work item" },
+    error: { kind: "missing_evidence", retry_safe: false, recovery_action: { kind: "provide_evidence" }, effect_state: "none", message: "premise confirmation requires a recorded workflow verdict" },
   })
   const first = runnerWithContext(artifactRefusal)
   const result: any = await runWorkflowAction(first,
@@ -949,7 +949,7 @@ test("confirm_premise refusals come from the core, not the adapter", async () =>
   expect(first.calls()).toBe(2)
   expect(result.outcome).toBe("error")
   expect(result.origin).toBe("core")
-  expect(result.error.message).toContain("investigation artifact")
+  expect(result.error.message).toContain("recorded workflow verdict")
 
 })
 
@@ -969,7 +969,7 @@ for (const tampered of [false, true]) {
     adapter.configureConcordAdapter({ runner: { async run(argv, input) {
       if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
       const request = JSON.parse(input)
-      if (request.operation === "message_send") {
+      if (request.operation === "workflow_action") {
         writes++
         return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", fixture.envelope)), stderr: "" }
       }
@@ -978,7 +978,7 @@ for (const tampered of [false, true]) {
       const page = fixture.pages[reads++]
       return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", page)), stderr: "" }
     } } })
-    const raw = await adapter.work_relate.execute(hostCall("message_send", { work_id: "work-projection-0", recipient_work_id: "work-projection-1", body: "A complete message", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
+    const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "record_work_context", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
     const output = typeof raw === "string" ? raw : raw.output
     const result = JSON.parse(output.split("\n")[0])
     expect(result.outcome).toBe("ok")
@@ -1002,7 +1002,7 @@ for (const capacity of ["room", "warnings-full", "bytes-full"] as const) {
     const fixture = mutationProjectionFixture()
     fixture.pages[0].result.offset++
     const core = {
-      ...coreEnvelope("concord_work_relate", "message_send", "ok", {
+      ...coreEnvelope("concord_work_transition", "workflow_action", "ok", {
         ...fixture.envelope,
         warnings: [...fixture.envelope.warnings, ...(capacity === "warnings-full" ? Array.from({ length: 15 }, () => ({ kind: "core_note" })) : [])],
       }),
@@ -1020,7 +1020,7 @@ for (const capacity of ["room", "warnings-full", "bytes-full"] as const) {
     adapter.configureConcordAdapter({ runner: { async run(argv, input) {
       if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
       const request = JSON.parse(input)
-      if (request.operation === "message_send") {
+      if (request.operation === "workflow_action") {
         writes++
         return { exitCode: 0, stdout: JSON.stringify(core), stderr: "" }
       }
@@ -1028,7 +1028,7 @@ for (const capacity of ["room", "warnings-full", "bytes-full"] as const) {
       reads++
       return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", fixture.pages[0])), stderr: "" }
     } } })
-    const raw = await adapter.work_relate.execute(hostCall("message_send", { idempotency_key: "projection-key" }), contextFor())
+    const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "record_work_context", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
     const output = typeof raw === "string" ? raw : raw.output
     const result = JSON.parse(output)
     expect(writes).toBe(1)

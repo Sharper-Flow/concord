@@ -694,7 +694,6 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", criterionAssociationPayload(proof.OperationRef, "predicate:return-route"), 0, reviewer); err != nil {
 		t.Fatalf("fresh verdict on the corrected contract: %v", err)
 	}
-	seedPremiseDeliverablesInvestigation(t, s, workID)
 	if err := pConfirmReceiptPremise(t, current); err != nil {
 		t.Fatalf("confirm the corrected premise: %v", err)
 	}

@@ -965,15 +965,6 @@ func init() {
 	// standard library takes any number of fractional-second digits
 	// (time/format.go stdFracSecond9), so the stored render is byte-ceiling
 	// only and the redundant schema caps go to the parent for removal.
-	registerOutputBound("/$defs/external_observation_page/properties/external_observations/items/properties/captured_at/maxLength", unboundedOutput("the capture fold stores the caller text parseRFC3339 admitted verbatim; time.Parse(time.RFC3339) accepts an unbounded fractional-second digit run, so ValidateExternalObservationCapture applies no length bound and the column projects verbatim", "internal/agent/runtime.go:readSizeRefusal"))
-	registerOutputBound("/$defs/external_observation_page/properties/external_observations/items/properties/divergence_policy_ref/maxLength", pkSprintfDigestRefBound())
-	registerOutputBound("/$defs/external_observation_page/properties/external_observations/items/properties/freshness_policy_ref/maxLength", pkSprintfDigestRefBound())
-	registerOutputBound("/$defs/external_observation_page/properties/external_observations/items/properties/observation_id/maxLength", goPatternBound("internal/store/external_observation.go", "externalObservationIDPattern"))
-	registerOutputBound("/$defs/external_observation_page/properties/external_observations/items/properties/reporting_authority_ref/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateExternalObservationCapture", "boundedString", "capture.ReportingAuthorityRef", 2, boundBytes))
-	registerOutputBound("/$defs/external_observation_page/properties/external_observations/items/properties/subject_ref/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateExternalObservationCapture", "boundedString", "capture.SubjectRef", 2, boundBytes))
-	registerOutputBound("/$defs/external_observation_page/properties/external_observations/items/properties/verified_at/maxLength", unboundedOutput("the verification fold stores the caller text parseRFC3339 admitted verbatim; time.Parse(time.RFC3339) accepts an unbounded fractional-second digit run, so ValidateExternalObservationVerification applies no length bound", "internal/agent/runtime.go:readSizeRefusal"))
-	registerOutputBound("/$defs/external_observation_page/properties/external_observations/items/properties/verifying_authority_ref/maxLength", goCallBound("internal/store/external_observation.go", "ValidateExternalObservationVerification", "boundedString", "", 2, boundBytes))
-	registerOutputBound("/$defs/external_observation_page/properties/external_observations/maxItems", goInlineBound("internal/store/work_external_observations.go", "externalObservationsForWork", "limit", boundItems))
 
 	// The shared mutation-result changed_refs producer keeps its own evidence:
 	// the research-retire path truncates its committed change list with
@@ -1011,12 +1002,6 @@ func init() {
 
 	// The output readback omits the anchor_token cap: ValidateObservedUniverse
 	// bounds the anchor only when coverage is complete.
-	registerOutputBound("/$defs/observed_universe_output/properties/applied_scope/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedString", "universe.AppliedScope", 2, boundBytes))
-	registerOutputBound("/$defs/observed_universe_output/properties/canonical_identity_key/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedString", "universe.CanonicalIdentityKey", 2, boundBytes))
-	registerOutputBound("/$defs/observed_universe_output/properties/observed_refs/items/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.ObservedRefs", 3, boundBytes))
-	registerOutputBound("/$defs/observed_universe_output/properties/observed_refs/maxItems", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.ObservedRefs", 1, boundItems))
-	registerOutputBound("/$defs/observed_universe_output/properties/omissions/items/maxLength", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.Omissions", 3, boundBytes))
-	registerOutputBound("/$defs/observed_universe_output/properties/omissions/maxItems", pkGuardArgBound("internal/store/external_observation.go", "ValidateObservedUniverse", "boundedStringList", "universe.Omissions", 1, boundItems))
 
 	registerOutputBound("/$defs/product_context/properties/candidates/maxItems", maxBound(
 		goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems),
@@ -1054,21 +1039,6 @@ func init() {
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/producer_watermark/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "workflowString", "p.ProducerWatermark", 1, boundBytes))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/created_at/maxLength", pkTimeLayoutWidthBound("internal/store/lifecycle.go", "insertRelation", "time.RFC3339Nano"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
-
-	registerOutputBound("/$defs/work_messages_page/properties/messages/items/properties/body/maxLength", goInlineBound("internal/store/work_messages.go", "foldMessageSent", "len(p.Body)", boundBytes))
-	registerOutputBound("/$defs/work_messages_page/properties/messages/items/properties/message_id/maxLength", goPatternBound("internal/store/work_messages.go", "messageIDPattern"))
-	registerOutputBound("/$defs/work_messages_page/properties/messages/items/properties/sent_at/maxLength", pkTimeLayoutWidthBound("internal/store/work_messages.go", "foldMessageSent", "time.RFC3339Nano"))
-	registerOutputBound("/$defs/work_messages_page/properties/messages/items/properties/withdrawn_at/maxLength", pkTimeLayoutWidthBound("internal/store/work_messages.go", "foldMessageWithdrawn", "time.RFC3339Nano"))
-	registerOutputBound("/$defs/work_messages_page/properties/messages/maxItems", goInlineBound("internal/store/work_messages.go", "messagesForWork", "limit", boundItems))
-
-	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/observation_id/maxLength", goPatternBound("internal/store/work_observations.go", "observationIDPattern"))
-	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/recorded_at/maxLength", pkTimeLayoutWidthBound("internal/store/work_observations.go", "foldWorkObservationRecorded", "time.RFC3339Nano"))
-	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/refs/items/maxLength", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(ref)", boundCharacters))
-	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/refs/maxItems", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(refs)", boundItems))
-	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/statement/maxLength", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(statement)", boundCharacters))
-	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/tags/items/maxLength", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(tag)", boundCharacters))
-	registerOutputBound("/$defs/work_observation_page/properties/observations/items/properties/tags/maxItems", goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tags)", boundItems))
-	registerOutputBound("/$defs/work_observation_page/properties/observations/maxItems", goInlineBound("internal/store/work_observations.go", "observationReadLimit", "limit", boundItems))
 
 	registerOutputBound("/$defs/work_page/properties/items/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 	registerOutputBound("/$defs/work_page/properties/readiness_evidence/maxItems", pkFieldNeverWrittenBound("readiness_evidence", boundItems, "internal/agent/runtime.go", "internal/agent/runtime_read_handlers.go"))
@@ -2470,7 +2440,6 @@ func TestPkDerivations(t *testing.T) {
 		"record effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord"), "pin aggregate": pkSubsetChainItemsBound(pkPlanEffectWorkPinsBound("internal/agent/mutations.go"), pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"}, pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"}),
 		"consume effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume"),
 		"registry hash":  pkHexDigestConstructionBound("internal/store/knowledge_record.go", "domainRegistryContentHash"),
-		"body guard":     goInlineBound("internal/store/work_messages.go", "foldMessageSent", "len(p.Body)", boundBytes),
 		"domain name":    goInlineBound("internal/store/knowledge_record.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Name)", boundCharacters),
 		"manifest id":    goInlineBound("internal/store/knowledge_record.go", "validManifestID", "utf8.RuneCountInString(value)", boundCharacters),
 		"blockers":       pkAppendSitesItemsBound("internal/store/project_handoffs.go", "EvaluateProjectSessionRetirement", "out.Blockers"),

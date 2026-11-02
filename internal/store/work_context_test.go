@@ -951,9 +951,6 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	if err := journey.action(t, "record_verdict", criterionAssociationPayload(proof.OperationRef, "predicate:work-context"), fixture.owner); err != nil {
 		t.Fatalf("associate captured criterion proof: %v", err)
 	}
-	seedComparisonObservation(t, fixture.store, fixture.workID)
-	// The confirmation fold reads the committed Domain registry inside its
-	// transaction; the proof is established before the transaction opens.
 	ctx, err := prepareTerminalTestContext(t.Context(), fixture.store, fixture.workID, "confirm_premise")
 	if err != nil {
 		t.Fatal(err)

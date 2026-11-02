@@ -937,7 +937,7 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 		}
 	}
 	untouched := map[string]string{}
-	for _, table := range []string{"relations", "work_messages", "workflow_contracts", "workflow_checkpoints", "linear_issue_links", "active_research_revisions"} {
+	for _, table := range []string{"relations", "workflow_contracts", "workflow_checkpoints", "linear_issue_links", "active_research_revisions"} {
 		untouched[table] = cutoverTableSnapshot(t, s, table)
 	}
 	eventsBefore := countRows(t, s, "effect_receipts")

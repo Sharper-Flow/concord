@@ -6,13 +6,11 @@ import (
 
 // rAcceptance seeds a workflow.implementation item at acceptance through the
 // current owners: a current integrated candidate, a captured receipt, Main's
-// accepted Review, Main's criterion association when associate is set, and the
-// recorded investigation. domains is the active contract's decision fact; a
-// investigation false leaves the investigation unrecorded. A
-// non-empty fact revises the seeded engineering contract through the
+// accepted Review, and Main's criterion association when associate is set.
+// domains is the active contract's decision fact; a non-empty fact revises the seeded engineering contract through the
 // ordinary update before the candidate is reviewed, so every proof binds the
 // decision-bearing successor.
-func rAcceptance(t *testing.T, workID string, domains []string, associate, investigation bool) acceptanceRecoveryFixture {
+func rAcceptance(t *testing.T, workID string, domains []string, associate bool) acceptanceRecoveryFixture {
 	t.Helper()
 	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.implementation"), "execution", []string{"verification"}, []string{"verification", "review", "artifact"})
 	t.Cleanup(func() { _ = route.store.Close() })
@@ -20,7 +18,7 @@ func rAcceptance(t *testing.T, workID string, domains []string, associate, inves
 	if len(domains) > 0 {
 		rReviseContract(t, f.store, workID, ownerRefForTest(t, f.owner), domains)
 	}
-	return qAssociateCurrentProof(t, f, "", associate, investigation)
+	return qAssociateCurrentProof(t, f, "", associate)
 }
 
 // rReviseContract updates the active contract with a successor that keeps
@@ -54,11 +52,10 @@ func rComplete(t *testing.T, f acceptanceRecoveryFixture) error {
 
 // rAcceptanceModel is the abstract admission state of an rAcceptance item:
 // one active contract, the recorded Review of the current candidate with its
-// criterion association
-// (the model's ok verdict), and the recorded investigation.
+// criterion association (the model's ok verdict).
 func rAcceptanceModel() admissionModelState {
 	return admissionModelState{
-		step: "acceptance", contracts: 1, verdict: "ok", artifact: true,
+		step: "acceptance", contracts: 1, verdict: "ok",
 		review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
 	}
 }

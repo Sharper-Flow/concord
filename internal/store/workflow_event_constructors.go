@@ -634,9 +634,6 @@ func validateWorkflowCoordinatorConfirmationTx(ctx context.Context, tx *sql.Tx, 
 	if tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, actor).Scan(&invokerClass) != nil || invokerClass != "agent" {
 		return newFailure(KindInvalidOperation, "workflow_action", "an engineering premise confirmation records the authenticated coordinator actor", false, "confirm under an agent-class coordinator identity")
 	}
-	if err := requireRecordedInvestigationArtifact(ctx, tx, request.WorkID); err != nil {
-		return err
-	}
 	if err := requireAcceptanceDeliverables(ctx, tx, definition, request.WorkID); err != nil {
 		return err
 	}

@@ -101,11 +101,6 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 	if workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
 		t.Fatal("acceptance advertises recovery after proof and required kinds are satisfied")
 	}
-	seedWork(t, s, workID+"-compared")
-	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("9", 16), []string{"root", workID + "-compared"})
-	// The confirmation's investigation-Domain fold reads the verified
-	// committed registry inside its transaction, so the proof is established
-	// before the action transaction opens.
 	if err := (acceptanceRecoveryFixture{store: s, workID: workID, owner: f.owner, operator: f.operator}).run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
 		t.Fatalf("confirm successor: %v", err)
 	}

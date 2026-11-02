@@ -62,10 +62,6 @@ const continuityWith = (view: unknown, marker: unknown): Record<string, unknown>
   ),
   boundaries: { count: 0, items: [], next_cursor: null, watermark: "seq:1" },
   typed_availability: { restart: "unavailable", reason: "unavailable" },
-  pending_messages: 0,
-  observations: [],
-  observations_total: 0,
-  observations_read: { tool: "concord_work_trace", operation: "observations", input: { work_id: "work-test" } },
 })
 
 describe("work context unavailable schema", () => {

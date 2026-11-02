@@ -203,13 +203,13 @@ func recordApprovalActors(t *testing.T, s *Store, workID string) reviewerOperato
 }
 
 // seedApprovalItemAtAcceptance parks a builtin workflow.implementation item at
-// acceptance through rAcceptance, with Main's criterion association and the
-// recorded investigation, then records the actor triple. domains is the
+// acceptance through rAcceptance, with Main's criterion association, then
+// records the actor triple. domains is the
 // active contract's decision fact. The owner it returns is the executing
 // coordinator.
 func seedApprovalItemAtAcceptance(t *testing.T, workID string, domains []string) (*Store, DefinitionRegistry, WorkflowDefinition, WorkflowActor) {
 	t.Helper()
-	f := rAcceptance(t, workID, domains, true, true)
+	f := rAcceptance(t, workID, domains, true)
 	recordApprovalActors(t, f.store, workID)
 	return f.store, BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation").Definition, f.owner
 }
@@ -221,7 +221,7 @@ func seedApprovalItemAtAcceptance(t *testing.T, workID string, domains []string)
 // definition.Version, so the contract write
 // keeps its legacy-shape absence; the legacy twin is the registry's only, and
 // so current, registration while the item selects it and records its history.
-// The investigation observation is recorded through its real fold. The higher
+// The higher
 // same-ref consequence_v1 version is then registered for its actual digest, and
 // a real WorkflowDefinitionSelected event carries the instance forward through
 // the registered fold to it: the carry forward
@@ -277,7 +277,6 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
 	})
 	advanceResolutionDelivery(t, s, registry, workID, owner)
-	seedResolutionInvestigation(t, s, workID)
 	// The absent-fact state the carry forward must preserve: the contract
 	// payload carries no decision_domains member, and the projection stores
 	// NULL absence.
@@ -444,36 +443,10 @@ func TestCoordinatorConfirmationTerminalEngineering(t *testing.T) {
 		assertNoFoldGuardRows(t, s)
 	})
 
-	t.Run("engineering confirmation refuses on the recorded investigation", func(t *testing.T) {
-		t.Parallel()
-		const workID = "approval-terminal-engineering-investigation"
-		f := rAcceptance(t, workID, []string{}, true, false)
-		s, registry, definition, owner := f.store, BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation").Definition, f.owner
-		// No investigation observation is recorded: the confirmation requires
-		// it, and the refusal is that requirement's typed failure.
-		baselineVersion := readWorkVersion(t, s, workID)
-		baselineEvents := int64(approvalEventCount(t, s, workID))
-		err := runCoordinatorActionTx(t, s, registry, workID, "confirm_premise", owner, `{}`)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) {
-			t.Fatalf("engineering confirmation without the recorded investigation returned %v, want a typed refusal", err)
-		}
-		if failure.Kind != KindMissingEvidence {
-			t.Fatalf("engineering confirmation without the recorded investigation refused with %v, want the investigation's typed missing-evidence refusal", err)
-		}
-		// The folded admission carries the same prerequisite refusal.
-		state := foldedApprovalAdmission(t, s, registry, definition, workID)
-		var foldedFailure *Failure
-		if state.AcceptanceDeliverablesMissing == nil || !failureAs(state.AcceptanceDeliverablesMissing, &foldedFailure) || foldedFailure.Kind != KindMissingEvidence {
-			t.Fatalf("the engineering fold carries %+v, want the folded investigation refusal", state.AcceptanceDeliverablesMissing)
-		}
-		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
-	})
-
 	t.Run("engineering confirmation refuses on missing acceptance deliverables", func(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-terminal-engineering-deliverables"
-		f := rAcceptance(t, workID, []string{}, false, true)
+		f := rAcceptance(t, workID, []string{}, false)
 		s, registry, owner := f.store, BuiltinWorkflowRegistry(), f.owner
 		// Main has not associated the accepted Review with the criteria: the
 		// deliverables gate refuses.
@@ -499,15 +472,14 @@ func TestCoordinatorConfirmationTerminalEngineering(t *testing.T) {
 		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
 	})
 
-	t.Run("engineering fold preserves an earlier staleness behind a missing investigation", func(t *testing.T) {
+	t.Run("engineering fold preserves an earlier staleness", func(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-terminal-engineering-stale-subject"
-		f := rAcceptance(t, workID, []string{}, true, false)
+		f := rAcceptance(t, workID, []string{}, true)
 		s, definition := f.store, mustBuiltinDefinition(t, "workflow.implementation").Definition
-		// No investigation observation is recorded, and the acceptance
-		// subject staleness folded first. Direct state over the real seed:
-		// the engineering gate must preserve the earlier typed failure, not
-		// overwrite it with the investigation's missing-evidence refusal.
+		// The acceptance subject staleness folded first. Direct state over
+		// the real seed: the engineering gate must preserve the earlier typed
+		// failure, not overwrite it with a later prerequisite refusal.
 		stale := newFailure(KindStaleRequiresReview, "workflow_action", "the accepted review subject is stale: the artifact was re-produced after its acceptance", false, "record a fresh verdict for the re-produced artifact")
 		ctx := context.Background()
 		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)

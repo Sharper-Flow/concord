@@ -731,10 +731,6 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "boundaries": {},
         "next_kind": {},
-        "observations": {},
-        "observations_read": {},
-        "observations_total": {},
-        "pending_messages": {},
         "pinned": {},
         "projection_page": {},
         "typed_availability": {},
@@ -777,94 +773,6 @@ const GeneratedPayloadSchemaDocument = `{
             "watermark"
           ],
           "type": "object"
-        },
-        "observations": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "observation_id": {
-                "$ref": "#/$defs/id"
-              },
-              "recorded_at": {
-                "maxLength": 58,
-                "minLength": 10,
-                "type": "string"
-              },
-              "refs": {
-                "items": {
-                  "maxLength": 256,
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "maxItems": 16,
-                "type": "array"
-              },
-              "statement": {
-                "maxLength": 512,
-                "minLength": 1,
-                "type": "string"
-              },
-              "tags": {
-                "items": {
-                  "maxLength": 32,
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "maxItems": 8,
-                "type": "array"
-              },
-              "work_id": {
-                "$ref": "#/$defs/id"
-              }
-            },
-            "required": [
-              "observation_id",
-              "work_id",
-              "statement",
-              "recorded_at"
-            ],
-            "type": "object"
-          },
-          "maxItems": 16,
-          "type": "array"
-        },
-        "observations_read": {
-          "additionalProperties": false,
-          "description": "The paged read of the whole observation population, newest first. The observations field holds only the newest window that fits the envelope.",
-          "properties": {
-            "input": {
-              "additionalProperties": false,
-              "properties": {
-                "work_id": {
-                  "$ref": "#/$defs/id"
-                }
-              },
-              "required": [
-                "work_id"
-              ],
-              "type": "object"
-            },
-            "operation": {
-              "const": "observations"
-            },
-            "tool": {
-              "const": "concord_work_trace"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "input"
-          ],
-          "type": "object"
-        },
-        "observations_total": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "pending_messages": {
-          "minimum": 0,
-          "type": "integer"
         },
         "pinned": {
           "additionalProperties": false,
@@ -998,11 +906,7 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "pinned",
         "boundaries",
-        "typed_availability",
-        "pending_messages",
-        "observations",
-        "observations_total",
-        "observations_read"
+        "typed_availability"
       ],
       "type": "object"
     },
@@ -1468,151 +1372,6 @@ const GeneratedPayloadSchemaDocument = `{
         "verification"
       ],
       "type": "string"
-    },
-    "external_observation_input": {
-      "additionalProperties": false,
-      "properties": {
-        "limit": {
-          "default": 10,
-          "description": "Bounds: 1..64 value inclusive",
-          "maximum": 64,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id"
-      ],
-      "type": "object"
-    },
-    "external_observation_page": {
-      "additionalProperties": false,
-      "properties": {
-        "external_observations": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "capture_method": {
-                "enum": [
-                  "trusted_client_report",
-                  "git_probe"
-                ],
-                "type": "string"
-              },
-              "captured_at": {
-                "minLength": 20,
-                "type": "string"
-              },
-              "divergence_policy_ref": {
-                "maxLength": 256,
-                "minLength": 1,
-                "type": "string"
-              },
-              "freshness_policy_ref": {
-                "maxLength": 256,
-                "minLength": 1,
-                "type": "string"
-              },
-              "freshness_state": {
-                "enum": [
-                  "verified",
-                  "stale",
-                  "unverified",
-                  "unverifiable",
-                  "diverged_expected",
-                  "diverged_unexpected"
-                ],
-                "type": "string"
-              },
-              "observation_id": {
-                "maxLength": 21,
-                "minLength": 21,
-                "pattern": "^xobs:[0-9a-f]{16}$",
-                "type": "string"
-              },
-              "observed_universe": {
-                "$ref": "#/$defs/observed_universe_output"
-              },
-              "reporting_authority_ref": {
-                "maxLength": 256,
-                "minLength": 1,
-                "type": "string"
-              },
-              "subject_digest": {
-                "pattern": "^sha256:[0-9a-f]{64}$",
-                "type": "string"
-              },
-              "subject_kind": {
-                "enum": [
-                  "native_run",
-                  "git_position",
-                  "recovery_artifact",
-                  "environment"
-                ],
-                "type": "string"
-              },
-              "subject_ref": {
-                "maxLength": 2048,
-                "minLength": 1,
-                "type": "string"
-              },
-              "verification_method": {
-                "enum": [
-                  "trusted_client_report",
-                  "git_probe"
-                ],
-                "type": "string"
-              },
-              "verification_state": {
-                "enum": [
-                  "unverified",
-                  "verified",
-                  "diverged_expected",
-                  "diverged_unexpected",
-                  "unverifiable"
-                ],
-                "type": "string"
-              },
-              "verified_at": {
-                "minLength": 20,
-                "type": "string"
-              },
-              "verifying_authority_ref": {
-                "maxLength": 256,
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "required": [
-              "observation_id",
-              "subject_kind",
-              "subject_ref",
-              "capture_method",
-              "captured_at",
-              "reporting_authority_ref",
-              "observed_universe",
-              "freshness_policy_ref",
-              "divergence_policy_ref",
-              "verification_state",
-              "freshness_state"
-            ],
-            "type": "object"
-          },
-          "maxItems": 64,
-          "type": "array"
-        }
-      },
-      "required": [
-        "external_observations"
-      ],
-      "type": "object"
     },
     "id": {
       "description": "Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
@@ -2272,14 +2031,12 @@ const GeneratedPayloadSchemaDocument = `{
                     },
                     "source_operation": {
                       "enum": [
-                        "message_send",
                         "workflow_action"
                       ],
                       "type": "string"
                     },
                     "source_tool": {
                       "enum": [
-                        "concord_work_relate",
                         "concord_work_transition"
                       ],
                       "type": "string"
@@ -2309,14 +2066,12 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "source_operation": {
               "enum": [
-                "message_send",
                 "workflow_action"
               ],
               "type": "string"
             },
             "source_tool": {
               "enum": [
-                "concord_work_relate",
                 "concord_work_transition"
               ],
               "type": "string"
@@ -2366,20 +2121,6 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "mutation_projection_source": {
       "oneOf": [
-        {
-          "properties": {
-            "source_operation": {
-              "const": "message_send"
-            },
-            "source_tool": {
-              "const": "concord_work_relate"
-            }
-          },
-          "required": [
-            "source_tool",
-            "source_operation"
-          ]
-        },
         {
           "properties": {
             "source_operation": {
@@ -2542,197 +2283,6 @@ const GeneratedPayloadSchemaDocument = `{
       "minLength": 1,
       "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
       "type": "string"
-    },
-    "observed_universe": {
-      "additionalProperties": false,
-      "properties": {
-        "anchor_token": {
-          "description": "Bounds: 1..2048 code points inclusive",
-          "maxLength": 2048,
-          "minLength": 1,
-          "type": "string"
-        },
-        "applied_scope": {
-          "description": "Bounds: 1..2048 code points inclusive",
-          "maxLength": 2048,
-          "minLength": 1,
-          "type": "string"
-        },
-        "canonical_identity_key": {
-          "description": "Bounds: 1..256 code points inclusive",
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        },
-        "completion_evidence": {
-          "enum": [
-            "authoritative_item_read",
-            "end_signal",
-            "closed_structure_digest",
-            "exhaustive_local"
-          ],
-          "type": "string"
-        },
-        "coverage": {
-          "enum": [
-            "complete",
-            "partial",
-            "unknown"
-          ],
-          "type": "string"
-        },
-        "observed_count": {
-          "description": "Bounds: >=0 value inclusive",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "observed_refs": {
-          "description": "Bounds: <=256 items inclusive",
-          "items": {
-            "description": "Bounds: 1..2048 code points inclusive",
-            "maxLength": 2048,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 256,
-          "type": "array"
-        },
-        "omissions": {
-          "description": "Bounds: <=256 items inclusive",
-          "items": {
-            "description": "Bounds: 1..2048 code points inclusive",
-            "maxLength": 2048,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 256,
-          "type": "array"
-        },
-        "shape": {
-          "enum": [
-            "item",
-            "collection",
-            "stream"
-          ],
-          "type": "string"
-        },
-        "structure_digest": {
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "type": "string"
-        },
-        "total_kind": {
-          "enum": [
-            "eq",
-            "gte",
-            "unknown"
-          ],
-          "type": "string"
-        },
-        "total_value": {
-          "description": "Bounds: >=0 value inclusive",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "shape",
-        "applied_scope",
-        "coverage",
-        "total_kind",
-        "canonical_identity_key"
-      ],
-      "type": "object"
-    },
-    "observed_universe_output": {
-      "additionalProperties": false,
-      "description": "Output readback of an observed universe. The capture fold admits any anchor token length when coverage is partial or unknown, so the readback carries no anchor_token maximum; authored observation input keeps the bounded observed_universe definition.",
-      "properties": {
-        "anchor_token": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "applied_scope": {
-          "maxLength": 2048,
-          "minLength": 1,
-          "type": "string"
-        },
-        "canonical_identity_key": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        },
-        "completion_evidence": {
-          "enum": [
-            "authoritative_item_read",
-            "end_signal",
-            "closed_structure_digest",
-            "exhaustive_local"
-          ],
-          "type": "string"
-        },
-        "coverage": {
-          "enum": [
-            "complete",
-            "partial",
-            "unknown"
-          ],
-          "type": "string"
-        },
-        "observed_count": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "observed_refs": {
-          "items": {
-            "maxLength": 2048,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 256,
-          "type": "array"
-        },
-        "omissions": {
-          "items": {
-            "maxLength": 2048,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 256,
-          "type": "array"
-        },
-        "shape": {
-          "enum": [
-            "item",
-            "collection",
-            "stream"
-          ],
-          "type": "string"
-        },
-        "structure_digest": {
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "type": "string"
-        },
-        "total_kind": {
-          "enum": [
-            "eq",
-            "gte",
-            "unknown"
-          ],
-          "type": "string"
-        },
-        "total_value": {
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "shape",
-        "applied_scope",
-        "coverage",
-        "total_kind",
-        "canonical_identity_key"
-      ],
-      "type": "object"
     },
     "page": {
       "additionalProperties": false,
@@ -4971,35 +4521,6 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "type": "object"
     },
-    "work_browse_messages_input": {
-      "additionalProperties": false,
-      "properties": {
-        "limit": {
-          "$ref": "#/$defs/limit",
-          "description": "Bounds: 1..100 value inclusive"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "product_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "product_id",
-        "work_id"
-      ],
-      "type": "object"
-    },
     "work_browse_ready_input": {
       "additionalProperties": false,
       "properties": {
@@ -5847,241 +5368,6 @@ const GeneratedPayloadSchemaDocument = `{
         "human_key",
         "remote_issue_uuid",
         "url",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "work_define_observation_record_input": {
-      "additionalProperties": false,
-      "oneOf": [
-        {
-          "not": {
-            "anyOf": [
-              {
-                "required": [
-                  "external"
-                ]
-              }
-            ]
-          },
-          "required": [
-            "statement"
-          ]
-        },
-        {
-          "not": {
-            "anyOf": [
-              {
-                "required": [
-                  "statement"
-                ]
-              }
-            ]
-          },
-          "required": [
-            "external"
-          ]
-        }
-      ],
-      "properties": {
-        "external": {
-          "additionalProperties": false,
-          "oneOf": [
-            {
-              "not": {
-                "anyOf": [
-                  {
-                    "required": [
-                      "verification_method"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "verified_at"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "result"
-                    ]
-                  }
-                ]
-              },
-              "required": [
-                "subject_kind",
-                "subject_ref",
-                "captured_at",
-                "observed_universe"
-              ]
-            },
-            {
-              "not": {
-                "anyOf": [
-                  {
-                    "required": [
-                      "subject_kind"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "subject_ref"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "captured_at"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "observed_universe"
-                    ]
-                  }
-                ]
-              },
-              "required": [
-                "verification_method",
-                "verified_at",
-                "result"
-              ]
-            }
-          ],
-          "properties": {
-            "captured_at": {
-              "description": "Bounds: 20..64 code points inclusive",
-              "format": "date-time",
-              "maxLength": 64,
-              "minLength": 20,
-              "type": "string"
-            },
-            "current_digest": {
-              "pattern": "^sha256:[0-9a-f]{64}$",
-              "type": "string"
-            },
-            "kind": {
-              "enum": [
-                "capture",
-                "verification"
-              ],
-              "type": "string"
-            },
-            "observation_id": {
-              "pattern": "^xobs:[0-9a-f]{16}$",
-              "type": "string"
-            },
-            "observed_universe": {
-              "$ref": "#/$defs/observed_universe"
-            },
-            "omissions": {
-              "description": "Bounds: <=256 items inclusive",
-              "items": {
-                "description": "Bounds: 1..2048 code points inclusive",
-                "maxLength": 2048,
-                "minLength": 1,
-                "type": "string"
-              },
-              "maxItems": 256,
-              "type": "array"
-            },
-            "result": {
-              "enum": [
-                "matched",
-                "diverged",
-                "unreachable",
-                "unavailable"
-              ],
-              "type": "string"
-            },
-            "subject_digest": {
-              "pattern": "^sha256:[0-9a-f]{64}$",
-              "type": "string"
-            },
-            "subject_kind": {
-              "enum": [
-                "native_run",
-                "git_position",
-                "recovery_artifact",
-                "environment"
-              ],
-              "type": "string"
-            },
-            "subject_ref": {
-              "description": "Bounds: 1..2048 code points inclusive",
-              "maxLength": 2048,
-              "minLength": 1,
-              "type": "string"
-            },
-            "verification_method": {
-              "enum": [
-                "trusted_client_report",
-                "git_probe"
-              ],
-              "type": "string"
-            },
-            "verified_at": {
-              "description": "Bounds: 20..64 code points inclusive",
-              "format": "date-time",
-              "maxLength": 64,
-              "minLength": 20,
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind",
-            "observation_id"
-          ],
-          "type": "object"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "observation_id": {
-          "description": "Bounds: 20..20 code points inclusive",
-          "maxLength": 20,
-          "minLength": 20,
-          "pattern": "^obs:[0-9a-f]{16}$",
-          "type": "string"
-        },
-        "refs": {
-          "description": "Bounds: <=16 items inclusive",
-          "items": {
-            "description": "Bounds: 1..256 code points inclusive",
-            "maxLength": 256,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 16,
-          "type": "array"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "statement": {
-          "description": "Bounds: 1..512 code points inclusive",
-          "maxLength": 512,
-          "minLength": 1,
-          "type": "string"
-        },
-        "tags": {
-          "description": "Bounds: <=8 items inclusive",
-          "items": {
-            "description": "Bounds: 1..32 code points inclusive",
-            "maxLength": 32,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 8,
-          "type": "array"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id",
         "idempotency_key"
       ],
       "type": "object"
@@ -6976,154 +6262,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "work_messages_page": {
-      "additionalProperties": false,
-      "properties": {
-        "messages": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "body": {
-                "maxLength": 4096,
-                "minLength": 1,
-                "type": "string"
-              },
-              "message_id": {
-                "maxLength": 36,
-                "minLength": 36,
-                "pattern": "^msg:[0-9a-f]{32}$",
-                "type": "string"
-              },
-              "recipient_work_id": {
-                "$ref": "#/$defs/retained_work_id"
-              },
-              "sender_work_id": {
-                "$ref": "#/$defs/retained_work_id"
-              },
-              "sent_at": {
-                "maxLength": 58,
-                "minLength": 10,
-                "type": "string"
-              },
-              "state": {
-                "enum": [
-                  "sent",
-                  "withdrawn"
-                ],
-                "type": "string"
-              },
-              "withdrawn_at": {
-                "maxLength": 58,
-                "minLength": 10,
-                "type": "string"
-              }
-            },
-            "required": [
-              "message_id",
-              "sender_work_id",
-              "recipient_work_id",
-              "body",
-              "state",
-              "sent_at"
-            ],
-            "type": "object"
-          },
-          "maxItems": 100,
-          "type": "array"
-        }
-      },
-      "required": [
-        "messages"
-      ],
-      "type": "object"
-    },
-    "work_observation_input": {
-      "additionalProperties": false,
-      "properties": {
-        "limit": {
-          "$ref": "#/$defs/limit",
-          "description": "Bounds: 1..100 value inclusive"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id"
-      ],
-      "type": "object"
-    },
-    "work_observation_page": {
-      "additionalProperties": false,
-      "properties": {
-        "observations": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "observation_id": {
-                "maxLength": 20,
-                "minLength": 20,
-                "pattern": "^obs:[0-9a-f]{16}$",
-                "type": "string"
-              },
-              "recorded_at": {
-                "maxLength": 58,
-                "minLength": 20,
-                "type": "string"
-              },
-              "refs": {
-                "items": {
-                  "maxLength": 256,
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "maxItems": 16,
-                "type": "array"
-              },
-              "statement": {
-                "maxLength": 512,
-                "minLength": 1,
-                "type": "string"
-              },
-              "tags": {
-                "items": {
-                  "maxLength": 32,
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "maxItems": 8,
-                "type": "array"
-              },
-              "work_id": {
-                "$ref": "#/$defs/retained_work_id"
-              }
-            },
-            "required": [
-              "observation_id",
-              "work_id",
-              "statement",
-              "recorded_at"
-            ],
-            "type": "object"
-          },
-          "maxItems": 64,
-          "type": "array"
-        },
-        "total": {
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "observations",
-        "total"
-      ],
-      "type": "object"
-    },
     "work_page": {
       "additionalProperties": false,
       "properties": {
@@ -7476,82 +6614,6 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "expected_version",
         "memberships",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "work_relate_message_send_input": {
-      "additionalProperties": false,
-      "properties": {
-        "body": {
-          "description": "Bounds: 1..4096 code points inclusive",
-          "maxLength": 4096,
-          "minLength": 1,
-          "type": "string"
-        },
-        "broadcast": {
-          "type": "boolean"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "recipient_work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id",
-        "body",
-        "expected_version",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "work_relate_message_withdraw_input": {
-      "additionalProperties": false,
-      "properties": {
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "message_id": {
-          "description": "Bounds: 36..36 code points inclusive",
-          "maxLength": 36,
-          "minLength": 36,
-          "pattern": "^msg:[0-9a-f]{32}$",
-          "type": "string"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id",
-        "message_id",
-        "expected_version",
         "idempotency_key"
       ],
       "type": "object"
@@ -8020,20 +7082,6 @@ const GeneratedPayloadSchemaDocument = `{
         {
           "properties": {
             "source_operation": {
-              "const": "message_send"
-            },
-            "source_tool": {
-              "const": "concord_work_relate"
-            }
-          },
-          "required": [
-            "source_tool",
-            "source_operation"
-          ]
-        },
-        {
-          "properties": {
-            "source_operation": {
               "const": "workflow_action"
             },
             "source_tool": {
@@ -8070,14 +7118,12 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "source_operation": {
           "enum": [
-            "message_send",
             "workflow_action"
           ],
           "type": "string"
         },
         "source_tool": {
           "enum": [
-            "concord_work_relate",
             "concord_work_transition"
           ],
           "type": "string"

@@ -204,11 +204,8 @@ func init() {
 	// id CHECK (internal/store/schema.go:228), so any retained identity
 	// length projects verbatim into work_summary.id and workflow_type_ref,
 	// work_pin.work_id (internal/store/workpin.go:335, beside the unguarded
-	// mutation identity copy at internal/store/workpin.go:159), the message
-	// endpoints (internal/store/work_messages.go:foldMessageSent), the
-	// relation edge endpoints (internal/store/lifecycle.go:insertRelation),
-	// the observation work_id
-	// (internal/store/work_observations.go:foldWorkObservationRecorded), and
+	// mutation identity copy at internal/store/workpin.go:159), the
+	// relation edge endpoints (internal/store/lifecycle.go:insertRelation), and
 	// the workflow read's copied query identity
 	// (internal/store/workflow_read.go:276). The managed pin read's own
 	// 2..128 argument check bounds only its query, never the stored value.
@@ -217,8 +214,8 @@ func init() {
 	registerOutputBound("/$defs/retained_work_id/maxLength", unboundedOutput(
 		"retained work identity has no complete-string guard: foldWorkCreated stores the event subject verbatim as "+
 			"work_items.id with presence-only checks (internal/store/lifecycle.go:230, internal/store/operation.go:1219) "+
-			"and work_items.id carries no CHECK (internal/store/schema.go:228); foldMessageSent, insertRelation, and "+
-			"foldWorkObservationRecorded store endpoint identities the same way, and the pin and workflow reads copy "+
+			"and work_items.id carries no CHECK (internal/store/schema.go:228); insertRelation stores endpoint identities "+
+			"the same way, and the pin and workflow reads copy "+
 			"the queried stored identity verbatim (internal/store/workpin.go:335, internal/store/workflow_read.go:276)",
 		"internal/agent/runtime.go:readSizeRefusal", "internal/agent/mutations.go:mutationResult"))
 

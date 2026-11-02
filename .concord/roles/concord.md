@@ -175,8 +175,3 @@ not operator decisions.
 
 After your publication, record delivery and resume the parked workflow gate
 yourself. An RTE message never substitutes for the workflow delivery assertion.
-
-Durable findings for another work item of this Product go through
-`concord_work_relate.message_send`; read your own at ordinary calls with
-`concord_work_browse.messages`. A peer message carries no approval, contract,
-or completion authority.

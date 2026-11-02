@@ -7,19 +7,17 @@ import (
 	"fmt"
 	"regexp"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
-// A Domain is a second observation anchor beside the work item. Domain
-// observations are non-authoritative in exactly the way work-anchored ones
-// are: no gate, no evidence kind, and no workflow action reads one as
+// Domain observations are non-authoritative: no gate, no evidence kind, and no workflow action reads one as
 // authority. Promotion to work stays the CD-0018 capture path.
 
 var domainObservationIDPattern = regexp.MustCompile(`^dob:[0-9a-f]{16}$`)
 
-// Observation states follow the two-state shape of work_messages:
-// dismissal flips state and never deletes, so the row survives for audit.
+// Dismissal flips state and never deletes, so the row survives for audit.
 const (
 	DomainObservationOpen      = "open"
 	DomainObservationDismissed = "dismissed"
@@ -57,6 +55,29 @@ type domainObservationDismissedPayload struct {
 	ObservationID string `json:"observation_id"`
 	ProductID     string `json:"product_id"`
 	DomainID      string `json:"domain_id"`
+}
+
+func validateObservationBounds(statement string, refs, tags []string) error {
+	if utf8.RuneCountInString(statement) < 1 || utf8.RuneCountInString(statement) > 512 {
+		return newFailure(KindInvalidPayload, "fold_event", "observation statement must be a bounded non-empty string", false, "supply a statement of at most 512 characters")
+	}
+	if len(refs) > 16 {
+		return newFailure(KindInvalidPayload, "fold_event", "observation carries too many refs", false, "supply at most sixteen refs")
+	}
+	for _, ref := range refs {
+		if utf8.RuneCountInString(ref) < 1 || utf8.RuneCountInString(ref) > 256 {
+			return newFailure(KindInvalidPayload, "fold_event", "observation refs must be bounded", false, "supply bounded refs")
+		}
+	}
+	if len(tags) > 8 {
+		return newFailure(KindInvalidPayload, "fold_event", "observation carries too many tags", false, "supply at most eight tags")
+	}
+	for _, tag := range tags {
+		if utf8.RuneCountInString(tag) < 1 || utf8.RuneCountInString(tag) > 32 {
+			return newFailure(KindInvalidPayload, "fold_event", "observation tags must be bounded", false, "supply bounded tags")
+		}
+	}
+	return nil
 }
 
 func validateCurrentDomain(ctx context.Context, tx *sql.Tx, productID, domainID string) error {
@@ -105,9 +126,9 @@ func foldDomainObservationRecorded(ctx context.Context, tx *sql.Tx, event Event)
 	if err := validateCurrentDomain(ctx, tx, p.ProductID, p.DomainID); err != nil {
 		return err
 	}
-	// A full window refuses and names the Domain. Eviction is
-	// rejected — dropping the oldest observation to admit a new one is the
-	// silent drop CD-0030 exists to prevent. Only open rows count.
+	// A full window refuses and names the Domain. Eviction is rejected:
+	// dropping the oldest observation to admit a new one would lose it
+	// silently. Only open rows count.
 	var open int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_observations WHERE product_id=? AND domain_id=? AND state=?`,
 		p.ProductID, p.DomainID, DomainObservationOpen).Scan(&open); err != nil {

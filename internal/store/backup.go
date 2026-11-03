@@ -65,7 +65,12 @@ type BackupManifest struct {
 
 // BackupDatabase snapshots an existing database without migrating or repairing
 // its schema. The read-only source open cannot create a missing database. The
-// snapshot and manifest must pass the backup verb's verification rules.
+// returned manifest comes from the verification Backup already ran: the copied
+// destination passes the SQLite triple, and the PM10 disposable-clone promotion
+// gate passes restore verification before the manifest is published. The verb
+// deliberately does not re-verify the published artifact a third time: the
+// whole cascade runs inside one caller deadline, and every consumer — restore,
+// retention, tests — applies VerifyBackup on use (CON-1613).
 func BackupDatabase(ctx context.Context, path, destination string) (BackupManifest, error) {
 	if strings.TrimSpace(path) == "" {
 		return BackupManifest{}, newFailure(KindInvalidOperation, "backup", "source database path is empty", false, "supply an existing database path")
@@ -79,10 +84,7 @@ func BackupDatabase(ctx context.Context, path, destination string) (BackupManife
 	}
 	s := &Store{db: db, path: path}
 	defer func() { _ = s.Close() }()
-	if _, err := Backup(ctx, s, destination); err != nil {
-		return BackupManifest{}, err
-	}
-	return VerifyBackup(ctx, destination)
+	return Backup(ctx, s, destination)
 }
 
 // Backup creates a self-contained SQLite snapshot with the Online Backup API.

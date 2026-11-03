@@ -325,11 +325,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          gh api --paginate "repos/$REPOSITORY/releases" \
-            --jq '.[] | select((.draft | not) and (.prerelease | not)) | .tag_name' \
-            > "$RUNNER_TEMP/published-tags.txt"
-          gh api "repos/$REPOSITORY/releases/latest" --jq .tag_name > "$RUNNER_TEMP/latest-tag.txt"
-          python3 - "$RUNNER_TEMP/published-tags.txt" "$RUNNER_TEMP/latest-tag.txt" <<'PY'
+          cat > "$RUNNER_TEMP/assert-latest.py" <<'PY'
           import sys
 
           sys.path.insert(0, "scripts")
@@ -348,3 +344,20 @@ jobs:
               )
           print(f"Latest names the highest published version: {latest_tag}")
           PY
+          # GitHub's release listing can lag a just-completed publish — the
+          # release action retries its own discovery for the same reason — so
+          # re-fetch both reads before treating a mismatch as real.
+          for attempt in 1 2 3 4 5; do
+            if gh api --paginate "repos/$REPOSITORY/releases" \
+                --jq '.[] | select((.draft | not) and (.prerelease | not)) | .tag_name' \
+                > "$RUNNER_TEMP/published-tags.txt" \
+              && gh api "repos/$REPOSITORY/releases/latest" --jq .tag_name \
+                > "$RUNNER_TEMP/latest-tag.txt" \
+              && python3 "$RUNNER_TEMP/assert-latest.py" \
+                "$RUNNER_TEMP/published-tags.txt" "$RUNNER_TEMP/latest-tag.txt"; then
+              exit 0
+            fi
+            echo "Latest does not name the highest published version yet (attempt $attempt of 5)."
+            sleep 5
+          done
+          exit 1

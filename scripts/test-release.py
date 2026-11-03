@@ -359,6 +359,14 @@ class ReleaseTests(unittest.TestCase):
                     ),
                 )
 
+    def split_step_heredoc(self, run: str) -> tuple[str, str, str]:
+        """Split a step's run block into its command, Python body, and trailing."""
+        command, separator, remainder = run.partition(" <<'PY'\n")
+        self.assertTrue(separator, "Python heredoc is missing")
+        body, terminator, trailing = remainder.partition("\nPY\n")
+        self.assertTrue(terminator, "heredoc terminator is missing")
+        return command, body, trailing
+
     def run_archive_verification(self, omitted: str | None = None) -> subprocess.CompletedProcess[str]:
         document = parse_release_workflow(WORKFLOW_PATH.read_text(encoding="utf-8"))
         steps = document["jobs"]["build-and-publish"]["steps"]
@@ -373,11 +381,8 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(step.get("continue-on-error", False))
         for name in ("Create annotated release tag", "Publish GitHub Release"):
             self.assertLess(index, next(i for i, item in enumerate(steps) if item.get("name") == name))
-        command, separator, remainder = step["run"].partition(" <<'PY'\n")
-        self.assertTrue(separator, "archive verification Python heredoc is missing")
+        command, body, trailing = self.split_step_heredoc(step["run"])
         self.assertTrue(command.splitlines()[-1].startswith('python3 - "release/upload/'))
-        body, terminator, trailing = remainder.partition("\nPY\n")
-        self.assertTrue(terminator, "archive verification Python terminator is missing")
         self.assertFalse(trailing.strip())
 
         root = WORKFLOW_PATH.parents[2]
@@ -447,16 +452,12 @@ class ReleaseTests(unittest.TestCase):
         steps = document["jobs"]["build-and-publish"]["steps"]
         matches = [step for step in steps if step.get("name") == step_name]
         self.assertEqual(len(matches), 1, f"expected exactly one {step_name!r} step")
-        command, separator, remainder = matches[0]["run"].partition(" <<'PY'\n")
-        self.assertTrue(separator, f"{step_name} Python heredoc is missing")
-        body, terminator, trailing = remainder.partition("\nPY\n")
-        self.assertTrue(terminator, f"{step_name} heredoc terminator is missing")
-        return command, body, trailing
+        return self.split_step_heredoc(matches[0]["run"])
 
-    def run_release_step_heredoc(
+    def run_inline_heredoc_step(
         self, step_name: str, arguments: list[str]
     ) -> subprocess.CompletedProcess[str]:
-        """Execute a workflow step's extracted heredoc with synthetic inputs."""
+        """Execute a step whose heredoc feeds `python3 -` with synthetic inputs."""
         command, body, _trailing = self.extract_python_heredoc(step_name)
         self.assertTrue(
             command.splitlines()[-1].startswith("python3 - "),
@@ -469,6 +470,27 @@ class ReleaseTests(unittest.TestCase):
             text=True,
             capture_output=True,
         )
+
+    def run_script_heredoc_step(
+        self, step_name: str, arguments: list[str]
+    ) -> subprocess.CompletedProcess[str]:
+        """Execute a step's heredoc as the script file the step writes."""
+        command, body, trailing = self.extract_python_heredoc(step_name)
+        self.assertTrue(
+            command.splitlines()[-1].startswith('cat > "$RUNNER_TEMP/'),
+            f"{step_name} must write its heredoc to a script file",
+        )
+        script_name = command.splitlines()[-1].split('"')[1].rsplit("/", 1)[-1]
+        self.assertIn(f'python3 "$RUNNER_TEMP/{script_name}"', trailing)
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / script_name
+            script.write_text(body, encoding="utf-8")
+            return subprocess.run(
+                [sys.executable, str(script), *arguments],
+                cwd=WORKFLOW_PATH.parents[2],
+                text=True,
+                capture_output=True,
+            )
 
     def write_lines(self, lines: list[str]) -> Path:
         handle = tempfile.TemporaryDirectory()
@@ -518,7 +540,7 @@ class ReleaseTests(unittest.TestCase):
         """Publishing v8.0.2 while v8.1.0 is published must not hold Latest."""
         with tempfile.TemporaryDirectory() as directory:
             decision = Path(directory) / "make-latest.txt"
-            result = self.run_release_step_heredoc(
+            result = self.run_inline_heredoc_step(
                 "Decide whether this publish holds the Latest flag",
                 ["v8.0.2", self.write_lines(["v8.0.1", "v8.1.0"]), decision],
             )
@@ -526,22 +548,23 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(decision.read_text(encoding="utf-8"), "false\n")
 
     def test_latest_decision_step_allows_a_new_highest_version(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            decision = Path(directory) / "make-latest.txt"
-            for version, published in (
-                ("v8.1.0", ["v8.0.1", "v8.0.2"]),
-                ("v8.1.0", ["v8.1.0"]),
+        for version, published in (
+            ("v8.1.0", ["v8.0.1", "v8.0.2"]),
+            ("v8.1.0", ["v8.1.0"]),
+        ):
+            with tempfile.TemporaryDirectory() as directory, self.subTest(
+                version=version, published=published
             ):
-                with self.subTest(version=version, published=published):
-                    result = self.run_release_step_heredoc(
-                        "Decide whether this publish holds the Latest flag",
-                        [version, self.write_lines(published), decision],
-                    )
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(decision.read_text(encoding="utf-8"), "true\n")
+                decision = Path(directory) / "make-latest.txt"
+                result = self.run_inline_heredoc_step(
+                    "Decide whether this publish holds the Latest flag",
+                    [version, self.write_lines(published), decision],
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(decision.read_text(encoding="utf-8"), "true\n")
 
     def test_latest_assertion_step_accepts_the_highest_holder(self) -> None:
-        result = self.run_release_step_heredoc(
+        result = self.run_script_heredoc_step(
             "Assert Latest names the highest published version",
             [self.write_lines(["v8.0.2", "v8.1.0"]), self.write_lines(["v8.1.0"])],
         )
@@ -549,7 +572,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("Latest names the highest published version: v8.1.0", result.stdout)
 
     def test_latest_assertion_step_rejects_an_older_holder(self) -> None:
-        result = self.run_release_step_heredoc(
+        result = self.run_script_heredoc_step(
             "Assert Latest names the highest published version",
             [self.write_lines(["v8.0.2", "v8.1.0"]), self.write_lines(["v8.0.2"])],
         )
@@ -639,7 +662,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(release.publish_holds_latest("v0.0.1", []))
 
     def test_publish_of_an_older_version_after_a_newer_one_leaves_latest(self) -> None:
-        """The 2026-09-09 shape: v8.0.2 publishing after v8.1.0 (CON-64)."""
+        """The 2026-09-09 shape: v8.0.2 publishing after v8.1.0."""
         self.assertFalse(release.publish_holds_latest("v8.0.2", ["v8.0.1", "v8.1.0"]))
 
     def test_equal_republish_of_the_highest_version_holds_latest(self) -> None:

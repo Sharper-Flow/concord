@@ -241,6 +241,7 @@ func TestLawPinUpgradeRetainsReviewAndRecovers(t *testing.T) {
 			}{
 				{"record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}},
 				{"pick_type", map[string]any{"type": "change", "reason": "Resume the unchanged candidate"}},
+				{"record_plan", map[string]any{"outcomes": "working outcome", "approach": "bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "which?", "choice": "one", "rationale": "fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "one item", "risks": "bounded risk"}},
 				{"complete_step", map[string]any{"step_id": "plan", "note": "Resume the retained contract"}},
 			} {
 				if err := apply(action.id, action.payload, actor); err != nil {
@@ -281,16 +282,28 @@ func TestLawPinUpgradeRetainsReviewAndRecovers(t *testing.T) {
 	}
 }
 
-func TestLawPinUpgradeMalformedReviewRefuses(t *testing.T) {
+// The retired definition-era law-pin preflight refused the whole upgrade when a
+// retained Review row was malformed. The step-plan cutover keeps such rows as
+// opaque retained bytes: the upgrade preserves them, and the consumers that
+// decode Review state refuse without writes. The verified-snapshot restore
+// remains the recovery route for a corrupt retained row.
+func TestLawPinUpgradePreservesMalformedReviewAndHoldsItUnreadable(t *testing.T) {
 	useStampedBuild(t)
 	db, path, _, _ := lawPinUpgradeFixture(t)
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1); UPDATE workflow_review_state SET state=json_set(state,'$.accepted','malformed') WHERE work_id='upgrade-review-1-true'; DELETE FROM write_guard`)
-	before := retirementUpgradeSnapshot(t, db)
-	_, err := Upgrade(t.Context(), path, nil)
-	if !hasFailureKind(err, KindInvariantViolation) {
-		t.Fatalf("malformed Review upgrade=%v, want invariant_violation", err)
+	before := retirementUpgradeRows(t, db, `SELECT work_id,state FROM workflow_review_state ORDER BY work_id`)
+	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+		t.Fatalf("malformed retained Review blocks the upgrade: %v", err)
 	}
-	if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
-		t.Fatal("malformed-state refusal changed predecessor")
+	if got := retirementUpgradeRows(t, db, `SELECT work_id,state FROM workflow_review_state ORDER BY work_id`); !reflect.DeepEqual(got, before) {
+		t.Fatal("upgrade rewrote retained Review bytes")
+	}
+	s, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := loadWorkflowReviewState(t.Context(), s.db, "upgrade-review-1-true"); err == nil {
+		t.Fatal("malformed retained Review decoded without refusal")
 	}
 }

@@ -133,9 +133,7 @@ func TestWorkflowPlanConfirmationRequiresCriterionProof(t *testing.T) {
 	f := qBuildAcceptance(t, workID, "", false)
 	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
 	request := planAdmissionRequest(workID, "confirm_premise", version, f.owner, json.RawMessage(`{}`))
-	if err := planAdmissionPreflight(t, f.store, request); err != nil {
-		t.Fatalf("declared confirmation preflight: %v", err)
-	}
+	planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindMissingEvidence)
 	planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindMissingEvidence)
 	assertApprovalRefusalUnchanged(t, f, version, events)
 }

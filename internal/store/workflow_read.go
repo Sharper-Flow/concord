@@ -54,7 +54,8 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 	var required, routes, mandates, modifies string
 	var supersededBy sql.NullInt64
 	var decisionDomains sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class,decision_domains,approved_at,approved_by,superseded_by FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass, &decisionDomains, &contract.ApprovedAt, &contract.ApprovedBy, &supersededBy)
+	var truth sql.NullInt64
+	err := q.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class,decision_domains,approved_at,approved_by,superseded_by,changes_product_truth FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass, &decisionDomains, &contract.ApprovedAt, &contract.ApprovedBy, &supersededBy, &truth)
 	if err == sql.ErrNoRows {
 		return contract, err
 	}
@@ -77,6 +78,13 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 	}
 	if supersededBy.Valid {
 		contract.SupersededBy = &supersededBy.Int64
+	}
+	// The approval fold records its own Product-truth rule on the row. A NULL
+	// marks a contract recorded before the step-plan cutover; those rows keep
+	// historical absence rather than inferring from a later plan.
+	if truth.Valid {
+		recorded := truth.Int64 == 1
+		contract.ChangesProductTruth = &recorded
 	}
 	if contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, q, workID, contract.Version); err != nil {
 		return contract, err
@@ -312,6 +320,16 @@ func readWorkflowProjectionContractTx(ctx context.Context, q queryer, request Wo
 	default:
 		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract
+		// The current contract's recorded rule answers first; only a
+		// pre-cutover row without one falls back to the live plan's type
+		// (every picked type except research changes Product truth).
+		if contract.ChangesProductTruth != nil {
+			out.ChangesProductTruth = *contract.ChangesProductTruth
+		} else if out.Plan != nil {
+			truth := out.Plan.Type != WorkflowStepPlanResearch
+			contract.ChangesProductTruth = &truth
+			out.ChangesProductTruth = truth
+		}
 	}
 	return nil
 }

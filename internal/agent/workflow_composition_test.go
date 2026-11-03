@@ -19,8 +19,8 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	sourceID := captureCompositionWork(t, ctx, s, service, env, "Composition source", "task", "workflow.implementation", "composition-source")
-	successorID := captureCompositionWork(t, ctx, s, service, env, "Composition successor", "task", "workflow.research", "composition-successor")
+	sourceID := captureCompositionWork(t, ctx, s, service, env, "Composition source", "task", "", "composition-source")
+	successorID := captureCompositionWork(t, ctx, s, service, env, "Composition successor", "research", "", "composition-successor")
 	// A capture always pins a workflow instance now (#650), so the
 	// instance-less successor this refusal guards is created the way real
 	// instance-less work arises: raw events, as previously imported work carries.
@@ -31,44 +31,64 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, missingInstanceID): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='execution' WHERE work_id=?; DELETE FROM write_guard`, sourceID); err != nil {
-		t.Fatal(err)
+	// link_successor is declared from the implement step onward: drive the
+	// source through intake, type pick, plan record and the plan step, and
+	// give the successor its picked type.
+	compositionPrelude := func(workID, planType string) {
+		t.Helper()
+		for _, step := range []struct {
+			action  string
+			fields  map[string]any
+		}{
+			{"record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}},
+			{"pick_type", map[string]any{"type": planType, "reason": "Composition fixture"}},
+		} {
+			raw, err := json.Marshal(map[string]any{"work_id": workID, "expected_version": agentCompositionWorkVersion(t, s, workID), "action_id": step.action, "fields": step.fields, "idempotency_key": "composition-" + workID + "-" + step.action})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+			if err != nil || response.Outcome != agentcontract.OutcomeOK {
+				t.Fatalf("%s %s: response=%+v err=%v", workID, step.action, response, err)
+			}
+		}
 	}
+	compositionPrelude(sourceID, "change")
+	compositionRecordPlan(t, ctx, s, service, env, sourceID)
+	compositionCompletePlanStep(t, ctx, s, service, env, sourceID)
+	compositionPrelude(successorID, "research")
 
 	version := agentCompositionWorkVersion(t, s, sourceID)
 	linked := dispatchCompositionLink(t, ctx, s, service, env, sourceID, successorID, version, "composition-link")
 	if linked.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("agent forward link failed: %+v", linked.Error)
 	}
-	var storedKind, definitionRef string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT w.kind,i.definition_ref FROM relations r JOIN effect_receipts e ON e.relation_seq=r.id JOIN work_items w ON w.id=r.work_id_to JOIN workflow_instances i ON i.work_id=w.id WHERE r.work_id_from=? AND e.kind=? AND r.kind='forward_link' ORDER BY e.effect_seq DESC LIMIT 1`, sourceID, store.WorkflowSuccessorLinked).Scan(&storedKind, &definitionRef); err != nil {
+	var storedKind, workflowType string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT w.kind,COALESCE(i.workflow_type,'') FROM relations r JOIN effect_receipts e ON e.relation_seq=r.id JOIN work_items w ON w.id=r.work_id_to JOIN workflow_instances i ON i.work_id=w.id WHERE r.work_id_from=? AND e.kind=? AND r.kind='forward_link' ORDER BY e.effect_seq DESC LIMIT 1`, sourceID, store.WorkflowSuccessorLinked).Scan(&storedKind, &workflowType); err != nil {
 		t.Fatal(err)
 	}
-	if storedKind != "task" || definitionRef != "workflow.research" {
-		t.Fatalf("successor evidence kind=%q definition=%q, want task and workflow.research", storedKind, definitionRef)
+	if storedKind != "research" || workflowType != "research" {
+		t.Fatalf("successor evidence kind=%q type=%q, want research and research", storedKind, workflowType)
 	}
 
 	version = agentCompositionWorkVersion(t, s, sourceID)
 	refused := dispatchCompositionLink(t, ctx, s, service, env, sourceID, missingInstanceID, version, "composition-missing-link")
-	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_relation" {
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "unknown_scope" {
 		if refused.Error != nil {
 			t.Fatalf("missing workflow instance error kind=%q message=%q recovery=%+v", refused.Error.Kind, refused.Error.Message, refused.Error.RecoveryAction)
 		}
 		t.Fatalf("missing workflow instance outcome=%q without error", refused.Outcome)
 	}
-	if refused.Error.Message != "successor has no workflow instance, so its family is undetermined" {
+	if refused.Error.Message != "workflow instance does not exist" {
 		t.Fatalf("missing workflow instance message=%q", refused.Error.Message)
 	}
 }
 
-func captureCompositionWork(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, title, kind, workflowRef, idempotencyKey string) string {
+func captureCompositionWork(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, title, kind, _ string, idempotencyKey string) string {
 	t.Helper()
 	input := map[string]any{
 		"title": title, "value_statement": "Prove workflow composition", "kind": kind,
 		"project_ids": []string{"project-1"}, "idempotency_key": idempotencyKey,
-	}
-	if workflowRef != "" {
-		input["workflow_type_ref"] = workflowRef
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -79,6 +99,28 @@ func captureCompositionWork(t *testing.T, ctx context.Context, s *store.Store, s
 		t.Fatalf("capture %q response=%+v err=%v", title, response, err)
 	}
 	return (*response.ChangedRefs)[0].ID
+}
+
+func compositionAction(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, workID, action string, fields map[string]any) {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{"work_id": workID, "expected_version": agentCompositionWorkVersion(t, s, workID), "action_id": action, "fields": fields, "idempotency_key": "composition-" + workID + "-" + action + "-" + strconv.FormatInt(agentCompositionWorkVersion(t, s, workID), 10)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("%s %s: response=%+v err=%v", workID, action, response, err)
+	}
+}
+
+func compositionRecordPlan(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, workID string) {
+	t.Helper()
+	compositionAction(t, ctx, s, service, env, workID, "record_plan", agentPlanFields())
+}
+
+func compositionCompletePlanStep(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, workID string) {
+	t.Helper()
+	compositionAction(t, ctx, s, service, env, workID, "complete_step", map[string]any{"step_id": "plan", "note": "composition fixture"})
 }
 
 func dispatchCompositionLink(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, sourceID, successorID string, version int64, idempotencyKey string) agentcontract.Envelope {

@@ -64,7 +64,17 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 	if !reflect.DeepEqual(contract.LawModifies, nonNilStrings(wantModifies)) || !reflect.DeepEqual(contract.ArchitectureBinding, wantBinding) || !reflect.DeepEqual(workflow.ArchitectureBinding, wantBinding) {
 		t.Fatalf("selected contract law and binding = %+v %+v, want v1's %+v %+v", contract.LawModifies, contract.ArchitectureBinding, wantModifies, wantBinding)
 	}
-	if workflow.State != active.Workflow.State || workflow.CurrentStep != active.Workflow.CurrentStep || !reflect.DeepEqual(workflow.Plan, active.Workflow.Plan) || workflow.ChangesProductTruth != active.Workflow.ChangesProductTruth {
+	planJSON := func(p *WorkflowStepPlan) string {
+		if p == nil {
+			return ""
+		}
+		raw, err := json.Marshal(*p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	if workflow.State != active.Workflow.State || workflow.CurrentStep != active.Workflow.CurrentStep || planJSON(workflow.Plan) != planJSON(active.Workflow.Plan) || workflow.ChangesProductTruth != active.Workflow.ChangesProductTruth {
 		t.Fatalf("instance fields = %s/%s/%+v truth=%v, want the current %s/%s/%+v truth=%v", workflow.State, workflow.CurrentStep, workflow.Plan, workflow.ChangesProductTruth, active.Workflow.State, active.Workflow.CurrentStep, active.Workflow.Plan, active.Workflow.ChangesProductTruth)
 	}
 

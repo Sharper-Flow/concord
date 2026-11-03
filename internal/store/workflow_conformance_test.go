@@ -419,8 +419,8 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 			detail := map[string]string{
 				"planning_without_outcome": `workflow action payload field "outcome_predicates" is required for action "approve_contract"`,
 				"unpicked_plan":            "action is not declared on a frontier step",
-				"weaker_delivery":          "premise confirmation requires proof for every approved predicate",
-				"one_conjunct_weaker":      "premise confirmation requires proof for every approved predicate",
+				"weaker_delivery":          "premise confirmation requires proof for every approved predicate: missing predicate:return-route",
+				"one_conjunct_weaker":      "premise confirmation requires proof for every approved predicate: missing predicate:absent",
 			}[tc.proof]
 			if detail != "" {
 				if err := workflowObservationAssertionError(observation, workflowAssertion{Target: "communication", Path: "error.detail", Op: "eq", Value: detail}); err != nil {

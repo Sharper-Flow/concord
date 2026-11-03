@@ -145,6 +145,7 @@ func TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB(t *testing.T) {
 	if err := pConfirmReceiptPremise(t, f); err != nil {
 		t.Fatalf("confirm the reviewed candidate and report: %v", err)
 	}
+	completeWorkflowPlanFixture(t, f.store, f.workID)
 	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID}
 	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err != nil {
 		t.Fatalf("complete the reviewed candidate: %v", err)

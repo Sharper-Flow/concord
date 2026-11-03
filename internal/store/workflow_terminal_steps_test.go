@@ -22,28 +22,7 @@ func TestReportedCompletionDiscardsStepsAndPreservesDelivery(t *testing.T) {
 	bindings := retirementUpgradeRows(t, s.db, `SELECT * FROM workflow_evidence_bindings ORDER BY rowid`)
 	actor := workflowActorForRef(t, s, completion.Actor)
 	initialVersion := readWorkVersion(t, s, workID)
-	for {
-		plan, err := readWorkflowPlanTx(t.Context(), s.db, workID)
-		if err != nil || plan == nil {
-			t.Fatalf("read plan: %v", err)
-		}
-		frontier := WorkflowStepPlanFrontier(*plan)
-		if len(frontier) == 0 {
-			break
-		}
-		step := frontier[0]
-		payload := map[string]any{"step_id": step.ID, "note": "completed for delivery"}
-		if step.Reviewed {
-			state, err := loadWorkflowReviewState(t.Context(), s.db, workID)
-			if err != nil || state.Accepted == nil || state.Candidate == nil {
-				t.Fatalf("read accepted review: %+v, %v", state, err)
-			}
-			payload["reviewer"], payload["result"], payload["commit"], payload["link"] = "concord-review", "pass", state.Candidate.Commit, state.Accepted.ReportRef
-		}
-		if err := runVerdictActionAs(t, s, workID, "complete_step", mustJSONValue(payload), 0, actor); err != nil {
-			t.Fatalf("complete step %s: %v", step.ID, err)
-		}
-	}
+	completeReviewedPlanForTerminalTest(t, s, workID, actor)
 	completedPlan, err := readWorkflowPlanTx(t.Context(), s.db, workID)
 	if err != nil || completedPlan == nil {
 		t.Fatalf("read completed plan: %v", err)
@@ -83,12 +62,39 @@ func TestReportedCompletionDiscardsStepsAndPreservesDelivery(t *testing.T) {
 	}
 }
 
+func completeReviewedPlanForTerminalTest(t *testing.T, s *Store, workID string, actor WorkflowActor) {
+	t.Helper()
+	for {
+		plan, err := readWorkflowPlanTx(t.Context(), s.db, workID)
+		if err != nil || plan == nil {
+			t.Fatalf("read plan: %v", err)
+		}
+		frontier := WorkflowStepPlanFrontier(*plan)
+		if len(frontier) == 0 {
+			break
+		}
+		step := frontier[0]
+		payload := map[string]any{"step_id": step.ID, "note": "completed for delivery"}
+		if step.Reviewed {
+			state, err := loadWorkflowReviewState(t.Context(), s.db, workID)
+			if err != nil || state.Accepted == nil || state.Candidate == nil {
+				t.Fatalf("read accepted review: %+v, %v", state, err)
+			}
+			payload["reviewer"], payload["result"], payload["commit"], payload["link"] = "concord-review", "pass", state.Candidate.Commit, state.Accepted.ReportRef
+		}
+		if err := runVerdictActionAs(t, s, workID, "complete_step", mustJSONValue(payload), 0, actor); err != nil {
+			t.Fatalf("complete step %s: %v", step.ID, err)
+		}
+	}
+}
+
 func TestReportedCompleteActionDiscardsStepsAtomically(t *testing.T) {
 	const workID = "reported-action"
-	s, _ := seedCompletionGateCase(t, workID, completionGateCase{
+	s, completion := seedCompletionGateCase(t, workID, completionGateCase{
 		requiredEvidence: []string{"verification", "review"}, emptyMandate: true,
 		includeVerdict: true, includePremise: true, verdictKind: "ok", omitClosure: true,
 	})
+	completeReviewedPlanForTerminalTest(t, s, workID, workflowActorForRef(t, s, completion.Actor))
 	if err := runVerdictAction(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -149,6 +155,9 @@ func TestLifecycleRepairPreservesCompletedWorkflow(t *testing.T) {
 		requiredEvidence: []string{"verification", "review"}, emptyMandate: true,
 		includeVerdict: true, includePremise: true, verdictKind: "ok", omitClosure: true,
 	})
+	initialVersion := readWorkVersion(t, s, workID)
+	completeReviewedPlanForTerminalTest(t, s, workID, workflowActorForRef(t, s, completion.Actor))
+	completion = shiftWorkflowTestEventVersions(completion, readWorkVersion(t, s, workID)-initialVersion)
 	if err := CompleteWorkflow(t.Context(), s, completion); err != nil {
 		t.Fatal(err)
 	}

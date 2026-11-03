@@ -305,7 +305,7 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 		LawAdditions:            []store.WorkflowLawAddition{{LawID: "spec-2", HomeDomainID: "child"}},
 		VerificationObligations: []store.WorkflowVerificationObligation{{LawID: "spec-1", ObligationID: "verification"}},
 	}
-	return store.WorkflowReadProjection{
+	projection := store.WorkflowReadProjection{
 		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",
 		Plan: &plan,
 		Contract: &store.WorkflowReadContract{
@@ -331,6 +331,13 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 			ActorRef: "actor:owner", AssertedAt: "2026-01-01T00:00:00Z",
 		},
 	}
+	planDoc, _ := json.Marshal(agentPlanFields())
+	projection.PlanRecord = &store.WorkflowReadPlanDocument{WorkVersion: 2, Document: planDoc, RecordedAt: "2026-01-01T00:00:00Z", Actor: "actor:owner", EventRef: "event:plan"}
+	projection.RemovalScope = &store.WorkflowReadPlanDocument{WorkVersion: 2, Document: json.RawMessage(`{"removed":["file:one"],"retiring_clauses":[]}`), RecordedAt: "2026-01-01T00:00:00Z", Actor: "actor:owner", EventRef: "event:removal"}
+	if err := json.Unmarshal([]byte(`{"prelude":{"intake":{"outcome":"proceed","open_questions_found":false}}}`), &projection); err != nil {
+		panic(err)
+	}
+	return projection
 }
 
 // TestPublishedWorkflowReadMatchesDerivedContractSet runs the published

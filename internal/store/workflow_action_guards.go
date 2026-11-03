@@ -56,6 +56,11 @@ func workflowEvidenceReferenceBound(ctx context.Context, q queryer, workID, refe
 	return count != 0, nil
 }
 
+func guardEvidenceBindingContract(ctx context.Context, q queryer, workID string) error {
+	_, err := workflowCompletionContractRows(ctx, q, workID)
+	return err
+}
+
 func guardPlanMandate(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, step string, action WorkflowActionDefinition) error {
 	if action.ID == "bind_evidence" || action.ID == "complete" {
 		return nil

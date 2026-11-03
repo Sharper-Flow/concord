@@ -1017,7 +1017,15 @@ func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef s
 		}
 		step, found := stepByID(plan.Steps, start.id)
 		if !found || workflowPlanCompletionSeq(step) < start.seq {
-			return false, nil
+			// A failed attempt settles its own start: the failure receipt
+			// records the attempt's end without completing the step.
+			var failed int
+			if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=? AND effect_seq>=?)`, workID, WorkflowActionFailed, start.seq).Scan(&failed); err != nil {
+				return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read unfinished workflow actions", true, "retry once the workflow projection is readable", err)
+			}
+			if failed == 0 {
+				return false, nil
+			}
 		}
 	}
 	return true, nil

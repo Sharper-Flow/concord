@@ -104,15 +104,16 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 		}
 		engineAction(version, actionID, payload)
 	}
-	// The current head folds the three diagnosis records into one typed
-	// record_diagnosis and derives the repair start from the qualifying
-	// checkpoint (CD-0198 D2/D3).
+	engine("record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false})
+	engine("pick_type", map[string]any{"type": "fix", "reason": "The work repairs a defect."})
 	engine("record_diagnosis", map[string]any{
 		"reproduction": "The bounded defect reproduction statement.",
 		"searched":     "The bounded backlog search statement.",
 		"outcome":      "none_found",
 		"root_cause":   "The bounded root cause statement.",
 	})
+	engine("complete_step", map[string]any{"step_id": "diagnose", "note": "Diagnosis recorded."})
+	engine("record_plan", agentPlanFields())
 	contractFields := workflowContractFieldsForSeededRegistry(t, s)
 	contractFields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "absent", "outcome_payload": map[string]any{
 		"kind": "absent", "surface": "behavior:defect", "subjects": []string{"work-1"}, "distinguish_from": []string{"disabled"},
@@ -121,7 +122,8 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 		contractFields["premise"] = premise
 	}
 	engine("approve_contract", contractFields)
-	engine("checkpoint_repair", map[string]any{})
+	engine("complete_step", map[string]any{"step_id": "plan", "note": "Plan approved."})
+	engine("start_execution", map[string]any{})
 	return s, service, keys[0], keys[1], engine
 }
 

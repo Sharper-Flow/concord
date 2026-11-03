@@ -48,11 +48,11 @@ func TestDeliveryGateRetainsStaleReviewThroughAgent(t *testing.T) {
 	}
 	stepOf := func() string {
 		t.Helper()
-		var step string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
+		pin, err := store.ReadWorkPin(ctx, s, "work-1")
+		if err != nil {
 			t.Fatal(err)
 		}
-		return step
+		return pin.Step
 	}
 	version := func() int64 { return workVersion(t, s, "work-1") }
 	changeCandidate := func(label string) {
@@ -95,8 +95,7 @@ func TestDeliveryGateRetainsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("gate recovery approve_contract: %+v", response.Error)
 	}
 
-	// Delivery consumes ready Review before the mandatory refinement pass.
-	recordApprovedWorkDesign(t, s, service, env, "work-1", "gate-recovery-design")
+	spineOK(t, oAgentAction(t, fixture, "complete_step", map[string]any{"step_id": "plan", "note": "Plan is complete."}))
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "start_execution", "idempotency_key": "gate-execution-start"}); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("gate recovery start_execution: %+v", response.Error)
 	}
@@ -109,17 +108,16 @@ func TestDeliveryGateRetainsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("gate recovery integration bind: %+v", response.Error)
 	}
 	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "ready_for_final_proof", false)
-	if stepOf() != "execution" {
-		t.Fatalf("ready Review moved execution to %q", stepOf())
+	if stepOf() != "implement" {
+		t.Fatalf("ready Review moved implement to %q", stepOf())
 	}
-	spineOK(t, oAgentAction(t, fixture, "record_delivery", map[string]any{"delivery_artifact": "artifact:gate-recovery", "delivery_state": "asserted"}))
-	if stepOf() != "refine" {
-		t.Fatalf("step after execution delivery = %q, want refine", stepOf())
+	ready, err := store.ReadWorkPin(ctx, s, "work-1")
+	if err != nil || ready.Review == nil || ready.Review.Accepted == nil || ready.Review.Candidate == nil {
+		t.Fatalf("ready Review: %+v (%v)", ready, err)
 	}
-	// The canonical head derives the refine start from the qualifying
-	// checkpoint pair; the callable start_refine retired with it.
-	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "checkpoint_refine", "fields": map[string]any{}, "idempotency_key": "gate-refine-start"}); response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("gate recovery checkpoint_refine: %+v", response.Error)
+	spineOK(t, oAgentAction(t, fixture, "complete_step", map[string]any{"step_id": "implement", "note": "Implementation reviewed.", "reviewer": "concord-review", "result": "pass", "commit": ready.Review.Candidate.Commit, "link": ready.Review.Accepted.ReportRef}))
+	if stepOf() != "review" {
+		t.Fatalf("step after implement completion = %q, want review", stepOf())
 	}
 
 	// A rejected review, then an accepted implement repair that changes the

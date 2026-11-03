@@ -8674,6 +8674,7 @@ CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instanc
 CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 ALTER TABLE workflow_contracts DROP COLUMN definition_ref;
 ALTER TABLE workflow_contracts DROP COLUMN definition_digest;
+ALTER TABLE workflow_contracts ADD COLUMN changes_product_truth INTEGER CHECK(changes_product_truth IS NULL OR changes_product_truth IN (0,1));
 DELETE FROM workflow_step_epochs;
 DELETE FROM workflow_coordinator_actions WHERE work_id IN (SELECT work_id FROM workflow_instances WHERE instance_state='intake');
 DELETE FROM workflow_phase_exits;

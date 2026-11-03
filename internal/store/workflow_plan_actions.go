@@ -96,6 +96,9 @@ func foldWorkflowIntakeRecorded(ctx context.Context, tx *sql.Tx, event Event) er
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
+	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
+		return err
+	}
 	prelude, err := readWorkflowPreludeTx(ctx, tx, event.SubjectID)
 	if err != nil {
 		return err
@@ -122,6 +125,9 @@ func foldWorkflowClarifyRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 		return newFailure(KindInvalidPayload, "fold_event", "clarification requires question resolutions and a note", false, "supply question resolutions and a note")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
 		return err
 	}
 	prelude, err := readWorkflowPreludeTx(ctx, tx, event.SubjectID)
@@ -184,6 +190,9 @@ func foldWorkflowTypePicked(ctx context.Context, tx *sql.Tx, event Event) error 
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
+	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
+		return err
+	}
 	prelude, err := readWorkflowPreludeTx(ctx, tx, event.SubjectID)
 	if err != nil {
 		return err
@@ -219,6 +228,9 @@ func foldWorkflowStepInserted(ctx context.Context, tx *sql.Tx, event Event) erro
 		return newFailure(KindInvalidPayload, "fold_event", "inserted step requires a reason and after edges", false, "supply a reason and after edges")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
 		return err
 	}
 	if _, err := readWorkflowPreludeTx(ctx, tx, event.SubjectID); err != nil {
@@ -258,6 +270,9 @@ func foldWorkflowStepCompleted(ctx context.Context, tx *sql.Tx, event Event) err
 		return err
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
 		return err
 	}
 	if _, err := readWorkflowPreludeTx(ctx, tx, event.SubjectID); err != nil {

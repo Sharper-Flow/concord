@@ -54,7 +54,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			workID := "law-recontract-route-" + tc.name
-			s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeVerdict: true, includePremise: true})
+			s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeVerdict: true, includePremise: true, omitClosure: true})
 			actor := workflowActorForRef(t, s, completion.Actor)
 			cutoverLawProjection(t, s)
 			step := workflowPlanFixtureFrontier(t, s, workID)

@@ -24,12 +24,12 @@ func newTakeoverFixture(t *testing.T) takeoverFixture {
 	t.Helper()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-	seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, _ := advanceWorkflowBoundaryToExecution(t, s, service, mutationEnvelope(grant, scopeVersion))
+	owner := mutationEnvelope(grant, scopeVersion)
+	prepareCurrentImplement(t, s, service, grant, owner, "takeover-setup")
 	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-2", "human-2", []agentcontract.Capability{"work_transition"}, []string{"product-1"}, []string{"project-1"})); err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func latestExecutionStart(t *testing.T, s *store.Store) (int64, string) {
 	t.Helper()
 	var epoch int64
 	var actor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_start_payload,'$.attempt_epoch'),json_extract(latest_start_payload,'$.actor_ref') FROM workflow_step_epochs WHERE step_id='execution' ORDER BY latest_start_seq DESC LIMIT 1`).Scan(&epoch, &actor); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_start_payload,'$.attempt_epoch'),json_extract(latest_start_payload,'$.actor_ref') FROM workflow_step_epochs WHERE step_id='implement' ORDER BY latest_start_seq DESC LIMIT 1`).Scan(&epoch, &actor); err != nil {
 		t.Fatal(err)
 	}
 	return epoch, actor
@@ -103,7 +103,7 @@ func TestStartExecutionTakeoverFencesHeldAttemptChangeInsideTransaction(t *testi
 		// changing the work version, so only the takeover fence can refuse it.
 		if probes == 3 {
 			execProjection(t, f.s, []string{
-				`UPDATE workflow_step_epochs SET attempt_epoch=2,latest_start_payload=json_set(latest_start_payload,'$.attempt_epoch',2) WHERE work_id='work-1' AND step_id='execution'`,
+				`UPDATE workflow_step_epochs SET attempt_epoch=2,latest_start_payload=json_set(latest_start_payload,'$.attempt_epoch',2) WHERE work_id='work-1' AND step_id='implement'`,
 			}, [][]any{nil})
 		}
 		return originalProbe(ctx, directory, worktree)

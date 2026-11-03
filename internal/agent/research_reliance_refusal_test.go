@@ -21,6 +21,23 @@ func TestResearchRelianceRefusalHasNoEffects(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
 			s, service, grant, _ := researchSurfaceFixture(t)
+			reliancePrelude := func(action string, fields map[string]any) {
+				t.Helper()
+				raw, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": action, "fields": fields, "idempotency_key": "reliance-" + action})
+				if err != nil {
+					t.Fatal(err)
+				}
+				scope, _, scopeErr := s.ScopeVersion(ctx, "project-1")
+				if scopeErr != nil {
+					t.Fatal(scopeErr)
+				}
+				out, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, mutationEnvelope(grant, scope))
+				if dispatchErr != nil || out.Outcome != agentcontract.OutcomeOK {
+					t.Fatalf("reliance prelude %s: %+v err=%v", action, out, dispatchErr)
+				}
+			}
+			reliancePrelude("record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false})
+			reliancePrelude("pick_type", map[string]any{"type": "fix", "reason": "Research reliance fixture"})
 			pack, err := createResearchPack(ctx, s, store.CreateResearchPackRequest{
 				OwnerWorkID: "work-1", Revision: store.ResearchRevisionInput{Question: "Which revision?", Method: "source inspection", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`)},
 			})
@@ -50,15 +67,16 @@ func TestResearchRelianceRefusalHasNoEffects(t *testing.T) {
 				"outcome":      "none_found",
 				"root_cause":   "The bounded root cause statement.",
 			}
-			input := map[string]any{"work_id": "work-1", "expected_version": 4, "action_id": "record_diagnosis", "idempotency_key": "refused", "fields": diagnosisFields, "research_bindings": []any{binding}}
+			version := workVersion(t, s, "work-1")
+			input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_diagnosis", "idempotency_key": "refused", "fields": diagnosisFields, "research_bindings": []any{binding}}
 			if test.name == "missing_revision" {
 				binding["revision"] = 999
 			} else {
-				accepted := invoke(map[string]any{"work_id": "work-1", "expected_version": 4, "action_id": "record_diagnosis", "idempotency_key": "pin", "fields": diagnosisFields, "research_bindings": []any{binding}})
+				accepted := invoke(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_diagnosis", "idempotency_key": "pin", "fields": diagnosisFields, "research_bindings": []any{binding}})
 				if accepted.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("pin: %+v", accepted.Error)
 				}
-				input["expected_version"] = 6
+				input["expected_version"] = workVersion(t, s, "work-1")
 				input["action_id"] = "record_work_context"
 				input["fields"] = map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}}
 				switch test.name {
@@ -99,6 +117,23 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			s, service, grant, _ := researchSurfaceFixture(t)
+			reliancePrelude := func(action string, fields map[string]any) {
+				t.Helper()
+				raw, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": action, "fields": fields, "idempotency_key": "reliance-" + action})
+				if err != nil {
+					t.Fatal(err)
+				}
+				scope, _, scopeErr := s.ScopeVersion(ctx, "project-1")
+				if scopeErr != nil {
+					t.Fatal(scopeErr)
+				}
+				out, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, mutationEnvelope(grant, scope))
+				if dispatchErr != nil || out.Outcome != agentcontract.OutcomeOK {
+					t.Fatalf("reliance prelude %s: %+v err=%v", action, out, dispatchErr)
+				}
+			}
+			reliancePrelude("record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false})
+			reliancePrelude("pick_type", map[string]any{"type": "fix", "reason": "Research reliance fixture"})
 			revision := store.ResearchRevisionInput{Question: "Which revision?", Method: "source inspection", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`)}
 			pack, err := createResearchPack(ctx, s, store.CreateResearchPackRequest{OwnerWorkID: "work-1", Revision: revision})
 			if err != nil {
@@ -125,7 +160,7 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 				return out
 			}
 			binding := map[string]any{"pack_id": pack.PackID, "revision": 1, "use_role": "context", "required": true}
-			if out := invoke(4, "record_diagnosis", "pin", map[string]any{
+			if out := invoke(int(workVersion(t, s, "work-1")), "record_diagnosis", "pin", map[string]any{
 				"reproduction": "The bounded defect reproduction statement.",
 				"searched":     "The bounded backlog.",
 				"outcome":      "none_found",
@@ -155,7 +190,7 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 			if name == "role_change" {
 				binding["use_role"], wantRole = "design_input", "design_input"
 			}
-			if out := invoke(6, "record_work_context", "replace", map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}}, binding); out.Outcome != agentcontract.OutcomeOK || out.Error != nil {
+			if out := invoke(int(workVersion(t, s, "work-1")), "record_work_context", "replace", map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}}, binding); out.Outcome != agentcontract.OutcomeOK || out.Error != nil {
 				t.Fatalf("replacement: %+v", out.Error)
 			}
 			var pins int
@@ -175,7 +210,7 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 			if err := s.DatabaseForTesting().QueryRow(`SELECT expected_version FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&gotVersion); err != nil || gotVersion != packVersion+1 {
 				t.Fatalf("version=%d, want %d err=%v", gotVersion, packVersion+1, err)
 			}
-			if out := invoke(7, "record_work_context", "omitted", map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}}, nil); out.Outcome != agentcontract.OutcomeOK {
+			if out := invoke(int(workVersion(t, s, "work-1")), "record_work_context", "omitted", map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}}, nil); out.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("following action: %+v", out.Error)
 			}
 		})

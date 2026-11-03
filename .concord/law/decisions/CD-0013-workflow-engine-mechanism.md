@@ -61,7 +61,7 @@ The accepted law does **not** yet:
 - name how each workflow mutation persists; the store keeps current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
 - name the typed edges (`modifies`, hard/soft `depends_on`, `forward_link`).
 
-[CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
+[CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)
 fixes the live workflow catalog at implementation, break-fix/RCA, and
 research/investigation.
 
@@ -112,7 +112,7 @@ check:
 
 Research uses `outcome` with `no_change`, `resolved`, or `report_recorded`.
 Implementation and break-fix use only `exists`, `absent`, and `check`
-([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)).
+([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)).
 
 An `outcome` token is never self-satisfying. The contract's `required_evidence` must
 name the artifact that makes the token true, and premise confirmation refuses

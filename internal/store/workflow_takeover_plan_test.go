@@ -17,6 +17,7 @@ func TestPlanTakeoverAndRetirement(t *testing.T) {
 	_, err = db.Exec(`CREATE TABLE workflow_instances(work_id TEXT PRIMARY KEY,workflow_type TEXT,step_plan TEXT);
 		CREATE TABLE workflow_step_epochs(work_id TEXT,step_id TEXT,attempt_epoch INTEGER,latest_start_seq INTEGER,latest_start_event_id TEXT,latest_start_payload TEXT);
 		CREATE TABLE workflow_actors(actor_ref TEXT,session_ref TEXT);
+		CREATE TABLE effect_receipts(subject_type TEXT,subject_id TEXT,kind TEXT,effect_seq INTEGER);
 		INSERT INTO workflow_instances(work_id) VALUES('work');
 		INSERT INTO workflow_actors VALUES('holder','session-a'),('other','session-b')`)
 	if err != nil {

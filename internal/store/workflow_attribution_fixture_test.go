@@ -21,9 +21,25 @@ func outsideRepairSettleAction(t *testing.T, s *Store, work string, actor Workfl
 	if err != nil {
 		t.Fatal(err)
 	}
+	plan, err := readWorkflowPlanTx(t.Context(), s.db, work)
+	if err != nil || plan == nil {
+		t.Fatalf("settle fixture plan: %v %+v", err, plan)
+	}
+	frontier := WorkflowStepPlanFrontier(*plan)
+	if len(frontier) == 0 {
+		t.Fatal("settle fixture has no frontier step")
+	}
 	version := readWorkVersion(t, s, work)
+	startFields := map[string]any{"work_id": work, "expected_version": version, "resulting_version": version + 1,
+		"step_id": frontier[0].ID, "action_id": "approve_contract", "attempt_epoch": 1,
+		"accepted_inputs_digest": "sha256:settle-" + work, "idempotency_identity": "settle-" + work + "-start", "actor_ref": ref, "execution_model": "model:fixture"}
+	startEvent := workflowEventWithActor(fmt.Sprintf("%s-settle-start-%d", work, version), WorkflowActionStarted, work, ref, startFields)
+	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{startEvent}, ExpectedVersions: workVersion(work, version)}); err != nil {
+		t.Fatal(err)
+	}
+	version = readWorkVersion(t, s, work)
 	fields := map[string]any{"work_id": work, "expected_version": version, "resulting_version": version + 1,
-		"step_id": "proposal", "attempt_epoch": 1, "actor_ref": ref}
+		"step_id": frontier[0].ID, "attempt_epoch": 1, "actor_ref": ref}
 	if kind == WorkflowActionFailed {
 		fields["failure_kind"], fields["recoverable"] = "timeout", false
 	} else {

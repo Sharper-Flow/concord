@@ -360,7 +360,7 @@ func TestWorkflowPreludeNonProceedOutcomes(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer db.Close()
-			if _, err := db.ExecContext(ctx, `CREATE TABLE work_items(id TEXT PRIMARY KEY,version INTEGER,updated_at TEXT,lifecycle TEXT); CREATE TABLE workflow_instances(work_id TEXT PRIMARY KEY,workflow_type TEXT,step_plan TEXT,prelude_state TEXT,instance_state TEXT); INSERT INTO work_items VALUES('work',1,'','needed'); INSERT INTO workflow_instances(work_id,instance_state) VALUES('work','intake')`); err != nil {
+			if _, err := db.ExecContext(ctx, `CREATE TABLE work_items(id TEXT PRIMARY KEY,version INTEGER,updated_at TEXT,lifecycle TEXT,transition_from TEXT,transition_reason TEXT,transition_actor TEXT,transition_evidence_refs TEXT,transition_seq INTEGER,transition_version INTEGER); CREATE TABLE workflow_instances(work_id TEXT PRIMARY KEY,workflow_type TEXT,step_plan TEXT,prelude_state TEXT,instance_state TEXT); INSERT INTO work_items VALUES('work',1,'','needed','','','',  '[]',0,1); INSERT INTO workflow_instances(work_id,instance_state) VALUES('work','intake')`); err != nil {
 				t.Fatal(err)
 			}
 			apply := func(fold projectionMutation, payload any) error {

@@ -4413,10 +4413,6 @@
           },
           "description": "Bounds: <=32 items inclusive"
         },
-        "workflow_type_ref": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
         "external_ref": {
           "$ref": "#/$defs/short",
           "description": "Bounds: 1..256 code points inclusive"
@@ -4501,10 +4497,6 @@
             "description": "Bounds: 1..128 code points inclusive"
           },
           "description": "Bounds: <=32 items inclusive"
-        },
-        "workflow_type_ref": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
         },
         "reason": {
           "$ref": "#/$defs/short",

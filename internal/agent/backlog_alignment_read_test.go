@@ -14,7 +14,9 @@ import (
 
 func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 	t.Parallel()
-	for _, workflow := range []store.WorkflowStepPlanType{store.WorkflowStepPlanChange, store.WorkflowStepPlanFix} {
+	// workflow-engine-contract §§2.1, 5.1, 11 and 12 retire record_alignment;
+	// diagnosis remains the authoring path for these retained alignment facts.
+	for _, workflow := range []store.WorkflowStepPlanType{store.WorkflowStepPlanFix} {
 		for _, matches := range []int{0, 1, 2, 64} {
 			t.Run(fmt.Sprintf("%s/%d", workflow, matches), func(t *testing.T) {
 				s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
@@ -46,11 +48,6 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 					t.Fatal("never-checked work carries backlog_alignment")
 				}
 				action := "record_diagnosis"
-				if workflow == store.WorkflowStepPlanChange {
-					invokeWorkflowIssue31Action(t, s, service, env, "record_proposal", version, "alignment-read-proposal")
-					version = workOneVersion(t, s)
-					action = "record_alignment"
-				}
 				outcome := "none_found"
 				related := []string{}
 				for i := matches - 1; i >= 0; i-- {

@@ -108,7 +108,7 @@
       },
       "expected": {"assertions": [
         {"target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence"},
-        {"target": "communication", "path": "error.detail", "op": "eq", "value": "premise confirmation requires proof for every approved predicate"},
+        {"target": "communication", "path": "error.detail", "op": "eq", "value": "premise confirmation requires proof for every approved predicate: missing predicate:return-route"},
         {"target": "state", "path": "review.assessments.predicate:return-route", "op": "eq", "value": "mismatch"},
         {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"},
         {"target": "state", "path": "verdicts.predicate:return-route", "op": "absent"},
@@ -210,7 +210,7 @@
       },
       "expected": {"assertions": [
         {"target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence"},
-        {"target": "communication", "path": "error.detail", "op": "eq", "value": "premise confirmation requires proof for every approved predicate"},
+        {"target": "communication", "path": "error.detail", "op": "eq", "value": "premise confirmation requires proof for every approved predicate: missing predicate:absent"},
         {"target": "state", "path": "review.assessments.predicate:present", "op": "eq", "value": "supported"},
         {"target": "state", "path": "review.assessments.predicate:absent", "op": "eq", "value": "mismatch"},
         {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"},

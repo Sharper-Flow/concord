@@ -23,12 +23,12 @@ func TestReviseInitializesProductWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Initialization itself reads no Git: unavailable knowledge metadata must
-	// not refuse the revision that starts the workflow.
+	// Unavailable knowledge metadata must not refuse an intent revision.
 	if err := os.Rename(filepath.Join(home.RepoPath, ".git"), filepath.Join(home.RepoPath, "unavailable-git")); err != nil {
 		t.Fatal(err)
 	}
-	input, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "kind": "task", "title": "Verified revised start", "value_statement": "Initialize from accepted Product law", "reason": "Initialize the existing item", "idempotency_key": "revise-verified-start"})
+	version := workVersion(t, s, "work-1")
+	input, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": version, "kind": "task", "title": "Verified revised start", "value_statement": "Initialize from accepted Product law", "reason": "Initialize the existing item", "idempotency_key": "revise-verified-start"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,8 +36,13 @@ func TestReviseInitializesProductWorkflow(t *testing.T) {
 	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("revise initialization: %+v error=%v", response.Error, err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_instances WHERE work_id='work-1' AND instance_state='intake' AND workflow_type IS NULL AND step_plan IS NULL`).Scan(&instances); err != nil || instances != 1 {
-		t.Fatalf("revise omitted workflow intake: count=%d err=%v", instances, err)
+	if got := workVersion(t, s, "work-1"); got != version+1 {
+		t.Fatalf("revised version = %d, want %d", got, version+1)
+	}
+	// workflow-engine-contract.md §5.1 no longer makes revision create intake.
+	var title string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT title FROM work_items WHERE id='work-1'`).Scan(&title); err != nil || title != "Verified revised start" {
+		t.Fatalf("revision title = %q, err=%v", title, err)
 	}
 }
 
@@ -122,10 +127,7 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string) {
 		input := map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": action, "idempotency_key": key, "fields": fields}
 		return invokeInput(env, input)
 	}
-	response := invoke("record_diagnosis", "law-diagnosis", map[string]any{"reproduction": "The fixture law needs an amendment.", "searched": "The fixture backlog contains no related item.", "outcome": "none_found", "root_cause": "The fixture law text needs correction."})
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("diagnosis: %+v", response.Error)
-	}
+	advanceCapturedWorkToContract(t, s, service, env, "work-1", "law-prelude")
 	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	fields["spec_mandate"] = []string{lawID}

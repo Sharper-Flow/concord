@@ -109,7 +109,7 @@ matches, surviving work, and effect and idempotency evidence.
 Otherwise refuse the upgrade with the named dependency and leave the store
 unchanged. A sole-initiative-match declaration therefore refuses instead of
 becoming an empty `related_found` or a fabricated `none_found`
-([CD-0156 D3](CD-0156-mandatory-backlog-alignment-step.md#d3-explicit-empty-result)).
+([CD-0156 D3](https://github.com/Sharper-Flow/concord/tree/4d225f002146d0b4776718665ecaef5805647565^/.concord/law/decisions/CD-0156-mandatory-backlog-alignment-step.md)).
 Research dependencies and foreign-owned impact or overlap records still refuse;
 terminal lifecycle alone does not retire them.
 

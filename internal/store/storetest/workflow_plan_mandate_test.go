@@ -44,13 +44,13 @@ INSERT INTO work_projects(work_id,project_id,role) VALUES('work:test','project:t
 INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?1,'principal:test','client:test','agent:test','session:test','operator','now');
 INSERT INTO workflow_instances(work_id,instance_state,workflow_type,step_plan) VALUES('work:test','running','change',?2);
 INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work:test',1,'test','internal_sqlite','[]','[]','now',?1,'["law:test"]','[]',1,'prototype_internal');
-INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work:test',1,'predicate:test',0,'check','{"kind":"check"}');
+INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work:test',1,'predicate:test',0,'check','{"check_ref":"check:test","expected_result":"pass","immutable_subject_ref":"commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"check"}');
 DELETE FROM write_guard;`, actorRef, string(planJSON))
 	if err != nil {
 		t.Fatal(err)
 	}
 	candidate := store.ReviewCandidate{ProjectID: "project:test", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}
-	digest := sha256.Sum256([]byte(`{"kind":"check","payload":{"kind":"check"}}`))
+	digest := sha256.Sum256([]byte(`{"kind":"check","payload":{"check_ref":"check:test","expected_result":"pass","immutable_subject_ref":"commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"check"}}`))
 	report := store.ReviewBlock{Disposition: "continue", InputCandidate: candidate, OutputCandidate: candidate, Dependencies: store.ReviewDependencies{Criteria: []store.ReviewCriterion{{PredicateID: "predicate:test", ContentDigest: fmt.Sprintf("sha256:%x", digest)}}, ArchitectureNotApplicable: true}, Assessments: []store.ReviewAssessment{}, Findings: []store.ReviewFinding{}, RemainingObligations: []store.ReviewObligation{}}
 	payload, err := json.Marshal(map[string]any{"review": report})
 	if err != nil {

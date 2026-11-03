@@ -186,15 +186,35 @@ func workflowPlanActionAdmissionTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err != nil {
 		return action, nil, "", err
 	}
-	step, _, err := readWorkflowActionStateTx(ctx, tx, workID, expectedVersion)
+	step, state, err := readWorkflowActionStateTx(ctx, tx, workID, expectedVersion)
 	if err != nil {
-		return action, nil, "", err
-	}
-	if _, err := readWorkflowPreludeTx(ctx, tx, workID); err != nil {
 		return action, nil, "", err
 	}
 	plan, err := readWorkflowPlanTx(ctx, tx, workID)
 	if err != nil {
+		return action, nil, "", err
+	}
+	// A terminal instance admits only a completed item's record_delivery
+	// replacement over its retained delivery record (§4.2): the write keeps
+	// the terminal lifecycle, state and plan, and carries the plan step that
+	// declares the action.
+	if state == "completed" || state == "cancelled" || state == "superseded" {
+		if state == "completed" && actionID == "record_delivery" && plan != nil {
+			owner := workflowPlanDeclaringStep(plan, actionID)
+			records, recordsErr := workflowCurrentRecords(ctx, tx, workID)
+			if recordsErr != nil {
+				return action, plan, owner, recordsErr
+			}
+			if owner != "" && records["record_delivery"] {
+				if err := guardPlanDelivery(ctx, tx, workID); err != nil {
+					return action, plan, owner, err
+				}
+				return action, plan, owner, nil
+			}
+		}
+		return action, plan, step, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow cannot change", false, "reread the work item")
+	}
+	if _, err := readWorkflowPreludeTx(ctx, tx, workID); err != nil {
 		return action, nil, "", err
 	}
 	switch actionID {
@@ -214,11 +234,33 @@ func workflowPlanActionAdmissionTx(ctx context.Context, tx *sql.Tx, workID strin
 		}
 	default:
 		if !workflowPlanAllowsAction(plan, step, actionID) {
-			return action, plan, step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action is not declared on a frontier step", false, "reread the workflow plan")
+			// §4.2: an existing record's owning action stays writable after
+			// its producing step passed; the write carries the declaring
+			// step and holds the frontier.
+			owner := ""
+			if workflowRecordAction(actionID) && plan != nil {
+				owner = workflowPlanDeclaringStep(plan, actionID)
+			}
+			if owner == "" {
+				return action, plan, step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action is not declared on a frontier step", false, "reread the workflow plan")
+			}
+			records, recordsErr := workflowCurrentRecords(ctx, tx, workID)
+			if recordsErr != nil {
+				return action, plan, step, recordsErr
+			}
+			if !records[actionID] {
+				return action, plan, step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action has no current record to replace", false, "record it on its frontier step first")
+			}
+			step = owner
 		}
 	}
 	if err := guardPlanMandate(ctx, tx, workID, plan, step, action); err != nil {
 		return action, plan, step, err
+	}
+	if actionID == "bind_evidence" {
+		if err := guardEvidenceBindingContract(ctx, tx, workID); err != nil {
+			return action, plan, step, err
+		}
 	}
 	if actionID == "record_delivery" {
 		if err := guardPlanDelivery(ctx, tx, workID); err != nil {

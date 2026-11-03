@@ -111,10 +111,14 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 			t.Fatalf("%s %s at v%d: %v", workID, actionID, version, err)
 		}
 	}
+	act("record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false})
+	act("pick_type", map[string]any{"type": "fix", "reason": "The work repairs a defect."})
 	act("record_diagnosis", map[string]any{
 		"reproduction": "The bounded defect reproduction statement.",
 		"searched":     "The bounded backlog search statement.", "outcome": "none_found", "root_cause": "The bounded root cause statement.",
 	})
+	act("complete_step", map[string]any{"step_id": "diagnose", "note": "Diagnosis recorded."})
+	act("record_plan", agentPlanFields())
 	fields := workflowContractFieldsFixture()
 	binding := workflowArchitectureBindingForSeededRegistry(t, s)
 	binding["domain_modifies"] = []string{binding["home_domain_id"].(string)}
@@ -126,7 +130,8 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 	if !enterExecution {
 		return
 	}
-	act("checkpoint_repair", map[string]any{})
+	act("complete_step", map[string]any{"step_id": "plan", "note": "Plan approved."})
+	act("start_execution", map[string]any{})
 	var started any
 	if err := s.DatabaseForTesting().QueryRow(`SELECT execution_started_at FROM workflow_instances WHERE work_id=?`, workID).Scan(&started); err != nil || started == nil {
 		t.Fatalf("fixture %s carries no durable execution start: %v", workID, err)

@@ -85,7 +85,13 @@ func admitWorkflowPlanDocumentTx(ctx context.Context, tx *sql.Tx, event Event, v
 		return err
 	}
 	if !workflowPlanAllowsAction(plan, step, action) {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "document action is not declared on the frontier", false, "reread the workflow plan")
+		retained, err := foldWorkflowRetainedRecordTx(ctx, tx, event.SubjectID, plan, step, action)
+		if err != nil {
+			return err
+		}
+		if !retained {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "document action is not declared on the frontier", false, "reread the workflow plan")
+		}
 	}
 	return advanceWorkflowVersion(ctx, tx, event, version)
 }

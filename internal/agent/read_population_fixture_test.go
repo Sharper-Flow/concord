@@ -435,6 +435,6 @@ func (fx readPopulationFixture) seedPopulationFocusRows(t *testing.T) {
 	t.Helper()
 	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-population")
 	_, focusVersion := readWorkFromStore(t, fx.store, fx.workID)
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,1,1,'population-boundary','summary','population-checkpoint:context-checkpoint',1,1,'population summary boundary',?,?,?,'request:population','2026-09-01T00:00:00Z')`,
-		fx.workID, focusVersion, "change", "sha256:"+strings.Repeat("0", 64), actorRef)
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,actor_ref,request_id,recorded_at) VALUES(?,?,1,1,'population-boundary','summary','population-checkpoint:context-checkpoint',1,1,'population summary boundary',?,?,'request:population','2026-09-01T00:00:00Z')`,
+		fx.workID, focusVersion, "change", actorRef)
 }

@@ -887,7 +887,11 @@ func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Ev
 	if p.DecisionDomains != nil {
 		decisionDomains = workflowJSON(p.DecisionDomains)
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, decisionDomains)
+	truthValue := 0
+	if changesProductTruth {
+		truthValue = 1
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,changes_product_truth) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, decisionDomains, truthValue)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
@@ -1109,12 +1113,19 @@ func workflowPlanCurrentStep(plan *WorkflowStepPlan) string {
 	}
 	frontier := WorkflowStepPlanFrontier(*plan)
 	if len(frontier) == 0 {
+		// A completed plan reports its terminal step; continuity's workflow
+		// step is a non-empty closed value.
+		if WorkflowStepPlanComplete(*plan) && len(plan.Steps) > 0 {
+			return plan.Steps[len(plan.Steps)-1].ID
+		}
 		return ""
 	}
 	return frontier[0].ID
 }
 
-func workflowPlanAllowsAction(plan *WorkflowStepPlan, stepID, actionID string) bool {
+// workflowStepDeclaresAction reports whether the named plan step declares the
+// action, independent of the frontier.
+func workflowStepDeclaresAction(plan *WorkflowStepPlan, stepID, actionID string) bool {
 	if plan == nil {
 		return false
 	}
@@ -1122,15 +1133,50 @@ func workflowPlanAllowsAction(plan *WorkflowStepPlan, stepID, actionID string) b
 	if !ok {
 		return false
 	}
+	if step.Required {
+		return slices.Contains(WorkflowStepPlanTemplateActions(plan.Type, stepID), actionID)
+	}
+	return slices.Contains([]string{"complete_step", "record_review", "record_delivery", "link_successor", "bind_evidence"}, actionID)
+}
+
+func workflowPlanAllowsAction(plan *WorkflowStepPlan, stepID, actionID string) bool {
+	if plan == nil {
+		return false
+	}
 	for _, candidate := range WorkflowStepPlanFrontier(*plan) {
 		if candidate.ID == stepID {
-			if step.Required {
-				return slices.Contains(WorkflowStepPlanTemplateActions(plan.Type, stepID), actionID)
-			}
-			return slices.Contains([]string{"complete_step", "record_review", "record_delivery", "link_successor", "bind_evidence"}, actionID)
+			return workflowStepDeclaresAction(plan, stepID, actionID)
 		}
 	}
 	return false
+}
+
+// workflowPlanDeclaringStep names the plan step that declares the action, so a
+// retained record's owning write keeps a real step identity after its
+// producing step passes (§4.2).
+func workflowPlanDeclaringStep(plan *WorkflowStepPlan, actionID string) string {
+	if plan == nil {
+		return ""
+	}
+	for _, step := range plan.Steps {
+		if workflowStepDeclaresAction(plan, step.ID, actionID) {
+			return step.ID
+		}
+	}
+	return ""
+}
+
+// foldWorkflowRetainedRecordTx admits an event-level write of a record owner
+// off the frontier while its current record exists (§4.2).
+func foldWorkflowRetainedRecordTx(ctx context.Context, tx *sql.Tx, workID string, plan *WorkflowStepPlan, stepID, actionID string) (bool, error) {
+	if !workflowRecordAction(actionID) || !workflowStepDeclaresAction(plan, stepID, actionID) {
+		return false, nil
+	}
+	records, err := workflowCurrentRecords(ctx, tx, workID)
+	if err != nil {
+		return false, err
+	}
+	return records[actionID], nil
 }
 
 func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
@@ -1584,7 +1630,13 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		return newFailure(KindUnauthorized, "fold_event", "completed action actor must match the authenticated event actor", false, "complete the workflow action through the authenticated workflow actor")
 	}
 	if !workflowPlanAllowsAction(plan, p.StepID, p.ActionID) {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on a frontier step", false, "reread_entities")
+		retained, err := foldWorkflowRetainedRecordTx(ctx, tx, event.SubjectID, plan, p.StepID, p.ActionID)
+		if err != nil {
+			return err
+		}
+		if !retained {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on a frontier step", false, "reread_entities")
+		}
 	}
 	return persistWorkflowActionCompletionTx(ctx, tx, event, p, plan.Type)
 }

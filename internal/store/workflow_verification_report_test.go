@@ -117,7 +117,7 @@ func TestWorkflowVerificationReportsUseRecordedBinding(t *testing.T) {
 	if _, err := db.Exec(`CREATE TABLE workflow_evidence_bindings(work_id TEXT, binding_seq INTEGER, payload TEXT)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TABLE workflow_instances(work_id TEXT, definition_ref TEXT); INSERT INTO workflow_instances VALUES('work:one','workflow.implementation'),('work:research','workflow.research')`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE workflow_instances(work_id TEXT, workflow_type TEXT); INSERT INTO workflow_instances VALUES('work:one','change'),('work:research','research')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`CREATE TABLE workflow_contracts(work_id TEXT, contract_version INTEGER, superseded_by INTEGER); INSERT INTO workflow_contracts VALUES('work:one',1,NULL)`); err != nil {

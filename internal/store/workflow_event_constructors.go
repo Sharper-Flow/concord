@@ -113,6 +113,24 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, planType Wor
 	return []Event{approvalEvent}, nil
 }
 
+// workflowDefaultRequiredEvidence carries the retired families' default
+// evidence duties onto the picked type: change inherits implementation's
+// verification, review and artifact duties; fix inherits break-fix's
+// verification and artifact; research keeps its artifact duty; removal
+// delivers a change and inherits change's duties. An explicit empty list in
+// the payload stays explicit.
+func workflowDefaultRequiredEvidence(planType WorkflowStepPlanType) []string {
+	switch planType {
+	case WorkflowStepPlanFix:
+		return []string{string(EvidenceVerification), string(EvidenceArtifact)}
+	case WorkflowStepPlanResearch:
+		return []string{string(EvidenceArtifact)}
+	case WorkflowStepPlanChange, WorkflowStepPlanRemoval:
+		return []string{string(EvidenceVerification), string(EvidenceReview), string(EvidenceArtifact)}
+	}
+	return []string{}
+}
+
 func workflowContractContent(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, workID string, fields map[string]json.RawMessage, requestedLawModifies []string) (map[string]any, error) {
 	var outcomePredicates []workflowContractPredicatePayload
 	if err := json.Unmarshal(fields["outcome_predicates"], &outcomePredicates); err != nil || len(outcomePredicates) == 0 {
@@ -137,7 +155,7 @@ func workflowContractContent(ctx context.Context, tx *sql.Tx, planType WorkflowS
 	premise, _ := workflowFieldString(fields, "premise")
 	required := workflowFieldStrings(fields, "required_evidence")
 	if required == nil {
-		required = []string{}
+		required = workflowDefaultRequiredEvidence(planType)
 	}
 	routes := workflowFieldStrings(fields, "route_conventions")
 	if routes == nil {
@@ -575,6 +593,15 @@ func validateWorkflowCoordinatorConfirmationTx(ctx context.Context, tx *sql.Tx, 
 	if tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, actor).Scan(&invokerClass) != nil || invokerClass != "agent" {
 		return newFailure(KindInvalidOperation, "workflow_action", "an engineering premise confirmation records the authenticated coordinator actor", false, "confirm under an agent-class coordinator identity")
 	}
+	return workflowConfirmationDeliverablesTx(ctx, tx, planType, workID)
+}
+
+// workflowConfirmationDeliverablesTx holds the actor-independent confirmation
+// admission facts: every approved predicate proved, every required evidence
+// kind and mandate bound, and a current ready Review outside research. The
+// write validates them here; reads (preflight, the work pin) ask the same
+// question so no surface advertises a confirmation the fold refuses.
+func workflowConfirmationDeliverablesTx(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, workID string) error {
 	contract, err := workflowCompletionContractRows(ctx, tx, workID)
 	if err != nil {
 		return err

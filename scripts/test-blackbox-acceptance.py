@@ -501,7 +501,6 @@ def step_e_mutation(binary: Path, env: dict, repo: Path, context: dict, manifest
             'project_ids': ['harness-project-1'],
             'priority': 0,
             'urgency': 'standard',
-            'workflow_type_ref': 'workflow.implementation',
             'idempotency_key': 'harness-capture-0001',
         },
     }, env)
@@ -879,7 +878,6 @@ def _neighbor_capture_input(writer_index: int, number: int, project_id: str) -> 
         'project_ids': [project_id],
         'priority': 0,
         'urgency': 'standard',
-        'workflow_type_ref': 'workflow.implementation',
         'idempotency_key': _neighbor_key(writer_index, number),
     }
 

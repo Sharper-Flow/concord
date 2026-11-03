@@ -117,13 +117,52 @@ func TestOrdinaryAlignmentReplacement(t *testing.T) {
 }
 
 func TestWorkflowRecordActionOwnership(t *testing.T) {
-	for _, action := range []string{"record_finding", "record_conclusion", "record_report", "record_decision", "record_research", "record_option"} {
+	for _, action := range []string{"record_intake", "record_clarify", "record_plan", "record_diagnosis", "record_delivery", "record_review", "record_verdict", "revise_candidates"} {
+		if !workflowRecordAction(action) {
+			t.Errorf("%s must own a current record", action)
+		}
+	}
+	for _, action := range []string{"record_proposal", "record_design", "record_alignment", "record_finding", "record_conclusion", "record_report", "record_decision", "record_research", "record_option"} {
 		if workflowRecordAction(action) {
 			t.Errorf("%s is not a current-record owner", action)
 		}
 	}
 	if !workflowRecordAction("revise_candidates") {
 		t.Error("candidate delta must remain a current-record action")
+	}
+}
+
+func TestWorkflowCurrentRecordsIncludesPlanAndPrelude(t *testing.T) {
+	const work = "current-plan-and-prelude"
+	f := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanChange, "implement")
+	ctx := context.Background()
+	tx, err := f.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	scope, err := beginWrite(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prelude := workflowPreludeState{Intake: workflowIntakeRecord{Outcome: WorkflowIntakeClarify, OpenQuestionsFound: true}, Clarify: &workflowClarifyRecord{ResolvedQuestions: []string{"question"}, Note: "resolved"}}
+	if err := writeWorkflowPreludeTx(ctx, tx, work, prelude); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_plan_records(work_id,work_version,payload,recorded_at,actor,event_ref) SELECT ?,1,'{}','now',actor_ref,'event:test' FROM workflow_actors LIMIT 1`, work); err != nil {
+		t.Fatal(err)
+	}
+	records, err := workflowCurrentRecords(ctx, tx, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"record_intake", "record_clarify", "record_plan"} {
+		if !records[action] {
+			t.Errorf("missing %s from current records: %v", action, records)
+		}
+	}
+	if err := scope.close(ctx); err != nil {
+		t.Fatal(err)
 	}
 }
 

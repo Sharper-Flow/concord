@@ -13,8 +13,7 @@ import (
 // CD-0183 D1: the first workflow_action the store applies to a needed item
 // moves it to in_progress in the same transaction, so the item stops reading
 // ready before any external effect.
-// The action here is a checkpoint on an internal step: no external-effect
-// step has begun, and the lifecycle has still moved.
+// Intake runs before any external-effect step begins.
 func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -48,18 +47,13 @@ func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	payload := mustJSONValue(map[string]any{
-		"active_unit": "unit:first-action", "hypothesis": "hypothesis:the fault is in the fold",
-		"diagnosis": "diagnosis:the lifecycle waits for an external step", "strategy": "strategy:start it at the first action",
-		"touched_refs": []string{"ref:workflow"}, "evidence_refs": []string{"evidence:first-action"},
-		"pending_questions": []string{}, "pending_decisions": []string{},
-	})
+	payload := mustJSONValue(map[string]any{"outcome": "proceed", "open_questions_found": false})
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "checkpoint_context", Payload: payload, Actor: actor,
+		WorkID: workID, ExpectedVersion: version, ActionID: "record_intake", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "first-action-checkpoint",
 		OperationID: "first-action-checkpoint", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition",
 		IdempotencyKey: "first-action-checkpoint", RequestID: "request:first-action-checkpoint", ContractDigest: testManifestDigest,

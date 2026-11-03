@@ -65,6 +65,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "implement")
 	closeGitWorkflowEvent(t, s, ownerRef, WorkflowContractApproved, map[string]any{
 		"contract_version": 1, "premise": "deliver a checked implementation",
 		"decision_domains":   []string{},
@@ -76,7 +77,6 @@ func TestWorkContextCloseGit(t *testing.T) {
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
 	})
-	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "implement")
 	if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -159,12 +159,12 @@ func TestWorkContextCloseGit(t *testing.T) {
 			t.Errorf("completion changed %s Git/content state: before=%+v after=%+v", probe.name, probe.before, after)
 		}
 	}
-	var lifecycle, state, definitionRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle,i.instance_state,i.definition_ref FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state, &definitionRef); err != nil {
+	var lifecycle, state, workflowType string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle,i.instance_state,COALESCE(i.workflow_type,'') FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state, &workflowType); err != nil {
 		t.Fatal(err)
 	}
-	if lifecycle != "completed" || state != "completed" || definitionRef != "workflow.implementation" {
-		t.Fatalf("close state lifecycle=%s instance=%s definition=%s", lifecycle, state, definitionRef)
+	if lifecycle != "completed" || state != "completed" || workflowType != "change" {
+		t.Fatalf("close state lifecycle=%s instance=%s type=%s", lifecycle, state, workflowType)
 	}
 	continuity, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	if err != nil {

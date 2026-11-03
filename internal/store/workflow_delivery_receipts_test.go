@@ -56,7 +56,7 @@ func TestWorkflowDeliveryReceiptFlagBackfillParity(t *testing.T) {
 		events:  events,
 		parents: func(*testing.T, *Store, string) {},
 		// Only append-owned receipt classification is under test here. Full
-	// workflow admission is exercised by the live journey above.
+		// workflow admission is exercised by the live journey above.
 		write: func(context.Context, *sql.Tx, Event) error { return nil },
 	}
 	current := fixture.current(t)

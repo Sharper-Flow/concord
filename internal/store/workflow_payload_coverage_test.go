@@ -18,7 +18,7 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 	t.Parallel()
 	files := map[string]*ast.File{}
 	fset := token.NewFileSet()
-	for _, name := range []string{"workflow_dispatch.go", "workflow_action_guards.go"} {
+	for _, name := range []string{"workflow_dispatch.go", "workflow_action_guards.go", "workflow_event_constructors.go"} {
 		file, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
 			t.Fatalf("parse %s: %v", name, err)
@@ -68,8 +68,8 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 		actions []string
 	}{
 		{"workflow_dispatch.go", "workflowCompletionEventForDefinition", []string{"complete"}},
-		{"workflow_dispatch.go", "workflowContractOutcomePredicates", []string{"approve_contract"}},
-		{"workflow_action_guards.go", "guardEvidenceBindingMembership", []string{"bind_evidence"}},
+		{"workflow_event_constructors.go", "workflowContractContent", []string{"approve_contract"}},
+		{"workflow_action_guards.go", "guardEvidenceBindingContract", []string{"bind_evidence"}},
 		{"workflow_action_guards.go", "guardForwardLinkOnly", []string{"link_successor"}},
 		{"workflow_action_guards.go", "guardNoRestartDispatch", []string{"cross_context_boundary"}},
 	} {
@@ -84,7 +84,7 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 		name string
 	}{
 		{"workflow_dispatch.go", "workflowActionEvidenceRefs"},
-		{"workflow_action_guards.go", "appendGenericWorkflowCompletion"},
+		{"workflow_action_guards.go", "assemblePlanWorkflowActionEventsTx"},
 	} {
 		function := workflowTestFunction(t, files[binding.file], binding.name)
 		ast.Inspect(function.Body, func(node ast.Node) bool {

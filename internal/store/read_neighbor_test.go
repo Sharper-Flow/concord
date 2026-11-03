@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -414,8 +415,10 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			})
 		}
 	}
-	// A duplicate active contract must not block preflight for a declared action.
-	// Keep that ambiguity out of the other read rows.
+	// A duplicate active contract refuses a declared binding at preflight:
+	// binding requires exactly one active contract. The refusal stays typed
+	// and fast under neighbor load, and the pin read keeps its own recovery
+	// route for the ambiguity.
 	for _, mode := range []neighbor.Mode{neighbor.Reader, neighbor.Writer} {
 		t.Run(string(mode)+"/WorkflowActionDefinitionForBindEvidenceWithAmbiguousContract", func(t *testing.T) {
 			workID := "neighbor-ambiguous"
@@ -427,12 +430,9 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			neighbor.Start(t, f.store.Path(), mode)
 			started := time.Now()
-			action, err := WorkflowActionDefinitionFor(ctx, f.store, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, ActionID: "bind_evidence", Payload: []byte(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:neighbor"}`), Actor: f.owner})
-			if err != nil {
+			_, err := WorkflowActionDefinitionFor(ctx, f.store, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, ActionID: "bind_evidence", Payload: []byte(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:neighbor"}`), Actor: f.owner})
+			if err == nil || !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "multiple active contracts") {
 				t.Fatalf("bind_evidence preflight under %s neighbor: %v", mode, err)
-			}
-			if action.ID != "bind_evidence" {
-				t.Fatalf("declared action=%+v, want bind_evidence", action)
 			}
 			if mode == neighbor.Writer && time.Since(started) >= neighbor.WriterHold {
 				t.Fatal("bind_evidence preflight waited for writer release")

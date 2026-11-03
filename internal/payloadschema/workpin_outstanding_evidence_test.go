@@ -2,7 +2,6 @@ package payloadschema
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
@@ -11,11 +10,10 @@ func outstandingEvidencePinFixture() map[string]any {
 		"work_id": "work-outstanding-schema", "title": "Evidence debt", "linear_issue_key": "",
 		"project_id": "project-fixture", "project_display_name": "Fixture",
 		"version": 3, "lifecycle": "in_progress", "cancelled_instance_closes": 0,
-		"workflow_type": "workflow.implementation", "step": "acceptance",
+		"workflow_type": "change", "step": "acceptance",
 		"driving_sessions": []any{},
 		"watermark":        "seq:3", "next_valid_intents": []any{},
-		"workflow_definition_digest": "sha256:" + strings.Repeat("0", 64),
-		"obligations":                []string{"verification"},
+		"obligations": []string{"verification"},
 	}
 }
 
@@ -49,16 +47,29 @@ func TestWorkPinOutstandingEvidenceKindsSchema(t *testing.T) {
 	}
 }
 
-func TestWorkPinRequiresManagedWorkflowIdentity(t *testing.T) {
-	pin := outstandingEvidencePinFixture()
-	pin["workflow_type"], pin["step"] = "", ""
-	delete(pin, "workflow_definition_digest")
-	delete(pin, "obligations")
-	raw, err := json.Marshal(pin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := Validate("work_pin", raw); err == nil {
-		t.Fatal("managed pin admitted empty workflow identity")
+func TestWorkPinStepFixtures(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		workflowType string
+		step         string
+	}{
+		{name: "planned", workflowType: "change", step: "acceptance"},
+		{name: "intake", workflowType: "", step: "intake"},
+		{name: "clarify", workflowType: "", step: "clarify"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			pin := outstandingEvidencePinFixture()
+			pin["workflow_type"], pin["step"] = test.workflowType, test.step
+			if pin["step"] == "" {
+				t.Fatal("published pin fixture has an empty step")
+			}
+			raw, err := json.Marshal(pin)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := Validate("work_pin", raw); err != nil {
+				t.Fatalf("work_pin refused fixture: %v", err)
+			}
+		})
 	}
 }

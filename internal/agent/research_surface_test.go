@@ -118,13 +118,25 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 		t.Fatalf("read source_ids=%v, want [s-1]", got)
 	}
 
+	for _, prelude := range []struct {
+		id     string
+		fields map[string]any
+	}{
+		{"record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}},
+		{"pick_type", map[string]any{"type": "fix", "reason": "The work repairs a defect."}},
+	} {
+		result := invoke("workflow_action", map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": prelude.id, "fields": prelude.fields, "idempotency_key": "rs-" + prelude.id})
+		if result.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("%s failed: %+v", prelude.id, result.Error)
+		}
+	}
 	// 4. Declare reliance at a workflow boundary on a fresh pack: the action
 	// succeeds and the consumer binding lands in the same transaction. The
 	// current head folds the three diagnosis records into one typed
 	// record_diagnosis (CD-0198 D2), so the journey records every required
 	// section in that one act.
 	action := invoke("workflow_action", map[string]any{
-		"work_id": "work-1", "expected_version": 4, "action_id": "record_diagnosis", "idempotency_key": "rs-action-1",
+		"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "record_diagnosis", "idempotency_key": "rs-action-1",
 		"fields": map[string]any{
 			"reproduction": "The bounded defect reproduction statement.",
 			"searched":     "The bounded backlog search statement.",
@@ -149,7 +161,7 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 		t.Fatalf("freshness set failed: %+v", r.Error)
 	}
 	refused := invoke("workflow_action", map[string]any{
-		"work_id": "work-1", "expected_version": 6, "action_id": "record_work_context", "idempotency_key": "rs-action-2",
+		"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "record_work_context", "idempotency_key": "rs-action-2",
 		"fields":            map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}},
 		"research_bindings": []map[string]any{{"pack_id": packID, "revision": 1, "use_role": "context", "required": true}},
 	})

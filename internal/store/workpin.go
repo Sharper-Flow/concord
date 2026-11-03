@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"slices"
 	"strconv"
 )
 
@@ -185,6 +186,9 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if err := workPinReadContractTx(ctx, tx, workID, &pin, instanceState, activeContractVersion); err != nil {
 		return pin, err
 	}
+	if pin.OutstandingEvidenceKinds != nil && len(*pin.OutstandingEvidenceKinds) != 0 && !isTerminalLifecycle(instanceState) && !isTerminalLifecycle(pin.Lifecycle) {
+		workPinPromoteEvidenceBindingIntent(&pin)
+	}
 	review, err := loadWorkflowReviewState(ctx, tx, workID)
 	if err != nil {
 		return pin, err
@@ -257,6 +261,10 @@ func workPinReadPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *Work
 			pin.StepSkill = frontier[0].Skill
 			pin.StepHelper = frontier[0].Helper
 			pin.StepReviewed = &frontier[0].Reviewed
+		} else if WorkflowStepPlanComplete(*plan) && len(plan.Steps) > 0 {
+			// A completed plan reports its terminal step; the pin's step is a
+			// non-empty closed value.
+			pin.Step = plan.Steps[len(plan.Steps)-1].ID
 		}
 		if isTerminalLifecycle(state) || isTerminalLifecycle(pin.Lifecycle) {
 			return state, nil
@@ -265,6 +273,29 @@ func workPinReadPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *Work
 		if WorkflowStepPlanComplete(*plan) {
 			ids = append(ids, "complete")
 		}
+		// CD-0133 D4: an action the fold refuses is not an intent. The pin
+		// asks the same actor-independent deliverables question the
+		// confirmation admission asks, so it never advertises a confirmation
+		// whose proofs or Review the write would refuse. A read failure is
+		// never a silent drop.
+		confirmAdmitted := false
+		var confirmErr error
+		if template, templateErr := WorkflowStepPlanTemplate(plan.Type); templateErr == nil {
+			for _, step := range template.Steps {
+				if slices.Contains(WorkflowStepPlanTemplateActions(plan.Type, step.ID), "confirm_premise") {
+					confirmAdmitted = true
+					confirmErr = workflowConfirmationDeliverablesTx(ctx, tx, plan.Type, workID)
+					break
+				}
+			}
+		}
+		if confirmErr != nil {
+			var failure *Failure
+			if failureAs(confirmErr, &failure) && failure.Kind == KindUnavailable {
+				return "", confirmErr
+			}
+			confirmAdmitted = false
+		}
 		for _, step := range frontier {
 			actions := WorkflowStepPlanTemplateActions(plan.Type, step.ID)
 			if actions == nil {
@@ -272,6 +303,9 @@ func workPinReadPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *Work
 			}
 			for _, action := range actions {
 				if action != "complete" {
+					if action == "confirm_premise" && !confirmAdmitted {
+						continue
+					}
 					ids = append(ids, action)
 				}
 			}
@@ -312,6 +346,19 @@ func workPinAddCatalogIntents(pin *WorkPin, ids []string) error {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(action, pin.Version, "declared_step_action"))
 	}
 	return nil
+}
+
+// workPinPromoteEvidenceBindingIntent answers an outstanding contract
+// evidence kind: where a frontier step already declares bind_evidence, its
+// intent names the evidence recovery rather than the plain declaration (§4.2).
+// Binding gains no intent on steps that do not declare it.
+func workPinPromoteEvidenceBindingIntent(pin *WorkPin) {
+	for i := range pin.NextValidIntents {
+		if pin.NextValidIntents[i].ActionID == "bind_evidence" {
+			pin.NextValidIntents[i].ReasonCode = "ordinary_evidence_binding"
+			return
+		}
+	}
 }
 
 // workPinReadContractTx reads the one active contract and every enrichment

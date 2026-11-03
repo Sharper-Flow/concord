@@ -527,7 +527,7 @@
   {
    "id": "AJ4-history-of-a-superseded-contract",
    "job_id": "AJ4",
-    "instruction": "Work-1's contract was corrected. Show what contract version 1 required, its current successor, and the current lifecycle record without reconstructing an event trace.",
+   "instruction": "Work-1's contract was corrected. Show what contract version 1 required, its current successor, and the current lifecycle record without reconstructing an event trace.",
    "initial_state": {
     "fixture": "workflow"
    },
@@ -547,16 +547,10 @@
      },
      {
       "target": "result",
-      "path": "definition_pin_verified",
-      "op": "eq",
-      "value": true
-     },
-     {
-      "target": "result",
-       "path": "entry_kinds",
+      "path": "entry_kinds",
       "op": "set_eq",
       "value": [
-        "lifecycle"
+       "lifecycle"
       ]
      },
      {
@@ -649,21 +643,16 @@
   {
    "id": "AJ8-health-failure-rollback",
    "job_id": "AJ8",
-   "instruction": "The retired ops-runbook authoring refuses: the archived family's nonterminal instance rejects every public workflow action with zero effects.",
+   "instruction": "A pre-cutover archived family's instance refuses its retired actions after the plan cutover: the parked item admits no archived-family action, with zero effects.",
    "initial_state": {
     "approval": "valid",
     "native_authority": "routing-provider",
     "health_after_apply": "failed",
-    "rollback": "declared"
+    "rollback": "declared",
+    "archived_family": "workflow.ops_runbook"
    },
    "expected": {
     "assertions": [
-     {
-      "target": "state",
-      "path": "archived_family",
-      "op": "eq",
-      "value": "workflow.ops_runbook"
-     },
      {
       "target": "state",
       "path": "refused_actions",

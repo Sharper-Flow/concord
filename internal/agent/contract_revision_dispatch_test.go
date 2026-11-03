@@ -30,9 +30,9 @@ func testContractRevisionDispatch(t *testing.T, stage string) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 
-	for _, actionID := range []string{"record_proposal", "record_alignment"} {
-		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "supersede-"+actionID)
-		version = workOneVersion(t, s)
+	plan, version := dispatchWorkflowActionResult(t, s, service, env, version, "record_plan", agentPlanFields(), "supersede-plan")
+	if plan.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("record_plan: %+v", plan.Error)
 	}
 	binding := workflowArchitectureBindingForSeededRegistry(t, s)
 	if stage == "shared-writer" {
@@ -44,15 +44,14 @@ func testContractRevisionDispatch(t *testing.T, stage string) {
 	if contract.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract=%+v", contract.Error)
 	}
-	version = recordApprovedWorkDesign(t, s, service, env, "work-1", "supersede-design")
+	version = workOneVersion(t, s)
 	if stage != "before-start" {
+		seedAgentPlanFrontier(t, s, "work-1", store.WorkflowStepPlanChange, "implement")
 		invokeWorkflowIssue31Action(t, s, service, env, "start_execution", version, "supersede-start-execution")
 		version = workOneVersion(t, s)
 	}
 	if stage == "acceptance" {
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM write_guard WHERE active=1`); err != nil {
-			t.Fatal(err)
-		}
+		seedAgentPlanFrontier(t, s, "work-1", store.WorkflowStepPlanChange, "review")
 	}
 	var before string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT step_plan FROM workflow_instances WHERE work_id='work-1'`).Scan(&before); err != nil {
@@ -60,10 +59,6 @@ func testContractRevisionDispatch(t *testing.T, stage string) {
 	}
 	if stage == "shared-writer" || stage == "shared-domain" {
 		seedContractCorrectionPeer(t, s)
-	}
-	continuityBefore, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1"})
-	if err != nil {
-		t.Fatal(err)
 	}
 
 	successorBinding := workflowArchitectureBindingForSeededRegistry(t, s)
@@ -108,10 +103,6 @@ func testContractRevisionDispatch(t *testing.T, stage string) {
 	if activeVersion != 2 {
 		t.Fatalf("active contract version=%d, want 2", activeVersion)
 	}
-	continuity, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1"})
-	if err != nil || continuity.DesignRecord == nil || continuity.DesignRecord.Approach != continuityBefore.DesignRecord.Approach {
-		t.Fatalf("contract revision changed the design: %+v err=%v", continuity.DesignRecord, err)
-	}
 	var actorClass string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT a.actor_class FROM workflow_contracts c JOIN workflow_actors a ON a.actor_ref=c.approved_by WHERE c.work_id='work-1' AND c.contract_version=2`).Scan(&actorClass); err != nil {
 		t.Fatal(err)
@@ -137,9 +128,6 @@ func testContractRevisionDispatch(t *testing.T, stage string) {
 	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: approvedRaw}, env)
 	if replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed || workOneVersion(t, s) != committedVersion {
 		t.Fatalf("correction replay mutated work or failed: outcome=%s replayed=%v error=%+v", replayed.Outcome, replayed.Replayed, replayed.Error)
-	}
-	if designs := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`); designs != 1 {
-		t.Fatalf("replayed correction changed design history: rows=%d", designs)
 	}
 }
 

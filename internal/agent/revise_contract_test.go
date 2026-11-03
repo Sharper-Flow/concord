@@ -20,7 +20,7 @@ func contractRevisionInput(t *testing.T, s *store.Store, workID string, version 
 		t.Fatal(err)
 	}
 	input := map[string]any{"work_id": workID, "expected_version": version, "contract": contract, "reason": "Update the recorded plan", "idempotency_key": key}
-	for _, field := range []string{"title", "value_statement", "kind", "priority", "urgency", "tags", "component_id", "workflow_type_ref", "task"} {
+	for _, field := range []string{"title", "value_statement", "kind", "priority", "urgency", "tags", "component_id", "task"} {
 		if value, ok := intent[field]; ok && value != nil && value != "" {
 			input[field] = value
 		}
@@ -62,7 +62,7 @@ func TestReviseIntentUpdatesContractAtomicallyAndReplays(t *testing.T) {
 			t.Fatalf("%s: %+v", action, response.Error)
 		}
 	}
-	invokeAction("record_diagnosis", map[string]any{"reproduction": "The plan needs revision.", "searched": "No overlapping work.", "outcome": "none_found", "root_cause": "The recorded premise was incomplete."})
+	advanceCapturedWorkToContract(t, s, service, env, "work-1", "update-prelude")
 	contract := workflowContractFieldsFixture()
 	contract["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	contract["decision_domains"] = []string{}

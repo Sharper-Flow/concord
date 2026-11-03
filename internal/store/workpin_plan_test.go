@@ -92,5 +92,5 @@ func TestWorkPinPlanProjection(t *testing.T) {
 			}
 		}
 	}
-	read("", string(plan.Type), []string{"complete", "insert_step", "pick_type"}, nil)
+	read(plan.Steps[len(plan.Steps)-1].ID, string(plan.Type), []string{"complete", "insert_step", "pick_type"}, nil)
 }

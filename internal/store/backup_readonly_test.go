@@ -332,9 +332,9 @@ func TestBackupDatabaseVerificationEntryObserver(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The verb verifies exactly twice inside the caller's context: the copied
-	// destination, then the PM10 disposable-clone promotion gate. A trailing
-	// destination re-verification would double the post-copy budget for no
-	// additional PM10 obligation (CON-1613).
+	// destination, then the PM10 disposable-clone promotion gate. The cascade
+	// shares the caller's one deadline, so consumers, not the verb, verify the
+	// published artifact on use.
 	if len(entries) != 2 {
 		t.Fatalf("verifier entries = %q, want destination, disposable clone", entries)
 	}

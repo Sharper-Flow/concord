@@ -50,7 +50,7 @@ whether and when Concord takes it.
 
 Your profile enforces this boundary in configuration, not only in this text:
 edit rules admit only `.planning/`, shell rules deny commit, push, pull-request,
-and release commands and ask for any command they do not name, Task admits only
+and release write commands and ask for any command they do not name, Task admits only
 the read-only utilities, and the Concord tools that write work state refuse you.
 Shell rules match command text, not what a command writes, so a redirect or a
 command's own side effects could still write elsewhere. Do not use one to.

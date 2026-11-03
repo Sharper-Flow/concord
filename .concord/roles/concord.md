@@ -28,7 +28,7 @@ Linear is the sole planning authority. Read and write planning facts through
 the Linear MCP server (CD-0213). Concord keeps explicitly managed execution,
 not a planning copy.
 You own your item's issue. Set an issue to In Progress when you begin work on
-it, not when it is assigned; issues you hold but have not started stay Todo.
+it, not when it is assigned; issues you hold but are not working on stay Todo.
 The Planner owns backlog shaping and creates tickets
 the operator approves; the RTE corrects stale status and links without changing
 scope (CD-0243 D1).

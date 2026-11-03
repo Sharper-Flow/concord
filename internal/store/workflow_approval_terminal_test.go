@@ -99,10 +99,10 @@ func TestWorkflowPlanCoordinatorConfirmationAndCompletion(t *testing.T) {
 	if err != nil || digest != wantDigest {
 		t.Fatalf("confirmation receipt=%q, want %q: %v", digest, wantDigest, err)
 	}
-	version = readWorkVersion(t, f.store, workID)
 	if err := approvalPlanAction(t, f, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:terminal","delivery_state":"asserted"}`)); err != nil {
 		t.Fatalf("record delivery before completion: %v", err)
 	}
+	version = readWorkVersion(t, f.store, workID)
 	review, err := loadWorkflowReviewState(t.Context(), f.store.db, workID)
 	if err != nil || review.Accepted == nil || review.Candidate == nil {
 		t.Fatalf("read accepted Review: %+v, %v", review, err)

@@ -132,10 +132,10 @@ bounded only by the operation's `limit` and `page` pagination inputs. The
 store keeps the canonical envelope cap, and workflow action field
 constraints keep their own `max_items` bound; neither is a caller budget.
 
-The published input schemas are authored JSON; generated contract rules derive
-from those schemas. Closed input objects and generic unknown-field admission
-refusals reject fields the schemas do not declare. Generated-contract parity
-checks verify that the derived artifacts match the authored contracts.
+Generated contract rules derive from the published input schemas; workflow-action
+variants are projected from the workflow registry. Closed input objects and
+generic unknown-field admission refusals reject fields the schemas do not declare.
+Generated-contract parity checks verify that the derived artifacts match their sources.
 D3 defines the ceiling refusal shape with typed `supported_budget_seconds`
 and `adjust_budget` recovery.
 The manifest, generated contracts, adapter, corpus, and digests move together.

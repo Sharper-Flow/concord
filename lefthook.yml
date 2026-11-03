@@ -14,13 +14,13 @@
 # Admission: every gate command runs through `bin/oc-test preflight-gate`,
 # which enters the host admission route (oc-test-gate's smoke admission
 # lane) before running the gate. That lane is separate from the heavy lane
-# full-tier suites use, so a full local suite does not block a push's gates;
-# concurrent pushes from linked worktrees still queue their gate work
-# instead of overlapping it, and inside a synchronous tool call a gate waits
-# up to the host's default 30 s (OC_WORKLOAD_GATE_SYNC_WAIT_MS) for the lane
-# before admission is refused (exit 75). On a host without oc-test-gate
-# the gate still runs natively, with a warning: a normal push never loses
-# a gate.
+# full-tier suites use, so full-tier work does not block a push's gates;
+# another smoke-class run — another push's gates or a bin/oc-test smoke
+# run — still shares it. Inside a synchronous tool call a gate waits up to
+# the host's default 30 s (OC_WORKLOAD_GATE_SYNC_WAIT_MS) for the lane
+# before admission is refused (exit 75) and the push fails closed, never
+# with a skipped gate. On a host without oc-test-gate the gate still runs
+# natively, with a warning: a normal push never loses a gate.
 #
 # `no_auto_install: true` keeps `lefthook run pre-push` (what
 # `bin/oc-test preflight` executes) from touching the installed hooks.
@@ -32,7 +32,7 @@ no_auto_install: true
 
 pre-push:
   # Serial, not parallel, within one push. Across pushes, the admission in
-  # preflight-gate serializes the heavy gate work on the shared host; every
+  # preflight-gate serializes the gate work in the smoke lane; every
   # agent worktree runs these whole-repository Go gates on push.
   parallel: false
   commands:

@@ -38,11 +38,12 @@
 # through the preflight-gate tier, because they vet, build, lint, and compile
 # every package, which is heavy on a shared host when several worktrees push
 # at once. Each gate is its own smoke-lane admission. That lane is separate
-# from the heavy lane full-tier suites use, so full work does not block a
-# push's gates; only another smoke-class run contends, and inside a
-# synchronous tool call a gate waits up to the host's default 30 s
-# (`OC_WORKLOAD_GATE_SYNC_WAIT_MS`) for the lane before admission is refused
-# (exit 75). The preflight tier passes no admission class of its own: its
+# from the heavy lane full-tier suites use, so full-tier work does not block
+# a push's gates; another smoke-class run — another push's gates or a
+# smoke-tier test run — still contends. Inside a synchronous tool call a
+# gate waits up to the host's default 30 s (`OC_WORKLOAD_GATE_SYNC_WAIT_MS`)
+# for the lane before admission is refused (exit 75) and the push fails
+# closed. The preflight tier passes no admission class of its own: its
 # gates admit themselves, because one wrapper around the whole battery would
 # hold one admission lane for the entire run, and the host refuses a gate
 # nested inside a run that already holds a lane. When `oc-test-gate` is

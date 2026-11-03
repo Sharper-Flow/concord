@@ -88,8 +88,6 @@ write authority beside the typed mutation surface.
 
 ## Verification
 
-- The manifest registers this record as an accepted decision.
-- `clarifications.md` R1 cites this record.
 - `go test ./cmd/concord/ -run
   'TestRemovedLaunchEntriesRefuseWithoutExecuting|TestRemovedLaunchArgvZeroDoesNotForward'`
   proves the removed entry verbs reach no launch and start no process.

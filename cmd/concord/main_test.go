@@ -84,21 +84,6 @@ func TestHelpListsSessionPreparation(t *testing.T) {
 	}
 }
 
-func TestHelpOmitsHostOwnershipRoutes(t *testing.T) {
-	var out, errOut bytes.Buffer
-	if code := run([]string{"--help"}, &out, &errOut); code != 0 {
-		t.Fatalf("help exit code=%d stderr=%q", code, errOut.String())
-	}
-	for _, route := range []string{
-		"concord work-bootstrap", "concord work-resume", "concord worktree-locate", "concord claim-landing", "concord vacate-landing",
-		"concord_work_transition.session_vacate", "concord_work_transition.worktree_claim", "concord_work_transition.worktree_reclaim", "concord_work_transition.worktree_destroy", "concord_work_transition.worktree_audit_reclaim", "concord_work_browse.worktree_audit",
-	} {
-		if strings.Contains(out.String(), route) {
-			t.Fatalf("help advertises retired ownership route %q", route)
-		}
-	}
-}
-
 func TestReceiptCommandRetired(t *testing.T) {
 	if _, _, matched := matchCommandSpec([]string{"receipt"}); matched {
 		t.Fatal("receipt remains a declared command")

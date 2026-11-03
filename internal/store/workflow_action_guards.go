@@ -172,7 +172,7 @@ func guardEvidenceBindingMembership(ctx context.Context, q queryer, workID strin
 		return err
 	}
 	matched := false
-	for _, requirement := range workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations) {
+	for _, requirement := range workflowEvidenceRequirementDefinitions(required, mandates, obligations) {
 		if (requirement.Kind == "" || requirement.Kind == kind) && (requirement.Reference == "" || requirement.Reference == reference) {
 			matched = true
 		}
@@ -457,162 +457,70 @@ func recordWorkflowOperationTx(ctx context.Context, tx *sql.Tx, request Workflow
 	return evidenceRefs, nil
 }
 
-// workflowActionAssemblyInput is the normalized state the event assembly
-// folds into the action's events.
-type workflowActionAssemblyInput struct {
-	ctx          context.Context
-	tx           *sql.Tx
-	entry        RegisteredDefinition
-	request      WorkflowActionExecutionRequest
-	currentStep  string
-	step         *WorkflowStep
-	payload      json.RawMessage
-	evidenceRefs []string
-
-	eventActor        string
-	actorRecordPrefix *workflowActorRecordPrefix
-	// registry is the authoritative definition source the dispatch verified
-	// the entry through: nil selects the builtin registry.
-	registry DefinitionRegistry
-	// admission carries the fold's derived admission state, so the assembly's
-	// payload checks read the folded conditions instead of re-deriving them.
-	admission *WorkflowAdmissionState
-}
-
-type workflowActionEventAssembly struct {
-	events       []Event
-	attemptEpoch int64
-}
-
-// assembleWorkflowActionEventsTx resolves the execution mode and start epoch
-// and folds the recorded actors, start or checkpoint envelope, and semantic
-// events into the action's event list.
-func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflowActionAssemblyInput) (workflowActionEventAssembly, error) {
-	var out workflowActionEventAssembly
-	executionMode, ok := workflowActionExecutionMode(in.entry.Definition, in.request.ActionID)
-	if !ok {
-		return out, newFailure(KindInvariantViolation, "workflow_action", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
+func assemblePlanWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, action WorkflowActionDefinition, plan *WorkflowStepPlan, stepID, actor string, evidenceRefs []string, version int64) ([]Event, error) {
+	if plan == nil {
+		return nil, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow has no plan", false, "pick a workflow type")
 	}
-	actor := in.eventActor
-	events := []Event{}
-	versionCursor := in.request.ExpectedVersion
-	if in.actorRecordPrefix != nil {
-		events = append(events, in.actorRecordPrefix.event(in.request.OperationID+":actor", in.request.WorkID, in.request.Now, versionCursor))
-		versionCursor++
+	policy := builtinActionPolicies[request.ActionID]
+	starting := action.ExecutionMode == ActionFenced
+	epoch, err := workflowActionStartEpochForDispatch(ctx, tx, request.WorkID, stepID, starting)
+	if err != nil {
+		return nil, err
 	}
-	var workflowActionEpoch int64
-	var epochErr error
-	if builtinActionPolicies[in.request.ActionID].EventShape == ActionEventCheckpoint && executionMode != ActionFenced {
-		// CD-0198 D3: the step's first admitted qualifying checkpoint
-		// derives the step start in the same operation, before the
-		// epoch-dependent checkpoint fold. A refused action never reaches
-		// this assembly, so a derivation is atomic with its action, and the
-		// started event's fold opens the same fence and epoch a callable
-		// start opened.
-		derivedEpoch, derivedStart, deriveErr := workflowDerivedCheckpointStartTx(ctx, tx, in.entry.Definition, in.request, in.currentStep, actor, versionCursor)
-		if deriveErr != nil {
-			return out, deriveErr
-		}
-		if derivedStart != nil {
-			events = append(events, *derivedStart)
-			workflowActionEpoch = derivedEpoch
-		} else {
-			workflowActionEpoch, epochErr = workflowCheckpointAttemptEpoch(ctx, tx, in.entry.Definition, in.step, in.request.WorkID, in.currentStep)
-		}
-	} else {
-		workflowActionEpoch, epochErr = workflowActionStartEpochForDispatch(ctx, tx, in.request.WorkID, in.currentStep, executionMode == ActionFenced)
-	}
-	if epochErr != nil {
-		return out, epochErr
-	}
-	out.attemptEpoch = workflowActionEpoch
-	if executionMode == ActionFenced {
-		resultVersion := versionCursor + 1
-		startPayload, _ := json.Marshal(map[string]any{
-			"work_id": in.request.WorkID, "expected_version": versionCursor, "resulting_version": resultVersion,
-			"step_id": in.currentStep, "action_id": in.request.ActionID, "attempt_epoch": workflowActionEpoch,
-			"accepted_inputs_digest": in.request.AcceptedInputsDigest, "idempotency_identity": in.request.IdempotencyIdentity, "actor_ref": actor,
-		})
-		events = append(events, Event{EventID: in.request.OperationID + ":started", Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: in.request.WorkID, Actor: actor, OccurredAt: in.request.Now, PayloadVersion: 1, Payload: startPayload})
-	}
-	switch {
-	case builtinActionPolicies[in.request.ActionID].EventShape == ActionEventCheckpoint:
-		resultVersion := versionCursor + int64(len(events)-int(versionCursor-in.request.ExpectedVersion)) + 1
-		checkpointPayload, _ := json.Marshal(map[string]any{"action_id": in.request.ActionID, "fields": in.payload})
-		checkpoint, _ := json.Marshal(map[string]any{
-			"work_id": in.request.WorkID, "expected_version": versionCursor + int64(len(events)-int(versionCursor-in.request.ExpectedVersion)), "resulting_version": resultVersion,
-			"step_id": in.currentStep, "step_kind": string(in.step.Kind), "attempt_epoch": workflowActionEpoch,
-			"checkpoint_payload": json.RawMessage(checkpointPayload), "resume_cursor": "", "actor_ref": actor,
-			"request_id": in.request.RequestID, "checkpoint_id": in.request.OperationID + ":checkpoint",
-			"accepted_inputs_digest": in.request.AcceptedInputsDigest, "idempotency_identity": in.request.IdempotencyIdentity,
-		})
-		events = append(events, Event{EventID: in.request.OperationID + ":checkpoint", Kind: WorkflowActionCheckpointed, SubjectType: SubjectWorkItem, SubjectID: in.request.WorkID, Actor: actor, OccurredAt: in.request.Now, PayloadVersion: 1, Payload: checkpoint})
-	case in.request.ActionID != "complete":
-		semantic, semanticErr := workflowSemanticActionEvents(ctx, tx, in.entry.Definition, in.request, in.currentStep, actor, in.payload, versionCursor+int64(len(events)-int(versionCursor-in.request.ExpectedVersion)))
-		if semanticErr != nil {
-			return out, semanticErr
-		}
-		events = append(events, semantic...)
-	}
-	out.events = events
-	return out, nil
-}
-
-// workflowActionOmitsGenericCompletion names the actions whose typed event is
-// the durable action boundary: they append no generic completion, so the
-// completed-action fold never moves the step on them, whatever execution mode
-// a pinned definition declares (CD-0112 D1).
-func workflowActionOmitsGenericCompletion(actionID string) bool {
-	return actionID == "checkpoint_context" || actionID == "cross_context_boundary" || actionID == "record_work_context"
-}
-
-// appendGenericWorkflowCompletion appends the generic WorkflowActionCompleted
-// event. Continuity's typed event is the durable action boundary; appending a
-// generic completion after it would make the checkpoint immediately stale, so
-// the continuity actions are excluded.
-func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoch int64, events []Event) ([]Event, error) {
-	if workflowActionOmitsGenericCompletion(in.request.ActionID) {
+	var events []Event
+	if starting {
+		values := map[string]any{"step_id": stepID, "action_id": request.ActionID, "attempt_epoch": epoch, "accepted_inputs_digest": request.AcceptedInputsDigest, "idempotency_identity": request.IdempotencyIdentity, "actor_ref": actor}
+		events = append(events, workflowTypedEvent(request.OperationID+":started", WorkflowActionStarted, request.WorkID, actor, request.Now, version, values))
 		return events, nil
 	}
-	fields, fieldsErr := workflowActionObject(in.payload)
-	if fieldsErr != nil {
-		return events, fieldsErr
-	}
-	completionValues := map[string]any{
-		"step_id": in.currentStep, "action_id": in.request.ActionID, "attempt_epoch": attemptEpoch, "result_evidence_refs": in.evidenceRefs,
-		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
-	}
-	if in.request.ActionID == "record_review" {
-		report, err := decodeRecordedReview(in.payload)
+	if policy.EventShape == ActionEventCheckpoint {
+		_, _, found, err := latestWorkflowActionStart(ctx, tx, request.WorkID, stepID)
 		if err != nil {
-			return events, err
+			return nil, err
 		}
-		completionValues["review"] = report
-	}
-	if in.request.ActionID == "record_verdict" {
-		// The batched form declares its entry count on the completion, so the
-		// fold bounds the operation's result evidence at the schema-bounded
-		// batch union instead of the single-form bound. The single form stays
-		// silent and keeps its bound.
-		if _, batchPresent := fields["verdicts"]; batchPresent {
-			entries, entriesErr := normalizeWorkflowVerdictEntries(fields)
-			if entriesErr != nil {
-				return events, entriesErr
+		if !found {
+			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),0)+1 FROM workflow_checkpoints WHERE work_id=? AND step_id=?`, request.WorkID, stepID).Scan(&epoch); err != nil {
+				return nil, workflowProjectionError(err, "cannot inspect prior workflow checkpoint epochs")
 			}
-			completionValues["verdict_entry_count"] = len(entries)
 		}
-	}
-	if in.request.ActionID == "record_delivery" && workflowDefinitionRequiresDeliveryPayload(in.entry.Definition) {
-		artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
-		state := workflowFieldStringDefault(fields, "delivery_state", "")
-		if artifact == "" || state == "" {
-			return events, newFailure(KindInvalidPayload, "workflow_action", "record_delivery requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
+		checkpoint, err := json.Marshal(map[string]any{"action_id": request.ActionID, "fields": request.Payload})
+		if err != nil {
+			return nil, err
 		}
-		completionValues["delivery_artifact"] = artifact
-		completionValues["delivery_state"] = state
+		values := map[string]any{"step_id": stepID, "step_kind": "internal_sqlite", "attempt_epoch": epoch, "checkpoint_payload": json.RawMessage(checkpoint), "resume_cursor": "", "actor_ref": actor, "request_id": request.RequestID, "checkpoint_id": request.OperationID + ":checkpoint", "accepted_inputs_digest": request.AcceptedInputsDigest, "idempotency_identity": request.IdempotencyIdentity}
+		return []Event{workflowTypedEvent(request.OperationID+":checkpoint", WorkflowActionCheckpointed, request.WorkID, actor, request.Now, version, values)}, nil
 	}
-	resultVersion := in.request.ExpectedVersion + int64(len(events)) + 1
-	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
+	events, err = workflowSemanticActionEvents(ctx, tx, plan.Type, request, stepID, actor, request.Payload, version)
+	if err != nil {
+		return nil, err
+	}
+	if request.ActionID == "checkpoint_context" || request.ActionID == "cross_context_boundary" || request.ActionID == "record_work_context" {
+		return events, nil
+	}
+	values := map[string]any{"step_id": stepID, "action_id": request.ActionID, "attempt_epoch": epoch, "result_evidence_refs": evidenceRefs, "changed_refs": []string{request.WorkID}, "actor_ref": actor}
+	if request.ActionID == "record_review" {
+		report, err := decodeRecordedReview(request.Payload)
+		if err != nil {
+			return nil, err
+		}
+		values["review"] = report
+	}
+	fields, err := workflowActionObject(request.Payload)
+	if err != nil {
+		return nil, err
+	}
+	if request.ActionID == "record_verdict" && fields["verdicts"] != nil {
+		entries, err := normalizeWorkflowVerdictEntries(fields)
+		if err != nil {
+			return nil, err
+		}
+		values["verdict_entry_count"] = len(entries)
+	}
+	if request.ActionID == "record_delivery" {
+		values["delivery_artifact"] = workflowFieldStringDefault(fields, "delivery_artifact", "")
+		values["delivery_state"] = workflowFieldStringDefault(fields, "delivery_state", "")
+	}
+	events = append(events, workflowTypedEvent(request.OperationID+":completed", WorkflowActionCompleted, request.WorkID, actor, request.Now, version+int64(len(events)), values))
 	return events, nil
 }
 
@@ -662,7 +570,7 @@ func extendCompletionEvidenceAuthorityTx(ctx context.Context, tx *sql.Tx, reques
 // applyCompleteWorkflowActionTx completes the workflow in this transaction:
 // the ordered completion gate runs and workflow.completed is appended here.
 // The caller's write scope guards the whole action region.
-func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *writeScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
+func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *writeScope, _ DefinitionRegistry, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
 	if scope == nil {
 		return result, newFailure(KindInvalidOperation, "complete_workflow", "write scope is required", false, "open the write scope with beginWrite")
@@ -702,7 +610,20 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *write
 	if completionErr != nil {
 		return result, completionErr
 	}
-	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion, scope); err != nil {
+	if err := completion.validate(); err != nil {
+		return result, err
+	}
+	if err := validateRegisteredEvent(completion); err != nil {
+		return result, err
+	}
+	var completedPayload workflowCompletedPayload
+	if err := decodeWorkflowPayload(completion, &completedPayload); err != nil {
+		return result, err
+	}
+	if err := workflowBase(completion, completedPayload.WorkflowVersionFields); err != nil {
+		return result, err
+	}
+	if err := completeWorkflowInScopeTx(ctx, tx, completion, scope, completedPayload); err != nil {
 		return result, err
 	}
 	result.EventIDs = append([]string{}, scope.eventIDs[startReceipt:]...)

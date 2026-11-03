@@ -96,11 +96,6 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string) {
 		commitAgentFixtureLaw(t, home.RepoPath, ".concord/law/decisions/CD-0002-fixture-derived-law.md",
 			agentFixtureLawFrontmatter(lawID, pm1fixture.FixtureRootDomainID, "The law-change fixture registry declares no child Domain, so this law has no child home available."))
 	}
-	registered, err := store.LiveWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	registry := store.BuiltinWorkflowRegistry()
 	db := s.DatabaseForTesting()
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, "work-1")
@@ -108,7 +103,7 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string) {
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Registry: registry, Actor: actor, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Actor: actor, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -52,7 +52,8 @@ func writeWorkflowPlanTx(ctx context.Context, tx *sql.Tx, workID string, next Wo
 	if err != nil {
 		return workflowProjectionError(err, "cannot encode the workflow plan")
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET workflow_type=?,step_plan=? WHERE work_id=?`, string(next.Type), string(raw), workID)
+	// The first plan write leaves intake: the picked type starts the run.
+	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET workflow_type=?,step_plan=?,instance_state=CASE instance_state WHEN 'intake' THEN 'running' ELSE instance_state END WHERE work_id=?`, string(next.Type), string(raw), workID)
 	if err != nil {
 		return workflowProjectionError(err, "cannot write the workflow plan")
 	}

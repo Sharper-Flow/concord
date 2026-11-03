@@ -43,17 +43,13 @@ func TestReviseIntentUpdatesContractAtomicallyAndReplays(t *testing.T) {
 	if _, err := pm1fixture.SeedCommittedProductDomain(t.Context(), s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	definition, err := store.LiveWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), "work-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Registry: store.BuiltinWorkflowRegistry(), Actor: actor, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Actor: actor, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}

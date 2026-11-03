@@ -153,16 +153,12 @@ func seedProjectHandoffContract(t *testing.T, s *Store, workID string, workVersi
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, ok := BuiltinWorkflowRegistry().Current("workflow.research")
-	if !ok {
-		t.Fatal("workflow.research v5 is not registered")
-	}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: owner, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)})
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)})
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -939,16 +939,12 @@ func livenessReplay(t *testing.T, definition WorkflowDefinition, path []liveness
 // reassigned.
 func livenessInitialize(t *testing.T, s *Store, workID string, definition WorkflowDefinition) {
 	t.Helper()
-	registered, err := BuiltinWorkflowRegistry().Register(definition)
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: livenessActor(), Now: time.Unix(5, 0).UTC()})
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: livenessActor(), Now: time.Unix(5, 0).UTC()})
 	}); err != nil {
 		t.Fatal(err)
 	}

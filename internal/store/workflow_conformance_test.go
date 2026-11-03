@@ -646,7 +646,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: mustBuiltinDefinition(t, "workflow.implementation"), Actor: actor, Now: corpusNow}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: corpusNow}); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -764,7 +764,7 @@ func createCorpusCurrentWorkflow(ctx context.Context, s *Store, workID string, r
 		if _, err := ApplyOperationTx(ctx, transaction, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
 			return err
 		}
-		return InitializeWorkflowTx(ctx, transaction, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: corpusNow})
+		return InitializeWorkflowTx(ctx, transaction, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: corpusNow})
 	})
 }
 

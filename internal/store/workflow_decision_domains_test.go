@@ -47,10 +47,6 @@ func seedDecisionDomainsItem(t *testing.T, s *Store, workID string, domains any,
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, ok := BuiltinWorkflowRegistry().Current("workflow.research")
-	if !ok {
-		t.Fatal("workflow.research v5 is not registered")
-	}
 	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {
 		return err
@@ -60,7 +56,7 @@ func seedDecisionDomainsItem(t *testing.T, s *Store, workID string, domains any,
 		return err
 	}
 	defer tx.Rollback()
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: owner}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner}); err != nil {
 		return err
 	}
 	event := workflowEventWithActor("decision-contract-"+workID, WorkflowContractApproved, workID, ownerRef, decisionDomainsContract(workID, 1, domains))

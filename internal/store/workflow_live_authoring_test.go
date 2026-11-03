@@ -52,31 +52,6 @@ func TestLiveAuthoringSelectorPublishesThreeFamiliesAndRefusesRetiredOnes(t *tes
 	}
 }
 
-func TestDefaultWorkflowRefForKindRequiresExplicitFamilyForDecisionAndOther(t *testing.T) {
-	t.Parallel()
-	defaults := map[string]string{
-		"task":     "workflow.implementation",
-		"bug":      "workflow.break_fix",
-		"research": "workflow.research",
-	}
-	for kind, want := range defaults {
-		ref, err := DefaultWorkflowRefForKind(kind)
-		if err != nil {
-			t.Fatalf("kind %s default: %v", kind, err)
-		}
-		if ref != want {
-			t.Fatalf("kind %s default = %s, want %s", kind, ref, want)
-		}
-	}
-	for _, kind := range []string{"decision", "other"} {
-		_, err := DefaultWorkflowRefForKind(kind)
-		failure, ok := err.(*Failure)
-		if !ok || failure.Kind != KindInvalidOperation {
-			t.Fatalf("kind %s default: err=%v, want %s requiring an explicit family", kind, err, KindInvalidOperation)
-		}
-	}
-}
-
 func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 	for family := range archivedWorkflowFamilies {
 		t.Run(family, func(t *testing.T) {
@@ -93,7 +68,7 @@ func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: owner, Now: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
+			if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
 				_ = tx.Rollback()
 				t.Fatal(err)
 			}
@@ -348,10 +323,6 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	registered, err := LiveWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
@@ -365,7 +336,7 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: owner, Now: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -407,7 +378,7 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedEvents, err := workflowApproveContractEvents(ctx, tx2, registered.Definition, WorkflowActionExecutionRequest{WorkID: workID, Now: time.Date(2026, 10, 11, 1, 0, 0, 0, time.UTC)}, ownerRef, fields, operationID+":semantic", version)
+	expectedEvents, err := workflowApproveContractEvents(ctx, tx2, WorkflowStepPlanChange, WorkflowActionExecutionRequest{WorkID: workID, Now: time.Date(2026, 10, 11, 1, 0, 0, 0, time.UTC)}, ownerRef, fields, operationID+":semantic", version)
 	if err != nil || len(expectedEvents) != 1 {
 		t.Fatalf("approval constructor=%+v, err=%v", expectedEvents, err)
 	}
@@ -524,7 +495,7 @@ func seedPinnedInstance(t *testing.T, path string, workID string, registered Reg
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: owner, Now: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}

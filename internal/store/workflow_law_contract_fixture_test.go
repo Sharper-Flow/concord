@@ -124,7 +124,7 @@ func constructLawChangeContract(t *testing.T, s *Store, definition WorkflowDefin
 		eventID := fmt.Sprintf("law-change-contract-%s-%d", workID, expected)
 		r := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: expected, OperationID: eventID, ActionID: "approve_contract", Now: time.Unix(12, 0).UTC()}
 		var events []Event
-		events, err = workflowApproveContractEvents(ctx, tx, definition, r, ownerRef, fields, eventID, expected)
+		events, err = workflowApproveContractEvents(ctx, tx, WorkflowStepPlanChange, r, ownerRef, fields, eventID, expected)
 		_ = tx.Rollback()
 		if err == nil {
 			err = tryAppendWorkflowEventsWithRegistry(s, registry, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}})

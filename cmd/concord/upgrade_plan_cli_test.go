@@ -720,7 +720,6 @@ func seedCutoverPinStore(t *testing.T, path string) {
 		if err := s.Transact(ctx, func(tx *store.Transaction) error {
 			return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
 				WorkID:     workID,
-				Definition: canonical,
 				Actor:      cutoverFixtureActor(workID),
 				Now:        time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC),
 			})

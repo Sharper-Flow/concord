@@ -355,12 +355,6 @@ func main() {
 
             print("Independent edits merged exactly; current digests verified and stale affected digests received typed mismatch refusals.", flush=True)
             self._run(root, sys.executable, "scripts/generate-agent-contracts.py")
-            for row in states["merged"].values():
-                exported = json.loads(self._run(root, "go", "run", "./scripts/workflow-action-contracts", "--canonical-definition",
-                                                input=json.dumps(row["manifest"]), show=False))
-                self.assertEqual(exported.pop("digest"), row["digest"])
-                self.assertEqual(exported, row["manifest"])
-            print("Generator canonical exporter agrees with all merged current definitions.", flush=True)
             self._run(root, sys.executable, "scripts/generate-agent-contracts.py", "--check")
             self._run(root, sys.executable, "scripts/generate-agent-profiles.py", "--check")
             self._run(root, "go", "test", "-timeout=4m", "./internal/store", "-run",
@@ -1729,12 +1723,7 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
 
 
 class LiveAuthoringClosureTests(unittest.TestCase):
-    """The public authoring surface derives from the live heads and the
-    recovery list only. Retired published actions carry no
-    authoring variant, the outcome union narrows to what the live heads pin,
-    and the frozen historical decoder keeps the retired vocabulary byte for
-    byte for the released pins (CD-0218 D1/D4).
-    """
+    """Public actions and outcome tokens derive from the live plan policy."""
 
     @classmethod
     def setUpClass(cls):
@@ -1747,15 +1736,14 @@ class LiveAuthoringClosureTests(unittest.TestCase):
             self.assertNotIn(action_id, live_ids, f"retired action {action_id} is authorable")
         self.assertIn("record_diagnosis", live_ids)
 
-    def test_the_live_outcome_union_is_the_research_trio_without_a_decision_record(self):
+    def test_the_live_outcome_union_uses_plan_tokens(self):
         defs = payload_schema["$defs"]
         live_tokens = sorted({token for workflow in self.workflows for token in workflow["allowed_outcome_tokens"]})
         self.assertEqual(set(live_tokens), {"no_change", "resolved", "report_recorded"})
         allowed = defs["workflow_outcome_outcome"]["properties"]["allowed"]
         self.assertEqual(allowed["items"]["enum"], live_tokens)
         self.assertEqual(allowed["maxItems"], len(live_tokens))
-        self.assertNotIn("decision_record", defs["workflow_outcome_outcome"]["properties"])
-        self.assertNotIn("workflow_outcome_decision_record", defs)
+        self.assertIn("decision_record", defs["workflow_outcome_outcome"]["properties"])
         # The four predicate kinds survive with their per-kind payloads, and
         # every check result token the historical readers know stays.
         kinds = {branch["properties"]["outcome_kind"]["const"]
@@ -1766,7 +1754,7 @@ class LiveAuthoringClosureTests(unittest.TestCase):
                                                        "absent", "healthy", "unhealthy", "accepted", "rejected"]))
         self.assertEqual(defs["workflow_outcome_absent"]["properties"]["distinguish_from"]["items"]["enum"],
                          ["archived", "relocated", "renamed", "disabled"])
-        # No authoring def names the retired tokens or a decision record.
+        # Authoring names only live tokens; retained output keeps the full set.
         retired_tokens = {"accepted_decision", "insufficient_evidence", "remediated", "completed", "operator_defined"}
         self.assertNotIn("workflow_outcome_payload", defs)
         text = json.dumps({name: defs[name] for name in ("workflow_action_outcome", "workflow_outcome_outcome",
@@ -1774,7 +1762,7 @@ class LiveAuthoringClosureTests(unittest.TestCase):
                           sort_keys=True)
         for token in retired_tokens:
             self.assertNotIn(f'"{token}"', text, f"retired outcome token {token} is still authorable")
-        self.assertNotIn("decision_record", text)
+        self.assertIn("decision_record", text)
         # The work pin replays stored predicates unchanged, so it keeps the
         # retained vocabulary and decision record that authoring narrows away.
         retained = defs["workflow_retained_outcome"]["properties"]

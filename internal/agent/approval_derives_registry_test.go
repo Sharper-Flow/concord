@@ -53,13 +53,9 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 
 	// The archived ops_runbook authoring left the live catalog (CD-0218 D1);
 	// the derived-registry approval journey runs on the implementation head.
-	registered, registeredErr := store.LiveWorkflowDefinitionForRef("workflow.implementation")
-	if registeredErr != nil {
-		t.Fatal(registeredErr)
-	}
 	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
 		t.Fatalf("initialize workflow: %v", err)
 	}
@@ -119,13 +115,9 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 	rootDomainID := listed.Registry.RootDomainID
 	// The archived ops_runbook authoring left the live catalog (CD-0218 D1);
 	// the no-prior-read derivation journey runs on the implementation head.
-	registered, registeredErr := store.LiveWorkflowDefinitionForRef("workflow.implementation")
-	if registeredErr != nil {
-		t.Fatal(registeredErr)
-	}
 	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
 		t.Fatalf("initialize workflow: %v", err)
 	}

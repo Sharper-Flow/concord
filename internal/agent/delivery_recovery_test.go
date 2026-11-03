@@ -24,14 +24,10 @@ func TestDeliveryGateRetainsStaleReviewThroughAgent(t *testing.T) {
 	worktree := t.TempDir()
 	grant.Worktree = worktree
 
-	currentDefinition, err := store.LiveWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: currentDefinition, Actor: grantActor, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Actor: grantActor, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}

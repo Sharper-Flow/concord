@@ -111,99 +111,14 @@ func ApplyWorkflowActionTx(ctx context.Context, transaction *Transaction, regist
 	return applyWorkflowActionRawTx(ctx, tx, scope, registry, request)
 }
 
-func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
-	var result WorkflowActionExecutionResult
+func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope, _ DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
 	if tx == nil {
-		return result, newFailure(KindInvalidOperation, "workflow_action", "transaction is not open", false, "supply an active store transaction")
+		return WorkflowActionExecutionResult{}, newFailure(KindInvalidOperation, "workflow_action", "transaction is not open", false, "supply an active store transaction")
 	}
 	if scope == nil {
-		return result, newFailure(KindInvalidOperation, "workflow_action", "write scope is required", false, "open the write scope with beginWrite")
+		return WorkflowActionExecutionResult{}, newFailure(KindInvalidOperation, "workflow_action", "write scope is required", false, "open the write scope with beginWrite")
 	}
-	switch request.ActionID {
-	case "record_intake", "record_clarify", "pick_type", "insert_step", "complete_step":
-		return applyWorkflowPlanActionTx(ctx, tx, scope, request)
-	}
-	if registry == nil {
-		registry = BuiltinWorkflowRegistry()
-	}
-	if err := scope.bindRegistry(tx, registry); err != nil {
-		return result, err
-	}
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, request.WorkID)
-	if err != nil {
-		return result, err
-	}
-	currentStep, state, err := readWorkflowActionStateTx(ctx, tx, request.WorkID, request.ExpectedVersion)
-	if err != nil {
-		return result, err
-	}
-	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep, instanceState: state, registry: registry}
-	if err := prepareWorkflowExecutionAdmission(guards); err != nil {
-		return result, err
-	}
-	decision := *guards.admissionDecision
-	if err := runWorkflowActionAdmissionGuards(guards, request, decision); err != nil {
-		return result, err
-	}
-	if err := guardWorkflowActionActor(guards, request); err != nil {
-		return result, err
-	}
-	payload, err := prepareWorkflowActionEvidence(guards, &request)
-	if err != nil {
-		return result, err
-	}
-	step, evidenceRefs, err := recordAtomicWorkflowOperationTx(ctx, tx, entry, request, currentStep)
-	if err != nil {
-		return result, err
-	}
-	if err := runWorkflowActionGuard(guards, guardPhaseOperation); err != nil {
-		return result, err
-	}
-	if err := BindResearchRelianceTx(ctx, tx, request.WorkID, request.ResearchBindings, request.Now); err != nil {
-		return result, err
-	}
-	assemblyInput := workflowActionAssemblyInput{
-		ctx: ctx, tx: tx,
-		entry: entry, request: request, currentStep: currentStep, step: step, payload: payload, evidenceRefs: evidenceRefs,
-		eventActor:        guards.eventActor,
-		actorRecordPrefix: guards.actorRecordPrefix,
-		admission:         guards.admissionState,
-		registry:          registry,
-	}
-	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
-	if err != nil {
-		return result, err
-	}
-	if request.ActionID == "bind_evidence" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
-		for _, event := range assembly.events {
-			if event.Kind == WorkflowEvidenceBound {
-				if err := guardEvidenceBindingMembership(ctx, tx, request.WorkID, entry.Definition, event.Payload, "workflow_action"); err != nil {
-					return result, err
-				}
-			}
-		}
-	}
-	if request.ActionID == "complete" {
-		// The assembly's event list holds the actor- and operator-recording
-		// events for a tuple first seen on this action (a host restart mints
-		// a new session identity). Complete is the one action that does not
-		// consume the assembly's events, so they travel as a prefix here;
-		// without them a restarted session cannot complete.
-		return applyCompleteWorkflowActionTx(ctx, tx, scope, registry, request, guards.eventActor, payload, assembly.events)
-	}
-	assembly.events, err = appendGenericWorkflowCompletion(assemblyInput, assembly.attemptEpoch, assembly.events)
-	if err != nil {
-		return result, err
-	}
-
-	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: assembly.events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, scope)
-	if err != nil {
-		return result, err
-	}
-	if err := checkWorkContextDeclarationTx(ctx, tx, request.WorkID, assembly.events); err != nil {
-		return result, err
-	}
-	return finishWorkflowActionTx(ctx, tx, request, operationResult)
+	return applyWorkflowPlanActionTx(ctx, tx, scope, request)
 }
 
 func finishWorkflowActionTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, operationResult ApplyOperationResult) (WorkflowActionExecutionResult, error) {
@@ -223,6 +138,10 @@ func finishWorkflowActionTx(ctx context.Context, tx *sql.Tx, request WorkflowAct
 }
 
 func validateWorkflowPlanActionPayload(actionID string, raw json.RawMessage) (map[string]json.RawMessage, error) {
+	action, err := catalogAction(actionID)
+	if err != nil {
+		return nil, err
+	}
 	if len(raw) == 0 {
 		raw = json.RawMessage(`{}`)
 	}
@@ -230,7 +149,7 @@ func validateWorkflowPlanActionPayload(actionID string, raw json.RawMessage) (ma
 	if err := decodeWorkflowActionPayloadStrict(raw, &fields); err != nil {
 		return nil, newFailure(KindInvalidPayload, "workflow_action", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
 	}
-	definitionFields := builtinActionPolicies[actionID].Payload.Fields
+	definitionFields := action.Payload.Fields
 	allowed := make(map[string]WorkflowPayloadField, len(definitionFields))
 	for _, field := range definitionFields {
 		allowed[field.Name] = field
@@ -256,6 +175,14 @@ func validateWorkflowPlanActionPayload(actionID string, raw json.RawMessage) (ma
 
 func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScope, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
+	action, err := catalogAction(request.ActionID)
+	if err != nil {
+		return result, err
+	}
+	switch request.ActionID {
+	case "record_proposal", "record_alignment", "record_design":
+		return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "retired workflow action", false, "use an action declared by the current plan")
+	}
 	fields, err := validateWorkflowPlanActionPayload(request.ActionID, request.Payload)
 	if err != nil {
 		return result, err
@@ -269,6 +196,30 @@ func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScop
 	}
 	plan, err := readWorkflowPlanTx(ctx, tx, request.WorkID)
 	if err != nil {
+		return result, err
+	}
+	switch request.ActionID {
+	case "record_intake", "record_clarify", "pick_type", "insert_step":
+		// Their folds check the prelude and plan-level prerequisites.
+	case "complete_step":
+		currentStep, _ = workflowFieldString(fields, "step_id")
+		if plan == nil {
+			return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow has no plan", false, "pick a workflow type")
+		}
+		step, found := stepByID(plan.Steps, currentStep)
+		if !found || (len(step.Attempts) == 0 && !workflowPlanAllowsAction(plan, currentStep, request.ActionID)) {
+			return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "step is not a frontier or completed step", false, "reread the workflow plan")
+		}
+	case "complete":
+		if plan == nil || !WorkflowStepPlanComplete(*plan) {
+			return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow plan is not complete", false, "complete every plan step")
+		}
+	default:
+		if !workflowPlanAllowsAction(plan, currentStep, request.ActionID) {
+			return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action is not declared on a frontier step", false, "reread the workflow plan")
+		}
+	}
+	if err := validateWorkflowReviewRequest(ctx, tx, request.WorkID, request.ActionID, request.Payload); err != nil {
 		return result, err
 	}
 	if err := normalizeWorkflowActionRequest(&request); err != nil {
@@ -285,14 +236,31 @@ func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScop
 	if err != nil {
 		return result, err
 	}
+	if WorkflowActionOpensHeldAttempt(action) {
+		if err := guardStartTakeover(ctx, tx, action, request.WorkID, actor, request.ExpectedTakeover); err != nil {
+			return result, err
+		}
+	}
+	if request.ActionID == "link_successor" {
+		if err := guardForwardLinkOnly(&workflowActionGuardContext{request: request}); err != nil {
+			return result, err
+		}
+	}
+	if request.ActionID == "cross_context_boundary" {
+		if err := guardNoRestartDispatch(&workflowActionGuardContext{request: request}); err != nil {
+			return result, err
+		}
+	}
+	request.EvidenceRefs, err = workflowActionEvidenceRefs(request, request.Payload)
+	if err != nil {
+		return result, err
+	}
 	typeName := ""
 	if plan != nil {
 		typeName = string(plan.Type)
 	}
-	if request.ActionID == "complete_step" {
-		currentStep, _ = workflowFieldString(fields, "step_id")
-	}
-	if _, err := recordWorkflowOperationTx(ctx, tx, request, typeName, "", currentStep); err != nil {
+	evidenceRefs, err := recordWorkflowOperationTx(ctx, tx, request, typeName, "", currentStep)
+	if err != nil {
 		return result, err
 	}
 	if err := BindResearchRelianceTx(ctx, tx, request.WorkID, request.ResearchBindings, request.Now); err != nil {
@@ -304,17 +272,31 @@ func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScop
 		events = append(events, prefix.event(request.OperationID+":actor", request.WorkID, request.Now, version))
 		version++
 	}
-	kind := map[string]string{"record_intake": WorkflowIntakeRecorded, "record_clarify": WorkflowClarifyRecorded, "pick_type": WorkflowTypePicked, "insert_step": WorkflowStepInserted, "complete_step": WorkflowStepCompleted}[request.ActionID]
-	values := make(map[string]any, len(fields)+1)
-	for name, value := range fields {
-		values[name] = value
+	if request.ActionID == "complete" {
+		return applyCompleteWorkflowActionTx(ctx, tx, scope, nil, request, actor, request.Payload, events)
 	}
-	if request.ActionID == "complete_step" {
-		values["actor"] = actor
+	planKinds := map[string]string{"record_intake": WorkflowIntakeRecorded, "record_clarify": WorkflowClarifyRecorded, "pick_type": WorkflowTypePicked, "insert_step": WorkflowStepInserted, "complete_step": WorkflowStepCompleted}
+	if kind, ok := planKinds[request.ActionID]; ok {
+		values := make(map[string]any, len(fields)+1)
+		for name, value := range fields {
+			values[name] = value
+		}
+		if request.ActionID == "complete_step" {
+			values["actor"] = actor
+		}
+		events = append(events, workflowTypedEvent(request.OperationID+":semantic", kind, request.WorkID, actor, request.Now, version, values))
+	} else {
+		assembled, err := assemblePlanWorkflowActionEventsTx(ctx, tx, request, action, plan, currentStep, actor, evidenceRefs, version)
+		if err != nil {
+			return result, err
+		}
+		events = append(events, assembled...)
 	}
-	events = append(events, workflowTypedEvent(request.OperationID+":semantic", kind, request.WorkID, actor, request.Now, version, values))
 	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, scope)
 	if err != nil {
+		return result, err
+	}
+	if err := checkWorkContextDeclarationTx(ctx, tx, request.WorkID, events); err != nil {
 		return result, err
 	}
 	return finishWorkflowActionTx(ctx, tx, request, operationResult)
@@ -564,29 +546,27 @@ func workflowProposalRecordedEvents(definition WorkflowDefinition, request Workf
 
 // workflowSemanticActionEvents constructs typed events. An empty result uses
 // the ordinary action_completed event.
-func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64) ([]Event, error) {
+func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64) ([]Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return nil, err
 	}
 	eventID := request.OperationID + ":semantic"
 	switch request.ActionID {
+	case "record_plan":
+		return workflowPlanDocumentEvents(request, actor, raw, eventID, expected, WorkflowPlanRecorded), nil
+	case "record_removal_scope":
+		return workflowPlanDocumentEvents(request, actor, raw, eventID, expected, WorkflowRemovalScopeRecorded), nil
 	case "checkpoint_context":
 		return workflowContextCheckpointEvents(ctx, tx, request, stepID, actor, fields, eventID, expected)
 	case "cross_context_boundary":
 		return workflowContextBoundaryEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "record_work_context":
 		return workflowRecordWorkContextEvents(ctx, tx, request, stepID, actor, fields, eventID, expected)
-	case "record_design":
-		return workflowDesignRecordedEvents(definition, request, actor, raw, eventID, expected)
-	case "record_proposal":
-		return workflowProposalRecordedEvents(definition, request, actor, raw, eventID, expected)
 	case "approve_contract":
-		return workflowApproveContractEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
+		return workflowApproveContractEvents(ctx, tx, planType, request, actor, fields, eventID, expected)
 	case "revise_candidates":
 		return workflowReviseCandidatesEvents(request, actor, fields, eventID, expected)
-	case "record_alignment":
-		return workflowRecordAlignmentEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "record_diagnosis":
 		return workflowRecordDiagnosisEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "record_review":
@@ -598,14 +578,14 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if err != nil {
 			return nil, err
 		}
-		if err := guardLateCriterionAssociations(ctx, tx, request.WorkID, definition, stepID, fields); err != nil {
+		if err := guardLateCriterionAssociations(ctx, tx, request.WorkID, planType, stepID, fields); err != nil {
 			return nil, err
 		}
 		return events, nil
 	case "confirm_premise":
-		return workflowConfirmPremiseEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
+		return workflowConfirmPremiseEvents(ctx, tx, planType, request, actor, fields, eventID, expected)
 	case "link_successor":
-		return workflowLinkSuccessorEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
+		return workflowLinkSuccessorEvents(ctx, tx, planType, request, actor, fields, eventID, expected)
 	default:
 		return nil, nil
 	}

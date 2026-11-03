@@ -1496,7 +1496,7 @@ func factWriteConstructInitialContract(t *testing.T, s *Store, definition Workfl
 	if err != nil {
 		t.Fatal(err)
 	}
-	events, constructErr := workflowApproveContractEvents(ctx, tx, definition, WorkflowActionExecutionRequest{
+	events, constructErr := workflowApproveContractEvents(ctx, tx, WorkflowStepPlanChange, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: expected, ActionID: "approve_contract",
 		OperationID: "decision-fact-initial-" + workID, Now: time.Unix(12, 0).UTC(),
 	}, ownerRef, fields, "decision-fact-initial-"+workID, expected)

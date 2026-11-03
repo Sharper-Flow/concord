@@ -171,9 +171,6 @@ func runResolutionProducer(s *Store, registry DefinitionRegistry, workID, princi
 	}
 	var result OperationResult
 	err := s.TransactDurable(context.Background(), func(tx *Transaction) error {
-		if _, err := VerifyWorkflowInstanceDefinitionTx(context.Background(), tx.tx, registry, workID); err != nil {
-			return err
-		}
 		_, err := tx.tx.Exec(`INSERT INTO durable_operations(op_id,work_id,workflow_type_ref,workflow_type_digest,step_id,accepted_inputs_digest,principal_ref,request_id,observed_at,contract_digest,evidence_refs,changed_refs) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, opID, workID, resolutionWorkflowRef, registered.Digest, "execution", testDigest("inputs"), principal, requestID, "2026-08-07T00:00:00Z", testManifestDigest, `["evidence:operator-verdict","evidence:operator-review"]`, workflowJSON([]string{workID}))
 		if err != nil {
 			return err
@@ -335,7 +332,7 @@ func confirmResolutionPremise(t *testing.T, s *Store, registry DefinitionRegistr
 	if operator != nil {
 		invoker = ownerRefForTest(t, *operator)
 	}
-	events, err := workflowConfirmPremiseEvents(ctx, tx, definition, WorkflowActionExecutionRequest{
+	events, err := workflowConfirmPremiseEvents(ctx, tx, WorkflowStepPlanChange, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise",
 		OperationID: "resolution-confirm-" + workID, Now: time.Unix(10, 30).UTC(),
 	}, invoker, fields, "resolution-confirm-"+workID, version)
@@ -454,7 +451,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback()
-			return requireAcceptanceDeliverables(context.Background(), tx, definition, workID)
+			return requireAcceptanceDeliverables(context.Background(), tx, workID)
 		}
 		// Before Main associates the accepted Review with the criteria the
 		// deliverables check refuses.
@@ -468,15 +465,6 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		s2, _, _, _, _ := engineeringConfirmationSeed(t, workID)
 		if err := readDeliverables(t, s2, definition, workID); err != nil {
 			t.Fatalf("deliverables refused with the criterion association recorded: %v", err)
-		}
-		// The stored contract's approved predicates are validated against the
-		// definition the owner hands in: a definition that would not have
-		// approved the stored outcome refuses.
-		mismatched := definition
-		mismatched.OutcomeSchema.AllowedKinds = []PredicateKind{PredicateAbsent}
-		var shapeFailure *Failure
-		if err := readDeliverables(t, s2, mismatched, workID); !failureAs(err, &shapeFailure) || shapeFailure.Kind != KindInvariantViolation || !strings.Contains(shapeFailure.Detail, "outside the pinned definition") {
-			t.Fatalf("deliverables under a definition that disapproves the stored outcome returned %v, want the pinned-definition refusal", err)
 		}
 	})
 

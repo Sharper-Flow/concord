@@ -65,14 +65,10 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 	// The executing actor is session 0's identity; session 1 is distinct.
 	// The workflow instance and executing actor come from the real
 	// initialization path, so the executing identity is folded, not faked.
-	definition, defErr := store.BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if defErr != nil {
-		t.Fatal(defErr)
-	}
 	execActor := store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent}
 	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: execActor, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Actor: execActor, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}

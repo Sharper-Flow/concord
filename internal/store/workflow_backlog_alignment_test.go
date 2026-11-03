@@ -93,15 +93,11 @@ func TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds(t *testing.T) {
 	if _, err := BuiltinWorkflowDefinitionForRef("workflow.implementation"); err != nil {
 		t.Fatal(err)
 	}
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

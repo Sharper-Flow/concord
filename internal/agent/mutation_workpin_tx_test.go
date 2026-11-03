@@ -14,13 +14,9 @@ import (
 
 func initializeMutationPinWorkflow(t *testing.T, s *store.Store, workID string, definition store.WorkflowDefinition) {
 	t.Helper()
-	registered, err := store.BuiltinWorkflowRegistry().Register(definition)
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx := agentWorkflowSourceProof(t, context.Background(), s, workID)
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: store.WorkflowActor{PrincipalRef: "principal/fixture", ClientRef: "client/fixture", AgentRef: "agent/fixture", SessionRef: "session/fixture", ActorClass: store.ActorAgent}, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Actor: store.WorkflowActor{PrincipalRef: "principal/fixture", ClientRef: "client/fixture", AgentRef: "agent/fixture", SessionRef: "session/fixture", ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}

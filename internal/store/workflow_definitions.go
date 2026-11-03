@@ -109,9 +109,6 @@ func populateBuiltinWorkflowActions(definition *WorkflowDefinition) {
 			if err != nil {
 				panic(fmt.Sprintf("built-in workflow %s: %v", definition.Ref, err))
 			}
-			if id == "approve_contract" {
-				action.Payload.Fields = append(slices.Clone(action.Payload.Fields), workflowDecisionFactField())
-			}
 			definition.AvailableActions = append(definition.AvailableActions, id)
 			definition.ActionDefinitions = append(definition.ActionDefinitions, action)
 		}

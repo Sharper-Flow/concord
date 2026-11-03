@@ -10,7 +10,6 @@ import (
 
 func loadedAdmissionForTest(t *testing.T, s *Store, workID string, pin WorkPin) (WorkflowDefinition, WorkflowAdmissionState) {
 	t.Helper()
-	// Prepare any committed-law reads before the transaction opens.
 	ctx, err := s.PrepareWorkLawProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)
@@ -20,15 +19,12 @@ func loadedAdmissionForTest(t *testing.T, s *Store, workID string, pin WorkPin) 
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
+	state, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, pin.Step, "admission_test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, entry.Definition, pin.Step, "admission_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return entry.Definition, state
+	return definition, state
 }
 
 func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
@@ -61,31 +57,39 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 				review:  admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
 				started: stage != "before-start", proof: stage == "green-proof",
 			}
-			want := admissionConformanceViewOf(admissionWorkflowState(definition, model))
-			if got := admissionConformanceViewOf(state); got != want {
+			if got, want := admissionConformanceViewOf(state), admissionConformanceViewOf(admissionWorkflowState(definition, model)); got != want {
 				t.Fatalf("%s: loaded admission %+v != expected %+v", stage, got, want)
 			}
 			decision := workflowAdmit(definition, state, "record_delivery")
+			payload := json.RawMessage(`{"delivery_artifact":"artifact:agreement","delivery_state":"asserted"}`)
+			tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, _, admissionErr := workflowPlanActionAdmissionTx(context.Background(), tx, workID, pin.Version, "record_delivery", payload)
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
 			preflightErr := WorkflowActionPreflightWithRegistry(context.Background(), fixture.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 				WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_delivery", Actor: reviewGateAcceptor(workID),
-				Payload: json.RawMessage(`{"delivery_artifact":"artifact:agreement","delivery_state":"asserted"}`),
+				Payload: payload,
 			})
 			executionErr := refineProofDelivery(t, fixture.store, workID)
 			advertised := workPinContainsAction(pin.NextValidIntents, "record_delivery")
 			if stage == "green-proof" {
-				if !decision.Admitted || !advertised || preflightErr != nil || executionErr != nil {
-					t.Fatalf("green proof: admitted=%v, advertised=%v, preflight=%v, execution=%v", decision.Admitted, advertised, preflightErr, executionErr)
+				if admissionErr != nil || !decision.Admitted || !advertised || preflightErr != nil || executionErr != nil {
+					t.Fatalf("green proof: admission=%v, decision=%+v, advertised=%v, preflight=%v, execution=%v", admissionErr, decision, advertised, preflightErr, executionErr)
 				}
 				return
 			}
 			if decision.Admitted || advertised || preflightErr == nil || executionErr == nil {
-				t.Fatalf("missing prerequisite: admitted=%v, advertised=%v, preflight=%v, execution=%v", decision.Admitted, advertised, preflightErr, executionErr)
+				t.Fatalf("missing prerequisite: admission=%v, decision=%+v, advertised=%v, preflight=%v, execution=%v", admissionErr, decision, advertised, preflightErr, executionErr)
 			}
 			var preflightFailure, executionFailure *Failure
 			if !failureAs(preflightErr, &preflightFailure) || !failureAs(executionErr, &executionFailure) ||
 				decision.Failure.Kind != preflightFailure.Kind || decision.Failure.Kind != executionFailure.Kind ||
 				!strings.Contains(executionFailure.Detail, decision.Failure.Detail) || preflightFailure.Detail != decision.Failure.Detail {
-				t.Fatalf("refusals differ: admission=%v, preflight=%v, execution=%v", decision.Failure, preflightErr, executionErr)
+				t.Fatalf("refusals differ: admission=%v, decision=%v, preflight=%v, execution=%v", admissionErr, decision.Failure, preflightErr, executionErr)
 			}
 		})
 	}
@@ -167,10 +171,7 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), workID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	entry := mustBuiltinDefinition(t, "workflow.implementation")
 	state, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, entry.Definition, "refine", "workflow_action")
 	if err != nil {
 		t.Fatal(err)

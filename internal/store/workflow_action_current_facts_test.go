@@ -17,10 +17,7 @@ func TestWorkflowActionStartCurrentFactsWithoutLog(t *testing.T) {
 	if err != nil || !found || seq <= 0 || epoch <= 0 {
 		t.Fatalf("start fixture: seq=%d epoch=%d found=%v err=%v", seq, epoch, found, err)
 	}
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, s.db, BuiltinWorkflowRegistry(), workID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
 	first, err := readWorkflowActionStartTx(ctx, s.db, workID, step)
 	if err != nil || first.Seq != seq {
 		t.Fatalf("ordinary start fixture: %+v, %v", first, err)
@@ -48,7 +45,7 @@ func TestWorkflowActionStartCurrentFactsWithoutLog(t *testing.T) {
 		},
 		"G22-fenced-start": func() (any, error) { return readWorkflowActionStartTx(ctx, s.db, workID, step) },
 		"G22-pass-boundary": func() (any, error) {
-			seq, active, err := workflowStepPassBoundary(ctx, s.db, entry.Definition, workID, step, "workflow_action")
+			seq, active, err := workflowStepPassBoundary(ctx, s.db, definition, workID, step, "workflow_action")
 			return struct {
 				Seq    int64
 				Active bool

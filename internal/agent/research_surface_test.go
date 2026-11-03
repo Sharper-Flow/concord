@@ -37,13 +37,9 @@ func researchSurfaceFixtureWithCapabilities(t *testing.T, capabilities []agentco
 		t.Fatal(err)
 	}
 
-	definition, defErr := store.BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if defErr != nil {
-		t.Fatal(defErr)
-	}
 	execActor := store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: execActor, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Actor: execActor, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -21,6 +21,9 @@ type WorkPin struct {
 	CancelledInstanceCloses int64                `json:"cancelled_instance_closes"`
 	WorkflowType            string               `json:"workflow_type"`
 	Step                    string               `json:"step"`
+	StepSkill               *string              `json:"step_skill,omitempty"`
+	StepHelper              *string              `json:"step_helper,omitempty"`
+	StepReviewed            *bool                `json:"step_reviewed,omitempty"`
 	Watermark               string               `json:"watermark"`
 	// Obligations lists verification obligations from the active contract.
 	Obligations *[]string `json:"obligations,omitempty"`
@@ -255,6 +258,9 @@ func workPinReadPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *Work
 		frontier := WorkflowStepPlanFrontier(*plan)
 		if len(frontier) > 0 {
 			pin.Step = frontier[0].ID
+			pin.StepSkill = frontier[0].Skill
+			pin.StepHelper = frontier[0].Helper
+			pin.StepReviewed = &frontier[0].Reviewed
 		}
 		if isTerminalLifecycle(state) || isTerminalLifecycle(pin.Lifecycle) {
 			return state, nil
@@ -313,9 +319,13 @@ func workPinAddCatalogIntents(pin *WorkPin, ids []string) error {
 }
 
 // verifyReadWorkflowDefinitionForRegistry is still used by continuity reads.
+func verifyReadWorkflowDefinition(definition WorkflowReadDefinition) (RegisteredDefinition, error) {
+	return resolveCurrentWorkflowDefinition(BuiltinWorkflowRegistry(), definition.Ref)
+}
+
 func verifyReadWorkflowDefinitionForRegistry(definition WorkflowReadDefinition, registry DefinitionRegistry) (RegisteredDefinition, error) {
 	if registry == nil {
-		return verifyReadWorkflowDefinition(definition)
+		registry = BuiltinWorkflowRegistry()
 	}
 	return resolveCurrentWorkflowDefinition(registry, definition.Ref)
 }

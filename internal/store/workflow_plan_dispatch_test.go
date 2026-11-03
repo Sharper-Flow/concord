@@ -73,6 +73,13 @@ func TestWorkflowPlanActionDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	version = result.ResultingVersion
+	var state string
+	if err := s.db.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id='work-plan-dispatch'`).Scan(&state); err != nil || state != "running" {
+		t.Fatalf("type pick left instance_state=%q: %v", state, err)
+	}
+	if _, err := apply("pick_type", `{"type":"change","reason":"same type again"}`, version); err == nil {
+		t.Fatal("re-picking the current type accepted")
+	}
 	plan, err := readWorkflowPlanTx(ctx, s.db, "work-plan-dispatch")
 	if err != nil || plan == nil {
 		t.Fatalf("read plan: %v", err)
@@ -95,6 +102,24 @@ func TestWorkflowPlanActionDispatch(t *testing.T) {
 	frontier = WorkflowStepPlanFrontier(*plan)
 	if len(frontier) == 0 || frontier[0].ID == step {
 		t.Fatalf("frontier after completion: %+v", frontier)
+	}
+	if completed, _ := stepByID(plan.Steps, step); len(completed.Attempts) != 1 || completed.Attempts[0].CompletionSeq <= 0 {
+		t.Fatalf("completed attempt lacks its completion sequence: %+v", completed)
+	}
+	var beforePlan string
+	if err := s.db.QueryRowContext(ctx, `SELECT step_plan FROM workflow_instances WHERE work_id='work-plan-dispatch'`).Scan(&beforePlan); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"start_execution", "checkpoint_execution"} {
+		result, err = apply(action, `{}`, version)
+		if err != nil {
+			t.Fatalf("%s: %v", action, err)
+		}
+		version = result.ResultingVersion
+		var afterPlan string
+		if err := s.db.QueryRowContext(ctx, `SELECT step_plan FROM workflow_instances WHERE work_id='work-plan-dispatch'`).Scan(&afterPlan); err != nil || afterPlan != beforePlan {
+			t.Fatalf("%s changed plan: %v", action, err)
+		}
 	}
 	var stored int64
 	if err := s.db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id='work-plan-dispatch'`).Scan(&stored); err != nil || stored != version {

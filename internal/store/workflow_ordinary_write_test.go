@@ -12,7 +12,7 @@ func TestOrdinaryAlignmentReplacement(t *testing.T) {
 	for _, tc := range []struct{ kind, action string }{{"task", "record_alignment"}, {"bug", "record_diagnosis"}} {
 		t.Run(tc.action, func(t *testing.T) {
 			work := "replacement-" + tc.kind
-			s, version := seedBootstrapCapturedWork(t, work, tc.kind)
+			s, version := seedBootstrapCapturedWork(t, work)
 			seedWorkflowLaw(t, s)
 			for _, id := range []string{"related-a", "related-b", "related-c"} {
 				seedWork(t, s, id)

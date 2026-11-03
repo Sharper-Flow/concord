@@ -34,6 +34,7 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           "actions": [
             "start_execution",
             "complete_step",
+            "record_review",
             "checkpoint_execution",
             "bind_evidence",
             "link_successor",
@@ -50,6 +51,8 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           "actions": [
             "record_review",
             "record_delivery",
+            "record_verdict",
+            "confirm_premise",
             "complete_step",
             "complete",
             "bind_evidence",
@@ -98,6 +101,7 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           "actions": [
             "start_execution",
             "complete_step",
+            "record_review",
             "checkpoint_execution",
             "bind_evidence",
             "link_successor",
@@ -114,6 +118,8 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           "actions": [
             "record_review",
             "record_delivery",
+            "record_verdict",
+            "confirm_premise",
             "complete_step",
             "complete",
             "bind_evidence",
@@ -143,7 +149,7 @@ const GeneratedWorkflowStepTemplatesDocument = `{
         },
         {
           "id": "investigate",
-          "skill": null,
+          "skill": "concord-work-shaping",
           "helper": "concord-research",
           "reviewed": false,
           "actions": [
@@ -157,26 +163,14 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           ]
         },
         {
-          "id": "report",
-          "skill": null,
-          "helper": null,
-          "reviewed": false,
-          "actions": [
-            "record_report",
-            "complete_step",
-            "link_successor",
-            "checkpoint_context",
-            "cross_context_boundary",
-            "record_work_context"
-          ]
-        },
-        {
           "id": "conclude",
-          "skill": null,
-          "helper": null,
+          "skill": "concord-review",
+          "helper": "concord-review",
           "reviewed": true,
           "actions": [
             "record_conclusion",
+            "record_report",
+            "link_successor",
             "record_verdict",
             "confirm_premise",
             "record_review",
@@ -216,6 +210,7 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           "actions": [
             "start_execution",
             "complete_step",
+            "record_review",
             "checkpoint_execution",
             "bind_evidence",
             "link_successor",
@@ -232,6 +227,8 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           "actions": [
             "record_review",
             "record_delivery",
+            "record_verdict",
+            "confirm_premise",
             "complete_step",
             "complete",
             "bind_evidence",

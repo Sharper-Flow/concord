@@ -50,7 +50,7 @@ func TestWorkflowDeclaredDocumentEffects(t *testing.T) {
 					t.Fatal(err)
 				}
 				if err := s.Transact(ctx, func(tx *Transaction) error {
-					return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: stepFixtureActor(), Registry: registry, Now: time.Unix(5, 0).UTC()})
+					return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: stepFixtureActor(), Now: time.Unix(5, 0).UTC()})
 				}); err != nil {
 					t.Fatal(err)
 				}

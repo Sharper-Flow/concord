@@ -17,6 +17,7 @@ INSERT INTO work_projects VALUES('work-delivered','project-upgrade','primary');
 INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) SELECT 'work-delivered',definition_ref,definition_digest,current_step,'running' FROM workflow_instances WHERE work_id='work-upgrade-to';
 INSERT INTO workflow_delivery_state SELECT 'work-delivered',assertion_seq,assertion_id,actor,occurred_at,payload_version,payload FROM workflow_delivery_state WHERE work_id='work-upgrade-from';
 INSERT INTO linear_issue_links VALUES('work-upgrade-to','synthetic-cutover-issue','TEST-1574','https://example.com/issues/TEST-1574','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
+INSERT INTO workflow_coordinator_actions VALUES('work-delivered','actor-delivered',1,'record_delivery','2026-01-01T00:00:00Z');
 DELETE FROM write_guard`, retirementUpgradeTime, retirementUpgradeTime)
 	contracts := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,premise,approved_at,approved_by FROM workflow_contracts ORDER BY work_id`)
 	delivery := retirementUpgradeRows(t, db, `SELECT * FROM workflow_delivery_state ORDER BY work_id`)
@@ -45,6 +46,11 @@ DELETE FROM write_guard`, retirementUpgradeTime, retirementUpgradeTime)
 	want := [][]any{{"work-delivered", "completed", "completed", nil, nil}, {"work-upgrade-from", "cancelled", "cancelled", nil, nil}, {"work-upgrade-to", "needed", "intake", nil, nil}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("cutover states=%v want %v", got, want)
+	}
+	// A delivered item the cutover completes is terminal like any completed
+	// item: it carries its terminal time and keeps no step records.
+	if got := retirementUpgradeRows(t, db, `SELECT w.terminal_time=d.occurred_at,(SELECT count(*) FROM workflow_coordinator_actions c WHERE c.work_id=w.id) FROM work_items w JOIN workflow_delivery_state d ON d.work_id=w.id WHERE w.id='work-delivered'`); !reflect.DeepEqual(got, [][]any{{int64(1), int64(0)}}) {
+		t.Fatalf("cutover-completed item terminal facts=%v", got)
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,premise,approved_at,approved_by FROM workflow_contracts ORDER BY work_id`); !reflect.DeepEqual(got, contracts) {
 		t.Fatalf("contracts changed: %v", got)

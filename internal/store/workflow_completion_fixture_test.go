@@ -14,7 +14,7 @@ func attributionItem(t *testing.T, s *Store, id string, laws, domains []string, 
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: id, Definition: entry, Actor: lawChangeConstructorActor})
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: id, Actor: lawChangeConstructorActor})
 	}); err != nil {
 		t.Fatal(err)
 	}

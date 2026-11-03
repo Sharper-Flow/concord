@@ -393,6 +393,36 @@ func TestWorkflowStepPlanCompletionGate(t *testing.T) {
 	}
 }
 
+func TestWorkflowStepPlanFinalCleanReview(t *testing.T) {
+	plan := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+	for index := range plan.Steps {
+		attempt := WorkflowPlanAttempt{Note: "done", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+		if plan.Steps[index].Reviewed {
+			attempt = reviewedAttempt("done")
+		}
+		plan.Steps[index].Attempts = []WorkflowPlanAttempt{attempt}
+	}
+	final := len(plan.Steps) - 1
+	plan.Steps[final].Attempts[0].Result = "fixed"
+	if WorkflowStepPlanComplete(plan) {
+		t.Fatal("a final review that needed fixes completes the plan")
+	}
+	if frontier := WorkflowStepPlanFrontier(plan); len(frontier) != 1 || frontier[0].ID != plan.Steps[final].ID {
+		t.Fatalf("a fixed final review does not reopen it: %+v", frontier)
+	}
+	// An earlier reviewed step passes on a fixed result.
+	implement := final - 1
+	plan.Steps[implement].Attempts[0].Result = "fixed"
+	repeated := stepPlanCopy(plan)
+	repeated.Steps[final].Attempts = append(repeated.Steps[final].Attempts, reviewedAttempt("clean"))
+	if err := ValidateStepPlanWrite(&plan, repeated); err != nil {
+		t.Fatalf("repeating the final review refused: %v", err)
+	}
+	if !WorkflowStepPlanComplete(repeated) {
+		t.Fatal("a clean repeated final review leaves the plan incomplete")
+	}
+}
+
 func reviewedAttempt(note string) WorkflowPlanAttempt {
 	return WorkflowPlanAttempt{Note: note, CompletedAt: time.Now().UTC().Format(time.RFC3339Nano), Reviewer: "concord-review", Result: "pass", Commit: "f4b78e3c14275a9fae58a964bc24e303ebdf02ad", Link: "https://example.com/review"}
 }

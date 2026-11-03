@@ -132,16 +132,12 @@ func TestWorkflowSuccessorLinkedCurrentVersionRequiresDefinitionRef(t *testing.T
 
 func initializeCompositionWorkflow(t *testing.T, s *Store, workID, definitionRef string, actor WorkflowActor) {
 	t.Helper()
-	definition, err := BuiltinWorkflowDefinitionForRef(definitionRef)
-	if err != nil {
-		t.Fatal(err)
-	}
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{
-		WorkID: workID, Definition: definition, Actor: actor,
+		WorkID: workID, Actor: actor,
 		Now: time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC),
 	}); err != nil {
 		_ = tx.Rollback()

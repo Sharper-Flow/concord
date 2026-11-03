@@ -62,7 +62,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: owner, Now: time.Unix(11, 0).UTC()}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Unix(11, 0).UTC()}); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}

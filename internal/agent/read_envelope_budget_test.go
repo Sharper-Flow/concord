@@ -36,10 +36,6 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _, _, _, _ := workflowEngineFixture(t, "budget fixture")
-	definition, err := store.BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
 	for i := 2; i <= 100; i++ {
 		id := fmt.Sprintf("work-%03d", i)
 		if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", id, id, i%10); err != nil {
@@ -48,7 +44,7 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 		ctx = agentWorkflowSourceProof(t, ctx, s, id)
 		if err := s.Transact(ctx, func(tx *store.Transaction) error {
 			return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
-				WorkID: id, Definition: definition, Now: fixedTime(),
+				WorkID: id, Now: fixedTime(),
 				Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent},
 			})
 		}); err != nil {

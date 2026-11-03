@@ -98,16 +98,12 @@ func TestReadWorkPinAllowsWorkWithoutPrimaryProject(t *testing.T) {
 	ctx := context.Background()
 	workID := "workpin-no-primary"
 	seedWorkWithUrgency(t, s, workID, "standard", 10)
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	actor := WorkflowActor{PrincipalRef: "principal:workpin", ClientRef: "client:workpin", AgentRef: "agent:workpin", SessionRef: "session:workpin", ActorClass: ActorAgent}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

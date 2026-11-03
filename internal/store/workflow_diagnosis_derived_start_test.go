@@ -222,10 +222,6 @@ func TestRecordDiagnosisRecordsAllSectionsAtomically(t *testing.T) {
 	seedWork(t, s, relatedID)
 	seedWorkflowLaw(t, s)
 	actor := diagnosisS1Actor(workID, "owner")
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)
@@ -234,7 +230,7 @@ func TestRecordDiagnosisRecordsAllSectionsAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)}); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -296,10 +292,6 @@ func TestRecordDiagnosisRefusalsLeaveZeroWrites(t *testing.T) {
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	actor := diagnosisS1Actor(workID, "owner")
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)
@@ -308,7 +300,7 @@ func TestRecordDiagnosisRefusalsLeaveZeroWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)}); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}

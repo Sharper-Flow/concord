@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"reflect"
 	"sort"
@@ -241,78 +240,72 @@ func collectSchemaRefs(current []store.WorkflowDefinition, decisionFacts []store
 }
 
 func main() {
-	if len(os.Args) == 2 && os.Args[1] == "--canonical-definition" {
-		var definition store.WorkflowDefinition
-		decoder := json.NewDecoder(os.Stdin)
-		if err := decoder.Decode(&definition); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		var trailing any
-		if err := decoder.Decode(&trailing); err != io.EOF {
-			fmt.Fprintln(os.Stderr, "canonical definition requires one JSON object")
-			os.Exit(1)
-		}
-		canonical, err := store.CanonicalWorkflowDefinition(definition)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		digest, err := store.WorkflowDefinitionDigest(definition)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		// Keep the canonical manifest order; the digest is not hashed.
-		fmt.Printf("%s,\"digest\":%q}\n", canonical[:len(canonical)-1], digest)
-		return
+	var templates struct {
+		Types []struct {
+			ID    string `json:"id"`
+			Steps []struct {
+				Actions []string `json:"actions"`
+			} `json:"steps"`
+		} `json:"types"`
 	}
-	definitions := store.BuiltinWorkflowDefinitions()
-	contracts, err := collectActionContracts(definitions, store.BuiltinWorkflowDecisionFactActionDefinitions())
+	data, err := os.ReadFile("contracts/workflow-step-templates.v1.json")
+	if err == nil {
+		err = json.Unmarshal(data, &templates)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	actionIDs := map[string]bool{"record_intake": true, "record_clarify": true, "pick_type": true, "insert_step": true}
+	for _, template := range templates.Types {
+		for _, step := range template.Steps {
+			for _, id := range step.Actions {
+				actionIDs[id] = true
+			}
+		}
+	}
+	contracts := make(map[string]actionContract, len(actionIDs))
+	refs := map[string]bool{}
+	for id := range actionIDs {
+		action, err := store.WorkflowPlanActionContract(id)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		public := action.Payload
+		if action.PublicPayload != nil {
+			public = *action.PublicPayload
+		}
+		variant := payloadVariant{canonicalPayload(action.Payload), canonicalPayload(public)}
+		cross, err := canonicalCrossFieldForAction(id, []payloadVariant{variant})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		contracts[id] = actionContract{ID: id, Variants: []payloadVariant{variant}, CrossField: cross}
+		for _, payload := range []store.WorkflowPayloadDefinition{variant.Payload, variant.PublicPayload} {
+			for _, ref := range payloadSchemaRefs(payload) {
+				refs[ref] = true
+			}
+		}
 	}
 	ids := make([]string, 0, len(contracts))
 	for id := range contracts {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	refs := make([]string, 0, len(definitions))
-	byRef := map[string]store.WorkflowDefinition{}
-	for _, definition := range definitions {
-		if _, ok := byRef[definition.Ref]; ok {
-			fmt.Fprintf(os.Stderr, "workflow %s has inconsistent outcome schema contracts\n", definition.Ref)
-			os.Exit(1)
-		}
-		byRef[definition.Ref] = definition
-		refs = append(refs, definition.Ref)
+	update := store.WorkflowPlanContractUpdatePayload()
+	for _, ref := range payloadSchemaRefs(update) {
+		refs[ref] = true
 	}
-	sort.Strings(refs)
-	workflows := make([]workflowOutcomeContract, 0, len(refs))
-	for _, ref := range refs {
-		definition := byRef[ref]
-		kinds := make([]string, 0, len(definition.OutcomeSchema.AllowedKinds))
-		for _, kind := range definition.OutcomeSchema.AllowedKinds {
-			kinds = append(kinds, string(kind))
+	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), Teaching: store.WorkflowContractTeachingRules(), SchemaRefs: schemaRefProjection{Current: sortedRefNames(refs)}, ContractUpdates: []store.WorkflowPayloadDefinition{update}}
+	for _, template := range templates.Types {
+		kinds, tokens := store.WorkflowPlanAllowedPredicates(store.WorkflowStepPlanType(template.ID))
+		kindNames := make([]string, 0, len(kinds))
+		for _, kind := range kinds {
+			kindNames = append(kindNames, string(kind))
 		}
-		tokens := definition.OutcomeSchema.AllowedOutcomeTokens
-		if tokens == nil {
-			tokens = []string{}
-		}
-		workflows = append(workflows, workflowOutcomeContract{
-			Ref:                    ref,
-			AllowedKinds:           kinds,
-			AllowedOutcomeTokens:   tokens,
-			DecisionRecordRequired: definition.OutcomeSchema.DecisionRecordRequired,
-		})
-	}
-	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows, Teaching: store.WorkflowContractTeachingRules(), SchemaRefs: collectSchemaRefs(definitions, store.BuiltinWorkflowDecisionFactActionDefinitions())}
-	for _, definition := range definitions {
-		payload := store.WorkflowContractUpdatePayload(definition)
-		if !slicesContainsPayload(projection.ContractUpdates, payload) {
-			projection.ContractUpdates = append(projection.ContractUpdates, payload)
-		}
+		projection.Workflows = append(projection.Workflows, workflowOutcomeContract{Ref: template.ID, AllowedKinds: kindNames, AllowedOutcomeTokens: tokens})
 	}
 	for _, id := range ids {
 		projection.Actions = append(projection.Actions, contracts[id])

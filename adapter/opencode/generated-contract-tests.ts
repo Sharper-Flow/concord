@@ -292,4 +292,4 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
   return pass(evaluated);
 }
 
-export const PINNED_PUBLISHED_TOTAL_BYTES = 98017;
+export const PINNED_PUBLISHED_TOTAL_BYTES = 104782;

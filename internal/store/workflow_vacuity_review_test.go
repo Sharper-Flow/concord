@@ -28,7 +28,7 @@ func approveWithGroundTruthLabel(t *testing.T, s *Store, definition RegisteredDe
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: owner, Now: time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)}); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}

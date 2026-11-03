@@ -159,7 +159,7 @@ func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID stri
 // admission state. A typed refusal is the confirmation's answer; an unreadable
 // projection fails the fold.
 func foldWorkflowConfirmationPrerequisites(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *WorkflowAdmissionState) error {
-	if deliverablesErr := requireAcceptanceDeliverables(ctx, q, definition, workID); deliverablesErr != nil {
+	if deliverablesErr := requireAcceptanceDeliverables(ctx, q, workID); deliverablesErr != nil {
 		// A typed refusal is the confirmation's answer; only an unreadable
 		// projection fails the fold.
 		var failure *Failure

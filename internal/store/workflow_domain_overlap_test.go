@@ -108,10 +108,6 @@ func resolveApprovedOverlap(t *testing.T, s *Store, eventID, fromWorkID, toWorkI
 func seedProductChangingContract(t *testing.T, s *Store, workID string, binding WorkflowArchitectureBinding) WorkflowActor {
 	t.Helper()
 	ctx := context.Background()
-	registered, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
-	if !ok {
-		t.Fatal("workflow.break_fix v9 is unavailable")
-	}
 	actor := WorkflowActor{PrincipalRef: "principal:overlap", ClientRef: "client:overlap", AgentRef: "agent:" + workID, SessionRef: "session:" + workID, ActorClass: ActorAgent}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {
@@ -121,7 +117,7 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

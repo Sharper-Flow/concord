@@ -309,7 +309,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, initTx, WorkflowInitializationRequest{WorkID: workID, Definition: workflowFixtureDefinition(t, 2), Actor: owner, Now: time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, initTx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)}); err != nil {
 		initTx.Rollback()
 		t.Fatal(err)
 	}
@@ -412,7 +412,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, contextTx, WorkflowInitializationRequest{WorkID: contextWork, Definition: contextDefinition, Actor: contextOwner, Now: time.Date(2026, 10, 12, 1, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, contextTx, WorkflowInitializationRequest{WorkID: contextWork, Actor: contextOwner, Now: time.Date(2026, 10, 12, 1, 0, 0, 0, time.UTC)}); err != nil {
 		contextTx.Rollback()
 		t.Fatal(err)
 	}

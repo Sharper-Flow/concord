@@ -76,7 +76,7 @@ func runEngineeringConfirmation(t *testing.T, s *Store, definition WorkflowDefin
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	return workflowConfirmPremiseEventsForDefinition(ctx, tx, definition, WorkflowActionExecutionRequest{
+	return workflowConfirmPremiseEvents(ctx, tx, WorkflowStepPlanChange, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", OperationID: "confirm-" + workID,
 	}, invokerRef, fields, "confirm-"+workID, version)
 }

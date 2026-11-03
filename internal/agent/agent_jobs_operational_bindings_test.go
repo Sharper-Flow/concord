@@ -71,13 +71,9 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	// No archived family registers a definition (CD-0242 D14), so the
 	// nonterminal archived instance is the recorded projection a pre-cutover
 	// store carries: a current instance whose pin names the archived family.
-	registered, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx := agentWorkflowSourceProof(t, context.Background(), s, "work-1")
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
 		t.Fatalf("initialize the instance: %v", err)
 	}

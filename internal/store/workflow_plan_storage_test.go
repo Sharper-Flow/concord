@@ -13,7 +13,7 @@ func TestWorkflowPlanStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.ExecContext(ctx, `CREATE TABLE workflow_instances(work_id TEXT PRIMARY KEY, workflow_type TEXT, step_plan TEXT); INSERT INTO workflow_instances(work_id) VALUES('work')`); err != nil {
+	if _, err := db.ExecContext(ctx, `CREATE TABLE workflow_instances(work_id TEXT PRIMARY KEY, workflow_type TEXT, step_plan TEXT, instance_state TEXT NOT NULL DEFAULT 'intake'); INSERT INTO workflow_instances(work_id) VALUES('work')`); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := db.BeginTx(ctx, nil)

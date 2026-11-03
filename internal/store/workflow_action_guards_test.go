@@ -90,7 +90,7 @@ func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q query
 		}
 		return nil, err
 	}
-	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
+	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, obligations)
 }
 
 func TestCorrectedContractExternalCheckBindingAtAcceptance(t *testing.T) {

@@ -439,13 +439,9 @@ func enrichmentPinFixture(t *testing.T) (*store.Store, string, store.WorkPin) {
 	if err := pm1fixture.SeedWorkItem(ctx, s, project, workID, "Work one", 1); err != nil {
 		t.Fatal(err)
 	}
-	registered, err := store.BuiltinWorkflowRegistry().Register(store.BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
-			WorkID: workID, Definition: registered,
+			WorkID: workID,
 			Actor: store.WorkflowActor{PrincipalRef: "principal/fixture", ClientRef: "client/fixture", AgentRef: "agent/fixture", SessionRef: "session/fixture", ActorClass: store.ActorAgent},
 			Now:   time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
 		})

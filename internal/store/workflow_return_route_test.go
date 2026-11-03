@@ -62,7 +62,7 @@ func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, regis
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: owner, Now: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)})
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)})
 	}); err != nil {
 		t.Fatal(err)
 	}

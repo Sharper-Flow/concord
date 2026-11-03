@@ -13,22 +13,14 @@ import (
 // operator-class bootstrap actor. The agent session that then works the item is
 // always new to workflow_actors, because the host cannot know that session at
 // capture time.
-func seedBootstrapCapturedWork(t *testing.T, workID, kind string) (*Store, int64) {
+func seedBootstrapCapturedWork(t *testing.T, workID string) (*Store, int64) {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, workID)
-	ref, err := DefaultWorkflowRefForKind(kind)
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, err := BuiltinWorkflowDefinitionForRef(ref)
-	if err != nil {
-		t.Fatal(err)
-	}
 	bootstrap := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/bootstrap-" + workID, ActorClass: ActorOperator}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: bootstrap, Now: time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)})
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: bootstrap, Now: time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +56,7 @@ func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
 		t.Run(testCase.actionID, func(t *testing.T) {
 			ctx := context.Background()
 			workID := "issue740-" + testCase.actionID
-			s, version := seedBootstrapCapturedWork(t, workID, testCase.kind)
+			s, version := seedBootstrapCapturedWork(t, workID)
 
 			if got := currentStep(t, s, workID); got != testCase.step {
 				t.Fatalf("captured work opened at step=%q, want %q", got, testCase.step)
@@ -195,7 +187,7 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 
 	t.Run("missing tuple records one exact prefix", func(t *testing.T) {
 		workID := "issue740-prefix-missing"
-		s, version := seedBootstrapCapturedWork(t, workID, "task")
+		s, version := seedBootstrapCapturedWork(t, workID)
 		agent := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-" + workID, ActorClass: ActorAgent}
 		agentRef, err := WorkflowActorRef(agent)
 		if err != nil {
@@ -231,7 +223,7 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 
 	t.Run("recorded tuple appends no prefix", func(t *testing.T) {
 		workID := "issue740-prefix-recorded"
-		s, version := seedBootstrapCapturedWork(t, workID, "task")
+		s, version := seedBootstrapCapturedWork(t, workID)
 		agent := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-" + workID, ActorClass: ActorAgent}
 		agentRef, err := WorkflowActorRef(agent)
 		if err != nil {
@@ -283,7 +275,7 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 
 	t.Run("zero request time records the normalized action time", func(t *testing.T) {
 		workID := "issue740-prefix-zero-now"
-		s, version := seedBootstrapCapturedWork(t, workID, "task")
+		s, version := seedBootstrapCapturedWork(t, workID)
 		agent := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-" + workID, ActorClass: ActorAgent}
 		agentRef, err := WorkflowActorRef(agent)
 		if err != nil {

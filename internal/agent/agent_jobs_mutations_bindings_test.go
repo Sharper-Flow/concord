@@ -847,17 +847,13 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 
 	workID := "work-budget-audit"
 	definition := store.BuiltinWorkflowDefinitions()[0]
-	registered, err := store.BuiltinWorkflowRegistry().Register(definition)
-	if err != nil {
-		t.Fatal(err)
-	}
 	created := store.Event{EventID: workID + "-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Run the approved audit","priority":3}`)}
 	membership := store.Event{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"proj-web","role":"primary"}],"expected_version":1,"resulting_version":2}`)}
 	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{created, membership}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}}); err != nil {
 		t.Fatalf("seed work: %v", err)
 	}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: store.WorkflowActor{PrincipalRef: "human-operator", ClientRef: "client-mutation", AgentRef: "agent-engineer", SessionRef: "session-mutation", ActorClass: store.ActorAgent}, Now: fixedTime()})
+		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: workID, Actor: store.WorkflowActor{PrincipalRef: "human-operator", ClientRef: "client-mutation", AgentRef: "agent-engineer", SessionRef: "session-mutation", ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
 		t.Fatalf("initialize workflow: %v", err)
 	}

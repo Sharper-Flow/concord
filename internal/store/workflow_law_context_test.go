@@ -31,10 +31,6 @@ func seedLawContextFixture(t *testing.T, s *Store, workID string, beforeStart ..
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:law-context", ClientRef: "client:law-context", AgentRef: "agent:law-context", SessionRef: "session:law-context", ActorClass: ActorAgent}
-	definition, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
-	if !ok {
-		t.Fatal("latest implementation definition missing")
-	}
 	for _, setup := range beforeStart {
 		setup()
 	}
@@ -46,7 +42,7 @@ func seedLawContextFixture(t *testing.T, s *Store, workID string, beforeStart ..
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

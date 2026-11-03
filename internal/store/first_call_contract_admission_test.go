@@ -212,17 +212,13 @@ func firstCallImplementationDefinition(t *testing.T) RegisteredDefinition {
 // home (seedWorkflowLaw) commits the law folder and Domain registry the
 // obligation guard's current-law lookup reads. It then initializes a real
 // instance of the named workflow, pinned to the current registered definition.
-func seedFirstCallWorkflow(t *testing.T, s *Store, workID, workflowRef, actorName string) WorkflowActor {
+func seedFirstCallWorkflow(t *testing.T, s *Store, workID, actorName string) WorkflowActor {
 	t.Helper()
 	ctx := context.Background()
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:" + actorName, ClientRef: "client:" + actorName, AgentRef: "agent:" + actorName, SessionRef: "session:" + actorName, ActorClass: ActorAgent}
-	definition, err := BuiltinWorkflowDefinitionForRef(workflowRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +226,7 @@ func seedFirstCallWorkflow(t *testing.T, s *Store, workID, workflowRef, actorNam
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, initTx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, initTx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)}); err != nil {
 		initTx.Rollback()
 		t.Fatal(err)
 	}
@@ -289,7 +285,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "work-first-call-approve"
-	actor := seedFirstCallWorkflow(t, s, workID, "workflow.implementation", "first-call")
+	actor := seedFirstCallWorkflow(t, s, workID, "first-call")
 	registered := firstCallImplementationDefinition(t)
 	definition := registered.Definition
 	if definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth {
@@ -450,7 +446,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor) {
 	t.Helper()
 	s := openTemp(t)
-	actor := seedFirstCallWorkflow(t, s, workID, "workflow.break_fix", "first-call-bf")
+	actor := seedFirstCallWorkflow(t, s, workID, "first-call-bf")
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
 		t.Fatal(err)

@@ -351,12 +351,8 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
     if not workflows or len({workflow.get("ref") for workflow in workflows}) != len(workflows):
         fail("workflow outcome contract projection has no unique workflows")
     for workflow in workflows:
-        if set(workflow) != {"ref", "allowed_kinds", "allowed_outcome_tokens", "decision_record_required"}:
-            fail(f"workflow outcome contract projection contains an open record: {workflow.get('ref')}")
-        if not isinstance(workflow["allowed_kinds"], list) or not workflow["allowed_kinds"]:
-            fail(f"workflow outcome contract projection names no predicate kinds: {workflow.get('ref')}")
-        if not isinstance(workflow["allowed_outcome_tokens"], list):
-            fail(f"workflow outcome contract projection has no token list: {workflow.get('ref')}")
+        if set(workflow) != {"ref", "allowed_kinds", "allowed_outcome_tokens", "decision_record_required"} or not workflow["allowed_kinds"] or not isinstance(workflow["allowed_outcome_tokens"], list):
+            fail("workflow outcome contract projection is invalid")
     return actions, workflows, teaching, schema_refs, projection["contract_updates"]
 
 
@@ -440,63 +436,6 @@ def single_variant(action: dict) -> dict:
     if len(action["variants"]) != 1:
         fail(f"action {action['id']} carries {len(action['variants'])} current variants; this projection requires exactly one")
     return action["variants"][0]
-
-
-def workflow_allowed_tokens_description(workflows: list[dict]) -> str:
-    """Compose the allowed-token annotation from the store's pinned outcome schemas.
-
-    The store owns the map (internal/store/workflow_registry.go); this renders
-    the projection into a description so the annotated schema cannot drift
-    from what the store enforces at admission.
-    """
-    with_tokens = sorted((workflow for workflow in workflows if workflow["allowed_outcome_tokens"]), key=lambda workflow: workflow["ref"])
-    for workflow in with_tokens:
-        if "outcome" not in workflow["allowed_kinds"]:
-            fail(f"workflow {workflow['ref']} pins outcome tokens without the outcome predicate kind")
-    without = sorted(workflow["ref"] for workflow in workflows if not workflow["allowed_outcome_tokens"])
-    for ref in without:
-        kinds = next(workflow["allowed_kinds"] for workflow in workflows if workflow["ref"] == ref)
-        if "outcome" in kinds:
-            fail(f"workflow {ref} allows the outcome predicate kind without pinned outcome tokens")
-    clauses = []
-    for workflow in with_tokens:
-        clauses.append(f"{workflow['ref']} admits " + ", ".join(workflow["allowed_outcome_tokens"]))
-    if without:
-        clauses.append(", ".join(without) + " admit no outcome tokens (only exists, absent and check predicate kinds)")
-    return (
-        "The store pins which outcome tokens the contract of the work item being approved "
-        "may carry, per its workflow type: " + "; ".join(clauses) + "."
-    )
-
-
-def narrow_live_outcome_union(defs: dict, workflows: list[dict]) -> None:
-    """Narrow the projected outcome union to what the live heads pin (S4).
-
-    The published authoring outcome carries only the outcome tokens some
-    live workflow head pins — the research trio today — and never a
-    decision_record: new contract authoring names explicit outcome
-    predicates only (CD-0218 D1). The frozen historical decoder keeps the
-    full retired vocabulary, so retained pins replay unchanged. A live head
-    demanding a decision_record or a token outside its pins fails
-    generation instead of publishing a shape admission would refuse.
-    """
-    outcome = defs.get("workflow_outcome_outcome")
-    if not isinstance(outcome, dict) or not isinstance(outcome.get("properties"), dict):
-        fail("the projected workflow_outcome_outcome schema is unavailable for live narrowing")
-    live_tokens = sorted({token for workflow in workflows for token in workflow["allowed_outcome_tokens"]})
-    if not live_tokens:
-        fail("no live workflow pins outcome tokens; the projected outcome union would be empty")
-    allowed = outcome["properties"].get("allowed")
-    if not isinstance(allowed, dict) or not isinstance(allowed.get("items"), dict):
-        fail("the projected workflow_outcome_outcome schema names no allowed token array")
-    allowed["items"]["enum"] = live_tokens
-    allowed["maxItems"] = len(live_tokens)
-    if any(workflow.get("decision_record_required") for workflow in workflows):
-        fail("a live workflow head requires a decision_record; new authoring projects no decision_record (CD-0218 D1)")
-    outcome["properties"].pop("decision_record", None)
-    # Projection is idempotent: the drop also clears a stale copy the
-    # previous document generation may still carry.
-    defs.pop("workflow_outcome_decision_record", None)
 
 
 # A workflow action field whose value an author writes against a shared
@@ -1166,6 +1105,50 @@ def project_schema_guidance(document: dict, names: list[str], *, bounds_only: bo
     return projected
 
 
+def project_workflow_plan_read_schemas(defs: dict, actions: list[dict]) -> None:
+    template = json.loads((ROOT / "contracts/workflow-step-templates.v1.json").read_text())
+    plan = copy.deepcopy(template["plan_schema"])
+    nested = plan.pop("$defs")
+    names = {name: "workflow_plan_" + name for name in nested}
+
+    def rewrite(node):
+        if isinstance(node, list):
+            return [rewrite(value) for value in node]
+        if isinstance(node, dict):
+            result = {key: rewrite(value) for key, value in node.items()}
+            if "enum" in result and "type" not in result and all(isinstance(value, str) for value in result["enum"]):
+                result["type"] = "string"
+            ref = result.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                name = ref.removeprefix("#/$defs/")
+                if name not in names:
+                    fail(f"workflow plan schema references unknown definition {name}")
+                result["$ref"] = "#/$defs/" + names[name]
+            return result
+        return node
+
+    defs["workflow_step_plan"] = rewrite(plan)
+    defs["workflow_read"]["properties"]["prelude"]["properties"]["intake"]["properties"]["outcome"].setdefault("type", "string")
+    for name, schema in nested.items():
+        defs[names[name]] = rewrite(schema)
+    action_by_id = {action["id"]: action for action in actions}
+    for name, action_id in (("workflow_plan_read_document", "record_plan"),
+                            ("workflow_removal_read_document", "record_removal_scope")):
+        action = action_by_id.get(action_id)
+        if action is None:
+            fail(f"workflow plan read schema has no {action_id} action")
+        document = workflow_payload_object_schema(single_variant(action)["payload"], defs)
+        defs[name] = {
+            "type": "object", "additionalProperties": False,
+            "required": ["work_version", "document", "recorded_at", "actor", "event_ref"],
+            "properties": {
+                "work_version": {"type": "integer"}, "document": document,
+                "recorded_at": {"type": "string"}, "actor": {"type": "string"},
+                "event_ref": {"type": "string"},
+            },
+        }
+
+
 def project_workflow_action_schema(document: dict, actions: list[dict], workflows: list[dict], teaching: dict, contract_updates: list[dict]) -> tuple[dict, list[dict]]:
     projected = copy.deepcopy(document)
     remove_generated_guidance(projected)
@@ -1193,26 +1176,18 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     common_required = ["work_id", "expected_version", "action_id", "idempotency_key"]
 
     outcome_payload = install_workflow_outcome_schema(defs)
-    # The retained output shapes are preserved and their uses retargeted
-    # before the live outcome union narrows: stored predicates replay the
-    # full frozen vocabulary, and the narrowing must never leak
-    # into the copies.
     preserve_retained_outcome_outputs(defs)
-    # The live outcome union narrows before any branch copy is taken: the
-    # published tokens are exactly what the live heads pin, and the
-    # decision_record authoring surface retires (CD-0218 D1). The frozen
-    # historical decoder keeps the full retired vocabulary for replay.
-    narrow_live_outcome_union(defs, workflows)
     defs["workflow_action_outcome"] = copy.deepcopy(outcome_payload)
     defs["workflow_contract_version"] = {"$ref": "#/$defs/version"}
-    # The pinned-token annotation lands on the outcome def BEFORE any branch
-    # copies are taken: the per-kind item branches and the supersede pair
-    # branches deepcopy the outcome branches, and each copy must teach the
-    # per-workflow allowed tokens.
     allowed_property = defs.get("workflow_outcome_outcome", {}).get("properties", {}).get("allowed")
     if not isinstance(allowed_property, dict):
         fail("projected workflow_outcome_outcome schema names no allowed property for the token annotation")
-    allowed_property["description"] = workflow_allowed_tokens_description(workflows)
+    allowed_property.pop("description", None)
+    tokens = sorted({token for workflow in workflows for token in workflow["allowed_outcome_tokens"]})
+    if not tokens:
+        fail("workflow plans admit no outcome tokens")
+    allowed_property["items"]["enum"] = tokens
+    allowed_property["maxItems"] = len(tokens)
     # Each published predicate item is closed per kind: outcome_kind and
     # outcome_payload.kind are one value, the equality the store's
     # contract_approved fold enforces through DecodeWorkflowPredicate and
@@ -1261,10 +1236,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"type": "string", "enum": ["block", "warning"]}}}}}
     defs["proposal_affected_text"] = {"type": "string", "minLength": 1, "maxLength": 256}
     defs["proposal_text"] = {"type": "string", "minLength": 1, "maxLength": 512}
-    design_action = next((action for action in actions if action["id"] == "record_design"), None)
-    if design_action is None:
-        fail("the live projection names no record_design action; the design-content def has no live owner")
-    defs["workflow_design_content"] = workflow_payload_object_schema(single_variant(design_action)["payload"], defs)
 
     outer_properties = copy.deepcopy(common)
     outer_properties["fields"] = {}
@@ -1337,6 +1308,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
                        for payload in contract_updates]
     defs["workflow_contract_update"] = closed_field_union(update_branches, defs, "workflow_contract_update")
     defs["work_define_revise_input"]["properties"]["contract"] = {"$ref": "#/$defs/workflow_contract_update"}
+    project_workflow_plan_read_schemas(defs, actions)
     install_retained_output_twins(defs)
     contracts = {"approve_contract"}
     guidance_names = [f"work_transition_action_variant_{action}" for action in sorted(contracts)]
@@ -1987,24 +1959,6 @@ def main() -> int:
     try:
         check = args.check
         manifest = json.loads(MANIFEST.read_text())
-        fixture_path = ROOT / "contracts/workflow-engine.fixtures.json"
-        fixture_text = fixture_path.read_text()
-        first_case = json.loads(fixture_text)["cases"][0]
-        if first_case["schema"] != "workflow-definition.schema.json" or first_case["valid"] is not True:
-            fail("the first workflow engine fixture must be a valid workflow definition")
-        instance_start = fixture_text.index("{", fixture_text.index('"instance":'))
-        instance, instance_length = json.JSONDecoder().raw_decode(fixture_text[instance_start:])
-        canonical_fixture = subprocess.run(
-            ["go", "run", "./scripts/workflow-action-contracts", "--canonical-definition"],
-            cwd=ROOT, input=json.dumps(instance), text=True, capture_output=True,
-            timeout=300, check=True,
-        )
-        instance_text = json.dumps(json.loads(canonical_fixture.stdout), ensure_ascii=False, indent=2).replace("\n", "\n      ")
-        expected_fixture = fixture_text[:instance_start] + instance_text + fixture_text[instance_start + instance_length:]
-        if expected_fixture != fixture_text:
-            if check:
-                fail("generated definition fixture drift: contracts/workflow-engine.fixtures.json")
-            fixture_path.write_text(expected_fixture)
         ir = json.loads(IR.read_text())
         payload = json.loads(PAYLOAD.read_text())
         actions, workflows, teaching, schema_refs, contract_updates = load_workflow_action_contracts()

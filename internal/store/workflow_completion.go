@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 )
@@ -38,7 +37,7 @@ func workflowCompletionRequired() error {
 // caller passes the write scope its region owns; the completion enters and
 // releases one depth level on it, so a boundary-owned guard survives until the
 // boundary's own level closes.
-func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *writeScope) error {
+func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, _ DefinitionRegistry, event Event, scope *writeScope) error {
 	if tx == nil {
 		return newFailure(KindUnavailable, "complete_workflow", "transaction is not open", false, "open a mutation transaction")
 	}
@@ -65,18 +64,11 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if registry == nil {
-		registry = BuiltinWorkflowRegistry()
-	}
 	if scope == nil {
 		return newFailure(KindInvalidOperation, "complete_workflow", "write scope is required", false, "open the write scope with beginWrite")
 	}
-	// The terminal fold and the lifecycle close resolve the same verified pin
-	// through the transaction's scope: bind the caller's registry before any
-	// write, and refuse a scope from another transaction or one already bound
-	// to a different registry.
-	if err := scope.bindRegistry(tx, registry); err != nil {
-		return err
+	if scope.tx != tx {
+		return newFailure(KindInvariantViolation, "complete_workflow", "write scope belongs to another transaction", false, "open the write scope on the transaction that writes")
 	}
 	// The completion holds one depth level on the caller's scope for the whole
 	// gate: clause writers update write-seam-only rows, and a nested level must
@@ -95,16 +87,11 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, event Event, sco
 	if err := workflowCompletionVersion(ctx, tx, event.SubjectID, payload.ExpectedVersion); err != nil {
 		return err
 	}
-	plan, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
+	contract, err := workflowCompletionContractRows(ctx, tx, event.SubjectID)
 	if err != nil {
 		return err
 	}
-	if plan == nil || !WorkflowStepPlanComplete(*plan) {
-		return newFailure(KindIllegalLifecycleTransition, "complete_workflow", "workflow plan is not complete", false, "complete every plan step before completing the workflow")
-	}
-	// The contract read stays a structural existence check: completion still
-	// refuses without exactly one well-formed approved contract.
-	if _, err := workflowCompletionContractRows(ctx, tx, event.SubjectID); err != nil {
+	if err := requireWorkflowCompletionPremise(ctx, tx, event.SubjectID, contract.Version, payload.PremiseConfirmed); err != nil {
 		return err
 	}
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
@@ -112,6 +99,17 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, event Event, sco
 	}
 	if err := appendWorkflowCompletionTx(ctx, tx, event, scope, payload); err != nil {
 		return err
+	}
+	return nil
+}
+
+func requireWorkflowCompletionPremise(ctx context.Context, q queryer, workID string, contractVersion int64, asserted bool) error {
+	var confirmed bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=?)`, workID, contractVersion).Scan(&confirmed); err != nil {
+		return wrapFailure(KindUnavailable, "complete_workflow", "cannot read current premise confirmation", true, "retry once the database is readable", err)
+	}
+	if !confirmed || !asserted {
+		return newFailure(KindMissingEvidence, "complete_workflow", "active contract premise is not confirmed", false, "confirm the active contract premise")
 	}
 	return nil
 }
@@ -208,41 +206,21 @@ func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, e
 	return nil
 }
 
-func workflowCompletionContract(ctx context.Context, tx queryer, registry DefinitionRegistry, workID string) (workflowCompletionContractData, error) {
-	result, err := workflowCompletionContractRows(ctx, tx, workID)
-	if err != nil {
-		return workflowCompletionContractData{}, err
-	}
-	definition, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, workID)
-	if err != nil {
-		return workflowCompletionContractData{}, err
-	}
-	if err := validateWorkflowCompletionContractPredicates(result, definition.Definition); err != nil {
-		return workflowCompletionContractData{}, err
-	}
-	return result, nil
+func workflowCompletionContract(ctx context.Context, tx queryer, _ DefinitionRegistry, workID string) (workflowCompletionContractData, error) {
+	return workflowCompletionContractRows(ctx, tx, workID)
 }
 
-// validateWorkflowCompletionContractPredicates validates the stored contract's
-// approved predicates against one already-verified definition: decode, kind
-// match, and pinned-definition membership. The contract reader and the
-// acceptance deliverables check share it, so no owner re-derives the rule.
-func validateWorkflowCompletionContractPredicates(contract workflowCompletionContractData, definition WorkflowDefinition) error {
+func validateWorkflowCompletionContractPredicates(contract workflowCompletionContractData) error {
 	for _, item := range contract.Predicates {
 		approved, decodeErr := DecodeWorkflowPredicate([]byte(item.OutcomePayload))
 		if decodeErr != nil || string(approved.Kind) != item.OutcomeKind {
 			return newFailure(KindInvariantViolation, "complete_workflow", "approved outcome predicate is malformed or mismatched", false, "reread_entities")
 		}
-		if err := ValidateWorkflowPredicateForDefinition(definition, approved); err != nil {
-			return newFailure(KindInvariantViolation, "complete_workflow", "approved outcome predicate is outside the pinned definition", false, "reread_entities")
-		}
 	}
 	return nil
 }
 
-// workflowCompletionContractRows reads the active contract's stored facts
-// without resolving the instance pin. Owners that already hold the verified
-// definition reuse this reader so one transaction resolves the pin once.
+// workflowCompletionContractRows reads the active contract's stored facts.
 func workflowCompletionContractRows(ctx context.Context, tx queryer, workID string) (workflowCompletionContractData, error) {
 	var result workflowCompletionContractData
 	var required, mandates, modifies string
@@ -273,6 +251,9 @@ func workflowCompletionContractRows(ctx context.Context, tx queryer, workID stri
 	result.Predicates, predicateErr = readWorkflowContractPredicates(ctx, tx, workID, result.Version)
 	if predicateErr != nil || len(result.Predicates) == 0 {
 		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract predicates are missing", false, "restore a verified backup into a new path with concord restore, then swap")
+	}
+	if err := validateWorkflowCompletionContractPredicates(result); err != nil {
+		return result, err
 	}
 	domains, domainsPresent, domainsErr := workflowStoredDecisionDomains(decisionDomains)
 	if domainsErr != nil {
@@ -320,20 +301,6 @@ func workflowStoredDecisionDomains(stored sql.NullString) ([]string, bool, error
 		return nil, false, err
 	}
 	return domains, true, nil
-}
-
-func VerifyWorkflowInstanceDefinitionTx(ctx context.Context, tx queryer, registry DefinitionRegistry, workID string) (RegisteredDefinition, error) {
-	if registry == nil {
-		registry = BuiltinWorkflowRegistry()
-	}
-	var pin WorkflowDefinitionPin
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Digest); err != nil {
-		if err == sql.ErrNoRows {
-			return RegisteredDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "workflow definition pin is missing", false, "reread_entities")
-		}
-		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow definition pin", true, "retry once the database is readable", err)
-	}
-	return verifyWorkflowDefinitionPinForFold(registry, pin)
 }
 
 // verifyWorkflowDefinitionPinForFold resolves the current family definition;
@@ -417,8 +384,8 @@ func workflowEvidenceRequirementInputs(ctx context.Context, q queryer, workID st
 
 // outstandingWorkflowEvidenceRequirements returns every declared requirement
 // the evidence history does not satisfy.
-func outstandingWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID string, required, mandates []string, definition WorkflowDefinition, obligations []WorkflowVerificationObligation) ([]workflowEvidenceRequirement, error) {
-	return unboundWorkflowEvidenceRequirements(ctx, q, workID, workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations), 0)
+func outstandingWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID string, required, mandates []string, obligations []WorkflowVerificationObligation) ([]workflowEvidenceRequirement, error) {
+	return unboundWorkflowEvidenceRequirements(ctx, q, workID, workflowEvidenceRequirementDefinitions(required, mandates, obligations), 0)
 }
 
 // beforeSeq excludes a binding whose completion event is being validated.
@@ -437,15 +404,9 @@ func unboundWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID 
 	return outstanding, nil
 }
 
-func workflowEvidenceRequirementDefinitions(required, mandates []string, definition WorkflowDefinition, obligations []WorkflowVerificationObligation) []workflowEvidenceRequirement {
-	needed := append([]string(nil), required...)
-	for _, kind := range definition.RequiredEvidenceKinds {
-		if !slices.Contains(needed, string(kind)) {
-			needed = append(needed, string(kind))
-		}
-	}
+func workflowEvidenceRequirementDefinitions(required, mandates []string, obligations []WorkflowVerificationObligation) []workflowEvidenceRequirement {
 	var requirements []workflowEvidenceRequirement
-	for _, kind := range needed {
+	for _, kind := range required {
 		requirements = append(requirements, workflowEvidenceRequirement{Kind: kind})
 	}
 	for _, mandate := range mandates {
@@ -459,7 +420,7 @@ func workflowEvidenceRequirementDefinitions(required, mandates []string, definit
 
 // Premise confirmation requires producer proof for every approved criterion
 // before leaving the stage where Main can associate receipts.
-func requireAcceptanceDeliverables(ctx context.Context, tx queryer, definition WorkflowDefinition, workID string) error {
+func requireAcceptanceDeliverables(ctx context.Context, tx queryer, workID string) error {
 	verdict, err := latestWorkflowVerdict(ctx, tx, workID)
 	if err != nil {
 		return err
@@ -474,9 +435,6 @@ func requireAcceptanceDeliverables(ctx context.Context, tx queryer, definition W
 	missing, missingErr := missingPredicateVerdictsForContract(ctx, tx, workID, contract)
 	if missingErr != nil {
 		return missingErr
-	}
-	if err := validateWorkflowCompletionContractPredicates(contract, definition); err != nil {
-		return err
 	}
 	if len(missing) != 0 {
 		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a verdict for every approved predicate: missing "+strings.Join(missing, ", "), false, "record_verdict for each approved predicate before confirming the premise")
@@ -493,7 +451,7 @@ func requireAcceptanceDeliverables(ctx context.Context, tx queryer, definition W
 			return err
 		}
 	}
-	requirements, err := outstandingWorkflowEvidenceRequirements(ctx, tx, workID, contract.RequiredEvidence, contract.SpecMandate, definition, contract.VerificationObligations)
+	requirements, err := outstandingWorkflowEvidenceRequirements(ctx, tx, workID, contract.RequiredEvidence, contract.SpecMandate, contract.VerificationObligations)
 	if err != nil {
 		return err
 	}

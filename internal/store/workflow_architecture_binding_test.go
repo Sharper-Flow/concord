@@ -56,7 +56,7 @@ func TestWorkflowArchitectureBindingStrictShape(t *testing.T) {
 	}
 }
 
-func architectureValidationFixture(t *testing.T, workID string) (*Store, WorkflowDefinition, WorkflowArchitectureBinding, []string) {
+func architectureValidationFixture(t *testing.T, workID string) (*Store, WorkflowStepPlanType, WorkflowArchitectureBinding, []string) {
 	t.Helper()
 	s := openTemp(t)
 	seedWork(t, s, workID)
@@ -67,12 +67,8 @@ func architectureValidationFixture(t *testing.T, workID string) (*Store, Workflo
 	seedWorkflowLaw(t, s)
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
 	commitWorkflowFixtureRegistry(t, home, workflowArchitectureFixtureRegistry)
-	definition, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
-	if !ok {
-		t.Fatal("latest implementation definition missing")
-	}
 	binding := WorkflowArchitectureBinding{HomeDomainID: "child", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{"child"}, DomainRelationModifies: []WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
-	return s, definition.Definition, binding, []string{"spec:one"}
+	return s, WorkflowStepPlanChange, binding, []string{"spec:one"}
 }
 
 func TestArchitectureBindingLawAdditionCannotReuseCurrentID(t *testing.T) {
@@ -383,7 +379,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -512,15 +508,11 @@ func TestProductChangingApprovalMissingBindingIsAtomic(t *testing.T) {
 	workID := "architecture-binding-missing"
 	seedWork(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal:missing", ClientRef: "client:missing", AgentRef: "agent:missing", SessionRef: "session:missing", ActorClass: ActorAgent}
-	definition, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
-	if !ok {
-		t.Fatal("latest implementation definition missing")
-	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

@@ -196,6 +196,9 @@ func foldWorkflowTypePicked(ctx context.Context, tx *sql.Tx, event Event) error 
 		return err
 	}
 	if old != nil {
+		if old.Type == p.Type {
+			return newFailure(KindInvalidOperation, "fold_event", "workflow already has this type", false, "pick a different type to switch, or insert a step")
+		}
 		old.Type = p.Type
 		for _, step := range template.Steps {
 			if !stepIDExists(old.Steps, step.ID) {
@@ -228,6 +231,23 @@ func foldWorkflowStepInserted(ctx context.Context, tx *sql.Tx, event Event) erro
 	if plan == nil {
 		return newFailure(KindInvalidOperation, "fold_event", "workflow has no plan", false, "pick a workflow type")
 	}
+	seen := map[string]bool{}
+	var reviewedAncestor func(string) bool
+	reviewedAncestor = func(id string) bool {
+		if seen[id] {
+			return false
+		}
+		seen[id] = true
+		step, found := stepByID(plan.Steps, id)
+		if !found {
+			return false
+		}
+		if step.Reviewed {
+			return true
+		}
+		return slices.ContainsFunc(step.After, reviewedAncestor)
+	}
+	p.Reviewed = p.Reviewed || slices.ContainsFunc(p.After, reviewedAncestor)
 	plan.Steps = append(plan.Steps, WorkflowPlanStep{ID: p.ID, After: p.After, Skill: p.Skill, Helper: p.Helper, Reviewed: p.Reviewed})
 	return writeWorkflowPlanTx(ctx, tx, event.SubjectID, *plan)
 }
@@ -250,11 +270,53 @@ func foldWorkflowStepCompleted(ctx context.Context, tx *sql.Tx, event Event) err
 	if plan == nil {
 		return newFailure(KindInvalidOperation, "fold_event", "workflow has no plan", false, "pick a workflow type")
 	}
+	if err := requireWorkflowPlanDocumentTx(ctx, tx, event.SubjectID, plan, p.StepID); err != nil {
+		return err
+	}
 	for i := range plan.Steps {
 		if plan.Steps[i].ID == p.StepID {
+			if plan.Steps[i].Reviewed {
+				if err := admitWorkflowPlanReview(ctx, tx, event.SubjectID, *plan, p); err != nil {
+					return err
+				}
+			}
 			plan.Steps[i].Attempts = append(plan.Steps[i].Attempts, WorkflowPlanAttempt{Note: p.Note, CompletedAt: event.OccurredAt.UTC().Format(time.RFC3339Nano), CompletionSeq: int64(event.Seq), Actor: p.Actor, Reviewer: p.Reviewer, Result: p.Result, Commit: p.Commit, Link: p.Link})
 			return writeWorkflowPlanTx(ctx, tx, event.SubjectID, *plan)
 		}
 	}
 	return newFailure(KindInvalidOperation, "fold_event", "workflow step does not exist", false, "reread the plan")
+}
+
+func admitWorkflowPlanReview(ctx context.Context, tx *sql.Tx, workID string, plan WorkflowStepPlan, p workflowStepCompletedPayload) error {
+	if p.Reviewer != "concord-review" {
+		return reviewFailure(KindInvalidPayload, "reviewed step requires concord-review as reviewer", "name concord-review")
+	}
+	state, err := loadWorkflowReviewState(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	if state.Accepted == nil || state.Candidate == nil {
+		return reviewFailure(KindMissingEvidence, "reviewed step has no accepted Review", "record the independent Review through record_review")
+	}
+	report := state.Accepted.Report
+	if !state.DependenciesCurrent || report.OutputCandidate != *state.Candidate {
+		return reviewFailure(KindStaleRequiresReview, "recorded Review does not cover the current candidate and dependencies", "record a Review of the current candidate and dependencies")
+	}
+	if p.Commit != state.Candidate.Commit || p.Link != state.Accepted.ReportRef {
+		return reviewFailure(KindOutcomeMismatch, "reviewed step does not name the accepted Review and output commit", "use the accepted report reference and output commit")
+	}
+	if (p.Result == "pass" && report.InputCandidate != report.OutputCandidate) || (p.Result == "fixed" && report.InputCandidate == report.OutputCandidate) {
+		return reviewFailure(KindOutcomeMismatch, "reviewed step result does not match the Review input and output", "use pass for an unchanged candidate or fixed for a changed candidate")
+	}
+	if finding := state.blocker(); finding != "" {
+		return reviewFailure(KindMissingEvidence, "open in-scope blocking finding "+finding, "resolve the finding and record a current Review")
+	}
+	if report.Disposition != "continue" && report.Disposition != "ready_for_final_proof" {
+		return reviewFailure(KindMissingEvidence, "Review requires correction", "resolve the Review and record its outcome")
+	}
+	template := workflowStepTemplates[plan.Type]
+	if len(template) > 0 && p.StepID == template[len(template)-1].ID && p.Result == "pass" && (report.Disposition != "ready_for_final_proof" || report.InputCandidate != report.OutputCandidate || len(report.RemainingObligations) != 0) {
+		return reviewFailure(KindMissingEvidence, "final pass requires a clean Review with no remaining obligations", "record a clean final Review of the unchanged candidate")
+	}
+	return nil
 }

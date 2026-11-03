@@ -182,6 +182,8 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowTypePicked:                        workflowRegistration[workflowTypePickedPayload](1, foldWorkflowTypePicked),
 	WorkflowStepInserted:                      workflowRegistration[workflowStepInsertedPayload](1, foldWorkflowStepInserted),
 	WorkflowStepCompleted:                     workflowRegistration[workflowStepCompletedPayload](1, foldWorkflowStepCompleted),
+	WorkflowPlanRecorded:                      workflowRegistration[workflowPlanRecordedPayload](1, foldWorkflowPlanRecorded),
+	WorkflowRemovalScopeRecorded:              workflowRegistration[workflowRemovalScopeRecordedPayload](1, foldWorkflowRemovalScopeRecorded),
 	WorkflowContractApproved:                  workflowScopedRegistration[workflowContractApprovedPayload](workflowContractPayloadVersion, foldWorkflowContractApproved),
 	WorkflowOverlapResolved:                   workflowRegistration[workflowOverlapResolvedPayload](2, foldWorkflowOverlapResolved),
 	WorkflowNativeRunRecorded:                 registerEventKind[nativeRunPayload](2, EventAppendAuthorityGeneric, foldNativeRunRecorded, validateNativeRunPayload),

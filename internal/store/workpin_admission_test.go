@@ -48,12 +48,8 @@ func TestWorkPinIntentsAreAdmittedAtEveryBuiltinStep(t *testing.T) {
 			s := openTemp(t)
 			const workID = "pin-admission"
 			seedWorkWithUrgency(t, s, workID, "standard", 10)
-			registered, err := BuiltinWorkflowRegistry().Register(definition)
-			if err != nil {
-				t.Fatal(err)
-			}
 			if err := s.Transact(context.Background(), func(tx *Transaction) error {
-				return InitializeWorkflowTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: WorkflowActor{PrincipalRef: "principal/pin", ClientRef: "client/pin", AgentRef: "agent/pin", SessionRef: "session/pin", ActorClass: ActorAgent}, Now: time.Unix(1, 0).UTC()})
+				return InitializeWorkflowTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Actor: WorkflowActor{PrincipalRef: "principal/pin", ClientRef: "client/pin", AgentRef: "agent/pin", SessionRef: "session/pin", ActorClass: ActorAgent}, Now: time.Unix(1, 0).UTC()})
 			}); err != nil {
 				t.Fatal(err)
 			}

@@ -9,118 +9,9 @@ import (
 
 // WorkflowInitializationRequest contains the work and authenticated actor.
 type WorkflowInitializationRequest struct {
-	WorkID     string
-	Definition RegisteredDefinition
-	Actor      WorkflowActor
-	// Registry is the caller's definition registry. Nil keeps the builtin
-	// convention; a caller registry verifies the pinned entry through itself
-	// and is the same registry the fold binds before any write.
-	Registry DefinitionRegistry
-	Now      time.Time
-}
-
-// DefaultWorkflowRefForKind names the workflow a captured work item pins when
-// the capture names none. Session-prepare reads C19 continuity
-// unconditionally, so a capture pins the kind-driven default instead of
-// skipping initialization. Imported work items are the one shape that
-// holds no instance; continuity answers for them with typed absence.
-// Decision and other work carry no implicit family: the caller refuses with
-// the returned failure until the capture names a retained family explicitly.
-func DefaultWorkflowRefForKind(kind string) (string, error) {
-	switch kind {
-	case "task":
-		return "workflow.implementation", nil
-	case "bug":
-		return "workflow.break_fix", nil
-	case "research":
-		return "workflow.research", nil
-	default:
-		return "", newFailure(KindInvalidOperation, "workflow_authoring",
-			"work kind "+workflowRefExcerpt(kind)+" requires an explicit retained workflow family", false,
-			"supply workflow_type_ref naming workflow.implementation, workflow.break_fix, or workflow.research")
-	}
-}
-
-// WorkflowRepinRequest names a new definition for an existing workflow
-// instance. EventID distinguishes one re-pin from another so a work item can
-// return to a family it previously left.
-type WorkflowRepinRequest struct {
-	WorkID     string
-	EventID    string
-	Definition RegisteredDefinition
-	Actor      WorkflowActor
-	// Registry is the caller's definition registry, with the same nil
-	// convention as WorkflowInitializationRequest.
-	Registry DefinitionRegistry
-	Now      time.Time
-}
-
-// RepinWorkflowTx replaces the definition pinned to an existing workflow
-// instance. Re-pinning onto a different family is re-initialization, not an
-// edit: the instance restarts at the new definition's declared start step.
-// Re-pinning onto a newer version of the same family carries the instance
-// forward: the owning fold admits it while the instance keeps its current
-// step and refuses when the new definition does not declare that step. The
-// fold holds the invariants on both routes, refusing a family change once an
-// action has started or while a contract stays authoritative.
-func RepinWorkflowTx(ctx context.Context, transaction *Transaction, request WorkflowRepinRequest) error {
-	tx, err := transactionSQL(transaction, "workflow_repin")
-	if err != nil {
-		return err
-	}
-	if request.Now.IsZero() {
-		request.Now = transaction.now()
-	}
-	return repinWorkflowRawTx(ctx, tx, request)
-}
-
-func repinWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowRepinRequest) error {
-	if tx == nil {
-		return newFailure(KindInvalidOperation, "workflow_repin", "transaction is not open", false, "supply an active store transaction")
-	}
-	if request.WorkID == "" || request.EventID == "" || request.Definition.Definition.Ref == "" {
-		return newFailure(KindInvalidOperation, "workflow_repin", "work ID, event ID, and registered definition are required", false, "resolve the workflow definition before re-pinning")
-	}
-	if request.Now.IsZero() {
-		request.Now = nowFromClock(nil)
-	}
-	registry := request.Registry
-	if registry == nil {
-		registry = BuiltinWorkflowRegistry()
-	}
-	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: request.Definition.Definition.Ref, Digest: request.Definition.Digest}); err != nil {
-		return err
-	}
-	actorRef, err := WorkflowActorRef(request.Actor)
-	if err != nil {
-		return err
-	}
-	var version int64
-	if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&version); err != nil {
-		return newFailure(KindProjectionNotFound, "workflow_repin", "work item does not exist", false, "create the work item before re-pinning its workflow")
-	}
-	var existing int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&existing); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_repin", "cannot inspect the workflow instance", true, "retry once the database is readable", err)
-	}
-	if existing == 0 {
-		return newFailure(KindProjectionNotFound, "workflow_repin", "work item has no workflow instance", false, "initialize the workflow before re-pinning it")
-	}
-	definitionPayload, _ := json.Marshal(map[string]any{
-		"work_id": request.WorkID, "expected_version": version, "resulting_version": version + 1,
-		"ref": request.Definition.Definition.Ref, "digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
-	})
-	scope := newWriteScope(tx)
-	if err := scope.bindRegistry(tx, registry); err != nil {
-		return err
-	}
-	_, err = applyWorkflowOperationTx(ctx, tx, Operation{
-		Events: []Event{
-			{EventID: request.EventID, Kind: WorkflowDefinitionSelected, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: 1, Payload: definitionPayload},
-		},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): version},
-	}, scope)
-	return err
+	WorkID string
+	Actor  WorkflowActor
+	Now    time.Time
 }
 
 // InitializeWorkflowTx records the actor and opens intake in the caller's transaction.
@@ -158,7 +49,7 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 		return wrapFailure(KindUnavailable, "workflow_initialize", "cannot inspect workflow initialization", true, "retry once the database is readable", err)
 	}
 	if existing != 0 {
-		return newFailure(KindProjectionConflict, "workflow_initialize", "work item already has a workflow instance", false, "use the existing pinned workflow")
+		return newFailure(KindProjectionConflict, "workflow_initialize", "work item already has a workflow instance", false, "use the existing workflow")
 	}
 
 	actorPayload, _ := json.Marshal(map[string]any{

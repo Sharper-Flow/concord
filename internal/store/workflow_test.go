@@ -250,10 +250,6 @@ func TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict(t *testing.T) {
 }
 
 func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
-	_, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), request.WorkID)
-	if err != nil {
-		return Event{}, err
-	}
 	return workflowCompletionEventForDefinition(ctx, tx, request, actor, raw)
 }
 

@@ -8644,7 +8644,8 @@ END;
 		Version: 183, Name: "workflow_step_plan_cutover", Breaking: true,
 		SQL: `
 INSERT INTO write_guard(active) VALUES(1);
-UPDATE work_items SET lifecycle='completed'
+UPDATE work_items SET lifecycle='completed',
+ terminal_time=COALESCE(terminal_time,(SELECT d.occurred_at FROM workflow_delivery_state d WHERE d.work_id=work_items.id))
  WHERE lifecycle NOT IN ('completed','cancelled','superseded')
  AND EXISTS (SELECT 1 FROM workflow_delivery_state d WHERE d.work_id=work_items.id);
 CREATE TABLE workflow_instances_v183 (
@@ -8679,8 +8680,38 @@ ALTER TABLE workflow_contracts DROP COLUMN definition_ref;
 ALTER TABLE workflow_contracts DROP COLUMN definition_digest;
 DELETE FROM workflow_step_epochs;
 DELETE FROM workflow_coordinator_actions WHERE work_id IN (SELECT work_id FROM workflow_instances WHERE instance_state='intake');
-DROP TABLE workflow_step_completions;
-DELETE FROM write_guard;
+DELETE FROM workflow_phase_exits WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_completed_exits WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_checkpoints WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_context_checkpoints WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_context_boundaries WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_coordinator_actions WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM work_context_findings WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM work_context_state WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+ DROP TABLE workflow_step_completions;
+CREATE TABLE workflow_plan_records (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    work_version INTEGER NOT NULL CHECK(work_version > 0),
+    payload TEXT NOT NULL CHECK(json_valid(payload) AND json_type(payload)='object'),
+    recorded_at TEXT NOT NULL,
+    actor TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    event_ref TEXT NOT NULL
+);
+CREATE TABLE workflow_removal_scopes (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    work_version INTEGER NOT NULL CHECK(work_version > 0),
+    payload TEXT NOT NULL CHECK(json_valid(payload) AND json_type(payload)='object'),
+    recorded_at TEXT NOT NULL,
+    actor TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    event_ref TEXT NOT NULL
+);
+CREATE TRIGGER workflow_plan_records_guard_insert BEFORE INSERT ON workflow_plan_records BEGIN SELECT RAISE(ABORT, 'workflow_plan_records is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_plan_records_guard_update BEFORE UPDATE ON workflow_plan_records BEGIN SELECT RAISE(ABORT, 'workflow_plan_records is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_plan_records_guard_delete BEFORE DELETE ON workflow_plan_records BEGIN SELECT RAISE(ABORT, 'workflow_plan_records is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_removal_scopes_guard_insert BEFORE INSERT ON workflow_removal_scopes BEGIN SELECT RAISE(ABORT, 'workflow_removal_scopes is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_removal_scopes_guard_update BEFORE UPDATE ON workflow_removal_scopes BEGIN SELECT RAISE(ABORT, 'workflow_removal_scopes is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_removal_scopes_guard_delete BEFORE DELETE ON workflow_removal_scopes BEGIN SELECT RAISE(ABORT, 'workflow_removal_scopes is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+ DELETE FROM write_guard;
 `,
 	},
 }

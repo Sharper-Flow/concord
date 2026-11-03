@@ -23,12 +23,8 @@ func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 	setupProductWithProject(t, s, "product", "product-project")
 	seedProjectWorkItem(t, s, workID, "product-project", "First action lifecycle", "Proves the first action starts the lifecycle")
 	actor := WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord-1", AgentRef: "agent:owner", SessionRef: "session:" + workID, ActorClass: ActorAgent}
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return initializeWorkflowRawTx(ctx, tx.tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)})
+		return initializeWorkflowRawTx(ctx, tx.tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)})
 	}); err != nil {
 		t.Fatal(err)
 	}

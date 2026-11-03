@@ -441,13 +441,28 @@ func stepByID(steps []WorkflowPlanStep, id string) (WorkflowPlanStep, bool) {
 	return WorkflowPlanStep{}, false
 }
 
-// WorkflowStepPlanFrontier derives the plan's current frontier: the incomplete
+// workflowPlanStepOpen reports whether a step still needs an attempt. The
+// picked type's final template step is the final clean review: it stays open
+// until its latest attempt needs no fixes, so the review repeats instead of
+// letting a fixed result close the plan.
+func workflowPlanStepOpen(plan WorkflowStepPlan, step WorkflowPlanStep) bool {
+	if len(step.Attempts) == 0 {
+		return true
+	}
+	template := workflowStepTemplates[plan.Type]
+	if len(template) == 0 || !step.Reviewed || step.ID != template[len(template)-1].ID {
+		return false
+	}
+	return step.Attempts[len(step.Attempts)-1].Result != "pass"
+}
+
+// WorkflowStepPlanFrontier derives the plan's current frontier: the open
 // steps whose after-steps are all complete, in plan order. Nothing stores the
 // frontier; every read derives it.
 func WorkflowStepPlanFrontier(plan WorkflowStepPlan) []WorkflowPlanStep {
 	frontier := make([]WorkflowPlanStep, 0, len(plan.Steps))
 	for _, step := range plan.Steps {
-		if len(step.Attempts) > 0 {
+		if !workflowPlanStepOpen(plan, step) {
 			continue
 		}
 		ready := true
@@ -466,10 +481,11 @@ func WorkflowStepPlanFrontier(plan WorkflowStepPlan) []WorkflowPlanStep {
 }
 
 // WorkflowStepPlanComplete reports whether every step in the plan is
-// completed. Completion of the work item requires this.
+// completed and the final clean review needed no fixes. Completion of the
+// work item requires this.
 func WorkflowStepPlanComplete(plan WorkflowStepPlan) bool {
 	for _, step := range plan.Steps {
-		if len(step.Attempts) == 0 {
+		if workflowPlanStepOpen(plan, step) {
 			return false
 		}
 	}

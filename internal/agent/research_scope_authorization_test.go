@@ -73,12 +73,8 @@ func researchScopeFixture(t *testing.T, capabilities []agentcontract.Capability,
 	}
 	seedResearchScopePack(t, s, researchScopePackB, researchScopeOwnerB, researchScopeMarkerB+" research question", researchScopeMarkerB+" finding statement")
 	seedResearchScopePack(t, s, researchScopePackA, researchScopeOwnerA, researchScopeMarkerA+" research question", researchScopeMarkerA+" finding statement")
-	definition, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: researchScopeConsumer, Definition: definition, Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: researchScopeConsumer, Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -78,10 +78,6 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	seedWork(t, s, "workflow-issue31-actions")
 	seedWorkflowLaw(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:issue31", ClientRef: "client:issue31", AgentRef: "agent:issue31", SessionRef: "session:issue31", ActorClass: ActorAgent}
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), "workflow-issue31-actions")
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +86,7 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: "workflow-issue31-actions", Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: "workflow-issue31-actions", Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -155,10 +151,6 @@ func TestApproveContractPersistsEvidenceAndRigor(t *testing.T) {
 			seedWork(t, s, workID)
 			seedWorkflowLaw(t, s)
 			actor := WorkflowActor{PrincipalRef: "principal:contract-fields", ClientRef: "client:contract-fields", AgentRef: "agent:contract-fields", SessionRef: "session:contract-fields", ActorClass: ActorAgent}
-			registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-			if err != nil {
-				t.Fatal(err)
-			}
 			ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 			if err != nil {
 				t.Fatal(err)
@@ -167,7 +159,7 @@ func TestApproveContractPersistsEvidenceAndRigor(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
+			if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
 				tx.Rollback()
 				t.Fatal(err)
 			}
@@ -198,7 +190,6 @@ func TestWorkflowContractApprovalPinsLawBoundaryForLegacySurface(t *testing.T) {
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:law-pin", ClientRef: "client:law-pin", AgentRef: "agent:law-pin", SessionRef: "session:law-pin", ActorClass: ActorAgent}
-	registered := workflowFixtureDefinition(t, 1)
 	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)
@@ -207,7 +198,7 @@ func TestWorkflowContractApprovalPinsLawBoundaryForLegacySurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -243,12 +234,11 @@ func issue31ActorSetup(t *testing.T, workID string) (*Store, WorkflowActor, int6
 	seedWork(t, s, workID)
 	executor := WorkflowActor{PrincipalRef: "principal:issue31", ClientRef: "client:issue31", AgentRef: "agent:executor", SessionRef: "session:executor", ActorClass: ActorAgent}
 	evaluator := WorkflowActor{PrincipalRef: "principal:issue31", ClientRef: "client:issue31", AgentRef: "agent:evaluator", SessionRef: "session:evaluator", ActorClass: ActorOperator}
-	definition := workflowFixtureDefinition(t, 1)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: executor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Actor: executor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

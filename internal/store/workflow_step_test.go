@@ -38,13 +38,9 @@ func seedStepWork(t *testing.T, s *Store, workID string) {
 
 func initializeStepWorkflow(t *testing.T, s *Store, workID string, definition WorkflowDefinition) {
 	t.Helper()
-	registered, err := BuiltinWorkflowRegistry().Register(definition)
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx := context.Background()
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: stepFixtureActor(), Now: time.Unix(5, 0).UTC()})
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: stepFixtureActor(), Now: time.Unix(5, 0).UTC()})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -107,36 +103,6 @@ func TestWorkflowContractStepIsDerivedFromTheDefinition(t *testing.T) {
 	}
 }
 
-// Re-pinning a definition before execution starts is re-initialization: the
-// instance takes the new definition's start step, so the pair stays coherent.
-func TestRepinWritesTheNewDefinitionStartStep(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	defer s.Close()
-	seedStepWork(t, s, "work-repin")
-	research, err := BuiltinWorkflowDefinitionForRef("workflow.research")
-	if err != nil {
-		t.Fatal(err)
-	}
-	implementation, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	initializeStepWorkflow(t, s, "work-repin", research.Definition)
-	if got := readInstanceStep(t, s, "work-repin"); got != "frame" {
-		t.Fatalf("initial step = %q, want frame", got)
-	}
-	ctx := context.Background()
-	if err := s.Transact(ctx, func(transaction *Transaction) error {
-		return RepinWorkflowTx(ctx, transaction, WorkflowRepinRequest{WorkID: "work-repin", EventID: "work-repin-repin", Definition: implementation, Actor: stepFixtureActor(), Now: time.Unix(9, 0).UTC()})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if got := readInstanceStep(t, s, "work-repin"); got != "proposal" {
-		t.Fatalf("re-pinned step = %q, want proposal", got)
-	}
-}
-
 // startStepFixtureAction records one action start on the instance's current
 // step, which is the boundary after which the pinned definition is fixed.
 func startStepFixtureAction(t *testing.T, s *Store, workID, actionID string) {
@@ -167,45 +133,6 @@ func startStepFixtureAction(t *testing.T, s *Store, workID, actionID string) {
 		return err
 	}); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// Re-pinning is re-initialization, so it is only available before the work
-// starts. Once an action begins, the pinned definition is the law the started
-// action was authorized against, and changing it would rewrite that authority
-// underneath a live attempt. This gate is the sole guard on the transition.
-func TestRepinIsRefusedAfterAnActionStarts(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	defer s.Close()
-	seedStepWork(t, s, "work-started")
-	var research, implementation WorkflowDefinition
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		switch definition.Ref {
-		case "workflow.research":
-			research = definition
-		case "workflow.implementation":
-			implementation = definition
-		}
-	}
-	initializeStepWorkflow(t, s, "work-started", implementation)
-	startStepFixtureAction(t, s, "work-started", "record_proposal")
-	registered, err := BuiltinWorkflowRegistry().Register(research)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	err = s.Transact(ctx, func(transaction *Transaction) error {
-		return RepinWorkflowTx(ctx, transaction, WorkflowRepinRequest{WorkID: "work-started", EventID: "work-started-repin", Definition: registered, Actor: stepFixtureActor(), Now: time.Unix(11, 0).UTC()})
-	})
-	if err == nil {
-		t.Fatal("re-pin after an action start was accepted, want refusal")
-	}
-	if !strings.Contains(err.Error(), "definition cannot change after execution starts") {
-		t.Fatalf("re-pin refusal = %v, want the execution-started refusal", err)
-	}
-	if got := readInstanceStep(t, s, "work-started"); got != "proposal" {
-		t.Fatalf("refused re-pin moved the step to %q, want proposal", got)
 	}
 }
 

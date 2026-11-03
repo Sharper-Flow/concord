@@ -39,7 +39,7 @@ func TestOrdinaryExecutionStartDoesNotGrantCompletion(t *testing.T) {
 
 func TestOffStepPublicProposalReplacementHoldsProgress(t *testing.T) {
 	const workID = "off-step-public-proposal"
-	s, version := seedBootstrapCapturedWork(t, workID, "task")
+	s, version := seedBootstrapCapturedWork(t, workID)
 	seedWorkflowLaw(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	proposal := func(problem string) json.RawMessage {
@@ -59,7 +59,7 @@ func TestOffStepPublicProposalReplacementHoldsProgress(t *testing.T) {
 
 func TestOffStepPublicDesignReplacementHoldsProgress(t *testing.T) {
 	const workID = "off-step-public-design"
-	s, version := seedBootstrapCapturedWork(t, workID, "task")
+	s, version := seedBootstrapCapturedWork(t, workID)
 	seedWorkflowLaw(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_proposal", "design-proposal", actor, json.RawMessage(`{"problem":"Problem","affected":["People"],"stakes":"Stakes","user_outcomes":["Outcome"]}`))
@@ -122,7 +122,7 @@ func TestOffStepRecordCompletionRequiresOwnEffect(t *testing.T) {
 					kind = "bug"
 				}
 				var version int64
-				s, version = seedBootstrapCapturedWork(t, workID, kind)
+				s, version = seedBootstrapCapturedWork(t, workID)
 				seedWorkflowLaw(t, s)
 				owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 				if kind == "task" {

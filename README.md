@@ -143,8 +143,11 @@ bill of materials, checksums each asset, and attests build provenance. The
 installer journals file operations so interrupted transactions recover cleanly
 without overwriting operator edits.
 
-The [installer tests](scripts/test-installer.py#L2408-L2467) test process death
-across every transaction phase during install, upgrade, and uninstall. The
+The [installer tests](scripts/test-installer.py) check recovery after process
+death at each journal phase during install, upgrade, and uninstall:
+`test_install_process_death_at_every_phase_recovers`,
+`test_upgrade_process_death_at_every_phase_recovers_old_or_new_coherently`, and
+`test_uninstall_process_death_at_every_phase_recovers`. The
 [release workflow](.github/workflows/release.yml) automates publication.
 
 ## Batteries included

@@ -5,7 +5,7 @@ var workKindStored = map[string]bool{
 	"bug":        true,
 	"decision":   true,
 	"epic":       false,
-	"initiative": true,
+	"initiative": false,
 	"other":      true,
 	"research":   true,
 	"task":       true,
@@ -15,7 +15,7 @@ var workKindFoldCreate = map[string]bool{
 	"bug":        true,
 	"decision":   true,
 	"epic":       false,
-	"initiative": true,
+	"initiative": false,
 	"other":      true,
 	"research":   true,
 	"task":       true,
@@ -48,7 +48,7 @@ type workKindRefusal struct {
 
 var workKindRefusals = map[string]workKindRefusal{
 	"epic":       {Message: "obsolete work kind is not accepted", Recovery: "group the work in Linear through the Linear MCP server"},
-	"initiative": {Message: "initiative work kind is read-only under CD-0213", Recovery: "group the work in Linear through the Linear MCP server"},
+	"initiative": {Message: "initiative work kind is retired under CD-0213", Recovery: "group the work in Linear through the Linear MCP server"},
 }
 
 func WorkKindStored(kind string) bool {

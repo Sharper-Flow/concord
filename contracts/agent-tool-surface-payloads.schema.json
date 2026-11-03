@@ -1169,18 +1169,6 @@
         "other"
       ]
     },
-    "stored_work_kind": {
-      "description": "Every kind a stored work item may carry, as contracts/work-kinds.v1.json declares stored=true. Wider than work_kind: initiative is stored but never agent-captured, so a result surface admits it while a capture input refuses it.",
-      "type": "string",
-      "enum": [
-        "task",
-        "bug",
-        "decision",
-        "research",
-        "other",
-        "initiative"
-      ]
-    },
     "relation_query_label": {
       "type": "string",
       "description": "Labels the relation read surface serves. Derived from contracts/relation-vocabulary.v1.json: every kind's forward label, plus each declared inverse label.",
@@ -1519,7 +1507,7 @@
           "$ref": "#/$defs/retained_work_id"
         },
         "kind": {
-          "$ref": "#/$defs/stored_work_kind"
+          "$ref": "#/$defs/work_kind"
         },
         "title": {
           "$ref": "#/$defs/retained_work_text"

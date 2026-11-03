@@ -62,8 +62,14 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{179, 180, 181}) {
-		t.Fatalf("applied=%v, want [179 180 181]", report.Applied)
+	var wantApplied []int
+	for _, m := range migrations {
+		if m.Version > 178 {
+			wantApplied = append(wantApplied, m.Version)
+		}
+	}
+	if !reflect.DeepEqual(report.Applied, wantApplied) {
+		t.Fatalf("applied=%v, want %v", report.Applied, wantApplied)
 	}
 	for table, expected := range retained {
 		switch table {

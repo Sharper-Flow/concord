@@ -23,8 +23,9 @@ Linux amd64 is the only release platform.
   Work already underway outside the workflow and authorized workflow-defect
   repair follow that section and
   [CD-0122](.concord/law/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md).
-  Asked to fix a Concord defect that the Concord workflow would hit or obstruct,
-  tell the operator and recommend the general build agent, not a Concord agent.
+  Use the general Build fallback only when Concord cannot act because its own
+  generated profile or role prompt is defective, or its plugin does not load;
+  make no Concord workflow writes for that repair and name CD-0122 D2 in the PR body.
 - Advance is public predecessor evidence only. Do not create or dual-write
   Advance state. Never commit a local `project.json`.
 

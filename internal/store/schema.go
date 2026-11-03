@@ -73,6 +73,24 @@ type migrationRunner interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
+// beforeMigrationSQL runs a step's refusal checks and row retirement inside the
+// migrating transaction, before that step's SQL.
+func beforeMigrationSQL(ctx context.Context, q migrationRunner, m migration) error {
+	switch m.Name {
+	case "retire_initiative_work":
+		return retireInitiativeWork(ctx, q)
+	case "repository_verification_retirement":
+		return checkVerificationRetirement(ctx, q)
+	case "workflow_law_pin_retirement":
+		// Earlier steps can materialize retained Review facts. Check again at
+		// the destructive boundary, after those steps have run.
+		return preflightWorkflowLawPinRetirementUpgrade(ctx, q)
+	case "ordinary_workflow_records":
+		return preflightOrdinaryWorkflowRecords(ctx, q)
+	}
+	return nil
+}
+
 // applyMigration runs one step's SQL when the step applies to the database in
 // front of it.
 func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
@@ -91,22 +109,8 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Name == "native_task_cutover" {
 		return applyNativeTaskCutover(ctx, q, m.SQL)
 	}
-	if m.Name == "repository_verification_retirement" {
-		if err := checkVerificationRetirement(ctx, q); err != nil {
-			return err
-		}
-	}
-	if m.Name == "workflow_law_pin_retirement" {
-		// Earlier steps can materialize retained Review facts. Check again at
-		// the destructive boundary, after those steps have run.
-		if err := preflightWorkflowLawPinRetirementUpgrade(ctx, q); err != nil {
-			return err
-		}
-	}
-	if m.Name == "ordinary_workflow_records" {
-		if err := preflightOrdinaryWorkflowRecords(ctx, q); err != nil {
-			return err
-		}
+	if err := beforeMigrationSQL(ctx, q, m); err != nil {
+		return err
 	}
 	if _, err := q.ExecContext(ctx, m.SQL); err != nil {
 		return wrapFailure(KindUnavailable, "migrate",
@@ -8622,6 +8626,18 @@ DROP TABLE workflow_artifact_actions;
 ALTER TABLE workflow_predicate_verdicts DROP COLUMN prior_correction_seq;
 ALTER TABLE workflow_instances DROP COLUMN unhealthy_verdict_seq;
 DELETE FROM write_guard;
+`,
+	},
+	{
+		Version: 182, Name: "retire_initiative_work", Breaking: true,
+		SQL: `
+DROP TRIGGER work_kinds_registry_no_update;
+UPDATE work_kinds SET stored=0, fold_create=0 WHERE kind='initiative';
+CREATE TRIGGER work_kinds_registry_no_update
+BEFORE UPDATE ON work_kinds FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'work_kinds registry is immutable');
+END;
 `,
 	},
 }

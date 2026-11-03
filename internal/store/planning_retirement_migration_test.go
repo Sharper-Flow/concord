@@ -218,10 +218,11 @@ VALUES('child-a','uuid-confirmed','CON-1','https://linear.app/x/issue/CON-1','co
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("planning prefix through the current tail: %v", err)
 	}
-	if err := db.QueryRow(`SELECT resolution_id FROM relations WHERE id=2`).Scan(&resolutionID); err != nil || resolutionID != "resolution-a" {
-		t.Fatalf("current tail changed retained relation: %q, %v", resolutionID, err)
+	var remaining int
+	if err := db.QueryRow(`SELECT count(*) FROM relations WHERE id=2`).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatalf("current tail retained retired initiative relation: %d, %v", remaining, err)
 	}
-	if _, err := db.Exec(`UPDATE relations SET resolution_id=resolution_id WHERE id=2`); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
+	if _, err := db.Exec(`INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('child-a','child-a','blocks','t')`); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
 		t.Fatalf("current relation guard lost: %v", err)
 	}
 }

@@ -168,7 +168,9 @@ pause or another owner's hold yourself.
 Before allocation, load `concord-work-shaping`. Read recorded readiness and
 delivery evidence; assign one independently deliverable outcome with its done
 condition to one primary, even when it spans related issues. Do not assign an
-undivided program or one session per issue. Route already-delivered scope to
+undivided program or one session per issue. Allocating does not start an issue:
+leave it Todo with the owner set; it moves to In Progress only when that owner
+begins work on it. Route already-delivered scope to
 its planning owner instead of duplicating repairs.
 Follow host instructions for session launch, reuse, and lifecycle. Use a fresh
 primary for a new assignment while resources permit; reuse only for continuation

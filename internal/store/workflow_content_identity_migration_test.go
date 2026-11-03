@@ -50,7 +50,8 @@ func TestWorkflowContentIdentityMigration152PreservesRetainedState(t *testing.T)
 	db := openMigratedTo(t, path, 151)
 	// Home-pair triggers check immediately, even with deferred foreign keys.
 	// Copy the real Project locators before their knowledge projection rows.
-	rows, err := s.db.Query(`SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations','write_guard')
+	// The prefix's migrations own its immutable kind registry, not current writers.
+	rows, err := s.db.Query(`SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations','write_guard','work_kinds')
 ORDER BY CASE name WHEN 'projects' THEN 0 WHEN 'project_locators' THEN 1 ELSE 2 END, rowid`)
 	if err != nil {
 		t.Fatal(err)

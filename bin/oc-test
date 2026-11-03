@@ -7,6 +7,9 @@
 #                  JSON/law validation.
 #   targeted       Bounded command shapes checked without executing discovery.
 #   broad          Explicit arbitrary command under full host admission.
+#   store-shard    One CI shard of the local store suite under full admission;
+#                  run each shard index as its own invocation, so every shard
+#                  is one admission and the slot is released between shards.
 #   conformance    Gated ten-process correctness conformance harness.
 #   preflight      Lefthook pre-push gates (lefthook.yml), pinned to v2.1.14.
 #   preflight-gate One pre-push gate command under smoke admission; the gates
@@ -17,10 +20,17 @@
 # Smoke leaves out the packages CI splits into shard jobs (internal/store,
 # internal/agent, and cmd/concord). Its Go step is CI's "Test every package
 # without its own shard job" command, and scripts/test-oc-test.py fails when the
-# two differ. To test one shard locally, run CI's selection for it, for example
+# two differ. The unsharded store suite cannot finish inside one 15-minute
+# alarm on a loaded host, so the declared local store route is one shard at a
+# time. To test one shard locally, run CI's selection for it, for example,
 # shard 1 of 7:
 #
-#   bin/oc-test broad -- bash -euo pipefail -c 'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 7)" ./internal/store'
+#   bin/oc-test store-shard 1 7
+#
+# The tier runs the same scripts/go-test-shard.py selection CI's shard jobs
+# run, with the `go test -list` discovery inside admission. A shard is a
+# CI-placement tool, not a default local coverage choice; TESTING.md owns when
+# to run one.
 #
 # Host admission control is provided by `oc-test-gate` when it is installed.
 # Smoke uses smoke admission; targeted uses ungated targeted admission; broad
@@ -65,11 +75,12 @@ cd "$repo_root"
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: bin/oc-test smoke | targeted -- <command> [args...] | broad -- <command> [args...] | preflight-gate -- <command> [args...] | plan <targeted|broad> -- <command> [args...] | read-go ARTIFACT_DIR [package=TestName ...] | conformance | preflight
+Usage: bin/oc-test smoke | targeted -- <command> [args...] | broad -- <command> [args...] | store-shard <i> <n> | preflight-gate -- <command> [args...] | plan <targeted|broad> -- <command> [args...] | read-go ARTIFACT_DIR [package=TestName ...] | conformance | preflight
 
   smoke          Go packages CI tests without shards, adapter suite, and JSON/law validation under host admission control
   targeted       Go literal fragments/anchored names, adapter test files, or one Python check/test script with native arguments
   broad          arbitrary caller command under full host admission (including suites/shards)
+  store-shard    one CI shard of the local store suite under full host admission; run each index i=1..n as its own invocation
   preflight-gate one pre-push gate command under smoke admission; runs natively, with a warning, when oc-test-gate is missing
   plan         print command/admission/selection JSON without discovery or execution
   read-go      compare named expectations with retained shared Go producer artifacts
@@ -191,6 +202,20 @@ case "$tier" in
   broad)
     [[ $# -gt 0 ]] || usage
     run_tier broad full "$@"
+    ;;
+  store-shard)
+    [[ $# -eq 2 && "$consumed_separator" -eq 0 ]] || usage
+    if [[ ! "$1" =~ ^[0-9]+$ || ! "$2" =~ ^[0-9]+$ ]] || (( 10#"$1" < 1 || 10#"$2" < 1 || 10#"$1" > 10#"$2" )); then
+      printf 'bin/oc-test: store-shard needs a shard index and count with 1 <= i <= n, got %s %s\n' "$1" "$2" >&2
+      exit 64
+    fi
+    # CI's shard selection with discovery inside admission: go-test-shard.py
+    # runs `go test -list` under the same admission as the test run. The shard
+    # numbers travel as bash -c positional parameters, so the command string
+    # is fixed and no caller text is interpolated into it.
+    run_tier store-shard full bash -euo pipefail -c \
+      'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store "$1" "$2")" ./internal/store' \
+      store-shard "$1" "$2"
     ;;
   plan)
     [[ $# -gt 1 ]] || usage

@@ -147,7 +147,11 @@ class CIWorkflowDriftTests(unittest.TestCase):
         tools = json.loads((ROOT / ".concord/tooling.v1.json").read_text())["tools"]
         store = [tool for tool in tools if tool["id"] == "go-test-store"]
         self.assertEqual(len(store), 1)
-        self.assertEqual(store[0]["invocation"], "bin/oc-test broad -- go test -timeout=15m ./internal/store")
+        # The declared local route runs CI's shard selection, so its example
+        # must name the shard count CI's store shard jobs currently use.
+        counts = set(re.findall(r"go-test-shard\.py \./internal/store \d+ (\d+)\)", CI_WORKFLOW.read_text(encoding="utf-8")))
+        self.assertEqual(len(counts), 1, f"CI store shard count is ambiguous: {sorted(counts)}")
+        self.assertEqual(store[0]["invocation"], f"bin/oc-test store-shard 1 {counts.pop()}")
         self.assertEqual(store[0]["automation_path"], CI_PATH)
 
     def test_ci_keeps_the_bounded_store_race_execution(self) -> None:

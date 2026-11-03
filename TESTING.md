@@ -63,15 +63,18 @@ its limited evidence claim. Only anchored full-name Go selections populate
 `expected_tests`; fragment selections leave it empty, not an invented list of
 full names or a claim that no tests will run. Unknown command grammars, shell scripts,
 whole packages, wildcard packages, benchmarks, fuzzing, regex subtest selection
-and suite/shard execution use the explicit `broad` tier:
+and suite/shard execution use the explicit `broad` tier. The store suite is the
+one exception: its declared local route is the `store-shard` tier, one CI shard
+per invocation:
 
 ```sh
 bin/oc-test plan broad -- go test ./internal/store
-bin/oc-test broad -- go test -timeout=15m ./internal/store
+bin/oc-test store-shard 1 7
 bin/oc-test broad -- env -u CONCORD_SELECTED_PRODUCT_ID bun test adapter/opencode/
 ```
 
-`broad` and conformance use the existing host gate's `full` admission; smoke
+`broad`, store-shard, and conformance use the existing host gate's `full`
+admission; smoke
 uses its `smoke` admission, and so does every pre-push gate, which
 `lefthook.yml` runs through `bin/oc-test preflight-gate` so concurrent pushes
 queue their gate work instead of overlapping it. Heavy tiers fail closed if
@@ -86,11 +89,18 @@ justified run budget. Do not
 increase timeouts as a performance fix or disable required freshness checks.
 
 Keep discovery inside admission. Shell command substitution happens **before**
-the outer wrapper starts; wrap discovery and execution together, for store shard 1 of 7:
+the outer wrapper starts, so the `store-shard` tier wraps discovery and
+execution together, for store shard 1 of 7:
 
 ```sh
-bin/oc-test broad -- bash -euo pipefail -c 'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 7)" ./internal/store'
+bin/oc-test store-shard 1 7
 ```
+
+The tier runs the same `scripts/go-test-shard.py` selection CI's shard jobs
+run, one shard per invocation under full admission, and the shared slot is
+released between shards. The unsharded store suite cannot finish inside one
+15-minute alarm on a loaded host, so it has no declared single-command local
+route. Run every shard index for a whole-suite local pass.
 
 Sharding assigns the discovered inventory, not affected behavior. A shard is a
 CI-placement tool, not a default local coverage choice. `go test -list` executes

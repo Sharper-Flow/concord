@@ -21,6 +21,9 @@ import yaml
 _plan_spec = importlib.util.spec_from_file_location("local_test_plan", Path(__file__).with_name("local-test-plan.py"))
 PLANNER = importlib.util.module_from_spec(_plan_spec)
 _plan_spec.loader.exec_module(PLANNER)
+_shard_spec = importlib.util.spec_from_file_location("go_test_shard", Path(__file__).with_name("go-test-shard.py"))
+SHARDER = importlib.util.module_from_spec(_shard_spec)
+_shard_spec.loader.exec_module(SHARDER)
 _read_spec = importlib.util.spec_from_file_location("read_local_go_results", Path(__file__).with_name("read-local-go-results.py"))
 GO_READER = importlib.util.module_from_spec(_read_spec)
 _read_spec.loader.exec_module(GO_READER)
@@ -55,7 +58,10 @@ import resource
 import sys
 
 name = Path(sys.argv[0]).name
-if name == "python3" and len(sys.argv) > 1 and sys.argv[1].endswith("/scripts/local-test-plan.py"):
+if name == "python3" and len(sys.argv) > 1 and (
+        sys.argv[1].endswith("/scripts/local-test-plan.py")
+        or sys.argv[1].endswith("/scripts/go-test-shard.py")
+        or sys.argv[1] == "scripts/go-test-shard.py"):
     os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
 with open(os.environ["COMMAND_RECORD"], "a") as record:
     record.write(json.dumps({{
@@ -71,6 +77,8 @@ if os.environ.get("FAIL_COMMAND") == name:
     sys.exit(7)
 if name == "go" and sys.argv[1:2] == ["list"]:
     print(os.environ["GO_LIST_OUTPUT"])
+elif name == "go" and sys.argv[1:4] == ["test", "-list", "."]:
+    print(os.environ["GO_TEST_LIST_OUTPUT"])
 """
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -80,6 +88,11 @@ MODULE = "github.com/sharper-flow/concord"
 GO_LIST_OUTPUT = "\n".join(f"{MODULE}/{package}" for package in (
     "cmd/concord", "internal/agent", "internal/store", "internal/support", "scripts/support",
 ))
+# What the fake `go test -list .` reports for the store package: seven
+# top-level names, so every shard 1..7 of the synthetic inventory is non-empty.
+GO_TEST_LIST_OUTPUT = "\n".join(
+    f"TestStoreShard{letter}" for letter in "ABCDEFG"
+)
 # The wrapper keeps a stricter limit inherited from whatever runs this suite.
 _INHERITED_HARD = resource.getrlimit(resource.RLIMIT_FSIZE)[1]
 DEFAULT_FILE_LIMIT = [1024 * 1024 * 1024 if _INHERITED_HARD == resource.RLIM_INFINITY
@@ -182,6 +195,7 @@ class TierRoutingTest(unittest.TestCase):
             (root / "scripts").mkdir()
             shutil.copyfile(REPOSITORY / "bin/oc-test", root / "bin/oc-test")
             shutil.copyfile(REPOSITORY / "scripts/local-test-plan.py", root / "scripts/local-test-plan.py")
+            shutil.copyfile(REPOSITORY / "scripts/go-test-shard.py", root / "scripts/go-test-shard.py")
             for name in commands:
                 command = root / "bin" / name
                 command.write_text(FAKE_COMMAND)
@@ -196,9 +210,10 @@ class TierRoutingTest(unittest.TestCase):
                        PATH=str(root / "bin") + os.pathsep + "/usr/bin:/bin",
                        FAIL_COMMAND=failure,
                        GATE_CLASS_RECORD=str(gate_record),
-                       COMMAND_RECORD=str(command_record),
-                       GO_LIST_OUTPUT=GO_LIST_OUTPUT,
-                       CONCORD_SELECTED_PRODUCT_ID="poison-product")
+                        COMMAND_RECORD=str(command_record),
+                        GO_LIST_OUTPUT=GO_LIST_OUTPUT,
+                        GO_TEST_LIST_OUTPUT=GO_TEST_LIST_OUTPUT,
+                        CONCORD_SELECTED_PRODUCT_ID="poison-product")
             for key in ("CONCORD_REQUIRE_BUN", "CONCORD_CONFORMANCE_LONG", "OC_TEST_MAX_FILE_MIB"):
                 env.pop(key, None)
             env.update(env_extra or {}, SCRATCH=str(root))
@@ -235,22 +250,26 @@ class TierRoutingTest(unittest.TestCase):
         wrapper = (REPOSITORY / "bin/oc-test").read_text()
         self.assertEqual(smoke_go_command(wrapper), workflow_step_run(workflow, CI_UNSHARDED_STEP))
 
-    def test_smoke_docs_name_the_ci_shards(self):
-        # The wrapper header, README, and TESTING.md name the omitted packages
-        # and give a one-shard command. Each copies CI's shard jobs and must change
-        # when a package is sharded or its shard count moves.
+    def test_store_shard_docs_name_the_ci_shards(self):
+        # CI owns which packages run as shard jobs and the shard count. The
+        # wrapper header, README, TESTING.md, and the tooling declaration name
+        # the store-shard route with CI's current count, so a count change in
+        # ci.yml fails here until every surface moves with it.
         workflow = (REPOSITORY / ".github/workflows/ci.yml").read_text()
         counts = {}
         for package, _, count in re.findall(r"go-test-shard\.py \./(\S+) (\d+) (\d+)\)", workflow):
             counts.setdefault(package, set()).add(count)
         self.assertIn("internal/store", counts)
         store_count = counts["internal/store"].pop()
-        example = f'go-test-shard.py ./internal/store 1 {store_count})" ./internal/store'
+        example = f"bin/oc-test store-shard 1 {store_count}"
         prose = {
             "bin/oc-test": f"shard 1 of {store_count}:",
             "README.md": f"shard 1 of the {store_count} `internal/store` shards",
             "TESTING.md": f"store shard 1 of {store_count}:",
         }
+        tools = json.loads((REPOSITORY / ".concord/tooling.v1.json").read_text())["tools"]
+        declared = {tool["id"]: tool["invocation"] for tool in tools}
+        self.assertEqual(declared.get("go-test-store"), example)
         for path, phrase in prose.items():
             with self.subTest(path=path):
                 text = (REPOSITORY / path).read_text()
@@ -258,7 +277,8 @@ class TierRoutingTest(unittest.TestCase):
                     name = f"`{package}`" if path == "README.md" else package
                     self.assertTrue(name in text, f"{path} does not name the sharded package {name}")
                 self.assertTrue(example in text, f"{path} lacks the one-shard example {example}")
-                self.assertEqual(set(re.findall(r"go-test-shard\.py \./internal/store \d+ (\d+)", text)), {store_count})
+                self.assertEqual(set(re.findall(r"store-shard \d+ (\d+)", text)), {store_count},
+                                 f"{path} names a shard count other than CI's {store_count}")
                 self.assertTrue(phrase in text, f"{path} does not say {phrase}")
 
     def test_smoke_isolates_product_selection_for_adapter_and_json(self):
@@ -503,7 +523,11 @@ class TierRoutingTest(unittest.TestCase):
         for args in ((), ("unknown",), ("full",), ("smoke", "extra"),
                      ("conformance", "extra"), ("targeted",), ("targeted", "--"),
                      ("preflight", "extra"), ("preflight", "--"), ("broad",), ("plan",),
-                     ("preflight-gate",), ("preflight-gate", "--")):
+                     ("preflight-gate",), ("preflight-gate", "--"),
+                     ("store-shard",), ("store-shard", "1"), ("store-shard", "1", "7", "extra"),
+                     ("store-shard", "--", "1", "7"), ("store-shard", "0", "7"),
+                     ("store-shard", "8", "7"), ("store-shard", "1", "0"),
+                     ("store-shard", "x", "y"), ("store-shard", "-1", "7"), ("store-shard", "08", "7")):
             with self.subTest(args=args):
                 result = self.run_wrapper(*args)
                 self.assertEqual(result.returncode, 64, result.stderr)
@@ -513,7 +537,7 @@ class TierRoutingTest(unittest.TestCase):
     def test_usage_describes_supported_tiers(self):
         result = self.run_wrapper()
         self.assertEqual(result.returncode, 64)
-        for tier in ("smoke", "targeted", "broad", "plan", "conformance", "preflight",
+        for tier in ("smoke", "targeted", "broad", "store-shard", "plan", "conformance", "preflight",
                      "preflight-gate"):
             self.assertIn(tier, result.stderr)
 
@@ -608,6 +632,53 @@ class TierRoutingTest(unittest.TestCase):
         self.assertNotIn("PASS preflight-gate", result.stdout)
 
 
+class StoreShardTierTest(unittest.TestCase):
+    """The declared local store route: one CI shard per invocation, one full
+    admission per shard, CI's exact selection, discovery inside admission."""
+
+    run_wrapper = TierRoutingTest.run_wrapper
+
+    def shard_pattern(self, index: int, count: int) -> str:
+        return SHARDER.run_pattern(SHARDER.shard(SHARDER.listed_names(GO_TEST_LIST_OUTPUT), index, count))
+
+    def test_store_shard_runs_one_ci_shard_under_one_full_admission(self):
+        result = self.run_wrapper("store-shard", "1", "7")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.gate_class, "full")
+        # Discovery (`go test -list`) and the run itself both happen inside
+        # the single admission; exactly one shard's tests execute.
+        self.assertEqual([(call["command"], call["args"]) for call in result.calls], [
+            ("go", ["test", "-list", ".", "./internal/store"]),
+            ("go", ["test", "-timeout=15m", "-run", self.shard_pattern(1, 7), "./internal/store"]),
+        ])
+        self.assertTrue(all(call["cwd"] == result.repo_root for call in result.calls))
+        self.assertIn("START store-shard", result.stdout)
+        self.assertIn("WAIT admission: store-shard", result.stdout)
+        self.assertIn("PASS store-shard", result.stdout)
+
+    def test_store_shard_selects_ci_shard_for_each_index(self):
+        for index in (2, 7):
+            with self.subTest(index=index):
+                result = self.run_wrapper("store-shard", str(index), "7")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.gate_class, "full")
+                self.assertEqual(len(result.calls), 2)
+                self.assertEqual(result.calls[-1]["args"],
+                                 ["test", "-timeout=15m", "-run", self.shard_pattern(index, 7), "./internal/store"])
+
+    def test_store_shard_failure_never_reports_pass(self):
+        result = self.run_wrapper("store-shard", "1", "7", failure="go")
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("FAIL store-shard", result.stderr)
+        self.assertNotIn("PASS store-shard", result.stdout)
+
+    def test_store_shard_without_gate_refuses_heavy_work(self):
+        result = self.run_wrapper("store-shard", "1", "7", with_gate=False)
+        self.assertEqual(result.returncode, 69, result.stderr)
+        self.assertEqual(result.calls, [])
+        self.assertIn("refusing an unthrottled heavy workload", result.stderr)
+
+
 class LefthookPreflightAdmissionTest(unittest.TestCase):
     """A normal push enters host admission: every pre-push gate in
     lefthook.yml runs through the preflight-gate tier, and the battery keeps
@@ -652,6 +723,7 @@ class FileSizeLimitTest(unittest.TestCase):
         # running, so both work without the host gate; the heavy tiers refuse.
         native_without_gate = ("targeted", "preflight", "preflight-gate")
         for args in (("smoke",), ("conformance",), ("preflight",), ("broad", "--", "probe"),
+                     ("store-shard", "1", "7"),
                      ("preflight-gate", "--", "probe"),
                      ("targeted", "--", "python3", "scripts/test-probe.py")):
             for with_gate in (True, False):

@@ -33,8 +33,8 @@ continuity and never advance a stage.
 Every external-effect step declares `record_delivery` with an internal SQLite
 consequence, no independent approval and advance mode. The current step's
 fenced start must have run. Delivery applies the complete delivery admission,
-including Review, native proof and applicable approvals. Native Task execution
-neither supplies delivery nor prevents this route.
+including Review, a bound passing verification report and applicable approvals.
+Native Task execution neither supplies delivery nor prevents this route.
 
 Replacing an existing delivery record follows
 [workflow-engine contract §4.2](../specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction).

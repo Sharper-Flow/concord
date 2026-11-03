@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
@@ -611,7 +612,24 @@ func TestResearchRetireReplayAfterOwnerRemovalFailsClosed(t *testing.T) {
 		ExecutionRelinquished: true, WritesReconciled: true, EffectsReconciled: true,
 		DependenciesResolved: true, ArtifactsVerified: true,
 	}
-	if _, err := s.RemoveWork(context.Background(), req); err != nil {
+	// Setup removal through the surviving agent sequence: prepare the
+	// operation and apply the typed work.removed event in one transaction,
+	// exactly as planWorkRemoval's effect does.
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		prepared, err := store.PrepareWorkRemovalTx(context.Background(), tx, req)
+		if err != nil {
+			return err
+		}
+		payload, err := store.MarshalWorkRemovedPayload(req, prepared.HandoffDigest)
+		if err != nil {
+			return err
+		}
+		_, err = store.ApplyOperationTx(context.Background(), tx, store.Operation{
+			Events:           []store.Event{{EventID: "work.removed:" + req.OperationID, Kind: store.WorkRemoved, SubjectType: store.SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: payload}},
+			ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, req.WorkID): req.ExpectedVersion},
+		})
+		return err
+	}); err != nil {
 		t.Fatalf("owner removal refused: %v", err)
 	}
 	replay := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:1], false, "removal-replay")

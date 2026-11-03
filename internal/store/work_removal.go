@@ -159,154 +159,6 @@ func validateRemovalRequest(req WorkRemovalRequest) error {
 	return nil
 }
 
-// PrepareWorkRemoval records the stable operation and pinned handoff without
-// deleting anything. It is the reconciliation boundary for remote publication.
-func (s *Store) PrepareWorkRemoval(ctx context.Context, req WorkRemovalRequest) (WorkRemovalReceipt, error) {
-	if err := validateRemovalRequest(req); err != nil {
-		return WorkRemovalReceipt{}, err
-	}
-	if s == nil || s.db == nil {
-		return WorkRemovalReceipt{}, newFailure(KindUnavailable, "work_removal_prepare", "store is not open", false, "open the authority database")
-	}
-	requestedLinearJSON, err := linearConfirmationJSON(req.Linear)
-	if err != nil {
-		return WorkRemovalReceipt{}, newFailure(KindInvalidOperation, "work_removal_prepare", "Linear confirmation cannot be encoded", false, "supply a JSON-encodable Linear confirmation")
-	}
-	var priorState string
-	err = s.db.QueryRowContext(ctx, `SELECT state FROM work_removal_operations WHERE operation_id=?`, req.OperationID).Scan(&priorState)
-	if err == nil && priorState == "committed" {
-		receipt, readErr := s.readWorkRemovalAuditByOperation(ctx, req.OperationID)
-		if readErr != nil {
-			return WorkRemovalReceipt{}, readErr
-		}
-		storedLinearJSON, _ := linearConfirmationJSON(receipt.Linear)
-		if receipt.IdempotencyKey != req.IdempotencyKey || receipt.WorkID != req.WorkID || receipt.ExpectedVersion != req.ExpectedVersion || receipt.Reason != req.Reason || receipt.Actor != req.Actor || receipt.ProductID != req.ProductID || receipt.HandoffDigest != removalHandoffDigest(req.Handoff) || storedLinearJSON != requestedLinearJSON {
-			return WorkRemovalReceipt{}, newFailure(KindIdempotencyConflict, "work_removal_prepare", "committed operation identity is bound to different removal input", false, "reuse the original removal request")
-		}
-		receipt.Replayed = true
-		return receipt, nil
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot read removal operation", true, "retry once the database is readable", err)
-	}
-	if err := s.validateRemovalDestination(ctx, req); err != nil {
-		return WorkRemovalReceipt{}, err
-	}
-	if err := s.validateRemovalGates(ctx, req); err != nil {
-		return WorkRemovalReceipt{}, err
-	}
-	digest := removalHandoffDigest(req.Handoff)
-	if req.Linear != nil {
-		if req.Linear.HandoffDigest != digest || req.Linear.Destination != "linear" || req.Linear.RemoteIssueUUID == "" {
-			return WorkRemovalReceipt{}, newFailure(KindInvalidOperation, "work_removal_prepare", "Linear confirmation does not match the handoff", false, "confirm the exact Product, issue, destination, and handoff digest")
-		}
-	}
-	linearJSON := requestedLinearJSON
-	receipt := WorkRemovalReceipt{OperationID: req.OperationID, IdempotencyKey: req.IdempotencyKey, WorkID: req.WorkID, ExpectedVersion: req.ExpectedVersion, Reason: req.Reason, Actor: req.Actor, ProductID: req.ProductID, Linear: req.Linear, Handoff: req.Handoff, HandoffDigest: digest, State: "prepared"}
-	handoffJSON, err := json.Marshal(req.Handoff)
-	if err != nil {
-		return WorkRemovalReceipt{}, newFailure(KindInvalidOperation, "work_removal_prepare", "handoff cannot be encoded", false, "supply a JSON-encodable handoff")
-	}
-	tx, err := beginOrdinaryTx(ctx, s.db)
-	if err != nil {
-		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot begin removal preparation", true, "retry once the database is writable", err)
-	}
-	defer tx.Rollback()
-	if err := enterWrite(ctx, tx); err != nil {
-		return WorkRemovalReceipt{}, err
-	}
-	stored, replayed, readErr := readStoredRemovalOperationTx(ctx, tx, req, requestedLinearJSON, digest)
-	if readErr != nil {
-		return WorkRemovalReceipt{}, readErr
-	}
-	if replayed {
-		return stored, nil
-	}
-	if err := assertRemovalOperationIdentityTx(ctx, tx, req); err != nil {
-		return WorkRemovalReceipt{}, err
-	}
-	if err := validateRemovalDestinationQ(ctx, tx, req); err != nil {
-		return WorkRemovalReceipt{}, err
-	}
-	if err := validateRemovalGatesQ(ctx, tx, req); err != nil {
-		return WorkRemovalReceipt{}, err
-	}
-	now := s.now().Format(time.RFC3339Nano)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_removal_operations(operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,event_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'prepared','',?,?)`, req.OperationID, req.IdempotencyKey, req.WorkID, req.ExpectedVersion, req.Reason, req.Actor, req.ProductID, linearJSON, string(handoffJSON), digest, now, now); err != nil {
-		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot persist removal operation", true, "retry the same idempotency key", err)
-	}
-	if err := leaveWrite(ctx, tx); err != nil {
-		return WorkRemovalReceipt{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot commit removal preparation", true, "retry the same idempotency key", err)
-	}
-	return receipt, nil
-}
-
-// readStoredRemovalOperationTx reads a prior removal operation inside the
-// preparation transaction. A stored row that matches the request's identity
-// replays as-is — revalidating its destination and gates while it is still
-// prepared — and an absent row returns a zero receipt with replayed false.
-func readStoredRemovalOperationTx(ctx context.Context, tx *sql.Tx, req WorkRemovalRequest, requestedLinearJSON, digest string) (WorkRemovalReceipt, bool, error) {
-	var stored WorkRemovalReceipt
-	var handoffRaw string
-	var storedLinearRaw string
-	err := tx.QueryRowContext(ctx, `SELECT operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,coalesce(event_id,'') FROM work_removal_operations WHERE operation_id=?`, req.OperationID).Scan(&stored.OperationID, &stored.IdempotencyKey, &stored.WorkID, &stored.ExpectedVersion, &stored.Reason, &stored.Actor, &stored.ProductID, &storedLinearRaw, &handoffRaw, &stored.HandoffDigest, &stored.State, &stored.EventID)
-	if err == sql.ErrNoRows {
-		return WorkRemovalReceipt{}, false, nil
-	}
-	if err != nil {
-		return WorkRemovalReceipt{}, false, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot read removal operation", true, "retry once the database is readable", err)
-	}
-	if stored.IdempotencyKey != req.IdempotencyKey || stored.WorkID != req.WorkID || stored.ExpectedVersion != req.ExpectedVersion || stored.Reason != req.Reason || stored.Actor != req.Actor || stored.ProductID != req.ProductID || stored.HandoffDigest != digest || storedLinearRaw != requestedLinearJSON {
-		return WorkRemovalReceipt{}, false, newFailure(KindIdempotencyConflict, "work_removal_prepare", "operation identity is bound to different removal input", false, "reuse the original removal request")
-	}
-	if json.Unmarshal([]byte(handoffRaw), &stored.Handoff) != nil {
-		return WorkRemovalReceipt{}, false, newFailure(KindInvariantViolation, "work_removal_prepare", "stored handoff is malformed", false, "repair the removal receipt")
-	}
-	if storedLinearRaw != "{}" {
-		stored.Linear = &LinearHandoffConfirmation{}
-		if json.Unmarshal([]byte(storedLinearRaw), stored.Linear) != nil {
-			return WorkRemovalReceipt{}, false, newFailure(KindInvariantViolation, "work_removal_prepare", "stored Linear confirmation is malformed", false, "repair the removal receipt")
-		}
-	}
-	if stored.State == "prepared" {
-		if err := validateRemovalDestinationQ(ctx, tx, req); err != nil {
-			return WorkRemovalReceipt{}, false, err
-		}
-		if err := validateRemovalGatesQ(ctx, tx, req); err != nil {
-			return WorkRemovalReceipt{}, false, err
-		}
-	}
-	if err := leaveWrite(ctx, tx); err != nil {
-		return WorkRemovalReceipt{}, false, err
-	}
-	if err := tx.Commit(); err != nil {
-		return WorkRemovalReceipt{}, false, err
-	}
-	stored.Replayed = true
-	return stored, true, nil
-}
-
-// assertRemovalOperationIdentityTx refuses a second removal operation for
-// one work item and an idempotency key bound to another operation.
-func assertRemovalOperationIdentityTx(ctx context.Context, tx *sql.Tx, req WorkRemovalRequest) error {
-	var existingWorkOperation string
-	if err := tx.QueryRowContext(ctx, `SELECT operation_id FROM work_removal_operations WHERE work_id=?`, req.WorkID).Scan(&existingWorkOperation); err == nil && existingWorkOperation != req.OperationID {
-		return newFailure(KindIdempotencyConflict, "work_removal_prepare", "work item already has another removal operation", false, "resume the existing removal operation")
-	} else if err != nil && err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "work_removal_prepare", "cannot inspect work removal identity", true, "retry once the receipt is readable", err)
-	}
-	var existingOperation string
-	if err := tx.QueryRowContext(ctx, `SELECT operation_id FROM work_removal_operations WHERE idempotency_key=?`, req.IdempotencyKey).Scan(&existingOperation); err == nil && existingOperation != req.OperationID {
-		return newFailure(KindIdempotencyConflict, "work_removal_prepare", "idempotency key belongs to another removal operation", false, "reuse the original operation identity")
-	} else if err != nil && err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "work_removal_prepare", "cannot inspect removal idempotency", true, "retry once the receipt is readable", err)
-	}
-	return nil
-}
-
 // PrepareWorkRemovalTx performs the preparation inside a caller-owned store
 // transaction. Mutation routes use this form so approval, fencing, and final
 // removal share one SQLite transaction and never nest a Store query.
@@ -388,10 +240,6 @@ func replayPreparedWorkRemovalTx(ctx context.Context, tx *sql.Tx, req WorkRemova
 	return stored, nil
 }
 
-func (s *Store) validateRemovalDestination(ctx context.Context, req WorkRemovalRequest) error {
-	return validateRemovalDestinationQ(ctx, s.db, req)
-}
-
 func validateRemovalDestinationQ(ctx context.Context, q queryer, req WorkRemovalRequest) error {
 	// CD-0142 handoff, CD-0213 D3: a work item that records a Linear issue
 	// identity hands its preservation to that issue. The agent confirms the
@@ -427,38 +275,6 @@ func validateRemovalDestinationQ(ctx context.Context, q queryer, req WorkRemoval
 		return newFailure(KindInvalidRelation, "work_removal_prepare", "Linear confirmation does not match the recorded issue identity", false, "confirm the handoff on the recorded Linear issue")
 	}
 	return nil
-}
-
-// CommitWorkRemoval appends the typed removal event. The event fold performs
-// the final atomic deletion, so replay reconstructs absence rather than a row.
-func (s *Store) CommitWorkRemoval(ctx context.Context, req WorkRemovalRequest) (WorkRemovalReceipt, error) {
-	prepared, err := s.PrepareWorkRemoval(ctx, req)
-	if err != nil {
-		return WorkRemovalReceipt{}, err
-	}
-	if prepared.State == "committed" {
-		prepared.Replayed = true
-		return prepared, nil
-	}
-	payload, _ := json.Marshal(workRemovedPayload{OperationID: req.OperationID, IdempotencyKey: req.IdempotencyKey, WorkID: req.WorkID, ExpectedVersion: req.ExpectedVersion, Reason: req.Reason, ProductID: req.ProductID, Actor: req.Actor, Linear: req.Linear, Handoff: req.Handoff, HandoffDigest: removalHandoffDigest(req.Handoff)})
-	event := Event{EventID: "work.removed:" + req.OperationID, Kind: WorkRemoved, SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}
-	result, err := ApplyOperationWithResult(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}})
-	if err != nil {
-		return WorkRemovalReceipt{}, err
-	}
-	prepared.State = "committed"
-	prepared.EventID = result.EventIDs[0]
-	return prepared, nil
-}
-
-// RemoveWork is the complete local path. A caller that must reconcile an
-// external write first uses PrepareWorkRemoval and then CommitWorkRemoval.
-func (s *Store) RemoveWork(ctx context.Context, req WorkRemovalRequest) (WorkRemovalReceipt, error) {
-	return s.CommitWorkRemoval(ctx, req)
-}
-
-func (s *Store) validateRemovalGates(ctx context.Context, req WorkRemovalRequest) error {
-	return validateRemovalGatesQ(ctx, s.db, req)
 }
 
 func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalRequest) error {
@@ -632,15 +448,6 @@ func deleteWorkProjectionTx(ctx context.Context, tx *sql.Tx, table, workID strin
 
 func projectionDeleteFailure(table string, err error) error {
 	return wrapFailure(KindUnavailable, "fold_event", fmt.Sprintf("cannot remove %s projection", table), false, "reconcile the projection before removal", err)
-}
-
-// readWorkRemovalAuditByOperation returns the durable receipt without
-// exposing a live WorkItem or a resume action.
-func (s *Store) readWorkRemovalAuditByOperation(ctx context.Context, operationID string) (WorkRemovalReceipt, error) {
-	if s == nil || s.db == nil {
-		return WorkRemovalReceipt{}, newFailure(KindUnavailable, "work_removal_audit", "store is not open", false, "open the authority database")
-	}
-	return readWorkRemovalAuditQ(ctx, s.db, operationID)
 }
 
 func readWorkRemovalAuditQ(ctx context.Context, q queryer, operationID string) (WorkRemovalReceipt, error) {

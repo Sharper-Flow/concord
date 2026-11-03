@@ -82,14 +82,6 @@ Commands read one strict JSON object from stdin:
   concord backup < JSON stdin
     required: destination
     accepted values: destination: absolute clean path that does not yet exist; a manifest is written beside it
-  concord work-shelve < JSON stdin
-    required: operation_id, idempotency_key, work_id, expected_version, handoff
-    optional: product_id, linear, actor, execution_relinquished, writes_reconciled, effects_reconciled, dependencies_resolved, artifacts_verified
-    accepted values: reason is fixed to shelved; no sixth lifecycle state
-  concord work-cancel < JSON stdin
-    required: operation_id, idempotency_key, work_id, expected_version, handoff
-    optional: product_id, linear, actor, execution_relinquished, writes_reconciled, effects_reconciled, dependencies_resolved, artifacts_verified
-    accepted values: reason is fixed to cancelled; removal is not archival
   concord session-prepare < JSON stdin
     required: product_id, work_id, agent
     optional: task (max 8192 bytes; none on resume); agent is the active agent; handler refusals exit 2; required-field refusals exit 64

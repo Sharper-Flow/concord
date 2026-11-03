@@ -143,8 +143,6 @@ var commandSpecs = []commandSpec{
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
 	{Canonical: "cd-reservations", TwoWord: "cd reservations", RequiredFields: requiredFields(field("directory")), Optional: "none", Enums: "prints the law-addition reservations (law_id, owner_work_id) of the Product that owns the calling checkout; read-only"},
 	{Canonical: "backup", RequiredFields: requiredFields(field("destination")), Optional: "none", Enums: "destination: absolute clean path that does not yet exist; a manifest is written beside it"},
-	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, execution_relinquished, writes_reconciled, effects_reconciled, dependencies_resolved, artifacts_verified", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
-	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, execution_relinquished, writes_reconciled, effects_reconciled, dependencies_resolved, artifacts_verified", Enums: "reason is fixed to cancelled; removal is not archival"},
 	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (max 8192 bytes; none on resume); agent is the active agent; handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
@@ -409,23 +407,6 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	switch command {
 	case "invoke":
 		return runInvoke(raw, s, service, out, errOut)
-	case "work-shelve", "work-cancel":
-		var request store.WorkRemovalRequest
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		if command == "work-shelve" {
-			request.Reason = "shelved"
-		} else {
-			request.Reason = "cancelled"
-		}
-		receipt, err := s.RemoveWork(context.Background(), request)
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeJSON(out, receipt, errOut)
 	case "session-prepare":
 		return runSessionPrepare(raw, s, out, errOut, hostSessionPrepareRegistry, hostOrchestratorIdentity, DeriveSessionBoot)
 	default:

@@ -59,6 +59,11 @@ checkable end state, and six-part plan. Diagnose unproven defect causes first.
 5. **Merge split:** small green merges; explain an inseparable cutover. Temporary coexistence needs a current requirement and retirement outcome.
 6. **Risks:** material uncertainties, failure modes, and how they will be checked.
 
+An architectural change — one that alters a Domain boundary, a governed
+relation, state authority, a cross-Domain interface or runtime flow, or a claim
+in current architecture reference — adds plan parts and final-review routing.
+Load the shipped `concord-architecture-writing` skill before planning one.
+
 Allocate only outcomes whose dependencies and required decisions are resolved.
 Record plan changes and why; ask only for operator-reserved choices. Propose work
 outside the assignment separately rather than silently enlarging it.

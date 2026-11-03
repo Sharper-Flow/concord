@@ -1098,7 +1098,7 @@ class LawWritingSkillTests(unittest.TestCase):
 class MethodSkillTests(unittest.TestCase):
     """CD-0246 D1 and D3: portable method skills ship like any admitted skill."""
 
-    NAMES = ("concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review", "concord-improve-codebase-architecture")
+    NAMES = ("concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review", "concord-improve-codebase-architecture", "concord-architecture-writing")
     OPERATIONS = {"concord_domain.list", "concord_domain.detail"}
 
     def content(self, name):

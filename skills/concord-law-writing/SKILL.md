@@ -44,6 +44,9 @@ lessons, research and reference, `.concord/instructions` for conduct, and
 Product's [designated Git knowledge home](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0200-product-knowledge-resolves-through-one-designated-git-home.md).
 Project membership or repository discovery does not designate that home.
 For lesson authoring and publication, load `concord-retrospective`.
+For a Product's architecture reference and glossary, load the shipped
+`concord-architecture-writing` skill; it carries their shapes and organisation
+under this placement.
 
 An outside placement needs an accepted decision naming the path, Product,
 record carrying the operator's instruction, and reason. Its document must carry

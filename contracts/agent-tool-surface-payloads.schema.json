@@ -7836,9 +7836,8 @@
                   "increased_spending"
                 ]
               },
-              "minItems": 0,
               "maxItems": 6,
-              "description": "Accepted shape: array of one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; Bounds: 0..6 items inclusive; example: []",
+              "description": "Accepted shape: array of one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; Bounds: <=6 items inclusive; example: []",
               "examples": [
                 []
               ]
@@ -8480,9 +8479,8 @@
                   "verification"
                 ]
               },
-              "minItems": 0,
               "maxItems": 7,
-              "description": "Evidence obligations must name a kind in the closed evidence kind set and a current mandated law. Accepted shape: array of one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; Bounds: 0..7 items inclusive; example: []",
+              "description": "Evidence obligations must name a kind in the closed evidence kind set and a current mandated law. Accepted shape: array of one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; Bounds: <=7 items inclusive; example: []",
               "examples": [
                 []
               ]
@@ -12392,9 +12390,8 @@
               "verification"
             ]
           },
-          "minItems": 0,
           "maxItems": 7,
-          "description": "Evidence obligations must name a kind in the closed evidence kind set and a current mandated law. Accepted shape: array of one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; Bounds: 0..7 items inclusive; example: []",
+          "description": "Evidence obligations must name a kind in the closed evidence kind set and a current mandated law. Accepted shape: array of one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; Bounds: <=7 items inclusive; example: []",
           "examples": [
             []
           ]
@@ -12505,9 +12502,8 @@
               "increased_spending"
             ]
           },
-          "minItems": 0,
           "maxItems": 6,
-          "description": "Accepted shape: array of one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; Bounds: 0..6 items inclusive; example: []",
+          "description": "Accepted shape: array of one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; Bounds: <=6 items inclusive; example: []",
           "examples": [
             []
           ]

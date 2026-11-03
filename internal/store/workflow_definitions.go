@@ -19,9 +19,9 @@ func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 					{ID: "alignment", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_alignment", "record_work_context", "checkpoint_context", "cross_context_boundary"}},
 					{ID: "planning", Kind: WorkflowStepInternalSQLite, Actions: []string{"approve_contract", "checkpoint_context", "cross_context_boundary", "record_work_context"}},
 					{ID: "design", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_design", "checkpoint_context", "cross_context_boundary", "record_work_context"}},
-					{ID: "execution", Kind: WorkflowStepExternalEffect, Actions: []string{"start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary", "record_review", "record_work_context"}},
-					{ID: "refine", Kind: WorkflowStepExternalEffect, Actions: []string{"checkpoint_refine", "bind_evidence", "record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary", "record_review", "record_work_context"}},
-					{ID: "delivery", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary"}},
+					{ID: "execution", Kind: WorkflowStepExternalEffect, Actions: []string{"start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "record_delivery", "checkpoint_context", "cross_context_boundary", "record_review", "record_work_context"}},
+					{ID: "refine", Kind: WorkflowStepExternalEffect, Actions: []string{"checkpoint_refine", "bind_evidence", "record_delivery", "checkpoint_context", "cross_context_boundary", "record_review", "record_work_context"}},
+					{ID: "delivery", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_delivery", "checkpoint_context", "cross_context_boundary"}},
 					{ID: "acceptance", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_verdict", "confirm_premise", "checkpoint_context", "cross_context_boundary", "record_review", "record_work_context"}},
 					{ID: "release", Kind: WorkflowStepInternalSQLite, Actions: []string{"bind_evidence", "complete", "record_work_context", "checkpoint_context", "cross_context_boundary"}},
 				},
@@ -37,12 +37,6 @@ func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 			OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}},
 			RigorRules:            []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}},
 			StalenessRules:        []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: []WorkKind{WorkKindBreakFix, WorkKindResearch}, ForbiddenCompositions: []WorkflowForbiddenComposition{}},
-			RecoveryRoutes: []WorkflowRecoveryRoute{
-				{Step: "execution", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
-				{Step: "refine", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
-				{Step: "acceptance", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
-				{Step: "release", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
-			},
 		},
 		{
 			Ref: "workflow.break_fix", WorkKind: WorkKindBreakFix, ChangesProductTruth: &changesTruth,
@@ -52,9 +46,9 @@ func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 				Steps: []WorkflowStep{
 					{ID: "diagnosis", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context"}},
 					{ID: "planning", Kind: WorkflowStepInternalSQLite, Actions: []string{"approve_contract", "checkpoint_context", "cross_context_boundary", "record_work_context"}},
-					{ID: "repair", Kind: WorkflowStepExternalEffect, Actions: []string{"checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary", "record_review", "record_work_context"}},
-					{ID: "refine", Kind: WorkflowStepExternalEffect, Actions: []string{"checkpoint_refine", "bind_evidence", "record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary", "record_review", "record_work_context"}},
-					{ID: "delivery", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary"}},
+					{ID: "repair", Kind: WorkflowStepExternalEffect, Actions: []string{"checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "checkpoint_context", "cross_context_boundary", "record_review", "record_work_context"}},
+					{ID: "refine", Kind: WorkflowStepExternalEffect, Actions: []string{"checkpoint_refine", "bind_evidence", "record_delivery", "checkpoint_context", "cross_context_boundary", "record_review", "record_work_context"}},
+					{ID: "delivery", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_delivery", "checkpoint_context", "cross_context_boundary"}},
 					{ID: "verify", Kind: WorkflowStepInternalSQLite, Actions: []string{"bind_evidence", "record_verdict", "confirm_premise", "checkpoint_context", "cross_context_boundary", "record_review", "record_work_context"}},
 					{ID: "complete", Kind: WorkflowStepInternalSQLite, Actions: []string{"bind_evidence", "complete", "record_work_context", "checkpoint_context", "cross_context_boundary"}},
 				},
@@ -69,12 +63,6 @@ func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 			OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}},
 			RigorRules:            []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}},
 			StalenessRules:        []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: []WorkKind{WorkKindImplementation, WorkKindResearch}, ForbiddenCompositions: []WorkflowForbiddenComposition{}},
-			RecoveryRoutes: []WorkflowRecoveryRoute{
-				{Step: "repair", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair"},
-				{Step: "refine", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair"},
-				{Step: "verify", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair"},
-				{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair"},
-			},
 		},
 		{
 			Ref: "workflow.research", WorkKind: WorkKindResearch, ChangesProductTruth: &noTruthChange,
@@ -97,10 +85,6 @@ func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 			OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}},
 			RigorRules:            []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}},
 			StalenessRules:        []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: []WorkKind{WorkKindBreakFix, WorkKindArchitectureSpike, WorkKindStaticAnalysis}, ForbiddenCompositions: []WorkflowForbiddenComposition{}},
-			RecoveryRoutes: []WorkflowRecoveryRoute{
-				{Step: "conclude", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate"},
-				{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate"},
-			},
 		},
 	}
 	for i := range definitions {

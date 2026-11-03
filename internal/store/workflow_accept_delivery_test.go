@@ -40,7 +40,9 @@ func workflowLatestDeliveryAssertionSeq(ctx context.Context, s *Store, workID st
 		return 0, err
 	}
 	defer tx.Rollback()
-	return workflowLatestDeliveryAssertionSeqTx(ctx, tx, workID)
+	var seq int64
+	err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(assertion_seq),0) FROM workflow_delivery_state WHERE work_id=?`, workID).Scan(&seq)
+	return seq, err
 }
 
 type acceptDeliveryCandidate struct {
@@ -144,9 +146,7 @@ func TestDeliveryAdmissionRefusals(t *testing.T) {
 				detail              string
 			}{
 				{"no-verification-run", true, false, func(*testing.T, acceptDeliveryCandidate) {}, KindMissingEvidence, "no passing verification report covers the recorded Review candidate"},
-				{"stale-run", true, false, func(t *testing.T, c acceptDeliveryCandidate) {
-					c.j.bindVerification(t, c.early)
-				}, KindMissingEvidence, "verification does not cover the current integrated candidate"},
+				{"stale-run", true, false, func(*testing.T, acceptDeliveryCandidate) {}, KindMissingEvidence, "verification does not cover the current integrated candidate"},
 				{"failed-run", true, false, func(t *testing.T, c acceptDeliveryCandidate) {
 					acceptDeliveryFailedReport(t, c)
 				}, KindMissingEvidence, "verification does not cover the current integrated candidate"},
@@ -198,7 +198,6 @@ func TestDeliveryReusesPreRefineReceipt(t *testing.T) {
 	for _, family := range acceptDeliveryFamilies {
 		t.Run(family.ref, func(t *testing.T) {
 			c := acceptDeliveryCandidateAt(t, "delivery-reuse", family.ref, "refine", false)
-			c.j.bindVerification(t, c.early)
 			if err := runDeliveryAdmissionAction(t, c.f.store, c.f.workID, mustJSONValue(map[string]any{"delivery_artifact": "artifact:reused-proof", "delivery_state": "asserted"}), reviewGateAcceptor(c.f.workID)); err != nil {
 				t.Fatal(err)
 			}
@@ -223,14 +222,8 @@ func TestDeliveryAssertionReaders(t *testing.T) {
 	if err != nil || assertion == nil || assertion.Artifact != "artifact:delivery" {
 		t.Fatalf("assertion read = %+v, %v", assertion, err)
 	}
-	tx, err := s.db.BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	targetSeq, targetVersion, artifact, targetErr := workflowDeliveryAssertionEventTx(t.Context(), tx, workID, assertion.EventID)
-	_ = tx.Rollback()
-	if targetErr != nil || targetSeq != seq || targetVersion != assertion.TargetPayloadVersion || artifact != assertion.Artifact {
-		t.Fatalf("correction target = %d/%d/%s, %v", targetSeq, targetVersion, artifact, targetErr)
+	if assertion.Seq != seq {
+		t.Fatalf("current delivery seq=%d, want %d", assertion.Seq, seq)
 	}
 	parked := parkedDeliveryRead(t.Context(), s.db, c.definition.Definition, workID, "delivery", "running")
 	if parked == nil || parked.StepID != "delivery" || parked.ResumeAction != "record_delivery" {

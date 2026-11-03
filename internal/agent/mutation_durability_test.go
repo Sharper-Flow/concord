@@ -21,25 +21,20 @@ func TestMutationDurabilityUsesDeclaredBaseline(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	_, registered := agentcontract.ValidateContractOperation("concord_work_transition", "correct_delivery")
+	_, registered := agentcontract.ValidateContractOperation("concord_work_transition", "remove")
 	if !registered {
-		t.Fatal("correct_delivery is not a registered contract operation")
+		t.Fatal("remove is not a registered contract operation")
 	}
 	raw, err := json.Marshal(map[string]any{
-		"work_id":                "work-1",
-		"expected_version":       2,
-		"target_event_id":        "fixture-work-membership",
-		"target_seq":             1,
-		"target_payload_version": 1,
-		"reason":                 "durability declaration witness",
-		"delivery_artifact":      "https://delivery.invalid/correction",
-		"delivery_state":         "asserted",
-		"idempotency_key":        "durability-baseline-1",
+		"work_id":          "work-1",
+		"expected_version": 2,
+		"reason":           "durability declaration witness",
+		"idempotency_key":  "durability-baseline-1",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := mutationDigest("concord_work_transition", "correct_delivery", env, raw)
+	digest := mutationDigest("concord_work_transition", "remove", env, raw)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "scope_version": scopeVersion, "work_ids": []string{"work-1"}}
 	effect := func(ctx context.Context, tx *store.Transaction, _ Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 		// The committed effect rides the executor's own idempotency boundary;
@@ -48,15 +43,15 @@ func TestMutationDurabilityUsesDeclaredBaseline(t *testing.T) {
 		return mutationPayload(nil, nil), nil, nil, nil
 	}
 	before := s.DurableCommits()
-	r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "correct_delivery", Reader: grant}
-	response, err := r.executeMutation(ctx, agentcontract.NewBase("durability-baseline", "concord_work_transition", "correct_delivery"), raw, digest, scope, nil, nil, effect)
+	r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "remove", Reader: grant}
+	response, err := r.executeMutation(ctx, agentcontract.NewBase("durability-baseline", "concord_work_transition", "remove"), raw, digest, scope, nil, nil, effect)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if response.Outcome != agentcontract.OutcomeOK || response.Error != nil || response.Replayed {
 		t.Fatalf("durable mutation did not commit: outcome=%+v error=%+v replayed=%t", response.Outcome, response.Error, response.Replayed)
 	}
-	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: "concord_work_transition", OperationKind: "correct_delivery", IdempotencyKey: "durability-baseline-1"}
+	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: "concord_work_transition", OperationKind: "remove", IdempotencyKey: "durability-baseline-1"}
 	record, found, err := s.LookupMutationIdempotency(ctx, key)
 	if err != nil || !found {
 		t.Fatalf("committed mutation left no idempotency record: found=%t err=%v", found, err)
@@ -83,9 +78,8 @@ func TestMutationDurabilityDeclarations(t *testing.T) {
 	t.Parallel()
 
 	durableInitial := map[string]bool{
-		"concord_work_transition.remove":           true,
-		"concord_work_relate.resolve_overlap":      true,
-		"concord_work_transition.correct_delivery": true,
+		"concord_work_transition.remove":      true,
+		"concord_work_relate.resolve_overlap": true,
 	}
 	replayBaseline := func(op agentcontract.ContractOperation) bool {
 		return durableInitial[op.ID] ||

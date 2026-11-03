@@ -12,11 +12,9 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// A changed criterion invalidates the accepted Review without replacing its
-// candidate. The authenticated coordinator returns the parked gate to its
-// producer through the evidence-bearing correction route.
+// A changed criterion invalidates the accepted Review without replacing its candidate.
 
-func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
+func TestDeliveryGateRetainsStaleReviewThroughAgent(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
 	ctx := context.Background()
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
@@ -122,10 +120,6 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	if stepOf() != "refine" {
 		t.Fatalf("step after execution delivery = %q, want refine", stepOf())
 	}
-	var producerDelivery string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT assertion_id FROM workflow_delivery_state WHERE work_id='work-1'`).Scan(&producerDelivery); err != nil {
-		t.Fatal(err)
-	}
 	// The canonical head derives the refine start from the qualifying
 	// checkpoint pair; the callable start_refine retired with it.
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "checkpoint_refine", "fields": map[string]any{}, "idempotency_key": "gate-refine-start"}); response.Outcome != agentcontract.OutcomeOK {
@@ -141,10 +135,6 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	}
 	reportRef := open.Review.Accepted.ReportRef
 	spineOK(t, oAgentAction(t, fixture, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": reportRef}))
-	spineOK(t, oAgentAction(t, fixture, "request_correction", map[string]any{
-		"diagnosis": "the review rejects the refined result", "strategy": "implement the review findings and resubmit",
-		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{reportRef},
-	}))
 	changeCandidate("repair")
 	retained, err := store.ReadWorkPin(ctx, s, "work-1")
 	if err != nil || retained.Review == nil || !reflect.DeepEqual(retained.Review.Accepted, open.Review.Accepted) || !reflect.DeepEqual(retained.Review.Findings, open.Review.Findings) {
@@ -155,12 +145,11 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("repair did not stale the retained Review on the changed candidate: %+v", retained.Review)
 	}
 
-	// The correction consumed the accepted correction_required Review. Its
-	// consumption blocks delivery before the changed-candidate mismatch.
+	// An inapplicable Review cannot authorize delivery of the changed candidate.
 	beforeDelivery := agentCurrentEffects(t, s)
 	deliveryRefusal := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-recovery", "delivery_state": "asserted"}, "idempotency_key": "gate-recovery-delivery"})
-	if deliveryRefusal.Outcome != agentcontract.OutcomeError || deliveryRefusal.Error == nil || deliveryRefusal.Error.Kind != "missing_evidence" || deliveryRefusal.Error.EffectState != "none" || deliveryRefusal.Error.Message != "accepted Review already funded a corrective return" {
-		t.Fatalf("repair delivery exit = %+v, want a zero-effect consumed-Review refusal", deliveryRefusal.Error)
+	if deliveryRefusal.Outcome != agentcontract.OutcomeError || deliveryRefusal.Error == nil || deliveryRefusal.Error.Kind != "stale_requires_review" || deliveryRefusal.Error.EffectState != "none" || deliveryRefusal.Error.RecoveryAction.Kind != "reread_entities" {
+		t.Fatalf("repair delivery exit = %+v, want a zero-effect refusal", deliveryRefusal.Error)
 	}
 	afterDelivery, err := store.ReadWorkPin(ctx, s, "work-1")
 	if err != nil || !reflect.DeepEqual(afterDelivery, retained) || agentCurrentEffects(t, s) != beforeDelivery {
@@ -188,44 +177,5 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	}
 	if len(reviewed.Review.Dependencies.Criteria) != 1 || len(stale.Review.Dependencies.Criteria) != 1 || stale.Review.Dependencies.Criteria[0].PredicateID != "predicate:primary" || stale.Review.Dependencies.Criteria[0].ContentDigest == reviewed.Review.Dependencies.Criteria[0].ContentDigest {
 		t.Fatal("successor did not change the depended-on criterion digest")
-	}
-
-	// Park the unchanged candidate with its now-inapplicable accepted Review.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		UPDATE workflow_instances SET current_step='delivery' WHERE work_id='work-1';
-		DELETE FROM write_guard`); err != nil {
-		t.Fatalf("seed the parked gate position: %v", err)
-	}
-
-	// Correction binds the current criterion and durable evidence. Routine
-	// recovery needs the authenticated coordinator.
-	correctionInput := map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "request_correction", "idempotency_key": "gate-recovery-return", "fields": map[string]any{
-		"diagnosis": "the accepted Review judged the previous criterion revision", "strategy": "return to the execution step and reassess the candidate against the current criterion",
-		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:gate-review"},
-	}}
-	returned := invoke(correctionInput)
-	if returned.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("authenticated evidence-bearing gate return = %+v", returned.Error)
-	}
-	if got := stepOf(); got != "execution" {
-		t.Fatalf("step after gate return = %q, want execution", got)
-	}
-
-	// The delivery state keeps one row per item and each later assertion
-	// replaces it, so the producer's assertion must still be current: neither
-	// the refused delivery nor the parked gate's correction asserted delivery.
-	var currentDelivery string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT assertion_id FROM workflow_delivery_state WHERE work_id='work-1'`).Scan(&currentDelivery); err != nil {
-		t.Fatal(err)
-	}
-	if currentDelivery != producerDelivery {
-		t.Fatalf("gate recovery replaced producer delivery %q with %q", producerDelivery, currentDelivery)
-	}
-	var definitionDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&definitionDigest); err != nil {
-		t.Fatal(err)
-	}
-	if definitionDigest != currentDefinition.Digest {
-		t.Fatalf("definition after recovery = %s, want the current definition %s", definitionDigest, currentDefinition.Digest)
 	}
 }

@@ -73,6 +73,8 @@ ORDER BY CASE name WHEN 'projects' THEN 0 WHEN 'project_locators' THEN 1 ELSE 2 
 		"workflow_contracts":             {"definition_version": "26", "law_change": "NULL"},
 		"workflow_architecture_bindings": {"domain_registry_content_hash": "'sha256:" + strings.Repeat("a", 64) + "'"},
 		"workflow_overlap_resolutions":   {"approval_ref": "'approval:historical'"},
+		"workflow_predicate_verdicts":    {"prior_correction_seq": "0"},
+		"workflow_delivery_state":        {"correction_id": "NULL", "correction_occurred_at": "NULL", "correction_payload": "NULL"},
 		"outside_repair_dispositions":    {"approval_ref": "'approval:historical'"},
 		"outside_repair_reconciliations": {"approval_ref": "'approval:historical'"},
 		"workflow_instances": {

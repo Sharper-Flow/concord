@@ -183,11 +183,7 @@ type Failure struct {
 	// RetrySafe reports whether repeating the same call is safe.
 	RetrySafe bool `json:"retry_safe"`
 	// RecoveryAction states what resolves the failure.
-	RecoveryAction string `json:"recovery_action"`
-	// RecoveryRefs carries the ordered workflow actions of a declared-route
-	// remedy. It pairs with RecoveryUseDeclaredRoute and stays empty for
-	// every other RecoveryAction value.
-	RecoveryRefs     []string `json:"recovery_refs,omitempty"`
+	RecoveryAction   string   `json:"recovery_action"`
 	CandidateIDs     []string `json:"candidate_ids,omitempty"`
 	UnavailableKinds []string `json:"unavailable_kinds,omitempty"`
 	// CurrentVersions carries the typed current version for each subject whose
@@ -301,11 +297,6 @@ func newAmbiguousScopeFailure(op, detail, recovery string, candidates []string) 
 	f.CandidateIDs = append(make([]string, 0, len(candidates)), candidates...)
 	return f
 }
-
-// RecoveryUseDeclaredRoute is the RecoveryAction value a failure carries when
-// its remedy is a declared route of workflow actions. RecoveryRefs holds the
-// route in execution order; the agent envelope validates the pair.
-const RecoveryUseDeclaredRoute = "use_declared_route"
 
 func wrapFailure(kind FailureKind, op, detail string, retrySafe bool, recovery string, err error) *Failure {
 	f := newFailure(kind, op, detail, retrySafe, recovery)

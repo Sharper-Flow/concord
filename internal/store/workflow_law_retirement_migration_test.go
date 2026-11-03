@@ -38,6 +38,8 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_evidence_bindings(work_id,binding_seq,binding_id,actor,payload) VALUES('work-upgrade-from',24,'binding:retained','operator','{ "immutable_subject_ref": "artifact:retained", "evidence_kind": "artifact" }')`)
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
 	before := retirementUpgradeSnapshot(t, db)
+	retained := retirementUpgradeSnapshot(t, db)
+	ordinaryRecordsUpgradeExpectations(t, db, retained)
 	contracts := retainedWorkflowContractRows(t, db)
 	if s, err := Open(t.Context(), path); err == nil {
 		s.Close()
@@ -60,12 +62,12 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{179, 180}) {
-		t.Fatalf("applied=%v, want [179 180]", report.Applied)
+	if !reflect.DeepEqual(report.Applied, []int{179, 180, 181}) {
+		t.Fatalf("applied=%v, want [179 180 181]", report.Applied)
 	}
-	for table, expected := range before {
+	for table, expected := range retained {
 		switch table {
-		case "schema", "schema_migrations", "store_revision", "workflow_law_baselines", "work_messages", "work_observations":
+		case "schema", "schema_migrations", "store_revision", "workflow_law_baselines", "work_messages", "work_observations", "workflow_correction_state", "workflow_artifact_actions":
 			continue
 		case "workflow_contracts":
 			if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, contracts) {

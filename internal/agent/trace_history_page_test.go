@@ -84,23 +84,16 @@ func TestTraceHistoryPageAcceptsStoredProducerReferences(t *testing.T) {
 }
 
 // A history page for work with a workflow instance carries the published
-// workflow_read subset: the delivery assertion with the target_payload_version
-// a correction admission consumes and the effective artifact the correction
-// overlay selects, and no projection field the contract does not declare.
+// workflow_read subset and no projection field the contract does not declare.
 func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 	t.Parallel()
 	workflow := store.WorkflowReadProjection{
 		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",
 		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Digest: "sha256:" + strings.Repeat("a", 64)},
 		DeliveryAssertion: &store.WorkflowReadDeliveryAssertion{
-			EventID: "assertion-1", Seq: 7, TargetPayloadVersion: 2,
+			EventID: "assertion-1", Seq: 7,
 			Artifact: "file:internal/store/impl.go", State: "asserted",
 			ActorRef: "actor:owner", AssertedAt: "2026-09-24T00:00:00Z",
-			EffectiveArtifact: "https://github.com/Sharper-Flow/concord/pull/1339",
-			Correction: &store.WorkflowReadDeliveryCorrection{
-				EventID: "correction-1", Reason: "asserted repository paths", Artifact: "https://github.com/Sharper-Flow/concord/pull/1339",
-				EvidenceSource: store.DeliveryEvidenceSourceCoordinatorAsserted, CorrectedAt: "2026-09-25T00:00:00Z",
-			},
 		},
 		CandidateIDs:        []string{},
 		CompletionWarnings:  []string{},
@@ -120,29 +113,18 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 	var page struct {
 		Workflow *struct {
 			DeliveryAssertion *struct {
-				TargetPayloadVersion int    `json:"target_payload_version"`
-				EffectiveArtifact    string `json:"effective_artifact"`
-				Correction           *struct {
-					Artifact       string `json:"artifact"`
-					EvidenceSource string `json:"evidence_source"`
-				} `json:"correction"`
+				Artifact string `json:"artifact"`
 			} `json:"delivery_assertion"`
 		} `json:"workflow"`
 	}
 	if err := json.Unmarshal(envelope.Result, &page); err != nil {
 		t.Fatal(err)
 	}
-	if page.Workflow == nil || page.Workflow.DeliveryAssertion == nil || page.Workflow.DeliveryAssertion.Correction == nil {
-		t.Fatalf("page carries no corrected delivery assertion: %s", envelope.Result)
+	if page.Workflow == nil || page.Workflow.DeliveryAssertion == nil {
+		t.Fatalf("page carries no delivery assertion: %s", envelope.Result)
 	}
-	if page.Workflow.DeliveryAssertion.TargetPayloadVersion != 2 {
-		t.Fatalf("target_payload_version = %d, want 2", page.Workflow.DeliveryAssertion.TargetPayloadVersion)
-	}
-	if page.Workflow.DeliveryAssertion.EffectiveArtifact != "https://github.com/Sharper-Flow/concord/pull/1339" {
-		t.Fatalf("effective_artifact = %q, want the corrected merge evidence", page.Workflow.DeliveryAssertion.EffectiveArtifact)
-	}
-	if page.Workflow.DeliveryAssertion.Correction.EvidenceSource != store.DeliveryEvidenceSourceCoordinatorAsserted {
-		t.Fatalf("correction provenance = %q, want coordinator_asserted", page.Workflow.DeliveryAssertion.Correction.EvidenceSource)
+	if page.Workflow.DeliveryAssertion.Artifact != "file:internal/store/impl.go" {
+		t.Fatalf("artifact = %q, want original assertion", page.Workflow.DeliveryAssertion.Artifact)
 	}
 	var shapedWorkflow map[string]any
 	if err := json.Unmarshal(envelope.Result, &shapedWorkflow); err != nil {

@@ -14,7 +14,8 @@ type writeScope struct {
 	guard sqlitedb.WriteGuard
 	// eventIDs records this scope's successful appends in write order, including
 	// nested operations. Callers copy only the slice their operation appended.
-	eventIDs []string
+	eventIDs        []string
+	operationEvents map[string]bool
 	// registry is the definition source the transaction's workflow writers
 	// resolve pinned definitions through. A nil registry selects the builtin
 	// registry; a caller-selected registry is bound before any write and is

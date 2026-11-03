@@ -129,7 +129,16 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 			}
 			return advanceWorkflowVersion(ctx, tx, e, WorkflowVersionFields{WorkID: e.SubjectID, ExpectedVersion: &p.Expected, ResultingVersion: &p.Resulting})
 		case WorkflowActionCompleted:
-			return foldWorkflowActionCompleted(ctx, tx, e, nil)
+			// This source effect was already admitted historically. Project its
+			// retained facts without treating it as a new terminal action.
+			var completed workflowActionCompletedPayload
+			if err := json.Unmarshal(e.Payload, &completed); err != nil {
+				return err
+			}
+			if err := advanceWorkflowVersion(ctx, tx, e, completed.WorkflowVersionFields); err != nil {
+				return err
+			}
+			return persistWorkflowCompletionExitTx(ctx, tx, e, completed, RegisteredDefinition{}, false, "")
 		case "work.transitioned":
 			return updateWorkLifecycle(ctx, tx, e, p.To, p.Expected, p.Resulting)
 		case "work.reopened", "work.reopened_from_superseded":

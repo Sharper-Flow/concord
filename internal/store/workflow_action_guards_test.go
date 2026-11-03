@@ -44,7 +44,7 @@ func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q query
 	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
 }
 
-func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
+func TestCorrectedContractExternalCheckBindingAtAcceptance(t *testing.T) {
 	const workID = "corrected-contract-external-check"
 	subject := "ci:required-checks:corrected-subject"
 	f, repo, refs := pReceiptFixture(t, workID, 1, 1, func(f workContextFixture) {
@@ -72,8 +72,11 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 	if !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
 		t.Fatalf("acceptance omits recovery for unproved check: %v", pin.NextValidIntents)
 	}
-	assertRecoveryRefusalWithoutEffect(t, s, workID, KindIllegalLifecycleTransition, func() error {
-		return runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": "ci:unrelated"}), 0, f.owner)
+	if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": "ci:unrelated"}), 0, f.owner); err != nil {
+		t.Fatalf("bind verification evidence: %v", err)
+	}
+	assertRecoveryRefusalWithoutEffect(t, s, workID, KindMissingEvidence, func() error {
+		return runVerdictActionAs(t, s, workID, "record_verdict", criterionAssociationPayload("ci:unrelated", "predicate:p0"), 0, f.owner)
 	})
 	seedWorkflowAuthority(t, s, "corrected-check-source", workID, "principal/check", "request/check", []string{subject})
 	bind := mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": subject, "producer_id": "principal/check", "producer_run_ref": "corrected-check-source", "producer_watermark": "request/check"})
@@ -83,7 +86,9 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 	if step := currentStep(t, s, workID); step != "acceptance" {
 		t.Fatalf("binding advanced to %s", step)
 	}
-	assertRecoveryRefusalWithoutEffect(t, s, workID, KindIllegalLifecycleTransition, func() error { return runVerdictActionAs(t, s, workID, "bind_evidence", bind, 0, f.owner) })
+	if err := runVerdictActionAs(t, s, workID, "bind_evidence", bind, 0, f.owner); err != nil {
+		t.Fatalf("repeat binding with current version: %v", err)
+	}
 	assertRecoveryRefusalWithoutEffect(t, s, workID, KindMissingEvidence, func() error {
 		return runVerdictActionAs(t, s, workID, "record_verdict", criterionAssociationPayload(subject, "predicate:p0"), 0, f.owner)
 	})
@@ -98,8 +103,8 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
-		t.Fatal("acceptance advertises recovery after proof and required kinds are satisfied")
+	if !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
+		t.Fatal("acceptance omitted ordinary binding after proof and required kinds were satisfied")
 	}
 	if err := (acceptanceRecoveryFixture{store: s, workID: workID, owner: f.owner, operator: f.operator}).run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
 		t.Fatalf("confirm successor: %v", err)
@@ -137,9 +142,9 @@ func TestExternalCheckRecoveryPreservesEvidenceRefusals(t *testing.T) {
 		mutate func(map[string]any)
 		kind   FailureKind
 	}{
-		{"review-kind", func(p map[string]any) { p["evidence_kind"] = "review" }, KindIllegalLifecycleTransition},
-		{"artifact-kind", func(p map[string]any) { p["evidence_kind"] = "artifact" }, KindIllegalLifecycleTransition},
-		{"unrelated-subject", func(p map[string]any) { p["immutable_subject_ref"] = "ci:unrelated" }, KindIllegalLifecycleTransition},
+		{"review-kind", func(p map[string]any) { p["evidence_kind"] = "review" }, ""},
+		{"artifact-kind", func(p map[string]any) { p["evidence_kind"] = "artifact" }, ""},
+		{"unrelated-subject", func(p map[string]any) { p["immutable_subject_ref"] = "ci:unrelated" }, KindInvariantViolation},
 		{"unrecorded-source", func(p map[string]any) { p["producer_run_ref"] = "operation:missing" }, KindInvariantViolation},
 		{"wrong-producer", func(p map[string]any) { p["producer_id"] = "principal/other" }, KindInvariantViolation},
 		{"wrong-watermark", func(p map[string]any) { p["producer_watermark"] = "request/other" }, KindInvariantViolation},
@@ -154,6 +159,12 @@ func TestExternalCheckRecoveryPreservesEvidenceRefusals(t *testing.T) {
 			seedWorkflowAuthority(t, s, authority, workID, "principal/check", "request/check", []string{subject})
 			payload := map[string]any{"evidence_kind": "verification", "immutable_subject_ref": subject, "producer_id": "principal/check", "producer_run_ref": authority, "producer_watermark": "request/check"}
 			test.mutate(payload)
+			if test.kind == "" {
+				if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(payload), 0, fixture.owner); err != nil {
+					t.Fatalf("binding a declared kind: %v", err)
+				}
+				return
+			}
 			assertRecoveryRefusalWithoutEffect(t, s, workID, test.kind, func() error {
 				return runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(payload), 0, fixture.owner)
 			})
@@ -169,7 +180,7 @@ func TestExternalCheckRecoveryPreservesEvidenceRefusals(t *testing.T) {
 	})
 }
 
-func TestExternalCheckRecoveryClosedForCurrentVerdicts(t *testing.T) {
+func TestEvidenceBindingAvailableForCurrentVerdicts(t *testing.T) {
 	for _, associated := range []bool{false, true} {
 		t.Run(fmt.Sprint(associated), func(t *testing.T) {
 			t.Parallel()
@@ -184,13 +195,12 @@ func TestExternalCheckRecoveryClosedForCurrentVerdicts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if workPinContainsAction(pin.NextValidIntents, "bind_evidence") == associated {
-				t.Fatalf("binding recovery intent disagrees with current criterion proof: associated=%t intents=%v", associated, pin.NextValidIntents)
+			if !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
+				t.Fatalf("binding missing for associated=%t: %v", associated, pin.NextValidIntents)
 			}
-			// Main's proof association never reopens an already bound tuple.
-			assertRecoveryRefusalWithoutEffect(t, f.store, workID, KindIllegalLifecycleTransition, func() error {
-				return runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": refs[0][0]}), 0, f.owner)
-			})
+			if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": refs[0][0]}), 0, f.owner); err != nil {
+				t.Fatalf("binding existing subject: %v", err)
+			}
 		})
 	}
 }
@@ -224,12 +234,63 @@ func TestExternalCheckRecoveryCompletedEventUsesSharedEligibility(t *testing.T) 
 			apply := func() error {
 				return applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{binding, completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
 			}
-			if kind != "verification" {
-				assertRecoveryRefusalWithoutEffect(t, s, workID, KindMissingEvidence, apply)
-			} else if err := apply(); err != nil {
+			if err := apply(); err != nil {
 				t.Fatalf("fold eligible external-check binding without a caller guard: %v", err)
 			}
 		})
+	}
+}
+
+func TestOrdinaryEvidenceCompletionCannotBorrowPriorBinding(t *testing.T) {
+	ctx := context.Background()
+	const workID = "ordinary-binding-no-borrow"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+	s := fixture.store
+	subject := "commit:" + workID
+	seedWorkflowAuthority(t, s, "prior-binding-source", workID, "principal/check", "request/check", []string{subject})
+	actor, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, s, workID)
+	binding := workflowEventWithActor(workID+":binding", WorkflowEvidenceBound, workID, actor, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"evidence_kind": "verification", "immutable_subject_ref": subject, "producer_id": "principal/check",
+		"producer_run_ref": "prior-binding-source", "producer_watermark": "request/check", "observed_at": "2026-10-13T00:00:00Z",
+	})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{binding}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatal(err)
+	}
+	version++
+	completed := workflowEventWithActor(workID+":completed", WorkflowActionCompleted, workID, actor, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"step_id": "acceptance", "action_id": "bind_evidence", "attempt_epoch": 1, "actor_ref": actor,
+		"result_evidence_refs": []string{subject}, "changed_refs": []string{workID},
+	})
+	assertRecoveryRefusalWithoutEffect(t, s, workID, KindMissingEvidence, func() error {
+		return applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
+	})
+}
+
+func TestOrdinaryEvidenceBindingStageAndLifecycle(t *testing.T) {
+	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
+		definition := mustBuiltinDefinition(t, family).Definition
+		for _, tc := range []struct {
+			step, instance, lifecycle string
+			contracts                 int64
+			want                      bool
+		}{
+			{"planning", "active", "in_progress", 1, false},
+			{"refine", "active", "in_progress", 1, true},
+			{"refine", "active", "in_progress", 0, false},
+			{"refine", "completed", "completed", 1, false},
+			{"refine", "active", "cancelled", 1, false},
+		} {
+			state := WorkflowAdmissionState{Step: tc.step, InstanceState: tc.instance, Lifecycle: tc.lifecycle, ActiveContracts: tc.contracts}
+			if got := workflowAdmit(definition, state, "bind_evidence").Admitted; got != tc.want {
+				t.Errorf("%s %s %s contracts=%d admitted=%t, want %t", family, tc.step, tc.instance, tc.contracts, got, tc.want)
+			}
+		}
 	}
 }
 
@@ -278,16 +339,16 @@ func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
 			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contract_predicates SET outcome_kind=?,outcome_payload=? WHERE work_id=? AND contract_version=1; DELETE FROM write_guard`, test.kind, test.payload, workID); err != nil {
 				t.Fatal(err)
 			}
-			state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, s.db, workID, entry.Definition, "acceptance", "test", BuiltinWorkflowRegistry())
-			if state.EvidenceRecoveryRoute || err != nil {
-				t.Errorf("binding availability with a %s predicate = (%t, %v), want a hidden route without an action-independent failure", test.name, state.EvidenceRecoveryRoute, err)
+			_, err = loadWorkflowAdmissionStateTxForRegistry(ctx, s.db, workID, entry.Definition, "acceptance", "test", BuiltinWorkflowRegistry())
+			if err != nil {
+				t.Errorf("admission load with a %s predicate = %v", test.name, err)
 			}
 			if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "checkpoint_context"); err != nil {
 				t.Errorf("binding predicate validation blocked another action's discovery: %v", err)
 			}
 			payload := json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"ci:result"}`)
 			var failure *Failure
-			if _, err := guardRecoveryEvidenceBind(ctx, s.db, workID, entry.Definition, "acceptance", payload, "test"); !failureAs(err, &failure) || failure.Kind != KindInvariantViolation || failure.Detail != "approved outcome predicate is malformed or mismatched" {
+			if err := guardEvidenceBindingMembership(ctx, s.db, workID, entry.Definition, payload, "test"); !failureAs(err, &failure) || failure.Kind != KindInvariantViolation || failure.Detail != "approved outcome predicate is malformed or mismatched" {
 				t.Errorf("strict binding guard with a %s predicate = %v, want the predicate refusal", test.name, err)
 			}
 			assertRecoveryRefusalWithoutEffect(t, s, workID, KindInvariantViolation, func() error {
@@ -305,19 +366,14 @@ func TestBindEvidenceAdmittedPastBindingStepWhileMandateUnbound(t *testing.T) {
 	}
 }
 
-func TestBindEvidenceRefusedPastBindingStepOnceMandateBound(t *testing.T) {
+func TestBindEvidencePastBindingStepOnceMandateBound(t *testing.T) {
 	const workID = "mandate-recovery-narrow"
 	s := seedMandateRecoveryItem(t, workID)
 	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload()); err != nil {
 		t.Fatalf("initial mandate binding refused: %v", err)
 	}
-	err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload())
-	if err == nil {
-		t.Fatal("late binding passed after the mandate was bound")
-	}
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindIllegalLifecycleTransition {
-		t.Fatalf("late binding error = %v, want %s", err, KindIllegalLifecycleTransition)
+	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload()); err != nil {
+		t.Fatalf("late binding after mandate was satisfied: %v", err)
 	}
 }
 
@@ -380,21 +436,12 @@ func TestBindEvidenceObligationRecoverableAfterMandateBound(t *testing.T) {
 	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"spec:one"}`)); err != nil {
 		t.Fatalf("obligation recovery binding refused after the mandate was bound: %v", err)
 	}
-	// Once the obligation tuple is bound, the same bind refuses: recovery
-	// does not reopen evidence binding without limit.
-	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"spec:one"}`))
-	if err == nil {
-		t.Fatal("obligation recovery admitted a second identical bind")
-	}
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindIllegalLifecycleTransition {
-		t.Fatalf("repeat obligation bind error = %v, want %s", err, KindIllegalLifecycleTransition)
+	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"spec:one"}`)); err != nil {
+		t.Fatalf("binding after obligation was satisfied: %v", err)
 	}
 }
 
-// An obligation tuple that is already satisfied does not reopen recovery:
-// the guard admits only what the completion gate still demands.
-func TestBindEvidenceObligationRefusedOnceSatisfied(t *testing.T) {
+func TestBindEvidenceObligationAllowedOnceSatisfied(t *testing.T) {
 	const workID = "obligation-recovery-satisfied"
 	s := seedMandateRecoveryItem(t, workID)
 	db := s.DatabaseForTesting()
@@ -424,13 +471,8 @@ func TestBindEvidenceObligationRefusedOnceSatisfied(t *testing.T) {
 	if err := seedTx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","evidence_ref":"spec:one"}`))
-	if err == nil {
-		t.Fatal("satisfied obligation reopened recovery")
-	}
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindIllegalLifecycleTransition {
-		t.Fatalf("satisfied obligation bind error = %v, want %s", err, KindIllegalLifecycleTransition)
+	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","evidence_ref":"spec:one"}`)); err != nil {
+		t.Fatalf("satisfied obligation binding: %v", err)
 	}
 }
 

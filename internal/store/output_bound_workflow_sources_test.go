@@ -26,6 +26,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
 func init() {
@@ -161,12 +163,8 @@ func init() {
 	contractOutcomePredicates := inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/properties/outcome_predicates/maxItems")
 
 	// The delivery assertion artifact writer uses record_delivery's admitted
-	// delivery_artifact input;
-	// the correction's merge evidence is re-validated at the fold against
-	// the published reference definition (validateMergeEvidenceAdmission,
-	// internal/store/workflow_delivery_correction.go:368).
+	// delivery_artifact input.
 	deliveryArtifactInputs := inputBound("/$defs/work_transition_action_variant_record_delivery/properties/fields/properties/delivery_artifact/maxLength")
-	publishedReference := schemaBound("contracts/agent-tool-surface-payloads.schema.json", "/$defs/reference/maxLength")
 
 	// The committed law read admits each law title at maxManifestTitle code
 	// points (law_snapshot.go) and each criterion predicate ID at
@@ -334,14 +332,7 @@ func init() {
 	registerOutputBound("/$defs/work_pin/properties/next_valid_intents/items/properties/required_fields/maxItems",
 		declaredPayloadFields) // one intent's required fields are the Required subset of one action's declared payload; the sibling PublicPayload refusal (workflow_registry.go:472) sits inside a nil-check conjunction the inline verifier cannot confirm and is named in the report
 	registerOutputBound("/$defs/work_pin/properties/next_valid_intents/maxItems",
-		workflowIntentChainItemsBound(
-			goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(step.Actions)", boundItems),
-			[]string{"workPinIntents", "workPinWithoutAction", "workPinEscalatedRetryIntents"},
-			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinIntents", target: "intents", baseLoopOK: true},
-			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinStepIntentsTx", target: "pin.NextValidIntents"},
-			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinRecoveryIntentsTx", target: "pin.NextValidIntents"},
-			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinCorrectionRequestIntentsTx", target: "pin.NextValidIntents"},
-		)) // the step-action loop is the guard-capped base; the recovery, correction, and checkpoint routes each append at most one fixed intent
+		workPinIntentItemsBound())
 	registerOutputBound("/$defs/work_pin/properties/obligations/items/maxLength", evidenceKindLongest)
 	registerOutputBound("/$defs/work_pin/properties/obligations/maxItems", evidenceKindSlice)
 	registerOutputBound("/$defs/work_pin/properties/outstanding_evidence_kinds/maxItems", evidenceKindSlice)
@@ -374,27 +365,9 @@ func init() {
 	registerOutputBound("/$defs/workflow_contract/properties/route_conventions/maxItems", contractRouteConventions)
 	registerOutputBound("/$defs/workflow_contract/properties/spec_mandate/maxItems", contractSpecMandate)
 
-	// Correction requests retain their admitted directions and references.
-	// Diagnosis is output-owned text, not a bounded worker failure report.
-	registerRetainedTwinBound("/$defs/workflow_correction_context/properties/diagnosis/maxLength",
-		unboundedOutput("workflow correction context retains request directions and read-owned diagnostics without a common text guard", readSizeRefusalPath, mutationResultPath))
-	registerRetainedTwinBound("/$defs/workflow_correction_context/properties/evidence_refs/maxItems",
-		sumBound(
-			pkGuardArgBound("internal/store/workflow.go", "validateWorkflowActionCompletedShape", "workflowList", "p.CorrectionEvidenceRefs", 1, boundItems),
-			goConstantBound("internal/store/workflow.go", "workflowOperationEvidenceRefBound", boundItems),
-		)) // the read unions the fold-admitted correction refs (workflowList 32, rejected at workflow.go:2189) with the result refs (workflowOperationEvidenceRefBound 32, workflow.go:675); a rejected correction can carry both groups, and correction_evidence_refs is written for reject_worker_result and request_correction completions only (workflow_action_guards.go:1688)
-	registerRetainedTwinBound("/$defs/workflow_correction_context/properties/predicate_ids/maxItems",
-		pkGuardArgBound("internal/store/workflow.go", "validateWorkflowActionCompletedShape", "workflowList", "p.CorrectionPredicateIDs", 1, boundItems))
-	registerRetainedTwinBound("/$defs/workflow_correction_context/properties/strategy/maxLength",
-		pkGuardArgBound("internal/store/workflow.go", "validateWorkflowActionCompletedShape", "workflowString", "p.CorrectionStrategy", 1, boundBytes))
-
 	// Delivery assertion: the asserted artifact rides the action input's
-	// published delivery_artifact node; the effective artifact also covers
-	// the correction's merge evidence, re-validated against the published
-	// reference rule.
+	// published delivery_artifact node.
 	registerOutputBound("/$defs/workflow_delivery_assertion/properties/artifact/maxLength", deliveryArtifactInputs)
-	registerOutputBound("/$defs/workflow_delivery_assertion/properties/effective_artifact/maxLength",
-		maxBound(deliveryArtifactInputs, publishedReference))
 
 	// Design decision: the admitted record_design shape, re-admitted by the
 	// fold with the same numbers (internal/store/workflow_design.go:23-28).
@@ -601,6 +574,75 @@ func workflowLoopBodyNodes(fn *ast.FuncDecl) map[ast.Node]bool {
 
 func workflowItemsEvaluated(value int64, from string) evaluatedBound {
 	return evaluatedBound{constraints: []boundConstraint{{unit: boundItems, value: value, from: from}}, kind: "derived", describe: from}
+}
+
+func TestOutputBoundWorkPinIntentSource(t *testing.T) {
+	const pattern = "/$defs/work_pin/properties/next_valid_intents/maxItems"
+	rt := newLedgerRuntime(ledgerRepoRoot(t))
+	for _, row := range ledgerRegistrations {
+		if row.pattern == pattern {
+			bound, err := rt.evaluateSource(row.source, nil)
+			if err != nil {
+				t.Fatalf("work pin intent source: %v", err)
+			}
+			if capacity, ok := bound.capacity(boundItems); !ok || capacity > agentcontract.MaxNextValidIntents {
+				t.Fatalf("work pin capacity = %d (finite=%t), envelope limit = %d", capacity, ok, agentcontract.MaxNextValidIntents)
+			}
+			return
+		}
+	}
+	t.Fatal("work pin intent source is not registered")
+}
+
+func TestOutputBoundIntentRangeMutations(t *testing.T) {
+	const source = `package store
+const actionLimit = 4
+func site(definition Definition) {
+	items := []int{}
+	for _, action := range definition.ActionDefinitions {
+		items = append(items, action)
+	}
+	items = append(items, 1)
+}`
+	evaluate := func(text string) (int64, error) {
+		rt := newLedgerRuntime(ledgerRepoRoot(t))
+		if err := rt.parseGoSource("intent_range.go", text); err != nil {
+			t.Fatal(err)
+		}
+		bound := workflowIntentChainItemsBound(goConstantBound("intent_range.go", "actionLimit", boundItems), nil,
+			workflowIntentChainSite{file: "intent_range.go", function: "site", target: "items", loopSource: "definition.ActionDefinitions"})
+		value, err := rt.evaluateSource(bound, nil)
+		if err != nil {
+			return 0, err
+		}
+		capacity, ok := value.capacity(boundItems)
+		if !ok {
+			t.Fatal("intent derivation has no item capacity")
+		}
+		return capacity, nil
+	}
+	for _, tc := range []struct {
+		name, text string
+		want       int64
+		refuse     bool
+	}{
+		{"baseline", source, 5, false},
+		{"capacity grows", strings.Replace(source, "actionLimit = 4", "actionLimit = 8", 1), 9, false},
+		{"different range", strings.Replace(source, "range definition.ActionDefinitions", "range definition.Other", 1), 0, true},
+		{"variadic append", strings.Replace(source, "append(items, action)", "append(items, action...)", 1), 0, true},
+		{"nested loop", strings.Replace(source, "items = append(items, action)", "for range definition.Other { items = append(items, action) }", 1), 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := evaluate(tc.text)
+			if tc.refuse {
+				if err == nil {
+					t.Fatalf("unsafe writer accepted with capacity %d", got)
+				}
+			} else if err != nil || got != tc.want {
+				t.Fatalf("capacity = %d, error = %v; want %d", got, err, tc.want)
+			}
+		})
+	}
 }
 
 func workflowCharactersEvaluated(value int64, from string) evaluatedBound {
@@ -1230,18 +1272,33 @@ func workflowLawContextDomainsItemsBound() outputBoundSource {
 }
 
 // workflowIntentChainSite is one function of a work-pin intent chain: the
-// target the chain builds, plus whether the site's loop append is the
-// guard-covered base production rather than a multiplying site.
+// target the chain builds and the exact range covered by a cited capacity.
 type workflowIntentChainSite struct {
 	file       string
 	function   string
 	target     string
-	baseLoopOK bool
+	loopSource string
+}
+
+// Registered action declarations have unique IDs and match available actions;
+// ValidateWorkflowDefinition bounds the latter. Each loop adds at most one
+// intent per element, and the remaining appends are single-fire sites.
+func workPinIntentItemsBound() outputBoundSource {
+	return workflowIntentChainItemsBound(
+		sumBound(
+			goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(step.Actions)", boundItems),
+			goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(definition.AvailableActions)", boundItems),
+		),
+		[]string{"workPinIntents", "workPinWithoutAction", "workPinEscalatedRetryIntents"},
+		workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinIntents", target: "intents", loopSource: "step.Actions"},
+		workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinStepIntentsTx", target: "pin.NextValidIntents", loopSource: "definition.ActionDefinitions"},
+		workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinRecoveryIntentsTx", target: "pin.NextValidIntents"},
+	)
 }
 
 // workflowIntentChainItemsBound bounds a pin intent list built across a
-// chain of functions: the base source covers the guard-capped step-action
-// loop, and every other append site must add one fixed element outside any
+// chain of functions: the base source covers the declared bounded ranges,
+// and every other append site must add one fixed element outside any
 // loop. Assignments may replace the target with a listed relabel-or-filter
 // call (the base builder, a subset filter, or a one-to-one relabel, each
 // verified by reading) or with a same-function alias copy of an admission
@@ -1270,6 +1327,14 @@ func workflowIntentChainItemsBound(base outputBoundSource, relabels []string, si
 				return evaluatedBound{}, err
 			}
 			loopNodes := workflowLoopBodyNodes(fn)
+			allowedLoopNodes := map[ast.Node]bool{}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				loop, ok := n.(*ast.RangeStmt)
+				if ok && workflowExprText(loop.X) == site.loopSource && !loopNodes[loop] {
+					ast.Inspect(loop.Body, func(inner ast.Node) bool { allowedLoopNodes[inner] = true; return true })
+				}
+				return true
+			})
 			fixed, loopAppends := 0, 0
 			var refusal error
 			ast.Inspect(fn, func(n ast.Node) bool {
@@ -1325,8 +1390,37 @@ func workflowIntentChainItemsBound(base outputBoundSource, relabels []string, si
 						return true
 					}
 					if loopNodes[node] {
-						if !site.baseLoopOK {
+						if site.loopSource == "" || !allowedLoopNodes[node] || len(node.Args) != 2 || node.Ellipsis != token.NoPos {
 							refusal = fmt.Errorf("workflow intent chain %s:%s appends %s inside a loop", site.file, site.function, site.target)
+							return false
+						}
+						// A nested loop would multiply the cited range capacity.
+						nested := false
+						ast.Inspect(fn.Body, func(n ast.Node) bool {
+							switch inner := n.(type) {
+							case *ast.RangeStmt:
+								if allowedLoopNodes[inner] {
+									ast.Inspect(inner.Body, func(n ast.Node) bool {
+										if n == node {
+											nested = true
+										}
+										return true
+									})
+								}
+							case *ast.ForStmt:
+								if allowedLoopNodes[inner] {
+									ast.Inspect(inner.Body, func(n ast.Node) bool {
+										if n == node {
+											nested = true
+										}
+										return true
+									})
+								}
+							}
+							return true
+						})
+						if nested {
+							refusal = fmt.Errorf("workflow intent chain %s:%s has a nested loop append", site.file, site.function)
 							return false
 						}
 						loopAppends++
@@ -1344,7 +1438,7 @@ func workflowIntentChainItemsBound(base outputBoundSource, relabels []string, si
 				return evaluatedBound{}, refusal
 			}
 			expectedLoop := 0
-			if site.baseLoopOK {
+			if site.loopSource != "" {
 				expectedLoop = 1
 			}
 			if loopAppends != expectedLoop {

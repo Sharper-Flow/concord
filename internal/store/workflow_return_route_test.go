@@ -2,10 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"strings"
 	"testing"
 	"time"
 )
@@ -136,161 +132,11 @@ func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, regis
 	return workflowReturnRouteFixture{store: s, owner: owner, operator: operator}
 }
 
-func TestWorkflowActionPreflightNamesEveryMissingAndUndeclaredField(t *testing.T) {
-	t.Parallel()
-	payload := json.RawMessage(`{"predicate_ids":["predicate:primary"],"evidence_refs":["evidence:x"],"zz_extra":true}`)
-	want := `workflow action payload field "diagnosis" is required for action "request_correction"; workflow action payload field "strategy" is required for action "request_correction"; workflow action payload field "zz_extra" is not declared for action "request_correction"`
-	for range 50 {
-		err := validateWorkflowActionPayload(WorkflowDefinition{}, "request_correction", payload)
-		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.Detail != want || failure.RecoveryAction != "supply every required registered action field and use only fields declared by the pinned definition" {
-			t.Fatalf("structural preflight=%v, want deterministic complete refusal", err)
-		}
-	}
-}
-
-func TestPReviewCorrectionAdmitsAdvertisedEvidence(t *testing.T) {
-	j := pReturnReviewFixture(t, "p-return-advertised-evidence", "workflow.break_fix", "correction_required")
-	entry := mustBuiltinDefinition(t, "workflow.break_fix")
-	correction, _, err := workflowCorrectionRequestAdmissionForRegistry(t.Context(), j.s.db, j.workID, entry.Definition, "repair", "test", BuiltinWorkflowRegistry())
-	if err != nil || correction == nil {
-		t.Fatalf("advertised correction=%+v err=%v", correction, err)
-	}
-	// The context's predicate IDs bind the approved contract; the correction
-	// payload itself cites the work's durably bound evidence, not the
-	// accepted report's event reference.
-	if len(correction.PredicateIDs) != 1 || correction.PredicateIDs[0] != "predicate:return-route" {
-		t.Fatalf("advertised predicates=%v, want the approved predicate", correction.PredicateIDs)
-	}
-	payload := pReviewCorrectionPayload(t)
-	if err := issue1013Preflight(t, j.s, j.workID, "request_correction", payload, j.fixture.owner); err != nil {
-		t.Fatalf("correction with durably bound evidence refused: %v", err)
-	}
-	if err := j.action(t, "request_correction", payload, j.fixture.owner); err != nil {
-		t.Fatal(err)
-	}
-	reviewGateRequireStep(t, j.s, j.workID, "repair")
-}
-
 func TestPReturnRouteCurrentReviewFixture(t *testing.T) {
 	j := pReturnReviewFixture(t, "p-return-current-review", "workflow.break_fix", "correction_required")
 	pin, err := ReadWorkPin(t.Context(), j.s, j.workID)
 	if err != nil || pin.Review == nil || pin.Review.Accepted == nil || pin.Step != "repair" || !pin.Review.DependenciesCurrent || pin.Review.Candidate == nil {
 		t.Fatalf("current accepted Review fixture=%+v err=%v", pin, err)
-	}
-}
-
-func TestIssue1062PersistentMismatchReturnsImplementationAcceptanceToRefine(t *testing.T) {
-	testWorkflowReturnRoute(t, "return-route-implementation", "workflow.implementation", "acceptance", "execution")
-}
-func TestIssue1062PersistentMismatchReturnsBreakFixVerificationToRefine(t *testing.T) {
-	testWorkflowReturnRoute(t, "return-route-break-fix", "workflow.break_fix", "verify", "repair")
-}
-
-func testWorkflowReturnRoute(t *testing.T, id, family, verdictStep, effect string) {
-	t.Helper()
-	j := pReturnReviewFixture(t, id, family, "correction_required")
-	entry := mustBuiltinDefinition(t, family)
-	if workflowUnhealthyVerdictRouteTarget(entry.Definition, verdictStep) != effect {
-		t.Fatal("checkpoint recovery lost its producer target")
-	}
-	for i := 0; i < 2; i++ {
-		before := j.effects(t)
-		err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:must-not-ship", "delivery_state": "asserted"}, j.fixture.owner)
-		if !hasFailureKind(err, KindMissingEvidence) || !strings.Contains(err.Error(), "ready_for_final_proof") || j.effects(t) != before {
-			t.Fatalf("blocking Review delivery=%v", err)
-		}
-		err = j.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}, j.fixture.owner)
-		if !hasFailureKind(err, KindIllegalLifecycleTransition) || j.effects(t) != before {
-			t.Fatalf("off-step completion=%v", err)
-		}
-		if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
-			t.Fatal(err)
-		}
-		reviewGateRequireStep(t, j.s, id, effect)
-		pReturnProduce(t, j, fmt.Sprintf("correction-%d", i))
-		acceptCurrentReviewForTest(t, j.fixture, "correction_required")
-	}
-	acceptCurrentReviewForTest(t, j.fixture, "ready_for_final_proof")
-	pin := issue1013Pin(t, j.s, id)
-	if pin.Review == nil || workflowAdmitReview(*pin.Review) != nil {
-		t.Fatal("fresh accepted readiness did not settle the Review boundary")
-	}
-	if countWorkflowCompletionEvents(t, j.s, id) != 0 {
-		t.Fatal("persistent correction completed the work")
-	}
-	reviewGateRequireStep(t, j.s, id, effect)
-	start := "checkpoint_repair"
-	if effect == "execution" {
-		start = "start_execution"
-	}
-	reviewGateStartStep(t, j.s, id, effect, start, j.fixture.owner)
-	proof := j.observeRun(t, "final-proof")
-	if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proof.OperationRef}, j.fixture.owner); err != nil {
-		t.Fatal(err)
-	}
-	if err := reviewGateRecordDelivery(t, j.s, id, j.fixture.owner); err != nil {
-		t.Fatalf("fresh ready Review and producer receipt did not admit final proof: %v", err)
-	}
-	reviewGateRequireStep(t, j.s, id, "refine")
-}
-
-func testPReviewCorrection(t *testing.T, id, family, effect string) {
-	t.Helper()
-	j := pReturnReviewFixture(t, id, family, "correction_required")
-	entry := mustBuiltinDefinition(t, family)
-	pin := issue1013Pin(t, j.s, id)
-	if pin.Review == nil || pin.Review.Accepted == nil || !issue1013HasIntent(pin, "request_correction") {
-		t.Fatalf("accepted Review has no correction route: %+v", pin)
-	}
-	before := j.effects(t)
-	payload := pReviewCorrectionPayload(t)
-	if err := issue1013Preflight(t, j.s, id, "request_correction", payload, j.fixture.owner); err != nil {
-		t.Fatal(err)
-	}
-	if j.effects(t) != before {
-		t.Fatal("preflight changed durable state")
-	}
-	if err := j.action(t, "request_correction", payload, j.fixture.owner); err != nil {
-		t.Fatal(err)
-	}
-	reviewGateRequireStep(t, j.s, id, effect)
-	correction, err := readWorkflowCorrectionContext(t.Context(), j.s.db, id)
-	if err != nil || correction == nil || len(correction.PredicateIDs) != 1 || correction.PredicateIDs[0] != "predicate:return-route" {
-		t.Fatalf("correction context=%+v err=%v", correction, err)
-	}
-	ref, digest := reviewGateInstancePin(t, j.s, id)
-	if ref != entry.Definition.Ref || digest != entry.Digest {
-		t.Fatal("correction changed the current definition pin")
-	}
-	before = j.effects(t)
-	if err := issue1013Preflight(t, j.s, id, "request_correction", payload, j.fixture.owner); err == nil {
-		t.Fatal("repeated correction passed preflight before a fresh Review")
-	}
-	if j.effects(t) != before {
-		t.Fatal("refused repeated correction changed durable state")
-	}
-}
-
-func TestNonOKVerdictCorrectionReturnsImplementationToExecution(t *testing.T) {
-	testPReviewCorrection(t, "return-route-verdict-correction", "workflow.implementation", "execution")
-}
-func TestNonOKVerdictCorrectionReturnsBreakFixToRepair(t *testing.T) {
-	testPReviewCorrection(t, "return-route-break-fix-correction", "workflow.break_fix", "repair")
-}
-
-func TestVerdictCorrectionRequiresRecordedReview(t *testing.T) {
-	j := pReturnReviewFixture(t, "return-route-requires-accepted-delivery", "workflow.implementation", "")
-	before := j.effects(t)
-	if err := issue1013Preflight(t, j.s, j.workID, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err == nil {
-		t.Fatal("an unaccepted Review authorized correction")
-	}
-	if j.effects(t) != before {
-		t.Fatal("refused correction changed durable state")
-	}
-	acceptCurrentReviewForTest(t, j.fixture, "correction_required")
-	if err := issue1013Preflight(t, j.s, j.workID, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
-		t.Fatalf("accepted current Review did not authorize correction: %v", err)
 	}
 }
 
@@ -300,74 +146,13 @@ func prepareVerdictCorrectionFixture(t *testing.T, id string) workflowReturnRout
 	return workflowReturnRouteFixture{store: j.s, owner: j.fixture.owner, operator: j.fixture.operator}
 }
 
-func TestVerdictCorrectionRefusesIncompleteAuthority(t *testing.T) {
-	cases := []struct {
-		name, payload string
-		kind          FailureKind
-		detail        string
-	}{
-		{"missing fields", `{}`, KindInvalidPayload, `is required for action "request_correction"`},
-		{"diagnosis absent", `{"strategy":"strategy","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`, KindInvalidPayload, `field "diagnosis" is required`},
-		{"strategy absent", `{"diagnosis":"diagnosis","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`, KindInvalidPayload, `field "strategy" is required`},
-		{"predicate outside active contract", `{"diagnosis":"diagnosis","strategy":"strategy","predicate_ids":["predicate:outside"],"evidence_refs":["evidence:return-route-verification"]}`, KindInvalidPayload, "without a current non-ok verdict"},
-		{"evidence is not bound", `{"diagnosis":"diagnosis","strategy":"strategy","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:not-bound"]}`, KindMissingEvidence, "not durably bound"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			id := "return-route-refusal-" + strings.ReplaceAll(tc.name, " ", "-")
-			f := prepareVerdictCorrectionFixture(t, id)
-			before := contractCorrectionEffectSnapshot(t, f.store, id)
-			err := issue1013Preflight(t, f.store, id, "request_correction", json.RawMessage(tc.payload), f.owner)
-			var failure *Failure
-			if !errors.As(err, &failure) || failure.Kind != tc.kind || !strings.Contains(failure.Detail, tc.detail) {
-				t.Fatalf("correction refusal=%v, want %s containing %q", err, tc.kind, tc.detail)
-			}
-			if contractCorrectionEffectSnapshot(t, f.store, id) != before {
-				t.Fatal("refused correction changed durable state")
-			}
-		})
-	}
-}
-
-// Main's engineering correction is not an operator-verdict substitution.
-func TestVerdictCorrectionUsesMainAcceptedReviewWithoutOperatorSubstitution(t *testing.T) {
-	const id = "return-route-without-operator"
-	f := prepareVerdictCorrectionFixture(t, id)
-	payload := json.RawMessage(`{"diagnosis":"diagnosis","strategy":"strategy","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	if err := runVerdictActionAs(t, f.store, id, "request_correction", payload, 0, f.owner); err != nil {
-		t.Fatalf("Main correction from accepted Review: %v", err)
-	}
-	reviewGateRequireStep(t, f.store, id, "execution")
-}
-
-// Only the current family definition can supply executable correction authority.
-func TestCurrentBreakFixPinSupportsReviewCorrection(t *testing.T) {
-	testPReviewCorrection(t, "return-route-current-break-fix", "workflow.break_fix", "repair")
-}
-
-func runCorrectionActionWithoutOperator(s *Store, workID string, owner WorkflowActor, payload json.RawMessage) error {
-	ctx := context.Background()
-	var version int64
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		return err
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	op := "correction-without-operator-" + workID
-	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "request_correction", Payload: payload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: op, OperationID: op, PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: op, RequestID: "request:" + op, ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC()})
-	return err
-}
-
 func TestVerdictCorrectionSequenceNeedsConjunctiveHealthyVerdicts(t *testing.T) {
 	const id = "return-route-conjunctive-sequence"
 	f, ref := seedLateCriterionAssociation(t, id)
 	if err := runVerdictActionAs(t, f.store, id, "record_verdict", criterionAssociationPayload(ref, "predicate:first"), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
-	predicates, err := workflowActiveContractPredicateIDs(t.Context(), f.store.db, id, "test")
+	predicates, err := readWorkflowContractPredicates(t.Context(), f.store.db, id, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,36 +170,9 @@ func TestVerdictCorrectionSequenceNeedsConjunctiveHealthyVerdicts(t *testing.T) 
 		t.Fatal(err)
 	}
 	verdicts, err = latestWorkflowVerdicts(t.Context(), f.store.db, id, 1)
-	if err != nil || len(verdicts) != 2 || issue1013HasIntent(issue1013Pin(t, f.store, id), "record_verdict") {
+	if err != nil || len(verdicts) != 2 {
 		t.Fatalf("complete conjunction=%+v err=%v", verdicts, err)
 	}
-}
-
-func TestNonOKVerdictCorrectionReturnsTerminalImplementationToExecution(t *testing.T) {
-	j := pReturnReviewFixture(t, "return-route-terminal-verdict-correction", "workflow.implementation", "correction_required")
-	owner, err := WorkflowActorRef(j.fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := advanceWorkflowTestInstanceToStep(t.Context(), j.s, j.workID, "release", owner); err != nil {
-		t.Fatal(err)
-	}
-	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
-		t.Fatalf("terminal correction from accepted Review: %v", err)
-	}
-	reviewGateRequireStep(t, j.s, j.workID, "execution")
-}
-
-func acceptReturnRouteWorker(t *testing.T, f workflowReturnRouteFixture, id string) WorkflowActor {
-	return acceptReturnRouteWorkerLabeled(t, f, id, "")
-}
-
-func acceptReturnRouteWorkerLabeled(t *testing.T, f workflowReturnRouteFixture, id, label string) WorkflowActor {
-	t.Helper()
-	j := pReturnClaim(t, f, id)
-	pReturnProduce(t, j, "producer"+label)
-	acceptCurrentReviewForTest(t, j.fixture, "ready_for_final_proof")
-	return f.owner
 }
 
 func countWorkflowCompletionEvents(t *testing.T, s *Store, id string) int {
@@ -424,27 +182,4 @@ func countWorkflowCompletionEvents(t *testing.T, s *Store, id string) int {
 		t.Fatal(err)
 	}
 	return count
-}
-
-func TestVerdictCorrectionAdmitsReviewEvidenceAccept(t *testing.T) {
-	j := pReturnReviewFixture(t, "return-route-review-evidence-correction", "workflow.break_fix", "")
-	acceptCurrentReviewForTest(t, j.fixture, "correction_required")
-	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
-		t.Fatalf("correction after exact Review acceptance: %v", err)
-	}
-	reviewGateRequireStep(t, j.s, j.workID, "repair")
-}
-
-func TestVerdictCorrectionRefusesUnrecordedReview(t *testing.T) {
-	j := pReturnReviewFixture(t, "return-route-unaccepted-review-delivery", "workflow.break_fix", "")
-	before := j.effects(t)
-	entry := mustBuiltinDefinition(t, "workflow.break_fix")
-	available, _, err := workflowCorrectionRequestAdmissionStateForRegistry(t.Context(), j.s.db, j.workID, entry.Definition, "repair", "return_route_test", BuiltinWorkflowRegistry())
-	if err != nil || available {
-		t.Fatalf("unaccepted Review correction available=%t err=%v", available, err)
-	}
-	err = issue1013Preflight(t, j.s, j.workID, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner)
-	if err == nil || j.effects(t) != before {
-		t.Fatalf("unaccepted Review correction=%v", err)
-	}
 }

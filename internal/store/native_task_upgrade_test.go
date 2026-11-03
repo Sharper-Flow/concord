@@ -150,10 +150,6 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	direction, err := readWorkflowCorrectionContext(t.Context(), db, "work-upgrade-from")
-	if err != nil || direction == nil {
-		t.Fatalf("predecessor genuine correction=%+v err=%v", direction, err)
-	}
 	report, err := Upgrade(t.Context(), path, nil)
 	var wantApplied []int
 	for version := m.Version; version <= CurrentSchemaVersion(); version++ {
@@ -187,9 +183,8 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 	if source.CanonicalID != "finding:32:0" || source.DomainID != "domain:upgrade" || source.EventID != "native-review" || source.Kind != WorkflowActionCompleted || source.Seq != 32 || source.Ordinal != 0 || source.Oracle == nil || len(source.Oracle.Cases) != 1 || source.Oracle.Cases[0].CaseID != "case:upgrade" {
 		t.Fatalf("retained blocker lost exact source identity/inventory: %+v", source)
 	}
-	afterDirection, err := readWorkflowCorrectionContext(t.Context(), db, "work-upgrade-from")
-	if err != nil || !reflect.DeepEqual(afterDirection, direction) {
-		t.Fatalf("genuine correction changed: before=%+v after=%+v err=%v", direction, afterDirection, err)
+	if got := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name='workflow_correction_state'`); len(got) != 0 {
+		t.Fatalf("retired correction state remains: %v", got)
 	}
 	assertHistoricalReceipts(t, db, historical)
 	retirementUpgradeHealthy(t, db)

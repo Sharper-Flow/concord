@@ -227,14 +227,10 @@ func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := criterionAssociationPayload(ref, "predicate:first", "predicate:second")
-	before := contractCorrectionEffectSnapshot(t, f.store, "batch-late-current")
 	preflight := WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: "batch-late-current", ActionID: "record_verdict", Payload: payload, Actor: f.owner})
 	err := runVerdictActionAs(t, f.store, "batch-late-current", "record_verdict", payload, 0, f.owner)
-	if !hasFailureKind(preflight, KindIllegalLifecycleTransition) || !hasFailureKind(err, KindIllegalLifecycleTransition) {
+	if preflight != nil || err != nil {
 		t.Fatalf("mixed late batch preflight=%v mutation=%v", preflight, err)
-	}
-	if after := contractCorrectionEffectSnapshot(t, f.store, "batch-late-current"); after != before {
-		t.Fatal("mixed late batch changed durable state")
 	}
 	payload = criterionAssociationPayload(ref, "predicate:second")
 	if err := WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: "batch-late-current", ActionID: "record_verdict", Payload: payload, Actor: f.owner}); err != nil {

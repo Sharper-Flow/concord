@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -148,15 +147,12 @@ func cancelLawPinUpgradeBlockers(t *testing.T, path string) {
 	}
 }
 
-func consumeLawPinUpgradeBlockers(t *testing.T, db *sql.DB) {
+func completeLawPinUpgradeBlockerInstances(t *testing.T, db *sql.DB) {
 	t.Helper()
-	// These are synthetic consumed-funding controls, not inferred legacy use.
-	for _, id := range []string{"upgrade-review-1-true", "upgrade-review-3-true"} {
-		retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1); UPDATE workflow_review_state SET state=json_set(state,'$.correction_funding',json_object('report_ref',json_extract(state,'$.accepted.report_ref'),'correction_ref','synthetic-consumed-return')) WHERE work_id=?; DELETE FROM write_guard`, id)
-	}
+	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1); UPDATE workflow_instances SET instance_state='completed',completed_at=? WHERE work_id IN ('upgrade-review-1-true','upgrade-review-3-true'); DELETE FROM write_guard`, retirementUpgradeTime)
 }
 
-func TestLawPinUpgradeProducerReturn(t *testing.T) {
+func TestLawPinUpgradeOrdinaryReview(t *testing.T) {
 	for _, schema := range []int{174, 175} {
 		t.Run(fmt.Sprint(schema), func(t *testing.T) { testLawPinUpgradeProducerReturnAt(t, schema) })
 	}
@@ -174,8 +170,8 @@ func testLawPinUpgradeProducerReturnAt(t *testing.T, schema int) {
 			t.Fatal(err)
 		}
 		before, err := workflowReviewDependenciesBeforePinRetirement(ctx, db, id, *review.Dependencies)
-		if err != nil || review.DependenciesCurrent || !sameReviewDependencies(review.Accepted.Report.Dependencies, before) || review.Accepted.Report.OutputCandidate != *review.Candidate || review.correctionConsumed() {
-			t.Fatalf("fixture must be unchanged, unconsumed and stale only under pin-free encoding: %+v %v", review, err)
+		if err != nil || review.DependenciesCurrent || !sameReviewDependencies(review.Accepted.Report.Dependencies, before) || review.Accepted.Report.OutputCandidate != *review.Candidate {
+			t.Fatalf("fixture must be unchanged and stale only under pin-free encoding: %+v %v", review, err)
 		}
 	}
 	beforeReports := retirementUpgradeRows(t, db, `SELECT * FROM workflow_review_state ORDER BY work_id`)
@@ -195,7 +191,7 @@ func testLawPinUpgradeProducerReturnAt(t *testing.T, schema int) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	for i, id := range ids {
+	for _, id := range ids {
 		t.Run(id, func(t *testing.T) {
 			review, err := loadWorkflowReviewState(ctx, db, id)
 			if err != nil {
@@ -214,24 +210,6 @@ func testLawPinUpgradeProducerReturnAt(t *testing.T, schema int) {
 					return err
 				})
 			}
-			correctionPayload := map[string]any{"diagnosis": "retired dependency encoding", "strategy": "fresh Review of the same candidate", "predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"spec:one"}}
-			if err := apply("request_correction", correctionPayload, actor); err != nil {
-				t.Fatalf("real producer return: %v", err)
-			}
-			producer := []string{"execution", "repair"}[i]
-			reviewGateRequireStep(t, s, id, producer)
-			consumed, err := readWorkflowReviewFacts(ctx, db, id)
-			correction, correctionErr := readWorkflowCorrectionContext(ctx, db, id)
-			if err != nil || correctionErr != nil || correction == nil || !consumed.correctionConsumed() || consumed.correctionFunding.CorrectionRef != correction.SourceEventID || !reflect.DeepEqual(consumed.Accepted, review.Accepted) {
-				t.Fatalf("return did not retain exact funding and old report: %+v %+v %v %v", consumed, correction, err, correctionErr)
-			}
-			before := retirementUpgradeSnapshot(t, db)
-			if err := apply("request_correction", correctionPayload, actor); !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(err.Error(), "fresh accepted Review") {
-				t.Fatalf("repeat Review use = %v", err)
-			}
-			if !reflect.DeepEqual(before, retirementUpgradeSnapshot(t, db)) {
-				t.Fatal("refused repeat return changed durable state")
-			}
 			fresh := review.Accepted.Report
 			fresh.InputCandidate = *review.Candidate
 			fresh.Dependencies = *review.Dependencies
@@ -241,59 +219,11 @@ func testLawPinUpgradeProducerReturnAt(t *testing.T, schema int) {
 				t.Fatalf("fresh independent Review at producer: %v", err)
 			}
 			after, err := loadWorkflowReviewState(ctx, db, id)
-			if err != nil || !after.DependenciesCurrent || after.correctionConsumed() || !reflect.DeepEqual(after.Candidate, review.Candidate) || after.Accepted.ReportRef == review.Accepted.ReportRef {
+			if err != nil || !after.DependenciesCurrent || !reflect.DeepEqual(after.Candidate, review.Candidate) || after.Accepted.ReportRef == review.Accepted.ReportRef {
 				t.Fatalf("same-candidate fresh Review did not recover: %+v %v", after, err)
 			}
 			if !reflect.DeepEqual(beforeReceipts, retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts WHERE effect_seq<=? ORDER BY effect_seq`, receiptFrontier)) {
 				t.Fatal("producer return or re-review changed predecessor receipts")
-			}
-		})
-	}
-}
-
-func TestLawPinUpgradeRequiresReviewCapableReturnTarget(t *testing.T) {
-	db, _, _, _ := lawPinUpgradeFixture(t)
-	for _, mode := range []string{"no_target", "non_review_target"} {
-		t.Run(mode, func(t *testing.T) {
-			entry := mustBuiltinDefinition(t, "workflow.implementation")
-			if mode == "no_target" {
-				// Without a verdict-bearing step this definition need not declare
-				// a late-verdict route at release.
-				for i, step := range entry.Definition.StepGraph.Steps {
-					entry.Definition.StepGraph.Steps[i].Actions = slices.DeleteFunc(step.Actions, func(action string) bool {
-						return action == "record_verdict" || action == "confirm_premise"
-					})
-				}
-				entry.Definition.RecoveryRoutes = slices.DeleteFunc(entry.Definition.RecoveryRoutes, func(route WorkflowRecoveryRoute) bool {
-					return route.Step == "release" || route.Step == "acceptance"
-				})
-			} else {
-				for i, step := range entry.Definition.StepGraph.Steps {
-					if step.ID == "execution" {
-						entry.Definition.StepGraph.Steps[i].Actions = slices.DeleteFunc(step.Actions, func(action string) bool { return action == "record_review" })
-					}
-				}
-				entry.Definition.RecoveryRoutes = slices.DeleteFunc(entry.Definition.RecoveryRoutes, func(route WorkflowRecoveryRoute) bool { return route.Step == "execution" })
-			}
-			registry := NewWorkflowDefinitionRegistry()
-			if _, err := registry.Register(entry.Definition); err != nil {
-				t.Fatal(err)
-			}
-			state, err := loadWorkflowAdmissionStateTxForRegistry(t.Context(), db, "upgrade-review-1-true", entry.Definition, "release", "migrate", registry)
-			if err != nil {
-				t.Fatal(err)
-			}
-			admitted := workflowAdmit(entry.Definition, state, "request_correction").Admitted
-			if admitted != (mode == "non_review_target") {
-				t.Fatalf("synthetic route admission=%t for %s", admitted, mode)
-			}
-			before := retirementUpgradeSnapshot(t, db)
-			stranded, err := workflowLawPinRetirementStrandsReview(t.Context(), db, registry, "upgrade-review-1-true", entry.Definition.Ref, "release")
-			if err != nil || !stranded {
-				t.Fatalf("missing Review destination must remain stranded: %t %v", stranded, err)
-			}
-			if !reflect.DeepEqual(before, retirementUpgradeSnapshot(t, db)) {
-				t.Fatal("per-work inspection changed predecessor state")
 			}
 		})
 	}
@@ -312,7 +242,7 @@ func testLawPinUpgradeSafetyAt(t *testing.T, schema int) {
 	useStampedBuild(t)
 	ctx := t.Context()
 	db, path, cases, workIDs := lawPinUpgradeFixtureAt(t, schema)
-	consumeLawPinUpgradeBlockers(t, db)
+	completeLawPinUpgradeBlockerInstances(t, db)
 	before := retirementUpgradeSnapshot(t, db)
 	_, err := Upgrade(ctx, path, nil)
 	var failure *Failure
@@ -434,9 +364,9 @@ func testLawPinUpgradeSafetyAt(t *testing.T, schema int) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				for _, action := range []string{"record_review", "request_correction", "supersede_contract", "complete"} {
+				for _, action := range []string{"record_review", "supersede_contract", "complete"} {
 					decision := workflowAdmit(registered.Definition, state, action)
-					t.Logf("%s: admitted=%t off_step=%t recovery=%t failure=%v", action, decision.Admitted, decision.OffStep, decision.RecoveryRoute, decision.Failure)
+					t.Logf("%s: admitted=%t off_step=%t failure=%v", action, decision.Admitted, decision.OffStep, decision.Failure)
 				}
 				if !workflowAdmit(registered.Definition, state, "record_review").Admitted {
 					if tc.family != "workflow.research" || tc.step != "complete" || !workflowAdmit(registered.Definition, state, "complete").Admitted {
@@ -496,7 +426,7 @@ func TestLawPinUpgradeMalformedReviewRefuses(t *testing.T) {
 func TestLawPinUpgradeSafetyFromOlderPrefix(t *testing.T) {
 	useStampedBuild(t)
 	db, path, _, _ := lawPinUpgradeFixtureAt(t, 166)
-	consumeLawPinUpgradeBlockers(t, db)
+	completeLawPinUpgradeBlockerInstances(t, db)
 	before := retirementUpgradeSnapshot(t, db)
 	_, err := Upgrade(t.Context(), path, nil)
 	var failure *Failure

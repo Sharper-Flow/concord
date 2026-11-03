@@ -69,7 +69,7 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 	}{
 		{"workflow_dispatch.go", "workflowCompletionEventForDefinition", []string{"complete"}},
 		{"workflow_dispatch.go", "workflowContractOutcomePredicates", []string{"approve_contract"}},
-		{"workflow_action_guards.go", "guardRecoveryEvidenceBind", []string{"bind_evidence"}},
+		{"workflow_action_guards.go", "guardEvidenceBindingMembership", []string{"bind_evidence"}},
 		{"workflow_action_guards.go", "guardForwardLinkOnly", []string{"link_successor"}},
 		{"workflow_action_guards.go", "guardNoRestartDispatch", []string{"cross_context_boundary"}},
 	} {
@@ -114,14 +114,6 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 			for _, field := range action.Payload.Fields {
 				declared[action.ID][field.Name] = true
 			}
-		}
-	}
-	for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {
-		if declared[action.ID] == nil {
-			declared[action.ID] = map[string]bool{}
-		}
-		for _, field := range action.Payload.Fields {
-			declared[action.ID][field.Name] = true
 		}
 	}
 	var missing []string

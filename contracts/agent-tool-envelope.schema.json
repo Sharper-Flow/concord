@@ -328,7 +328,6 @@
                 "lifecycle",
                 "remove",
                 "workflow_action",
-                "correct_delivery",
                 "project_handoff_record",
                 "project_handoff_consume"
               ],
@@ -443,7 +442,6 @@
             "snapshot",
             "remove",
             "workflow_action",
-            "correct_delivery",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement"
@@ -892,7 +890,6 @@
             "snapshot",
             "remove",
             "workflow_action",
-            "correct_delivery",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement"
@@ -998,7 +995,6 @@
             "reread_entities",
             "provide_evidence",
             "reduce_limit",
-            "use_declared_route",
             "use_next_cursor",
             "restart_query",
             "adjust_budget",
@@ -1545,7 +1541,7 @@
             },
             "next_valid_intents": {
               "type": "array",
-              "maxItems": 16,
+              "maxItems": 83,
               "items": {
                 "$ref": "#/$defs/nextIntent"
               }
@@ -1623,7 +1619,6 @@
                   },
                   "operation": {
                     "enum": [
-                      "correct_delivery",
                       "lifecycle",
                       "remove",
                       "project_handoff_record",

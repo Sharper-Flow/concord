@@ -50,8 +50,7 @@ type WorkPin struct {
 	// DrivingSessions lists the distinct agent sessions that have driven this
 	// workflow, with each session's most recent action and action time. It is
 	// derived from workflow actors and actions, not session identity evidence.
-	DrivingSessions []WorkPinDrivingSession    `json:"driving_sessions"`
-	Correction      *WorkflowCorrectionContext `json:"correction,omitempty"`
+	DrivingSessions []WorkPinDrivingSession `json:"driving_sessions"`
 	// WorkContext carries the strict reader's exact view for dispatch.
 	// WorkContextUnavailable distinguishes an over-bound view from absence.
 	// The partial recovery pin does not evaluate either field.
@@ -336,17 +335,22 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 		kept = append(kept, intent)
 	}
 	pin.NextValidIntents = kept
+	for _, action := range definition.ActionDefinitions {
+		if !state.CurrentRecords[action.ID] || workPinContainsAction(pin.NextValidIntents, action.ID) {
+			continue
+		}
+		if workflowAdmit(definition, state, action.ID).Admitted {
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(action, pin.Version, "current_record"))
+		}
+	}
 	if state.LateCriterionAssociation && !workPinContainsAction(pin.NextValidIntents, "record_verdict") {
 		if decision := workflowAdmit(definition, state, "record_verdict"); decision.Admitted {
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "record_verdict"), pin.Version, "late_criterion_association"))
 		}
 	}
-	// The evidence-binding recovery advertises only when the pure decision
-	// admits the binding: a staleness or terminal refusal keeps the route
-	// hidden instead of advertising a dead one.
-	if state.EvidenceRecoveryRoute && !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
+	if !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
 		if decision := workflowAdmit(definition, state, "bind_evidence"); decision.Admitted {
-			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "bind_evidence"), pin.Version, "evidence_binding_recovery"))
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "bind_evidence"), pin.Version, "ordinary_evidence_binding"))
 		}
 	}
 	return state, nil
@@ -365,7 +369,7 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 		if jsonErr := decodeWorkflowPinContract(&contract, required, routes, mandate, modifies); jsonErr != nil {
 			return jsonErr
 		}
-		kinds, evidenceErr := workPinOutstandingEvidenceKindsTx(ctx, tx, workID, definition, state.EvidenceRecovery)
+		kinds, evidenceErr := workPinOutstandingEvidenceKindsTx(ctx, tx, workID, definition)
 		if evidenceErr != nil {
 			return evidenceErr
 		}
@@ -395,44 +399,16 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 	return nil
 }
 
-// Correction requests use folded admission; terminal instances expose no actions.
 func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, instanceState string, state WorkflowAdmissionState) error {
-	if err := workPinCorrectionRequestIntentsTx(ctx, tx, workID, pin, definition, state); err != nil {
-		return err
-	}
-	if !isTerminalLifecycle(instanceState) {
-		return nil
-	}
-	pin.NextValidIntents = []WorkPinIntent{}
-	return nil
-}
-
-// workPinCorrectionRequestIntentsTx applies the correction-request routes
-// over the folded admission state: the delivery gate replaces
-// request_correction with its own bounded intent, and a
-// verification correction is advertised once. The correction context read below
-// carries the pin's correction display; the admission decisions read the
-// folded state.
-func workPinCorrectionRequestIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, state WorkflowAdmissionState) error {
-	decision := workflowAdmit(definition, state, "request_correction")
-	admitted := decision.Admitted
-	if workflowStepIsDeliveryGate(workflowStep(definition, pin.Step)) {
-		// The gate's corrective return carries one reason code on every
-		// pinned shape, and it is advertised only when the folded admission
-		// proves the route and the pure
-		// decision admits the return.
-		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "request_correction")
-		if state.CorrectionRequestRecovery && admitted {
-			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "delivery_gate_correction"))
+	if isTerminalLifecycle(instanceState) {
+		kept := []WorkPinIntent{}
+		for _, intent := range pin.NextValidIntents {
+			if workflowAdmit(definition, state, intent.ActionID).Admitted {
+				kept = append(kept, intent)
+			}
 		}
-	} else if state.CorrectionRequestRecovery && admitted && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "verification_correction"))
+		pin.NextValidIntents = kept
 	}
-	correction, correctionErr := readWorkflowCorrectionContext(ctx, tx, workID)
-	if correctionErr != nil {
-		return correctionErr
-	}
-	pin.Correction = correction
 	return nil
 }
 
@@ -639,23 +615,14 @@ func workflowActionDefinitionByID(definition WorkflowDefinition, actionID string
 	return WorkflowActionDefinition{ID: actionID}
 }
 
-func workPinOutstandingEvidenceKindsTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, recovery *workflowEvidenceBindingRecoveryState) (*[]string, error) {
-	var requirements []workflowEvidenceRequirement
-	if recovery != nil {
-		if recovery.Refusal != nil {
-			return nil, nil
-		}
-		requirements = recovery.Requirements
+func workPinOutstandingEvidenceKindsTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) (*[]string, error) {
+	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+	if err != nil {
+		return nil, err
 	}
-	if requirements == nil {
-		required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
-		if err != nil {
-			return nil, err
-		}
-		requirements, err = outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
-		if err != nil {
-			return nil, err
-		}
+	requirements, err := outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
+	if err != nil {
+		return nil, err
 	}
 	var kinds []string
 	for _, requirement := range requirements {

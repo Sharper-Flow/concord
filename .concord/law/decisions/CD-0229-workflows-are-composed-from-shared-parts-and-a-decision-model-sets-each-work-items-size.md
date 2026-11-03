@@ -46,7 +46,7 @@
 
 The implementation, break-fix and research families each have a plain Go
 `WorkflowDefinition` value. Each definition directly declares its steps,
-actions, edges, evidence, outcomes and recovery routes. The registry validates
+actions, edges, evidence and outcomes. The registry validates
 the value and derives its canonical manifest and digest. Common runtime action
 and payload implementations remain shared under CD-0242 D3.
 
@@ -56,6 +56,11 @@ schemas and tool contracts derive from the Go definitions under
 [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source).
 This changes definition authoring, not live execution semantics. Composition
 across work items remains forward-link only under CD-0013 D7-D8.
+
+Retry and correction use ordinary actions under
+[workflow-engine contract §4.2](../specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction),
+without a recovery-route registry. Definition validation does not require
+correction triggers, targets or route readers.
 
 Requirements for unique step ownership by part, compiling compositions and
 assembling a new workflow kind without step code are retired. Tests solely of

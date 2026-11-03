@@ -57,7 +57,7 @@ var liveActionIDs = []string{
 	"cross_context_boundary", "frame_research", "link_successor", "record_alignment",
 	"record_conclusion", "record_delivery", "record_design", "record_diagnosis",
 	"record_finding", "record_proposal", "record_report", "record_review",
-	"record_verdict", "record_work_context", "request_correction", "revise_candidates",
+	"record_verdict", "record_work_context", "revise_candidates",
 	"start_execution",
 }
 
@@ -70,15 +70,15 @@ func TestCurrentFieldsetAdditionProjectsVariants(t *testing.T) {
 	extended := closedPayload(field("diagnosis", true, 4096), field("strategy", true, 4096), field("open_finding_ids", false, 32))
 	contracts, err := collectActionContracts(
 		[]store.WorkflowDefinition{
-			definition("workflow.implementation", action("request_correction", extended)),
-			definition("workflow.research", action("request_correction", base)),
+			definition("workflow.implementation", action("projection_probe", extended)),
+			definition("workflow.research", action("projection_probe", base)),
 		},
 		nil,
 	)
 	if err != nil {
 		t.Fatalf("compatible current variants refused: %v", err)
 	}
-	contract := contracts["request_correction"]
+	contract := contracts["projection_probe"]
 	if len(contract.Variants) != 2 {
 		t.Fatalf("variants = %d, want 2 (extended first, in registration order)", len(contract.Variants))
 	}
@@ -101,12 +101,12 @@ func TestCurrentSameFieldConflictStillRefuses(t *testing.T) {
 	hard := closedPayload(field("diagnosis", true, 4096))
 	_, err := collectActionContracts(
 		[]store.WorkflowDefinition{
-			definition("workflow.implementation", action("request_correction", hard)),
-			definition("workflow.research", action("request_correction", soft)),
+			definition("workflow.implementation", action("projection_probe", hard)),
+			definition("workflow.research", action("projection_probe", soft)),
 		},
 		nil,
 	)
-	if err == nil || !strings.Contains(err.Error(), "action request_correction has inconsistent current payload contracts") {
+	if err == nil || !strings.Contains(err.Error(), "action projection_probe has inconsistent current payload contracts") {
 		t.Fatalf("error = %v, want the inconsistent-current-contracts refusal", err)
 	}
 	if err == nil || !strings.Contains(err.Error(), "diagnosis") {
@@ -147,7 +147,7 @@ func TestPublicPayloadDivergenceKeepsThePair(t *testing.T) {
 }
 
 // TestShippedBuiltinsProjectTheLiveSurfaceOnly is the live-surface
-// integration: the shipped heads and the canonical recovery list fold into
+// integration: the shipped heads and decision facts fold into
 // exactly the current authorable actions, no retired published action
 // is authorable, retained versions add no variant to a live action, the
 // canonical verdict and contract update shapes are the declared ones, and
@@ -155,7 +155,7 @@ func TestPublicPayloadDivergenceKeepsThePair(t *testing.T) {
 func TestShippedBuiltinsProjectTheLiveSurfaceOnly(t *testing.T) {
 	contracts, err := collectActionContracts(
 		store.BuiltinWorkflowDefinitions(),
-		store.BuiltinWorkflowRecoveryActionDefinitions(),
+		store.BuiltinWorkflowDecisionFactActionDefinitions(),
 	)
 	if err != nil {
 		t.Fatalf("shipped builtins refused: %v", err)
@@ -181,6 +181,9 @@ func TestShippedBuiltinsProjectTheLiveSurfaceOnly(t *testing.T) {
 		if live[retired] {
 			t.Fatalf("retired published action %s remains authorable (CD-0218 D1/D2)", retired)
 		}
+	}
+	if live["request_correction"] {
+		t.Fatal("retired correction action remains authorable")
 	}
 	for _, retired := range []string{"dispatch_worker", "record_worker_job", "accept_worker_evidence", "accept_worker_result", "reject_worker_result"} {
 		if live[retired] {
@@ -224,21 +227,6 @@ func TestShippedBuiltinsProjectTheLiveSurfaceOnly(t *testing.T) {
 	reviewFields := review.Variants[0].Payload.Fields
 	if len(reviewFields) != 1 || reviewFields[0].Name != "review" || !reviewFields[0].Required || reviewFields[0].SchemaRef != "workflow_review_report" {
 		t.Fatalf("record_review does not require the current review report schema: %#v", reviewFields)
-	}
-	correction := contracts["request_correction"]
-	if len(correction.Variants) != 2 {
-		t.Fatalf("request_correction variants = %d, want the current and recovery shapes", len(correction.Variants))
-	}
-	hasOpenFindings := false
-	for _, variant := range correction.Variants {
-		for _, f := range variant.Payload.Fields {
-			if f.Name == "open_finding_ids" {
-				hasOpenFindings = true
-			}
-		}
-	}
-	if !hasOpenFindings {
-		t.Fatalf("no request_correction variant declares open_finding_ids")
 	}
 }
 
@@ -304,8 +292,8 @@ func TestSchemaRefsComeFromCurrentDeclarations(t *testing.T) {
 // the same inputs fold to the same variant order every run, so generated
 // artifacts stay byte-stable.
 func TestProjectionIsDeterministicAcrossRuns(t *testing.T) {
-	first, firstErr := collectActionContracts(store.BuiltinWorkflowDefinitions(), store.BuiltinWorkflowRecoveryActionDefinitions())
-	second, secondErr := collectActionContracts(store.BuiltinWorkflowDefinitions(), store.BuiltinWorkflowRecoveryActionDefinitions())
+	first, firstErr := collectActionContracts(store.BuiltinWorkflowDefinitions(), store.BuiltinWorkflowDecisionFactActionDefinitions())
+	second, secondErr := collectActionContracts(store.BuiltinWorkflowDefinitions(), store.BuiltinWorkflowDecisionFactActionDefinitions())
 	if firstErr != nil || secondErr != nil {
 		t.Fatalf("determinism run failed: %v / %v", firstErr, secondErr)
 	}

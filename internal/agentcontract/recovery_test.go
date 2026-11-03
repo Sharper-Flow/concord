@@ -12,21 +12,13 @@ import (
 	"testing"
 )
 
-// A declared route without refs is the names-no-operation defect in typed
-// form, so the envelope validator refuses the pair wherever it appears.
-func TestUseDeclaredRouteRequiresRefs(t *testing.T) {
+func TestRetiredDeclaredRouteIsRejected(t *testing.T) {
 	t.Parallel()
-	declaredRoute := []string{"lifecycle", "remove"}
-	err := validateError(TypedError{Kind: "unauthorized", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "use_declared_route"}, EffectState: EffectNone})
-	if err == nil {
-		t.Fatal("a declared route without required refs must refuse validation")
-	}
-	err = validateError(TypedError{Kind: "unauthorized", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "use_declared_route", RequiredRefs: declaredRoute}, EffectState: EffectNone})
-	if err != nil {
-		t.Fatalf("a declared route with required refs must validate: %v", err)
-	}
-	if declaredRoute[0] != "lifecycle" || declaredRoute[1] != "remove" {
-		t.Fatalf("route=%v, want lifecycle then remove", declaredRoute)
+	for _, refs := range [][]string{nil, {"lifecycle"}} {
+		err := validateError(TypedError{Kind: "unauthorized", RecoveryAction: RecoveryAction{Kind: "use_declared_route", RequiredRefs: refs}, EffectState: EffectNone})
+		if err == nil || RecoveryActionAllowed("use_declared_route") {
+			t.Fatalf("retired route accepted with refs %v", refs)
+		}
 	}
 }
 
@@ -58,7 +50,7 @@ func TestValidatorRecoveryKindsMatchTheContract(t *testing.T) {
 	// The reverse direction: a value the validator accepts must be contractual.
 	// validateRecovery holds its set privately, so probe it with the contract's
 	// complement rather than reading the map.
-	for _, notContractual := range []string{"", "supply_pack_or_work", "check_the_owner", "use_initiative_operation"} {
+	for _, notContractual := range []string{"", "supply_pack_or_work", "check_the_owner", "use_initiative_operation", "use_declared_route"} {
 		if contractRecoveryKinds(t)[notContractual] {
 			continue
 		}

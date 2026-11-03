@@ -33,18 +33,18 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 		}
 	})
 
-	t.Run("correction stays a routine admission route", func(t *testing.T) {
+	t.Run("ordinary records remain subject-specific off-step", func(t *testing.T) {
 		t.Parallel()
-		available := WorkflowAdmissionState{CorrectionRequestRecovery: true}
+		available := WorkflowAdmissionState{Step: "delivery", CurrentRecords: map[string]bool{"record_review": true}}
 		for name, definition := range map[string]WorkflowDefinition{"implementation": mustBuiltinDefinition(t, "workflow.implementation").Definition} {
-			decision := workflowAdmit(definition, available, "request_correction")
+			decision := workflowAdmit(definition, available, "record_review")
 			if !decision.Admitted {
-				t.Fatalf("%s correction route folded admitted=%v, want a routine admitted route", name, decision.Admitted)
+				t.Fatalf("%s current-record write refused: %v", name, decision.Failure)
 			}
-			unavailable := workflowAdmit(definition, WorkflowAdmissionState{}, "request_correction")
+			unavailable := workflowAdmit(definition, WorkflowAdmissionState{Step: "delivery"}, "record_review")
 			var failure *Failure
 			if unavailable.Admitted || !failureAs(unavailable.Failure, &failure) {
-				t.Fatalf("%s unavailable correction folded %v, want the typed availability refusal", name, unavailable.Failure)
+				t.Fatalf("%s missing record folded %v, want the typed availability refusal", name, unavailable.Failure)
 			}
 		}
 	})

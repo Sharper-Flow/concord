@@ -88,6 +88,36 @@ func TestMutationOKEnvelopeEmitsRequiredMetadataWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestMutationEnvelopeIntentCapacity(t *testing.T) {
+	for _, tc := range []struct {
+		count int
+		valid bool
+	}{{17, true}, {83, true}, {84, false}} {
+		t.Run(fmt.Sprint(tc.count), func(t *testing.T) {
+			intents := make([]NextIntent, tc.count)
+			for i := range intents {
+				intents[i] = NextIntent{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "created"}
+			}
+			e := NewOKMutation(NewBase("intent-capacity", "concord_work_transition", "lifecycle"),
+				json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), nil, intents)
+			if err := e.Validate(); (err == nil) != tc.valid {
+				t.Errorf("Go validation: %v, want valid=%t", err, tc.valid)
+			}
+			if _, err := e.Encode(); (err == nil) != tc.valid {
+				t.Errorf("encoding: %v, want valid=%t", err, tc.valid)
+			}
+			type wire Envelope
+			raw, err := json.Marshal(wire(e))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := payloadschema.ValidateEnvelope(raw); (err == nil) != tc.valid {
+				t.Errorf("schema validation: %v, want valid=%t", err, tc.valid)
+			}
+		})
+	}
+}
+
 func TestNonMutationEnvelopesOmitMutationMetadata(t *testing.T) {
 	t.Parallel()
 	read := newOKReadForTest(NewBase("req-702-r", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))

@@ -3,9 +3,7 @@
   "id": "CD-0112",
   "title": "record_delivery exits the step a session executed",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "workflow-engine",
   "applies_to_domain_ids": []
@@ -37,6 +35,11 @@ consequence, no independent approval and advance mode. The current step's
 fenced start must have run. Delivery applies the complete delivery admission,
 including Review, native proof and applicable approvals. Native Task execution
 neither supplies delivery nor prevents this route.
+
+Replacing an existing delivery record follows
+[workflow-engine contract §4.2](../specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction).
+The replacement holds the current step and lifecycle, including completed work;
+it does not repeat the producing step's advance or assert new execution.
 
 ### D3. Decision-record exits retain their declared meaning
 

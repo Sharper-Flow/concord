@@ -26,10 +26,26 @@ func defectRetirementFixture(t *testing.T) (*sql.DB, string) {
 	return db, path
 }
 
+// ordinaryRecordsUpgradeExpectations projects predecessor rows into their
+// surviving shape, including the receipt-backed effective delivery.
+func ordinaryRecordsUpgradeExpectations(t *testing.T, db *sql.DB, before map[string][][]any) {
+	t.Helper()
+	before["workflow_delivery_state"] = retirementUpgradeRows(t, db, `SELECT work_id,CASE WHEN correction_id IS NULL THEN assertion_seq ELSE (SELECT effect_seq FROM effect_receipts WHERE event_id=correction_id AND subject_type='work_item' AND subject_id=work_id AND kind='workflow.delivery_corrected') END,COALESCE(correction_id,assertion_id),CASE WHEN correction_id IS NULL THEN actor ELSE (SELECT actor FROM effect_receipts WHERE event_id=correction_id AND subject_type='work_item' AND subject_id=work_id AND kind='workflow.delivery_corrected') END,COALESCE(correction_occurred_at,occurred_at),CASE WHEN correction_id IS NULL THEN payload_version ELSE (SELECT payload_version FROM effect_receipts WHERE event_id=correction_id AND subject_type='work_item' AND subject_id=work_id AND kind='workflow.delivery_corrected') END,COALESCE(correction_payload,payload) FROM workflow_delivery_state ORDER BY rowid`)
+	columns := retirementUpgradeRows(t, db, `SELECT name FROM pragma_table_info('workflow_predicate_verdicts') WHERE name<>'prior_correction_seq' ORDER BY cid`)
+	var names []string
+	for _, row := range columns {
+		names = append(names, `"`+row[0].(string)+`"`)
+	}
+	before["workflow_predicate_verdicts"] = retirementUpgradeRows(t, db, `SELECT `+strings.Join(names, ",")+` FROM workflow_predicate_verdicts ORDER BY rowid`)
+	before["workflow_review_state"] = retirementUpgradeRows(t, db, `SELECT work_id,json_remove(state,'$.correction_funding') FROM workflow_review_state ORDER BY rowid`)
+}
+
 func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	useStampedBuild(t)
 	db, path := defectRetirementFixture(t)
 	before := retirementUpgradeSnapshot(t, db)
+	retained := retirementUpgradeSnapshot(t, db)
+	ordinaryRecordsUpgradeExpectations(t, db, retained)
 	retainedBindings := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,product_id,home_domain_id,projection_hash FROM workflow_architecture_bindings ORDER BY rowid`)
 	retainedContracts := retainedWorkflowContractRows(t, db)
 	if s, err := Open(t.Context(), path); err == nil {
@@ -62,9 +78,9 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	if !reflect.DeepEqual(report.Applied, wantApplied) {
 		t.Fatalf("applied migrations = %v, want %v", report.Applied, wantApplied)
 	}
-	for table, want := range before {
+	for table, want := range retained {
 		switch table {
-		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines":
+		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}
@@ -305,6 +321,7 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 		t.Fatalf("ordinary completed-operation witness=%v", ordinaryOperations)
 	}
 	before := retirementUpgradeSnapshot(t, db)
+	ordinaryRecordsUpgradeExpectations(t, db, before)
 	retainedBindings := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,product_id,home_domain_id,projection_hash FROM workflow_architecture_bindings ORDER BY rowid`)
 	retainedContracts := retainedWorkflowContractRows(t, db)
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
@@ -329,7 +346,7 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 	}
 	for table, expected := range before {
 		switch table {
-		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines":
+		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}

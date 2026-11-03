@@ -46,13 +46,12 @@ var livenessDigest = "sha256:" + strings.Repeat("d", 64)
 
 // livenessActionDefinition resolves the payload contract the engine validates
 // an action against: the pinned declaration with a consequence_v1 pin's
-// selected decision fact, including the recovery actions the registry holds
-// outside the pinned root list.
+// selected decision fact.
 func livenessActionDefinition(definition WorkflowDefinition, actionID string) (WorkflowActionDefinition, bool) {
 	if action, err := workflowDeclaredActionDefinition(definition, actionID); err == nil {
 		return action, true
 	}
-	return workflowRecoveryActionDefinition(actionID)
+	return WorkflowActionDefinition{}, false
 }
 
 // livenessVariants enumerates the enum combinations worth exploring for one
@@ -783,24 +782,6 @@ func livenessBindRecordedState(ctx context.Context, s *Store, workID, actionID s
 			bound["contract_version"] = version
 		}
 	}
-	if actionID == "request_correction" {
-		entry, err := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
-		if err != nil {
-			return nil, err
-		}
-		step, err := livenessStep(ctx, s, workID)
-		if err != nil {
-			return nil, err
-		}
-		correction, _, err := workflowCorrectionRequestAdmissionForRegistry(ctx, s.db, workID, entry.Definition, step, "liveness", BuiltinWorkflowRegistry())
-		if err != nil {
-			return nil, err
-		}
-		if correction != nil {
-			bound["predicate_ids"] = correction.PredicateIDs
-			bound["evidence_refs"] = correction.EvidenceRefs
-		}
-	}
 	subject := livenessSubjectRef
 	if string(fields["evidence_kind"]) == `"native_run"` {
 		if err := s.db.QueryRowContext(ctx, `SELECT observation_id FROM workflow_native_runs WHERE work_id=? ORDER BY recorded_at DESC LIMIT 1`, workID).Scan(&subject); err != nil {
@@ -1050,12 +1031,10 @@ func livenessStateMoves(t *testing.T, definition WorkflowDefinition, stepID stri
 }
 
 func livenessDeclaredActions(definition WorkflowDefinition, stepID string) []string {
-	// These engine-owned recovery routes may be admitted outside the step's
-	// action list. The real preflight, not this enumeration, decides admission.
 	actions := []string{"bind_evidence"}
-	for id := range builtinActionPolicies {
-		if _, ok := workflowRecoveryActionDefinition(id); ok {
-			actions = append(actions, id)
+	for _, action := range definition.ActionDefinitions {
+		if workflowRecordAction(action.ID) && !slices.Contains(actions, action.ID) {
+			actions = append(actions, action.ID)
 		}
 	}
 	for _, step := range definition.StepGraph.Steps {

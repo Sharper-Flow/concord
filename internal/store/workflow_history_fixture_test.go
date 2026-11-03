@@ -1,15 +1,22 @@
 package store
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"testing"
 )
 
-func progressHistory(t *testing.T) (*sql.DB, func(string, any) int64, func() *WorkflowCorrectionContext) {
+func progressHistory(t *testing.T) (*sql.DB, func(string, any) int64) {
 	t.Helper()
-	db := correctionHistoryDatabase(t)
+	db, err := sql.Open(driverName, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`CREATE TABLE domain_events(seq INTEGER PRIMARY KEY,subject_type TEXT,subject_id TEXT,kind TEXT,payload BLOB,event_id TEXT)`); err != nil {
+		t.Fatal(err)
+	}
 	progressFixtureTables(t, db)
 	var seq int64
 	appendEvent := func(kind string, payload any) int64 {
@@ -29,26 +36,7 @@ func progressHistory(t *testing.T) (*sql.DB, func(string, any) int64, func() *Wo
 	}
 	appendEvent(WorkflowDefinitionSelected, workflowDefinitionSelectedPayload{Ref: entry.Definition.Ref, Digest: entry.Digest})
 	appendEvent(WorkflowContractApproved, workflowContractApprovedPayload{ContractVersion: 1, RequiredEvidence: []string{"artifact"}, OutcomePredicates: []workflowContractPredicatePayload{{PredicateID: "predicate:one", OutcomeKind: "exists", OutcomePayload: mustJSONValue(map[string]any{"kind": "exists", "surface": "source.go", "subjects": []string{"owner"}})}}, DecisionDomains: []string{}})
-	read := func() *WorkflowCorrectionContext {
-		t.Helper()
-		correction, err := readWorkflowCorrectionContext(context.Background(), db, "work-history")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return correction
-	}
-	return db, appendEvent, read
-}
-
-func progressCorrectionHistory(t *testing.T) (*sql.DB, func(string, any) int64, func() *WorkflowCorrectionContext) {
-	t.Helper()
-	db, appendEvent, read := progressHistory(t)
-	correctionFixtureTables(t, db)
-	return db, func(kind string, payload any) int64 {
-		seq := appendEvent(kind, payload)
-		applyCorrectionFixture(t, db, seq, fmt.Sprintf("progress-e%d", seq), kind, payload)
-		return seq
-	}, read
+	return db, appendEvent
 }
 
 // progressFixtureTables creates the actor and producer projections used by

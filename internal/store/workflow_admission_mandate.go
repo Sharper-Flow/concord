@@ -8,13 +8,12 @@ import (
 // workflowMandateAdmission holds the first unbound mandate and input law.
 // Recovery is a folded route, not a second query from an admission consumer.
 type workflowMandateAdmission struct {
-	Present          bool
-	LawID            string
-	InputLawID       string
-	BindingStep      string
-	AddedByContract  bool
-	CorrectionAction string
-	Failure          error
+	Present         bool
+	LawID           string
+	InputLawID      string
+	BindingStep     string
+	AddedByContract bool
+	Failure         error
 }
 
 func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step, subject string, state WorkflowAdmissionState) (workflowMandateAdmission, error) {
@@ -47,11 +46,6 @@ func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string,
 		}
 		if result.LawID == "" {
 			result.LawID, result.AddedByContract = lawID, added
-			if added {
-				if state.CorrectionRequestRecovery {
-					result.CorrectionAction = "request_correction"
-				}
-			}
 		}
 		if !added {
 			result.InputLawID = lawID
@@ -94,12 +88,7 @@ func workflowAdmitMandate(definition WorkflowDefinition, step string, state work
 	if state.AddedByContract {
 		detail = fmt.Sprintf("spec mandate law %q is one of the contract's own law additions; bind it only when the branch adds that id", state.LawID)
 		recovery += fmt.Sprintf(" only when the branch adds %q", state.LawID)
-		switch state.CorrectionAction {
-		case "request_correction":
-			recovery += fmt.Sprintf("; otherwise run %s, then revise_intent with the complete contract, before %s", state.CorrectionAction, actionID)
-		default:
-			recovery += "; otherwise use revise_intent with the complete contract"
-		}
+		recovery += "; otherwise use revise_intent with the complete contract"
 	}
 	return newFailure(KindMissingEvidence, subject, detail, false, recovery)
 }

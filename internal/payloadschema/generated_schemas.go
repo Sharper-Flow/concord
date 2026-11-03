@@ -1967,12 +1967,6 @@ const GeneratedPayloadSchemaDocument = `{
       "minimum": 1,
       "type": "integer"
     },
-    "merge_evidence": {
-      "$ref": "#/$defs/reference",
-      "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive",
-      "pattern": "^https://(?:\\[[0-9A-Fa-f:.]+\\]|[^/?#@:\\x00-\\x20\\x5b\\x5d\\x7f]+)(?::[0-9]+)?(?:[/?#][^\\x00-\\x1f\\x7f]*)?$",
-      "type": "string"
-    },
     "mutation_changed_ref": {
       "additionalProperties": false,
       "properties": {
@@ -2220,7 +2214,7 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 25,
+          "maxItems": 83,
           "type": "array"
         },
         "operation_id": {
@@ -2523,7 +2517,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           },
-          "maxItems": 25,
+          "maxItems": 83,
           "type": "array"
         },
         "work_id": {
@@ -2567,7 +2561,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "$ref": "#/$defs/next_valid_intent"
           },
-          "maxItems": 25,
+          "maxItems": 83,
           "type": "array"
         },
         "work_id": {
@@ -4121,59 +4115,6 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "classification"
-      ],
-      "type": "object"
-    },
-    "retained_workflow_correction_context": {
-      "additionalProperties": false,
-      "properties": {
-        "diagnosis": {
-          "type": "string"
-        },
-        "disposition": {
-          "enum": [
-            "failed",
-            "rejected",
-            "verification"
-          ],
-          "type": "string"
-        },
-        "evidence_refs": {
-          "items": {
-            "$ref": "#/$defs/reference"
-          },
-          "maxItems": 64,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "predicate_ids": {
-          "items": {
-            "$ref": "#/$defs/id"
-          },
-          "maxItems": 8,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "source_event_id": {
-          "$ref": "#/$defs/id",
-          "description": "The durable failure, rejection, or correction-request event that opened this correction; its diagnosis and strategy are that event's directions."
-        },
-        "source_event_seq": {
-          "maximum": 9007199254740991,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "strategy": {
-          "maxLength": 4096,
-          "type": "string"
-        }
-      },
-      "required": [
-        "disposition",
-        "predicate_ids",
-        "evidence_refs",
-        "source_event_id",
-        "source_event_seq"
       ],
       "type": "object"
     },
@@ -6302,16 +6243,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minimum": 0,
           "type": "integer"
         },
-        "correction": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/retained_workflow_correction_context"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "driving_sessions": {
           "items": {
             "$ref": "#/$defs/work_pin_driving_session"
@@ -6362,7 +6293,7 @@ const GeneratedPayloadSchemaDocument = `{
             ],
             "type": "object"
           },
-          "maxItems": 25,
+          "maxItems": 83,
           "type": "array"
         },
         "obligations": {
@@ -6378,7 +6309,7 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         },
         "outstanding_evidence_kinds": {
-          "description": "Sorted unique outstanding evidence kinds from the pin's transaction snapshot, including recovery check verification. Empty means computed zero kind-debt, not satisfaction of reference-only obligations. Omitted for unknown or partial contract views and retained legacy snapshots.",
+          "description": "Sorted unique outstanding evidence kinds from the pin's transaction snapshot, including verification for unverdicted checks. Empty means computed zero kind-debt, not satisfaction of reference-only obligations. Omitted for unknown or partial contract views and retained legacy snapshots.",
           "items": {
             "$ref": "#/$defs/evidence_kind"
           },
@@ -7316,9 +7247,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/work_transition_action_variant_record_work_context"
         },
         {
-          "$ref": "#/$defs/work_transition_action_variant_request_correction"
-        },
-        {
           "$ref": "#/$defs/work_transition_action_variant_revise_candidates"
         },
         {
@@ -7462,9 +7390,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_record_work_context"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_request_correction"
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_revise_candidates"
@@ -10971,149 +10896,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "work_transition_action_variant_request_correction": {
-      "additionalProperties": false,
-      "properties": {
-        "action_id": {
-          "const": "request_correction",
-          "type": "string"
-        },
-        "evidence": {
-          "description": "Bounds: <=32 items inclusive",
-          "items": {
-            "$ref": "#/$defs/evidence"
-          },
-          "maxItems": 32,
-          "type": "array"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "fields": {
-          "additionalProperties": false,
-          "description": "Bounds: <=32 properties inclusive",
-          "maxProperties": 32,
-          "properties": {
-            "diagnosis": {
-              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive",
-              "maxLength": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "type": "string",
-              "x-maxBytes": 4096
-            },
-            "evidence_refs": {
-              "description": "Bounds: 1..32 items inclusive",
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-              },
-              "maxItems": 32,
-              "minItems": 1,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "open_finding_ids": {
-              "description": "Bounds: 1..32 items inclusive",
-              "items": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "maxItems": 32,
-              "minItems": 1,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "predicate_ids": {
-              "description": "Bounds: 1..8 items inclusive",
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-              },
-              "maxItems": 8,
-              "minItems": 1,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "strategy": {
-              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive",
-              "maxLength": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "type": "string",
-              "x-maxBytes": 4096
-            }
-          },
-          "required": [
-            "diagnosis",
-            "strategy",
-            "predicate_ids",
-            "evidence_refs"
-          ],
-          "type": "object"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "research_bindings": {
-          "description": "Bounds: 1..16 items inclusive",
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "pack_id": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "required": {
-                "type": "boolean"
-              },
-              "revision": {
-                "description": "Bounds: >=1 value inclusive",
-                "minimum": 1,
-                "type": "integer"
-              },
-              "use_role": {
-                "enum": [
-                  "context",
-                  "design_input",
-                  "verification_basis",
-                  "decision_basis"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "pack_id",
-              "revision",
-              "use_role",
-              "required"
-            ],
-            "type": "object"
-          },
-          "maxItems": 16,
-          "minItems": 1,
-          "type": "array"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key",
-        "fields"
-      ],
-      "type": "object"
-    },
     "work_transition_action_variant_revise_candidates": {
       "additionalProperties": false,
       "properties": {
@@ -11339,66 +11121,6 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "expected_version",
         "action_id",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "work_transition_correct_delivery_input": {
-      "additionalProperties": false,
-      "properties": {
-        "delivery_artifact": {
-          "$ref": "#/$defs/merge_evidence",
-          "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-        },
-        "delivery_state": {
-          "enum": [
-            "asserted"
-          ],
-          "type": "string"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "reason": {
-          "$ref": "#/$defs/short",
-          "description": "Bounds: 1..256 code points inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "target_event_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "target_payload_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "target_seq": {
-          "description": "Bounds: >=1 value inclusive",
-          "minimum": 1,
-          "type": "integer"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        }
-      },
-      "required": [
-        "work_id",
-        "expected_version",
-        "target_event_id",
-        "target_seq",
-        "target_payload_version",
-        "reason",
-        "delivery_artifact",
-        "delivery_state",
         "idempotency_key"
       ],
       "type": "object"
@@ -12998,60 +12720,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "workflow_correction_context": {
-      "additionalProperties": false,
-      "properties": {
-        "diagnosis": {
-          "maxLength": 4096,
-          "type": "string"
-        },
-        "disposition": {
-          "enum": [
-            "failed",
-            "rejected",
-            "verification"
-          ],
-          "type": "string"
-        },
-        "evidence_refs": {
-          "items": {
-            "$ref": "#/$defs/reference"
-          },
-          "maxItems": 32,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "predicate_ids": {
-          "items": {
-            "$ref": "#/$defs/id"
-          },
-          "maxItems": 8,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "source_event_id": {
-          "$ref": "#/$defs/id",
-          "description": "The durable failure, rejection, or correction-request event that opened this correction; its diagnosis and strategy are that event's directions."
-        },
-        "source_event_seq": {
-          "maximum": 9007199254740991,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "strategy": {
-          "maxLength": 4096,
-          "type": "string"
-        }
-      },
-      "required": [
-        "disposition",
-        "predicate_ids",
-        "evidence_refs",
-        "source_event_id",
-        "source_event_seq"
-      ],
-      "type": "object"
-    },
     "workflow_delivery_assertion": {
       "additionalProperties": false,
       "properties": {
@@ -13067,14 +12735,6 @@ const GeneratedPayloadSchemaDocument = `{
           "format": "date-time",
           "type": "string"
         },
-        "correction": {
-          "$ref": "#/$defs/workflow_delivery_correction"
-        },
-        "effective_artifact": {
-          "maxLength": 2048,
-          "minLength": 1,
-          "type": "string"
-        },
         "event_id": {
           "$ref": "#/$defs/id"
         },
@@ -13086,52 +12746,15 @@ const GeneratedPayloadSchemaDocument = `{
             "asserted"
           ],
           "type": "string"
-        },
-        "target_payload_version": {
-          "$ref": "#/$defs/version"
         }
       },
       "required": [
         "event_id",
         "seq",
-        "target_payload_version",
         "artifact",
         "state",
         "actor_ref",
-        "asserted_at",
-        "effective_artifact"
-      ],
-      "type": "object"
-    },
-    "workflow_delivery_correction": {
-      "additionalProperties": false,
-      "properties": {
-        "artifact": {
-          "$ref": "#/$defs/merge_evidence"
-        },
-        "corrected_at": {
-          "format": "date-time",
-          "type": "string"
-        },
-        "event_id": {
-          "$ref": "#/$defs/id"
-        },
-        "evidence_source": {
-          "enum": [
-            "coordinator_asserted"
-          ],
-          "type": "string"
-        },
-        "reason": {
-          "$ref": "#/$defs/short"
-        }
-      },
-      "required": [
-        "event_id",
-        "reason",
-        "artifact",
-        "evidence_source",
-        "corrected_at"
+        "asserted_at"
       ],
       "type": "object"
     },

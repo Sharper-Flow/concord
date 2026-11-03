@@ -1,10 +1,20 @@
 package store
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"reflect"
 	"testing"
 )
+
+func workflowLatestComparableHealthySequence(ctx context.Context, q queryer, workID string, contractVersion int64) (int64, error) {
+	var seq int64
+	if err := q.QueryRowContext(ctx, `SELECT last_healthy_seq FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&seq); err != nil && err != sql.ErrNoRows {
+		return 0, err
+	}
+	return seq, nil
+}
 
 func TestWorkflowHealthyFrontierFollowsCurrentVerdictSet(t *testing.T) {
 	const work = "healthy-verdict-frontier"

@@ -45,7 +45,10 @@ step that binds a contract, and completion refuses without one.
 
 ## Decision
 
-The same derived admission state owns premise confirmation and correction routes and preserves evidence, recovery targets, and non-hold exits. CD-0013 D11 requires the authenticated coordinator for premise confirmation; operator decisions follow CD-0243 in conversation.
+The same derived admission state owns premise confirmation and ordinary action
+writes and preserves evidence and non-hold exits. CD-0013 D11
+requires the authenticated coordinator for premise confirmation; operator
+decisions follow CD-0243 in conversation.
 
 ### D1. The contract step requires contract recording
 
@@ -60,7 +63,9 @@ The active contract's coordinator confirmation records directly. Admission
 requires verdict evidence, and forward
 confirmation in delivery-producing families requires the current ready Review
 under [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates).
-Existing unhealthy-verdict failure returns keep their admission. Work-pin,
+Ordinary record replacements follow
+[workflow-engine contract §4.2](../specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction).
+They supply no healthy verdict or fresh Review by themselves. Work-pin,
 continuity, and action admission use the same folded prerequisites.
 
 ### D3. The checks derive every admission condition

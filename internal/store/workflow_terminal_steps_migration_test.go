@@ -49,6 +49,8 @@ func TestTerminalStepsRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	retainedContracts := retainedWorkflowContractRows(t, db)
 	const instanceColumns = `SELECT work_id,definition_ref,definition_digest,current_step,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at,unhealthy_verdict_seq FROM workflow_instances ORDER BY work_id`
 	instances := retirementUpgradeRows(t, db, instanceColumns)
+	const deliveryColumns = `SELECT work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload FROM workflow_delivery_state ORDER BY work_id`
+	deliveries := retirementUpgradeRows(t, db, deliveryColumns)
 	bindings := retirementUpgradeRows(t, db, `SELECT * FROM workflow_evidence_bindings WHERE binding_id='binding:ordinary'`)
 	if s, err := Open(t.Context(), path); err == nil {
 		s.Close()
@@ -72,13 +74,16 @@ func TestTerminalStepsRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"work_items", "workflow_delivery_state", "effect_receipts", "archived_work", "active_research_packs"} {
+	for _, table := range []string{"work_items", "effect_receipts", "archived_work", "active_research_packs"} {
 		if after := retirementUpgradeRows(t, db, "SELECT * FROM "+table+" ORDER BY rowid"); !reflect.DeepEqual(before[table], after) {
 			t.Errorf("retirement changed surviving %s", table)
 		}
 	}
 	if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
 		t.Error("current contract facts changed")
+	}
+	if after := retirementUpgradeRows(t, db, deliveryColumns); !reflect.DeepEqual(deliveries, after) {
+		t.Errorf("retirement changed effective delivery: before=%v after=%v", deliveries, after)
 	}
 	for _, table := range []string{"workflow_step_epochs", "workflow_step_completions"} {
 		if after := retirementUpgradeRows(t, db, "SELECT work_id FROM "+table); !reflect.DeepEqual(after, [][]any{{"work-upgrade-to"}}) {

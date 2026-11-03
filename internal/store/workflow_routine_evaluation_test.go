@@ -59,16 +59,6 @@ func seedRoutineActors(t *testing.T, s *Store, workID string) (reviewer Workflow
 func TestRoutineEvaluation(t *testing.T) {
 	t.Parallel()
 
-	t.Run("new policy admits repair request without operator identity", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-new-correction"
-		fixture := prepareVerdictCorrectionFixture(t, workID)
-		g := routineGuardContext(t, fixture.store, workID, "request_correction")
-		if err := guardCorrectionRecovery(g); err != nil {
-			t.Fatalf("consequence_v1 repair request without an operator identity refused: %v", err)
-		}
-	})
-
 	t.Run("unbound evidence refuses under new policy", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-unbound-evidence"

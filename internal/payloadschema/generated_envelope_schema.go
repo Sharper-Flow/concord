@@ -263,7 +263,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "snapshot",
             "remove",
             "workflow_action",
-            "correct_delivery",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement"
@@ -940,7 +939,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "snapshot",
             "remove",
             "workflow_action",
-            "correct_delivery",
             "project_handoff_consume",
             "project_handoff_record",
             "project_retirement"
@@ -1074,7 +1072,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "properties": {
                   "operation": {
                     "enum": [
-                      "correct_delivery",
                       "lifecycle",
                       "remove",
                       "project_handoff_record",
@@ -1181,7 +1178,7 @@ const GeneratedEnvelopeSchemaDocument = `{
               "items": {
                 "$ref": "#/$defs/nextIntent"
               },
-              "maxItems": 16,
+              "maxItems": 83,
               "type": "array"
             },
             "outcome": {
@@ -1276,7 +1273,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "reread_entities",
             "provide_evidence",
             "reduce_limit",
-            "use_declared_route",
             "use_next_cursor",
             "restart_query",
             "adjust_budget",
@@ -1598,7 +1594,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "lifecycle",
                 "remove",
                 "workflow_action",
-                "correct_delivery",
                 "project_handoff_record",
                 "project_handoff_consume"
               ],

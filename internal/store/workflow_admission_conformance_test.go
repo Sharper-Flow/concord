@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -31,16 +32,14 @@ type admissionConformanceView struct {
 	Step, Lifecycle, InstanceState                             string
 	RefinementWorkflow                                         bool
 	ActiveContracts                                            int64
-	LateCriterionAssociation, DesignStale, ArtifactStale       bool
+	LateCriterionAssociation, DesignStale                      bool
 	Review                                                     admissionReviewView
-	CorrectionRequestRecovery                                  bool
 	AcceptanceDeliverablesMissing                              bool
 	DeliveryStarted, DeliveryProofRequired, DeliveryProofReady bool
 	DeliveryFailure, DeliveryProofFailure                      bool
 	MandatePresent, MandateMissing                             bool
 	MandateBindingStep                                         string
 	MandateAddedByContract                                     bool
-	MandateCorrectionAction                                    string
 	MandateFailure                                             bool
 }
 
@@ -48,14 +47,14 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 	view := admissionConformanceView{
 		Step: state.Step, Lifecycle: state.Lifecycle, InstanceState: state.InstanceState,
 		RefinementWorkflow: state.RefinementWorkflow, ActiveContracts: state.ActiveContracts,
-		DesignStale:              state.DesignStale,
-		LateCriterionAssociation: state.LateCriterionAssociation, ArtifactStale: state.ArtifactStale,
-		Review: admissionReviewViewOf(state.Review), CorrectionRequestRecovery: state.CorrectionRequestRecovery,
+		DesignStale:                   state.DesignStale,
+		LateCriterionAssociation:      state.LateCriterionAssociation,
+		Review:                        admissionReviewViewOf(state.Review),
 		AcceptanceDeliverablesMissing: state.AcceptanceDeliverablesMissing != nil,
 		DeliveryStarted:               state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
 		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,
 		MandatePresent: state.Mandate.Present, MandateMissing: state.Mandate.LawID != "", MandateBindingStep: state.Mandate.BindingStep,
-		MandateAddedByContract: state.Mandate.AddedByContract, MandateCorrectionAction: state.Mandate.CorrectionAction,
+		MandateAddedByContract: state.Mandate.AddedByContract,
 	}
 	if state.Delivery.ProofRequired {
 		view.DeliveryProofReady, view.DeliveryProofFailure = state.Delivery.ProofReady, state.Delivery.ProofFailure != nil
@@ -66,9 +65,13 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 func conformanceCheckpoint(t *testing.T, s *Store, registry DefinitionRegistry, workID string, definition WorkflowDefinition, want admissionModelState, label string) {
 	t.Helper()
 	loaded := conformanceFold(t, s, registry, workID, definition, label)
-	got, model := admissionConformanceViewOf(loaded), admissionConformanceViewOf(admissionWorkflowState(definition, want))
+	lifted := admissionWorkflowState(definition, want)
+	got, model := admissionConformanceViewOf(loaded), admissionConformanceViewOf(lifted)
 	if got != model {
 		t.Fatalf("%s: loaded fold %+v != abstract successor %s lifted to %+v", label, got, want, model)
+	}
+	if !reflect.DeepEqual(loaded.CurrentRecords, lifted.CurrentRecords) {
+		t.Fatalf("%s: loaded current records %v != abstract successor %s records %v", label, loaded.CurrentRecords, want, lifted.CurrentRecords)
 	}
 }
 

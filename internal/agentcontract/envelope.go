@@ -17,6 +17,9 @@ import (
 // MaxResultEnvelopeBytes is the serialized result envelope's hard maximum.
 const MaxResultEnvelopeBytes = 51200
 
+// MaxNextValidIntents admits the bounded work-pin intent producer.
+const MaxNextValidIntents = 83
+
 type Outcome string
 
 const (
@@ -358,7 +361,7 @@ func (e Envelope) validateOK() error {
 	if hasItems == hasResult {
 		return errors.New("ok envelope requires exactly one payload")
 	}
-	if len(e.Items) > 100 || e.changedRefCount() > MaxChangedRefs || e.nextIntentCount() > 16 {
+	if len(e.Items) > 100 || e.changedRefCount() > MaxChangedRefs || e.nextIntentCount() > MaxNextValidIntents {
 		return errors.New("ok payload bound exceeded")
 	}
 	if e.NextValidIntents != nil {
@@ -535,7 +538,7 @@ func UniqueNonEmpty(values []string) bool {
 
 // recoveryActions is the closed recovery-action vocabulary the envelope
 // contract admits.
-var recoveryActions = map[string]bool{"none": true, "correct_request": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
+var recoveryActions = map[string]bool{"none": true, "correct_request": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "provide_evidence": true, "reduce_limit": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
 
 // RecoveryActionAllowed reports whether kind names a contractual recovery
 // action. Any other authored recovery text is remedy prose, not an action.
@@ -674,14 +677,6 @@ func validateErrorRecoveryCouplings(err TypedError) error {
 	}
 	if err.Kind == "version_conflict" && len(err.CurrentVersions) == 0 {
 		return errors.New("version conflict must carry current versions")
-	}
-	// A declared route names the workflow actions that resolve the refusal, in
-	// execution order. The action naming a route without carrying one is the
-	// names-no-operation defect in typed form, so the refs are mandatory
-	// wherever the action appears. This constrains the action's payload, not
-	// which kind may carry it, so it is not a recovery coupling.
-	if err.RecoveryAction.Kind == "use_declared_route" && len(err.RecoveryAction.RequiredRefs) == 0 {
-		return errors.New("use_declared_route must carry required refs")
 	}
 	if len(err.InterveningActions) > 20 {
 		return errors.New("invalid intervening workflow actions")

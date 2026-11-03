@@ -146,7 +146,7 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 				seq = i + 1
 			}
 		}
-		add(WorkflowDeliveryCorrected, map[string]any{"target_event_id": target.EventID, "target_seq": seq, "target_payload_version": target.PayloadVersion, "reason": "Use the actual merged delivery", "delivery_artifact": "https://github.com/Sharper-Flow/concord/pull/1339", "delivery_state": "asserted", "evidence_source": DeliveryEvidenceSourceCoordinatorAsserted}, true)
+		add(WorkflowDeliveryCorrected, map[string]any{"target_event_id": target.EventID, "target_seq": seq, "target_payload_version": target.PayloadVersion, "reason": "Use the actual merged delivery", "delivery_artifact": "https://github.com/Sharper-Flow/concord/pull/1339", "delivery_state": "asserted", "evidence_source": "coordinator_asserted"}, true)
 	}
 	correct(assertion)
 	last := action(WorkflowActionCompleted, "repair", "record_delivery", 1, map[string]any{"delivery_artifact": "file:internal/store/next.go", "delivery_state": "asserted"})
@@ -188,8 +188,6 @@ DELETE FROM ` + guard); err != nil {
 			return err
 		case WorkflowCompleted:
 			return foldWorkflowCompleted(ctx, tx, e, nil)
-		case WorkflowDeliveryCorrected:
-			return foldWorkflowDeliveryCorrected(ctx, tx, e)
 		}
 		return nil
 	}
@@ -238,7 +236,6 @@ func assertEvidenceCorpus142(t *testing.T) {
 	queries := []string{
 		`SELECT json_array(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,json_remove(latest_start_payload,'$.expected_version','$.resulting_version')) FROM workflow_step_epochs ORDER BY work_id,step_id`,
 		`SELECT json_array(work_id,action_id,exit_seq) FROM workflow_phase_exits WHERE action_id NOT IN ('request_correction','record_delivery') ORDER BY work_id,action_id`,
-		`SELECT json_array(work_id,step_id,action_id,production_seq) FROM workflow_artifact_actions WHERE step_id='verify' ORDER BY work_id,step_id,action_id`,
 		`SELECT json_array(work_id,contract_version,supersession_seq) FROM workflow_contracts ORDER BY work_id,contract_version`,
 		`SELECT json_array(work_id,binding_seq,binding_id,actor,json_remove(payload,'$.expected_version','$.resulting_version')) FROM workflow_evidence_bindings ORDER BY work_id,binding_seq`,
 	}

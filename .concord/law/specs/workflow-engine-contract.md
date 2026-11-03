@@ -302,37 +302,76 @@ evidence solely to change the plan.
 Tests of ordinary contract validation, atomic refusals, provenance retention,
 unchanged-proof reuse, changed-criterion or candidate validity, current law
 membership, operator approval boundaries, and completion remain required.
-`request_correction` keeps its existing unhealthy-verdict recovery obligations.
 Workflow stage and step-plan policy otherwise remain unchanged.
 
 An ordinary update can invalidate an accepted Review without changing the
 step. When that Review no longer covers the current candidate or depended-on
-criterion or architecture content, the authenticated coordinator may use
-`request_correction` to return to the existing declared producer. This return
-is available at the final nonterminal step as well as earlier steps with that
-declared return. It requires one active contract, the recorded accepted Review,
-the current candidate, diagnosis, strategy, affected predicates and bound
-evidence. It records the exact source report and consumes it at most once;
-another Review-based return requires a fresh accepted report.
-
-Only a recorded binding from a corrective return to its funding Review
-consumes that report. An unhealthy-verdict return does not consume a Review
-that did not fund it. A report without that binding may fund one return even
-when an earlier use is unknown; the new return records the binding and prevents
-reuse. Correction discharge and restored criterion content do not clear that
-binding. A consumed report cannot authorize delivery or forward confirmation;
-a fresh accepted Review replaces it.
-
-The update itself never moves the step. The explicit return retains prior
-evidence and Review provenance, supplies no current proof and accepts no
-criterion. Fresh Review follows the existing producer and evaluator steps;
-no late `record_review` admission or completed-instance reopening is added.
+criterion or architecture content, the coordinator obtains a fresh Review and
+records it through `record_review` under §4.2. Updating the contract, replacing
+or discarding the prior report supplies no current proof and accepts no
+criterion. The update itself never moves the step.
 
 In delivery-producing families, forward premise confirmation requires a
 current ready Review without remaining obligations or open in-scope blocking
-findings. An existing unhealthy-verdict
-failure-edge return keeps its existing admission; it does not advance to the
-final step or claim that the verdict became healthy.
+findings. An unhealthy or incomparable verdict gains no healthy proof from
+correcting a record. Completion follows §7 without rechecking those conditions.
+
+### 4.2 Ordinary retry and record correction
+
+Retry reruns the owning action. To correct an existing record, the authenticated
+coordinator invokes the same ordinary action with its replacement values and
+the current expected work version. That write replaces the action's current
+record in one transaction. It applies the same payload validation, actor and
+authority checks, evidence and subject bindings, applicable approvals and
+idempotency protections as an ordinary write. Invalid or stale requests leave
+all current records and the work version unchanged.
+
+Existing records remain editable after their producing step has passed.
+Ordinary `bind_evidence` also remains available after the workflow reaches or
+passes a step declaring it, under one active contract and the same evidence,
+membership, actor, lifecycle, version and idempotency checks. A satisfied
+requirement does not prevent binding fresh independent evidence.
+A record-only replacement holds the current step, instance state and lifecycle;
+it does not repeat the original forward transition. In particular,
+`record_delivery` replaces a completed item's reported delivery links without
+reopening it, rerunning completion or inventing new delivery evidence.
+The completed item's identity and terminal state remain intact. This permits
+record correction, not new execution on completed work.
+
+Production is an explicit typed result: research uses `record_finding`, retained
+architecture-spike definitions use `record_decision`, and other producers use
+`record_delivery`. A start, Review, verdict, evidence binding, checkpoint,
+candidate revision, successor link or step advance is not production. Native
+Task supplies no production authority. Replacing a production record does not
+assert that new external work happened.
+
+The same successful request with the same idempotency identity returns its
+original result without another write. A different replacement request uses a
+new identity and current expected version. No retry-count budget or attempt
+limit gates ordinary retry or repeated correction.
+Per-operation seconds budgets and error diagnostics remain required.
+
+A changed candidate or depended-on digest invalidates only the Review, exit or
+proof that depended on it under CD-0242 D7. A replacement does not relabel earlier
+evidence, convert an unhealthy verdict to a healthy one or erase an unresolved
+finding. Required Review, verification and approval checks still apply at their
+owning stages to the subject they judge. A corrected link alone does not assert
+a new candidate or manufacture proof.
+
+Each action owns its current record; no separate correction operation, state,
+route registry, target-event tuple, return to a producer or Review-consumption
+binding mediates replacement. The same admission owner serves writes, pins,
+liveness and conformance. Checks cover repeated replacement, atomic refusal,
+rollback and proof validity without correction-specific route machinery.
+
+Upgrade preserves the effective delivery as the sole current delivery record.
+Verified-snapshot upgrade, interruption and rollback proof remain required.
+
+A pre-effect refusal with a known absence of effects permits a corrected
+request only within unchanged authority and approved scope. An operator denial
+or authority boundary remains binding. A possible or unknown effect requires
+reconciliation before another attempt; a later no-effect refusal does not clear
+that uncertainty. Correction never bypasses an approval or effect boundary.
 
 ## 5. V15 projections, constraints, and state tables
 
@@ -488,10 +527,15 @@ returns success. A failed commit produces no terminal state mutation.
 ### 7.1 Acceptance recovery
 
 The engine admits `record_verdict` on the terminal workflow step before the
-instance reaches a terminal state. The route exists only after a definition-backed
-verification step and only for an active-contract predicate whose latest eligible
+instance reaches a terminal state. Admission requires a definition-backed
+verification step and an active-contract predicate whose latest eligible
 verdict is missing, non-`ok`, or incomparable. An `ok` comparable verdict cannot
-be replaced. The action holds the current step and preserves attempts and evidence.
+be replaced through that late-association admission; replacement of an existing
+record follows §4.2. The action holds the current step and lifecycle and preserves
+attempts and evidence. It also serves a premise-question step without its own
+declared `record_verdict` action when an earlier step declares that action.
+No registered return route is required; the same active-contract, criterion,
+subject and evidence checks apply.
 
 Contract changes use the ordinary update in §4.1, without moving the workflow
 step or discarding retained proof. Current acceptance still requires proof of
@@ -569,9 +613,10 @@ dispatcher performs this order:
 1. Check `WorkflowActionAvailable`; refuse structurally until the pinned digest is
    registered and verified.
 2. Validate the closed action ID and payload against the pinned definition's action
-   entry. Unknown fields, missing fields, wrong bounds, or action-not-in-current-step
-    return the existing `invalid_transition` refusal with recovery action
-    `reread_entities`.
+   entry. Existing-record replacement follows §4.2; late criterion association
+   follows §7.1. Unknown fields, missing fields, wrong bounds, or an action
+   outside its admitted ordinary use return the existing `invalid_transition`
+   refusal with recovery action `reread_entities`.
 3. Validate work ID, expected work version, authenticated actor tuple, and current
    step. Stale versions return `version_conflict`; an incomplete actor returns
    `unauthorized`.
@@ -638,15 +683,15 @@ times or compare argv to a tooling manifest. Independent Review judges adequacy.
 | Family and source | Ordered graph and family actions at each step |
 |---|---|
 | **Implementation** — [`workflows.md` §1](../../docs/workflows.md#1-the-shift-from-one-workflow-to-a-plurality) | `proposal[record_proposal] → alignment[record_alignment] → discovery[record_discovery] → design[record_design] → planning[approve_contract] → execution[start_execution, checkpoint_execution, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → acceptance[record_verdict, confirm_premise] → release[complete]`. Refine is mandatory and requires artifact evidence at that step (CD-0242 D4; CD-0229 D4). The CD-0156 alignment step follows proposal: record_alignment is the step's only advance exit, so backlog search cannot be skipped. A native Task result supplies no workflow exit. |
-| **Break-fix / RCA** — [`workflows.md` §3](../../docs/workflows.md#3-complete-work-kind-taxonomy) and §4 | `reproduce[record_reproduction] → alignment[record_alignment] → diagnose[record_root_cause] → planning[approve_contract] → repair[start_repair, checkpoint_repair, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → verify[bind_evidence, record_verdict, confirm_premise] → complete[complete]`. Refine is mandatory and requires artifact evidence at that step (CD-0138 D1). Verify carries the hold-mode `bind_evidence` route (CD-0124). The CD-0156 alignment step follows reproduce on the same terms. |
+| **Break-fix / RCA** — [`workflows.md` §3](../../docs/workflows.md#3-complete-work-kind-taxonomy) and §4 | `reproduce[record_reproduction] → alignment[record_alignment] → diagnose[record_root_cause] → planning[approve_contract] → repair[start_repair, checkpoint_repair, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → verify[bind_evidence, record_verdict, confirm_premise] → complete[complete]`. Refine is mandatory and requires artifact evidence at that step (CD-0138 D1). Verify declares the ordinary hold-mode `bind_evidence` action (CD-0124). The CD-0156 alignment step follows reproduce on the same terms. |
 | **Research / investigation** — [`workflows.md` §4](../../docs/workflows.md#4-example-workflow-types) and CD-0215 D3 | `frame[frame_research, approve_contract] → investigate[record_finding, revise_candidates, bind_evidence] → findings[record_report, link_successor] → conclude[record_conclusion, record_verdict, confirm_premise] → complete[complete]`. Completion verb: findings recorded; `no_change` is valid. |
 
 ### 12.1 Action-to-event mapping
 
 The table maps the declared action IDs below to their result records, including
 actions from archived definitions. It grants no new-execution permission:
-CD-0218 D1 limits new execution to the three live families, and §11 requires the
-selected definition and current step to declare the action. Each
+CD-0218 D1 limits new execution to the three live families. Section 11 and §4.2
+govern actions at and after their declared steps. Each
 `action_definitions` entry carries one closed `execution_mode`: `advance`,
 `hold`, `fenced`, or `checkpoint`. Each is a versioned current-state mutation;
 `fenced` names the action's guarded start, not a separate claim/settle operation

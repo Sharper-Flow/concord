@@ -16,46 +16,36 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestMutationProjectionCorrectionMutations(t *testing.T) {
+func TestMutationProjectionReviewAndMessageMutations(t *testing.T) {
 	f := newSpineExecutionFixture(t)
 	f.verify(t)
 	f.implement(t)
 	f.proof = f.verify(t)
-	// HTML escaping expands legal Review and correction text in each required copy
-	// of the correction context. No content may be discarded to fit the wire.
+	// HTML escaping expands legal Review detail beyond the envelope limit.
 	detail := strings.Repeat("<", 512)
-	correctionText := strings.Repeat("<", 4096)
 	pin := f.read(t).Pinned.Pin
 	candidate := store.ReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, f.path, "rev-parse", "HEAD"), Tree: gitRun(t, f.path, "rev-parse", "HEAD^{tree}")}
 	report := store.ReviewBlock{Disposition: "correction_required", InputCandidate: candidate, OutputCandidate: candidate, Dependencies: *pin.Review.Dependencies,
-		Assessments: []store.ReviewAssessment{}, RemainingObligations: []store.ReviewObligation{}, Findings: []store.ReviewFinding{
-			{FindingID: "finding:projection-one", Status: "open", Severity: "P1", Confidence: "high", Detail: detail, Blocking: true, InScope: true, EvidenceRefs: []string{f.proof}, ClosureRefs: []string{}},
-			{FindingID: "finding:projection-two", Status: "open", Severity: "P1", Confidence: "high", Detail: detail, Blocking: true, InScope: true, EvidenceRefs: []string{f.proof}, ClosureRefs: []string{}},
-		}}
+		Assessments: []store.ReviewAssessment{}, RemainingObligations: []store.ReviewObligation{}, Findings: []store.ReviewFinding{}}
+	for i := 0; i < 16; i++ {
+		report.Findings = append(report.Findings, store.ReviewFinding{FindingID: fmt.Sprintf("finding:projection-%02d", i), Status: "open", Severity: "P1", Confidence: "high", Detail: detail, Blocking: true, InScope: true, EvidenceRefs: []string{f.proof}, ClosureRefs: []string{}})
+	}
 	spineOK(t, f.action(t, "record_review", map[string]any{"review": report}))
 	reportRef := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": reportRef}))
-	correction := map[string]any{"diagnosis": correctionText, "strategy": correctionText, "predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{reportRef}}
-	spineOK(t, f.action(t, "request_correction", correction))
 	state := f.read(t)
-	if state.Pinned.Pin.Correction == nil || state.Pinned.Pin.Correction.Diagnosis != correctionText || state.Pinned.Pin.Correction.Strategy != correctionText || len(state.Pinned.Pin.Review.Findings) != 2 {
-		t.Fatal("Review correction did not retain its complete context and blockers")
+	if len(state.Pinned.Pin.Review.Findings) != 16 {
+		t.Fatal("Review did not retain its blockers")
 	}
 	for _, vector := range []struct {
 		name, tool, operation string
 		fields                map[string]any
 	}{
-		{"correction", "concord_work_transition", "workflow_action", map[string]any{
-			"action_id": "request_correction", "fields": correction,
+		{"review", "concord_work_transition", "workflow_action", map[string]any{
+			"action_id": "record_review", "fields": map[string]any{"review": report},
 		}},
 	} {
 		t.Run(vector.name, func(t *testing.T) {
-			if vector.operation == "workflow_action" {
-				// Each correction consumes its accepted Review. Record a fresh
-				// Review before exercising another correction's receipt rollback.
-				spineOK(t, f.action(t, "record_review", map[string]any{"review": report}))
-				correction["evidence_refs"] = []string{f.read(t).Pinned.Pin.Review.Accepted.ReportRef}
-			}
 			before := f.read(t).Pinned.Pin.Version
 			input := vector.fields
 			input["work_id"], input["expected_version"], input["idempotency_key"] = f.work, before, "project-"+vector.operation
@@ -114,7 +104,7 @@ func TestMutationProjectionCorrectionMutations(t *testing.T) {
 			if err != nil || committed <= before {
 				t.Fatalf("invalid committed version: %d %v", committed, err)
 			}
-			if err := json.Unmarshal([]byte(record.ResultPayload), &original); err != nil || len(original.Pins) != 1 || original.Pins[0].Version != committed || original.Pins[0].Correction.Diagnosis != correctionText || original.Pins[0].Correction.Strategy != correctionText || len(original.Pins[0].Review.Findings) != 2 || !reflect.DeepEqual(original.Intents, mutationResultIntents(nextIntentsFromPin(original.Pins[0]))) {
+			if err := json.Unmarshal([]byte(record.ResultPayload), &original); err != nil || len(original.Pins) != 1 || original.Pins[0].Version != committed || len(original.Pins[0].Review.Findings) != 16 || !reflect.DeepEqual(original.Intents, mutationResultIntents(nextIntentsFromPin(original.Pins[0]))) {
 				t.Fatalf("incomplete original pin or intents: err=%v", err)
 			}
 			if err := agentcontract.ValidateOperationPayload(vector.tool, vector.operation, []byte(record.ResultPayload), true); err != nil {
@@ -392,8 +382,10 @@ func TestMutationProjectionRequiresRetainedIdentity(t *testing.T) {
 	for i := range refs {
 		refs[i] = fmt.Sprintf("%02d%s", i, strings.Repeat("<", 126))
 	}
-	pin.Correction = &store.WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: []string{"predicate:primary"}, EvidenceRefs: refs,
-		Diagnosis: strings.Repeat("<", 4096), Strategy: strings.Repeat("<", 4096), SourceEventID: "correction-context", SourceEventSeq: 1}
+	pin.Review = &store.WorkflowReviewState{Findings: []store.ReviewFinding{}}
+	for i := 0; i < 16; i++ {
+		pin.Review.Findings = append(pin.Review.Findings, store.ReviewFinding{FindingID: fmt.Sprintf("finding:%02d", i), Status: "open", Severity: "P1", Confidence: "high", Detail: strings.Repeat("<", 512), EvidenceRefs: refs, ClosureRefs: []string{}})
+	}
 	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: pin.WorkID, Version: strconv.FormatInt(pin.Version, 10)}}
 	payload, intents, err := enrichMutationPayload(mutationPayload(changed, nil), []store.WorkPin{pin})
 	if err != nil {

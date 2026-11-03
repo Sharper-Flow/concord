@@ -26,32 +26,8 @@ type WorkflowAdmissionState struct {
 	// DesignStale reports a recorded design a contract correction
 	// invalidated.
 	DesignStale bool
-	// ArtifactStale reports the artifact the current step's evaluation
-	// judges has gone stale: a bad verdict landed after the artifact was
-	// last produced at the route target (CD-0201 D5). An ordinary contract
-	// update keeps the step and design, and invalidates only the Review
-	// and proof whose digests it changes
-	// (CD-0242 D7). While set, record_verdict admits only a non-ok verdict
-	// and confirm_premise refuses; only fresh production at the declared
-	// route target clears it.
-	ArtifactStale bool
-	// CorrectionRequestRecovery reports the delivery-gate corrective return
-	// stands open, with CorrectionRequestMissing naming the one missing
-	// prerequisite when it does not.
-	CorrectionRequestRecovery bool
-	CorrectionRequestMissing  string
-	// CorrectionRequestContext is the folded correction request the current
-	// step admits, the one derivation the payload check consumes: the guard,
-	// the preflight, the dispatch fold, and the event fold bind their
-	// payloads against it instead of re-entering the loader. It is nil when
-	// the step admits no correction request.
-	CorrectionRequestContext *WorkflowCorrectionContext
-	// EvidenceRecoveryRoute reports an outstanding contract evidence
-	// requirement the recovery bind_evidence can settle.
-	EvidenceRecoveryRoute bool
-	// EvidenceRecovery retains the eligibility owner's snapshot facts for
-	// readers; admission still decides through EvidenceRecoveryRoute.
-	EvidenceRecovery *workflowEvidenceBindingRecoveryState
+	// CurrentRecords names ordinary actions with a retained current record.
+	CurrentRecords map[string]bool
 	// AcceptanceDeliverablesMissing holds a confirmation prerequisite refusal.
 	AcceptanceDeliverablesMissing error
 	Delivery                      workflowDeliveryAdmission
@@ -107,6 +83,11 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 	if err := l.staleness(&state); err != nil {
 		return WorkflowAdmissionState{}, err
 	}
+	records, recordsErr := workflowCurrentRecords(ctx, q, workID)
+	if recordsErr != nil {
+		return WorkflowAdmissionState{}, recordsErr
+	}
+	state.CurrentRecords = records
 	// Duplicate active contracts leave no single criteria set to review
 	// against, so no Review stands and every Review-gated action stays closed.
 	review, reviewErr := loadWorkflowReviewState(ctx, q, workID)
@@ -117,12 +98,6 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 		return WorkflowAdmissionState{}, reviewErr
 	}
 	state.Review = &review
-	if err := l.recoveryRoutes(&state); err != nil {
-		return WorkflowAdmissionState{}, err
-	}
-	if err := l.holdsAndRecovery(&state); err != nil {
-		return WorkflowAdmissionState{}, err
-	}
 	if err := loadWorkflowAcceptanceAdmission(ctx, q, workID, definition, &state); err != nil {
 		return WorkflowAdmissionState{}, err
 	}
@@ -165,63 +140,8 @@ type workflowAdmissionLoad struct {
 
 // staleness folds design and artifact staleness.
 func (l workflowAdmissionLoad) staleness(state *WorkflowAdmissionState) error {
-	_, designErr := readCurrentWorkflowDesign(l.ctx, l.q, l.workID)
-	if designErr != nil {
-		return designErr
-	}
-	state.DesignStale = false
-	artifactStale, staleFoldErr := workflowArtifactStale(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject)
-	if staleFoldErr != nil {
-		return staleFoldErr
-	}
-	state.ArtifactStale = artifactStale
-	return nil
-}
-
-// recoveryRoutes folds the coordinator correction route.
-func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) error {
-	// The delivery gate's corrective return reads the Review state this fold
-	// already carries, so the gate branch derives from the folded state and
-	// never re-enters the loader; every other step folds the shared
-	// correction-request admission directly. Duplicate projections remain
-	// readable, but grant no contract-dependent recovery authority.
-	if workflowStepIsDeliveryGate(workflowStep(l.definition, l.currentStep)) {
-		gateContext, gateErr := workflowDeliveryGateCorrectionContextFolded(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, *state)
-		if gateErr != nil && !(l.duplicated && workflowDuplicateContractProjection(gateErr)) {
-			return gateErr
-		}
-		state.CorrectionRequestRecovery = gateErr == nil && gateContext != nil
-		if gateErr == nil && gateContext == nil {
-			state.CorrectionRequestMissing = workflowCorrectionMissingGateReview
-		}
-		if gateErr == nil {
-			state.CorrectionRequestContext = gateContext
-		}
-	} else {
-		correctionRequestContext, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmissionForRegistry(l.ctx, l.q, l.workID, l.definition, l.currentStep, l.subject, l.registry)
-		if correctionRequestErr != nil && !(l.duplicated && workflowDuplicateContractProjection(correctionRequestErr)) {
-			return correctionRequestErr
-		}
-		state.CorrectionRequestRecovery, state.CorrectionRequestMissing = correctionRequestContext != nil && correctionRequestErr == nil, correctionRequestMissing
-		if correctionRequestErr == nil {
-			state.CorrectionRequestContext = correctionRequestContext
-		}
-	}
-	return nil
-}
-
-// holdsAndRecovery folds evidence-binding recovery.
-func (l workflowAdmissionLoad) holdsAndRecovery(state *WorkflowAdmissionState) error {
-	if evidenceRecovery, evidenceErr := workflowEvidenceBindingRecoveryEligibility(l.ctx, l.q, l.definition, l.workID, l.currentStep, 0); evidenceErr != nil {
-		if !l.duplicated || !workflowDuplicateContractProjection(evidenceErr) {
-			return evidenceErr
-		}
-		state.EvidenceRecoveryRoute = false
-	} else {
-		state.EvidenceRecoveryRoute = evidenceRecovery.Refusal == nil && len(evidenceRecovery.Requirements) != 0
-		state.EvidenceRecovery = &evidenceRecovery
-	}
-	return nil
+	_, err := readCurrentWorkflowDesign(l.ctx, l.q, l.workID)
+	return err
 }
 
 func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *WorkflowAdmissionState) error {
@@ -297,7 +217,7 @@ func workflowForwardConfirmationReview(ctx context.Context, q queryer, workID st
 
 func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) WorkflowAdmissionDecision {
 	decision := WorkflowAdmissionDecision{}
-	if workflowAdmitInstanceRefused(definition, state, &decision) {
+	if workflowAdmitInstanceRefused(definition, state, actionID, &decision) {
 		return decision
 	}
 	if workflowAdmitDeliveryRefused(definition, state, actionID, &decision) {
@@ -316,8 +236,8 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 // workflowAdmitInstanceRefused answers the refusals no action can pass:
 // a terminal or archived instance. Each phase below reports
 // true when it decided the action, with decision filled.
-func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowAdmissionState, decision *WorkflowAdmissionDecision) bool {
-	if workflowCompletedInstanceActionImmutable(state.InstanceState) {
+func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
+	if workflowCompletedInstanceActionImmutable(state.InstanceState) && !(state.InstanceState == "completed" && actionID == "record_delivery" && state.CurrentRecords[actionID]) {
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 		return true
 	}
@@ -329,6 +249,16 @@ func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowA
 			"workflow family "+definition.Ref+" is archived: new public workflow actions are refused", false,
 			"read the recorded history, or start retained-family work")
 		return true
+	}
+	if actionID == "bind_evidence" {
+		if isTerminalLifecycle(state.Lifecycle) {
+			decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "terminal work cannot bind evidence", false, "start a successor workflow")
+			return true
+		}
+		if state.ActiveContracts != 1 {
+			decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "evidence binding requires exactly one active workflow contract", false, "restore the active workflow contract")
+			return true
+		}
 	}
 	return false
 }
@@ -363,22 +293,8 @@ func workflowAdmitConfirmationRefused(definition WorkflowDefinition, state Workf
 		decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "premise confirmation requires exactly one active workflow contract", false, "restore a verified backup into a new path with concord restore, then swap")
 		return true
 	}
-	// The artifact-staleness answer is the admission's (CD-0201 D5): while
-	// the artifact the step evaluates is stale, the premise confirmation
-	// cannot step past the verdict. The declared unhealthy_verdict route —
-	// request_correction back to the producer — is the one admitted return;
-	// families whose steps carry no failure edge keep that route instead of
-	// a forward escape.
-	if actionID == "confirm_premise" && state.ArtifactStale {
-		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action", "the artifact the premise confirms is stale: it was not re-produced at its producer step", false, "request_correction to return to the declared producer step, or record a non-ok verdict")
-		return true
-	}
 	if actionID == "confirm_premise" && state.AcceptanceDeliverablesMissing != nil {
 		decision.Failure = workflowFailureOf(state.AcceptanceDeliverablesMissing)
-		return true
-	}
-	if actionID == "request_correction" && !state.CorrectionRequestRecovery {
-		decision.Failure = workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
 		return true
 	}
 	return false
@@ -392,7 +308,7 @@ func workflowAdmitStepRefused(definition WorkflowDefinition, state WorkflowAdmis
 	// past the only step that binds one, and completion refuses without a
 	// contract, so the work could never finish. Version-1 research declares
 	// frame_research in advance mode beside approve_contract on its frame step.
-	if state.ActiveContracts == 0 && actionID != "approve_contract" && workflowActionAdvancesStep(definition, actionID) {
+	if state.ActiveContracts == 0 && actionID != "approve_contract" && workflowCompletedActionAdvances(definition, workflowActionCompletedPayload{StepID: state.Step, ActionID: actionID}) {
 		if contractStep, err := workflowDefinitionContractStep(definition); err == nil && contractStep == state.Step {
 			decision.Failure = newFailure(KindIllegalLifecycleTransition, "workflow_action", "the contract step advances only through its contract approval", false, "approve the workflow contract before advancing")
 			return true
@@ -406,21 +322,17 @@ func workflowAdmitStepRefused(definition WorkflowDefinition, state WorkflowAdmis
 	return false
 }
 
-// workflowAdmissionStepAllows decides the structural step legality: the step
-// declares the action, or the folded state owns a recovery route that admits
-// it off-step. Payload-bound evidence-binding recoveries stay beside the
-// payloads they read; this answer is the route the state proves.
+// workflowAdmissionStepAllows decides structural step legality, including
+// ordinary records and evidence binding after their declared steps.
 func workflowAdmissionStepAllows(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) bool {
-	if definitionStepAllows(definition, state.Step, actionID) {
+	if definitionStepAllows(definition, state.Step, actionID) || workflowRecordAction(actionID) && state.CurrentRecords[actionID] {
 		return true
 	}
 	switch actionID {
 	case "record_verdict":
 		return state.ActiveContracts == 1 && state.LateCriterionAssociation && workflowLateCriterionAssociationStep(definition, state.Step)
 	case "bind_evidence":
-		return state.EvidenceRecoveryRoute
-	case "request_correction":
-		return state.CorrectionRequestRecovery
+		return state.ActiveContracts == 1 && workflowEvidenceBindingAvailable(definition, state.Step)
 	}
 	return false
 }

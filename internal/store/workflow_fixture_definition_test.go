@@ -51,10 +51,7 @@ func workflowFixtureBase() WorkflowDefinition {
 		OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}},
 		RigorRules:            []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}},
 		StalenessRules:        []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: []WorkKind{WorkKindBreakFix, WorkKindResearch}, ForbiddenCompositions: []WorkflowForbiddenComposition{}},
-		RecoveryRoutes: []WorkflowRecoveryRoute{
-			{Step: "acceptance", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
-			{Step: "release", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
-		}}
+	}
 }
 
 func genericDefinitionFixture() WorkflowDefinition {

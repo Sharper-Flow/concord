@@ -448,18 +448,15 @@ kind, or actor tuple requires an accepted CD-NNNN.
 
 ## Relationship to existing artifacts
 
-### CD-0143 amendment: verdict correction remains engine-owned
+### Ordinary record writes
 
-The engine admits `request_correction` after delivered work
-receives a current unhealthy verification verdict. A native Task alone does
-not satisfy this boundary. The action requires a diagnosis, strategy, affected
-predicate IDs, bound evidence, and authenticated coordinator authority. It holds
-the current checkpoint, preserves the recorded verdict and results, and returns
-the pinned instance to its declared external-effect step. It does not return to
-`refine`, rewrite the contract, or alter a definition's generated source.
-Each correction keeps its scope and safety checks; native execution remains
-host-owned ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).
-Correction creates no healthy verdict and bypasses no verification requirement.
+Retry and correction use the owning action under
+[workflow-engine contract §4.2](../specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction).
+Record-only replacements hold step and lifecycle. Actor, version, idempotency,
+evidence, subject and approval checks remain required. Native execution stays
+host-owned under CD-0242 D6; it supplies no delivery or verdict authority.
+Verification and premise confirmation retain their own proof requirements;
+completion follows D10.
 
 | Artifact | Change |
 |---|---|

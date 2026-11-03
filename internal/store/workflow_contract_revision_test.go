@@ -16,7 +16,7 @@ func pContractCriterionFixture(t *testing.T, id string) workflowReturnRouteFixtu
 	return f
 }
 
-func TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement(t *testing.T) {
+func TestLateVerdictReplacementHoldsStep(t *testing.T) {
 	t.Parallel()
 	const id = "issue933-late-verdict"
 	f, ref := seedLateCriterionAssociation(t, id)
@@ -25,16 +25,14 @@ func TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement(t *tes
 		t.Fatal(err)
 	}
 	reviewGateRequireStep(t, f.store, id, "complete")
-	before := contractCorrectionEffectSnapshot(t, f.store, id)
 	for _, payload := range []json.RawMessage{payload, criterionAssociationPayload(ref, "predicate:second", "predicate:first")} {
-		for _, err := range []error{issue1013Preflight(t, f.store, id, "record_verdict", payload, f.owner), runVerdictActionAs(t, f.store, id, "record_verdict", payload, 0, f.owner)} {
-			if !hasFailureKind(err, KindIllegalLifecycleTransition) {
-				t.Fatalf("applicable association replacement=%v, want off-step refusal", err)
-			}
+		if err := issue1013Preflight(t, f.store, id, "record_verdict", payload, f.owner); err != nil {
+			t.Fatalf("replacement preflight: %v", err)
 		}
-	}
-	if after := contractCorrectionEffectSnapshot(t, f.store, id); after != before {
-		t.Fatalf("replacement changed effects: before %s, after %s", before, after)
+		if err := runVerdictActionAs(t, f.store, id, "record_verdict", payload, 0, f.owner); err != nil {
+			t.Fatalf("replacement: %v", err)
+		}
+		reviewGateRequireStep(t, f.store, id, "complete")
 	}
 }
 
@@ -88,7 +86,7 @@ func TestPremiseRevisionPreservesCriterionProvenance(t *testing.T) {
 	}
 }
 
-func TestCorrectionPreflightAfterContractRevision(t *testing.T) {
+func TestReviewPreflightAfterContractRevision(t *testing.T) {
 	t.Parallel()
 	const id = "issue933-correction-preflight"
 	j := pReturnReviewFixture(t, id, "workflow.implementation", "correction_required")
@@ -105,22 +103,22 @@ func TestCorrectionPreflightAfterContractRevision(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	payload := pReviewCorrectionPayload(t)
+	payload := mustJSONValue(map[string]any{"review": currentReviewBlockForTest(t, j.s, id, "ready_for_final_proof")})
 	before := j.effects(t)
-	if err := WorkflowActionPreflightWithRegistry(ctx, j.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: id, ActionID: "request_correction", Payload: payload, Actor: j.fixture.owner}); err != nil {
-		t.Fatalf("public correction preflight after supersession: %v", err)
+	if err := WorkflowActionPreflightWithRegistry(ctx, j.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: id, ActionID: "record_review", Payload: payload, Actor: j.fixture.owner}); err != nil {
+		t.Fatalf("public Review preflight after supersession: %v", err)
 	}
-	_, action, err := WorkflowActionDefinitionFor(ctx, j.s, BuiltinWorkflowRegistry(), id, "request_correction")
-	if err != nil || action.ID != "request_correction" {
-		t.Fatalf("public correction discovery=%+v err=%v", action, err)
+	_, action, err := WorkflowActionDefinitionFor(ctx, j.s, BuiltinWorkflowRegistry(), id, "record_review")
+	if err != nil || action.ID != "record_review" {
+		t.Fatalf("public Review discovery=%+v err=%v", action, err)
 	}
 	if j.effects(t) != before {
 		t.Fatal("public read paths changed durable state")
 	}
-	if err := j.action(t, "request_correction", payload, j.fixture.owner); err != nil {
-		t.Fatalf("public correction after supersession: %v", err)
+	if err := j.action(t, "record_review", payload, j.fixture.owner); err != nil {
+		t.Fatalf("public Review after supersession: %v", err)
 	}
-	reviewGateRequireStep(t, j.s, id, "execution")
+	reviewGateRequireStep(t, j.s, id, "acceptance")
 }
 
 func TestWorkflowActionPreflightRefusesUndeclaredActionAtCheckpoint(t *testing.T) {

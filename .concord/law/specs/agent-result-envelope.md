@@ -177,7 +177,6 @@ refresh_context
 reread_entities
 provide_evidence
 reduce_limit
-use_declared_route
 use_next_cursor
 restart_query
 adjust_budget
@@ -213,8 +212,8 @@ exposes one, or name an executable recovery for that operation under
 the budget; invalid cursors restart the query; operation conflicts reconcile.
 Unreachable and internal failures contact the operator or use their
 explicitly allowed same-request retry. An unauthorized refusal contacts the
-operator or names a declared route: `required_refs` lists the workflow
-actions in execution order. Cancellation/timeout may
+operator or identifies the authority required for the ordinary action; it does
+not offer a correction route around that boundary. Cancellation/timeout may
 use an `error` outcome only when `effect_state=none`; possible effects become
 `operation_conflict` with the recovery this section permits.
 

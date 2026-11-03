@@ -73,28 +73,28 @@ claim, timer service, or new authority for external effects.
 
 The live families are implementation, break-fix, and research, each family's plain definition sets its mandatory stages, break-fix keeps diagnosis and regression proof, and no agent waives a mandatory stage or an operator approval ([CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
 
-### D3. Authorization and correction keep their owners
+### D3. Ordinary writes preserve authority and proof
 
 Attributed contract recording and premise confirmation remain separate from
 independent verdict evidence. Immutable job revisions, attempts, subject commits,
 packet/report identities, actor/session/Project/worktree bindings, research
 pins, and operation/idempotency keys remain executable admission facts.
 
-One admission owner serves dispatch, delivery, correction, and closure; admission validates current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Host preauthorization remains at its own
+One admission owner serves ordinary writes and closure; admission validates current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Host preauthorization remains at its own
 boundaries. No caller-supplied echo replaces dispatch-owned provenance.
 
 Contract content changes use the ordinary record update in
 [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates),
 preserving version-addressed provenance and current-proof validity without a
-step reset. Unhealthy-verdict correction retains its declared producer return.
-Evidence binding can discharge an unverdicted
+step reset. Existing records are replaced through their ordinary actions under
+[workflow-engine contract §4.2](../specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction),
+without moving the current step or lifecycle. Evidence binding can discharge an unverdicted
 active predicate through its existing owner. No acceptance-step bypass, stale
 design heuristic, or weakened evidence-kind check replaces that route.
 
 Law and registry changes require no contract re-pin; they reconcile through
-Git under CD-0036. An ordinary update does not manufacture a producer return
-or evade an unhealthy verdict's correction gate. The bounded accepted-Review
-return follows workflow-engine contract §4.1.
+Git under CD-0036. An ordinary update supplies no fresh Review, healthy verdict
+or authority to bypass completion requirements.
 
 Exact shared-write conflicts, exclusive step claims, host-owned session/worktree
 placement under CD-0088 D1,

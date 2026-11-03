@@ -29,7 +29,7 @@ func TestBlockingReviewDispositionRecordsWithoutAdvancing(t *testing.T) {
 			if currentStep(t, j.s, j.workID) != step || pin.Review == nil || pin.Review.Accepted == nil || pin.Review.Accepted.Report.Disposition != disposition {
 				t.Fatalf("recording lost the disposition or advanced execution: %+v", pin.Review)
 			}
-			if workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "record_review") || (disposition == "correction_required" && !workPinContainsAction(pin.NextValidIntents, "request_correction")) {
+			if workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "record_review") {
 				t.Fatalf("corrective Review lost its hold or engineering recovery: %+v", pin.NextValidIntents)
 			}
 			if disposition == "revision_required" {

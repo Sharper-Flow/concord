@@ -19,47 +19,43 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-09
-- **Scope:** The break-fix verify route for an outstanding contract evidence kind
-- **Approval:** The operator approved this Product law amendment for the
-  workflow recovery repair.
-- **Related:** CD-0013, CD-0122, CD-0143, issue #837
+- **Scope:** Ordinary evidence binding in break-fix workflows
+- **Authority:** Derived amendment under the ordinary Product-law route.
+- **Related:** CD-0013, CD-0122, issue #837
 - **Preserves:** Contract authority, evidence provenance,
   operator approval, and lifecycle gates.
 
 ## Context
 
 An accepted break-fix delivery can reach `verify` with a contract-required
-evidence kind still outstanding. Premise confirmation refuses, so verify needs
-a typed route that can
-repair the missing evidence without changing the step.
-
-Verdict correction is a separate route. It requires delivered work and a current
-unhealthy verdict, returns to the declared `repair` step, and does not replace this
-evidence-binding recovery.
+evidence kind still outstanding. Binding evidence holds the step; premise
+confirmation retains its contract evidence requirements.
 
 ## Decision
 
-### D1. Verify has one typed recovery route
+### D1. Verify admits ordinary evidence binding
 
-Break-fix declares `bind_evidence` on `verify`. The action
-has hold execution mode and no approval requirement. It binds only one evidence
-kind that the active contract and the current definition still require and that
-the recorded evidence does not satisfy.
+Break-fix declares `bind_evidence` on `verify`. The action has hold execution
+mode and no approval requirement. An authenticated actor may bind evidence for
+an active contract once the workflow reaches or passes a step declaring the
+action. The binding must satisfy ordinary payload, producer, subject,
+evidence-kind and obligation checks. A previously satisfied requirement does not
+prevent a fresh binding.
 
 ### D2. Confirmation remains the advancing gate
 
 `bind_evidence` never advances `verify`. `confirm_premise` remains the only
-advancing action on that step. Recovery and acceptance use the same outstanding
-requirement calculation. They do not create a second requirement list.
+advancing action on that step. Confirmation and completion retain the
+outstanding-requirement calculation; it does not restrict ordinary binding.
 
-### D3. Recovery preserves authority and refuses unsafe input
+### D3. Binding preserves authority and refuses unsafe input
 
-The route preserves the active contract, prior evidence, verdicts,
-and operator decisions. It refuses an unrelated kind, a satisfied requirement,
-an unauthorized actor, a stale version, and terminal work without a durable
-effect. An exact replay is idempotent and creates no duplicate binding.
+The binding preserves the active contract, prior evidence, verdicts, and operator
+decisions. It refuses an unrelated kind or obligation, an unauthorized actor, a
+stale version, and terminal work without a durable effect. An exact successful
+replay is idempotent and creates no duplicate binding.
 
-Recovery does not fabricate evidence, relabel a producer's evidence, invent an
+Binding does not fabricate evidence, relabel a producer's evidence, invent an
 obligation, reset history, or bypass a lifecycle gate.
 
 ### D5. Delivery evidence stays separate
@@ -73,9 +69,6 @@ deployment or stranded-work recovery.
 - The break-fix definition declares `bind_evidence` on `verify` with hold
   execution mode, while `confirm_premise` remains the only advancing action.
 - Recovery and acceptance share the typed outstanding-requirement calculation.
-- Refusal tests prove no effect for unrelated, satisfied, unauthorized, stale,
-  and terminal requests.
-- Replay tests prove one durable binding for one recovery identity.
-- Verdict correction requires delivered work and a current unhealthy verdict, binds
-  a comparable healthy predicate set, and returns break-fix work to the
-  `repair` step without rewriting recorded facts.
+- Confirmation and completion retain the typed outstanding-requirement calculation.
+- Refusal tests prove no effect for unrelated, unauthorized, stale, and terminal requests.
+- Replay tests prove one durable binding for one successful request identity.

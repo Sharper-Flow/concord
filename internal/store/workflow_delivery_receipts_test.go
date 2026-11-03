@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -130,44 +129,17 @@ func TestWorkflowDeliveryAssertionClassification(t *testing.T) {
 	}
 }
 
-func TestWorkflowDeliveryTargetClassificationWithoutLog(t *testing.T) {
+func TestWorkflowCurrentDeliveryWithoutLog(t *testing.T) {
 	const work = "delivery-receipt-target"
 	s := completedDeliveryFixtureWithAssertions(t, work, 2)
 	defer s.Close()
-	target, targetSeq, targetVersion := deliveryAssertionEvent(t, s, work, 0)
-	older, _, _ := deliveryAssertionEvent(t, s, work, 1)
-	var other string
-	if err := s.db.QueryRow(`SELECT event_id FROM effect_receipts WHERE subject_id=? AND kind='workflow.action_completed' AND delivery_assertion=0 ORDER BY effect_seq DESC LIMIT 1`, work).Scan(&other); err != nil {
-		t.Fatal(err)
-	}
-	checks := map[string]func() (any, error){}
-	for name, test := range map[string]struct{ id, work, failure string }{
-		"assertion":     {id: target, work: work},
-		"not-assertion": {id: other, work: work, failure: "not a recorded delivery assertion"},
-		"not-recorded":  {id: "missing-assertion", work: work, failure: "target event is not recorded"},
-		"not-current":   {id: older, work: work, failure: "not the current delivery assertion"},
-		"other-work":    {id: target, work: "other-work", failure: "not a recorded delivery assertion"},
-	} {
-		checks[name] = func() (any, error) {
-			tx, err := s.db.BeginTx(t.Context(), nil)
-			if err != nil {
-				return nil, err
-			}
-			defer tx.Rollback()
-			seq, version, artifact, readErr := workflowDeliveryAssertionEventTx(t.Context(), tx, test.work, test.id)
-			if test.failure == "" {
-				if readErr != nil || seq != targetSeq || version != targetVersion || artifact != deliveryCorrectionWrongPath+"/1" {
-					t.Errorf("current assertion = %d,%d,%q,%v", seq, version, artifact, readErr)
-				}
-			} else if readErr == nil || !strings.Contains(readErr.Error(), test.failure) {
-				t.Errorf("%s refusal = %v; want %s", name, readErr, test.failure)
-			}
-			return struct {
-				Seq               int64
-				Version           int
-				Artifact, Failure string
-			}{seq, version, artifact, fmt.Sprint(readErr)}, nil
+	target, targetSeq, _ := deliveryAssertionEvent(t, s, work, 0)
+	checks := map[string]func() (any, error){"current": func() (any, error) {
+		current, err := workflowDeliveryAssertionRead(t.Context(), s.db, work)
+		if err != nil || current == nil || current.EventID != target || current.Seq != targetSeq || current.Artifact != deliveryCorrectionWrongPath+"/1" {
+			t.Errorf("current delivery=%+v err=%v", current, err)
 		}
-	}
+		return current, err
+	}}
 	assertWorkerFactsLogBlind(t, s, checks)
 }

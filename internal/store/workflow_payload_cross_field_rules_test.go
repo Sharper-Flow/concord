@@ -20,10 +20,9 @@ import (
 // alternative-group mutant.
 
 // declaredActionPayloads collects every action payload declaration the
-// registry and the recovery definitions own, keyed by action ID. It reads
+// registry owns, keyed by action ID. It reads
 // the same source the contract projection reads — the current builtin
-// definitions (so record_verdict carries its canonical batch payload) plus
-// the canonical recovery list the generator folds into the projection — so
+// definitions (so record_verdict carries its canonical batch payload), so
 // the differential judges the shape publication actually advertises.
 func declaredActionPayloads(t *testing.T) map[string]WorkflowPayloadDefinition {
 	t.Helper()
@@ -32,9 +31,6 @@ func declaredActionPayloads(t *testing.T) map[string]WorkflowPayloadDefinition {
 		for _, action := range definition.ActionDefinitions {
 			payloads[action.ID] = action.Payload
 		}
-	}
-	for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {
-		payloads[action.ID] = action.Payload
 	}
 	for _, action := range BuiltinWorkflowDecisionFactActionDefinitions() {
 		payloads[action.ID] = action.Payload

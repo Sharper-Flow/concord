@@ -34,11 +34,14 @@ func TestReportedCompletionDiscardsStepsAndPreservesDelivery(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(before, projection.DeliveryAssertion) {
 		t.Fatalf("terminal projection lost reported delivery: %+v, %v", projection.DeliveryAssertion, err)
 	}
-	for _, table := range []string{"workflow_step_epochs", "workflow_step_completions", "workflow_phase_exits", "workflow_completed_exits", "workflow_checkpoints", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_artifact_actions", "workflow_coordinator_actions"} {
+	for _, table := range []string{"workflow_step_epochs", "workflow_step_completions", "workflow_phase_exits", "workflow_completed_exits", "workflow_checkpoints", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_coordinator_actions"} {
 		var count int
 		if err := s.db.QueryRow("SELECT count(*) FROM "+table+" WHERE work_id=?", workID).Scan(&count); err != nil || count != 0 {
 			t.Errorf("retained %s rows=%d err=%v", table, count, err)
 		}
+	}
+	if rows := retirementUpgradeRows(t, s.db, `SELECT name FROM sqlite_schema WHERE type='table' AND name='workflow_artifact_actions'`); len(rows) != 0 {
+		t.Errorf("retired workflow_artifact_actions table remains: %v", rows)
 	}
 	var state, lifecycle string
 	var receipts, producers int

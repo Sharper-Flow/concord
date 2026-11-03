@@ -15,12 +15,12 @@ Take the direction the operator names: an area, module, or pain point. Otherwise
 rank areas by recent Git history and start with recurring change hotspots. If
 history has no clear hotspot, widen the exploration.
 
-Identify the Product's relevant Domains with concord_domain.list and read their
-purpose, documents and current law paths with concord_domain.detail. Read the
-relevant Domain documents and committed law in the Product's designated law
-folder. Resolve acceptance through the workflow's resolved law context, not a
-filename or branch text. If the context is unavailable, report the gap rather
-than assume law is absent.
+Identify the Product's relevant Domains with `concord_domain.list` and read each
+one's purpose, current law paths, relations and open observations with
+`concord_domain.detail`. Read that committed law in the Product's designated law
+folder and the Product's documentation for the area. Resolve acceptance through
+the workflow's resolved law context, not a filename or branch text. If the
+context is unavailable, report the gap rather than assume law is absent.
 
 ## Explore and test
 

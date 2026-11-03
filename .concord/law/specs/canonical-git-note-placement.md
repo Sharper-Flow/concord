@@ -18,7 +18,7 @@
     },
     {
       "criterion": 3,
-      "exemption": "Typed historical uncertainty is a read property. Integrated evidence must distinguish missing, ambiguous, degraded and unreachable outcomes without rewriting a locator."
+      "exemption": "Typed historical uncertainty is a read and resolution property. Integrated evidence must distinguish missing, ambiguous, degraded and unreachable outcomes without rewriting a locator."
     }
   ]
 }
@@ -115,12 +115,16 @@ creates no law catalog or public rebuild surface.
 
 ## 4. Read outcomes and authority
 
+Historical reads decide from the retained record. Resolving the recorded
+commit against a Git repository, including its absence or unreachability,
+belongs to the consumer or to PM10 recovery, never to the read.
+
 | Outcome | Meaning |
 |---|---|
 | canonical locator | the reader returned the single retained canonical locator; its stored commit, path, work identity and note hash identify the note, and no Git object was checked |
-| `not_compacted` | no verified historical canonical note is available; this does not prevent completion |
-| `ambiguous` | multiple valid notes claim the work ID |
-| `missing` | the recorded object is absent after complete authority coverage |
+| `not_compacted` | no retained canonical note is indexed for the work identity; this does not prevent completion |
+| `ambiguous` | multiple retained notes claim the work ID |
+| `missing` | the retained locator names a Git object the consumer or PM10 recovery did not find; the read itself claims nothing about the object |
 
 | Authority | Meaning |
 |---|---|
@@ -144,8 +148,9 @@ backup to resolve the recorded commit and verify the hash under PM10.
   When upgrade, restore or a historical read runs
   Then its recorded locator, note content hash and lesson tags remain unchanged.
 
-- Given incomplete, conflicting or unreachable historical note proof
-  When the historical reader answers
+- Given conflicting or incompletely retained historical note identity, or an
+  unreachable Git authority while resolving a retained locator
+  When the historical reader or the resolving consumer answers
   Then it returns typed uncertainty rather than guessed authority or absence.
 
 ## Verification

@@ -96,7 +96,7 @@ audit, not a control.
 Concord cannot enforce that the adviser and the caller differ in model family.
 The host admits the adviser through its native Task surface under the tool
 permissions of the generated subagent profile; the adapter registers no tool
-hook. The host routing layer picks a model after that point.
+execution hook. The host routing layer picks a model after that point.
 
 No mechanism instructs a caller to compare the disclosed model against its own
 serving model, or to discount on a match. The coordinator definitions, the

@@ -7,16 +7,16 @@ import (
 
 func seedLateCriterionAssociation(t *testing.T, workID string) (workflowReturnRouteFixture, string) {
 	t.Helper()
-	return seedCriterionAssociationAtStep(t, workID, WorkflowStepPlanResearch, "conclude")
+	return seedCriterionAssociationAtStep(t, workID)
 }
 
-func seedCriterionAssociationAtStep(t *testing.T, workID string, planType WorkflowStepPlanType, step string) (workflowReturnRouteFixture, string) {
+func seedCriterionAssociationAtStep(t *testing.T, workID string) (workflowReturnRouteFixture, string) {
 	t.Helper()
 	var predicates []map[string]any
 	for ordinal, id := range []string{"predicate:first", "predicate:second"} {
 		predicates = append(predicates, map[string]any{"predicate_id": id, "ordinal": ordinal, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}})
 	}
-	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, planType, step, []string{}, []string{"artifact"}, predicates...)
+	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "conclude", []string{}, []string{"artifact"}, predicates...)
 	t.Cleanup(func() { _ = route.store.Close() })
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 	pack := seedResearchContextPack(t, f, "late-association-pack")
@@ -45,7 +45,7 @@ func criterionAssociationPayload(ref string, predicates ...string) json.RawMessa
 
 func TestCriterionAssociationAtConclusionBeforeConfirmation(t *testing.T) {
 	const workID = "premise-late-association"
-	f, ref := seedCriterionAssociationAtStep(t, workID, WorkflowStepPlanResearch, "conclude")
+	f, ref := seedCriterionAssociationAtStep(t, workID)
 	preflight := func(action string, payload json.RawMessage) error {
 		request := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: readWorkVersion(t, f.store, workID), ActionID: action, Payload: payload, Actor: f.owner}
 		_, err := WorkflowActionDefinitionFor(t.Context(), f.store, request)

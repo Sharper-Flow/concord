@@ -115,12 +115,8 @@ jobs:
       - name: Test the adapter suite
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -353,12 +349,8 @@ jobs:
       - name: Test every package without its own shard job
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -398,12 +390,8 @@ jobs:
       - name: Test shard 1 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -443,12 +431,8 @@ jobs:
       - name: Test shard 2 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -488,12 +472,8 @@ jobs:
       - name: Test shard 3 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -533,12 +513,8 @@ jobs:
       - name: Test shard 4 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -578,12 +554,8 @@ jobs:
       - name: Test shard 5 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -623,12 +595,8 @@ jobs:
       - name: Test shard 6 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -668,12 +636,8 @@ jobs:
       - name: Test shard 7 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -717,12 +681,8 @@ jobs:
       - name: Test shard 1 of 2 of ./cmd/concord
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -766,12 +726,8 @@ jobs:
       - name: Test shard 2 of 2 of ./cmd/concord
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -811,12 +767,8 @@ jobs:
       - name: Test shard 1 of 3 of ./internal/agent
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -856,12 +808,8 @@ jobs:
       - name: Test shard 2 of 3 of ./internal/agent
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -901,12 +849,8 @@ jobs:
       - name: Test shard 3 of 3 of ./internal/agent
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
@@ -945,12 +889,8 @@ jobs:
       - name: Test concurrent store access under the race detector
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
-          CONCORD_SELECTED_WORK_ID: poison-work
-          CONCORD_PRODUCT_ID: poison-product
           CONCORD_DB_PATH: /nonexistent/poison.db
-          CONCORD_SELECTED_PROJECT_ID: poison-project
           CONCORD_CLIENT_REF: poison-client
-          CONCORD_SOURCE: /nonexistent/poison-source
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass

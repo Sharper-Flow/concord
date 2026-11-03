@@ -19,8 +19,8 @@ package store
 //     may cover repeated oneOf alternatives), must not be stale, and no
 //     bound may be claimed twice;
 //   - finite rows must evaluate a real source (input schema node, schema
-//     node, Go guard call argument, Go constant, or final migrated SQLite
-//     CHECK) and that source's capacity, converted across count units, must
+//     node, Go guard call argument, or Go constant) and that source's capacity,
+//     converted across count units, must
 //     admit the consumer bound;
 //   - every parent node a wildcard pattern covers must retain the bound
 //     keyword: a finite row fails when one arm's cap is removed even while
@@ -35,11 +35,7 @@ package store
 //     utf8.RuneCountInString), never from the declared unit alone, and a
 //     guard mixing the measurements fails closed;
 //   - maxBound composes ALTERNATIVE writers, whose per-unit capacities may
-//     legitimately differ; combinePaired composes guards of the SAME value,
-//     requires an inferred Go measurement, and takes their intersection;
-//   - SQLite length() over TEXT measures only the NUL-terminated prefix, so
-//     a character bound from it never stands as a full-string producer
-//     proof: the source stays unproved unless a full-byte CHECK exists;
+//     legitimately differ;
 //   - refusal evidence is the canonical typed emitter only: a cited symbol
 //     must directly carry the limit_exceeded kind, a *Refusal-suffixed call
 //     or a forwarding helper proves nothing, and an unbounded row must cite
@@ -59,12 +55,11 @@ package store
 // character and byte guards contributes their intersection; a bare Go
 // constant carries no guard implementation to infer from, so
 // goConstantBound trusts its declared unit and lets the producer/consumer
-// comparison catch misuse, and combinePaired refuses it outright; the census
+// comparison catch misuse; the census
 // reads the published contract documents from the working tree, whose sync
 // with the generated Go schema is owned by the generator's own checks.
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -74,7 +69,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -162,7 +156,7 @@ func ledgerClassRefusalPath(class string) string {
 // bound comes from. Family files build sources only through the constructors
 // below; every field is unexported on purpose.
 type outputBoundSource struct {
-	kind         string // input, schema, go_call, go_const, sqlite, max, sum, paired, unbounded, unproved
+	kind         string // input, schema, go_call, go_const, max, sum, unbounded
 	file         string // schema document (repo-relative)
 	pointer      string // JSON pointer to a bound keyword
 	goFile       string
@@ -172,10 +166,8 @@ type outputBoundSource struct {
 	goArgument   int
 	symbol       string // Go constant name
 	unit         boundUnit
-	sqlTable     string // sqlite sources
-	sqlColumn    string
 	members      []outputBoundSource
-	producer     string   // unbounded rows: why no finite producer guard exists; unproved rows: the saved gap
+	producer     string   // unbounded rows: why no finite producer guard exists
 	refusalPaths []string // unbounded rows: the author-cited typed refusal paths, one per required class
 	derive       func(*ledgerRuntime, *boundCensus) (evaluatedBound, error)
 }
@@ -217,19 +209,6 @@ func goConstantBound(file, symbol string, unit boundUnit) outputBoundSource {
 	return outputBoundSource{kind: "go_const", goFile: file, symbol: symbol, unit: unit}
 }
 
-// sqliteBound cites the bound a final migrated CREATE TABLE CHECK declares
-// for one column. The bound is parsed from sqlite_master of a migrated store
-// at run time, never from an old migration copy. Units come from the SQL
-// shape: length(CAST(col AS BLOB)) and octet_length(col) count bytes,
-// length(col) follows the column's type affinity (TEXT counts characters),
-// and json_array_length(col) counts items. A character bound from
-// length(TEXT) measures only the NUL-terminated prefix, so it never stands
-// as a full-string producer proof unless a full-byte CHECK bounds the same
-// column.
-func sqliteBound(table, column string) outputBoundSource {
-	return outputBoundSource{kind: "sqlite", sqlTable: table, sqlColumn: column}
-}
-
 // maxBound composes ALTERNATIVE writers or derivations of one output: the
 // output must admit the largest any member can emit. The writers may guard
 // different units — a byte guard on one and a character guard on another are
@@ -237,7 +216,6 @@ func sqliteBound(table, column string) outputBoundSource {
 // demanded between members. An unbounded member makes the composite
 // unbounded. Mixing items with string units is refused; string members carry
 // both their byte and character capacities so unit conversion stays sound.
-// Guards of the SAME value whose unit agreement matters use combinePaired.
 func maxBound(sources ...outputBoundSource) outputBoundSource {
 	return outputBoundSource{kind: "max", members: sources}
 }
@@ -261,15 +239,6 @@ func sumBound(sources ...outputBoundSource) outputBoundSource {
 // maximum fails.
 func unboundedOutput(producer string, refusalPaths ...string) outputBoundSource {
 	return outputBoundSource{kind: "unbounded", producer: producer, refusalPaths: refusalPaths}
-}
-
-// unprovedOutput registers a row whose producer is known to lack a finite
-// proof. The row never closes the ledger: evaluation always fails, and the
-// failure reports the saved gap text instead of an unknown-kind diagnostic,
-// so the honest gap survives into the ledger output without being accepted
-// as a source.
-func unprovedOutput(gap string) outputBoundSource {
-	return outputBoundSource{kind: "unproved", producer: gap}
 }
 
 // ---------------------------------------------------------------------------
@@ -534,7 +503,7 @@ func censusKey(file, pointer string) string {
 }
 
 // ---------------------------------------------------------------------------
-// Ledger runtime: documents, Go sources, DDL
+// Ledger runtime: documents, Go sources
 // ---------------------------------------------------------------------------
 
 type goSource struct {
@@ -543,13 +512,12 @@ type goSource struct {
 }
 
 // ledgerRuntime carries the live surfaces the ledger evaluates against: the
-// published documents, parsed Go sources, and the final migrated DDL.
+// published documents and parsed Go sources.
 type ledgerRuntime struct {
 	root    string
 	mu      sync.Mutex
 	docs    map[string]map[string]any
 	goCache map[string]*goSource
-	ddl     map[string]string
 }
 
 func newLedgerRuntime(root string) *ledgerRuntime {
@@ -1081,712 +1049,21 @@ func checkLedgerRefusalPath(rt *ledgerRuntime, refusalPath string) error {
 }
 
 // ---------------------------------------------------------------------------
-// SQLite DDL: final migrated CREATE TABLE text
-// ---------------------------------------------------------------------------
-
-// sqliteMasterDDL reads the final migrated schema straight from a store's
-// database handle. The caller runs outside any transaction: the store pools
-// one connection and an s.db-backed call inside a transaction parks forever.
-func sqliteMasterDDL(db *sql.DB) (map[string]string, error) {
-	rows, err := db.Query(`SELECT name, sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL`)
-	if err != nil {
-		return nil, fmt.Errorf("cannot read the final migrated DDL: %w", err)
-	}
-	defer rows.Close()
-	tables := map[string]string{}
-	for rows.Next() {
-		var name, createSQL string
-		if err := rows.Scan(&name, &createSQL); err != nil {
-			return nil, fmt.Errorf("cannot scan the final migrated DDL: %w", err)
-		}
-		tables[name] = createSQL
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("cannot read the final migrated DDL: %w", err)
-	}
-	return tables, nil
-}
-
-var (
-	ledgerBetweenProtect = regexp.MustCompile(`between\s+([0-9]+)\s+and\s+([0-9]+)`)
-	ledgerMeasurementRe  = regexp.MustCompile(`length\s*\(\s*cast\s*\(\s*([a-z0-9_]+)\s+as\s+blob\s*\)\s*\)|octet_length\s*\(\s*([a-z0-9_]+)\s*\)|json_array_length\s*\(\s*([a-z0-9_]+)\s*\)|length\s*\(\s*([a-z0-9_]+)\s*\)`)
-	ledgerComparatorRe   = regexp.MustCompile(`^\s*(<=|>=|=|<|>)\s*([0-9]+)`)
-	ledgerBetweenBoundRe = regexp.MustCompile(`^\s*between\s+([0-9]+)\.\.([0-9]+)`)
-)
-
-func ledgerIsWordByte(b byte) bool {
-	return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
-}
-
-func ledgerCollapseSpace(s string) string {
-	return strings.Join(strings.Fields(s), " ")
-}
-
-// ledgerStripSQLComments removes SQL line and block comments from DDL text
-// without altering quoted values or identifiers. sqlite_master retains the
-// original CREATE TABLE text, comments included, and an apostrophe inside a
-// comment (schema.go carries several) would otherwise be read as a string
-// delimiter by every quote-tracking scan below. A block comment collapses to
-// one space so its removal cannot fuse adjacent tokens. Unterminated quotes
-// or block comments fail closed; a line comment may run to end of input.
-func ledgerStripSQLComments(ddl string) (string, error) {
-	var out strings.Builder
-	out.Grow(len(ddl))
-	i := 0
-	var quote byte
-	for i < len(ddl) {
-		c := ddl[i]
-		switch {
-		case quote != 0:
-			out.WriteByte(c)
-			if c == quote {
-				if i+1 < len(ddl) && ddl[i+1] == quote {
-					out.WriteByte(quote)
-					i += 2
-					continue
-				}
-				quote = 0
-			}
-			i++
-		case c == '-' && i+1 < len(ddl) && ddl[i+1] == '-':
-			for i < len(ddl) && ddl[i] != '\n' {
-				i++
-			}
-		case c == '/' && i+1 < len(ddl) && ddl[i+1] == '*':
-			end := strings.Index(ddl[i+2:], "*/")
-			if end < 0 {
-				return "", fmt.Errorf("DDL carries an unterminated block comment")
-			}
-			i += end + 4
-			out.WriteByte(' ')
-		case c == '\'' || c == '"' || c == '`':
-			quote = c
-			out.WriteByte(c)
-			i++
-		default:
-			out.WriteByte(c)
-			i++
-		}
-	}
-	if quote != 0 {
-		return "", fmt.Errorf("DDL ends inside an unterminated quoted value or identifier")
-	}
-	return out.String(), nil
-}
-
-// ledgerParenSpan returns the inner text and closing index of the paren group
-// opened at open.
-func ledgerParenSpan(s string, open int) (string, int, bool) {
-	depth, inQuote := 0, false
-	for i := open; i < len(s); i++ {
-		c := s[i]
-		if inQuote {
-			if c == '\'' {
-				if i+1 < len(s) && s[i+1] == '\'' {
-					i++
-					continue
-				}
-				inQuote = false
-			}
-			continue
-		}
-		switch c {
-		case '\'':
-			inQuote = true
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth == 0 {
-				return s[open+1 : i], i, true
-			}
-		}
-	}
-	return "", 0, false
-}
-
-func ledgerSplitTopLevel(body string, sep byte) []string {
-	var parts []string
-	depth, inQuote, start := 0, false, 0
-	for i := 0; i < len(body); i++ {
-		c := body[i]
-		if inQuote {
-			if c == '\'' {
-				if i+1 < len(body) && body[i+1] == '\'' {
-					i++
-					continue
-				}
-				inQuote = false
-			}
-			continue
-		}
-		switch c {
-		case '\'':
-			inQuote = true
-		case '(':
-			depth++
-		case ')':
-			depth--
-		case sep:
-			if depth == 0 {
-				parts = append(parts, body[start:i])
-				start = i + 1
-			}
-		}
-	}
-	return append(parts, body[start:])
-}
-
-// ledgerSplitTopLevelKeyword splits on a depth-zero, quote-free AND or OR
-// word with word boundaries on both sides. Split fragments keep their
-// surrounding spaces; every consumer trims or tolerates them.
-func ledgerSplitTopLevelKeyword(body, word string) []string {
-	var parts []string
-	depth, inQuote, start := 0, false, 0
-	for i := 0; i < len(body); i++ {
-		c := body[i]
-		if inQuote {
-			if c == '\'' {
-				if i+1 < len(body) && body[i+1] == '\'' {
-					i++
-					continue
-				}
-				inQuote = false
-			}
-			continue
-		}
-		switch c {
-		case '\'':
-			inQuote = true
-		case '(':
-			depth++
-		case ')':
-			depth--
-		default:
-			if depth != 0 || c != word[0] || i+len(word) > len(body) || body[i:i+len(word)] != word {
-				continue
-			}
-			before := i == 0 || !ledgerIsWordByte(body[i-1])
-			after := i+len(word) >= len(body) || !ledgerIsWordByte(body[i+len(word)])
-			if before && after {
-				parts = append(parts, body[start:i])
-				start = i + len(word)
-				i += len(word) - 1
-			}
-		}
-	}
-	return append(parts, body[start:])
-}
-
-// ledgerCheckBodies extracts the inner text of every CHECK group in a column
-// or table constraint definition.
-func ledgerCheckBodies(def string) []string {
-	var bodies []string
-	lower := strings.ToLower(def)
-	for i := 0; i < len(lower); {
-		idx := strings.Index(lower[i:], "check")
-		if idx < 0 {
-			break
-		}
-		at := i + idx
-		before := at == 0 || !ledgerIsWordByte(lower[at-1])
-		after := at+5 < len(lower) && !ledgerIsWordByte(lower[at+5])
-		j := at + 5
-		for j < len(def) && (def[j] == ' ' || def[j] == '\t' || def[j] == '\n') {
-			j++
-		}
-		if before && after && j < len(def) && def[j] == '(' {
-			inner, end, ok := ledgerParenSpan(def, j)
-			if !ok {
-				break
-			}
-			bodies = append(bodies, inner)
-			i = end + 1
-			continue
-		}
-		i = at + 5
-	}
-	return bodies
-}
-
-// ledgerColumnDefName splits one DDL definition into its first identifier and
-// the remainder, reporting false for table-level constraint keywords.
-func ledgerColumnDefName(def string) (name, rest string, isColumn bool) {
-	switch {
-	case strings.HasPrefix(def, "\""):
-		end := strings.Index(def[1:], "\"")
-		if end < 0 {
-			return "", def, false
-		}
-		return def[1 : 1+end], def[2+end:], true
-	case strings.HasPrefix(def, "`"):
-		end := strings.Index(def[1:], "`")
-		if end < 0 {
-			return "", def, false
-		}
-		return def[1 : 1+end], def[2+end:], true
-	default:
-		i := 0
-		for i < len(def) && ledgerIsWordByte(def[i]) {
-			i++
-		}
-		name := def[:i]
-		switch strings.ToLower(name) {
-		case "check", "constraint", "unique", "primary", "foreign":
-			return "", def, false
-		}
-		return name, def[i:], true
-	}
-}
-
-// ledgerAffinity classifies a column's declared type into the SQLite length
-// semantics that apply to it: length() over TEXT counts characters and over
-// BLOB counts bytes; numeric affinities have no string-bound meaning.
-func ledgerAffinity(declaredType string) (boundUnit, error) {
-	fields := strings.Fields(declaredType)
-	declared := ""
-	if len(fields) > 0 {
-		declared = strings.ToUpper(fields[0])
-	}
-	switch {
-	case declared == "":
-		return boundBytes, nil // SQLite BLOB affinity
-	case strings.Contains(declared, "INT"):
-		return "", fmt.Errorf("length() over an %s column has no string-bound meaning", declared)
-	case strings.Contains(declared, "CHAR"), strings.Contains(declared, "CLOB"), strings.Contains(declared, "TEXT"):
-		return boundCharacters, nil
-	case strings.Contains(declared, "BLOB"):
-		return boundBytes, nil
-	case strings.Contains(declared, "REAL"), strings.Contains(declared, "FLOA"), strings.Contains(declared, "DOUB"):
-		return "", fmt.Errorf("length() over a %s column has no string-bound meaning", declared)
-	default:
-		return "", fmt.Errorf("unsupported column affinity %s for a length bound", declared)
-	}
-}
-
-type ledgerMeasurement struct {
-	unit boundUnit
-	end  int
-}
-
-// ledgerQuotedSpans returns the index spans of quoted values and quoted
-// identifiers in s. Text inside them is data: a literal such as
-// 'length(x) <= 999999' is never a real measurement.
-func ledgerQuotedSpans(s string) [][2]int {
-	var spans [][2]int
-	start, quote := -1, byte(0)
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if quote == 0 {
-			if c == '\'' || c == '"' || c == '`' {
-				quote, start = c, i
-			}
-			continue
-		}
-		if c != quote {
-			continue
-		}
-		if i+1 < len(s) && s[i+1] == quote {
-			i++
-			continue
-		}
-		spans = append(spans, [2]int{start, i + 1})
-		quote = 0
-	}
-	if quote != 0 {
-		spans = append(spans, [2]int{start, len(s)})
-	}
-	return spans
-}
-
-// ledgerFindMeasurements locates every length/cast/octet/json_array
-// measurement of exactly the named column in one normalized atom, ignoring
-// matches inside quoted values and identifiers.
-func ledgerFindMeasurements(atom, column string) []ledgerMeasurement {
-	spans := ledgerQuotedSpans(atom)
-	inQuote := func(at int) bool {
-		for _, span := range spans {
-			if at >= span[0] && at < span[1] {
-				return true
-			}
-		}
-		return false
-	}
-	var found []ledgerMeasurement
-	for _, loc := range ledgerMeasurementRe.FindAllStringSubmatchIndex(atom, -1) {
-		if inQuote(loc[0]) {
-			continue
-		}
-		groups := [4]string{}
-		for g := 0; g < 4; g++ {
-			pair := loc[2*g+2 : 2*g+4]
-			if pair[0] >= 0 {
-				groups[g] = atom[pair[0]:pair[1]]
-			}
-		}
-		measured := ""
-		alt := -1
-		for g, value := range groups {
-			if value != "" {
-				measured, alt = value, g
-				break
-			}
-		}
-		if measured != column {
-			continue
-		}
-		switch alt {
-		case 0, 1:
-			found = append(found, ledgerMeasurement{unit: boundBytes, end: loc[1]})
-		case 2:
-			found = append(found, ledgerMeasurement{unit: boundItems, end: loc[1]})
-		case 3:
-			found = append(found, ledgerMeasurement{unit: boundCharacters, end: loc[1]})
-		}
-	}
-	return found
-}
-
-// ledgerBoundTailJunk refuses anything but whitespace and closing
-// parentheses after a parsed bound: trailing arithmetic (<= 63 + 1) or a
-// conditional wrapper (CASE WHEN length(c) <= 64 THEN 1 ... / IIF(...)) is
-// not the plain comparator it mimics, and silently taking its first integer
-// would understate the real capacity.
-func ledgerBoundTailJunk(atom, rest string) error {
-	if trimmed := strings.Trim(rest, " \t\r\n)"); trimmed != "" {
-		return fmt.Errorf("CHECK atom %q carries unsupported trailing structure %q after the bound; only a bare comparator or between bound is analyzed", ledgerCollapseSpace(atom), ledgerCollapseSpace(trimmed))
-	}
-	return nil
-}
-
-// ledgerComparatorUpper reads the numeric upper bound that follows one
-// measurement, if the atom carries one. '<' is strict: its bound is n-1.
-// An atom with trailing arithmetic or conditional structure after the bound
-// fails closed instead of taking the first integer.
-func ledgerComparatorUpper(atom string, from int) (int64, bool, error) {
-	tail := atom[from:]
-	if m := ledgerComparatorRe.FindStringSubmatch(tail); m != nil {
-		if err := ledgerBoundTailJunk(atom, tail[len(m[0]):]); err != nil {
-			return 0, false, err
-		}
-		value, err := strconv.ParseInt(m[2], 10, 64)
-		if err != nil {
-			return 0, false, fmt.Errorf("unparsable bound number %q", m[2])
-		}
-		switch m[1] {
-		case "<=":
-			return value, true, nil
-		case "<":
-			return value - 1, true, nil
-		case "=":
-			return value, true, nil
-		default: // >= or >: lower bound only
-			return 0, false, nil
-		}
-	}
-	if m := ledgerBetweenBoundRe.FindStringSubmatch(tail); m != nil {
-		if err := ledgerBoundTailJunk(atom, tail[len(m[0]):]); err != nil {
-			return 0, false, err
-		}
-		high, err := strconv.ParseInt(m[2], 10, 64)
-		if err != nil {
-			return 0, false, fmt.Errorf("unparsable between bound %q", m[2])
-		}
-		return high, true, nil
-	}
-	return 0, false, nil
-}
-
-// ledgerExprBounds is what one reduced boolean expression admits about the
-// target column's length. The three facts are orthogonal: constrainsTarget
-// reports whether any target measurement participates at all, nullOnly
-// reports that the expression admits no non-null target value, and
-// unbounded reports that it can admit a non-null target value of
-// unbounded length. When neither nullOnly nor unbounded holds, bounds
-// carries the expression's upper bound per unit.
-type ledgerExprBounds struct {
-	constrainsTarget bool
-	nullOnly         bool
-	unbounded        bool
-	bounds           map[boundUnit]int64
-}
-
-// ledgerUnwrapParens removes balanced outer parentheses that enclose the
-// whole expression, repeatedly. Inner groups are never touched: when the
-// paren group closes before the end of the expression, the expression is
-// returned unchanged.
-func ledgerUnwrapParens(expr string) string {
-	s := strings.TrimSpace(expr)
-	for strings.HasPrefix(s, "(") {
-		inner, end, ok := ledgerParenSpan(s, 0)
-		if !ok || strings.TrimSpace(s[end+1:]) != "" {
-			return s
-		}
-		s = strings.TrimSpace(inner)
-	}
-	return s
-}
-
-// ledgerReduceExpr reduces a CHECK boolean expression recursively: balanced
-// outer parentheses unwrap, AND intersects upper bounds, and OR takes their
-// union maximum. An OR alternative is accepted only when it bounds the
-// column or admits no non-null value (`column IS NULL`); an alternative
-// that can admit unbounded non-null target values fails closed. An
-// expression about other columns only (no target measurement) is
-// unconstrained in target length: ignorable beside a bounding conjunct,
-// rejected where it would stand as a target-length alternative. A
-// lower-only predicate never invents an upper bound. A negated predicate is
-// not analyzed and fails closed.
-func ledgerReduceExpr(expr, column string, affinity boundUnit) (ledgerExprBounds, error) {
-	expr = ledgerUnwrapParens(expr)
-	if branches := ledgerSplitTopLevelKeyword(expr, "or"); len(branches) > 1 {
-		reduced := make([]ledgerExprBounds, 0, len(branches))
-		constrains, nullOnlyAll := false, true
-		for _, branch := range branches {
-			one, err := ledgerReduceExpr(branch, column, affinity)
-			if err != nil {
-				return ledgerExprBounds{}, err
-			}
-			if !one.nullOnly {
-				nullOnlyAll = false
-				constrains = constrains || one.constrainsTarget
-			}
-			reduced = append(reduced, one)
-		}
-		if nullOnlyAll {
-			return ledgerExprBounds{nullOnly: true}, nil
-		}
-		if !constrains {
-			// No alternative constrains the target column's length, so
-			// the OR itself says nothing about it.
-			return ledgerExprBounds{unbounded: true}, nil
-		}
-		union := map[boundUnit]int64{}
-		for i, one := range reduced {
-			if one.nullOnly {
-				continue // admits no non-null target value
-			}
-			if one.unbounded || len(one.bounds) == 0 {
-				return ledgerExprBounds{}, fmt.Errorf("OR branch %q may admit unbounded non-null values of %s", ledgerCollapseSpace(branches[i]), column)
-			}
-			for unit, value := range one.bounds {
-				if current, ok := union[unit]; !ok || value > current {
-					union[unit] = value
-				}
-			}
-		}
-		allUnits := map[boundUnit]bool{}
-		for unit := range union {
-			allUnits[unit] = true
-		}
-		for _, one := range reduced {
-			if one.nullOnly {
-				continue
-			}
-			for unit := range allUnits {
-				if _, ok := one.bounds[unit]; !ok {
-					return ledgerExprBounds{}, fmt.Errorf("OR branches bound %s in different units, so the check admits unbounded values", unit)
-				}
-			}
-		}
-		return ledgerExprBounds{constrainsTarget: true, bounds: union}, nil
-	}
-	atoms := ledgerSplitTopLevelKeyword(expr, "and")
-	if len(atoms) == 1 {
-		return ledgerReduceAtom(expr, column, affinity)
-	}
-	total := map[boundUnit]int64{}
-	constrains, boundedAny := false, false
-	for _, atom := range atoms {
-		one, err := ledgerReduceExpr(atom, column, affinity)
-		if err != nil {
-			return ledgerExprBounds{}, err
-		}
-		if one.nullOnly {
-			// One null-only conjunct admits no non-null target value, so
-			// the whole conjunction does.
-			return ledgerExprBounds{nullOnly: true}, nil
-		}
-		constrains = constrains || one.constrainsTarget
-		if len(one.bounds) == 0 {
-			// A conjunct that bounds nothing (about other columns, or a
-			// lower-only predicate) cannot narrow the intersection;
-			// ignoring it cannot overstate an upper bound.
-			continue
-		}
-		boundedAny = true
-		for unit, value := range one.bounds {
-			if current, ok := total[unit]; !ok || value < current {
-				total[unit] = value
-			}
-		}
-	}
-	if !boundedAny {
-		return ledgerExprBounds{constrainsTarget: constrains, unbounded: true}, nil
-	}
-	return ledgerExprBounds{constrainsTarget: constrains, bounds: total}, nil
-}
-
-// ledgerReduceAtom reduces one leaf predicate that carries no top-level OR
-// or AND. It reports the target measurement, null-only admission, or an
-// unconstrained (unbounded, no bounds) result.
-func ledgerReduceAtom(expr, column string, affinity boundUnit) (ledgerExprBounds, error) {
-	trimmed := strings.TrimSpace(expr)
-	if trimmed == "" {
-		return ledgerExprBounds{}, fmt.Errorf("empty CHECK predicate")
-	}
-	if strings.HasPrefix(trimmed, "not ") || strings.HasPrefix(trimmed, "not(") {
-		return ledgerExprBounds{}, fmt.Errorf("negated predicate %q is not analyzed", ledgerCollapseSpace(trimmed))
-	}
-	if trimmed == column+" is null" {
-		return ledgerExprBounds{nullOnly: true}, nil
-	}
-	bounds := map[boundUnit]int64{}
-	measured := false
-	for _, occurrence := range ledgerFindMeasurements(trimmed, column) {
-		measured = true
-		unit := occurrence.unit
-		if unit == boundCharacters {
-			// length() follows the column's declared affinity.
-			if affinity != boundCharacters && affinity != boundBytes {
-				return ledgerExprBounds{}, fmt.Errorf("CHECK measures %s over an unsupported column affinity", column)
-			}
-			unit = affinity
-		}
-		upper, hasBound, err := ledgerComparatorUpper(trimmed, occurrence.end)
-		if err != nil {
-			return ledgerExprBounds{}, err
-		}
-		if !hasBound {
-			continue // a lower-only predicate bounds nothing
-		}
-		if current, ok := bounds[unit]; !ok || upper < current {
-			bounds[unit] = upper
-		}
-	}
-	if !measured {
-		// The predicate says nothing about the target column's length.
-		return ledgerExprBounds{unbounded: true}, nil
-	}
-	return ledgerExprBounds{constrainsTarget: true, bounds: bounds}, nil
-}
-
-// ledgerParseCheckBody reduces one CHECK body into the per-unit upper
-// bounds it enforces on non-null values of the column. A CHECK that never
-// measures the column is ignored entirely. The body reduces recursively
-// under ledgerReduceExpr; measured expressions without any upper bound fail
-// closed, and a null-only result bounds nothing.
-func ledgerParseCheckBody(body, column string, affinity boundUnit) ([]boundConstraint, error) {
-	normalized := ledgerCollapseSpace(strings.ToLower(body))
-	if len(ledgerFindMeasurements(normalized, column)) == 0 {
-		return nil, nil
-	}
-	normalized = ledgerBetweenProtect.ReplaceAllString(normalized, "between $1..$2")
-	reduced, err := ledgerReduceExpr(normalized, column, affinity)
-	if err != nil {
-		return nil, fmt.Errorf("CHECK %q: %w", normalized, err)
-	}
-	if reduced.nullOnly {
-		return nil, nil
-	}
-	if len(reduced.bounds) == 0 {
-		return nil, fmt.Errorf("CHECK %q measures %s without any upper bound", normalized, column)
-	}
-	constraints := make([]boundConstraint, 0, len(reduced.bounds))
-	for unit, value := range reduced.bounds {
-		// A character bound in SQL comes from length() over a TEXT
-		// affinity: it measures the NUL-terminated prefix, never the
-		// complete stored value.
-		constraints = append(constraints, boundConstraint{unit: unit, value: value, prefix: unit == boundCharacters, from: "sqlite CHECK " + normalized})
-	}
-	sort.Slice(constraints, func(i, j int) bool { return constraints[i].unit < constraints[j].unit })
-	return constraints, nil
-}
-
-// parseLedgerColumnBounds reads the final DDL of one table and returns every
-// CHECK bound that constrains the column. SQL comments are stripped first:
-// sqlite_master retains them verbatim, and their apostrophes would corrupt
-// every quote-tracking scan below. All returned constraints apply
-// simultaneously: their intersection is the column's bound.
-func parseLedgerColumnBounds(ddl, table, column string) ([]boundConstraint, error) {
-	stripped, err := ledgerStripSQLComments(ddl)
-	if err != nil {
-		return nil, fmt.Errorf("table %s: %w", table, err)
-	}
-	open := strings.Index(stripped, "(")
-	if open < 0 {
-		return nil, fmt.Errorf("table %s has no parsable CREATE TABLE body", table)
-	}
-	inner, _, ok := ledgerParenSpan(stripped, open)
-	if !ok {
-		return nil, fmt.Errorf("table %s has an unbalanced CREATE TABLE body", table)
-	}
-	defs := ledgerSplitTopLevel(inner, ',')
-	colLower := strings.ToLower(column)
-	affinities := map[string]boundUnit{}
-	foundColumn := false
-	for _, def := range defs {
-		def = strings.TrimSpace(def)
-		if def == "" {
-			continue
-		}
-		if name, rest, isColumn := ledgerColumnDefName(def); isColumn {
-			if strings.EqualFold(name, column) {
-				foundColumn = true
-			}
-			affinity, err := ledgerAffinity(rest)
-			if err != nil {
-				affinity = ""
-			}
-			affinities[strings.ToLower(name)] = affinity
-		}
-	}
-	var constraints []boundConstraint
-	for _, def := range defs {
-		def = strings.TrimSpace(def)
-		if def == "" {
-			continue
-		}
-		for _, check := range ledgerCheckBodies(def) {
-			parsed, err := ledgerParseCheckBody(check, colLower, affinities[colLower])
-			if err != nil {
-				return nil, fmt.Errorf("table %s: %w", table, err)
-			}
-			constraints = append(constraints, parsed...)
-		}
-	}
-	if !foundColumn {
-		return nil, fmt.Errorf("column %s is not declared in the final DDL of table %s", column, table)
-	}
-	if len(constraints) == 0 {
-		return nil, fmt.Errorf("no finite length or array bound is declared for %s.%s in the final DDL", table, column)
-	}
-	return constraints, nil
-}
-
-// ---------------------------------------------------------------------------
 // Evaluated bounds, unit conversion, composites
 // ---------------------------------------------------------------------------
 
 // boundConstraint is one numeric limit in one unit that applies to a value.
-// prefix marks a SQLite length() over TEXT: it measures only the
-// NUL-terminated prefix, so it is the CHECK's text but never a full-string
-// producer proof on its own.
 type boundConstraint struct {
-	unit   boundUnit
-	value  int64
-	from   string
-	prefix bool
+	unit  boundUnit
+	value int64
+	from  string
 }
 
 // evaluatedBound is the evaluated form of an outputBoundSource: either
 // unbounded, or a set of simultaneous constraints whose intersection is the
-// real capacity. nulPrefix marks a source whose only string limits are TEXT
-// prefix bounds: the stored value's full length stays unproved, so the
-// source offers no finite capacity in any unit.
+// real capacity.
 type evaluatedBound struct {
 	unbounded    bool
-	nulPrefix    bool
 	constraints  []boundConstraint
 	kind         string
 	describe     string
@@ -1799,19 +1076,13 @@ type evaluatedBound struct {
 // capacity reports the largest value the bound admits, expressed in the
 // requested unit. Sound conversion: bytes N imply at most N code points, and
 // characters N imply at most utf8.UTFMax*N bytes. Items never convert into
-// or out of string units. A NUL-prefix source carries no finite capacity:
-// SQLite length(TEXT) stops at the first NUL, so the CHECK admits values of
-// unbounded full length, and a prefix constraint is skipped even beside a
-// full-byte constraint because it never caps the complete value.
+// or out of string units.
 func (e evaluatedBound) capacity(unit boundUnit) (int64, bool) {
-	if e.unbounded || e.nulPrefix || len(e.constraints) == 0 {
+	if e.unbounded || len(e.constraints) == 0 {
 		return 0, false
 	}
 	best, first := int64(0), true
 	for _, constraint := range e.constraints {
-		if constraint.prefix {
-			continue
-		}
 		var converted int64
 		switch {
 		case constraint.unit == unit:
@@ -1837,8 +1108,7 @@ func (e evaluatedBound) capacity(unit boundUnit) (int64, bool) {
 // composite rules: no items/string mixing, sound conversion, and unbounded
 // propagation. Members are ALTERNATIVE writers: no unit agreement is demanded
 // between them, because a byte guard on one writer and a character guard on
-// another legitimately contribute different per-unit capacities. Guards of
-// the same value that must agree use combinePaired instead.
+// another legitimately contribute different per-unit capacities.
 func combineComposite(kind string, members []evaluatedBound) (evaluatedBound, error) {
 	if len(members) == 0 {
 		return evaluatedBound{}, fmt.Errorf("%s composition carries no member sources", kind)
@@ -1918,95 +1188,6 @@ func combineComposite(kind string, members []evaluatedBound) (evaluatedBound, er
 		kind:     kind,
 		describe: label,
 	}, nil
-}
-
-// combinePaired reduces paired sources into one bound: guards of the
-// SAME value whose constraints all apply simultaneously, so the composite is
-// their intersection. A bare Go constant is refused as a member: its declared
-// unit is not evidence of how the guard measures, so a guard whose
-// measurement changed could never fail the pair. Each Go guard's unit must
-// appear among every SQLite member's CHECK units; where a column carries
-// both a byte and a character CHECK, both apply as intersection.
-func combinePaired(members []evaluatedBound) (evaluatedBound, error) {
-	if len(members) == 0 {
-		return evaluatedBound{}, fmt.Errorf("paired composition carries no member sources")
-	}
-	describe := make([]string, 0, len(members))
-	anyItems, anyString, unbounded := false, false, false
-	var goUnits []boundUnit
-	var sqliteConstraints [][]boundConstraint
-	var constraints []boundConstraint
-	for _, member := range members {
-		describe = append(describe, member.describe)
-		if member.unbounded {
-			unbounded = true
-		}
-		if member.nulPrefix {
-			return evaluatedBound{}, fmt.Errorf("paired member %q carries only a TEXT prefix bound, which proves no full-string capacity", member.describe)
-		}
-		if member.kind == "go_const" {
-			return evaluatedBound{}, fmt.Errorf("paired member %q is a bare constant whose declared unit cannot detect a changed guard measurement; cite the guard implementation", member.describe)
-		}
-		hasItems, hasString := false, false
-		for _, constraint := range member.constraints {
-			if constraint.unit == boundItems {
-				hasItems = true
-			} else {
-				hasString = true
-			}
-		}
-		if hasItems && hasString {
-			return evaluatedBound{}, fmt.Errorf("paired member %q mixes items with string units", member.describe)
-		}
-		switch {
-		case hasItems:
-			anyItems = true
-		case hasString:
-			anyString = true
-		}
-		switch member.kind {
-		case "go_call":
-			for _, constraint := range member.constraints {
-				goUnits = append(goUnits, constraint.unit)
-			}
-		case "sqlite":
-			sqliteConstraints = append(sqliteConstraints, member.constraints)
-		}
-		constraints = append(constraints, member.constraints...)
-	}
-	if anyItems && anyString {
-		return evaluatedBound{}, fmt.Errorf("paired composition mixes items with string units; items are not a string unit")
-	}
-	for _, goUnit := range goUnits {
-		for _, checkUnits := range sqliteConstraints {
-			agree := false
-			for _, constraint := range checkUnits {
-				if constraint.unit == goUnit {
-					agree = true
-				}
-			}
-			if !agree {
-				return evaluatedBound{}, fmt.Errorf("paired Go and SQLite guards disagree on count units: the Go guard counts %s but the SQLite column declares %v", goUnit, ledgerConstraintUnits(checkUnits))
-			}
-		}
-	}
-	label := "paired intersection over [" + strings.Join(describe, "; ") + "]"
-	if unbounded {
-		return evaluatedBound{unbounded: true, kind: "paired", describe: label}, nil
-	}
-	for i := range constraints {
-		constraints[i].from = label
-	}
-	return evaluatedBound{constraints: constraints, kind: "paired", describe: label}, nil
-}
-
-func ledgerConstraintUnits(constraints []boundConstraint) []string {
-	units := make([]string, 0, len(constraints))
-	for _, constraint := range constraints {
-		units = append(units, string(constraint.unit))
-	}
-	sort.Strings(units)
-	return units
 }
 
 // ---------------------------------------------------------------------------
@@ -2179,40 +1360,6 @@ func (rt *ledgerRuntime) evaluateSource(src outputBoundSource, census *boundCens
 		}
 		describe := fmt.Sprintf("go const %s:%s = %d %s", src.goFile, src.symbol, value, src.unit)
 		return evaluatedBound{constraints: []boundConstraint{{unit: src.unit, value: value, from: describe}}, kind: "go_const", describe: describe}, nil
-	case "sqlite":
-		if src.sqlTable == "" || src.sqlColumn == "" {
-			return evaluatedBound{}, fmt.Errorf("sqlite source names no table or column")
-		}
-		if rt.ddl == nil {
-			return evaluatedBound{}, fmt.Errorf("the final migrated DDL is unavailable to the ledger runtime")
-		}
-		createSQL, ok := rt.ddl[src.sqlTable]
-		if !ok {
-			return evaluatedBound{}, fmt.Errorf("table %s is not in the final migrated schema", src.sqlTable)
-		}
-		constraints, err := parseLedgerColumnBounds(createSQL, src.sqlTable, src.sqlColumn)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		describe := fmt.Sprintf("sqlite %s.%s bounded by [%s]", src.sqlTable, src.sqlColumn, ledgerConstraintFroms(constraints))
-		hasFullBytes, prefixCharacters := false, false
-		for _, constraint := range constraints {
-			if constraint.unit == boundBytes {
-				hasFullBytes = true
-			}
-			if constraint.prefix {
-				prefixCharacters = true
-			}
-		}
-		if prefixCharacters && !hasFullBytes {
-			// SQLite length(TEXT) stops at the first NUL: the CHECK bounds
-			// only the prefix, so the full-string length stays unproved. The
-			// source honestly carries no finite capacity; a finite row needs
-			// a full-byte CHECK or the Go admission instead.
-			describe += " (TEXT length() stops at NUL: the CHECK bounds only the NUL-free prefix; cite a full-byte CHECK or the Go admission for the full string)"
-			return evaluatedBound{nulPrefix: true, constraints: constraints, kind: "sqlite", describe: describe}, nil
-		}
-		return evaluatedBound{constraints: constraints, kind: "sqlite", describe: describe}, nil
 	case "max", "sum":
 		var members []evaluatedBound
 		for i, member := range src.members {
@@ -2223,16 +1370,6 @@ func (rt *ledgerRuntime) evaluateSource(src outputBoundSource, census *boundCens
 			members = append(members, evaluated)
 		}
 		return combineComposite(src.kind, members)
-	case "paired":
-		members := make([]evaluatedBound, 0, len(src.members))
-		for i, member := range src.members {
-			evaluated, err := rt.evaluateSource(member, census)
-			if err != nil {
-				return evaluatedBound{}, fmt.Errorf("paired member %d: %w", i, err)
-			}
-			members = append(members, evaluated)
-		}
-		return combinePaired(members)
 	case "unbounded":
 		if strings.TrimSpace(src.producer) == "" {
 			return evaluatedBound{}, fmt.Errorf("unbounded row carries no producer explanation")
@@ -2254,12 +1391,6 @@ func (rt *ledgerRuntime) evaluateSource(src outputBoundSource, census *boundCens
 			refusalPath:  strings.Join(paths, "; "),
 			refusalPaths: paths,
 		}, nil
-	case "unproved":
-		gap := strings.TrimSpace(src.producer)
-		if gap == "" {
-			return evaluatedBound{}, fmt.Errorf("unproved row carries no producer gap text")
-		}
-		return evaluatedBound{}, fmt.Errorf("unproved producer: %s", gap)
 	default:
 		detail := fmt.Sprintf("unknown output bound source kind %q", src.kind)
 		if gap := strings.TrimSpace(src.producer); gap != "" {
@@ -2274,14 +1405,6 @@ func ledgerFieldSuffix(field string) string {
 		return ""
 	}
 	return fmt.Sprintf(", field %q", field)
-}
-
-func ledgerConstraintFroms(constraints []boundConstraint) string {
-	froms := make([]string, 0, len(constraints))
-	for _, constraint := range constraints {
-		froms = append(froms, constraint.from)
-	}
-	return strings.Join(froms, "; ")
 }
 
 // ---------------------------------------------------------------------------
@@ -2907,12 +2030,6 @@ func TestOutputBoundLedgerClosure(t *testing.T) {
 	t.Parallel()
 	root := ledgerRepoRoot(t)
 	rt := newLedgerRuntime(root)
-	s := openTemp(t)
-	ddl, err := sqliteMasterDDL(s.DatabaseForTesting())
-	if err != nil {
-		t.Fatal(err)
-	}
-	rt.ddl = ddl
 	census, censusFailures := buildCensus(rt, nil, ledgerPayloadInputRoots())
 	if len(censusFailures) > 0 {
 		details := make([]string, 0, len(censusFailures))
@@ -3312,7 +2429,7 @@ func guardSite(value string) {
 }
 
 // TestLedgerUnitConversion covers capacity conversion, intersection, domain
-// refusal, composite reduction, and the Go/SQLite pairing rule.
+// refusal, and composite reduction.
 func TestLedgerUnitConversion(t *testing.T) {
 	t.Parallel()
 	limit := func(unit boundUnit, value int64) evaluatedBound {
@@ -3344,9 +2461,9 @@ func TestLedgerUnitConversion(t *testing.T) {
 	goBytes := evaluatedBound{kind: "go_const", describe: "go bytes 100", constraints: []boundConstraint{{unit: boundBytes, value: 100, from: "fixture"}}}
 	goCharacters := evaluatedBound{kind: "go_call", describe: "go characters 30", constraints: []boundConstraint{{unit: boundCharacters, value: 30, from: "fixture"}}, inferred: "rune_count"}
 	items := evaluatedBound{kind: "schema", describe: "items 5", constraints: []boundConstraint{{unit: boundItems, value: 5, from: "fixture"}}}
-	sqliteBytes := evaluatedBound{kind: "sqlite", describe: "sqlite bytes 64", constraints: []boundConstraint{{unit: boundBytes, value: 64, from: "fixture"}}}
-	sqliteCharacters := evaluatedBound{kind: "sqlite", describe: "sqlite characters 128", constraints: []boundConstraint{{unit: boundCharacters, value: 128, from: "fixture"}}}
-	sqliteBoth := evaluatedBound{kind: "sqlite", describe: "sqlite both", constraints: []boundConstraint{{unit: boundBytes, value: 64, from: "fixture"}, {unit: boundCharacters, value: 128, from: "fixture"}}}
+	schemaBytes := evaluatedBound{kind: "schema", describe: "schema bytes 64", constraints: []boundConstraint{{unit: boundBytes, value: 64, from: "fixture"}}}
+	schemaCharacters := evaluatedBound{kind: "schema", describe: "schema characters 128", constraints: []boundConstraint{{unit: boundCharacters, value: 128, from: "fixture"}}}
+	schemaBoth := evaluatedBound{kind: "schema", describe: "schema byte and character bounds", constraints: []boundConstraint{{unit: boundBytes, value: 64, from: "fixture"}, {unit: boundCharacters, value: 128, from: "fixture"}}}
 	unbounded := evaluatedBound{kind: "unbounded", unbounded: true, describe: "unbounded fixture"}
 
 	combined, err := combineComposite("max", []evaluatedBound{goBytes, goCharacters})
@@ -3376,7 +2493,7 @@ func TestLedgerUnitConversion(t *testing.T) {
 	// maxBound composes ALTERNATIVE writers: a byte guard on one writer and
 	// a character guard on another are legitimate alternatives, not a
 	// mismatched pair, so max demands no unit agreement between members.
-	combined, err = combineComposite("max", []evaluatedBound{goBytes, sqliteCharacters})
+	combined, err = combineComposite("max", []evaluatedBound{goBytes, schemaCharacters})
 	if err != nil {
 		t.Fatalf("alternative byte and character writers must compose: %v", err)
 	}
@@ -3386,214 +2503,16 @@ func TestLedgerUnitConversion(t *testing.T) {
 	if characters, ok := combined.capacity(boundCharacters); !ok || characters != 128 {
 		t.Fatalf("max alternative character capacity = (%d, %v), want (128, true)", characters, ok)
 	}
-	if _, err := combineComposite("max", []evaluatedBound{goCharacters, sqliteBytes}); err != nil {
+	if _, err := combineComposite("max", []evaluatedBound{goCharacters, schemaBytes}); err != nil {
 		t.Fatalf("alternative character and byte writers must compose: %v", err)
 	}
-	if _, err := combineComposite("max", []evaluatedBound{goBytes, sqliteBoth}); err != nil {
-		t.Fatalf("a column carrying both CHECK units admits the alternative: %v", err)
+	if _, err := combineComposite("max", []evaluatedBound{goBytes, schemaBoth}); err != nil {
+		t.Fatalf("a schema carrying both bound units admits the alternative: %v", err)
 	}
-	if _, err := combineComposite("max", []evaluatedBound{goBytes, sqliteBytes}); err != nil {
+	if _, err := combineComposite("max", []evaluatedBound{goBytes, schemaBytes}); err != nil {
 		t.Fatalf("alternative agreeing guards must compose: %v", err)
 	}
 
-	// Paired sources compose guards of the SAME value: every member's
-	// constraints apply simultaneously and the pair is their intersection,
-	// never an alternative maximum. A bare constant is refused as a member,
-	// and the Go guard's unit must sit beside every SQLite member's units.
-	goByteGuard := evaluatedBound{kind: "go_call", describe: "go bytes 100", constraints: []boundConstraint{{unit: boundBytes, value: 100, from: "fixture"}}, inferred: "len"}
-	paired, err := combinePaired([]evaluatedBound{goByteGuard, sqliteBytes})
-	if err != nil {
-		t.Fatalf("agreeing paired guards must compose: %v", err)
-	}
-	if bytes, ok := paired.capacity(boundBytes); !ok || bytes != 64 {
-		t.Fatalf("paired byte capacity = (%d, %v), want (64, true): the simultaneous intersection, not the maximum", bytes, ok)
-	}
-	if _, err := combinePaired([]evaluatedBound{goByteGuard, sqliteCharacters}); err == nil {
-		t.Fatal("paired Go bytes and SQLite characters guards must be refused")
-	}
-	if _, err := combinePaired([]evaluatedBound{goCharacters, sqliteBytes}); err == nil {
-		t.Fatal("paired Go characters and SQLite bytes guards must be refused")
-	}
-	if _, err := combinePaired([]evaluatedBound{goBytes, sqliteBytes}); err == nil {
-		t.Fatal("a bare constant carries no inferred measurement and must be refused as a paired member")
-	}
-	if _, err := combinePaired(nil); err == nil {
-		t.Fatal("an empty pair must be refused")
-	}
-	paired, err = combinePaired([]evaluatedBound{unbounded, goByteGuard})
-	if err != nil || !paired.unbounded {
-		t.Fatalf("an unbounded member must make the pair unbounded: (%+v, %v)", paired, err)
-	}
-}
-
-// TestLedgerSQLiteColumnBounds covers CHECK parsing on synthetic DDL and
-// proves the pipeline against the real final migrated schema. It asserts
-// only what each CHECK says: a parsed TEXT character bound is a NUL-prefix
-// constraint (length(TEXT) stops at the first NUL), and whether it proves a
-// full output capacity is decided at source evaluation, never here —
-// TestLedgerSQLiteTextPrefixHonesty owns that separation.
-func TestLedgerSQLiteColumnBounds(t *testing.T) {
-	t.Parallel()
-	ddl := `CREATE TABLE witness_table (
-  id TEXT PRIMARY KEY,
-  name TEXT CHECK(length(name) > 0 AND length(name) <= 128),
-  blob_ref TEXT CHECK(length(CAST(blob_ref AS BLOB)) BETWEEN 2 AND 16384),
-  tags TEXT NOT NULL CHECK(json_valid(tags) AND json_array_length(tags) <= 32),
-  nonce TEXT CHECK(length(nonce) >= 16 AND length(nonce) <= 256),
-  nullable TEXT CHECK(nullable IS NULL OR (json_valid(nullable) AND length(CAST(nullable AS BLOB))<=64)),
-  strict TEXT CHECK(length(strict) < 11),
-  enumish TEXT CHECK(enumish IN ('a and b','c')),
-  unbounded TEXT CHECK(length(unbounded) > 0),
-  nested TEXT CHECK(length(nested) <= 10 OR (length(nested) > 0 AND length(nested) <= 100)),
-  mixed TEXT CHECK(mixed IS NULL OR length(mixed) <= 32),
-  permit TEXT CHECK(length(permit) <= 64 OR random() > 0),
-  lowly TEXT CHECK(length(lowly) >= 16 OR length(lowly) >= 32),
-  arith TEXT CHECK(length(arith) <= 63 + 1),
-  cased TEXT CHECK(CASE WHEN length(cased) <= 64 THEN 1 ELSE 0 END = 1),
-  iifed TEXT CHECK(IIF(length(iifed) <= 64, 1, 0) = 1),
-  CHECK (flag IS NULL OR flag IN ('a','b')),
-  flagged TEXT CHECK(flagged IS NULL OR length(flagged) <= 48),
-  CHECK (length(name) <= 200)
-)`
-	commentDDL := `CREATE TABLE comment_witness (
-  -- the author's note: don't trust ( this comment's length(note) <= 999999
-  note TEXT CHECK(/* it's a max ( */ length(note) <= 64), -- trailing ' quote ((
-  quoted TEXT CHECK(quoted = 'isn''t length(quoted) <= 999999')
-)`
-	cases := []struct {
-		table    string
-		column   string
-		want     map[boundUnit]int64
-		wantErr  bool
-		contains string
-	}{
-		{column: "name", want: map[boundUnit]int64{boundCharacters: 128}},
-		{column: "blob_ref", want: map[boundUnit]int64{boundBytes: 16384}},
-		{column: "tags", want: map[boundUnit]int64{boundItems: 32}},
-		{column: "nonce", want: map[boundUnit]int64{boundCharacters: 256}},
-		{column: "nullable", want: map[boundUnit]int64{boundBytes: 64}},
-		{column: "strict", want: map[boundUnit]int64{boundCharacters: 10}},
-		// OR takes the union maximum of its alternatives: 100, not 10.
-		{column: "nested", want: map[boundUnit]int64{boundCharacters: 100}},
-		// A `column IS NULL` alternative admits no non-null value; the
-		// measured alternative still bounds the column.
-		{column: "mixed", want: map[boundUnit]int64{boundCharacters: 32}},
-		{column: "flagged", want: map[boundUnit]int64{boundCharacters: 48}},
-		// Comments, their apostrophes, and their unbalanced parentheses
-		// vanish before any quote-tracking scan runs.
-		{table: "comment_witness", column: "note", want: map[boundUnit]int64{boundCharacters: 64}},
-		// A quoted pseudo-measurement is data, never a bound.
-		{table: "comment_witness", column: "quoted", wantErr: true, contains: "no finite"},
-		{column: "enumish", wantErr: true, contains: "no finite"},
-		{column: "unbounded", wantErr: true, contains: "without any upper bound"},
-		// Lower-only alternatives bound nothing and are never invented.
-		{column: "lowly", wantErr: true, contains: "unbounded"},
-		// An unknown permissive alternative may admit unbounded values.
-		{column: "permit", wantErr: true, contains: "unbounded non-null"},
-		// Trailing arithmetic or a conditional wrapper around the bound
-		// fails closed instead of silently taking the first integer.
-		{column: "arith", wantErr: true, contains: "trailing"},
-		{column: "cased", wantErr: true, contains: "trailing"},
-		{column: "iifed", wantErr: true, contains: "trailing"},
-		{column: "absent", wantErr: true, contains: "not declared"},
-	}
-	for _, tc := range cases {
-		table := tc.table
-		if table == "" {
-			table = "witness_table"
-		}
-		selectedDDL := ddl
-		if table == "comment_witness" {
-			selectedDDL = commentDDL
-		}
-		constraints, err := parseLedgerColumnBounds(selectedDDL, table, tc.column)
-		if tc.wantErr {
-			if err == nil {
-				t.Fatalf("%s: expected failure, got %v", tc.column, constraints)
-			}
-			if tc.contains != "" && !strings.Contains(err.Error(), tc.contains) {
-				t.Fatalf("%s: error %q does not name %q", tc.column, err.Error(), tc.contains)
-			}
-			continue
-		}
-		if err != nil {
-			t.Fatalf("%s: %v", tc.column, err)
-		}
-		got := map[boundUnit]int64{}
-		for _, constraint := range constraints {
-			// All CHECK bounds on one column apply simultaneously: the
-			// effective per-unit bound is their intersection.
-			if existing, ok := got[constraint.unit]; !ok || constraint.value < existing {
-				got[constraint.unit] = constraint.value
-			}
-		}
-		if len(got) != len(tc.want) {
-			t.Fatalf("%s: constraints %v, want %v", tc.column, constraints, tc.want)
-		}
-		for unit, value := range tc.want {
-			if got[unit] != value {
-				t.Fatalf("%s: %s bound = %d, want %d", tc.column, unit, got[unit], value)
-			}
-		}
-	}
-	for _, check := range []string{
-		"length(value) <= 64 OR other IS NULL",
-		"value IS NOT NULL OR length(value) <= 64",
-		"NOT (length(value) <= 64)",
-		"not length(value) <= 64",
-		"length(value) <= 63 + 1",
-		"length(value) between 1 and 64 + 1",
-	} {
-		if _, err := ledgerParseCheckBody(check, "value", boundCharacters); err == nil {
-			t.Fatalf("an unbounded alternate branch was accepted: %s", check)
-		}
-	}
-	if constraints, err := ledgerParseCheckBody("length(value) <= 64 AND (other IS NULL OR other = 'x')", "value", boundCharacters); err != nil || len(constraints) != 1 || constraints[0].value != 64 {
-		t.Fatalf("an unrelated nested OR conjunct must be ignored, not rejected: %v %v", constraints, err)
-	}
-	s := openTemp(t)
-	ddlTables, err := sqliteMasterDDL(s.DatabaseForTesting())
-	if err != nil {
-		t.Fatal(err)
-	}
-	tables := make([]string, 0, len(ddlTables))
-	for table := range ddlTables {
-		tables = append(tables, table)
-	}
-	sort.Strings(tables)
-	parsed := 0
-	for _, table := range tables {
-		defs := ledgerSplitTopLevel(mustTableBody(t, ddlTables[table]), ',')
-		for _, def := range defs {
-			name, _, isColumn := ledgerColumnDefName(strings.TrimSpace(def))
-			if !isColumn || name == "" {
-				continue
-			}
-			if constraints, err := parseLedgerColumnBounds(ddlTables[table], table, name); err == nil {
-				parsed += len(constraints)
-			}
-		}
-	}
-	if parsed < 50 {
-		t.Fatalf("the real final migrated DDL yielded only %d parsable CHECK bounds; the sqlite pipeline is broken", parsed)
-	}
-}
-
-func mustTableBody(t *testing.T, ddl string) string {
-	t.Helper()
-	stripped, err := ledgerStripSQLComments(ddl)
-	if err != nil {
-		t.Fatalf("DDL comments cannot be stripped safely: %v", err)
-	}
-	open := strings.Index(stripped, "(")
-	if open < 0 {
-		t.Fatalf("DDL carries no body: %.80s", stripped)
-	}
-	inner, _, ok := ledgerParenSpan(stripped, open)
-	if !ok {
-		t.Fatalf("DDL body is unbalanced: %.80s", stripped)
-	}
-	return inner
 }
 
 // TestLedgerRefusalPathCheck covers the typed refusal path verification
@@ -3791,92 +2710,11 @@ func TestLedgerInputWidenedWitness(t *testing.T) {
 	}
 }
 
-// TestLedgerSQLiteTextPrefixHonesty keeps the parser's TEXT prefix bound
-// separate from any claim that it caps the full output: length(TEXT) stops
-// at the first NUL, so a prefix-only source carries no finite capacity in
-// any unit and says so, while a full-byte CHECK beside it proves the complete
-// value. The live witness inserts a NUL-tailed value under a prefix CHECK
-// and reads both lengths back from SQLite.
-func TestLedgerSQLiteTextPrefixHonesty(t *testing.T) {
-	t.Parallel()
-	prefixDDL := `CREATE TABLE prefix_witness (note TEXT CHECK(length(note) <= 128))`
-	byteDDL := `CREATE TABLE byte_witness (note TEXT CHECK(length(CAST(note AS BLOB)) <= 4096))`
-	bothDDL := `CREATE TABLE both_witness (note TEXT CHECK(length(note) <= 128) CHECK(length(CAST(note AS BLOB)) <= 4096))`
-	constraints, err := parseLedgerColumnBounds(prefixDDL, "prefix_witness", "note")
-	if err != nil || len(constraints) != 1 || constraints[0].unit != boundCharacters || !constraints[0].prefix {
-		t.Fatalf("a TEXT length bound must parse as a prefix constraint: %v %v", constraints, err)
-	}
-	constraints, err = parseLedgerColumnBounds(byteDDL, "byte_witness", "note")
-	if err != nil || len(constraints) != 1 || constraints[0].unit != boundBytes || constraints[0].prefix {
-		t.Fatalf("a full-byte CAST bound must parse without the prefix marker: %v %v", constraints, err)
-	}
-	rt := newLedgerRuntime(ledgerRepoRoot(t))
-	rt.ddl = map[string]string{"prefix_witness": prefixDDL, "byte_witness": byteDDL, "both_witness": bothDDL}
-	prefixSource, err := rt.evaluateSource(sqliteBound("prefix_witness", "note"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !prefixSource.nulPrefix || !strings.Contains(prefixSource.describe, "NUL") {
-		t.Fatalf("a prefix-only source must be marked NUL-unproved and say so: %+v", prefixSource)
-	}
-	for _, unit := range []boundUnit{boundBytes, boundCharacters} {
-		if _, ok := prefixSource.capacity(unit); ok {
-			t.Fatalf("a TEXT prefix source must carry no finite %s capacity", unit)
-		}
-	}
-	byteSource, err := rt.evaluateSource(sqliteBound("byte_witness", "note"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if byteSource.nulPrefix {
-		t.Fatal("a full-byte CHECK bounds the complete value and must not be marked prefix")
-	}
-	if bytes, ok := byteSource.capacity(boundBytes); !ok || bytes != 4096 {
-		t.Fatalf("full-byte capacity = (%d, %v), want (4096, true)", bytes, ok)
-	}
-	bothSource, err := rt.evaluateSource(sqliteBound("both_witness", "note"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bothSource.nulPrefix {
-		t.Fatal("a full-byte CHECK beside the prefix bound proves the full string")
-	}
-	if bytes, ok := bothSource.capacity(boundBytes); !ok || bytes != 4096 {
-		t.Fatalf("both-checks capacity = (%d, %v), want (4096, true)", bytes, ok)
-	}
-	s := openTemp(t)
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`CREATE TABLE nul_witness (note TEXT CHECK(length(note) <= 4))`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO nul_witness (note) VALUES ('abc' || CAST(zeroblob(8) AS TEXT))`); err != nil {
-		t.Fatalf("the prefix CHECK refused a NUL-tailed value; the witness premise does not hold: %v", err)
-	}
-	var prefixLen, fullLen int64
-	if err := db.QueryRow(`SELECT length(note), length(CAST(note AS BLOB)) FROM nul_witness`).Scan(&prefixLen, &fullLen); err != nil {
-		t.Fatal(err)
-	}
-	if prefixLen != 3 || fullLen <= 4 {
-		t.Fatalf("NUL-tail witness: length(note)=%d but the stored value is %d bytes; the CHECK bounded only the NUL-free prefix", prefixLen, fullLen)
-	}
-}
-
-// TestLedgerUnprovedReporting pins repair semantics for honest gaps: an
-// unproved row never closes the ledger and its failure carries the saved gap
-// text, and an unknown-kind failure carries the row's producer text instead
-// of printing only the kind.
-func TestLedgerUnprovedReporting(t *testing.T) {
+// TestLedgerUnknownKindReporting checks that an unknown-kind failure carries
+// the row's producer text instead of printing only the kind.
+func TestLedgerUnknownKindReporting(t *testing.T) {
 	t.Parallel()
 	rt := newLedgerRuntime(ledgerRepoRoot(t))
-	const researchGap = "research statement fields accumulate without any store CHECK or full-string Go admission"
-	if _, err := rt.evaluateSource(unprovedOutput(researchGap), nil); err == nil {
-		t.Fatal("an unproved row must never close the ledger")
-	} else if !strings.Contains(err.Error(), researchGap) {
-		t.Fatalf("the failure must report the saved gap text, got: %v", err)
-	}
-	if _, err := rt.evaluateSource(unprovedOutput("   "), nil); err == nil {
-		t.Fatal("an unproved row without gap text must fail closed")
-	}
 	const warningGap = "workflow warnings accumulate one entry per stored condition"
 	if _, err := rt.evaluateSource(outputBoundSource{kind: "alien", producer: warningGap}, nil); err == nil {
 		t.Fatal("an unknown kind must fail closed")

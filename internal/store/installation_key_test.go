@@ -128,10 +128,11 @@ func TestInstallationKeyFailureFieldsAndCauses(t *testing.T) {
 				db.SetMaxOpenConns(1)
 				defer db.Close()
 				err = ensureInstallationKey(cancelCtx, db)
-				// Either database/sql's automatic rollback or the deferred
-				// rollback settles the transaction first; both leave nothing
-				// persisted, and the cancellation cause is retained either way.
-				if !errors.Is(err, context.Canceled) && !errors.Is(err, sql.ErrTxDone) {
+				// database/sql's automatic rollback waits for the running
+				// statement, so the exec itself reports the cancellation;
+				// which rollback settles the transaction does not change the
+				// persisted state.
+				if !errors.Is(err, context.Canceled) {
 					t.Fatalf("cancellation during insert cause: %v", err)
 				}
 				if after := revisionValue(t, s.db); after != before {
@@ -146,7 +147,7 @@ func TestInstallationKeyFailureFieldsAndCauses(t *testing.T) {
 					t.Fatal(err)
 				}
 				if mode == "missing revision with uncertain rollback" {
-					// The revision table is gone, so AdvanceRevision fails and
+					// The revision row is gone, so AdvanceRevision fails and
 					// BeginWrite joins the fault connector's unproved rollback
 					// of an empty transaction: the fixture commits nothing, so
 					// the observable truth is the typed outcome and the

@@ -215,7 +215,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 	if len(activeContractVersions) == 1 {
 		activeContractVersion = activeContractVersions[0]
 	}
-	state, err := workPinStepIntentsTx(ctx, tx, workID, &pin, registered.Definition, registry)
+	state, err := workPinStepIntentsTx(ctx, tx, workID, &pin, registered.Definition)
 	if err != nil {
 		return pin, err
 	}
@@ -317,7 +317,7 @@ func verifyReadWorkflowDefinitionForRegistry(definition WorkflowReadDefinition, 
 // guard answer identically for the same state instead of re-deriving the
 // conditions per site. The pin never offers an advance the shared admission
 // refuses.
-func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, registry DefinitionRegistry) (WorkflowAdmissionState, error) {
+func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition) (WorkflowAdmissionState, error) {
 	state, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, pin.Step, "work_pin")
 	if stateErr != nil {
 		return WorkflowAdmissionState{}, stateErr

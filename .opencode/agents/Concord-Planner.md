@@ -42,6 +42,9 @@ permission:
     "gh pr list *": allow
     "gh pr checks *": allow
     "gh pr diff *": allow
+    "gh release list *": allow
+    "gh release view *": allow
+    "git tag --list *": allow
     "git stash *": deny
     "git * stash *": deny
     "*/git stash *": deny

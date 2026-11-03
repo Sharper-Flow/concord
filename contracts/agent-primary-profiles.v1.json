@@ -98,7 +98,10 @@
         {"pattern": "gh pr view *", "action": "allow"},
         {"pattern": "gh pr list *", "action": "allow"},
         {"pattern": "gh pr checks *", "action": "allow"},
-        {"pattern": "gh pr diff *", "action": "allow"}
+        {"pattern": "gh pr diff *", "action": "allow"},
+        {"pattern": "gh release list *", "action": "allow"},
+        {"pattern": "gh release view *", "action": "allow"},
+        {"pattern": "git tag --list *", "action": "allow"}
       ],
       "task": [
         {"pattern": "*", "action": "deny"},

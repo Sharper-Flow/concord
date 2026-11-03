@@ -119,8 +119,9 @@ profile-level Concord-tool denial. Their shell rules only deny named unsafe
 commands; the host's shell rules govern every other command.
 `Concord-Planner`'s profile enforces its boundary in configuration: its edit
 rules admit only the `.planning` directory; its shell rules allow named read-only and
-diagnostic commands, deny commit, push, pull-request, and release commands, and
-ask for every other command; its Task rules admit only Concord utilities; and it
+diagnostic commands, deny commit, push, pull-request, and release write
+commands, and ask for every other command; its Task rules admit only Concord
+utilities; and it
 is denied every Concord tool that writes work state.
 Those capabilities do not transfer another session's workflow authority or the
 human operator's approval.

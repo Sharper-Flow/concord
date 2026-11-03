@@ -13,7 +13,7 @@ const derivedRevisionConflictLaw = "---\n" +
 	`{"id":"spec:one","title":"Fixture folder law spec:one","authority":{"tier":"derived"},"home_domain_id":"root","applies_to_domain_ids":[],"law_relations":[{"kind":"conflicts_with","target_id":"spec:legislated"}]}` + "\n" +
 	"---\n\nSynthetic fixture law body.\n"
 
-func TestDerivedRevisionCompletionDoesNotRecheckMandatedConflict(t *testing.T) {
+func TestCompletionDoesNotRecheckMandatedLaw(t *testing.T) {
 	t.Parallel()
 	const workID = "derived-revision-lands"
 	s := openTemp(t)
@@ -65,8 +65,10 @@ func TestDerivedRevisionCompletionDoesNotRecheckMandatedConflict(t *testing.T) {
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{premise, premiseCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
 		t.Fatalf("premise confirmation: %v", err)
 	}
+	// Completion reads no law: an unreadable mandated law cannot refuse it.
+	commitFixtureLawFile(t, home, "spec:one", "---\nnot json\n---\n\nbroken\n")
 	if err := runVerdictActionAs(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, owner); err != nil {
-		t.Fatalf("completion rechecked the mandated conflict: %v", err)
+		t.Fatalf("completion rechecked mandated law: %v", err)
 	}
 	var state string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {

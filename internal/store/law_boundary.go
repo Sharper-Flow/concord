@@ -492,9 +492,9 @@ func (s *Store) qualifiedSourceHomes(ctx context.Context, home KnowledgeHome, qu
 // location, and each source's law content compared against the content the
 // verified snapshot was read from. The head and content re-reads use only
 // small file reads (resolveKnowledgeHeadCheap and the cheap object walk), so
-// the re-validation stays inside CD-0195 D2. The refusal is the completion
-// gate's answer when the caller skipped the pre-transaction verification, or
-// when a source changed after it.
+// the re-validation stays inside CD-0195 D2. The refusal is the consuming
+// transaction's answer when the caller skipped the pre-transaction
+// verification, or when a source changed after it.
 func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectID, homeLocatorID string) error {
 	productID, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
 	if err != nil {

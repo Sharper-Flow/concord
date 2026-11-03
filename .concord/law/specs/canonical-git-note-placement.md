@@ -93,8 +93,9 @@ content_hash
 
 Project and locator IDs identify the logical repository across path, remote,
 clone and archive changes. The path identifies the file in the recorded commit;
-`content_hash` identifies the note bytes. Mutable paths and remotes resolve at read
-time and never replace these identity fields. A historical note hash is not a
+`content_hash` identifies the note bytes. Mutable paths and remotes resolve
+when a consumer or PM10 recovery opens the note, and never replace these
+identity fields. A historical note hash is not a
 workflow closure hash.
 
 Existing work metadata, including `lesson_tags`, terminal state, terminal time,

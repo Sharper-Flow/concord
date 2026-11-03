@@ -94,8 +94,9 @@ output. The self-report is a disclosure for post-hoc
 audit, not a control.
 
 Concord cannot enforce that the adviser and the caller differ in model family.
-The host admits the adviser through its native Task surface under the tool
-permissions of the generated subagent profile; the adapter registers no tool
+The host admits the adviser through its native Task surface under the caller's
+task permission; the adviser then runs under its generated subagent profile's
+tool permissions, and the adapter registers no tool
 execution hook. The host routing layer picks a model after that point.
 
 No mechanism instructs a caller to compare the disclosed model against its own

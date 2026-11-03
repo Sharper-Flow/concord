@@ -187,9 +187,9 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 
 	t.Run("missing tuple records one exact prefix", func(t *testing.T) {
 		workID := "issue740-prefix-missing"
-		s, version := seedBootstrapCapturedWork(t, workID)
+		s, _ := seedBootstrapCapturedWork(t, workID)
 		seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
-		version = readWorkVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		agent := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-" + workID, ActorClass: ActorAgent}
 		agentRef, err := WorkflowActorRef(agent)
 		if err != nil {
@@ -225,9 +225,9 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 
 	t.Run("recorded tuple appends no prefix", func(t *testing.T) {
 		workID := "issue740-prefix-recorded"
-		s, version := seedBootstrapCapturedWork(t, workID)
+		s, _ := seedBootstrapCapturedWork(t, workID)
 		seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
-		version = readWorkVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		agent := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-" + workID, ActorClass: ActorAgent}
 		agentRef, err := WorkflowActorRef(agent)
 		if err != nil {
@@ -275,9 +275,9 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 
 	t.Run("zero request time records the normalized action time", func(t *testing.T) {
 		workID := "issue740-prefix-zero-now"
-		s, version := seedBootstrapCapturedWork(t, workID)
+		s, _ := seedBootstrapCapturedWork(t, workID)
 		seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
-		version = readWorkVersion(t, s, workID)
+		version := readWorkVersion(t, s, workID)
 		agent := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-" + workID, ActorClass: ActorAgent}
 		agentRef, err := WorkflowActorRef(agent)
 		if err != nil {

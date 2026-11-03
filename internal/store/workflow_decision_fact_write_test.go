@@ -176,7 +176,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			if err := firstCallApproveContract(t, s, id, version, "approve-"+id, actor, input); err != nil {
 				t.Fatal(err)
 			}
-			contractID, contractDigest, _ := decisionFactReceipt(t, s, id, WorkflowContractApproved)
+			contractID, _, _ := decisionFactReceipt(t, s, id, WorkflowContractApproved)
 			decisionFactAssertDigest(t, s, contractID, events[0].Payload)
 			decisionFactProjection(t, s, id, 1, set, actorRef)
 

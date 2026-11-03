@@ -67,7 +67,7 @@ func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 	compositionAction(t, ctx, s, service, env, workID, "complete_step", map[string]any{"step_id": "diagnose", "note": "Diagnosis recorded."})
 	compositionRecordPlan(t, ctx, s, service, env, workID)
 	after := agentCompositionWorkVersion(t, s, workID)
-	response, after = ekbDispatch(t, s, service, env, workID, after, "approve_contract", workflowContractFieldsForSeededRegistry(t, s), nil, "wpeb-approve")
+	response, _ = ekbDispatch(t, s, service, env, workID, after, "approve_contract", workflowContractFieldsForSeededRegistry(t, s), nil, "wpeb-approve")
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract: %+v", response.Error)
 	}

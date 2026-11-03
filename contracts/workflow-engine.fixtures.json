@@ -383,21 +383,7 @@
         "evaluator_independence": {
           "model_distinct": false
         },
-        "recovery_routes": [
-          {
-            "step": "acceptance",
-            "trigger": "unhealthy_verdict",
-            "action": "request_correction",
-            "target": "execution"
-          },
-          {
-            "step": "release",
-            "trigger": "unhealthy_verdict",
-            "action": "request_correction",
-            "target": "execution"
-          }
-        ],
-        "digest": "sha256:59d5176dc204fb9e3c7c8718f468719d1626747122e1dbf3b9fbea8f70981ec2"
+        "digest": "sha256:7cc788c212c0a95573fb0d141e70dd4d464af31a0db0563624c086c6ff47ee23"
       }
     },
     {"id": "outcome-exists-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"]}},

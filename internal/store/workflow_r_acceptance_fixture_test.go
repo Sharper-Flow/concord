@@ -54,8 +54,16 @@ func rComplete(t *testing.T, f acceptanceRecoveryFixture) error {
 // one active contract, the recorded Review of the current candidate with its
 // criterion association (the model's ok verdict).
 func rAcceptanceModel() admissionModelState {
-	return admissionModelState{
+	state := admissionModelState{
 		step: "acceptance", contracts: 1, verdict: "ok",
 		review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
 	}
+	entry, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
+	if !ok {
+		panic("implementation definition missing")
+	}
+	for _, action := range []string{"record_alignment", "record_delivery", "record_design", "record_proposal", "record_review", "record_verdict"} {
+		state.records |= admissionRecordBit(entry.Definition, action)
+	}
+	return state
 }

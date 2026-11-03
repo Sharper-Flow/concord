@@ -136,7 +136,7 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 		"effect_receipts":            `SELECT * FROM effect_receipts ORDER BY rowid`,
 		"store_sequences":            `SELECT * FROM store_sequences ORDER BY rowid`,
 		"work_context_findings":      `SELECT * FROM work_context_findings ORDER BY rowid`,
-		"workflow_instances":         `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at,unhealthy_verdict_seq FROM workflow_instances`,
+		"workflow_instances":         `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances`,
 		"workflow_step_epochs":       `SELECT work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload FROM workflow_step_epochs`,
 	}
 	want := map[string][][]any{}
@@ -149,10 +149,6 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 	review, err := readWorkflowReviewFacts(t.Context(), db, "work-upgrade-from")
 	if err != nil {
 		t.Fatal(err)
-	}
-	direction, err := readWorkflowCorrectionContext(t.Context(), db, "work-upgrade-from")
-	if err != nil || direction == nil {
-		t.Fatalf("predecessor genuine correction=%+v err=%v", direction, err)
 	}
 	report, err := Upgrade(t.Context(), path, nil)
 	var wantApplied []int
@@ -187,9 +183,8 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 	if source.CanonicalID != "finding:32:0" || source.DomainID != "domain:upgrade" || source.EventID != "native-review" || source.Kind != WorkflowActionCompleted || source.Seq != 32 || source.Ordinal != 0 || source.Oracle == nil || len(source.Oracle.Cases) != 1 || source.Oracle.Cases[0].CaseID != "case:upgrade" {
 		t.Fatalf("retained blocker lost exact source identity/inventory: %+v", source)
 	}
-	afterDirection, err := readWorkflowCorrectionContext(t.Context(), db, "work-upgrade-from")
-	if err != nil || !reflect.DeepEqual(afterDirection, direction) {
-		t.Fatalf("genuine correction changed: before=%+v after=%+v err=%v", direction, afterDirection, err)
+	if got := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name='workflow_correction_state'`); len(got) != 0 {
+		t.Fatalf("retired correction state remains: %v", got)
 	}
 	assertHistoricalReceipts(t, db, historical)
 	retirementUpgradeHealthy(t, db)

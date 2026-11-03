@@ -653,7 +653,6 @@ WORKFLOW_PREDICATE_MAX_BYTES = 64 * 1024
 # parents need their own copy to reach the other twins. The output bound
 # ledger proves every dropped cap unbounded and every kept cap finite.
 RETAINED_OUTPUT_TWINS = {
-    "workflow_correction_context": ("/properties/diagnosis/maxLength",),
     "workflow_law_context": ("/properties/registry_path/maxLength",),
     "workflow_law_context_law": ("/properties/path/maxLength",),
     "work_context_finding_view": ("/properties/source_event_id/maxLength",),
@@ -669,7 +668,6 @@ RETAINED_OUTPUT_TWINS = {
 # copy carries the producer's finite maximum, which the output bound ledger
 # proves, while the packet keeps the admitted cap.
 RETAINED_OUTPUT_RAISES = {
-    "workflow_correction_context": {"/properties/evidence_refs/maxItems": 64},
     "workflow_law_context_law": {"/properties/criteria/maxItems": 1000},
     "research_scopes": {f"/properties/{name}/maxItems": 100 for name in ("product_ids", "project_ids", "domain_ids", "tag_ids")},
     "worker_oracle_finding": {"/properties/owner_id/maxLength": 133},
@@ -688,7 +686,7 @@ RETAINED_OUTPUT_PARENTS = {
     "continuity_snapshot": ("workflow_law_context", "work_context_view"),
     "research_revision": ("research_source",),
     "research_finding": ("research_scopes",),
-    "work_pin": ("workflow_correction_context", "work_context_view"),
+    "work_pin": ("work_context_view",),
 }
 
 
@@ -1488,7 +1486,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 31
+    expected_operations = 30
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -2103,5 +2101,7 @@ def main() -> int:
         return 0
     except (OSError, json.JSONDecodeError, ValueError, subprocess.SubprocessError) as exc:
         print(f"agent contract generation failed: {exc}", file=sys.stderr)
+        if isinstance(exc, subprocess.CalledProcessError) and exc.stderr:
+            print(exc.stderr, file=sys.stderr, end="")
         return 1
 if __name__ == "__main__": raise SystemExit(main())

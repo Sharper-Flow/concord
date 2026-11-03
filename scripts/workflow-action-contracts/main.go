@@ -138,8 +138,8 @@ func canonicalCrossFieldForAction(actionID string, variants []payloadVariant) (s
 // a canonical head whose payload narrows a rule's subject no longer
 // publishes the vacuous half of the engine declaration. Order is
 // deterministic: variants keep registration order (current families, then
-// the recovery list).
-func collectActionContracts(current []store.WorkflowDefinition, recovery []store.WorkflowActionDefinition) (map[string]actionContract, error) {
+// the decision facts).
+func collectActionContracts(current []store.WorkflowDefinition, decisionFacts []store.WorkflowActionDefinition) (map[string]actionContract, error) {
 	contracts := map[string]actionContract{}
 	addCurrent := func(action store.WorkflowActionDefinition) error {
 		public := action.Payload
@@ -174,7 +174,7 @@ func collectActionContracts(current []store.WorkflowDefinition, recovery []store
 			}
 		}
 	}
-	for _, action := range recovery {
+	for _, action := range decisionFacts {
 		if err := addCurrent(action); err != nil {
 			return nil, err
 		}
@@ -221,9 +221,9 @@ func sortedRefNames(refs map[string]bool) []string {
 }
 
 // collectSchemaRefs splits the registry's declared payload schema refs by
-// decoding owner: current definitions and the engine recovery list declare
+// decoding owner: current definitions and decision facts declare
 // the refs the public payload document must resolve.
-func collectSchemaRefs(current []store.WorkflowDefinition, recovery []store.WorkflowActionDefinition) schemaRefProjection {
+func collectSchemaRefs(current []store.WorkflowDefinition, decisionFacts []store.WorkflowActionDefinition) schemaRefProjection {
 	currentRefs := map[string]bool{}
 	for _, definition := range current {
 		for _, action := range definition.ActionDefinitions {
@@ -232,7 +232,7 @@ func collectSchemaRefs(current []store.WorkflowDefinition, recovery []store.Work
 			}
 		}
 	}
-	for _, action := range recovery {
+	for _, action := range decisionFacts {
 		for _, ref := range payloadSchemaRefs(action.Payload) {
 			currentRefs[ref] = true
 		}
@@ -268,8 +268,7 @@ func main() {
 		return
 	}
 	definitions := store.BuiltinWorkflowDefinitions()
-	recovery := append(store.BuiltinWorkflowRecoveryActionDefinitions(), store.BuiltinWorkflowDecisionFactActionDefinitions()...)
-	contracts, err := collectActionContracts(definitions, recovery)
+	contracts, err := collectActionContracts(definitions, store.BuiltinWorkflowDecisionFactActionDefinitions())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -308,7 +307,7 @@ func main() {
 			DecisionRecordRequired: definition.OutcomeSchema.DecisionRecordRequired,
 		})
 	}
-	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows, Teaching: store.WorkflowContractTeachingRules(), SchemaRefs: collectSchemaRefs(definitions, recovery)}
+	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows, Teaching: store.WorkflowContractTeachingRules(), SchemaRefs: collectSchemaRefs(definitions, store.BuiltinWorkflowDecisionFactActionDefinitions())}
 	for _, definition := range definitions {
 		payload := store.WorkflowContractUpdatePayload(definition)
 		if !slicesContainsPayload(projection.ContractUpdates, payload) {

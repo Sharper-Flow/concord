@@ -197,7 +197,6 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowDesignRecorded:                    workflowRegistration[workflowDesignRecordedPayload](1, foldWorkflowDesignRecorded),
 	WorkflowBacklogAlignmentRecorded:          workflowRegistration[workflowBacklogAlignmentRecordedPayload](1, foldWorkflowBacklogAlignmentRecorded),
 	WorkflowDiagnosisRecorded:                 workflowRegistration[workflowDiagnosisRecordedPayload](1, foldWorkflowDiagnosisRecorded),
-	WorkflowDeliveryCorrected:                 workflowRegistration[workflowDeliveryCorrectedPayload](2, foldWorkflowDeliveryCorrected),
 	WorkflowCompleted:                         workflowScopedRegistration[workflowCompletedPayload](2, foldWorkflowCompleted),
 }
 
@@ -339,6 +338,12 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 		return output, newFailure(KindInvalidOperation, "apply_operation", "operation has no events", false, "supply at least one accepted event")
 	}
 	startReceipt := len(scope.eventIDs)
+	previousOperationEvents := scope.operationEvents
+	scope.operationEvents = make(map[string]bool, len(operation.Events))
+	for _, event := range operation.Events {
+		scope.operationEvents[event.EventID] = true
+	}
+	defer func() { scope.operationEvents = previousOperationEvents }()
 	for subject, expected := range operation.ExpectedVersions {
 		if !subject.Type.valid() || subject.ID == "" || expected < 0 {
 			return output, newFailure(KindInvalidOperation, "apply_operation", "expected versions must use recognized typed subjects, non-empty IDs, and non-negative versions", false, "supply a typed subject reference")

@@ -9,10 +9,9 @@ import (
 	"time"
 )
 
-// Issue #983. A healthy delivery can reach the acceptance checkpoint with a
-// contract-required evidence kind still unbound. Recovery and acceptance read
-// one outstanding-requirement calculation, so the typed bind_evidence route
-// binds what the gate still demands and refuses everything else.
+// A healthy delivery can reach acceptance with a contract-required evidence
+// kind still unbound. Ordinary binding holds the step; acceptance checks the
+// outstanding requirements.
 //
 // The corpus scenario WF05 carries a healthy verdict and an empty law mandate,
 // so these tests isolate evidence requirements without a stale artifact.
@@ -260,17 +259,14 @@ func TestAcceptanceRecoversMissingRequiredEvidenceKind(t *testing.T) {
 	}
 }
 
-// Recovery admits only what the acceptance gate still demands. A kind the
-// contract never required, a stale version, and a second bind of a satisfied
-// kind all refuse, and none of them writes a binding.
-func TestAcceptanceRecoveryRefusesOutsideOutstandingRequirements(t *testing.T) {
+func TestAcceptanceBindingEnforcesMembershipAndVersion(t *testing.T) {
 	ctx := context.Background()
 	f := newAcceptanceRecoveryFixture(ctx, t, wf04OutstandingKind)
 
 	const unrelated = "artifact:unrelated-recovery-subject"
-	unrelatedErr := f.bind(ctx, "unrelated-kind", f.version(ctx, t), "artifact", unrelated)
+	unrelatedErr := f.bind(ctx, "unrelated-kind", f.version(ctx, t), "approval", unrelated)
 	requireRecoveryFailure(t, unrelatedErr, KindIllegalLifecycleTransition, "recovery binding for an unrequired kind")
-	if got := f.boundCount(t, "artifact", unrelated); got != 0 {
+	if got := f.boundCount(t, "approval", unrelated); got != 0 {
 		t.Fatalf("refused unrelated binding count = %d, want 0", got)
 	}
 
@@ -283,20 +279,20 @@ func TestAcceptanceRecoveryRefusesOutsideOutstandingRequirements(t *testing.T) {
 	if err := f.bind(ctx, "recover-outstanding", f.version(ctx, t), wf04OutstandingKind, wf04RecoveryRef); err != nil {
 		t.Fatalf("recovery binding for the outstanding kind refused: %v", err)
 	}
-	repeatErr := f.bind(ctx, "recover-again", f.version(ctx, t), wf04OutstandingKind, wf04RecoveryRef)
-	requireRecoveryFailure(t, repeatErr, KindIllegalLifecycleTransition, "second recovery binding of a satisfied kind")
-	if got := f.boundCount(t, wf04OutstandingKind, wf04RecoveryRef); got != 1 {
-		t.Fatalf("binding count after the refused repeat = %d, want 1", got)
+	if err := f.bind(ctx, "recover-again", f.version(ctx, t), wf04OutstandingKind, wf04RecoveryRef); err != nil {
+		t.Fatalf("binding a satisfied kind: %v", err)
+	}
+	if got := f.boundCount(t, wf04OutstandingKind, wf04RecoveryRef); got != 2 {
+		t.Fatalf("binding count after replacement = %d, want 2", got)
 	}
 }
 
-// A contract whose kinds are all bound keeps recovery closed: the route is
-// not a general reopening of evidence binding past its declared step.
-func TestAcceptanceRecoveryClosedWhenNoRequirementOutstanding(t *testing.T) {
+func TestAcceptanceBindingWhenNoRequirementOutstanding(t *testing.T) {
 	ctx := context.Background()
 	f := newAcceptanceRecoveryFixture(ctx, t)
-	extraErr := f.bind(ctx, "extra-binding", f.version(ctx, t), "review", wf04RecoveryRef)
-	requireRecoveryFailure(t, extraErr, KindIllegalLifecycleTransition, "recovery binding with no outstanding requirement")
+	if err := f.bind(ctx, "extra-binding", f.version(ctx, t), "review", wf04RecoveryRef); err != nil {
+		t.Fatalf("binding with no outstanding requirement: %v", err)
+	}
 	if err := f.run(ctx, "confirm_premise", "confirm-satisfied", f.version(ctx, t), nil, nil); err != nil {
 		t.Fatalf("confirmation with every required kind bound refused: %v", err)
 	}
@@ -326,7 +322,7 @@ func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 		t.Fatalf("late commit binding refused: %v", err)
 	}
 	replayErr := runRecoveryAction(ctx, t, s, workID, "bind_evidence", workID+":recover-commit", readWorkVersion(t, s, workID), bindPayload, owner)
-	requireRecoveryFailure(t, replayErr, KindIllegalLifecycleTransition, "exact recovery replay")
+	requireRecoveryFailure(t, replayErr, KindIdempotencyConflict, "reused identity with changed expected version")
 	if got := countEvidenceBinding(t, s, workID, wf04OutstandingKind, wf04RecoveryRef); got != 1 {
 		t.Fatalf("recovery replay binding count=%d, want 1", got)
 	}

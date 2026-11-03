@@ -727,12 +727,8 @@ func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope,
 type runtimeFailure struct {
 	kind, message, recovery string
 	retry                   bool
-	// recoveryRefs carries the ordered workflow actions of a declared-route
-	// remedy. It pairs with the use_declared_route action and stays empty for
-	// every other recovery action.
-	recoveryRefs        []string
-	Candidates          []string
-	CurrentScopeVersion string
+	Candidates              []string
+	CurrentScopeVersion     string
 	// Refreshable marks the one stale_context cause a read may proceed through
 	// under TS5 §3: the scope version moved while the resolved scope did not.
 	// Every other stale_context describes scope the caller must actually change,
@@ -766,7 +762,7 @@ func failureEnvelope(base agentcontract.Envelope, err error) agentcontract.Envel
 	}
 	var f *runtimeFailure
 	if errors.As(err, &f) {
-		action := agentcontract.RecoveryAction{Kind: f.recovery, RequiredRefs: f.recoveryRefs}
+		action := agentcontract.RecoveryAction{Kind: f.recovery}
 		out := coreErrorAction(base, f.kind, f.message, action, f.retry, f.Candidates)
 		out.Error.Details = f.Details
 		return out
@@ -797,17 +793,6 @@ func storeFailureEnvelope(base agentcontract.Envelope, sf *store.Failure) agentc
 			recovery = "reconcile_operation"
 		}
 	}
-	refs := sf.RecoveryRefs
-	if recovery != "use_declared_route" {
-		// Route refs ride the declared-route action alone; any other
-		// action would carry refs the envelope contract never asked for.
-		refs = nil
-	} else if len(refs) == 0 {
-		// A route naming no action cannot marshal. The kind's standing
-		// default keeps the refusal the core decided deliverable.
-		recovery = agentcontract.PublicRecovery(kind, "")
-		refs = nil
-	}
 	// Candidate identities ride the error at construction, before the
 	// envelope's first validation: an ambiguous_scope refusal the caller
 	// cannot act on is one that never marshals. The store carries them on
@@ -818,7 +803,7 @@ func storeFailureEnvelope(base agentcontract.Envelope, sf *store.Failure) agentc
 		// the detail alone reads the same for all three.
 		message += ": " + sf.Err.Error()
 	}
-	out := coreErrorAction(base, kind, message, agentcontract.RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe, nonNilStrings(sf.CandidateIDs))
+	out := coreErrorAction(base, kind, message, agentcontract.RecoveryAction{Kind: recovery}, sf.RetrySafe, nonNilStrings(sf.CandidateIDs))
 	// The store authors free remedy prose in RecoveryAction — the exact
 	// command a caller must run. agentcontract.PublicRecovery projects that
 	// field onto the closed action vocabulary, and the projection alone drops
@@ -882,10 +867,8 @@ func coreError(base agentcontract.Envelope, kind, message, recovery string, retr
 	return coreErrorAction(base, kind, message, agentcontract.RecoveryAction{Kind: recovery}, retry, nil)
 }
 
-// coreErrorAction is coreError with a fully built recovery action, for the
-// refusals whose remedy is a declared route of workflow actions. candidates
-// are the typed identities a refusal carries so the caller can act on it; the
-// envelope validation holds an ambiguous_scope error to a non-empty list.
+// coreErrorAction carries typed candidate identities so the caller can act on
+// a refusal. Envelope validation requires them for an ambiguous_scope error.
 func coreErrorAction(base agentcontract.Envelope, kind, message string, action agentcontract.RecoveryAction, retry bool, candidates []string) agentcontract.Envelope {
 	message = boundedErrorMessage(message)
 	// An unreachable refusal says the core could not answer, so the envelope

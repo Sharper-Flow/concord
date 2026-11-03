@@ -275,9 +275,6 @@ type WorkflowDefinition struct {
 	StalenessRules        []WorkflowStalenessRule       `json:"staleness_rules"`
 	CompositionRules      WorkflowCompositionRules      `json:"composition_rules"`
 	EvaluatorIndependence WorkflowEvaluatorIndependence `json:"evaluator_independence"`
-	// RecoveryRoutes owns cross-step correction for this definition.
-	// Registration requires routes for every declared evaluator step.
-	RecoveryRoutes []WorkflowRecoveryRoute `json:"recovery_routes,omitempty"`
 }
 
 type RegisteredDefinition struct {
@@ -415,7 +412,7 @@ func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 	if err := validateWorkflowDefinitionRules(definition); err != nil {
 		return err
 	}
-	return validateWorkflowRecoveryRoutes(definition)
+	return nil
 }
 
 func validateWorkflowDefinitionIdentity(definition WorkflowDefinition) error {
@@ -550,14 +547,12 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 		StalenessRules        []WorkflowStalenessRule       `json:"staleness_rules"`
 		CompositionRules      WorkflowCompositionRules      `json:"composition_rules"`
 		EvaluatorIndependence WorkflowEvaluatorIndependence `json:"evaluator_independence"`
-		RecoveryRoutes        []WorkflowRecoveryRoute       `json:"recovery_routes,omitempty"`
 	}{
 		SchemaVersion: workflowDefinitionSchemaVersion, Ref: definition.Ref, WorkKind: definition.WorkKind,
 		ChangesProductTruth: definition.ChangesProductTruth, Capabilities: definition.Capabilities,
 		StepGraph: definition.StepGraph, AvailableActions: definition.AvailableActions, ActionDefinitions: definition.ActionDefinitions,
 		RequiredEvidenceKinds: definition.RequiredEvidenceKinds, OutcomeSchema: definition.OutcomeSchema, RigorRules: definition.RigorRules,
 		StalenessRules: definition.StalenessRules, CompositionRules: definition.CompositionRules, EvaluatorIndependence: definition.EvaluatorIndependence,
-		RecoveryRoutes: definition.RecoveryRoutes,
 	}
 	return json.Marshal(manifest)
 }
@@ -1391,9 +1386,6 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_review": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
 		actionObjectField("review", true, "workflow_review_report"),
 	),
-	"request_correction": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric,
-		actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
-	),
 }
 
 // workflowCallerEvidenceBinders names the actions whose completed event binds
@@ -1527,30 +1519,6 @@ func workflowDecisionFactInitialActionDefinition(definition WorkflowDefinition) 
 	return selected, nil
 }
 
-// Recovery payloads are engine-owned even when absent from a historical pin.
-// Discovery of a definition does not grant admission at the current step.
-func workflowRecoveryActionDefinition(actionID string) (WorkflowActionDefinition, bool) {
-	if actionID == "record_verdict" {
-		return currentActionDefinition(actionID, true), true
-	}
-	for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {
-		if action.ID == actionID {
-			return action, true
-		}
-	}
-	return WorkflowActionDefinition{}, false
-}
-
-// BuiltinWorkflowRecoveryActionDefinitions is the single list of correction
-// payloads the engine admits off a pinned step. The registry resolves them
-// here, and the contract projection reads the same list, so neither carries a
-// second copy.
-func BuiltinWorkflowRecoveryActionDefinitions() []WorkflowActionDefinition {
-	return []WorkflowActionDefinition{
-		workflowCorrectionRequestActionDefinition(),
-	}
-}
-
 func workflowActionExecutionMode(definition WorkflowDefinition, actionID string) (ActionExecutionMode, bool) {
 	for _, action := range definition.ActionDefinitions {
 		if action.ID != actionID {
@@ -1560,10 +1528,6 @@ func workflowActionExecutionMode(definition WorkflowDefinition, actionID string)
 			return action.ExecutionMode, true
 		}
 		break
-	}
-	// Recovery actions can be outside the pinned root list.
-	if action, ok := workflowRecoveryActionDefinition(actionID); ok {
-		return action.ExecutionMode, true
 	}
 	return "", false
 }

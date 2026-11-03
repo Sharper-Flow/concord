@@ -85,7 +85,7 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   // these numbers, which is a visible test change, never silent drift.
   // Exact catalog coverage and positive root sizes distinguish an empty
   // allowed list from a missing root.
-  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 100_599 }
+  const PRIMARY_BUDGET = { allowed: CATALOG, bytes: 98_479 }
   const registeredTotal = [...registeredBytes.values()].reduce((sum, size) => sum + size, 0)
   expect(registeredTotal).toBe(PRIMARY_BUDGET.bytes)
   expect([...registeredBytes.keys()].sort(), "registered byte accounting must cover the catalog exactly").toEqual(CATALOG)
@@ -123,8 +123,8 @@ test("grants select whole tools and never trim a published schema", async () => 
     const operations = contractOperations.filter((operation: any) => operation.tool === tool)
     expect(expanded.oneOf, tool).toHaveLength(operations.length)
   }
-  expect(registeredBytes.get("concord_work_transition")).toBe(61_739)
-  expect(workflowActionPublicVariants.length).toBe(25)
+  expect(registeredBytes.get("concord_work_transition")).toBe(59_619)
+  expect(workflowActionPublicVariants.length).toBe(24)
 })
 
 test("publication is role-blind, so a denied role's budget is not an immutable ceiling", async () => {

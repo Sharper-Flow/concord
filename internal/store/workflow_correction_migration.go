@@ -6,6 +6,41 @@ import (
 	"encoding/json"
 )
 
+func preflightOrdinaryWorkflowRecords(ctx context.Context, q queryer) error {
+	rows, err := q.QueryContext(ctx, `SELECT d.payload,d.assertion_id,d.correction_id,d.correction_occurred_at,d.correction_payload,r.effect_seq,r.actor,r.payload_version,r.payload_digest
+FROM workflow_delivery_state d LEFT JOIN effect_receipts r ON r.event_id=d.correction_id AND r.subject_type='work_item' AND r.subject_id=d.work_id AND r.kind='workflow.delivery_corrected'`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var payload, assertionID string
+		var id, occurred, correction, actor, receiptDigest sql.NullString
+		var seq, version sql.NullInt64
+		if err := rows.Scan(&payload, &assertionID, &id, &occurred, &correction, &seq, &actor, &version, &receiptDigest); err != nil {
+			return err
+		}
+		var valid bool
+		if id.Valid {
+			valid = id.String != "" && occurred.Valid && occurred.String != "" && correction.Valid && seq.Valid && seq.Int64 > 0 && actor.Valid && actor.String != "" && version.Valid && version.Int64 > 0
+			payload = correction.String
+			digest, err := effectPayloadDigest([]byte(payload))
+			valid = valid && err == nil && receiptDigest.Valid && receiptDigest.String == digest
+		} else {
+			valid = !occurred.Valid && !correction.Valid
+		}
+		var delivery struct {
+			Artifact string `json:"delivery_artifact"`
+			State    string `json:"delivery_state"`
+			TargetID string `json:"target_event_id"`
+		}
+		if !valid || json.Unmarshal([]byte(payload), &delivery) != nil || !ValidReference(delivery.Artifact) || delivery.State != "asserted" || id.Valid && delivery.TargetID != assertionID {
+			return newFailure(KindInvariantViolation, "migrate", "ordinary workflow records require verifiable delivery state and correction receipts; restore a verified snapshot", false, "restore a verified snapshot before retrying the upgrade")
+		}
+	}
+	return rows.Err()
+}
+
 type workflowCorrectionCompletionFields struct {
 	ActionID             string   `json:"action_id"`
 	StepID               string   `json:"step_id"`
@@ -25,30 +60,6 @@ type correctionRecordFact struct {
 type correctionStateFact struct {
 	Boundary int64                  `json:"boundary"`
 	Records  []correctionRecordFact `json:"records"`
-}
-
-func readWorkflowCorrectionContext(ctx context.Context, q queryer, workID string) (*WorkflowCorrectionContext, error) {
-	var raw string
-	err := q.QueryRowContext(ctx, `SELECT state FROM workflow_correction_state WHERE work_id=?`, workID).Scan(&raw)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, workflowProjectionError(err, "cannot read current correction state")
-	}
-	var state correctionStateFact
-	if err := json.Unmarshal([]byte(raw), &state); err != nil {
-		return nil, newFailure(KindInvariantViolation, "workflow_correction", "current correction state is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-	}
-	for i := len(state.Records) - 1; i >= 0; i-- {
-		record := state.Records[i]
-		if record.Seq <= state.Boundary || record.Fields.ActionID != "request_correction" {
-			continue
-		}
-		fields := record.Fields
-		return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: correctionReferenceStrings(fields.CorrectionPredicates), EvidenceRefs: correctionReferenceStrings(fields.CorrectionEvidence), Diagnosis: fields.CorrectionDiagnosis, Strategy: fields.CorrectionStrategy, SourceEventID: record.SourceID, SourceEventSeq: record.Seq}, nil
-	}
-	return nil, nil
 }
 
 func writeWorkflowCorrectionFacts(ctx context.Context, q migrationRunner, workID string, state correctionStateFact) error {
@@ -83,14 +94,6 @@ func correctionStateForEvent(event Event) (correctionStateFact, bool, error) {
 		return state, true, nil
 	}
 	return state, false, nil
-}
-
-func advanceWorkflowCorrectionFactsTx(ctx context.Context, tx *sql.Tx, event Event) error {
-	state, changed, err := correctionStateForEvent(event)
-	if err != nil || !changed {
-		return err
-	}
-	return writeWorkflowCorrectionFacts(ctx, tx, event.SubjectID, state)
 }
 
 // Historical migration reads genuine correction/production events only. It

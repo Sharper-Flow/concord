@@ -2455,9 +2455,6 @@ func ledgerPayloadInputRoots() []censusRootRequest {
 			add(action)
 		}
 	}
-	for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {
-		add(action)
-	}
 	sorted := make([]string, 0, len(names))
 	document := workflowLivePayloadSchemaDocument()
 	for name := range names {

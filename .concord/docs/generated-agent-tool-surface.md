@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:b1c65ad683d2fb21e19e924d000403fa3525b2433049e7c9868bad6ca62247aa`
-Payload schema digest: `sha256:1390491db4574ff3d83c9468f145e26f084459f0630c2da23397bebe7c4b456b`
+Manifest digest: `sha256:06a3cc509719f50e6154ab8e560380117e401041ef77346f8a61aa32aba4d421`
+Payload schema digest: `sha256:073eef4f90f56e2ce2b66618c97fb2b8793e5141f8ce49de9706932e062f63e9`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -36,4 +36,3 @@ Envelope schema: `1.0`
 | `concord_work_relate.resolve_overlap` | `mutation` | `—` | `work_relate` | `relation` | `always` |
 | `concord_domain.list` | `read` | `C22.DomainList` | `product_read` | `read` | `always` |
 | `concord_domain.detail` | `read` | `C22.DomainDetail` | `product_read` | `read` | `always` |
-| `concord_work_transition.correct_delivery` | `mutation` | `—` | `work_transition` | `recovery` | `always` |

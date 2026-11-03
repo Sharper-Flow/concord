@@ -978,11 +978,7 @@ func init() {
 	registerOutputBound("/$defs/mutation_result/properties/delivery/properties/branch/maxLength", pkFieldNeverWrittenBound("delivery", boundCharacters, "internal/agent/mutations.go"))
 	registerOutputBound("/$defs/mutation_result/properties/delivery/properties/commit/maxLength", pkFieldNeverWrittenBound("delivery", boundCharacters, "internal/agent/mutations.go"))
 	registerOutputBound("/$defs/mutation_result/properties/next_valid_intents/items/properties/required_fields/maxItems", schemaBound("contracts/workflow-definition.schema.json", "/$defs/payloadDefinition/properties/fields/maxItems"))
-	registerOutputBound("/$defs/mutation_result/properties/next_valid_intents/maxItems", sumBound(
-		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinCorrectionRequestIntentsTx", "pin.NextValidIntents"),
-	))
+	registerOutputBound("/$defs/mutation_result/properties/next_valid_intents/maxItems", workPinIntentItemsBound())
 	registerOutputBound("/$defs/mutation_result/properties/work_pins/maxItems", pkSubsetChainItemsBound(
 		pkPlanEffectWorkPinsBound("internal/agent/mutations.go"),
 		pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"},
@@ -1012,18 +1008,10 @@ func init() {
 	registerOutputBound("/$defs/product_snapshot/properties/previews/maxItems", goInlineBound("internal/agent/runtime_read_handlers.go", "readProductSnapshot", "preview", boundItems))
 
 	registerOutputBound("/$defs/project_handoff_consume_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume", "mutationResultChangedRefs"))
-	registerOutputBound("/$defs/project_handoff_consume_result/properties/next_valid_intents/maxItems", sumBound(
-		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinCorrectionRequestIntentsTx", "pin.NextValidIntents"),
-	))
+	registerOutputBound("/$defs/project_handoff_consume_result/properties/next_valid_intents/maxItems", workPinIntentItemsBound())
 	registerOutputBound("/$defs/project_handoff_consume_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume"))
 	registerOutputBound("/$defs/project_handoff_record_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord", "mutationResultChangedRefs"))
-	registerOutputBound("/$defs/project_handoff_record_result/properties/next_valid_intents/maxItems", sumBound(
-		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
-		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinCorrectionRequestIntentsTx", "pin.NextValidIntents"),
-	))
+	registerOutputBound("/$defs/project_handoff_record_result/properties/next_valid_intents/maxItems", workPinIntentItemsBound())
 	registerOutputBound("/$defs/project_handoff_record_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord"))
 
 	registerOutputBound("/$defs/project_retirement_result/properties/blockers/items/maxLength", unboundedOutput("internal/store/project_handoffs.go:preservationBlocker embeds failure.Detail verbatim and the typed refusal pipeline never clamps detail text, so a preservation refusal naming a long source path can exceed the cap", "internal/agent/runtime.go:readSizeRefusal"))
@@ -2436,7 +2424,7 @@ func TestPkDerivations(t *testing.T) {
 		"policy ref":    pkSprintfDigestRefBound(),
 		"commit oid":    pkLengthSetBound("internal/store/git_knowledge.go", "validateCommitOID", "len(oid)"),
 		"stop collect":  pkCollectStopBound("internal/store/membership.go", "membershipImpact", "len(impact.AffectedWorkIDs)"),
-		"intent sites":  pkAppendSitesItemsBound("internal/store/workpin.go", "workPinCorrectionRequestIntentsTx", "pin.NextValidIntents"),
+		"intent chain":  workPinIntentItemsBound(),
 		"record effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord"), "pin aggregate": pkSubsetChainItemsBound(pkPlanEffectWorkPinsBound("internal/agent/mutations.go"), pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"}, pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"}),
 		"consume effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume"),
 		"registry hash":  pkHexDigestConstructionBound("internal/store/knowledge_record.go", "domainRegistryContentHash"),
@@ -2450,7 +2438,6 @@ func TestPkDerivations(t *testing.T) {
 		"task guard":     pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)"),
 		"last progress":  pkTimeLayoutWidthBound("internal/store/work_effect_seq.go", "advanceWorkEffectSeqTx", "time.RFC3339Nano"),
 		"verdict time":   pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowCompleted", "time.RFC3339Nano"),
-		"claim intents":  pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
 	}
 	for name, source := range realSites {
 		if _, err := rt.evaluateSource(source, nil); err != nil {

@@ -103,6 +103,11 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 			return err
 		}
 	}
+	if m.Name == "ordinary_workflow_records" {
+		if err := preflightOrdinaryWorkflowRecords(ctx, q); err != nil {
+			return err
+		}
+	}
 	if _, err := q.ExecContext(ctx, m.SQL); err != nil {
 		return wrapFailure(KindUnavailable, "migrate",
 			fmt.Sprintf("migration %d (%s) failed", m.Version, m.Name), false,
@@ -8581,6 +8586,42 @@ DROP TABLE work_observations;
 		SQL: `
 DROP TABLE workflow_law_baselines;
 ALTER TABLE workflow_contracts DROP COLUMN law_change;
+`,
+	},
+	{
+		Version: 181, Name: "ordinary_workflow_records", Breaking: true,
+		SQL: `
+INSERT INTO write_guard(active) VALUES(1);
+CREATE TABLE workflow_delivery_state_v181 (
+ work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+ assertion_seq INTEGER NOT NULL,
+ assertion_id TEXT NOT NULL,
+ actor TEXT NOT NULL,
+ occurred_at TEXT NOT NULL,
+ payload_version INTEGER NOT NULL,
+ payload TEXT NOT NULL CHECK(json_valid(payload) AND json_type(payload,'$.delivery_artifact')='text' AND length(json_extract(payload,'$.delivery_artifact'))>1 AND json_extract(payload,'$.delivery_state')='asserted')
+);
+INSERT INTO workflow_delivery_state_v181
+ SELECT work_id,
+ CASE WHEN correction_id IS NULL THEN assertion_seq ELSE (SELECT effect_seq FROM effect_receipts WHERE event_id=correction_id AND subject_type='work_item' AND subject_id=work_id AND kind='workflow.delivery_corrected') END,
+ COALESCE(correction_id,assertion_id),
+ CASE WHEN correction_id IS NULL THEN actor ELSE (SELECT actor FROM effect_receipts WHERE event_id=correction_id AND subject_type='work_item' AND subject_id=work_id AND kind='workflow.delivery_corrected') END,
+  COALESCE(correction_occurred_at,occurred_at),CASE WHEN correction_id IS NULL THEN payload_version ELSE (SELECT payload_version FROM effect_receipts WHERE event_id=correction_id AND subject_type='work_item' AND subject_id=work_id AND kind='workflow.delivery_corrected') END,
+ CASE WHEN correction_id IS NULL THEN payload ELSE correction_payload END
+ FROM workflow_delivery_state;
+DROP TABLE workflow_delivery_state;
+ALTER TABLE workflow_delivery_state_v181 RENAME TO workflow_delivery_state;
+CREATE TRIGGER workflow_delivery_state_guard_insert BEFORE INSERT ON workflow_delivery_state BEGIN SELECT RAISE(ABORT, 'workflow_delivery_state is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_delivery_state_guard_update BEFORE UPDATE ON workflow_delivery_state BEGIN SELECT RAISE(ABORT, 'workflow_delivery_state is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_delivery_state_guard_delete BEFORE DELETE ON workflow_delivery_state BEGIN SELECT RAISE(ABORT, 'workflow_delivery_state is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+UPDATE workflow_review_state SET state=json_remove(state,'$.correction_funding');
+DELETE FROM workflow_phase_exits WHERE action_id='request_correction';
+DELETE FROM workflow_completed_exits WHERE action_id='request_correction';
+DROP TABLE workflow_correction_state;
+DROP TABLE workflow_artifact_actions;
+ALTER TABLE workflow_predicate_verdicts DROP COLUMN prior_correction_seq;
+ALTER TABLE workflow_instances DROP COLUMN unhealthy_verdict_seq;
+DELETE FROM write_guard;
 `,
 	},
 }

@@ -61,7 +61,7 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 	c.parents = func(t *testing.T, s *Store, guard string) {
 		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{
 			"work_items":         {"lifecycle": "'needed'", "transition_from": "NULL", "transition_reason": "''", "transition_actor": "''", "transition_evidence_refs": "'[]'", "transition_seq": "0", "transition_version": "1"},
-			"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"}, "workflow_contracts": {"definition_version": "26", "law_change": "NULL"},
+			"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''", "latest_non_dispatch_start_seq": "0", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"definition_version": "26", "law_change": "NULL"},
 		}, guard)
 		corpusWorkParents(t, s, guard, "q7-corpus-related", "q7-corpus-next", "q7-start-only")
 		if guard != "fold_guard" {
@@ -129,7 +129,16 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 			}
 			return advanceWorkflowVersion(ctx, tx, e, WorkflowVersionFields{WorkID: e.SubjectID, ExpectedVersion: &p.Expected, ResultingVersion: &p.Resulting})
 		case WorkflowActionCompleted:
-			return foldWorkflowActionCompleted(ctx, tx, e, nil)
+			// This source effect was already admitted historically. Project its
+			// retained facts without treating it as a new terminal action.
+			var completed workflowActionCompletedPayload
+			if err := json.Unmarshal(e.Payload, &completed); err != nil {
+				return err
+			}
+			if err := advanceWorkflowVersion(ctx, tx, e, completed.WorkflowVersionFields); err != nil {
+				return err
+			}
+			return persistWorkflowCompletionExitTx(ctx, tx, e, completed, RegisteredDefinition{}, false, "")
 		case "work.transitioned":
 			return updateWorkLifecycle(ctx, tx, e, p.To, p.Expected, p.Resulting)
 		case "work.reopened", "work.reopened_from_superseded":

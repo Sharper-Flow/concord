@@ -87,13 +87,13 @@ func TestWorkflowActionSchemaIsActionSpecific(t *testing.T) {
 	}
 }
 
-func TestRecoveryWorkflowActionSchemasRejectUnknownFieldsAtBoundary(t *testing.T) {
+func TestWorkflowActionSchemasRejectUnknownFieldsAtBoundary(t *testing.T) {
 	t.Parallel()
 	for _, action := range []struct {
 		id     string
 		fields string
 	}{
-		{id: "request_correction", fields: `{"diagnosis":"bad result","strategy":"retry the worker","predicate_ids":["predicate-1"],"evidence_refs":["evidence-1"]}`},
+		{id: "bind_evidence", fields: `{"evidence_kind":"verification","evidence_ref":"worktree_verify:one"}`},
 	} {
 		payload := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"` + action.id + `","idempotency_key":"action-1","fields":` + action.fields + `}`)
 		for _, schema := range []string{"work_transition_action_input", "work_transition_action_public_input"} {

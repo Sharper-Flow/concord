@@ -65,17 +65,8 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 	if unmet := f.action(t, "confirm_premise", map[string]any{}); unmet.Error == nil || unmet.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("an unmet changed obligation left execution without correction: %+v", unmet.Error)
 	}
-	spineOK(t, f.action(t, "request_correction", map[string]any{
-		"diagnosis":     "The changed subject attribution needs assessment against the checked candidate.",
-		"strategy":      "Review the retained candidate and its existing check receipt against the changed criterion.",
-		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{report},
-	}))
-	if correction := f.read(t).Pinned.Pin.Correction; correction == nil || !slices.Contains(correction.EvidenceRefs, report) {
-		t.Fatal("the unmet changed obligation lost its correction authority")
-	}
 	f.review(t, "ready_for_final_proof", f.proof)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
-	f.advanceToAcceptance(t)
 	spineOK(t, f.action(t, "record_verdict", verdict))
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
 		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise",

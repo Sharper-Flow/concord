@@ -156,21 +156,11 @@ func TestManagedCandidateSubjectCorrectiveReviewOnB(t *testing.T) {
 	acceptCurrentReviewForTest(t, c.f, "correction_required")
 	run := c.j.observeRun(t, "correction")
 	c.j.bindVerification(t, run)
-	const diagnosis = "The candidate needs a bounded corrective pass"
-	const strategy = "Correct the reviewed candidate"
-	if err := c.j.action(t, "request_correction", map[string]any{"diagnosis": diagnosis, "strategy": strategy, "predicate_ids": []string{"predicate:return-route"}, "evidence_refs": []string{run.OperationRef}}, c.f.owner); err != nil {
-		t.Fatalf("request correction: %v", err)
-	}
-	if step := currentStep(t, c.f.store, c.f.workID); step != "repair" {
-		t.Fatalf("step after correction = %q, want repair", step)
-	}
-	correction, err := readWorkflowCorrectionContext(t.Context(), c.f.store.db, c.f.workID)
-	if err != nil || correction == nil || correction.Diagnosis != diagnosis || correction.Strategy != strategy || len(correction.EvidenceRefs) != 1 || correction.EvidenceRefs[0] != run.OperationRef {
-		t.Fatalf("correction context = %+v, %v", correction, err)
-	}
+	step := currentStep(t, c.f.store, c.f.workID)
 	acceptCurrentReviewForTest(t, c.f, "ready_for_final_proof")
-	if remaining, err := readWorkflowCorrectionContext(t.Context(), c.f.store.db, c.f.workID); err != nil || remaining != nil {
-		t.Fatalf("corrective Review left direction %+v, %v", remaining, err)
+	state, err := loadWorkflowReviewState(t.Context(), c.f.store.db, c.f.workID)
+	if err != nil || state.Accepted == nil || state.Accepted.Report.Disposition != "ready_for_final_proof" || currentStep(t, c.f.store, c.f.workID) != step {
+		t.Fatalf("ordinary Review did not refresh readiness in place: %+v, %v", state, err)
 	}
 }
 

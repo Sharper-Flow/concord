@@ -324,14 +324,9 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 		},
 		ParkedDelivery: &store.WorkflowReadParkedDelivery{WorkID: "work-1", StepID: "delivery", ResumeAction: "record_delivery", ParkedSeconds: 12, Unreconciled: false},
 		DeliveryAssertion: &store.WorkflowReadDeliveryAssertion{
-			EventID: "assertion-1", Seq: 7, TargetPayloadVersion: 2,
+			EventID: "assertion-1", Seq: 7,
 			Artifact: "file:internal/store/impl.go", State: "asserted",
 			ActorRef: "actor:owner", AssertedAt: "2026-01-01T00:00:00Z",
-			EffectiveArtifact: "https://github.com/Sharper-Flow/concord/pull/1340",
-			Correction: &store.WorkflowReadDeliveryCorrection{
-				EventID: "correction-1", Reason: "asserted repository paths", Artifact: "https://github.com/Sharper-Flow/concord/pull/1340",
-				EvidenceSource: store.DeliveryEvidenceSourceCoordinatorAsserted, CorrectedAt: "2026-01-02T00:00:00Z",
-			},
 		},
 	}
 }

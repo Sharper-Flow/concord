@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -31,16 +32,14 @@ type admissionConformanceView struct {
 	Step, Lifecycle, InstanceState                             string
 	RefinementWorkflow                                         bool
 	ActiveContracts                                            int64
-	LateCriterionAssociation, DesignStale, ArtifactStale       bool
+	LateCriterionAssociation, DesignStale                      bool
 	Review                                                     admissionReviewView
-	CorrectionRequestRecovery                                  bool
 	AcceptanceDeliverablesMissing                              bool
 	DeliveryStarted, DeliveryProofRequired, DeliveryProofReady bool
 	DeliveryFailure, DeliveryProofFailure                      bool
 	MandatePresent, MandateMissing                             bool
 	MandateBindingStep                                         string
 	MandateAddedByContract                                     bool
-	MandateCorrectionAction                                    string
 	MandateFailure                                             bool
 }
 
@@ -48,14 +47,14 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 	view := admissionConformanceView{
 		Step: state.Step, Lifecycle: state.Lifecycle, InstanceState: state.InstanceState,
 		RefinementWorkflow: state.RefinementWorkflow, ActiveContracts: state.ActiveContracts,
-		DesignStale:              state.DesignStale,
-		LateCriterionAssociation: state.LateCriterionAssociation, ArtifactStale: state.ArtifactStale,
-		Review: admissionReviewViewOf(state.Review), CorrectionRequestRecovery: state.CorrectionRequestRecovery,
+		DesignStale:                   state.DesignStale,
+		LateCriterionAssociation:      state.LateCriterionAssociation,
+		Review:                        admissionReviewViewOf(state.Review),
 		AcceptanceDeliverablesMissing: state.AcceptanceDeliverablesMissing != nil,
 		DeliveryStarted:               state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
 		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,
 		MandatePresent: state.Mandate.Present, MandateMissing: state.Mandate.LawID != "", MandateBindingStep: state.Mandate.BindingStep,
-		MandateAddedByContract: state.Mandate.AddedByContract, MandateCorrectionAction: state.Mandate.CorrectionAction,
+		MandateAddedByContract: state.Mandate.AddedByContract,
 	}
 	if state.Delivery.ProofRequired {
 		view.DeliveryProofReady, view.DeliveryProofFailure = state.Delivery.ProofReady, state.Delivery.ProofFailure != nil
@@ -63,16 +62,20 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 	return view
 }
 
-func conformanceCheckpoint(t *testing.T, s *Store, registry DefinitionRegistry, workID string, definition WorkflowDefinition, want admissionModelState, label string) {
+func conformanceCheckpoint(t *testing.T, s *Store, workID string, definition WorkflowDefinition, want admissionModelState, label string) {
 	t.Helper()
-	loaded := conformanceFold(t, s, registry, workID, definition, label)
-	got, model := admissionConformanceViewOf(loaded), admissionConformanceViewOf(admissionWorkflowState(definition, want))
+	loaded := conformanceFold(t, s, workID, definition, label)
+	lifted := admissionWorkflowState(definition, want)
+	got, model := admissionConformanceViewOf(loaded), admissionConformanceViewOf(lifted)
 	if got != model {
 		t.Fatalf("%s: loaded fold %+v != abstract successor %s lifted to %+v", label, got, want, model)
 	}
+	if !reflect.DeepEqual(loaded.CurrentRecords, lifted.CurrentRecords) {
+		t.Fatalf("%s: loaded current records %v != abstract successor %s records %v", label, loaded.CurrentRecords, want, lifted.CurrentRecords)
+	}
 }
 
-func conformanceFold(t *testing.T, s *Store, registry DefinitionRegistry, workID string, definition WorkflowDefinition, label string) WorkflowAdmissionState {
+func conformanceFold(t *testing.T, s *Store, workID string, definition WorkflowDefinition, label string) WorkflowAdmissionState {
 	t.Helper()
 	// The fold reads the work's law and registry state; production prepares
 	// that proof before the read transaction opens (PrepareWorkLawProof).
@@ -89,7 +92,7 @@ func conformanceFold(t *testing.T, s *Store, registry DefinitionRegistry, workID
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_admission_conformance_test", registry)
+	loaded, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, step, "workflow_admission_conformance_test")
 	if err != nil {
 		t.Fatalf("%s: load: %v", label, err)
 	}
@@ -104,7 +107,7 @@ func TestAdmissionConformanceQualifiedEditsNeedReview(t *testing.T) {
 	definition := pinnedWorkflowDefinitionForTest(t, f.store, f.workID)
 	for round := 1; round <= 2; round++ {
 		conformanceImplementChange(t, j, "change-"+itoa(round))
-		loaded := conformanceFold(t, f.store, BuiltinWorkflowRegistry(), f.workID, definition, "qualified ordinary edit")
+		loaded := conformanceFold(t, f.store, f.workID, definition, "qualified ordinary edit")
 		if loaded.Step != "repair" || loaded.Review == nil || loaded.Review.Accepted != nil {
 			t.Fatalf("ordinary edit advanced or manufactured Review: %+v", loaded)
 		}

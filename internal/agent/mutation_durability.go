@@ -35,7 +35,6 @@ var mutationDurabilityDeclarations = map[string]mutationDurability{
 	"concord_work_transition.project_handoff_consume": {},
 	"concord_work_relate.set_memberships":             {},
 	"concord_work_relate.resolve_overlap":             {initial: true, replay: true},
-	"concord_work_transition.correct_delivery":        {initial: true, replay: true},
 }
 
 // mutationDurabilityError is the typed invariant failure of a durability lookup.

@@ -22,29 +22,29 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 	t.Run("engineering folds no human-question exit beside its real confirm exit", func(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-liveness-engineering"
-		s, registry, definition, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
+		s, _, definition, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
 		// The model lifts engineering to the coordinator confirmation exit;
 		// the real fold must agree on every compared dimension.
-		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(), "engineering at acceptance")
-		state := foldedApprovalAdmission(t, s, registry, definition, workID)
+		conformanceCheckpoint(t, s, workID, definition, rAcceptanceModel(), "engineering at acceptance")
+		state := foldedApprovalAdmission(t, s, definition, workID)
 		decision := workflowAdmit(definition, state, "confirm_premise")
 		if !decision.Admitted {
 			t.Fatalf("engineering confirm_premise is no exit at all: %v", decision.Failure)
 		}
 	})
 
-	t.Run("correction stays a routine admission route", func(t *testing.T) {
+	t.Run("ordinary records remain subject-specific off-step", func(t *testing.T) {
 		t.Parallel()
-		available := WorkflowAdmissionState{CorrectionRequestRecovery: true}
+		available := WorkflowAdmissionState{Step: "delivery", CurrentRecords: map[string]bool{"record_review": true}}
 		for name, definition := range map[string]WorkflowDefinition{"implementation": mustBuiltinDefinition(t, "workflow.implementation").Definition} {
-			decision := workflowAdmit(definition, available, "request_correction")
+			decision := workflowAdmit(definition, available, "record_review")
 			if !decision.Admitted {
-				t.Fatalf("%s correction route folded admitted=%v, want a routine admitted route", name, decision.Admitted)
+				t.Fatalf("%s current-record write refused: %v", name, decision.Failure)
 			}
-			unavailable := workflowAdmit(definition, WorkflowAdmissionState{}, "request_correction")
+			unavailable := workflowAdmit(definition, WorkflowAdmissionState{Step: "delivery"}, "record_review")
 			var failure *Failure
 			if unavailable.Admitted || !failureAs(unavailable.Failure, &failure) {
-				t.Fatalf("%s unavailable correction folded %v, want the typed availability refusal", name, unavailable.Failure)
+				t.Fatalf("%s missing record folded %v, want the typed availability refusal", name, unavailable.Failure)
 			}
 		}
 	})
@@ -53,11 +53,11 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-liveness-revision"
 		s, registry, definition, owner := seedApprovalItemAtAcceptance(t, workID, []string{})
-		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(), "before the revision")
+		conformanceCheckpoint(t, s, workID, definition, rAcceptanceModel(), "before the revision")
 		// The revision changes no criterion, so the judged artifact stays
 		// current (CD-0242 D7).
 		rReviseContract(t, s, workID, ownerRefForTest(t, owner), []string{})
-		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(), "successor after the revision")
+		conformanceCheckpoint(t, s, workID, definition, rAcceptanceModel(), "successor after the revision")
 		// The judged artifact stays current through the revision, so the
 		// coordinator confirms the successor with no repeated production
 		// (CD-0242 D7).

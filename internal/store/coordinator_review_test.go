@@ -161,23 +161,6 @@ func TestCoordinatorReviewRecordsCandidateWithoutGitObservation(t *testing.T) {
 	}
 }
 
-func TestCoordinatorCorrectionDoesNotRequireWorkerFindingAuthoring(t *testing.T) {
-	db := nativeTaskRetirementDB(t)
-	state := workflowReviewFacts{Findings: []ReviewFinding{{FindingID: "local:one", Status: "open", Blocking: true, Oracle: &ReviewOracleFinding{Classification: OracleClassificationDeliveryBlocker, OwnerID: "owner:one"}}}, Sources: map[string]reviewFindingSource{"local:one": {CanonicalID: "finding:7:0"}}}
-	if _, err := db.Exec(`UPDATE workflow_review_state SET state=? WHERE work_id='work:one'`, workflowJSON(state)); err != nil {
-		t.Fatal(err)
-	}
-	if err := validateCorrectionOpenFindingsTx(t.Context(), db, "work:one", nil, false); err != nil {
-		t.Fatalf("optional historical metadata required new canonical authoring: %v", err)
-	}
-	if err := validateCorrectionOpenFindingsTx(t.Context(), db, "work:one", []string{"finding:7:0"}, true); err != nil {
-		t.Fatal(err)
-	}
-	if err := validateCorrectionOpenFindingsTx(t.Context(), db, "work:one", []string{"finding:8:0"}, true); err == nil {
-		t.Fatal("explicit correction reference replaced the retained blocker")
-	}
-}
-
 func TestCoordinatorCorrectionFactsHaveNoWorkerConsumer(t *testing.T) {
 	request := Event{Kind: WorkflowActionCompleted, EventID: "correction:one", Seq: 10, Payload: []byte(`{"action_id":"request_correction","correction_diagnosis":"reported failure","correction_strategy":"correct the candidate","correction_predicate_ids":["predicate:one"],"correction_evidence_refs":["verify:one"]}`)}
 	state, changed, err := correctionStateForEvent(request)

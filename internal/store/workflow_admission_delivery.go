@@ -137,7 +137,8 @@ func workflowAdmitDelivery(definition WorkflowDefinition, state WorkflowAdmissio
 		decision.Failure = state.Delivery.Failure
 		return decision
 	}
-	if !state.Delivery.Started {
+	recordOnly := state.CurrentRecords["record_delivery"] && (state.InstanceState == "completed" || !definitionStepAllows(definition, state.Step, "record_delivery"))
+	if !recordOnly && !state.Delivery.Started {
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "record_delivery requires the delivery step's fenced start action in this attempt", false, "start the delivery-bearing step, do its work, then record delivery")
 		return decision
 	}

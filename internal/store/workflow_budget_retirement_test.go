@@ -10,7 +10,6 @@ func TestBudgetStateAbsentFromCurrentCorrectionAndAdmission(t *testing.T) {
 		typ    reflect.Type
 		fields []string
 	}{
-		{reflect.TypeOf(WorkflowCorrectionContext{}), []string{"AttemptCount", "AttemptLimit", "Escalated"}},
 		{reflect.TypeOf(WorkflowAdmissionState{}), []string{"CorrectionEscalated", "NonProgressAttempts", "RetryConvergence", "FundedChecksRepairReviews"}},
 		{reflect.TypeOf(WorkflowAdmissionDecision{}), []string{"ConvergenceRequired"}},
 	} {

@@ -2,67 +2,8 @@ package store
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 )
-
-// TestDeliveryGateCorrectionAdmitsInapplicableReview proves the gate's
-// corrective return over the real rows behind an accepted Review: an
-// applicable accepted Review opens no return, a successor contract's stale
-// dependency or changed output candidate opens the declared producer return,
-// and the accepted report is its evidence source.
-func TestDeliveryGateCorrectionAdmitsInapplicableReview(t *testing.T) {
-	f := seedWorkContextFixture(t, "gate-correction-inapplicable-review")
-	t.Cleanup(func() { _ = f.store.Close() })
-	repo, _ := reviewSubjectClaim(t, f.store, f.workID)
-	journey := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
-	conformanceImplementChange(t, journey, "gate-correction")
-	completeCurrentReviewForTest(t, f, "ready_for_final_proof")
-	ctx := t.Context()
-	loaded, err := loadWorkflowReviewState(ctx, f.store.db, f.workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loaded.Accepted == nil || loaded.Candidate == nil || !loaded.DependenciesCurrent {
-		t.Fatalf("accepted fixture Review did not fold applicable: %+v", loaded)
-	}
-	definition := pinnedWorkflowDefinitionForTest(t, f.store, f.workID)
-	fold := func(label string, mutate func(*WorkflowReviewState)) *WorkflowCorrectionContext {
-		t.Helper()
-		review := loaded
-		if mutate != nil {
-			mutate(&review)
-		}
-		state := WorkflowAdmissionState{ActiveContracts: 1, Review: &review}
-		context, err := workflowDeliveryGateCorrectionContextFolded(ctx, f.store.db, f.workID, definition, "delivery", "workflow_review_conformance_test", state)
-		if err != nil {
-			t.Fatalf("%s: gate correction fold: %v", label, err)
-		}
-		return context
-	}
-	if got := fold("applicable", nil); got != nil {
-		t.Fatalf("an applicable accepted Review opened a gate return: %+v", got)
-	}
-	if got := fold("unaccepted", func(review *WorkflowReviewState) { review.Accepted = nil }); got != nil {
-		t.Fatalf("an unaccepted Review opened a gate return: %+v", got)
-	}
-	target := workflowCorrectionReturnTarget(definition, "delivery")
-	if target == "" {
-		t.Fatal("the gate declares no corrective return target")
-	}
-	stale := fold("stale dependencies", func(review *WorkflowReviewState) { review.DependenciesCurrent = false })
-	if stale == nil || stale.SourceEventID != loaded.Accepted.ReportRef || len(stale.PredicateIDs) == 0 {
-		t.Fatalf("stale dependencies folded %+v, want the accepted report's corrective return with contract predicates", stale)
-	}
-	changed := fold("changed output", func(review *WorkflowReviewState) {
-		candidate := *review.Candidate
-		candidate.Commit = strings.Repeat("f", 40)
-		review.Candidate = &candidate
-	})
-	if changed == nil || changed.SourceEventID != loaded.Accepted.ReportRef {
-		t.Fatalf("changed output folded %+v, want the accepted report's corrective return", changed)
-	}
-}
 
 func TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition(t *testing.T) {
 	for _, disposition := range []string{"continue", "correction_required", "revision_required", "ready_for_final_proof"} {
@@ -86,7 +27,7 @@ func TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition(t *testing.T)
 			global := admissionModelState{step: "repair", contracts: 1}
 			check := func(label string) WorkflowAdmissionState {
 				t.Helper()
-				loaded := conformanceFold(t, f.store, BuiltinWorkflowRegistry(), f.workID, definition, label)
+				loaded := conformanceFold(t, f.store, f.workID, definition, label)
 				if loaded.Review == nil || !reflect.DeepEqual(*loaded.Review, model) {
 					t.Fatalf("%s: loaded Review %+v differs from declared model %+v", label, loaded.Review, model)
 				}

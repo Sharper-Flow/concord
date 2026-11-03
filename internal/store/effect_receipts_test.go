@@ -66,24 +66,6 @@ func TestEffectReceiptConflictLogBlind(t *testing.T) {
 	assertFailureKind(t, classifyEventIDConflict(t.Context(), tx, e, fmt.Errorf("unique collision")), KindIdempotencyConflict)
 }
 
-func TestCorrectionRecordSourceLogBlind(t *testing.T) {
-	s := effectReceiptReadFixture(t)
-	e := testEvent()
-	if _, err := s.db.Exec(`CREATE TABLE work_items(id TEXT PRIMARY KEY); INSERT INTO work_items VALUES('work');
-CREATE TABLE workflow_correction_state(work_id TEXT PRIMARY KEY,state TEXT);`); err != nil {
-		t.Fatal(err)
-	}
-	h := correctionStateFact{Records: []correctionRecordFact{{Seq: 7, SourceID: e.EventID, Fields: workflowCorrectionCompletionFields{ActionID: "request_correction"}}}}
-	if err := writeWorkflowCorrectionFacts(t.Context(), s.db, "work", h); err != nil {
-		t.Fatal(err)
-	}
-	hideEffectLog(t, s)
-	got, err := readWorkflowCorrectionContext(t.Context(), s.db, "work")
-	if err != nil || got == nil || got.SourceEventID != e.EventID || got.SourceEventSeq != 7 {
-		t.Fatalf("source = %+v, %v", got, err)
-	}
-}
-
 func TestEffectReceiptAppendAndBackfillParity(t *testing.T) {
 	db := openMigratedTo(t, filepath.Join(t.TempDir(), "receipts-144.db"), 144)
 	if _, err := db.Exec(`INSERT INTO fold_guard VALUES(1);

@@ -18,8 +18,7 @@
   `next_valid_intents`
 - **Approval:** The operator approved this decision for issue #857 on work item
   `work-201ad0df0700db9255d3f256`.
-- **Related:** CD-0005, CD-0027, CD-0039, CD-0173,
-  CD-0201, CD-0209
+- **Related:** CD-0005, CD-0027, CD-0039, CD-0173, CD-0201
 
 ## Context
 
@@ -72,8 +71,10 @@ truthful effect metadata remain in the mutation envelope.
 `next_valid_intents` is derived from the pin and the workflow admission: one
 intent per action the engine admits at the pin's state, each carrying `tool`,
 `operation`, `action_id`, `required_fields`, and `expected_version`. The
-admitted actions are the current step's declared actions and the engine-owned
-recovery actions that admission admits. An action that admission holds only
+admitted actions include current-step actions, ordinary replacements of existing
+records under [workflow-engine contract §4.2](../specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction),
+and supported late criterion association. No registered correction route is
+required. Record-only writes hold the step and lifecycle. An action that admission holds only
 behind the operator's approval or the fresh review its own acceptance supplies
 counts as admitted, so the pin names that route
 ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).

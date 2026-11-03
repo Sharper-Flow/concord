@@ -91,7 +91,7 @@ func approvalKindEvidenceCount(t *testing.T, s *Store, workID string) int {
 // and Domain reads revalidate is prepared before the transaction opens, the
 // same pre-transaction preparation the owning boundary runs
 // (PrepareWorkflowActionProof).
-func foldedApprovalAdmission(t *testing.T, s *Store, registry DefinitionRegistry, definition WorkflowDefinition, workID string) WorkflowAdmissionState {
+func foldedApprovalAdmission(t *testing.T, s *Store, definition WorkflowDefinition, workID string) WorkflowAdmissionState {
 	t.Helper()
 	ctx, err := s.PrepareWorkflowActionProof(context.Background(), "confirm_premise", workID)
 	if err != nil {
@@ -106,7 +106,7 @@ func foldedApprovalAdmission(t *testing.T, s *Store, registry DefinitionRegistry
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_approval_terminal_test", registry)
+	state, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, step, "workflow_approval_terminal_test")
 	if err != nil {
 		t.Fatalf("fold admission state: %v", err)
 	}
@@ -403,8 +403,8 @@ func TestCoordinatorConfirmationTerminalEngineering(t *testing.T) {
 
 		// The model and the fold agree: the coordinator confirmation is a real
 		// exit.
-		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(), "engineering at acceptance")
-		state := foldedApprovalAdmission(t, s, registry, definition, workID)
+		conformanceCheckpoint(t, s, workID, definition, rAcceptanceModel(), "engineering at acceptance")
+		state := foldedApprovalAdmission(t, s, definition, workID)
 		if decision := workflowAdmit(definition, state, "confirm_premise"); !decision.Admitted {
 			t.Fatalf("engineering confirm_premise refused at admission: %v", decision.Failure)
 		}

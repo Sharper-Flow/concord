@@ -10,14 +10,12 @@ import (
 )
 
 // workflowActionGuardPhase names the point in the dispatcher's sequence where
-// a guard runs. Recovery guards precede payload validation; claim guards run
+// a guard runs. Post-validation guards precede the operation guards, which run
 // after the durable operation is claimed.
 type workflowActionGuardPhase int
 
 const (
-	guardPhaseRecovery workflowActionGuardPhase = iota
-	guardPhaseBoundary
-	guardPhasePostValidation
+	guardPhasePostValidation workflowActionGuardPhase = iota
 	guardPhaseOperation
 )
 
@@ -34,9 +32,6 @@ type workflowActionGuardContext struct {
 	// the entry through: nil selects the builtin registry.
 	registry DefinitionRegistry
 
-	recoveryBind              bool
-	correctionRequestRecovery bool
-	correctionRequestMissing  string
 	// admissionState and admissionDecision carry the fold's one admission
 	// derivation: the tx-scoped loader's folded state and workflowAdmit's
 	// decision over it. Guards consume them instead of re-deriving the
@@ -59,45 +54,9 @@ type workflowActionGuard struct {
 // runs in. An action acquires a guard only by appearing here; the dispatcher
 // consults this table at each phase point in its sequence.
 var workflowActionGuards = map[string]workflowActionGuard{
-	"request_correction":     {guardPhaseRecovery, guardRequestCorrectionRecovery},
-	"record_verdict":         {guardPhaseBoundary, guardRecordVerdictArtifactFreshness},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"cross_context_boundary": {guardPhaseOperation, guardNoRestartDispatch},
 	"record_delivery":        {guardPhaseOperation, guardDeliveryAdmission},
-}
-
-// Historical oracle metadata does not require a new worker finding report.
-// Explicit finding references must still name the exact retained open set.
-func (g *workflowActionGuardContext) validateCorrectionOpenFindings() error {
-	fields, fieldsErr := workflowActionObject(g.defaultedPayload())
-	if fieldsErr != nil {
-		return fieldsErr
-	}
-	supplied := workflowFieldStrings(fields, "open_finding_ids")
-	_, present := fields["open_finding_ids"]
-	return validateCorrectionOpenFindingsTx(g.ctx, g.tx, g.request.WorkID, supplied, present)
-}
-
-func guardRequestCorrectionRecovery(g *workflowActionGuardContext) error {
-	if !g.correctionRequestRecovery {
-		return workflowCorrectionRequestUnavailableFailure("workflow_action", g.correctionRequestMissing)
-	}
-	// The payload check binds against the folded state's one correction
-	// request derivation; it never re-enters the loader.
-	state, err := g.foldedAdmissionState()
-	if err != nil {
-		return err
-	}
-	if state.CorrectionRequestContext == nil {
-		return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
-	}
-	if err := validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.request.Payload, "workflow_action", state.CorrectionRequestContext); err != nil {
-		return err
-	}
-	// A correction request on an oracle-capable history carries
-	// the same derived open finding set a rejection does, and the folded
-	// convergence comparison prefers it over the legacy predicate list.
-	return g.validateCorrectionOpenFindings()
 }
 
 // runWorkflowActionGuard runs the request's guard when one is declared for
@@ -178,20 +137,6 @@ func workflowEvidenceBindingStep(definition WorkflowDefinition, currentStep stri
 	return ""
 }
 
-func workflowEvidenceRecoveryBindingStep(definition WorkflowDefinition, currentStep string) string {
-	// Close declares the final reviewed judgement beside ordinary recovery;
-	// it does not reopen unrestricted binding from the earlier evidence step.
-	if stepDeclaresAction(definition, currentStep, "bind_evidence") && !stepDeclaresAction(definition, currentStep, "complete") {
-		return ""
-	}
-	for _, step := range definition.StepGraph.Steps {
-		if stepDeclaresAction(definition, step.ID, "bind_evidence") {
-			return step.ID
-		}
-	}
-	return ""
-}
-
 func workflowStepFollows(definition WorkflowDefinition, earlierStep, currentStep string) bool {
 	seen := map[string]bool{}
 	for step := earlierStep; step != "" && !seen[step]; step = workflowNextStep(definition, step) {
@@ -203,107 +148,56 @@ func workflowStepFollows(definition WorkflowDefinition, earlierStep, currentStep
 	return false
 }
 
-type workflowEvidenceBindingRecoveryState struct {
-	Requirements []workflowEvidenceRequirement
-	// Refusal belongs to bind_evidence, not to another action whose admission
-	// happens to probe binding availability in the same snapshot.
-	Refusal *Failure
+func workflowEvidenceBindingAvailable(definition WorkflowDefinition, currentStep string) bool {
+	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
+		return true
+	}
+	for _, step := range definition.StepGraph.Steps {
+		if stepDeclaresAction(definition, step.ID, "bind_evidence") && workflowStepFollows(definition, step.ID, currentStep) {
+			return true
+		}
+	}
+	return false
 }
 
-// workflowEvidenceBindingRecoveryEligibility is the tx-scoped owner for
-// recovery calls, discovery, and completed-action validation. Read failures
-// remain errors; a predicate refusal is a fact about this action's eligibility.
-func workflowEvidenceBindingRecoveryEligibility(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string, beforeSeq int64) (workflowEvidenceBindingRecoveryState, error) {
-	var state workflowEvidenceBindingRecoveryState
-	bindingStep := workflowEvidenceRecoveryBindingStep(definition, currentStep)
-	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
-		return state, nil
-	}
-	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
-	if err != nil {
-		if workflowMissingContractProjection(err) {
-			return state, nil
-		}
-		return state, err
-	}
-	requirements := workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations)
-	contractVersion, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
-	if err != nil {
-		return state, err
-	}
-	predicates, err := readWorkflowContractPredicates(ctx, q, workID, contractVersion)
-	if err != nil {
-		return state, err
-	}
-	verdicts, err := latestWorkflowVerdictsBefore(ctx, q, workID, contractVersion, beforeSeq)
-	if err != nil {
-		return state, err
-	}
-	verdicted := make(map[string]bool, len(verdicts))
-	for _, verdict := range verdicts {
-		verdicted[verdict.PredicateID] = true
-	}
-	for _, predicate := range predicates {
-		if verdicted[predicate.PredicateID] {
-			continue
-		}
-		approved, decodeErr := DecodeWorkflowPredicate([]byte(predicate.OutcomePayload))
-		if decodeErr != nil || string(approved.Kind) != predicate.OutcomeKind {
-			state.Refusal = newFailure(KindInvariantViolation, "workflow_action", "approved outcome predicate is malformed or mismatched", false, "reread_entities")
-			return state, nil
-		}
-		if approved.Kind == PredicateCheck {
-			requirements = append(requirements, workflowEvidenceRequirement{Kind: string(EvidenceVerification), Reference: approved.ImmutableSubjectRef})
-		}
-	}
-	state.Requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements, beforeSeq)
-	return state, err
-}
-
-// guardRecoveryEvidenceBind admits an outstanding requirement or verification
-// of an unverdicted active check, without reopening an already bound tuple.
-func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage, subject string) (bool, error) {
-	bindingStep := workflowEvidenceRecoveryBindingStep(definition, currentStep)
-	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
-		return false, nil
-	}
+func guardEvidenceBindingMembership(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, payload json.RawMessage, subject string) error {
 	fields, err := workflowActionObject(payload)
 	if err != nil {
-		return false, err
+		return err
 	}
-	reference := workflowFieldStringDefault(fields, "evidence_ref", "")
-	reference = workflowFieldStringDefault(fields, "immutable_subject_ref", reference)
 	kind := workflowFieldStringDefault(fields, "evidence_kind", "verification")
-	_, _, _, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
-	if inputsErr != nil {
-		return false, inputsErr
+	reference := workflowFieldStringDefault(fields, "immutable_subject_ref", workflowFieldStringDefault(fields, "evidence_ref", ""))
+	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+	if err != nil {
+		return err
 	}
-	if reference != "" {
-		exactBound, exactErr := workflowEvidenceTupleBound(ctx, q, workID, kind, reference)
-		if exactErr != nil {
-			return false, exactErr
-		}
-		if exactBound {
-			return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence cannot reopen an already bound evidence tuple", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
+	matched := false
+	for _, requirement := range workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations) {
+		if (requirement.Kind == "" || requirement.Kind == kind) && (requirement.Reference == "" || requirement.Reference == reference) {
+			matched = true
 		}
 	}
-	recovery, requirementsErr := workflowEvidenceBindingRecoveryEligibility(ctx, q, definition, workID, currentStep, 0)
-	if requirementsErr != nil {
-		return false, requirementsErr
+	version, err := activeWorkflowContractVersion(ctx, q, workID, subject)
+	if err != nil {
+		return err
 	}
-	if recovery.Refusal != nil {
-		return false, recovery.Refusal
+	predicates, err := readWorkflowContractPredicates(ctx, q, workID, version)
+	if err != nil {
+		return err
 	}
-	for _, requirement := range recovery.Requirements {
-		if requirement.Kind != "" && requirement.Kind != kind {
-			continue
+	for _, predicate := range predicates {
+		approved, decodeErr := DecodeWorkflowPredicate([]byte(predicate.OutcomePayload))
+		if decodeErr != nil || string(approved.Kind) != predicate.OutcomeKind {
+			return newFailure(KindInvariantViolation, subject, "approved outcome predicate is malformed or mismatched", false, "reread_entities")
 		}
-		if requirement.Reference != "" && requirement.Reference != reference {
-			continue
+		if kind == string(EvidenceVerification) && approved.Kind == PredicateCheck {
+			matched = true
 		}
-		return true, nil
 	}
-	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence requires an outstanding contract evidence requirement or an unbound verification subject for an unverdicted active check", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
+	if matched {
+		return nil
+	}
+	return newFailure(KindIllegalLifecycleTransition, subject, "evidence kind or obligation is not part of the active contract or definition", false, "bind evidence required by the active contract or definition")
 }
 
 // guardForwardLinkOnly rejects nested or non-forward workflow composition.
@@ -384,20 +278,6 @@ func (p workflowActorRecordPrefix) event(eventID, workID string, now time.Time, 
 	return workflowTypedEvent(eventID, WorkflowActorRecorded, workID, p.actorRef, now, expectedVersion, map[string]any{"actor_ref": p.actorRef, "principal_ref": p.actor.PrincipalRef, "client_ref": p.actor.ClientRef, "agent_ref": p.actor.AgentRef, "session_ref": p.actor.SessionRef, "actor_class": string(p.actor.ActorClass)})
 }
 
-func guardCorrectionRecovery(g *workflowActionGuardContext) error {
-	if g.request.ActionID != "request_correction" {
-		return nil
-	}
-	state, err := g.foldedAdmissionState()
-	if err != nil {
-		return err
-	}
-	if !state.CorrectionRequestRecovery {
-		return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
-	}
-	return nil
-}
-
 // guardNoRestartDispatch keeps restart dispatch closed: CD-0027 excludes it,
 // and the payload may not request it.
 func guardNoRestartDispatch(g *workflowActionGuardContext) error {
@@ -469,7 +349,7 @@ func (g *workflowActionGuardContext) foldedAdmissionState() (*WorkflowAdmissionS
 	if g.admissionState != nil {
 		return g.admissionState, nil
 	}
-	state, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
+	state, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
 	if err != nil {
 		return nil, err
 	}
@@ -681,18 +561,6 @@ func workflowActionOmitsGenericCompletion(actionID string) bool {
 	return actionID == "checkpoint_context" || actionID == "cross_context_boundary" || actionID == "record_work_context"
 }
 
-// workflowActionAdvancesStep reports whether a completed action declared on
-// its step moves the instance to the next step: the fold advances on an
-// advance-mode generic completion and on nothing else. An action admitted
-// off-step never advances (workflowCompletedActionAdvances).
-func workflowActionAdvancesStep(definition WorkflowDefinition, actionID string) bool {
-	if workflowActionOmitsGenericCompletion(actionID) {
-		return false
-	}
-	mode, ok := workflowActionExecutionMode(definition, actionID)
-	return ok && mode == ActionAdvance
-}
-
 // appendGenericWorkflowCompletion appends the generic WorkflowActionCompleted
 // event. Continuity's typed event is the durable action boundary; appending a
 // generic completion after it would make the checkpoint immediately stale, so
@@ -738,27 +606,9 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		completionValues["delivery_artifact"] = artifact
 		completionValues["delivery_state"] = state
 	}
-	if in.request.ActionID == "request_correction" {
-		bindWorkflowCorrectionCompletion(fields, completionValues)
-	}
 	resultVersion := in.request.ExpectedVersion + int64(len(events)) + 1
 	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
 	return events, nil
-}
-
-func bindWorkflowCorrectionCompletion(fields map[string]json.RawMessage, completionValues map[string]any) {
-	completionValues["correction_diagnosis"] = workflowFieldStringDefault(fields, "diagnosis", "")
-	completionValues["correction_strategy"] = workflowFieldStringDefault(fields, "strategy", "")
-	completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")
-	completionValues["correction_evidence_refs"] = workflowFieldStrings(fields, "evidence_refs")
-	// The derived open finding set serializes onto the correction
-	// record of both surfaces. A rejection carries it directly; a
-	// correction request carries it beside the predicate list the legacy
-	// comparison reads, and the folded convergence comparison prefers it
-	// whenever the request recorded one.
-	if _, present := fields["open_finding_ids"]; present {
-		completionValues["correction_open_finding_ids"] = workflowFieldStrings(fields, "open_finding_ids")
-	}
 }
 
 func workflowDefinitionRequiresDeliveryPayload(definition WorkflowDefinition) bool {

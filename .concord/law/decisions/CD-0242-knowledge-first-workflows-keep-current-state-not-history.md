@@ -129,11 +129,9 @@
 
 ## Context
 
-Concord derives all state from an append-only event log and replays it to
-rebuild projections. Workflows are versioned action lists with retry budgets,
-production-size caps, and a separate verdict actor. A completed action can
-stand in for a judgment of what remains. Recovery has repeatedly created a new,
-unrelated prerequisite.
+Recovering current work must not depend on reconstructing an event history.
+A completed action cannot stand in for a judgment of what remains, and retry
+or correction must not introduce an unrelated prerequisite.
 
 Product knowledge and reported delivery links hold outcomes, and a shared local store holds
 resumable current work. The operator accepted the loss of exact workflow
@@ -159,6 +157,12 @@ Each mutation writes current rows in one transaction, checked by an expected
 version and recorded by its idempotency key. No event log, fold, upcaster, or
 replay exists. An idempotency record stays while its request can still be
 retried or reconciled.
+
+Ordinary actions own replacement of their current records, including delivery
+links after completion, under
+[workflow-engine contract §4.2](../specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction).
+Record-only corrections hold the step and lifecycle. Only the ordinary current
+records are retained, without parallel correction state.
 
 Recovery uses verified snapshots, tested restore, and reconciliation of current
 rows with Git, worktrees, artifacts, and external effects. Snapshots have a
@@ -370,8 +374,10 @@ Uncommitted bytes are recoverable only from a backup.
 ### D12. Every refusal states an action the caller may take
 
 One typed recovery vocabulary runs from the core through the adapter, the tool
-schemas, and agent instructions unchanged. A correctable pre-effect input
-refusal names the field, the supported bound, and the corrected request. That
+schemas, and agent instructions unchanged. It describes an admitted ordinary
+action, not a separate correction route or retry-count budget. Per-operation
+seconds budgets and diagnostic attribution remain required. A correctable
+pre-effect input refusal names the field, the supported bound, and the corrected request. That
 correction needs no contract revision, operator decision, new session, or
 release. Malformed input, missing context, unmet requirements, denied
 authority, host failure, and unknown effects stay distinct. A correction hint

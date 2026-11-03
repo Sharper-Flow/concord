@@ -246,12 +246,23 @@ func TestNativeTaskRetirementPreservesOnlyUnconsumedCorrectionDirections(t *test
 			if err := runNativeTaskRetirement(t, db, nativeTaskRetirementMigration(t).SQL); err != nil {
 				t.Fatal(err)
 			}
-			context, err := readWorkflowCorrectionContext(t.Context(), db, "work:one")
-			if err != nil || (context != nil) != tc.wantOpen {
-				t.Fatalf("retained direction=%+v err=%v, open=%v", context, err, tc.wantOpen)
+			var storedRaw string
+			if err := db.QueryRow(`SELECT state FROM workflow_correction_state WHERE work_id='work:one'`).Scan(&storedRaw); err != nil {
+				t.Fatal(err)
 			}
-			if context != nil && (context.SourceEventID != "correction:original" || context.SourceEventSeq != 10 || context.Diagnosis != "reported failure" || context.Strategy != "correct the output" || len(context.PredicateIDs) != 1 || context.PredicateIDs[0] != "predicate:one" || len(context.EvidenceRefs) != 1 || context.EvidenceRefs[0] != "review:original") {
-				t.Fatalf("migration changed genuine direction facts: %+v", context)
+			var state correctionStateFact
+			if err := json.Unmarshal([]byte(storedRaw), &state); err != nil {
+				t.Fatal(err)
+			}
+			open := len(state.Records) != 0 && state.Records[len(state.Records)-1].Seq > state.Boundary
+			if open != tc.wantOpen {
+				t.Fatalf("retained direction=%s, open=%v", raw, tc.wantOpen)
+			}
+			if open {
+				record := state.Records[len(state.Records)-1]
+				if record.SourceID != "correction:original" || record.Seq != 10 || record.Fields.CorrectionDiagnosis != "reported failure" || record.Fields.CorrectionStrategy != "correct the output" || len(record.Fields.CorrectionPredicates) != 1 || record.Fields.CorrectionPredicates[0] != "predicate:one" || len(record.Fields.CorrectionEvidence) != 1 || record.Fields.CorrectionEvidence[0] != "review:original" {
+					t.Fatalf("migration changed genuine direction facts: %s", storedRaw)
+				}
 			}
 			var normalized string
 			if err := db.QueryRow(`SELECT state FROM workflow_correction_state`).Scan(&normalized); err != nil || strings.Contains(normalized, "unresolved") || strings.Contains(normalized, "job_key") || strings.Contains(normalized, "repairs") {

@@ -2,7 +2,6 @@ package store
 
 import (
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -15,7 +14,6 @@ type admissionModelReview struct {
 	changed   bool
 	current   bool
 	blocked   bool
-	consumed  bool
 }
 
 var admissionReviewDispositions = []string{"", "continue", "correction_required", "revision_required", "ready_for_final_proof"}
@@ -37,9 +35,6 @@ func admissionReviewState(state admissionModelState) *WorkflowReviewState {
 		view.Accepted = &WorkflowAcceptedReview{ReportRef: "report:model:review", ReportDigest: "sha256:" + strings.Repeat("d", 64), ActorRef: "actor:model:main",
 			Report: ReviewBlock{Disposition: r.accepted, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: dependencies,
 				Assessments: []ReviewAssessment{}, Findings: []ReviewFinding{}, RemainingObligations: []ReviewObligation{}}}
-	}
-	if r.consumed {
-		view.correctionFunding = &workflowReviewCorrectionFunding{ReportRef: "report:model:review", CorrectionRef: "report:model:correction"}
 	}
 	if r.changed && view.Candidate != nil {
 		view.Candidate.Commit = strings.Repeat("e", 40)
@@ -75,10 +70,6 @@ func admissionReviewVariants(definition WorkflowDefinition, state admissionModel
 					next := state
 					next.review = admissionModelReview{accepted: disposition, current: current, changed: changed, candidate: true, blocked: blocked}
 					variants = append(variants, next)
-					if disposition != "" {
-						next.review.consumed = true
-						variants = append(variants, next)
-					}
 				}
 			}
 		}
@@ -88,7 +79,7 @@ func admissionReviewVariants(definition WorkflowDefinition, state admissionModel
 
 func admissionPackReview(p *admissionModelKeyPacker, r admissionModelReview) {
 	p.put(admissionKeyCode(r.accepted, admissionReviewDispositions), 3)
-	for _, flag := range []bool{r.candidate, r.changed, r.current, r.blocked, r.consumed} {
+	for _, flag := range []bool{r.candidate, r.changed, r.current, r.blocked} {
 		var bit uint8
 		if flag {
 			bit = 1
@@ -99,22 +90,22 @@ func admissionPackReview(p *admissionModelKeyPacker, r admissionModelReview) {
 
 func admissionUnpackReview(p *admissionModelKeyPacker) admissionModelReview {
 	r := admissionModelReview{accepted: admissionReviewDispositions[p.get(3)]}
-	for _, flag := range []*bool{&r.candidate, &r.changed, &r.current, &r.blocked, &r.consumed} {
+	for _, flag := range []*bool{&r.candidate, &r.changed, &r.current, &r.blocked} {
 		*flag = p.get(1) == 1
 	}
 	return r
 }
 
 func TestAdmissionModelReviewKeyIsInjective(t *testing.T) {
-	if got := reflect.TypeOf(admissionModelReview{}).NumField(); got != 6 {
+	if got := reflect.TypeOf(admissionModelReview{}).NumField(); got != 5 {
 		t.Fatalf("Review has %d fields; encode and exercise every field in the key", got)
 	}
 	steps := []string{""}
 	seen := map[admissionModelKey]admissionModelReview{}
 	for _, accepted := range admissionReviewDispositions {
-		for flags := range 32 {
+		for flags := range 16 {
 			r := admissionModelReview{accepted: accepted, candidate: flags&1 != 0,
-				changed: flags&2 != 0, current: flags&4 != 0, blocked: flags&8 != 0, consumed: flags&16 != 0}
+				changed: flags&2 != 0, current: flags&4 != 0, blocked: flags&8 != 0}
 			state := admissionModelState{review: r}
 			key := admissionModelKeyOf(steps, state)
 			if prior, exists := seen[key]; exists {
@@ -205,52 +196,16 @@ func TestAdmissionModelRecordedReviewKeepsExecutionStepAndBindsCandidate(t *test
 	}
 }
 
-func TestAdmissionModelGateReturnFollowsInapplicableReview(t *testing.T) {
+func TestAdmissionModelGateKeepsProgressDuringReviewUpdate(t *testing.T) {
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	for name, review := range map[string]admissionModelReview{
-		"applicable":    {accepted: "ready_for_final_proof", candidate: true, current: true},
-		"staleDeps":     {accepted: "ready_for_final_proof", candidate: true, current: false},
-		"changedOutput": {accepted: "ready_for_final_proof", candidate: true, current: true, changed: true},
-		"noAcceptance":  {candidate: true, current: true},
-	} {
-		t.Run(name, func(t *testing.T) {
-			state := admissionModelState{step: "delivery", contracts: 1, started: true, review: review}
-			folded := admissionWorkflowState(definition, state)
-			want := name != "applicable" && name != "noAcceptance"
-			if folded.CorrectionRequestRecovery != want {
-				t.Fatalf("%s: gate correction recovery=%v, want %v", name, folded.CorrectionRequestRecovery, want)
-			}
-			moves := admissionModelMoves(definition, state)
-			if slices.Contains(moves, "request_correction") != want {
-				t.Fatalf("%s: request_correction admitted=%v, want %v: %v", name, slices.Contains(moves, "request_correction"), want, moves)
-			}
-			if !want {
-				return
-			}
-			// The return must permit a fresh recorded Review at the producer.
-			returned := false
-			for _, successor := range admissionSuccessors(definition, state, "request_correction") {
-				if successor.step != "repair" {
-					continue
-				}
-				returned = true
-				if !slices.Contains(admissionModelMoves(definition, successor), "record_review") {
-					t.Fatalf("%s: the gate return's successor admits no Review: %s", name, successor)
-				}
-				fresh := false
-				for _, completed := range admissionSuccessors(definition, successor, "record_review") {
-					if completed.review.accepted != "" && completed.review.current && !completed.review.changed {
-						fresh = true
-					}
-				}
-				if !fresh {
-					t.Fatalf("%s: the gate return's successor records no current Review: %s", name, successor)
-				}
-			}
-			if !returned {
-				t.Fatalf("%s: the gate return has no producer-step successor", name)
-			}
-		})
+	state := admissionModelState{step: "delivery", contracts: 1, records: admissionRecordBit(definition, "record_review"), review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true}}
+	if got := workflowAdmit(definition, admissionWorkflowState(definition, state), "record_review"); !got.Admitted {
+		t.Fatalf("ordinary Review update refused: %v", got.Failure)
+	}
+	for _, next := range admissionSuccessors(definition, state, "record_review") {
+		if next.step != state.step || !next.review.current {
+			t.Fatalf("Review update moved progress or failed to refresh dependencies: %s", next)
+		}
 	}
 }
 
@@ -296,35 +251,6 @@ func TestAdmissionModelForwardReviewReadinessMatchesReturnDirection(t *testing.T
 	}
 }
 
-func TestAdmissionModelProducerReturnConsumesAcceptedReview(t *testing.T) {
-	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
-		definition := mustBuiltinDefinition(t, family).Definition
-		for _, step := range definition.StepGraph.Steps {
-			if workflowCorrectionReturnTarget(definition, step.ID) == "" {
-				continue
-			}
-			for _, invalidation := range []admissionModelReview{
-				{accepted: "ready_for_final_proof", candidate: true},
-				{accepted: "ready_for_final_proof", candidate: true, current: true, changed: true},
-			} {
-				state := admissionModelState{step: step.ID, contracts: 1, review: invalidation}
-				if !slices.Contains(admissionModelMoves(definition, state), "request_correction") {
-					t.Fatalf("invalidated accepted Review has no producer return: %s", state)
-				}
-				returned := admissionSuccessor(definition, state, "request_correction")
-				if !returned.review.consumed || slices.Contains(admissionModelMoves(definition, returned), "request_correction") {
-					t.Fatalf("return failed to consume its report: %s", returned)
-				}
-				for _, fresh := range admissionSuccessors(definition, returned, "record_review") {
-					if fresh.review.consumed {
-						t.Fatalf("new Review inherited the old report's consumption: %s", fresh)
-					}
-				}
-			}
-		}
-	}
-}
-
 func TestWellFormedReviewEnumerationRetainsPostEntryInvalidation(t *testing.T) {
 	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
 		definition := mustBuiltinDefinition(t, family).Definition
@@ -336,7 +262,7 @@ func TestWellFormedReviewEnumerationRetainsPostEntryInvalidation(t *testing.T) {
 			if !workflowStepIsDeliveryGate(workflowStep(definition, state.step)) && !admissionTerminalStep(definition, state.step) {
 				continue
 			}
-			if state.review.accepted != "ready_for_final_proof" || !state.review.candidate || state.review.blocked || state.review.consumed {
+			if state.review.accepted != "ready_for_final_proof" || !state.review.candidate || state.review.blocked {
 				t.Fatalf("enumeration lost the step's Review entry prerequisite: %s", state)
 			}
 			if seen[state.step] == nil {
@@ -350,37 +276,4 @@ func TestWellFormedReviewEnumerationRetainsPostEntryInvalidation(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestAdmissionModelConsumedReviewCannotRegainForwardAuthority(t *testing.T) {
-	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
-		definition := mustBuiltinDefinition(t, family).Definition
-		producer, evaluator := "execution", "acceptance"
-		if family == "workflow.break_fix" {
-			producer, evaluator = "repair", "verify"
-		}
-		state := admissionModelState{step: producer, contracts: 1, started: true, proof: true, verdict: "ok",
-			review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true, consumed: true}}
-		if got := workflowAdmit(definition, admissionWorkflowState(definition, state), "record_delivery"); got.Admitted {
-			t.Errorf("%s: restored consumed report authorized delivery", family)
-		}
-		state.step = evaluator
-		if got := workflowAdmit(definition, admissionWorkflowState(definition, state), "confirm_premise"); got.Admitted {
-			t.Errorf("%s: restored consumed report authorized forward confirmation", family)
-		}
-	}
-}
-
-func TestAdmissionModelContractRestorationKeepsConsumption(t *testing.T) {
-	state := admissionModelState{step: "execution", contracts: 1,
-		review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, consumed: true}}
-	for _, restored := range admissionContractUpdateSuccessors(state) {
-		if restored.review.current {
-			if !restored.review.consumed || restored.review.accepted != state.review.accepted {
-				t.Fatalf("criterion restoration replaced the accepted report or its consumption: %s", restored)
-			}
-			return
-		}
-	}
-	t.Fatal("ordinary updates cannot restore the accepted Review's criterion content in the model")
 }

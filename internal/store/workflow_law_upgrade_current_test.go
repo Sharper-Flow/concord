@@ -34,7 +34,7 @@ func currentLawUpgradeFixture(t *testing.T, id, step string, contract, boundary 
 	tables := []string{"work_items", "workflow_contract_predicates", "workflow_actors", "effect_receipts", "workflow_evidence_bindings"}
 	before := sixClassSnapshot(t, s.db, tables...)
 	contracts := retainedWorkflowContractRows(t, s.db)
-	const instanceQuery = `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at,unhealthy_verdict_seq FROM workflow_instances ORDER BY work_id`
+	const instanceQuery = `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`
 	instances := retirementUpgradeRows(t, s.db, instanceQuery)
 	if err := Migrate(t.Context(), s.db); err != nil {
 		t.Fatal(err)

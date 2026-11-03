@@ -24,7 +24,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-04
 - **Scope:** The admission of `confirm_premise` and `record_delivery` at the
-  preflight, the work pin, and execution; the late `record_verdict` route
+  preflight, the work pin, and execution; late criterion association
 - **Preserves:** CD-0201 D2, the liveness law; the digests derived from the
   one canonical source
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14);
@@ -72,7 +72,8 @@ unreadable read fails admission.
 The folded prerequisites also include current ready Review for forward
 confirmation in delivery-producing families, as defined in
 [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates).
-This does not block an existing unhealthy-verdict failure-edge return.
+Ordinary record replacement supplies neither that Review nor missing criterion
+proof.
 
 ### D2. Review recording checks its payload; delivery checks current state
 
@@ -81,13 +82,19 @@ The fresh-Review requirement for `record_delivery` depends on current state,
 so every admission site applies the same refusal behind a blocking or stale
 Review disposition. No attempt-bound acceptance exception remains.
 
-### D3. The late verdict route serves the premise-question step
+### D3. Missing criterion proof can be associated late
 
-The late `record_verdict` route serves the terminal step and every step that
+The ordinary `record_verdict` action serves the terminal step and every step that
 hosts the premise question for `confirm_premise` without declaring
-`record_verdict`. The route keeps its other conditions: an active contract, an
+`record_verdict`. Admission requires an active contract, an
 earlier step that declares `record_verdict`, and a predicate without an `ok`
-verdict. A late verdict does not move the step.
+comparable verdict for a first late association. That association closes the
+predicate's missing-proof debt. Ordinary replacement of an existing verdict
+remains admitted and must join the qualifying effect and receipt of that write.
+The action associates qualifying bound verification reports with the approved
+criterion and current candidate. No registered return route is required. A late
+association holds the step and lifecycle and supplies no missing verification
+evidence by itself.
 
 ## Alternatives considered
 
@@ -103,7 +110,7 @@ verdict. A late verdict does not move the step.
 A caller that asks the preflight or reads the work pin gets the refusal that
 execution applies, for the confirmation and for a delivery behind a blocking
 Review disposition. At a supported premise-question or terminal step, a missing
-verdict records through the late route without moving the step. The liveness checks read the recorded verdict at the
+verdict records through its ordinary action without moving the step. The liveness checks read the recorded verdict at the
 premise question
 ([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).
 
@@ -123,12 +130,12 @@ Scenario: The preflight refuses a delivery behind a blocking Review disposition
 
 Scenario: A premise-question step records missing criterion proof late
   Given an item at a premise-question step without a declared record_verdict action
-  And an earlier step declares record_verdict and the question step declares its own return
-  When Main associates applicable producer receipts with every missing criterion
+  And an earlier step declares record_verdict
+  When Main associates qualifying bound verification reports with every missing criterion
   Then the step stays at the premise question
   And premise confirmation moves the instance to the complete step
 ```
 
 - `go test ./internal/store/ -run 'TestPreflightRefusesConfirmationMissingMandatedDeliverables|TestWorkPinPublishesConfirmPremiseRequiredFields'` proves the first scenario.
 - `go test ./internal/store/ -run TestPreflightAndMutationRequireAcceptedReadyDisposition` proves preflight, mutation, and the work pin agree that delivery requires an accepted ready disposition under [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls).
-- `go test ./internal/store/ -run 'TestCriterionAssociationAtPremiseQuestionWithoutDeclaration|TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight|TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement'` proves the late route holds its step, agrees across preflight and mutation, and closes after the missing criteria have proof.
+- `go test ./internal/store/ -run 'TestCriterionAssociationAtPremiseQuestionWithoutDeclaration|TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight|TestLateVerdictReplacementHoldsStep'` proves late association holds its step, agrees across preflight and mutation, closes missing-proof debt, and permits ordinary replacement.

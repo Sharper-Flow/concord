@@ -61,6 +61,7 @@ func TestAtomicOperationMigrationRetiresClaimsAndIntermediateResults(t *testing.
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_evidence_bindings VALUES('work-upgrade-from',26,'binding:ordinary-history','operator','{"producer_run_ref":"ordinary-history"}'),('work-upgrade-from',27,'binding:retired-claim','operator','{"producer_run_ref":"retired-pending"}')`)
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
 	before := retirementUpgradeSnapshot(t, db)
+	ordinaryRecordsUpgradeExpectations(t, db, before)
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -184,6 +185,7 @@ func TestAtomicOperationMigrationSurvivorSet(t *testing.T) {
 		return false
 	})
 	before := retirementUpgradeSnapshot(t, db)
+	ordinaryRecordsUpgradeExpectations(t, db, before)
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}

@@ -34,8 +34,8 @@ func TestBuiltinWorkflowRegistryHasTheThreeLiveContractFamilies(t *testing.T) {
 	// A composed head lists each action once, in first appearance over its
 	// compiled steps.
 	wantActions := map[string][]string{
-		"workflow.implementation": {"record_proposal", "checkpoint_context", "cross_context_boundary", "record_work_context", "record_alignment", "approve_contract", "record_design", "start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "record_delivery", "request_correction", "record_review", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
-		"workflow.break_fix":      {"record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context", "approve_contract", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "request_correction", "record_review", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
+		"workflow.implementation": {"record_proposal", "checkpoint_context", "cross_context_boundary", "record_work_context", "record_alignment", "approve_contract", "record_design", "start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "record_delivery", "record_review", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
+		"workflow.break_fix":      {"record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context", "approve_contract", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "record_review", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
 		"workflow.research":       {"frame_research", "approve_contract", "checkpoint_context", "cross_context_boundary", "record_work_context", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "record_review", "complete"},
 	}
 	wantTerminals := map[string]string{
@@ -138,9 +138,9 @@ func TestRefinementStepsRequireArtifactEvidenceAndHaveNoSkipEdge(t *testing.T) {
 			t.Fatalf("%s definition evidence = %v, want artifact", definition.Ref, definition.RequiredEvidenceKinds)
 		}
 		// The derived-start shape: the qualifying checkpoint opens the fence,
-		// and the evidence, delivery, correction, and continuity actions follow it.
-		if !reflect.DeepEqual(refine.Actions[:5], []string{"checkpoint_refine", "bind_evidence", "record_delivery", "request_correction", "checkpoint_context"}) {
-			t.Fatalf("%s refine actions = %v, want derived-start checkpoint, evidence, delivery, correction, continuity", definition.Ref, refine.Actions)
+		// and the evidence, delivery, and continuity actions follow it.
+		if !reflect.DeepEqual(refine.Actions[:5], []string{"checkpoint_refine", "bind_evidence", "record_delivery", "checkpoint_context", "cross_context_boundary"}) {
+			t.Fatalf("%s refine actions = %v, want derived-start checkpoint, evidence, delivery, continuity", definition.Ref, refine.Actions)
 		}
 		var delivery WorkflowStep
 		for _, candidate := range definition.StepGraph.Steps {
@@ -148,11 +148,11 @@ func TestRefinementStepsRequireArtifactEvidenceAndHaveNoSkipEdge(t *testing.T) {
 				delivery = candidate
 			}
 		}
-		if !reflect.DeepEqual(delivery.Actions, []string{"record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary"}) {
-			t.Fatalf("%s delivery actions = %v, want the delivery exit, the corrective return, and the continuity holds", definition.Ref, delivery.Actions)
+		if !reflect.DeepEqual(delivery.Actions, []string{"record_delivery", "checkpoint_context", "cross_context_boundary"}) {
+			t.Fatalf("%s delivery actions = %v, want the delivery exit and continuity holds", definition.Ref, delivery.Actions)
 		}
-		if bindingStep := workflowEvidenceRecoveryBindingStep(definition, refine.ID); bindingStep != "" {
-			t.Fatalf("%s refine recovery binding step = %q, want none", definition.Ref, bindingStep)
+		if !workflowEvidenceBindingAvailable(definition, refine.ID) {
+			t.Fatalf("%s refine must admit its declared evidence binding", definition.Ref)
 		}
 		for _, edge := range definition.StepGraph.Edges {
 			if edge.From == refine.ID && edge.Kind == WorkflowEdgeOptional {

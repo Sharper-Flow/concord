@@ -74,19 +74,6 @@ func TestLivenessReplayPreservesOrderAndPayload(t *testing.T) {
 	}
 }
 
-func TestLivenessResolvesEngineOwnedRequestCorrection(t *testing.T) {
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		if _, ok := livenessActionDefinition(definition, "request_correction"); !ok {
-			t.Errorf("%s omits the engine-owned correction payload", definition.Ref)
-		}
-		for _, step := range definition.StepGraph.Steps {
-			if !slices.Contains(livenessDeclaredActions(definition, step.ID), "request_correction") {
-				t.Errorf("%s/%s never probes engine-owned correction", definition.Ref, step.ID)
-			}
-		}
-	}
-}
-
 func TestLivenessDisclosesOutcomeKindAndTokenOmissions(t *testing.T) {
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		omissions := livenessOmittedVariants(definition)
@@ -114,34 +101,6 @@ func TestLivenessReportsOptionalPresenceSampling(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestLivenessExecutesGeneratedCorrection(t *testing.T) {
-	const workID = "liveness-generated-correction"
-	j := pReturnReviewFixture(t, workID, "workflow.implementation", "correction_required")
-	reportRef := issue1013Pin(t, j.s, workID).Review.Accepted.ReportRef
-	seedWorkflowAuthority(t, j.s, "liveness-review-authority", workID, j.fixture.owner.PrincipalRef, "request/liveness-review", []string{reportRef})
-	if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": reportRef, "producer_id": j.fixture.owner.PrincipalRef, "producer_run_ref": "liveness-review-authority", "producer_watermark": "request/liveness-review"}, j.fixture.owner); err != nil {
-		t.Fatal(err)
-	}
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	step := currentStep(t, j.s, workID)
-	for _, move := range livenessStateMoves(t, definition.Definition, step) {
-		if move.action != "request_correction" {
-			continue
-		}
-		if err := livenessApply(context.Background(), j.s, workID, move, 100); err != nil {
-			t.Fatalf("generated correction cannot execute: %v", err)
-		}
-		if got := currentStep(t, j.s, workID); got != "execution" {
-			t.Fatalf("correction reached %s, want execution", got)
-		}
-		return
-	}
-	t.Fatal("no generated request_correction move")
 }
 
 func TestLivenessBindsVerdictsToOrdinaryContractUpdates(t *testing.T) {

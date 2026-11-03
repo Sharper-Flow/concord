@@ -103,7 +103,6 @@ func builtinWorkflowActionCatalog() workflowActionCatalog {
 		})},
 		"record_verdict":      {canonicalVerdictPayload},
 		"record_work_context": {researchContextSelection},
-		"request_correction":  {workTransitionAction, openFindingsCorrection},
 		"revise_candidates":   nil,
 		"start_execution":     nil,
 	}

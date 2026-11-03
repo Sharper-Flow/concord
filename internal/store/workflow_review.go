@@ -32,7 +32,6 @@ type WorkflowReviewState struct {
 	DependenciesCurrent    bool                    `json:"dependencies_current"`
 	PublicationOutstanding bool                    `json:"publication_outstanding"`
 	findingSources         map[string]reviewFindingSource
-	correctionFunding      *workflowReviewCorrectionFunding
 }
 
 type workflowReviewCandidateView struct {
@@ -214,9 +213,6 @@ func workflowAdmitReview(state WorkflowReviewState) error {
 	if state.Accepted == nil || state.Candidate == nil {
 		return reviewFailure(KindMissingEvidence, "current candidate has no recorded Review", "obtain independent Review and record its subject-bound report")
 	}
-	if state.correctionConsumed() {
-		return reviewFailure(KindMissingEvidence, "accepted Review already funded a corrective return", "obtain and record a fresh independent Review of the current candidate")
-	}
 	if !state.DependenciesCurrent || state.Accepted.Report.OutputCandidate != *state.Candidate {
 		return reviewFailure(KindStaleRequiresReview, "recorded Review does not cover the current candidate and dependencies", "review the exact current candidate and dependencies")
 	}
@@ -227,11 +223,6 @@ func workflowAdmitReview(state WorkflowReviewState) error {
 		return reviewFailure(KindMissingEvidence, "Review has not reached ready_for_final_proof without remaining obligations", "finish the recorded obligations and record the independent Review outcome")
 	}
 	return nil
-}
-
-func (state WorkflowReviewState) correctionConsumed() bool {
-	return state.Accepted != nil && state.correctionFunding != nil &&
-		state.correctionFunding.ReportRef == state.Accepted.ReportRef && state.correctionFunding.CorrectionRef != ""
 }
 
 func decodeRecordedReview(payload json.RawMessage) (*ReviewBlock, error) {
@@ -405,56 +396,6 @@ func workflowCriterionReceipt(ctx context.Context, q queryer, work, predicate, r
 	return reviewFailure(KindMissingEvidence, fmt.Sprintf("report %s has no current passing coverage of criterion %s", ref, predicate), "bind a passing report covering the current candidate and criterion")
 }
 
-func sameReviewFindingIDs(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	seen := map[string]bool{}
-	for _, value := range left {
-		seen[value] = true
-	}
-	for _, value := range right {
-		if !seen[value] {
-			return false
-		}
-		delete(seen, value)
-	}
-	return len(seen) == 0
-}
-
-const WorkflowOpenOracleFindingsLimit = 32
-
-func validateCorrectionOpenFindingsTx(ctx context.Context, q queryer, workID string, supplied []string, present bool) error {
-	if !present {
-		return nil
-	}
-	state, err := readWorkflowReviewFacts(ctx, q, workID)
-	if err != nil {
-		return err
-	}
-	derived := []string{}
-	for _, finding := range state.Findings {
-		if finding.Status != "open" || finding.Oracle == nil || finding.Oracle.Classification == OracleClassificationFollowUp {
-			continue
-		}
-		source, found := state.findingSources[finding.FindingID]
-		if !found || !reviewFindingIDPattern.MatchString(source.CanonicalID) {
-			return reviewFailure(KindInvariantViolation, "open Review finding has no retained canonical identity", "restore the verified finding source")
-		}
-		derived = append(derived, source.CanonicalID)
-	}
-	if len(derived) > WorkflowOpenOracleFindingsLimit {
-		return reviewFailure(KindLimitExceeded, "open findings exceed the correction payload bound", "resolve findings or revise the approved scope; the set cannot be truncated")
-	}
-	if len(derived) == 0 {
-		return reviewFailure(KindInvalidPayload, "open_finding_ids names findings while the derived open set is empty", "omit open_finding_ids")
-	}
-	if !sameReviewFindingIDs(derived, supplied) {
-		return reviewFailure(KindInvalidPayload, "open_finding_ids differs from the derived open finding set", "record every current open canonical finding exactly once")
-	}
-	return nil
-}
-
 func workflowResearchCriterionReceipt(ctx context.Context, q queryer, work, predicate, ref string) error {
 	view, err := readWorkContextView(ctx, q, work)
 	if err != nil {
@@ -568,6 +509,13 @@ func workflowMissingCriterionAssociations(ctx context.Context, q queryer, work s
 
 func guardLateCriterionAssociations(ctx context.Context, q queryer, work string, definition WorkflowDefinition, step string, fields map[string]json.RawMessage) error {
 	if !workflowLateCriterionAssociationStep(definition, step) {
+		return nil
+	}
+	records, err := workflowCurrentRecords(ctx, q, work)
+	if err != nil {
+		return err
+	}
+	if records["record_verdict"] {
 		return nil
 	}
 	entries, err := normalizeWorkflowVerdictEntries(fields)

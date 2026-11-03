@@ -2,9 +2,36 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
+
+func TestWorkflowActionPreflightNamesEveryMissingAndUndeclaredField(t *testing.T) {
+	const workID = "preflight-closed-fields"
+	f := seedCurrentWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "design")
+	payload := json.RawMessage(`{"zz_extra":true,"aa_extra":true}`)
+	want := `workflow action payload field "approach" is required for action "record_design"; workflow action payload field "decisions" is required for action "record_design"; workflow action payload field "touched_refs" is required for action "record_design"; workflow action payload field "aa_extra" is not declared for action "record_design"; workflow action payload field "zz_extra" is not declared for action "record_design"`
+	version := readWorkVersion(t, f.store, workID)
+	var before int
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	for range 50 {
+		err := issue1013Preflight(t, f.store, workID, "record_design", payload, f.owner)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.Detail != want || failure.RecoveryAction != "supply every required registered action field and use only fields declared by the pinned definition" {
+			t.Fatalf("structural preflight=%v, want deterministic complete refusal", err)
+		}
+	}
+	var after int
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if got := readWorkVersion(t, f.store, workID); got != version || after != before {
+		t.Fatalf("preflight changed version %d -> %d or receipts %d -> %d", version, got, before, after)
+	}
+}
 
 // The required-field scan must report the first declared missing field, in the
 // registry's declaration order. A map walk names whichever field the runtime

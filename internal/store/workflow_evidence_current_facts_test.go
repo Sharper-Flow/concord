@@ -21,7 +21,7 @@ func TestWorkflowEvidenceCurrentFactsWithoutLog(t *testing.T) {
 	})}}); err != nil {
 		t.Fatal(err)
 	}
-	bound, err := workflowEvidenceTupleBound(ctx, s.db, work, "verification", "evidence:gate-proof")
+	bound, err := workflowEvidenceReferenceBound(ctx, s.db, work, "evidence:gate-proof", "workflow_action")
 	if err != nil || !bound {
 		t.Fatalf("positive binding fixture: bound=%v err=%v", bound, err)
 	}
@@ -37,15 +37,12 @@ func TestWorkflowEvidenceCurrentFactsWithoutLog(t *testing.T) {
 		"P53-evidence-inventory": func() (any, error) {
 			return inTx(func(tx *sql.Tx) (any, error) { return workPinVerdictEvidenceTx(ctx, tx, work) })
 		},
-		"G24-tuple": func() (any, error) {
-			return workflowEvidenceTupleBound(ctx, s.db, work, "verification", "evidence:gate-proof")
-		},
 		"G24-reference": func() (any, error) {
 			return workflowEvidenceReferenceBound(ctx, s.db, work, "evidence:gate-proof", "workflow_action")
 		},
 		"G24-verification-order": func() (any, error) { return workflowVerificationBindingsAfter(ctx, s.db, work, 0, "workflow_action") },
 		"G24-requirements": func() (any, error) {
-			return unboundWorkflowEvidenceRequirements(ctx, s.db, work, []workflowEvidenceRequirement{{Kind: "verification"}, {Reference: "evidence:gate-proof"}}, 0)
+			return unboundWorkflowEvidenceRequirements(ctx, s.db, work, []workflowEvidenceRequirement{{Kind: "verification"}, {Reference: "evidence:gate-proof"}, {Kind: "verification", Reference: "evidence:gate-proof"}}, 0)
 		},
 	})
 }
@@ -57,7 +54,6 @@ func TestWorkflowEvidenceCurrentFactsMigrationBackfill(t *testing.T) {
 	queries := []string{
 		`SELECT json_array(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload) FROM workflow_step_epochs ORDER BY work_id,step_id`,
 		`SELECT json_array(work_id,action_id,exit_seq) FROM workflow_phase_exits ORDER BY work_id,action_id`,
-		`SELECT json_array(work_id,step_id,action_id,production_seq,verdict_seq,verdict_production_seq) FROM workflow_artifact_actions ORDER BY work_id,step_id,action_id`,
 		`SELECT json_array(work_id,contract_version,supersession_seq) FROM workflow_contracts ORDER BY work_id,contract_version`,
 		`SELECT json_array(work_id,binding_seq,binding_id,actor,payload) FROM workflow_evidence_bindings ORDER BY work_id,binding_seq`,
 		`SELECT json_array(event_id,payload_digest) FROM effect_receipts WHERE subject_type='work_item' AND subject_id IN (SELECT id FROM work_items) ORDER BY effect_seq`,

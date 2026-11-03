@@ -267,10 +267,14 @@ status.
    independent authority and recovery. No nested child execution or parent
    waiting (CD-0006 R1).
 2. **Plain definitions:** each family directly declares its step graph, actions,
-   evidence, outcomes and recovery routes in a Go value. The registry validates
+   evidence and outcomes in a Go value. The registry validates
    it and derives its canonical manifest and digest. Public schemas and tool
    contracts generate from those definitions, without a parts catalog or
    composition compiler (CD-0229 D1; CD-0242 D14).
+   Retry and correction use the owning ordinary action, including replacement
+   of an existing record after its step has passed. Record-only writes hold the
+   step and lifecycle; completed delivery-link edits do not reopen work
+   ([workflow-engine contract §4.2](../law/specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction)).
 3. **Mandatory stages:** each live family's definition supplies its stages.
    Work has no size classification or size-derived review gate (CD-0229 D4).
    Main may add research, architecture or planning depth but cannot waive a

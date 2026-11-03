@@ -7,19 +7,6 @@ import (
 	"testing"
 )
 
-func TestCoordinatorEvidenceDoesNotConsumeCorrection(t *testing.T) {
-	db, appendEvent, read := progressCorrectionHistory(t)
-	appendEvent(WorkflowActionCompleted, correctionHistoryRequest("standing"))
-	before := read()
-	if before == nil {
-		t.Fatal("fixture has no genuine correction")
-	}
-	progressQualifiedEvidence(t, db, appendEvent, "evidence:qualified")
-	if got := read(); !reflect.DeepEqual(got, before) {
-		t.Fatalf("evidence binding consumed correction: %+v -> %+v", before, got)
-	}
-}
-
 func TestProgressCreditMetadataAbsentFromDefinitions(t *testing.T) {
 	for _, target := range []struct {
 		typ   reflect.Type

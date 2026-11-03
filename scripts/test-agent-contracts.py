@@ -143,7 +143,6 @@ class MutationMetadataTests(unittest.TestCase):
     def test_mutations_preserve_capability_consequence_and_request_metadata(self):
         for identifier, capability, consequence, context in [
             ("concord_work_transition.remove", "work_transition", "lifecycle", "ambient"),
-            ("concord_work_transition.correct_delivery", "work_transition", "recovery", "explicit"),
             ("concord_work_relate.set_memberships", "work_relate", "scope", "explicit"),
         ]:
             with self.subTest(operation=identifier):
@@ -1671,28 +1670,11 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
                 pairs.add((json.dumps(variant["payload"], sort_keys=True), json.dumps(variant["public_payload"], sort_keys=True)))
             self.assertEqual(len(pairs), len(action["variants"]), f"{action['id']} repeats a variant")
 
-    def test_request_correction_eliminates_the_contained_alternative(self):
-        # The optional open_finding_ids contract contains every valid input
-        # of the same contract without that property. One closed branch is
-        # their exact union, not a merge of unrelated fieldsets.
-        action = self.action("request_correction")
-        self.assertEqual(len(action["variants"]), 2)
-        fieldsets = [[field["name"] for field in variant["payload"]["fields"]] for variant in action["variants"]]
-        self.assertIn("open_finding_ids", fieldsets[0])
-        self.assertNotIn("open_finding_ids", fieldsets[1])
-        then = _action_condition(payload_schema["$defs"], "request_correction")
-        branches = _condition_branches(then)
-        self.assertEqual(len(branches), 1, "a contained alternative adds no accepted input")
-        for branch in branches:
-            fields = _fields_object(branch)
-            self.assertIs(fields.get("additionalProperties"), False, "an alternative is not a closed object")
-            self.assertIn("open_finding_ids", fields["properties"])
-
     def test_historical_layouts_are_authorable_nowhere(self):
         defs = payload_schema["$defs"]
         self.assertNotIn("work_transition_action_legacy_input", defs)
         live_ids = {action["id"] for action in self.actions}
-        for action_id in ("dispatch_worker", "record_worker_job", "accept_worker_result", "reject_worker_result", "record_worker_failure"):
+        for action_id in ("dispatch_worker", "record_worker_job", "accept_worker_result", "reject_worker_result", "record_worker_failure", "request_correction"):
             self.assertNotIn(action_id, live_ids)
             envelope = {"work_id": "work-1", "expected_version": 1, "action_id": action_id, "idempotency_key": "retired-1", "fields": {}}
             for name in ("work_transition_action_input", "work_transition_action_public_input"):
@@ -1714,17 +1696,15 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
         for name in ("work_transition_action_input", "work_transition_action_public_input"):
             with self.assertRaises(ValueError, msg=f"{name} admits a broken Review"):
                 generator.schema_validate(call, defs[name], payload_schema, "broken")
-        # Dropping a field every alternative requires refuses both shapes.
-        request_correction = _condition_branches(_action_condition(defs, "request_correction"))
-        sample = _schema_sample(_fields_object(request_correction[0]), payload_schema)
-        sample.pop("diagnosis")
-        for branch in request_correction:
+        sample = _schema_sample(_fields_object(branches[0]), payload_schema)
+        sample.pop("review")
+        for branch in branches:
             with self.assertRaises(ValueError):
                 generator.schema_validate(sample, _fields_object(branch), payload_schema, "missing-required")
 
     def test_unknown_fields_are_refused_by_every_alternative(self):
         defs = payload_schema["$defs"]
-        for action_id in ("request_correction", "record_review"):
+        for action_id in ("record_review",):
             branches = _condition_branches(_action_condition(defs, action_id))
             sample = _schema_sample(_fields_object(branches[0]), payload_schema)
             sample["mystery"] = True

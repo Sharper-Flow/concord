@@ -1,10 +1,20 @@
 package store
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"reflect"
 	"testing"
 )
+
+func workflowLatestComparableHealthySequence(ctx context.Context, q queryer, workID string, contractVersion int64) (int64, error) {
+	var seq int64
+	if err := q.QueryRowContext(ctx, `SELECT last_healthy_seq FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&seq); err != nil && err != sql.ErrNoRows {
+		return 0, err
+	}
+	return seq, nil
+}
 
 func TestWorkflowHealthyFrontierFollowsCurrentVerdictSet(t *testing.T) {
 	const work = "healthy-verdict-frontier"
@@ -23,7 +33,7 @@ DELETE FROM write_guard`, work); err != nil {
 	var healthy int64
 	base := s
 	c := historicalFactCorpus{parents: func(t *testing.T, target *Store, guard string) {
-		copyFixtureDataToPrefix(t, base, target.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''"}, "workflow_contracts": {"definition_version": "26", "law_change": "NULL"}}, guard)
+		copyFixtureDataToPrefix(t, base, target.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"definition_version": "26", "law_change": "NULL"}}, guard)
 	}}
 	for i, verdict := range []workflowVerdictRecordedPayload{
 		{ContractVersion: 1, PredicateID: primary, VerdictKind: "ok"},

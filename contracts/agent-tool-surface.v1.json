@@ -72,8 +72,7 @@
         "concord_work_transition.remove",
         "concord_work_transition.workflow_action",
         "concord_work_transition.project_handoff_record",
-        "concord_work_transition.project_handoff_consume",
-        "concord_work_transition.correct_delivery"
+        "concord_work_transition.project_handoff_consume"
       ]
     },
     {
@@ -694,26 +693,6 @@
         ]
       },
       "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_transition.correct_delivery",
-      "tool": "concord_work_transition",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/work_transition_correct_delivery_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_transition",
-      "consequence": "recovery",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
     }
   ],
   "schemas": {
@@ -897,10 +876,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_action_input",
       "closed": true
     },
-    "work_transition_correct_delivery_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_correct_delivery_input",
-      "closed": true
-    },
     "work_transition_lifecycle_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_lifecycle_input",
       "closed": true
@@ -980,6 +955,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:1390491db4574ff3d83c9468f145e26f084459f0630c2da23397bebe7c4b456b",
-  "digest": "sha256:b1c65ad683d2fb21e19e924d000403fa3525b2433049e7c9868bad6ca62247aa"
+  "payload_digest": "sha256:073eef4f90f56e2ce2b66618c97fb2b8793e5141f8ce49de9706932e062f63e9",
+  "digest": "sha256:06a3cc509719f50e6154ab8e560380117e401041ef77346f8a61aa32aba4d421"
 }

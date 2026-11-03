@@ -52,6 +52,8 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	useStampedBuild(t)
 	db, path := worktreeRetirementFixture(t)
 	before := retirementUpgradeSnapshot(t, db)
+	retained := retirementUpgradeSnapshot(t, db)
+	ordinaryRecordsUpgradeExpectations(t, db, retained)
 	retainedBindings := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,product_id,home_domain_id,projection_hash FROM workflow_architecture_bindings ORDER BY rowid`)
 	retainedContracts := retainedWorkflowContractRows(t, db)
 	if s, err := Open(t.Context(), path); err == nil {
@@ -95,11 +97,11 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	if got := retirementUpgradeRows(t, db, `SELECT name FROM pragma_table_info('workflow_architecture_bindings') WHERE name='domain_registry_content_hash'`); len(got) != 0 {
 		t.Fatalf("retired registry hash column survives: %v", got)
 	}
-	for table, want := range before {
+	for table, want := range retained {
 		switch table {
 		case "schema", "schema_migrations", "store_revision", "workflow_contract_law_revisions":
 			continue
-		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_law_baselines":
+		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}

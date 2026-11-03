@@ -2,8 +2,12 @@ package store
 
 import "testing"
 
-func TestWorkflowAdmissionStateComparable(t *testing.T) {
-	_ = make(map[WorkflowAdmissionState]struct{})
+func TestWorkflowAdmissionStateRecordsAreSubjectSpecific(t *testing.T) {
+	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	state := WorkflowAdmissionState{Step: "delivery", CurrentRecords: map[string]bool{"record_review": true}}
+	if !workflowAdmissionStepAllows(definition, state, "record_review") || workflowAdmissionStepAllows(definition, state, "record_design") {
+		t.Fatal("a retained Review must authorize only its own ordinary write")
+	}
 }
 
 func TestWorkflowAdmitDecisionTable(t *testing.T) {
@@ -21,7 +25,7 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 	}
 	definition.StepGraph = WorkflowStepGraph{Steps: []WorkflowStep{
 		{ID: "refine", Actions: []string{"checkpoint_refine", "record_delivery", "record_review", "confirm_premise", "checkpoint_context"}},
-		{ID: "delivery", Actions: []string{"record_delivery", "request_correction", "checkpoint_context"}},
+		{ID: "delivery", Actions: []string{"record_delivery", "checkpoint_context"}},
 	}}
 	tests := []struct {
 		name   string
@@ -40,13 +44,11 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 			s.Review.Candidate = &candidate
 		}, map[string]bool{"record_delivery": false, "record_review": true}},
 		{"changed dependencies hold delivery", func(s *WorkflowAdmissionState) { s.Review.DependenciesCurrent = false }, map[string]bool{"record_delivery": false, "record_review": true, "checkpoint_context": true}},
-		{"gate holds delivery but keeps declared correction", func(s *WorkflowAdmissionState) {
-			s.Step, s.CorrectionRequestRecovery, s.Review.Accepted = "delivery", true, nil
-		}, map[string]bool{"record_delivery": false, "request_correction": true, "checkpoint_context": true}},
-		{"correction cannot invent its prerequisites", func(s *WorkflowAdmissionState) {
+		{"gate holds delivery but keeps ordinary Review writes", func(s *WorkflowAdmissionState) {
 			s.Step, s.Review.Accepted = "delivery", nil
-			s.CorrectionRequestMissing = workflowCorrectionMissingGateReview
-		}, map[string]bool{"record_delivery": false, "request_correction": false}},
+			s.CurrentRecords = map[string]bool{"record_review": true}
+		}, map[string]bool{"record_delivery": false, "record_review": true, "checkpoint_context": true}},
+		{"current records cannot invent other subjects", func(s *WorkflowAdmissionState) { s.Step = "delivery" }, map[string]bool{"record_review": false}},
 		{"step legality still holds", func(*WorkflowAdmissionState) {}, map[string]bool{"record_verdict": false}},
 		{"confirmation is admitted without an operator question", func(s *WorkflowAdmissionState) { s.ActiveContracts = 1 }, map[string]bool{"confirm_premise": true, "record_review": true}},
 		{"confirmation requires an active contract", func(*WorkflowAdmissionState) {}, map[string]bool{"confirm_premise": false, "record_review": true}},
@@ -91,7 +93,7 @@ func TestAdmissionLoaderFoldsCurrentReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := loadWorkflowAdmissionStateTxForRegistry(t.Context(), tx, j.workID, definition.Definition, "repair", "workflow_admission_test", BuiltinWorkflowRegistry())
+	state, err := loadWorkflowAdmissionStateTx(t.Context(), tx, j.workID, definition.Definition, "repair", "workflow_admission_test")
 	if err != nil {
 		t.Fatal(err)
 	}

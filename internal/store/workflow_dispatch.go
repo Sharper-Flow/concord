@@ -67,62 +67,11 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, err
 	}
-	action, found, err := workflowRouteActionDefinition(ctx, s, registry, entry, workID, actionID)
-	if err != nil {
-		return RegisteredDefinition{}, WorkflowActionDefinition{}, err
-	}
-	if found {
-		return entry, action, nil
-	}
-	action, err = workflowDeclaredActionDefinition(entry.Definition, actionID)
+	action, err := workflowDeclaredActionDefinition(entry.Definition, actionID)
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, err
 	}
 	return entry, action, nil
-}
-
-// workflowRouteActionDefinition resolves the actions whose definition depends
-// on the folded state rather than the pinned step: the late verdict
-// and the correction request. found is
-// false when the action falls through to its pinned declaration.
-func workflowRouteActionDefinition(ctx context.Context, s *Store, registry DefinitionRegistry, entry RegisteredDefinition, workID, actionID string) (WorkflowActionDefinition, bool, error) {
-	if actionID == "request_correction" {
-		// Prepare any committed-law reads before the transaction (CD-0195 D2).
-		verified, err := s.PrepareWorkLawProof(ctx, workID)
-		if err != nil {
-			return WorkflowActionDefinition{}, false, err
-		}
-		ctx = verified
-	}
-	switch actionID {
-	case "record_verdict":
-		// Discovery returns the same hold-mode declaration as ordinary
-		// association. Folded admission, not discovery, proves availability.
-		action, err := workflowDeclaredActionDefinition(entry.Definition, actionID)
-		return action, err == nil, err
-	case "request_correction":
-		currentStep, err := workflowDiscoveryCurrentStep(ctx, s, workID)
-		if err != nil {
-			return WorkflowActionDefinition{}, false, err
-		}
-		available, missing, err := workflowCorrectionRequestAdmissionStateForRegistry(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action", registry)
-		if err != nil {
-			return WorkflowActionDefinition{}, false, err
-		}
-		if !available {
-			return WorkflowActionDefinition{}, false, workflowCorrectionRequestUnavailableFailure("workflow_action", missing)
-		}
-		return workflowCorrectionRequestActionDefinition(), true, nil
-	}
-	return WorkflowActionDefinition{}, false, nil
-}
-
-func workflowDiscoveryCurrentStep(ctx context.Context, s *Store, workID string) (string, error) {
-	var currentStep string
-	if err := s.db.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
-		return "", wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
-	}
-	return currentStep, nil
 }
 
 // workflowDeclaredActionDefinition returns the action as the pinned definition
@@ -219,6 +168,15 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 	if err != nil {
 		return result, err
 	}
+	if request.ActionID == "bind_evidence" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+		for _, event := range assembly.events {
+			if event.Kind == WorkflowEvidenceBound {
+				if err := guardEvidenceBindingMembership(ctx, tx, request.WorkID, entry.Definition, event.Payload, "workflow_action"); err != nil {
+					return result, err
+				}
+			}
+		}
+	}
 	if request.ActionID == "complete" {
 		// The assembly's event list holds the actor- and operator-recording
 		// events for a tuple first seen on this action (a host restart mints
@@ -258,7 +216,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 // defer to their owning guards.
 func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 	request := g.request
-	admission, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
+	admission, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
 	if err != nil {
 		return err
 	}
@@ -271,8 +229,6 @@ func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 	}
 	g.admissionState = &admission
 	g.admissionDecision = &decision
-	g.correctionRequestRecovery = admission.CorrectionRequestRecovery
-	g.correctionRequestMissing = admission.CorrectionRequestMissing
 	return nil
 }
 
@@ -294,16 +250,9 @@ func readWorkflowActionStateTx(ctx context.Context, tx *sql.Tx, workID string, e
 	return currentStep, state, nil
 }
 
-// runWorkflowActionAdmissionGuards runs the recovery, boundary, and
-// post-validation guard phases around payload validation, then applies the
-// folded step legality after the payload-bound recoveries refine it.
+// runWorkflowActionAdmissionGuards validates the payload, runs post-validation
+// guards, and applies the folded step legality.
 func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, request WorkflowActionExecutionRequest, decision WorkflowAdmissionDecision) error {
-	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
-		return err
-	}
-	if err := runWorkflowActionGuard(guards, guardPhaseBoundary); err != nil {
-		return err
-	}
 	if err := validateWorkflowActionPayload(guards.entry.Definition, request.ActionID, request.Payload); err != nil {
 		return err
 	}
@@ -313,28 +262,14 @@ func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, reques
 	if err := guardWorkflowActionStepMatch(request.Payload, guards.currentStep); err != nil {
 		return err
 	}
-	// The folded admission owns step legality (workflowAdmissionStepAllows),
-	// applied here — the engine's late position, after the payload and guard
-	// checks whose specific refusals precede the generic off-step one. The
-	// evidence-binding recovery first binds the outstanding requirement the
-	// request's payload names.
-	if request.ActionID == "bind_evidence" {
-		var recoveryErr error
-		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(guards.ctx, guards.tx, request.WorkID, guards.entry.Definition, guards.currentStep, request.Payload, "workflow_action")
-		if recoveryErr != nil {
-			return recoveryErr
-		}
-		if !guards.recoveryBind && !definitionStepAllows(guards.entry.Definition, guards.currentStep, request.ActionID) {
-			return newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
-		}
-	} else if decision.OffStep {
+	if decision.OffStep {
 		return decision.Failure
 	}
 	return nil
 }
 
 // guardWorkflowActionActor resolves the request actor and runs the actor
-// tuple, correction recovery, and held-attempt takeover guards.
+// tuple and held-attempt takeover guards.
 func guardWorkflowActionActor(guards *workflowActionGuardContext, request WorkflowActionExecutionRequest) error {
 	actorRef, err := WorkflowActorRef(request.Actor)
 	if err != nil {
@@ -343,9 +278,6 @@ func guardWorkflowActionActor(guards *workflowActionGuardContext, request Workfl
 	guards.actorRef = actorRef
 	guards.eventActor = actorRef
 	if err := guardRecordedActorTuple(guards); err != nil {
-		return err
-	}
-	if err := guardCorrectionRecovery(guards); err != nil {
 		return err
 	}
 	if action := workflowActionDefinitionByID(guards.entry.Definition, request.ActionID); WorkflowActionOpensHeldAttempt(action) {
@@ -780,20 +712,10 @@ func workflowStep(definition WorkflowDefinition, id string) *WorkflowStep {
 	return nil
 }
 
-// workflowStepIsDeliveryGate names the CD-0166 delivery-gate step shape: the
-// obligation action plus the two continuity holds, with the evidence-bearing
-// corrective return between them on the four-action shape, so the single
-// forward edge out of the step cannot be crossed without a recorded delivery.
-// Read paths, guards, and folds must agree on this one predicate, and both
-// shapes admit the same parked-gate recovery.
+// Read paths, guards, and folds share CD-0166's delivery-gate shape: the
+// delivery action and two continuity holds. Only delivery crosses its forward edge.
 func workflowStepIsDeliveryGate(step *WorkflowStep) bool {
-	if step == nil || len(step.Actions) < 3 || len(step.Actions) > 4 || step.Actions[0] != "record_delivery" {
-		return false
-	}
-	if len(step.Actions) == 4 && step.Actions[1] != "request_correction" {
-		return false
-	}
-	return step.Actions[len(step.Actions)-2] == "checkpoint_context" && step.Actions[len(step.Actions)-1] == "cross_context_boundary"
+	return step != nil && step.Kind == WorkflowStepInternalSQLite && slices.Equal(step.Actions, []string{"record_delivery", "checkpoint_context", "cross_context_boundary"})
 }
 
 func nullableWorkflowText(value string) any {

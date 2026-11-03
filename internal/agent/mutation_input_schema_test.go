@@ -26,6 +26,12 @@ var transportOnlyInputFields = map[string]bool{
 	"requested_budget_seconds": true,
 }
 
+func TestRetiredDeliveryCorrectionIsNotAnOperation(t *testing.T) {
+	if _, ok := agentcontract.ValidateContractOperation("concord_work_transition", "correct_delivery"); ok {
+		t.Fatal("retired delivery correction remains registered")
+	}
+}
+
 func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 	t.Parallel()
 	decodeTargets := map[string]any{
@@ -40,7 +46,6 @@ func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 		"concord_work_define.revise_intent":               reviseMutationInput{},
 		"concord_work_relate.resolve_overlap":             resolveOverlapMutationInput{},
 		"concord_work_relate.set_memberships":             membershipsMutationInput{},
-		"concord_work_transition.correct_delivery":        correctDeliveryMutationInput{},
 		"concord_work_transition.lifecycle":               lifecycleMutationInput{},
 		"concord_work_transition.remove":                  workRemovalMutationInput{},
 		"concord_work_transition.project_handoff_record":  projectHandoffRecordInput{},

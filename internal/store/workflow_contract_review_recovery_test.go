@@ -54,7 +54,7 @@ func TestForwardConfirmationRequiresReadyReview(t *testing.T) {
 	}
 }
 
-func TestTerminalContractUpdateReturnsForCurrentReview(t *testing.T) {
+func TestTerminalContractUpdateKeepsProgressForCurrentReview(t *testing.T) {
 	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
 		t.Run(family, func(t *testing.T) {
 			j := contractReviewAcceptance(t, "terminal-review-update", family)
@@ -78,63 +78,57 @@ func TestTerminalContractUpdateReturnsForCurrentReview(t *testing.T) {
 			}
 			reviewGateRequireStep(t, j.s, j.workID, terminal)
 			pin = issue1013Pin(t, j.s, j.workID)
-			if pin.Review.DependenciesCurrent || !reflect.DeepEqual(beforeReview, pin.Review.Accepted) || issue1013HasIntent(pin, "record_review") {
+			if pin.Review.DependenciesCurrent || !reflect.DeepEqual(beforeReview, pin.Review.Accepted) || !issue1013HasIntent(pin, "record_review") {
 				t.Fatal("changed update erased old Review or certified stale proof")
 			}
 			before := outsideRepairDatabaseSnapshot(t, j.s)
 			if err := runVerdictActionAs(t, j.s, j.workID, "record_verdict", criterionAssociationPayload(beforeReview.Report.Assessments[0].ReceiptRefs[0], "predicate:return-route"), 0, j.fixture.owner); !hasFailureKind(err, KindMissingEvidence) {
 				t.Fatalf("old proof certified changed criterion=%v", err)
 			}
-			if err := j.action(t, "request_correction", map[string]any{"diagnosis": "stale Review", "strategy": "fresh Review", "predicate_ids": []string{"predicate:unknown"}, "evidence_refs": []string{"evidence:return-route-verification"}}, j.fixture.owner); err == nil {
-				t.Fatal("invalid correction accepted")
-			}
 			if before != outsideRepairDatabaseSnapshot(t, j.s) {
-				t.Fatal("refused correction changed durable state")
+				t.Fatal("refused stale proof changed durable state")
 			}
-			if !issue1013HasIntent(pin, "request_correction") {
-				t.Fatal("proof-changing terminal update stranded work: pin has no producer return")
-			}
-			if err := issue1013Preflight(t, j.s, j.workID, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
-				t.Fatal(err)
-			}
-			if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
-				t.Fatal(err)
-			}
-			producer := "execution"
-			if family == "workflow.break_fix" {
-				producer = "repair"
-			}
-			reviewGateRequireStep(t, j.s, j.workID, producer)
-			entry := mustBuiltinDefinition(t, family)
-			correction, missing, err := workflowCorrectionRequestAdmissionForRegistry(t.Context(), j.s.db, j.workID, entry.Definition, terminal, "test", BuiltinWorkflowRegistry())
-			if err != nil || correction != nil || missing != workflowCorrectionMissingFreshReview {
-				t.Fatalf("same accepted report can fund another terminal return: %+v %s %v", correction, missing, err)
-			}
-			loaded := issue1013Pin(t, j.s, j.workID).Review
-			gate, err := workflowDeliveryGateCorrectionContextFolded(t.Context(), j.s.db, j.workID, entry.Definition, "delivery", "test", WorkflowAdmissionState{Review: loaded})
-			if err != nil || gate != nil {
-				t.Errorf("consumed report still funds a delivery-gate return: %+v %v", gate, err)
-			}
-			before = outsideRepairDatabaseSnapshot(t, j.s)
-			if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); !hasFailureKind(err, KindInvalidOperation) {
-				t.Fatalf("consumed return=%v", err)
-			}
-			if before != outsideRepairDatabaseSnapshot(t, j.s) || issue1013HasIntent(issue1013Pin(t, j.s, j.workID), "request_correction") {
-				t.Fatal("consumed return wrote state or remained advertised")
-			}
-			contractReviewFinish(t, j, producer)
+			contractReviewFinish(t, j, terminal)
 		})
 	}
 }
 
-func contractReviewFinish(t *testing.T, j *candidateJourney, producer string) {
+func contractReviewFinish(t *testing.T, j *candidateJourney, step string) {
 	t.Helper()
-	start := "start_execution"
-	if producer == "repair" {
-		start = "checkpoint_repair"
+	old, seq, err := latestVerificationReport(t.Context(), j.s.db, j.workID, "")
+	if err != nil || old == nil {
+		t.Fatalf("read previous report: %v", err)
 	}
-	reviewGateStartStep(t, j.s, j.workID, producer, start, j.fixture.owner)
+	before := outsideRepairDatabaseSnapshot(t, j.s)
+	var oldRef string
+	if err := j.s.db.QueryRowContext(t.Context(), `SELECT json_extract(payload,'$.immutable_subject_ref') FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq=?`, j.workID, seq).Scan(&oldRef); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{oldRef, "report:relabelled-old"} {
+		oldPayload := mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": ref, "verification_report": old})
+		if err := runVerdictActionAs(t, j.s, j.workID, "bind_evidence", oldPayload, 0, j.fixture.owner); !hasFailureKind(err, KindIllegalLifecycleTransition) {
+			t.Fatalf("old report binding at %s=%v", ref, err)
+		}
+	}
+	if before != outsideRepairDatabaseSnapshot(t, j.s) {
+		t.Fatal("refused old report changed durable state")
+	}
 	proof := j.observeRun(t, "fresh-contract-proof")
+	proof.OperationRef = "report:fresh-contract-proof"
+	proof.SubjectRef = proof.OperationRef
+	stalePayload := mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": proof.SubjectRef, "verification_report": proof.Report})
+	if err := runVerdictActionAs(t, j.s, j.workID, "bind_evidence", stalePayload, readWorkVersion(t, j.s, j.workID)-1, j.fixture.owner); !hasFailureKind(err, KindVersionConflict) {
+		t.Fatalf("stale-version report binding=%v", err)
+	}
+	if before != outsideRepairDatabaseSnapshot(t, j.s) {
+		t.Fatal("refused stale-version report changed durable state")
+	}
+	if !issue1013HasIntent(issue1013Pin(t, j.s, j.workID), "bind_evidence") {
+		t.Fatal("current work pin omitted ordinary evidence binding")
+	}
+	if err := issue1013Preflight(t, j.s, j.workID, "bind_evidence", stalePayload, j.fixture.owner); err != nil {
+		t.Fatalf("fresh report binding preflight: %v", err)
+	}
 	j.bindVerification(t, proof)
 	input := *issue1013Pin(t, j.s, j.workID).Review.Candidate
 	completeCurrentReviewForTest(t, j.fixture, "ready_for_final_proof", func(report *ReviewBlock) {
@@ -146,26 +140,16 @@ func contractReviewFinish(t *testing.T, j *candidateJourney, producer string) {
 	if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
-	reviewGateRequireStep(t, j.s, j.workID, "refine")
-	reviewGateStartStep(t, j.s, j.workID, "refine", "start_refine", j.fixture.owner)
-	j.bindVerification(t, proof)
-	for range 2 {
-		if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
-			t.Fatal(err)
-		}
-	}
+	reviewGateRequireStep(t, j.s, j.workID, step)
 	if err := runVerdictActionAs(t, j.s, j.workID, "record_verdict", criterionAssociationPayload(proof.OperationRef, "predicate:return-route"), 0, j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
-	if err := pConfirmReceiptPremise(t, j.fixture); err != nil {
-		t.Fatal(err)
-	}
 	if err := runVerdictActionAs(t, j.s, j.workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, diagnosisS1Actor(j.workID, "fresh-completer")); err != nil {
-		t.Fatalf("completion after producer return and fresh current proof: %v", err)
+		t.Fatalf("completion after ordinary writes and fresh current proof: %v", err)
 	}
 }
 
-func TestTerminalCandidateChangeReturnsForCurrentReview(t *testing.T) {
+func TestTerminalCandidateChangeKeepsProgressForCurrentReview(t *testing.T) {
 	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
 		t.Run(family, func(t *testing.T) {
 			j := contractReviewAcceptance(t, "terminal-candidate-change", family)
@@ -178,19 +162,15 @@ func TestTerminalCandidateChangeReturnsForCurrentReview(t *testing.T) {
 			if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, contract, readWorkVersion(t, j.s, j.workID), nil); err != nil {
 				t.Fatal(err)
 			}
-			j.bindVerification(t, j.observeRun(t, "changed-final-proof"))
+			proof := j.observeRun(t, "changed-final-proof")
+			proof.OperationRef = "report:changed-final-proof"
+			proof.SubjectRef = proof.OperationRef
+			j.bindVerification(t, proof)
 			pin := issue1013Pin(t, j.s, j.workID)
-			if pin.Review.DependenciesCurrent || !issue1013HasIntent(pin, "request_correction") {
-				t.Fatal("changed candidate did not stale Review and open the producer return")
+			if pin.Review.DependenciesCurrent || !issue1013HasIntent(pin, "record_review") {
+				t.Fatal("changed candidate did not stale Review and retain the ordinary Review write")
 			}
-			if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
-				t.Fatal(err)
-			}
-			producer := "execution"
-			if family == "workflow.break_fix" {
-				producer = "repair"
-			}
-			contractReviewFinish(t, j, producer)
+			contractReviewFinish(t, j, pin.Step)
 		})
 	}
 }

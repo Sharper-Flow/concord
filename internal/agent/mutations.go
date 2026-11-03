@@ -152,22 +152,6 @@ type resolveOverlapMutationInput struct {
 	IdempotencyKey      string `json:"idempotency_key"`
 }
 
-// correctDeliveryMutationInput decodes concord_work_transition.correct_delivery.
-// The target names the completed record_delivery event exactly; the merge
-// evidence is coordinator-provided, and the core records it without claiming
-// any verification of it.
-type correctDeliveryMutationInput struct {
-	WorkID               string `json:"work_id"`
-	ExpectedVersion      int64  `json:"expected_version"`
-	TargetEventID        string `json:"target_event_id"`
-	TargetSeq            int64  `json:"target_seq"`
-	TargetPayloadVersion int    `json:"target_payload_version"`
-	Reason               string `json:"reason"`
-	DeliveryArtifact     string `json:"delivery_artifact"`
-	DeliveryState        string `json:"delivery_state"`
-	IdempotencyKey       string `json:"idempotency_key"`
-}
-
 type mutationEffect func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error)
 
 func (r runtime) replayMutationBeforeScope(ctx context.Context, base agentcontract.Envelope, raw []byte, grant Authority, op agentcontract.ContractOperation) (agentcontract.Envelope, bool, error) {
@@ -650,8 +634,8 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base agentcontract.En
 	}
 	_, action, err := store.WorkflowActionDefinitionFor(ctx, r.Store, registry, in.WorkID, in.ActionID)
 	if err != nil {
-		// A state-derived action such as request_correction closes once its
-		// effect commits; the identical recorded request still replays.
+		// A state-derived action may close once its effect commits; the
+		// identical recorded request still replays.
 		if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
 			if replayErr != nil {
 				return failureEnvelope(base, replayErr), nil
@@ -1660,43 +1644,6 @@ func (r runtime) planResolveOverlap(ctx context.Context, base agentcontract.Enve
 	return agentcontract.Envelope{}, nil, false
 }
 
-// planCorrectDelivery plans concord_work_transition.correct_delivery.
-//
-// The correction is the coordinator's routine exact-target repair: it
-// appends one typed correction beside a completed delivery assertion under
-// the authenticated caller's own recorded workflow actor and never reopens
-// the completed work. CD-0243 D3/D7 retire cross-Product coordination
-// consent.
-func (r runtime) planCorrectDelivery(_ context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in correctDeliveryMutationInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	plan.scope["work_ids"] = []string{in.WorkID}
-	plan.scope["product_id"] = r.Envelope.SelectedProductID
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-		actorRef, actorErr := store.WorkflowActorRef(actor)
-		if actorErr != nil {
-			return nil, nil, nil, actorErr
-		}
-		result, err := store.ApplyWorkflowDeliveryCorrectionTx(ctx, tx, store.WorkflowDeliveryCorrectionRequest{
-			WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion,
-			TargetEventID: in.TargetEventID, TargetSeq: in.TargetSeq, TargetPayloadVersion: in.TargetPayloadVersion,
-			Reason: in.Reason, DeliveryArtifact: in.DeliveryArtifact, DeliveryState: in.DeliveryState,
-			Actor: actorRef, AuthenticatedActor: &actor,
-			EventID:    digest + ":delivery-correction",
-			OccurredAt: r.Authority.now(),
-		})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+int64(len(result.EventIDs)), 10)}}
-		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
-	}
-	return agentcontract.Envelope{}, nil, false
-}
-
 // mutate dispatches one mutation operation to its handler. A handler answers
 // with a terminal envelope when the call is refused or fails before the
 // transaction (handled true), or populates the plan and lets the common tail
@@ -1739,8 +1686,6 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 		answer, err, handled = r.planProjectHandoffRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.project_handoff_consume":
 		answer, err, handled = r.planProjectHandoffConsume(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_transition.correct_delivery":
-		answer, err, handled = r.planCorrectDelivery(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.set_memberships":
 		answer, err, handled = r.planSetMemberships(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.resolve_overlap":

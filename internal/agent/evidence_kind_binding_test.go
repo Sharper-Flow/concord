@@ -205,6 +205,30 @@ func TestBindEvidenceRecordsOneEventPerKindForOneLocator(t *testing.T) {
 	}
 }
 
+func TestBindEvidenceSuccessfulReplayKeepsOriginalResult(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, "replay")
+	fields := map[string]any{"evidence_kind": "verification", "immutable_subject_ref": "evidence:replay"}
+	first, after := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", fields, nil, "ekb-replay")
+	if first.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("bind: %+v", first.Error)
+	}
+	replay, replayVersion := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", fields, nil, "ekb-replay")
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
+		t.Fatalf("replay: outcome=%s replayed=%t error=%+v", replay.Outcome, replay.Replayed, replay.Error)
+	}
+	if replayVersion != after || len(ekbEvidenceBoundEvents(t, s, workID)) != 1 {
+		t.Fatal("replay added an evidence binding or changed the work version")
+	}
+}
+
 func TestBindEvidenceRefusesContradictedExplicitKind(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

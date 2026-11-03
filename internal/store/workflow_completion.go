@@ -450,14 +450,6 @@ func workflowEvidenceRequirementDefinitions(required, mandates []string, definit
 	return requirements
 }
 
-func workflowEvidenceTupleBound(ctx context.Context, q queryer, workID, kind, reference string) (bool, error) {
-	var count int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, kind, reference).Scan(&count); err != nil {
-		return false, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect workflow evidence requirement", true, "retry once the database is readable", err)
-	}
-	return count != 0, nil
-}
-
 // Premise confirmation requires producer proof for every approved criterion
 // before leaving the stage where Main can associate receipts.
 func requireAcceptanceDeliverables(ctx context.Context, tx queryer, definition WorkflowDefinition, workID string) error {

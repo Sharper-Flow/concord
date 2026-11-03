@@ -22,7 +22,7 @@ func TestRegisteredNonTerminalStepsCanAdvance(t *testing.T) {
 			}
 			reachable := false
 			for _, id := range step.Actions {
-				if _, ok := effect[id]; !ok || !workflowActionAdvancesStep(definition, id) {
+				if _, ok := effect[id]; !ok || !workflowCompletedActionAdvances(definition, workflowActionCompletedPayload{StepID: step.ID, ActionID: id}) {
 					continue
 				}
 				reachable = true

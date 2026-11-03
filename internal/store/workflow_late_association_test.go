@@ -63,7 +63,6 @@ func TestCriterionAssociationAtPremiseQuestionWithoutDeclaration(t *testing.T) {
 			d.StepGraph.Steps[i].Actions = append(d.StepGraph.Steps[i].Actions, "record_verdict")
 		}
 	}
-	d.RecoveryRoutes = append(d.RecoveryRoutes, WorkflowRecoveryRoute{Step: "findings", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate"})
 	registry := NewWorkflowDefinitionRegistry()
 	_, err := registry.Register(d)
 	if err != nil {
@@ -148,8 +147,14 @@ func TestCriterionAssociationSurvivesUnchangedContractDigest(t *testing.T) {
 			}
 		}
 		pin := issue1013Pin(t, f.store, workID)
-		if issue1013HasIntent(pin, "record_verdict") != (tc.count < 2) {
-			t.Fatalf("contract %d: late association intent disagrees with criterion applicability", tc.version)
+		var currentRecord bool
+		for _, intent := range pin.NextValidIntents {
+			if intent.ActionID == "record_verdict" && intent.ReasonCode == "current_record" {
+				currentRecord = true
+			}
+		}
+		if !currentRecord {
+			t.Fatalf("contract %d: current verdict record is not editable", tc.version)
 		}
 	}
 }
@@ -176,5 +181,33 @@ func TestCriterionAssociationCompletionCannotBorrowPriorEffect(t *testing.T) {
 	}
 	if after := contractCorrectionEffectSnapshot(t, f.store, workID); after != before {
 		t.Fatal("unpaired completion changed state")
+	}
+}
+
+func TestCriterionAssociationReplacementCompletionCannotBorrowPriorEffect(t *testing.T) {
+	const workID = "association-replacement-completion"
+	f, ref := seedLateCriterionAssociation(t, workID)
+	payload := criterionAssociationPayload(ref, "predicate:first")
+	for i := 0; i < 2; i++ {
+		if err := runVerdictActionAs(t, f.store, workID, "record_verdict", payload, 0, f.owner); err != nil {
+			t.Fatalf("verdict write %d: %v", i, err)
+		}
+	}
+	actor, err := WorkflowActorRef(f.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, f.store, workID)
+	event := workflowTypedEvent("unpaired-replacement-completion", WorkflowActionCompleted, workID, actor, time.Unix(15, 0), version, map[string]any{
+		"step_id": "complete", "action_id": "record_verdict", "attempt_epoch": 1, "actor_ref": actor,
+		"result_evidence_refs": []string{ref}, "changed_refs": []string{workID},
+	})
+	before := contractCorrectionEffectSnapshot(t, f.store, workID)
+	err = applyWorkflowTestOperationDirect(t.Context(), f.store, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
+	if !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("unpaired replacement completion=%v", err)
+	}
+	if after := contractCorrectionEffectSnapshot(t, f.store, workID); after != before {
+		t.Fatal("unpaired replacement completion changed state")
 	}
 }

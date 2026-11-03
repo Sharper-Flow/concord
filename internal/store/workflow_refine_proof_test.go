@@ -137,7 +137,6 @@ func TestRefineExitRefusesAStaleVerifyRun(t *testing.T) {
 	const workID = "refine-proof-stale-run"
 	c := acceptDeliveryCorrectedCandidateAt(t, workID, "workflow.implementation")
 	s := c.f.store
-	c.j.bindVerification(t, c.early)
 	// The retained report must cover the recorded candidate.
 	before := c.j.effects(t)
 	refineProofRequireMissingEvidence(t, refineProofDelivery(t, s, workID), "verification does not cover the current integrated candidate")

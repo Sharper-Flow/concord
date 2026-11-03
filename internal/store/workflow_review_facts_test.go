@@ -12,7 +12,7 @@ import (
 // Historical bytes are inputs to migration, never a live execution route.
 func g32ReviewFixture(t *testing.T) (*sql.DB, func(string, any) int64) {
 	t.Helper()
-	db, appendEvent, _ := progressHistory(t)
+	db, appendEvent := progressHistory(t)
 	if _, err := db.Exec(`CREATE TABLE work_items(id TEXT PRIMARY KEY); INSERT INTO work_items VALUES('work-history');
 CREATE TABLE fold_guard(active INTEGER); INSERT INTO fold_guard VALUES(1);
 CREATE TABLE workflow_contracts(work_id TEXT,contract_version INTEGER,superseded_by INTEGER);
@@ -250,40 +250,4 @@ func TestG32ReviewBackfillParityInterleavings(t *testing.T) {
 	accept("implementation")
 	implementation := ReviewCandidate{Commit: repair.OutputCandidate.Commit, Tree: repair.OutputCandidate.Tree}
 	check("implementation has no Review authority", "omitted", &implementation, "open")
-}
-
-func TestG32DeclaredCorrectionLogBlind(t *testing.T) {
-	db, appendEvent := correctionHistoryFixture(t)
-	appendEvent(WorkflowActionCompleted, correctionHistoryRequest("explicit"))
-	if _, err := db.Exec(`ALTER TABLE domain_events RENAME TO hidden_domain_events`); err != nil {
-		t.Fatal(err)
-	}
-	got, err := readWorkflowCorrectionContext(t.Context(), db, "work-history")
-	if err != nil || got == nil || got.SourceEventID != "history-e1" || got.SourceEventSeq != 1 || got.Diagnosis != "diagnosis:explicit" {
-		t.Fatalf("log-blind declared correction=%+v, %v", got, err)
-	}
-}
-
-func TestG32DeclaredCorrectionRetainsInvalidDataRefusals(t *testing.T) {
-	for _, fault := range []string{"malformed state", "unreadable state"} {
-		t.Run(fault, func(t *testing.T) {
-			db, appendEvent := correctionHistoryFixture(t)
-			appendEvent(WorkflowActionCompleted, correctionHistoryRequest("explicit"))
-			want := KindInvariantViolation
-			if fault == "malformed state" {
-				if _, err := db.Exec(`UPDATE workflow_correction_state SET state='{'`); err != nil {
-					t.Fatal(err)
-				}
-			} else {
-				if _, err := db.Exec(`ALTER TABLE workflow_correction_state RENAME TO hidden_correction_state`); err != nil {
-					t.Fatal(err)
-				}
-				want = KindUnavailable
-			}
-			got, err := readWorkflowCorrectionContext(t.Context(), db, "work-history")
-			if got != nil || !hasFailureKind(err, want) {
-				t.Fatalf("%s: correction=%+v, %v, want %s", fault, got, err, want)
-			}
-		})
-	}
 }

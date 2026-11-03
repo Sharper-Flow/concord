@@ -69,10 +69,10 @@ func TestCloneWorkflowDefinitionDropsEmptyOmitEmptySlicesLikeJSON(t *testing.T) 
 	// the all-definition comparison cannot see this rule; a JSON round trip
 	// turns one into nil, and the clone must too.
 	definition := BuiltinWorkflowDefinitions()[0]
-	definition.RecoveryRoutes = []WorkflowRecoveryRoute{}
+	definition.StepGraph.Steps[0].RequiredEvidenceKinds = []EvidenceKind{}
 	definition.AvailableActions = []string{}
 	got := cloneWorkflowDefinition(definition)
-	if got.RecoveryRoutes != nil {
+	if got.StepGraph.Steps[0].RequiredEvidenceKinds != nil {
 		t.Error("an empty omitempty slice survived the clone as non-nil")
 	}
 	if got.AvailableActions == nil {

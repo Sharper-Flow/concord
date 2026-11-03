@@ -99,6 +99,15 @@ func TestVerificationReportBindingAttributesSubmittingOperation(t *testing.T) {
 	}
 }
 
+func TestDuplicateVerificationReportBindingDiagnostic(t *testing.T) {
+	c := acceptDeliveryCandidateAt(t, "duplicate-verification-report", "workflow.break_fix", "verify", false)
+	payload := map[string]any{"evidence_kind": "verification", "immutable_subject_ref": c.early.SubjectRef, "verification_report": c.early.Report}
+	err := c.j.action(t, "bind_evidence", payload, c.f.owner)
+	if !hasFailureKind(err, KindIllegalLifecycleTransition) || !strings.Contains(err.Error(), "verification report run is already bound or immutable subject is bound to a different commit") {
+		t.Fatalf("identical report under a new identity: expected already-bound refusal without a claim of different evidence, got %v", err)
+	}
+}
+
 func TestWorkflowVerificationReportsUseRecordedBinding(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {

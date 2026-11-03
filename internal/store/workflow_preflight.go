@@ -262,7 +262,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 }
 
 func workflowActionConsequence(definition WorkflowDefinition, actionID string) ActionConsequence {
-	if actionID == "record_verdict" || actionID == "request_correction" {
+	if actionID == "record_verdict" {
 		return ActionInternalSQLite
 	}
 	for _, action := range definition.ActionDefinitions {
@@ -298,7 +298,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	// pure workflowAdmit decides. The recovery flags and the
 	// supersede classification below read the same folded state instead of
 	// re-deriving the conditions per site.
-	admission, admissionErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", registry)
+	admission, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
 	if admissionErr != nil {
 		return RegisteredDefinition{}, admissionErr
 	}
@@ -318,15 +318,12 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	// The folded admission owns step legality, applied here — the engine's
-	// late position, after the payload and guard checks whose specific
-	// refusals precede the generic off-step one. The payload-bound recoveries
-	// refine it first: the evidence-binding recovery binds the outstanding
-	// requirement the payload names.
+	// Apply step legality after the payload checks whose specific refusals
+	// precede the generic off-step refusal.
 	if err := preflightWorkflowActionStepTx(ctx, tx, entry.Definition, currentStep, request, decision); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	if err := preflightWorkflowActionGuardsTx(ctx, tx, entry.Definition, currentStep, request, admission); err != nil {
+	if err := preflightWorkflowActionGuardsTx(ctx, tx, entry.Definition, currentStep, request); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	// See the note in the non-transactional preflight: recording a new actor is
@@ -335,33 +332,18 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 }
 
 func preflightWorkflowActionStepTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest, decision WorkflowAdmissionDecision) error {
-	if request.ActionID == "bind_evidence" {
-		// Preflight carries only payload evidence. Execution checks the full
-		// envelope kind inventory through the same guard before writing.
-		recoveryBind, recoveryErr := guardRecoveryEvidenceBind(ctx, tx, request.WorkID, definition, currentStep, request.Payload, "workflow_action_preflight")
-		if recoveryErr != nil {
-			return recoveryErr
-		}
-		if !recoveryBind && !definitionStepAllows(definition, currentStep, request.ActionID) {
-			return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
-		}
-	} else if decision.OffStep {
+	if decision.OffStep {
 		return workflowPreflightFailure(decision.Failure)
+	}
+	if request.ActionID == "bind_evidence" && !definitionStepAllows(definition, currentStep, request.ActionID) {
+		return guardEvidenceBindingMembership(ctx, tx, request.WorkID, definition, request.Payload, "workflow_action_preflight")
 	}
 	return nil
 }
 
-func preflightWorkflowActionGuardsTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest, admission WorkflowAdmissionState) error {
-	switch request.ActionID {
-	case "record_verdict":
+func preflightWorkflowActionGuardsTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest) error {
+	if request.ActionID == "record_verdict" {
 		return preflightWorkflowVerdictTx(ctx, tx, definition, currentStep, request)
-	case "request_correction":
-		// The payload check binds against the folded state's one correction
-		// request derivation; it never re-enters the loader.
-		if admission.CorrectionRequestContext == nil {
-			return workflowCorrectionRequestUnavailableFailure("workflow_action_preflight", admission.CorrectionRequestMissing)
-		}
-		return validateCorrectionRequestPayload(ctx, tx, request.WorkID, request.Payload, "workflow_action_preflight", admission.CorrectionRequestContext)
 	}
 	return nil
 }
@@ -466,12 +448,6 @@ func workflowActionPayloadDefinition(definition WorkflowDefinition, actionID str
 			return WorkflowPayloadDefinition{}, false, err
 		}
 		payloadDefinition = selected.Payload
-	}
-	if !found {
-		if actionID == "request_correction" {
-			payloadDefinition = workflowCorrectionRequestActionDefinition().Payload
-			found = true
-		}
 	}
 	return payloadDefinition, found, nil
 }

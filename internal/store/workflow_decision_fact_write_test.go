@@ -520,13 +520,6 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 				t.Fatal("the base contract update fields carry a policy-specific decision fact")
 			}
 		}
-		for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {
-			for _, field := range action.Payload.Fields {
-				if field.Name == "decision_domains" {
-					t.Fatalf("the legacy canonical publication for %s carries an undeclared decision fact", action.ID)
-				}
-			}
-		}
 	})
 
 	t.Run("submitted JSON null stays absent regardless of whitespace", func(t *testing.T) {

@@ -120,40 +120,6 @@ func reviewGateChangeRecordedCriterion(t *testing.T, j *candidateJourney) {
 	}
 }
 
-func TestDeliveryRequiresReviewOfCurrentCandidate(t *testing.T) {
-	j := reviewGateRefineFixture(t, "review-gate-break-fix", "workflow.break_fix")
-	reviewGateCompleteReview(t, j, "correction_required")
-	reviewGateCompleteReview(t, j, "continue")
-	pReturnProduce(t, j, "repair")
-	before := j.effects(t)
-	if err := j.action(t, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), j.fixture.owner); err == nil {
-		t.Fatal("refine admitted correction without an applicable correction-required Review")
-	}
-	if j.effects(t) != before {
-		t.Fatal("refused corrective return changed durable state")
-	}
-	reviewGateCompleteReview(t, j, "correction_required")
-	reviewGateDeliveryRefusal(t, j)
-	pin := issue1013Pin(t, j.s, j.workID)
-	if workPinContainsAction(pin.NextValidIntents, "record_delivery") {
-		t.Fatalf("pin offered delivery despite recorded correction: %+v", pin.NextValidIntents)
-	}
-	reviewGateExitWithCurrentReview(t, j)
-}
-
-func TestDeliveryGateDeclaresCorrectiveReturn(t *testing.T) {
-	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
-		entry := mustBuiltinDefinition(t, family)
-		gate := workflowStep(entry.Definition, "delivery")
-		if !workflowStepIsDeliveryGate(gate) || len(gate.Actions) != 4 || gate.Actions[0] != "record_delivery" || gate.Actions[1] != "request_correction" {
-			t.Fatalf("%s gate actions=%v", family, gate.Actions)
-		}
-		if workflowCorrectionReturnTarget(entry.Definition, "delivery") == "" {
-			t.Fatalf("%s gate has no producer return", family)
-		}
-	}
-}
-
 func TestReviewOfReplacedCandidateCannotAuthorizeDelivery(t *testing.T) {
 	j := reviewGateRefineFixture(t, "review-gate-stale-review", "workflow.break_fix")
 	input := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof").InputCandidate
@@ -178,6 +144,50 @@ func TestReviewOfReplacedCandidateCannotAuthorizeDelivery(t *testing.T) {
 	}
 	reviewGateDeliveryRefusal(t, j)
 	reviewGateExitWithCurrentReview(t, j)
+}
+
+func TestDeliveryGateTakesOrdinaryReviewUpdate(t *testing.T) {
+	for _, family := range []string{"workflow.break_fix", "workflow.implementation"} {
+		t.Run(family, func(t *testing.T) {
+			j := reviewGateRefineFixture(t, "review-gate-parked-update", family)
+			reviewGateCompleteReview(t, j, "ready_for_final_proof")
+			j.bindVerification(t, j.observeRun(t, "parked-refine"))
+			if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
+				t.Fatalf("refine delivery: %v", err)
+			}
+			reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			reviewGateChangeRecordedCriterion(t, j)
+			reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			pin := issue1013Pin(t, j.s, j.workID)
+			if pin.Review == nil || pin.Review.DependenciesCurrent || workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "record_review") {
+				t.Fatalf("stale gate intents=%+v review=%+v", pin.NextValidIntents, pin.Review)
+			}
+			refuse := func(label string, kind FailureKind) {
+				t.Helper()
+				before := j.effects(t)
+				deliveries := reviewGateCountDeliveries(t, j.s, j.workID)
+				if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); !hasFailureKind(err, kind) {
+					t.Fatalf("%s: gate crossing=%v, want %s", label, err, kind)
+				}
+				if j.effects(t) != before || reviewGateCountDeliveries(t, j.s, j.workID) != deliveries {
+					t.Fatalf("%s: refused crossing changed durable state", label)
+				}
+				reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			}
+			refuse("stale Review", KindStaleRequiresReview)
+			reviewGateCompleteReview(t, j, "continue")
+			reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			refuse("non-ready Review update", KindMissingEvidence)
+			reviewGateCompleteReview(t, j, "ready_for_final_proof")
+			reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
+				t.Fatalf("gate crossing after fresh Review: %v", err)
+			}
+			if got := currentStep(t, j.s, j.workID); got == "delivery" {
+				t.Fatal("fresh Review did not restore the gate exit")
+			}
+		})
+	}
 }
 
 func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
@@ -223,97 +233,4 @@ func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
 		}
 		reviewGateRequireStep(t, j.s, j.workID, "delivery")
 	})
-}
-
-func TestCurrentDeliveryGateAdmitsEvidenceBearingReturn(t *testing.T) {
-	for _, tc := range []struct{ family, target string }{{"workflow.break_fix", "repair"}, {"workflow.implementation", "execution"}} {
-		t.Run(tc.family, func(t *testing.T) {
-			j := reviewGateRefineFixture(t, "current-gate-return", tc.family)
-			reviewGateCompleteReview(t, j, "continue")
-			pReturnProduce(t, j, "repair")
-			actor, err := WorkflowActorRef(j.fixture.owner)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := advanceWorkflowTestInstanceToStep(t.Context(), j.s, j.workID, "delivery", actor); err != nil {
-				t.Fatal(err)
-			}
-			reviewGateChangeRecordedCriterion(t, j)
-			reviewGateRequireStep(t, j.s, j.workID, "delivery")
-			current := mustBuiltinDefinition(t, tc.family)
-			ref, digest := reviewGateInstancePin(t, j.s, j.workID)
-			if ref != current.Definition.Ref || digest != current.Digest {
-				t.Fatalf("pinned definition=%s %s, want %s %s", ref, digest, current.Definition.Ref, current.Digest)
-			}
-			pin := issue1013Pin(t, j.s, j.workID)
-			if workPinContainsAction(pin.NextValidIntents, "record_delivery") {
-				t.Fatal("stale gate offered delivery")
-			}
-			reason := ""
-			for _, intent := range pin.NextValidIntents {
-				if intent.ActionID == "request_correction" {
-					reason = intent.ReasonCode
-				}
-			}
-			if reason != "delivery_gate_correction" {
-				t.Fatalf("gate return reason=%q", reason)
-			}
-			deliveries := reviewGateCountDeliveries(t, j.s, j.workID)
-			if err := j.action(t, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), j.fixture.owner); err != nil {
-				t.Fatalf("evidence-bearing gate return: %v", err)
-			}
-			reviewGateRequireStep(t, j.s, j.workID, tc.target)
-			if count := reviewGateCountDeliveries(t, j.s, j.workID); count != deliveries {
-				t.Fatalf("return changed deliveries %d -> %d", deliveries, count)
-			}
-		})
-	}
-}
-
-func TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview(t *testing.T) {
-	for _, family := range []string{"workflow.break_fix", "workflow.implementation"} {
-		t.Run(family, func(t *testing.T) {
-			j := pReturnReviewFixture(t, "current-gate-return", family, "ready_for_final_proof")
-			owner, err := WorkflowActorRef(j.fixture.owner)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := advanceWorkflowTestInstanceToStep(t.Context(), j.s, j.workID, "delivery", owner); err != nil {
-				t.Fatal(err)
-			}
-			successor := pContractSuccessor(t, j.s, j.workID, "changed criterion")
-			successor["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "fail"
-			if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, successor, readWorkVersion(t, j.s, j.workID), nil); err != nil {
-				t.Fatal(err)
-			}
-			pin := issue1013Pin(t, j.s, j.workID)
-			if pin.Review == nil || pin.Review.DependenciesCurrent || issue1013HasIntent(pin, "record_delivery") {
-				t.Fatalf("stale gate offered delivery: %+v", pin.NextValidIntents)
-			}
-			if !issue1013HasIntent(pin, "request_correction") {
-				t.Fatalf("stale gate hides corrective return: %+v", pin.NextValidIntents)
-			}
-			reason := ""
-			for _, intent := range pin.NextValidIntents {
-				if intent.ActionID == "request_correction" {
-					reason = intent.ReasonCode
-				}
-			}
-			if reason != "delivery_gate_correction" {
-				t.Fatalf("gate return reason=%q", reason)
-			}
-			deliveries := reviewGateCountDeliveries(t, j.s, j.workID)
-			if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
-				t.Fatalf("evidence-bearing current gate return: %v", err)
-			}
-			effect := "execution"
-			if family == "workflow.break_fix" {
-				effect = "repair"
-			}
-			reviewGateRequireStep(t, j.s, j.workID, effect)
-			if count := reviewGateCountDeliveries(t, j.s, j.workID); count != deliveries {
-				t.Fatalf("return changed deliveries %d -> %d", deliveries, count)
-			}
-		})
-	}
 }

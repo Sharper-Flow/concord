@@ -5,11 +5,7 @@ import (
 	"testing"
 )
 
-// The fold admits bind_evidence past its declared binding step when a required
-// kind is still unbound. The pin must say so. A caller that reaches a human
-// checkpoint with an outstanding kind, and reads only declared step actions,
-// sees confirm_premise refuse and no route that produces the missing evidence.
-func TestWorkPinAdvertisesEvidenceBindingRecoveryWhenAKindIsOutstanding(t *testing.T) {
+func TestWorkPinAdvertisesEvidenceBindingWhenAKindIsOutstanding(t *testing.T) {
 	ctx := context.Background()
 	f := newAcceptanceRecoveryFixture(ctx, t, wf04OutstandingKind)
 
@@ -24,8 +20,8 @@ func TestWorkPinAdvertisesEvidenceBindingRecoveryWhenAKindIsOutstanding(t *testi
 		if intent.ActionID != "bind_evidence" {
 			continue
 		}
-		if intent.ReasonCode != "evidence_binding_recovery" {
-			t.Fatalf("bind_evidence reason_code = %q, want evidence_binding_recovery", intent.ReasonCode)
+		if intent.ReasonCode != "ordinary_evidence_binding" {
+			t.Fatalf("bind_evidence reason_code = %q, want ordinary_evidence_binding", intent.ReasonCode)
 		}
 		if intent.ExpectedVersion != pin.Version {
 			t.Fatalf("bind_evidence expected_version = %d, want %d", intent.ExpectedVersion, pin.Version)
@@ -33,9 +29,7 @@ func TestWorkPinAdvertisesEvidenceBindingRecoveryWhenAKindIsOutstanding(t *testi
 	}
 }
 
-// The pin never advertises an action the fold would refuse. With every required
-// kind already bound, the recovery route is closed and must not appear.
-func TestWorkPinOmitsEvidenceBindingRecoveryWhenNothingIsOutstanding(t *testing.T) {
+func TestWorkPinAdvertisesEvidenceBindingWhenNothingIsOutstanding(t *testing.T) {
 	ctx := context.Background()
 	f := newAcceptanceRecoveryFixture(ctx, t)
 
@@ -43,8 +37,8 @@ func TestWorkPinOmitsEvidenceBindingRecoveryWhenNothingIsOutstanding(t *testing.
 	if err != nil {
 		t.Fatalf("read work pin: %v", err)
 	}
-	if workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
-		t.Fatalf("pin at step %q advertises bind_evidence with no outstanding requirement; intents = %v", pin.Step, intentActionIDs(pin.NextValidIntents))
+	if !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
+		t.Fatalf("pin at step %q omits bind_evidence with no outstanding requirement; intents = %v", pin.Step, intentActionIDs(pin.NextValidIntents))
 	}
 }
 

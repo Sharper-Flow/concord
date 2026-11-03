@@ -2,36 +2,20 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 )
-
-func TestCorrectionOpenFindingIDsAreValidated(t *testing.T) {
-	if !validWorkflowOpenFindings([]string{"finding:a", "finding:b"}) {
-		t.Fatal("valid open finding set refused")
-	}
-	for _, raw := range []string{`null`, `[]`, `["finding:a","finding:a"]`, `["finding/a"]`, `[1]`} {
-		var ids []string
-		if err := json.Unmarshal([]byte(raw), &ids); err == nil && validWorkflowOpenFindings(ids) {
-			t.Fatalf("invalid open finding set accepted: %s", raw)
-		}
-	}
-}
 
 // An operator stop cancels the workflow despite a standing correction.
 func TestCorrectionResolvesThroughOperatorStop(t *testing.T) {
 	const workID = "convergence-operator-stop"
 	j := pReturnReviewFixture(t, workID, "workflow.break_fix", "correction_required")
 	s := j.s
-	if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
-		t.Fatalf("record correction: %v", err)
-	}
 	pin, err := ReadWorkPin(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pin.Correction == nil {
-		t.Fatal("the rejection left no standing correction to resolve")
+	if pin.Review == nil || pin.Review.Accepted == nil || pin.Review.Accepted.Report.Disposition != "correction_required" {
+		t.Fatal("the rejection left no current Review")
 	}
 	var lifecycle string
 	if err := s.db.QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {

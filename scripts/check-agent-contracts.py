@@ -48,6 +48,11 @@ SKILL_REFERENCES = {
         "conflicts": ".concord/law/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md",
         "approval": ".concord/law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
     },
+    "concord-architecture-writing": {
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "ownership": ".concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
+        "relationship": ".concord/law/decisions/CD-0251-architecture-reference-is-not-product-law.md",
+    },
     # Portable engineering methods (CD-0246 D1 and D3).
     "concord-instruction-writing": {
         "admission": ".concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md",

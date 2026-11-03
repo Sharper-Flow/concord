@@ -36,12 +36,14 @@ law-change route, or is removed.
 Current reference excludes delivery plans, rollout sequences, backlogs,
 exhaustive inventories, and research. A target design stays in its plan;
 reference describes what is delivered, marks an unknown as unknown, and
-reports a law or implementation mismatch for resolution through the
-law-change route rather than describing the desired state as current.
+reports a mismatch between law and the implemented system rather than
+describing the desired state as current. A contradiction between reference
+and law is resolved through the law-change route, never as a silent
+amendment.
 
 Establish the Product's Domains with `concord_domain.list` before writing.
 Missing docs or a missing registry never authorize invented Domain identity,
-waived law, or a second knowledge home.
+waived law, a second knowledge home, or a bypass of workflow gates.
 
 ## Shape the reference set
 

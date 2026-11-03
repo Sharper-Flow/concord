@@ -20,10 +20,11 @@ standards, including contribution guidance and local instructions for affected
 files. Follow their references where the change depends on them. Return missing
 inputs to the caller rather than inventing requirements from the diff.
 
-For the final review of a change that altered a documented boundary, flow, or
-state authority, load the shipped `concord-architecture-writing` skill: its
-final-review section routes each lasting plan output to law, current
-reference, glossary, or the temporary work record.
+For the final review of an architectural change, or of a change that altered
+a documented boundary, flow, or state authority, load the shipped
+`concord-architecture-writing` skill: its final-review section routes each
+lasting plan output to law, current reference, glossary, or the temporary
+work record.
 
 ## Review two axes
 

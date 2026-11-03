@@ -11,9 +11,8 @@ import (
 // removeWorkForTest drives removal the way the only production caller does:
 // prepare the operation and apply the typed work.removed event inside one
 // transaction, exactly as internal/agent planWorkRemoval's effect does.
-func removeWorkForTest(ctx context.Context, s *Store, req WorkRemovalRequest) (WorkRemovalReceipt, error) {
-	var receipt WorkRemovalReceipt
-	err := s.Transact(ctx, func(tx *Transaction) error {
+func removeWorkForTest(ctx context.Context, s *Store, req WorkRemovalRequest) error {
+	return s.Transact(ctx, func(tx *Transaction) error {
 		prepared, err := PrepareWorkRemovalTx(ctx, tx, req)
 		if err != nil {
 			return err
@@ -22,13 +21,9 @@ func removeWorkForTest(ctx context.Context, s *Store, req WorkRemovalRequest) (W
 		if err != nil {
 			return err
 		}
-		if _, err := ApplyOperationTx(ctx, tx, Operation{Events: []Event{{EventID: "work.removed:" + req.OperationID, Kind: WorkRemoved, SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}); err != nil {
-			return err
-		}
-		receipt = prepared
-		return nil
+		_, err = ApplyOperationTx(ctx, tx, Operation{Events: []Event{{EventID: "work.removed:" + req.OperationID, Kind: WorkRemoved, SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}})
+		return err
 	})
-	return receipt, err
 }
 
 func TestWorkRemovalRefusesCompletedWork(t *testing.T) {
@@ -39,7 +34,7 @@ func TestWorkRemovalRefusesCompletedWork(t *testing.T) {
 	}
 	producer := removalTestRequest()
 	producer.WorkID, producer.ExpectedVersion = "cleanup-producer", readWorkVersion(t, s, "cleanup-producer")
-	_, err := removeWorkForTest(t.Context(), s, producer)
+	err := removeWorkForTest(t.Context(), s, producer)
 	assertFailureKind(t, err, KindInvalidOperation)
 }
 
@@ -108,8 +103,7 @@ func TestWorkRemovalCancellationKeepsReasonDistinct(t *testing.T) {
 	req.WorkID = "cancelled-removal-work"
 	req.ExpectedVersion = readWorkVersion(t, s, req.WorkID)
 	req.Reason = "cancelled"
-	receipt, err := removeWorkForTest(context.Background(), s, req)
-	if err != nil {
+	if err := removeWorkForTest(context.Background(), s, req); err != nil {
 		t.Fatal(err)
 	}
 	committed, err := readWorkRemovalAuditQ(context.Background(), s.DatabaseForTesting(), req.OperationID)
@@ -117,7 +111,7 @@ func TestWorkRemovalCancellationKeepsReasonDistinct(t *testing.T) {
 		t.Fatal(err)
 	}
 	if committed.Reason != "cancelled" || committed.State != "committed" || committed.EventID != "work.removed:"+req.OperationID {
-		t.Fatalf("receipt = prepared %+v, committed %+v", receipt, committed)
+		t.Fatalf("committed receipt = %+v", committed)
 	}
 	var removed, transitioned int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, req.WorkID, WorkRemoved).Scan(&removed); err != nil {
@@ -173,7 +167,7 @@ func TestWorkRemovalRefusesRequiredResearchConsumer(t *testing.T) {
 		return req
 	}()
 	refuseReq.Reason = "shelved"
-	if _, err := removeWorkForTest(ctx, s, refuseReq); err == nil || !strings.Contains(err.Error(), "required research consumer") {
+	if err := removeWorkForTest(ctx, s, refuseReq); err == nil || !strings.Contains(err.Error(), "required research consumer") {
 		t.Fatalf("required consumer removal error = %v", err)
 	}
 }

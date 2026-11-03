@@ -239,7 +239,7 @@ func TestWorkRemovalClearsBacklogAlignmentAtBothEnds(t *testing.T) {
 			request.OperationID = "remove-align-" + testCase.removed
 			request.IdempotencyKey = "remove-align-key-" + testCase.removed
 			request.Reason = "shelved"
-			if _, err := removeWorkForTest(ctx, s, request); err != nil {
+			if err := removeWorkForTest(ctx, s, request); err != nil {
 				t.Fatalf("removing %s left a backlog alignment row behind: %v", testCase.removed, err)
 			}
 			var rows int

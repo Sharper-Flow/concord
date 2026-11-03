@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
@@ -598,39 +597,36 @@ func TestResearchRetireReplaySurvivesCloseAndReopen(t *testing.T) {
 // terminal for the caller rather than a context-freshness signal. This
 // witness pins the fail-closed behavior; it does not weaken it.
 func TestResearchRetireReplayAfterOwnerRemovalFailsClosed(t *testing.T) {
-	s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research"})
+	s, service, grant, candidates := researchRetireFixture(t, []agentcontract.Capability{"product_read", "research", "work_transition"})
 	if retired := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:1], false, "removal-replay"); retired.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("retirement error=%+v", retired.Error)
 	}
-	req := store.WorkRemovalRequest{
-		OperationID: "remove-retire-owner-0", IdempotencyKey: "remove-retire-owner-0-key",
-		WorkID: "retire-owner-0", ExpectedVersion: 3, Reason: "shelved", Actor: "operator",
-		Handoff: store.WorkRemovalHandoff{
+	// Setup removal through the real agent removal path: the owner's pack is
+	// retired, so the remove mutation's gates admit it.
+	version, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	removal := map[string]any{"operation_id": "remove-retire-owner-0", "idempotency_key": "remove-retire-owner-0-key",
+		"work_id": "retire-owner-0", "expected_version": workVersion(t, s, "retire-owner-0"),
+		"reason": "shelved", "actor": "human-1", "product_id": "product-1",
+		"execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true,
+		"dependencies_resolved": true, "artifacts_verified": true,
+		"handoff": store.WorkRemovalHandoff{
 			Findings: []string{"finding"}, RemainingScope: []string{"scope"}, Blockers: []string{"blocker"},
 			Artifacts: []string{"artifact"}, RenewalConditions: []string{"new approval"},
 		},
-		ExecutionRelinquished: true, WritesReconciled: true, EffectsReconciled: true,
-		DependenciesResolved: true, ArtifactsVerified: true,
 	}
-	// Setup removal through the surviving agent sequence: prepare the
-	// operation and apply the typed work.removed event in one transaction,
-	// exactly as planWorkRemoval's effect does.
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		prepared, err := store.PrepareWorkRemovalTx(context.Background(), tx, req)
-		if err != nil {
-			return err
-		}
-		payload, err := store.MarshalWorkRemovedPayload(req, prepared.HandoffDigest)
-		if err != nil {
-			return err
-		}
-		_, err = store.ApplyOperationTx(context.Background(), tx, store.Operation{
-			Events:           []store.Event{{EventID: "work.removed:" + req.OperationID, Kind: store.WorkRemoved, SubjectType: store.SubjectWorkItem, SubjectID: req.WorkID, Actor: req.Actor, OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: payload}},
-			ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, req.WorkID): req.ExpectedVersion},
-		})
-		return err
-	}); err != nil {
-		t.Fatalf("owner removal refused: %v", err)
+	raw, err := json.Marshal(removal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "remove", Input: raw}, mutationEnvelope(grant, version))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("owner removal refused: %+v", removed.Error)
 	}
 	replay := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:1], false, "removal-replay")
 	if replay.Error == nil || replay.Error.Kind != "unauthorized" || replay.Replayed {

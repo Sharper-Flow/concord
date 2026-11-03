@@ -719,12 +719,8 @@ func workflowStep(definition WorkflowDefinition, id string) *WorkflowStep {
 	return nil
 }
 
-// workflowStepIsDeliveryGate names the CD-0166 delivery-gate step shape: the
-// obligation action plus the two continuity holds, with the evidence-bearing
-// corrective return between them on the four-action shape, so the single
-// forward edge out of the step cannot be crossed without a recorded delivery.
-// Read paths, guards, and folds must agree on this one predicate, and both
-// shapes admit the same parked-gate recovery.
+// Read paths, guards, and folds share CD-0166's delivery-gate shape: the
+// delivery action and two continuity holds. Only delivery crosses its forward edge.
 func workflowStepIsDeliveryGate(step *WorkflowStep) bool {
 	return step != nil && step.Kind == WorkflowStepInternalSQLite && slices.Equal(step.Actions, []string{"record_delivery", "checkpoint_context", "cross_context_boundary"})
 }

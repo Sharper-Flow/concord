@@ -125,21 +125,18 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 						return facts
 					}
 					before := evidence()
-					request := store.WorkRemovalRequest{OperationID: "remove-related", IdempotencyKey: "remove-related-key", WorkID: related[0], ExpectedVersion: 2, Reason: "shelved", Actor: "operator:one", Handoff: store.WorkRemovalHandoff{Findings: []string{"finding"}, RemainingScope: []string{"scope"}, Blockers: []string{"blocker"}, Artifacts: []string{"artifact"}, RenewalConditions: []string{"renewal"}}, ExecutionRelinquished: true, WritesReconciled: true, EffectsReconciled: true, DependenciesResolved: true, ArtifactsVerified: true}
-					err := s.Transact(t.Context(), func(tx *store.Transaction) error {
-						prepared, err := store.PrepareWorkRemovalTx(t.Context(), tx, request)
-						if err != nil {
-							return err
-						}
-						payload, err := store.MarshalWorkRemovedPayload(request, prepared.HandoffDigest)
-						if err != nil {
-							return err
-						}
-						_, err = store.ApplyOperationTx(t.Context(), tx, store.Operation{Events: []store.Event{{EventID: "work.removed:" + request.OperationID, Kind: store.WorkRemoved, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, Actor: request.Actor, OccurredAt: fixedTime(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, request.WorkID): request.ExpectedVersion}})
-						return err
-					})
+					removalScope, _, err := s.ScopeVersion(t.Context(), "project-1")
 					if err != nil {
 						t.Fatal(err)
+					}
+					removal, err := json.Marshal(map[string]any{"operation_id": "remove-related", "idempotency_key": "remove-related-key", "work_id": related[0], "expected_version": workVersion(t, s, related[0]), "reason": "shelved", "actor": "human-1", "product_id": "product-1",
+						"execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true, "dependencies_resolved": true, "artifacts_verified": true,
+						"handoff": store.WorkRemovalHandoff{Findings: []string{"finding"}, RemainingScope: []string{"scope"}, Blockers: []string{"blocker"}, Artifacts: []string{"artifact"}, RenewalConditions: []string{"renewal"}}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if removed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "remove", Input: removal}, mutationEnvelope(grant, removalScope)); removed.Outcome != agentcontract.OutcomeOK {
+						t.Fatalf("related removal refused: %+v", removed.Error)
 					}
 					if after := evidence(); after != before {
 						t.Fatalf("alignment evidence changed: before=%v after=%v", before, after)

@@ -475,7 +475,7 @@ def step_d_read(binary: Path, env: dict, repo: Path, context: dict, manifest_dig
     _assert_envelope_ok(invoke, 'concord_product_view.resolve')
 
 
-def step_e_mutation(binary: Path, env: dict, repo: Path, context: dict, manifest_digest: str) -> str:
+def step_e_mutation(binary: Path, env: dict, repo: Path, context: dict, manifest_digest: str) -> tuple[str, int]:
     """#187 authorized mutation: invoke concord_work_define.capture and capture the identity."""
     invoke = _run(binary, ['invoke'], {
         'call_envelope': {
@@ -514,44 +514,51 @@ def step_e_mutation(binary: Path, env: dict, repo: Path, context: dict, manifest
         raise HarnessError(f"capture changed_ref id is not a work identity: {work_id!r}")
     if work_version < 3:
         raise HarnessError(f"capture changed_ref version={work_version}, want >=3")
-    return work_id
+    return work_id, work_version
 
 
 def step_f_workflow_evidence(binary: Path, env: dict, repo: Path, context: dict, manifest_digest: str, work_id: str, work_version: int) -> None:
-    """#187 workflow execution evidence: invoke concord_work_transition.workflow_action."""
-    invoke = _run(binary, ['invoke'], {
-        'call_envelope': {
-            'schema_version': '1.0',
-            'request_id': 'harness-workflow-1',
-            'client_ref': 'harness-client',
-            'principal_ref': '',
-            'session_ref': 'harness-session-1',
-            'agent_ref': 'harness-agent-1',
-            'directory': str(repo),
-            'worktree': str(repo),
-            'ambient_project_id': context['project_id'],
-            'selected_product_id': 'harness-product',
-            'scope_version': context['scope_version'],
-            'manifest_digest': manifest_digest,
-        },
-        'tool': 'concord_work_transition',
-        'operation': 'workflow_action',
-        'input': {
-            'work_id': work_id,
-            'expected_version': work_version,
-            'action_id': 'record_proposal',
-            'fields': {
-                'problem': 'The harness records a proposal to prove the workflow evidence path fired.',
-                'affected': ['The packaged acceptance harness.'],
-                'stakes': 'Without the document the proposal step records no intent.',
-                'user_outcomes': ['The harness reads a recorded proposal document.'],
+    """#187 workflow execution evidence through the current action surface."""
+    actions = [
+        ('record_intake', {'outcome': 'proceed', 'open_questions_found': False}),
+        ('pick_type', {'type': 'change', 'reason': 'Packaged acceptance journey'}),
+        ('record_plan', {
+            'outcomes': 'Prove the packaged workflow evidence path.',
+            'approach': 'Execute the current workflow actions.',
+            'decisions': [{'id': 'choice-one', 'question': 'Which path?', 'choice': 'CLI actions', 'rationale': 'Exercise the shipped surface.', 'rejected': []}],
+            'touches': ['internal/store/workflow.go'],
+            'merge_split': 'One change.',
+            'risks': 'The packaged workflow may reject the action.',
+        }),
+    ]
+    for index, (action, fields) in enumerate(actions, 1):
+        invoke = _run(binary, ['invoke'], {
+            'call_envelope': {
+                'schema_version': '1.0',
+                'request_id': f'harness-workflow-{index}',
+                'client_ref': 'harness-client',
+                'principal_ref': '',
+                'session_ref': 'harness-session-1',
+                'agent_ref': 'harness-agent-1',
+                'directory': str(repo),
+                'worktree': str(repo),
+                'ambient_project_id': context['project_id'],
+                'selected_product_id': 'harness-product',
+                'scope_version': context['scope_version'],
+                'manifest_digest': manifest_digest,
             },
-            'idempotency_key': 'harness-workflow-action-0001',
-        },
-    }, env)
-    outcome = invoke.get('outcome')
-    if outcome != 'ok':
-        raise HarnessError(f"workflow_action outcome={outcome}; full={json.dumps(invoke)[:300]}")
+            'tool': 'concord_work_transition',
+            'operation': 'workflow_action',
+            'input': {
+                'work_id': work_id,
+                'expected_version': work_version,
+                'action_id': action,
+                'fields': fields,
+                'idempotency_key': f'harness-workflow-action-{index:04d}',
+            },
+        }, env)
+        _assert_envelope_ok(invoke, f'workflow_action.{action}')
+        work_version = _changed_ref_version(invoke, 'work_item', work_id)
 
 
 def step_g_restart_reopen(binary: Path, env: dict, repo: Path, context: dict, manifest_digest: str, work_id: str) -> None:
@@ -1269,6 +1276,7 @@ def main() -> int:
 
         context: dict | None = None
         work_id: str | None = None
+        work_version: int | None = None
 
         def run_a():
             step_a_version(binary, env)
@@ -1292,14 +1300,15 @@ def main() -> int:
             step_d_read(binary, env, repo, context, manifest_digest)
 
         def run_e():
-            nonlocal work_id
+            nonlocal work_id, work_version
             assert context is not None
-            work_id = step_e_mutation(binary, env, repo, context, manifest_digest)
+            work_id, work_version = step_e_mutation(binary, env, repo, context, manifest_digest)
 
         def run_f():
             assert context is not None
             assert work_id is not None
-            step_f_workflow_evidence(binary, env, repo, context, manifest_digest, work_id, 4)
+            assert work_version is not None
+            step_f_workflow_evidence(binary, env, repo, context, manifest_digest, work_id, work_version)
 
         def run_g():
             assert context is not None

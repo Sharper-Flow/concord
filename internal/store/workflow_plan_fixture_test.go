@@ -176,8 +176,8 @@ func moveWorkflowPlanFixtureFrontier(t testing.TB, s *Store, workID, target stri
 	}
 }
 
-// completeWorkflowPlanFixture records synthetic plan attempts; it does not
-// create review, verdict, or evidence receipts for the completion gate.
+// completeWorkflowPlanFixture records synthetic plan attempts and terminal
+// premise and delivery facts; it does not create review, verdict, or evidence receipts.
 func completeWorkflowPlanFixture(t testing.TB, s *Store, workID string) {
 	t.Helper()
 	ctx := context.Background()
@@ -213,6 +213,20 @@ func completeWorkflowPlanFixture(t testing.TB, s *Store, workID string) {
 		}
 		if err := writeWorkflowPlanTx(ctx, tx, workID, *plan); err != nil {
 			t.Fatalf("complete synthetic step %s: %v", step.ID, err)
+		}
+	}
+	plan, err := readWorkflowPlanTx(ctx, tx, workID)
+	if err != nil || plan == nil {
+		t.Fatalf("read completed plan: plan=%v err=%v", plan, err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at)
+		SELECT work_id,contract_version,approved_by,approved_at FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID); err != nil {
+		t.Fatal(err)
+	}
+	if plan.Type != WorkflowStepPlanResearch {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload)
+			SELECT work_id,1,'delivery:fixture:' || work_id,approved_by,approved_at,1,'{"delivery_artifact":"https://example.com/delivery","delivery_state":"asserted"}' FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID); err != nil {
+			t.Fatal(err)
 		}
 	}
 	if err := scope.close(ctx); err != nil {

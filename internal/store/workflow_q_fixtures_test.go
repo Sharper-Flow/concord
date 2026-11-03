@@ -20,14 +20,14 @@ func qCurrentAcceptanceWithDelivery(t *testing.T, workID, artifact string, extra
 
 func qBuildAcceptance(t *testing.T, workID, artifact string, associate bool, extraRequiredKinds ...string) acceptanceRecoveryFixture {
 	t.Helper()
-	return qBuildAcceptancePredicates(t, workID, artifact, associate, extraRequiredKinds)
+	return qBuildAcceptancePredicates(t, workID, artifact, associate, extraRequiredKinds, true)
 }
 
-func qBuildAcceptancePredicates(t *testing.T, workID, artifact string, associate bool, extraRequiredKinds []string, predicates ...map[string]any) acceptanceRecoveryFixture {
+func qBuildAcceptancePredicates(t *testing.T, workID, artifact string, associate bool, extraRequiredKinds []string, confirm bool, predicates ...map[string]any) acceptanceRecoveryFixture {
 	t.Helper()
 	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", append([]string{"verification"}, extraRequiredKinds...), []string{"verification", "review", "artifact"}, predicates...)
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
-	return qAssociateCurrentProof(t, f, artifact, associate)
+	return qAssociateCurrentProofAt(t, f, "review", artifact, associate, confirm && len(extraRequiredKinds) == 0)
 }
 
 // qAssociateCurrentProof keeps the seeded store and contract. The item must
@@ -40,7 +40,7 @@ func qAssociateCurrentProof(t *testing.T, f workContextFixture, artifact string,
 
 // qAssociateCurrentProofAt associates the proof at the family's named
 // verdict step.
-func qAssociateCurrentProofAt(t *testing.T, f workContextFixture, verdictStep, artifact string, associate bool) acceptanceRecoveryFixture {
+func qAssociateCurrentProofAt(t *testing.T, f workContextFixture, verdictStep, artifact string, associate bool, confirm ...bool) acceptanceRecoveryFixture {
 	t.Helper()
 	workID := f.workID
 	repo, _ := reviewSubjectClaim(t, f.store, workID)
@@ -65,8 +65,10 @@ func qAssociateCurrentProofAt(t *testing.T, f workContextFixture, verdictStep, a
 		if err := runVerdictActionAs(t, f.store, workID, "record_verdict", qAssociationPayload(t, fixture), 0, f.owner); err != nil {
 			t.Fatalf("associate captured current proof: %v", err)
 		}
-		if err := runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner); err != nil {
-			t.Fatalf("confirm the fixture premise: %v", err)
+		if len(confirm) == 0 || confirm[0] {
+			if err := runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner); err != nil {
+				t.Fatalf("confirm the fixture premise: %v", err)
+			}
 		}
 	}
 	return fixture

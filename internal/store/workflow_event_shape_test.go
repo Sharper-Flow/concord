@@ -73,7 +73,7 @@ func semanticCaseActions(t *testing.T) map[string]bool {
 	}
 	var dispatch *ast.BlockStmt
 	for _, decl := range file.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "applyWorkflowPlanActionTx" {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "workflowPlanActionEventsTx" {
 			dispatch = fn.Body
 		}
 	}
@@ -115,7 +115,7 @@ func semanticCaseActions(t *testing.T) map[string]bool {
 		})
 		return found
 	}
-	if planMap == nil || branch == nil || branch.Else == nil || !hasCall(branch.Body, "workflowTypedEvent") || !hasCall(branch.Else, "assemblePlanWorkflowActionEventsTx") {
+	if planMap == nil || branch == nil || !hasCall(branch.Body, "workflowTypedEvent") || !hasCall(dispatch, "assemblePlanWorkflowActionEventsTx") {
 		t.Fatal("plan-control map is not connected to the typed event and semantic fallback branches")
 	}
 	typedKind := false

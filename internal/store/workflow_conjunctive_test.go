@@ -20,7 +20,7 @@ var conjunctiveVerdicts = []conjunctiveVerdict{{"predicate:present", "ok", "", f
 func seedConjunctiveCompletion(t *testing.T, verdicts []conjunctiveVerdict) (*Store, Event, error) {
 	t.Helper()
 	const workID = "conjunctive-work"
-	f := qBuildAcceptancePredicates(t, workID, "", false, []string{"review"},
+	f := qBuildAcceptancePredicates(t, workID, "", false, []string{"review"}, false,
 		map[string]any{"predicate_id": "predicate:present", "ordinal": 0, "outcome_kind": "exists", "outcome_payload": map[string]any{"kind": "exists", "surface": "surface:one", "subjects": []string{"subject:one"}}},
 		map[string]any{"predicate_id": "predicate:absent", "ordinal": 1, "outcome_kind": "absent", "outcome_payload": map[string]any{"kind": "absent", "surface": "surface:two", "subjects": []string{"subject:two"}, "distinguish_from": []string{"archived"}}},
 	)
@@ -86,7 +86,7 @@ func TestPinnedConjunctiveContractCompletes(t *testing.T) {
 }
 
 func TestConjunctiveConfirmationRequiresEveryVerdict(t *testing.T) {
-	f := qBuildAcceptancePredicates(t, "conjunctive-missing-verdict", "", false, []string{"review"},
+	f := qBuildAcceptancePredicates(t, "conjunctive-missing-verdict", "", false, []string{"review"}, false,
 		map[string]any{"predicate_id": "predicate:present", "ordinal": 0, "outcome_kind": "exists", "outcome_payload": map[string]any{"kind": "exists", "surface": "surface:one", "subjects": []string{"subject:one"}}},
 		map[string]any{"predicate_id": "predicate:absent", "ordinal": 1, "outcome_kind": "absent", "outcome_payload": map[string]any{"kind": "absent", "surface": "surface:two", "subjects": []string{"subject:two"}, "distinguish_from": []string{"archived"}}},
 	)

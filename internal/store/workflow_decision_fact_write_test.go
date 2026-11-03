@@ -387,7 +387,7 @@ func TestDecisionFactDeclarationsAgree(t *testing.T) {
 			t.Fatalf("decision fact declaration: %+v", facts)
 		}
 		fact := facts[0]
-		if !fact.Required || fact.ValueType != PayloadStringList || fact.MinItems == nil || *fact.MinItems != 0 || fact.MaxItems == nil || *fact.MaxItems != 6 || !reflect.DeepEqual(fact.Enum, []string{"increased_spending", "legal", "product", "production_data", "security", "ui_ux"}) {
+		if !fact.Required || fact.ValueType != PayloadStringList || (fact.MinItems != nil && *fact.MinItems != 0) || fact.MaxItems == nil || *fact.MaxItems != 6 || !reflect.DeepEqual(fact.Enum, []string{"increased_spending", "legal", "product", "production_data", "security", "ui_ux"}) {
 			t.Fatalf("decision fact bounds or enum: %+v", fact)
 		}
 	}

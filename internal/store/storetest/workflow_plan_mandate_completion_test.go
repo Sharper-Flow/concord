@@ -48,6 +48,8 @@ INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session
 INSERT INTO workflow_instances(work_id,instance_state,workflow_type,step_plan) VALUES('work:completion','running','change',?2);
 INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work:completion',1,'test','internal_sqlite','["verification"]','[]','now',?1,'["law:unbound"]','[]',1,'prototype_internal');
 INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work:completion',1,'predicate:test',0,'check','{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}');
+INSERT INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at) VALUES('work:completion',1,?1,'now');
+INSERT INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload) VALUES('work:completion',1,'delivery:completion',?1,'now',1,'{"delivery_artifact":"https://example.com/delivery","delivery_state":"asserted"}');
 DELETE FROM write_guard;`, actorRef, string(planJSON))
 	if err != nil {
 		t.Fatal(err)

@@ -62,7 +62,7 @@ func TestWorkflowPlanConfirmationRequiresDeclaredApprovalEvidence(t *testing.T) 
 
 func TestWorkflowPlanConfirmationRefusesOperatorActor(t *testing.T) {
 	const workID = "plan-confirmation-operator"
-	f := qCurrentAcceptance(t, workID)
+	f := qBuildAcceptancePredicates(t, workID, "", true, nil, false)
 	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
 	request := planAdmissionRequest(workID, "confirm_premise", version, f.operator, json.RawMessage(`{}`))
 	dispatchErr := planAdmissionDispatch(t, f.store, request)
@@ -75,7 +75,7 @@ func TestWorkflowPlanConfirmationRefusesOperatorActor(t *testing.T) {
 
 func TestWorkflowPlanConfirmationRefusesStaleReview(t *testing.T) {
 	const workID = "plan-confirmation-stale-review"
-	f := qCurrentAcceptance(t, workID)
+	f := qBuildAcceptancePredicates(t, workID, "", true, nil, false)
 	successor := pContractSuccessor(t, f.store, workID, "deliver the revised criterion")
 	predicates := successor["outcome_predicates"].([]any)
 	predicate := predicates[0].(map[string]any)

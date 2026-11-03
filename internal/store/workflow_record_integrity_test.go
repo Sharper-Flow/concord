@@ -37,8 +37,8 @@ func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
 	if err := tx.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id='record-integrity'`).Scan(&bindings); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := payload["evidence_count"].(float64); got != float64(bindings) || bindings != 6 {
-		t.Errorf("evidence_count = %v, want the six recorded bindings (got %d)", got, bindings)
+	if got, _ := payload["evidence_count"].(float64); got != float64(bindings) || bindings != 7 {
+		t.Errorf("evidence_count = %v, want the seven recorded bindings (got %d)", got, bindings)
 	}
 	if got, exists := payload["final_verdict_kind"]; exists {
 		t.Errorf("completion invented final_verdict_kind = %v", got)

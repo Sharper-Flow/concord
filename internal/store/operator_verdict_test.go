@@ -56,7 +56,7 @@ func TestConfirmPremiseRequiresEveryPredicateVerdict(t *testing.T) {
 	const workID = "confirm-all-predicates"
 	present := map[string]any{"predicate_id": "predicate:present", "ordinal": 0, "outcome_kind": "exists", "outcome_payload": map[string]any{"kind": "exists", "surface": "surface:one", "subjects": []string{"subject:one"}}}
 	absent := map[string]any{"predicate_id": "predicate:absent", "ordinal": 1, "outcome_kind": "absent", "outcome_payload": map[string]any{"kind": "absent", "surface": "surface:two", "subjects": []string{"subject:two"}, "distinguish_from": []string{"archived"}}}
-	f := qBuildAcceptancePredicates(t, workID, "", false, nil, present, absent)
+	f := qBuildAcceptancePredicates(t, workID, "", false, nil, false, present, absent)
 	s := f.store
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", criterionAssociationPayload(f.receipt, "predicate:present"), 0, f.owner); err != nil {
 		t.Fatalf("associate one criterion: %v", err)

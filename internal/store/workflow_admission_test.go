@@ -93,7 +93,7 @@ func TestAdmissionLoaderFoldsCurrentReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := loadWorkflowAdmissionStateTxForRegistry(t.Context(), tx, j.workID, definition.Definition, "repair", "workflow_admission_test", BuiltinWorkflowRegistry())
+	state, err := loadWorkflowAdmissionStateTx(t.Context(), tx, j.workID, definition.Definition, "repair", "workflow_admission_test")
 	if err != nil {
 		t.Fatal(err)
 	}

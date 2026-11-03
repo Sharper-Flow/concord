@@ -104,7 +104,7 @@ func workflowLawPinRetirementStrandsReview(ctx context.Context, q queryer, regis
 	if moved {
 		return false, nil
 	}
-	state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, q, workID, definition, step, "migrate", registry)
+	state, err := loadWorkflowAdmissionStateTx(ctx, q, workID, definition, step, "migrate")
 	if err != nil {
 		return false, err
 	}

@@ -216,7 +216,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 // defer to their owning guards.
 func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 	request := g.request
-	admission, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
+	admission, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
 	if err != nil {
 		return err
 	}

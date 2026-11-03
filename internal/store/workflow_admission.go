@@ -62,11 +62,9 @@ func workflowFailureOf(err error) *Failure {
 	return newFailure(KindUnavailable, "workflow_action", err.Error(), true, "retry once the projection is readable")
 }
 
-// loadWorkflowAdmissionStateTxForRegistry folds the same admission state with
-// the caller's authoritative registry: correction routes resolve
-// their pins through it. A nil registry
-// selects the builtin registry.
-func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, registry DefinitionRegistry) (WorkflowAdmissionState, error) {
+// loadWorkflowAdmissionStateTx folds the admission state for the work's
+// current step under the given definition.
+func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (WorkflowAdmissionState, error) {
 	state := WorkflowAdmissionState{
 		Step:               currentStep,
 		RefinementWorkflow: workflowRefinementStepID(definition) != "",
@@ -79,7 +77,7 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 	}
 	// Keep corrupt duplicate projections readable without choosing a contract
 	// or authorizing contract-dependent actions. Recovery requires a verified restore.
-	l := workflowAdmissionLoad{ctx: ctx, q: q, workID: workID, definition: definition, currentStep: currentStep, subject: subject, duplicated: state.ActiveContracts > 1, registry: registry}
+	l := workflowAdmissionLoad{ctx: ctx, q: q, workID: workID, definition: definition, currentStep: currentStep, subject: subject, duplicated: state.ActiveContracts > 1}
 	if err := l.staleness(); err != nil {
 		return WorkflowAdmissionState{}, err
 	}
@@ -132,10 +130,6 @@ type workflowAdmissionLoad struct {
 	currentStep string
 	subject     string
 	duplicated  bool
-	// registry is the authoritative resolver the fold's progress-sensitive
-	// derivations verify recorded selection pins through: nil selects the
-	// builtin registry.
-	registry DefinitionRegistry
 }
 
 // staleness refuses admission when the current design cannot be read.

@@ -318,15 +318,21 @@ correcting a record. Completion follows §7 without rechecking those conditions.
 
 ### 4.2 Ordinary retry and record correction
 
-Retry reruns the owning action. To correct an existing record, the authenticated
-coordinator invokes the same ordinary action with its replacement values and
-the current expected work version. That write replaces the action's current
-record in one transaction. It applies the same payload validation, actor and
-authority checks, evidence and subject bindings, applicable approvals and
+Retry reruns the owning action. Current-record replacement applies to
+`record_proposal`, `record_design`, `record_diagnosis`, `record_alignment`,
+`record_delivery`, `record_review`, `record_verdict` and `revise_candidates`.
+To correct an existing record, the authenticated coordinator invokes its ordinary
+owning action with replacement values and the current expected work version.
+That write updates the action's current record in one transaction. It applies
+the same payload validation, actor and authority checks, evidence and subject
+bindings, applicable approvals and
 idempotency protections as an ordinary write. Invalid or stale requests leave
 all current records and the work version unchanged.
 
-Existing records remain editable after their producing step has passed.
+These existing records remain editable after their producing step has passed.
+Research control markers (`frame_research`, `record_finding`, `record_report`,
+and `record_conclusion`), checkpoints and native jobs are not record edits.
+Research finding data uses its ordinary research mutations.
 Ordinary `bind_evidence` also remains available after the workflow reaches or
 passes a step declaring it, under one active contract and the same evidence,
 membership, actor, lifecycle, version and idempotency checks. A satisfied
@@ -337,13 +343,6 @@ it does not repeat the original forward transition. In particular,
 reopening it, rerunning completion or inventing new delivery evidence.
 The completed item's identity and terminal state remain intact. This permits
 record correction, not new execution on completed work.
-
-Production is an explicit typed result: research uses `record_finding`, retained
-architecture-spike definitions use `record_decision`, and other producers use
-`record_delivery`. A start, Review, verdict, evidence binding, checkpoint,
-candidate revision, successor link or step advance is not production. Native
-Task supplies no production authority. Replacing a production record does not
-assert that new external work happened.
 
 The same successful request with the same idempotency identity returns its
 original result without another write. A different replacement request uses a

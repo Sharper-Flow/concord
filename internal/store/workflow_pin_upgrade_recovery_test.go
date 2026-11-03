@@ -359,7 +359,7 @@ func testLawPinUpgradeSafetyAt(t *testing.T, schema int) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				state, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, id, registered.Definition, tc.step, "workflow_action", BuiltinWorkflowRegistry())
+				state, err := loadWorkflowAdmissionStateTx(ctx, tx, id, registered.Definition, tc.step, "workflow_action")
 				_ = tx.Rollback()
 				if err != nil {
 					t.Fatal(err)

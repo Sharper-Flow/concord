@@ -27,7 +27,7 @@ func TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition(t *testing.T)
 			global := admissionModelState{step: "repair", contracts: 1}
 			check := func(label string) WorkflowAdmissionState {
 				t.Helper()
-				loaded := conformanceFold(t, f.store, BuiltinWorkflowRegistry(), f.workID, definition, label)
+				loaded := conformanceFold(t, f.store, f.workID, definition, label)
 				if loaded.Review == nil || !reflect.DeepEqual(*loaded.Review, model) {
 					t.Fatalf("%s: loaded Review %+v differs from declared model %+v", label, loaded.Review, model)
 				}

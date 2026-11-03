@@ -62,9 +62,9 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 	return view
 }
 
-func conformanceCheckpoint(t *testing.T, s *Store, registry DefinitionRegistry, workID string, definition WorkflowDefinition, want admissionModelState, label string) {
+func conformanceCheckpoint(t *testing.T, s *Store, workID string, definition WorkflowDefinition, want admissionModelState, label string) {
 	t.Helper()
-	loaded := conformanceFold(t, s, registry, workID, definition, label)
+	loaded := conformanceFold(t, s, workID, definition, label)
 	lifted := admissionWorkflowState(definition, want)
 	got, model := admissionConformanceViewOf(loaded), admissionConformanceViewOf(lifted)
 	if got != model {
@@ -75,7 +75,7 @@ func conformanceCheckpoint(t *testing.T, s *Store, registry DefinitionRegistry, 
 	}
 }
 
-func conformanceFold(t *testing.T, s *Store, registry DefinitionRegistry, workID string, definition WorkflowDefinition, label string) WorkflowAdmissionState {
+func conformanceFold(t *testing.T, s *Store, workID string, definition WorkflowDefinition, label string) WorkflowAdmissionState {
 	t.Helper()
 	// The fold reads the work's law and registry state; production prepares
 	// that proof before the read transaction opens (PrepareWorkLawProof).
@@ -92,7 +92,7 @@ func conformanceFold(t *testing.T, s *Store, registry DefinitionRegistry, workID
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_admission_conformance_test", registry)
+	loaded, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, step, "workflow_admission_conformance_test")
 	if err != nil {
 		t.Fatalf("%s: load: %v", label, err)
 	}
@@ -107,7 +107,7 @@ func TestAdmissionConformanceQualifiedEditsNeedReview(t *testing.T) {
 	definition := pinnedWorkflowDefinitionForTest(t, f.store, f.workID)
 	for round := 1; round <= 2; round++ {
 		conformanceImplementChange(t, j, "change-"+itoa(round))
-		loaded := conformanceFold(t, f.store, BuiltinWorkflowRegistry(), f.workID, definition, "qualified ordinary edit")
+		loaded := conformanceFold(t, f.store, f.workID, definition, "qualified ordinary edit")
 		if loaded.Step != "repair" || loaded.Review == nil || loaded.Review.Accepted != nil {
 			t.Fatalf("ordinary edit advanced or manufactured Review: %+v", loaded)
 		}

@@ -388,7 +388,7 @@ func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
 			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contract_predicates SET outcome_kind=?,outcome_payload=? WHERE work_id=? AND contract_version=1; DELETE FROM write_guard`, test.kind, test.payload, workID); err != nil {
 				t.Fatal(err)
 			}
-			_, err = loadWorkflowAdmissionStateTxForRegistry(ctx, s.db, workID, entry.Definition, "acceptance", "test", BuiltinWorkflowRegistry())
+			_, err = loadWorkflowAdmissionStateTx(ctx, s.db, workID, entry.Definition, "acceptance", "test")
 			if err != nil {
 				t.Errorf("admission load with a %s predicate = %v", test.name, err)
 			}

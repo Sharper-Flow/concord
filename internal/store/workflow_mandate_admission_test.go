@@ -68,7 +68,7 @@ func TestMandateAdmissionAgreement(t *testing.T) {
 		for _, action := range []string{"record_alignment", "record_delivery", "record_design", "record_proposal"} {
 			model.records |= admissionRecordBit(definition, action)
 		}
-		conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, definition, model, mandate)
+		conformanceCheckpoint(t, s, workID, definition, model, mandate)
 		decision := workflowAdmit(definition, state, "record_verdict")
 		payload := json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:return-route","receipt_refs":["worktree_verify:mandate-unreachable"]}]}`)
 		preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{

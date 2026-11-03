@@ -1899,11 +1899,26 @@ func workflowStepPassBoundary(ctx context.Context, q queryer, definition Workflo
 	for _, action := range advancing {
 		args = append(args, action)
 	}
+	// An exit counts as a step entry only where its recorded step declares
+	// it. An ordinary record replacement admitted after its producing step
+	// holds the step, so it opens no new pass (workflow-engine contract §4.2).
+	declared := []string{}
+	for _, step := range definition.StepGraph.Steps {
+		for _, action := range step.Actions {
+			if slices.Contains(advancing, action) {
+				declared = append(declared, "(step_id=? AND action_id=?)")
+				args = append(args, step.ID, action)
+			}
+		}
+	}
+	if len(declared) == 0 {
+		return startSeq, true, nil
+	}
 	var entrySeq int64
 	// A held local job acceptance records a disposition and holds the step
 	// (CD-0205 D3), so it is no step entry: the pass boundary it would move
 	// past still governs the reads that recover results and corrections.
-	query := `SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND exit_seq>? AND action_id IN (` + placeholders + `)`
+	query := `SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND exit_seq>? AND action_id IN (` + placeholders + `) AND (step_id='' OR ` + strings.Join(declared, " OR ") + `)`
 	if err := q.QueryRowContext(ctx, query, args...).Scan(&entrySeq); err != nil {
 		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's latest entry", true, "retry once the current workflow rows are readable", err)
 	}
@@ -2075,7 +2090,7 @@ func workflowDerivedCheckpointStartTx(ctx context.Context, tx *sql.Tx, definitio
 	}
 	// The step's first qualifying action of the CURRENT pass derives the
 	// start: a fresh entry has no start at all, and a step re-entered
-	// through a declared return edge — a correction route — opened a new
+	// through a declared retry edge opened a new
 	// pass whose advancing entry postdates the previous pass's start, so
 	// its first qualifying action claims the next epoch exactly as the
 	// callable start did. A repeated qualifying action inside one pass

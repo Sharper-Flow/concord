@@ -228,3 +228,25 @@ func TestOrdinaryDeliveryWritesHoldProgress(t *testing.T) {
 		})
 	}
 }
+
+func TestOrdinaryRecordReplacementKeepsDerivedStepPass(t *testing.T) {
+	const work = "ordinary-record-derived-pass"
+	f := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "refine")
+	s := f.store
+	if err := runVerdictActionAs(t, s, work, "checkpoint_refine", json.RawMessage(`{}`), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	start := workflowCurrentStartAtStep(t, s, work, "refine")
+	if err := runVerdictActionAs(t, s, work, "record_diagnosis", diagnosisPayload("The reproduction", "search", "none_found", nil, "The cause"), 0, f.owner); err != nil {
+		t.Fatalf("ordinary diagnosis replacement: %v", err)
+	}
+	if got := currentStep(t, s, work); got != "refine" {
+		t.Fatalf("replacement moved progress to %s", got)
+	}
+	if err := runVerdictActionAs(t, s, work, "checkpoint_refine", json.RawMessage(`{}`), 0, f.owner); err != nil {
+		t.Fatalf("checkpoint after replacement: %v", err)
+	}
+	if after := workflowCurrentStartAtStep(t, s, work, "refine"); after == nil || *after != *start {
+		t.Fatalf("replacement opened a new step pass: %+v -> %+v", start, after)
+	}
+}

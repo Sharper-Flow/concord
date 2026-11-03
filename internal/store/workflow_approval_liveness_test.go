@@ -22,11 +22,11 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 	t.Run("engineering folds no human-question exit beside its real confirm exit", func(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-liveness-engineering"
-		s, registry, definition, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
+		s, _, definition, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
 		// The model lifts engineering to the coordinator confirmation exit;
 		// the real fold must agree on every compared dimension.
-		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(), "engineering at acceptance")
-		state := foldedApprovalAdmission(t, s, registry, definition, workID)
+		conformanceCheckpoint(t, s, workID, definition, rAcceptanceModel(), "engineering at acceptance")
+		state := foldedApprovalAdmission(t, s, definition, workID)
 		decision := workflowAdmit(definition, state, "confirm_premise")
 		if !decision.Admitted {
 			t.Fatalf("engineering confirm_premise is no exit at all: %v", decision.Failure)
@@ -53,11 +53,11 @@ func TestCoordinatorConfirmationLiveness(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-liveness-revision"
 		s, registry, definition, owner := seedApprovalItemAtAcceptance(t, workID, []string{})
-		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(), "before the revision")
+		conformanceCheckpoint(t, s, workID, definition, rAcceptanceModel(), "before the revision")
 		// The revision changes no criterion, so the judged artifact stays
 		// current (CD-0242 D7).
 		rReviseContract(t, s, workID, ownerRefForTest(t, owner), []string{})
-		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(), "successor after the revision")
+		conformanceCheckpoint(t, s, workID, definition, rAcceptanceModel(), "successor after the revision")
 		// The judged artifact stays current through the revision, so the
 		// coordinator confirms the successor with no repeated production
 		// (CD-0242 D7).

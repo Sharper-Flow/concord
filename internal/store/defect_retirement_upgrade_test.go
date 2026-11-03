@@ -30,6 +30,7 @@ func defectRetirementFixture(t *testing.T) (*sql.DB, string) {
 // surviving shape, including the receipt-backed effective delivery.
 func ordinaryRecordsUpgradeExpectations(t *testing.T, db *sql.DB, before map[string][][]any) {
 	t.Helper()
+	before["work_kinds"] = retirementUpgradeRows(t, db, `SELECT kind,CASE WHEN kind='initiative' THEN 0 ELSE stored END,CASE WHEN kind='initiative' THEN 0 ELSE fold_create END,fold_revise,agent_capture FROM work_kinds ORDER BY rowid`)
 	before["workflow_delivery_state"] = retirementUpgradeRows(t, db, `SELECT work_id,CASE WHEN correction_id IS NULL THEN assertion_seq ELSE (SELECT effect_seq FROM effect_receipts WHERE event_id=correction_id AND subject_type='work_item' AND subject_id=work_id AND kind='workflow.delivery_corrected') END,COALESCE(correction_id,assertion_id),CASE WHEN correction_id IS NULL THEN actor ELSE (SELECT actor FROM effect_receipts WHERE event_id=correction_id AND subject_type='work_item' AND subject_id=work_id AND kind='workflow.delivery_corrected') END,COALESCE(correction_occurred_at,occurred_at),CASE WHEN correction_id IS NULL THEN payload_version ELSE (SELECT payload_version FROM effect_receipts WHERE event_id=correction_id AND subject_type='work_item' AND subject_id=work_id AND kind='workflow.delivery_corrected') END,COALESCE(correction_payload,payload) FROM workflow_delivery_state ORDER BY rowid`)
 	columns := retirementUpgradeRows(t, db, `SELECT name FROM pragma_table_info('workflow_predicate_verdicts') WHERE name<>'prior_correction_seq' ORDER BY cid`)
 	var names []string

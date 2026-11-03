@@ -586,22 +586,20 @@ func TestMigrateV22ToV23AddsBoundedInitiativeNarrative(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, db, 23)
 	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != CurrentSchemaVersion() {
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 23 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	var narrative string
 	if err := db.QueryRowContext(ctx, `SELECT narrative FROM work_items WHERE id='pre-existing'`).Scan(&narrative); err != nil || narrative != "" {
 		t.Fatalf("pre-existing narrative=%q err=%v, want empty default", narrative, err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 			t.Errorf("remove write guard: %v", err)
 		}
 	}()

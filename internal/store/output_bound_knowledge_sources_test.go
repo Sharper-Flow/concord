@@ -15,10 +15,7 @@ package store
 // and sumBound only for values assembled from parts. Rows registered as
 // "unbounded, byte-ceiling only" name the producer that accumulates without a
 // finite guard and the typed refusal that owns the envelope ceiling; their
-// schema maxima are redundant caps the parent removes. Rows of kind "unproved"
-// are deliberate failures: the real derivation is named, and no safe source
-// expresses it yet, so the row must stay RED rather than claim an invented
-// bound.
+// schema maxima are redundant caps the parent removes.
 
 func init() {
 	// ------------------------------------------------------------------

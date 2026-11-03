@@ -19,9 +19,8 @@ package store
 //     may cover repeated oneOf alternatives), must not be stale, and no
 //     bound may be claimed twice;
 //   - finite rows must evaluate a real source (input schema node, schema
-//     node, Go guard call argument, or Go constant) and that source's capacity,
-//     converted across count units, must
-//     admit the consumer bound;
+//     node, Go guard call argument, or Go constant) and that source's
+//     capacity, converted across count units, must admit the consumer bound;
 //   - every parent node a wildcard pattern covers must retain the bound
 //     keyword: a finite row fails when one arm's cap is removed even while
 //     another arm stays capped, and an unbounded alternative still fails
@@ -55,9 +54,9 @@ package store
 // character and byte guards contributes their intersection; a bare Go
 // constant carries no guard implementation to infer from, so
 // goConstantBound trusts its declared unit and lets the producer/consumer
-// comparison catch misuse; the census
-// reads the published contract documents from the working tree, whose sync
-// with the generated Go schema is owned by the generator's own checks.
+// comparison catch misuse; the census reads the published contract documents
+// from the working tree, whose sync with the generated Go schema is owned by
+// the generator's own checks.
 
 import (
 	"encoding/json"
@@ -156,7 +155,7 @@ func ledgerClassRefusalPath(class string) string {
 // bound comes from. Family files build sources only through the constructors
 // below; every field is unexported on purpose.
 type outputBoundSource struct {
-	kind         string // input, schema, go_call, go_const, max, sum, unbounded
+	kind         string // input, schema, go_call, go_const, max, sum, unbounded, derived
 	file         string // schema document (repo-relative)
 	pointer      string // JSON pointer to a bound keyword
 	goFile       string
@@ -2512,7 +2511,6 @@ func TestLedgerUnitConversion(t *testing.T) {
 	if _, err := combineComposite("max", []evaluatedBound{goBytes, schemaBytes}); err != nil {
 		t.Fatalf("alternative agreeing guards must compose: %v", err)
 	}
-
 }
 
 // TestLedgerRefusalPathCheck covers the typed refusal path verification

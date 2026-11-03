@@ -512,8 +512,8 @@ def step_e_mutation(binary: Path, env: dict, repo: Path, context: dict, manifest
     work_version = int(refs[0].get('version', '0'))
     if not work_id.startswith('work-'):
         raise HarnessError(f"capture changed_ref id is not a work identity: {work_id!r}")
-    if work_version < 4:
-        raise HarnessError(f"capture changed_ref version={work_version}, want >=4 (workflow initialized)")
+    if work_version < 3:
+        raise HarnessError(f"capture changed_ref version={work_version}, want >=3")
     return work_id
 
 

@@ -53,8 +53,8 @@ Improve codebase architecture adapts
 [improve-codebase-architecture](https://github.com/mattpocock/skills/blob/a496f5513d4a4cf889bc48e189e579f4b0bdf6aa/skills/engineering/improve-codebase-architecture/SKILL.md)
 and keeps its upstream MIT notice in `concord-improve-codebase-architecture/LICENSE`.
 
-Architecture writing adapts the glossary and ADR formats, the to-spec plan
-additions, and the wayfinder decision-map idea from
+Architecture writing adapts the glossary format, the ADR selection test, the
+to-spec plan additions, and the wayfinder decision-map idea from
 [mattpocock/skills](https://github.com/mattpocock/skills/commit/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d)
 and keeps its upstream MIT notice in `concord-architecture-writing/LICENSE`.
 

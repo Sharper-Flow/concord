@@ -24,9 +24,6 @@ adopting Product's behavior. Read that Product's own accepted law for its rules.
   the authority relationship this skill operates, including the final-review
   routing of lasting plan outputs.
 
-The model's sourced research record is
-`.concord/docs/research/architecture-docs-model.md`.
-
 ## Separate current reference from plans
 
 Architecture reference explains the delivered system. An obligation or
@@ -38,9 +35,9 @@ law-change route, or is removed.
 
 Current reference excludes delivery plans, rollout sequences, backlogs,
 exhaustive inventories, and research. A target design stays in its plan;
-reference describes what is delivered, marks an unknown as unknown, and reports
-a law or implementation mismatch explicitly rather than describing the desired
-state as current.
+reference describes what is delivered, marks an unknown as unknown, and
+reports a law or implementation mismatch for resolution through the
+law-change route rather than describing the desired state as current.
 
 Establish the Product's Domains with `concord_domain.list` before writing.
 Missing docs or a missing registry never authorize invented Domain identity,
@@ -113,11 +110,13 @@ Where law defines a term, link that definition instead of redefining it.
 Use a soft authoring target of 800 words for the overview and 1,200 words for
 a Domain or concept reference. These are editorial starting points, not model
 limits, code-size limits, or acceptance gates; word counts cover the document's
-prose and tables, not linked documents. A reader starts with the overview, then
-reads only the relevant reference and governing law. Links do not excuse
-omission of a necessary boundary or risk. Over target, remove duplicated facts
-first; split at a distinct reader question only when that improves retrieval.
-No numeric budget may waive proof or law.
+prose and tables, not linked documents. There is no whole-Product word ceiling
+or mandatory token-count tool. A reader starts with the overview, then reads
+only the relevant reference and governing law. Links do not excuse omission of
+a necessary boundary or risk. Over target, remove duplicated facts first;
+split at a distinct reader question only when that improves retrieval;
+otherwise retain the longer file and explain its useful scope in its
+introduction. No numeric budget may waive proof or law.
 
 ### Freshness and bootstrap
 
@@ -150,7 +149,7 @@ column lists only what an architectural change adds:
 | Decisions | Trade-offs of each choice; destination for a lasting decision, or why none is needed. |
 | Touches | Domains by registry ID and the architecture reference affected; useful code locators and owners, not an exhaustive file inventory. |
 | Merge split | Delivery order and the dependencies between slices. |
-| Risks | Recovery where relevant, and test seams: prefer the highest existing seam that proves the outcome. |
+| Risks | Recovery where relevant, and test seams: prefer the highest existing seam that proves the outcome; name any lower-level check that adds distinct proof. |
 
 Linear owns the problem, scope, planning choices, and sequence; the admitted
 Concord record holds the bounded execution design. Link these owners; do not
@@ -194,6 +193,5 @@ supplies reserved approvals.
 ## Verify
 
 No new validator enforces this model; final review and existing link checks
-own conformance, and review compares changed claims against code and law.
-Over-budget prose, a missing document, or an unlinked registry entry is a
-repair note, not a refused delivery.
+own conformance. Over-budget prose or a Domain without its own reference file
+is not a defect; a missing required routing destination is.

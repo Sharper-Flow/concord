@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -356,11 +355,7 @@ func TestResolveProjectMatchesLocalLinkedWorktreeToMainCanonicalPath(t *testing.
 	}
 	mainRoot := t.TempDir()
 	run := func(dir string, args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.invalid", "GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.invalid")
-		if output, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, output)
-		}
+		runLocatorFixtureGit(t, dir, args...)
 	}
 	run(mainRoot, "init", "-q", "-b", "main")
 	if err := os.WriteFile(filepath.Join(mainRoot, "README.md"), []byte("local\n"), 0o644); err != nil {
@@ -380,6 +375,18 @@ func TestResolveProjectMatchesLocalLinkedWorktreeToMainCanonicalPath(t *testing.
 	}
 	if resolved.ProjectID != "project-local" || resolved.Repository.CanonicalPath != mainRoot || resolved.Repository.WorktreePath != linked || resolved.MainWorktree || resolved.Repository.GitRemote != "" {
 		t.Fatalf("linked local resolution=%+v", resolved)
+	}
+}
+
+func runLocatorFixtureGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd, err := newTestGitCommand(dir, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Env = append(cmd.Env, "GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.invalid", "GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.invalid")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}
 }
 

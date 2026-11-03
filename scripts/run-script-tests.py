@@ -269,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        child_environment = git_environment.sanitized_environment()
+        child_environment = git_environment.sanitized_environment(fixture=True)
     except git_environment.GitEnvironmentError as error:
         print(f"run-script-tests: {error}", file=sys.stderr)
         print("run-script-tests: refusing to spawn suites with an unknown Git environment", file=sys.stderr)

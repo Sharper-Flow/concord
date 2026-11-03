@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -34,43 +35,7 @@ func TestGitFixtureIsolationFromHookEnvironment(t *testing.T) {
 	writeKnowledgeFile(t, outer, "README.md", "outer repository\n")
 	commitKnowledgeRepo(t, outer, "outer seed")
 	runTestGit(t, outer, "remote", "add", "origin", filepath.Join(t.TempDir(), "unused-origin.git"))
-	snapshot := func() map[string]string {
-		t.Helper()
-		state := map[string]string{}
-		err := filepath.WalkDir(outer, func(path string, entry fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			info, err := entry.Info()
-			if err != nil {
-				return err
-			}
-			relative, err := filepath.Rel(outer, path)
-			if err != nil {
-				return err
-			}
-			state[relative] = info.Mode().String()
-			if info.Mode()&os.ModeSymlink != 0 {
-				target, err := os.Readlink(path)
-				if err != nil {
-					return err
-				}
-				state[relative] += ":" + target
-			} else if info.Mode().IsRegular() {
-				data, err := os.ReadFile(path)
-				if err != nil {
-					return err
-				}
-				state[relative] += fmt.Sprintf(":%x", sha256.Sum256(data))
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return state
-	}
-	before := snapshot()
+	before := snapshotGitFixtureTree(t, outer)
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestGitFixtureIsolationFromHookEnvironment$")
@@ -84,12 +49,49 @@ func TestGitFixtureIsolationFromHookEnvironment(t *testing.T) {
 		"GIT_INDEX_FILE="+filepath.Join(outer, ".git/index"),
 		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.worktree", "GIT_CONFIG_VALUE_0="+outer)
 	output, err := child.CombinedOutput()
-	if after := snapshot(); !reflect.DeepEqual(before, after) {
+	if after := snapshotGitFixtureTree(t, outer); !reflect.DeepEqual(before, after) {
 		t.Fatalf("fixture child changed the outer repository tree: %v\n%s", err, output)
 	}
 	if err != nil {
 		t.Fatalf("isolated fixture child: %v\n%s", err, output)
 	}
+}
+
+func snapshotGitFixtureTree(t *testing.T, outer string) map[string]string {
+	t.Helper()
+	state := map[string]string{}
+	err := filepath.WalkDir(outer, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(outer, path)
+		if err != nil {
+			return err
+		}
+		state[relative] = info.Mode().String()
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			state[relative] += ":" + target
+		} else if info.Mode().IsRegular() {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			state[relative] += fmt.Sprintf(":%x", sha256.Sum256(data))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state
 }
 
 func TestTestGitCommandRefusesImplicitWorkingDirectory(t *testing.T) {
@@ -106,5 +108,51 @@ func TestTestGitCommandRefusesImplicitWorkingDirectory(t *testing.T) {
 	}
 	if command.Dir != repo || !reflect.DeepEqual(command.Args[1:], []string{"status", "--porcelain"}) {
 		t.Fatalf("command must chdir explicitly: dir=%q args=%q", command.Dir, command.Args)
+	}
+}
+
+func TestFixtureHelpersRefuseInvalidDirectories(t *testing.T) {
+	if helper := os.Getenv("TEST_FIXTURE_HELPER"); helper != "" {
+		dir := os.Getenv("TEST_FIXTURE_DIR")
+		switch helper {
+		case "locator":
+			runLocatorFixtureGit(t, dir, "remote", "remove", "origin")
+		case "blob":
+			runBlobFixtureGit(t, dir, "remote", "remove", "origin")
+		default:
+			t.Fatalf("unknown helper %q", helper)
+		}
+		return
+	}
+	for _, helper := range []string{"locator", "blob"} {
+		for _, dir := range []string{"", ".", "..", "sub"} {
+			t.Run(fmt.Sprintf("%s/%q", helper, dir), func(t *testing.T) {
+				outer := initKnowledgeRepo(t)
+				writeKnowledgeFile(t, outer, "README.md", "outer repository\n")
+				commitKnowledgeRepo(t, outer, "outer seed")
+				runTestGit(t, outer, "remote", "add", "origin", filepath.Join(t.TempDir(), "origin.git"))
+				sub := filepath.Join(outer, "sub")
+				if err := os.Mkdir(sub, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				before := snapshotGitFixtureTree(t, outer)
+				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+				defer cancel()
+				child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestFixtureHelpersRefuseInvalidDirectories$")
+				child.WaitDelay = time.Second
+				child.Dir = outer
+				if dir == ".." {
+					child.Dir = sub
+				}
+				child.Env = append(os.Environ(), "TEST_FIXTURE_HELPER="+helper, "TEST_FIXTURE_DIR="+dir)
+				output, err := child.CombinedOutput()
+				if after := snapshotGitFixtureTree(t, outer); !reflect.DeepEqual(before, after) {
+					t.Errorf("invalid fixture path changed outer repository: %v\n%s", err, output)
+				}
+				if err == nil || !strings.Contains(string(output), "test git requires an absolute fixture directory") {
+					t.Errorf("invalid fixture path was not refused by guard: %v\n%s", err, output)
+				}
+			})
+		}
 	}
 }

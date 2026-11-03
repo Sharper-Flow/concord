@@ -177,7 +177,7 @@ class ProducerTests(unittest.TestCase):
             fixture = root / "fixture"
             fixture.write_text("".join(json.dumps(e) + "\n" for e in events))
             output = root / "artifacts"
-            env = dict(git_environment.sanitized_environment(), PATH=str(root) + os.pathsep + os.environ["PATH"],
+            env = dict(git_environment.sanitized_environment(fixture=True), PATH=str(root) + os.pathsep + os.environ["PATH"],
                 CALLS=str(root / "calls"), FIXTURE=str(fixture), CHILD_EXIT=str(rc),
                 SECRET_TEST_SENTINEL="do-not-record", GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="2")
             env.update(inputs or {})

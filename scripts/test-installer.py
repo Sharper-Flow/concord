@@ -33,7 +33,7 @@ import git_environment
 # `shutil.which` resolution with an environment copied from this process, so
 # a hook that launched it must not keep a redirecting Git namespace in place.
 # The scrub runs before the in-process installer helper loads.
-git_environment.scrub_inherited()
+git_environment.scrub_inherited(fixture=True)
 
 import install as installer
 

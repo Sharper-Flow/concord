@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,12 +17,7 @@ func TestCommittedLawBlobReadStaysBounded(t *testing.T) {
 	repo := t.TempDir()
 	run := func(args ...string) string {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...) //nolint:gosec // test-only git argv, fixed binary
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
-		return string(out)
+		return runBlobFixtureGit(t, repo, args...)
 	}
 	run("init", "--initial-branch=main")
 	run("config", "user.email", "t@e.invalid")
@@ -45,4 +39,17 @@ func TestCommittedLawBlobReadStaysBounded(t *testing.T) {
 	if !strings.Contains(err.Error(), "output exceeds") || !strings.Contains(err.Error(), "cannot read the committed blob") {
 		t.Fatalf("committed law read error = %v, want the runGit output-cap refusal naming the drained read", err)
 	}
+}
+
+func runBlobFixtureGit(t *testing.T, repo string, args ...string) string {
+	t.Helper()
+	cmd, err := newTestGitCommand(repo, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+	return string(out)
 }

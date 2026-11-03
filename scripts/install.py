@@ -590,6 +590,76 @@ def admission_lock(paths: Paths):
 # from turning the lock into a wait; the operator re-runs the command (CON-807).
 MAINTENANCE_ACQUIRE_ATTEMPTS = 3
 
+# Every level the bootstrap creates is private to the operator (CON-868): the
+# Go acquisition creates missing levels with MkdirAll(dataRoot, 0o700)
+# (internal/hostlease.AcquireMaintenance), and the two bootstraps must leave
+# the same permissions behind whatever the umask is.
+MAINTENANCE_ROOT_MODE = 0o700
+
+
+def _refuse_maintenance_root(path: Path, error: OSError) -> None:
+    """Turn a failed data-root creation into a typed refusal.
+
+    The path is read with lstat only, so naming the reason never follows a
+    planted symlink. A path that is a symlink refuses as one (Linux mkdir
+    does not follow a trailing symlink, so a dangling or looping target
+    fails the creation with EEXIST; a symlink whose target exists never
+    reaches the creation and is refused by the open's ENOTDIR branch
+    instead); a path that is not a directory refuses as that; anything
+    else keeps the underlying reason and, when one was named, the level
+    whose creation failed.
+    """
+    try:
+        current = os.lstat(path)
+    except OSError:
+        current = None
+    if current is not None:
+        if stat.S_ISLNK(current.st_mode):
+            raise InstallerError(f"refusing symlinked data root {path}") from error
+        if not stat.S_ISDIR(current.st_mode):
+            raise InstallerError(f"refusing data root {path}: it is not a directory") from error
+    reason = error.strerror or str(error)
+    if error.filename:
+        reason = f"{reason}: {error.filename}"
+    raise InstallerError(f"cannot create the data root {path}: {reason}") from error
+
+
+def _create_maintenance_root(path: Path) -> None:
+    """Create the data root and its missing ancestors, each 0o700.
+
+    The Go acquisition creates every missing level with
+    MkdirAll(dataRoot, 0o700) (internal/hostlease.AcquireMaintenance); this
+    creation does the same one level at a time, so no umask can make the two
+    bootstraps disagree about what a first install leaves behind. A plain
+    mkdir is the whole durability story: the created root is retained
+    (obs:1ca149d633e69626), and a crash before it is durable only means the
+    next command recreates an empty root, so no fsync follows — the same as
+    the Go side. A level another participant created while this bootstrap
+    walked to it is kept, not re-created. The creation refuses what it
+    touches: a path whose ancestor is not a directory, and a data root that
+    is a dangling or looping symlink, whose creation fails EEXIST because a
+    trailing symlink is not followed. A data root that already exists as a
+    non-directory never reaches the creation — the open in
+    _acquire_maintenance_lock refuses it typed.
+    """
+    missing: list[Path] = []
+    current = path
+    while not current.exists():
+        missing.append(current)
+        current = current.parent
+    try:
+        for level in reversed(missing):
+            try:
+                os.mkdir(level, MAINTENANCE_ROOT_MODE)
+            except FileExistsError:
+                # Another participant created the level while this bootstrap
+                # walked to it; keep it, and let anything but a directory
+                # fail typed below.
+                if not level.is_dir():
+                    raise
+    except OSError as error:
+        _refuse_maintenance_root(path, error)
+
 
 def _acquire_maintenance_lock(path: Path) -> int:
     """Open and flock the data root directory, without waiting (CON-807).
@@ -597,7 +667,13 @@ def _acquire_maintenance_lock(path: Path) -> int:
     A first-install bootstrap locks the same way an established root does:
     the root is created before it is opened, so an absent root is never an
     unlocked window another command could recover a live transaction through.
-    The creation is a plain mkdir of the missing levels; what it created is
+    The creation is a plain mkdir of the missing levels at 0o700
+    (_create_maintenance_root), and an invalid path is refused typed before
+    the lock is taken: a path the creation touches (a non-directory
+    ancestor, or a dangling or looping symlink) by the creation itself, and
+    a path that already exists as a non-directory — a regular file, or a
+    symlink whose target exists — by the open below, whose branch stays
+    reachable for exactly those cases. What the creation made is
     retained at release (obs:1ca149d633e69626), so no creation-attribution
     machinery follows it — attribution existed only to authorize deletion,
     and no path-based deletion is safe against a replacement holder.
@@ -614,13 +690,21 @@ def _acquire_maintenance_lock(path: Path) -> int:
     """
     for attempt in range(1, MAINTENANCE_ACQUIRE_ATTEMPTS + 1):
         last = attempt == MAINTENANCE_ACQUIRE_ATTEMPTS
-        os.makedirs(path, exist_ok=True)
+        _create_maintenance_root(path)
         try:
             descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         except OSError as error:
             if error.errno in (errno.ELOOP, errno.ENOTDIR):
                 # The open itself refused, without following the path; the
-                # lstat only names the reason for the operator.
+                # lstat only names the reason for the operator. This is the
+                # reachable refusal for a data root that already exists as
+                # a non-directory: a regular file, or a symlink whose
+                # target exists — O_DIRECTORY refuses a trailing symlink
+                # with ENOTDIR before O_NOFOLLOW's ELOOP applies — and the
+                # is_symlink lstat names which. A dangling or looping
+                # symlink never reaches this open; the creation refuses it.
+                # ELOOP comes only from an ancestor that became a symlink
+                # loop after the creation.
                 if path.is_symlink():
                     raise InstallerError(f"refusing symlinked data root {path}") from error
                 raise InstallerError(f"refusing data root {path}: it is not a directory") from error

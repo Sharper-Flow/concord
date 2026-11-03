@@ -239,7 +239,7 @@ class TierRoutingTest(unittest.TestCase):
         ])
         self.assertTrue(all(call["cwd"] == result.repo_root for call in result.calls))
         self.assertIn("START smoke", result.stdout)
-        self.assertIn("WAIT admission: smoke", result.stdout)
+        self.assertIn("WAIT admission: smoke (smoke admission lane)", result.stdout)
         self.assertIn("PASS smoke", result.stdout)
 
     def test_smoke_go_step_is_the_ci_step_for_unsharded_packages(self):
@@ -317,7 +317,7 @@ class TierRoutingTest(unittest.TestCase):
         self.assertEqual(result.calls[0]["cwd"], result.repo_root)
         self.assertEqual(result.calls[0]["selected_product"], "poison-product")
         self.assertIn("PASS broad", result.stdout)
-        self.assertIn("WAIT admission", result.stdout)
+        self.assertIn("WAIT admission: broad (heavy admission lane)", result.stdout)
 
     def test_targeted_preserves_failure(self):
         result = self.run_wrapper("targeted", "--", "python3", "scripts/test-probe.py", failure="python3")
@@ -346,6 +346,9 @@ class TierRoutingTest(unittest.TestCase):
                 self.assertEqual(result.gate_class, "targeted")
                 self.assertEqual(len(result.calls), 1)
                 self.assertIn("named test execution not verified", result.stdout)
+                # Targeted admission passes through unqueued: it waits for no
+                # lane, so it never prints a WAIT-admission line.
+                self.assertNotIn("WAIT admission", result.stdout)
 
     def test_targeted_literal_fragments_preserve_argv_and_status(self):
         for pattern in ("Overlap", "Overlap|Sequenc", "TestOne"):
@@ -603,7 +606,7 @@ class TierRoutingTest(unittest.TestCase):
         self.assertEqual(result.calls[0]["cwd"], result.repo_root)
         self.assertEqual(result.calls[0]["selected_product"], "poison-product")
         self.assertIn("START preflight-gate", result.stdout)
-        self.assertIn("WAIT admission: preflight-gate", result.stdout)
+        self.assertIn("WAIT admission: preflight-gate (smoke admission lane)", result.stdout)
         self.assertIn("PASS preflight-gate", result.stdout)
 
     def test_preflight_gate_failure_propagates(self):
@@ -621,6 +624,8 @@ class TierRoutingTest(unittest.TestCase):
         self.assertEqual([call["command"] for call in result.calls], ["probe"])
         self.assertIn("oc-test-gate not found", result.stderr)
         self.assertIn("not admission-controlled", result.stderr)
+        # Nothing was admitted, so the run waits for no lane.
+        self.assertNotIn("WAIT admission", result.stdout)
 
     def test_preflight_gate_without_gate_still_blocks_the_push_on_failure(self):
         result = self.run_wrapper("preflight-gate", "--", "probe", with_gate=False,
@@ -653,7 +658,7 @@ class StoreShardTierTest(unittest.TestCase):
         ])
         self.assertTrue(all(call["cwd"] == result.repo_root for call in result.calls))
         self.assertIn("START store-shard", result.stdout)
-        self.assertIn("WAIT admission: store-shard", result.stdout)
+        self.assertIn("WAIT admission: store-shard (heavy admission lane)", result.stdout)
         self.assertIn("PASS store-shard", result.stdout)
 
     def test_store_shard_selects_ci_shard_for_each_index(self):

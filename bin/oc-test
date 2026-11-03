@@ -145,9 +145,17 @@ run_tier() {
 
   limit_file_size
   printf 'START %s\n' "$tier"
+  # The admission class names the lane this run waits for; the host gate
+  # calls the full class's lane the heavy lane. Targeted passes through
+  # unqueued and `none` never enters the gate, so neither has a lane.
+  local lane=''
+  case "$admission_class" in
+    smoke) lane='smoke admission lane' ;;
+    full) lane='heavy admission lane' ;;
+  esac
   local rc=0
-  if [[ ${#gate[@]} -gt 0 && "$admission_class" != targeted ]]; then
-    printf 'WAIT admission: %s (shared heavy-test slot)\n' "$tier"
+  if [[ ${#gate[@]} -gt 0 && -n "$lane" ]]; then
+    printf 'WAIT admission: %s (%s)\n' "$tier" "$lane"
   fi
   set +e
   if [[ ${#gate[@]} -gt 0 ]]; then

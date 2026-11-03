@@ -58,7 +58,7 @@ exists ([CD-0242](../decisions/CD-0242-knowledge-first-workflows-keep-current-st
 CD-0042 makes the generated current manifest the only pre-go-live surface
 identity. This contract does not authorize partial Domain writes or any planning write.
 
-Operator decisions follow CD-0243 D2 in conversation: an agent asks the operator only when one of its six approval classes applies. A governing-requirement scope cut remains a product decision. Authority-expanding Product or client-policy changes grant access and require security approval. Explicit cross-Product mutations require `cross_scope`, otherwise `unauthorized`. All surviving authentication, capability, version, authorization, evidence, native proof, research-retention, atomicity, and durable-operation checks remain required.
+Operator decisions follow CD-0243 D2 in conversation: an agent asks the operator only when one of its six approval classes applies. A governing-requirement scope cut remains a product decision. Authority-expanding Product or client-policy changes grant access and require security approval. Explicit cross-Product mutations require `cross_scope`, otherwise `unauthorized`. All surviving authentication, capability, version, authorization, evidence, `native_run` evidence, research-retention, atomicity, and durable-operation checks remain required.
 
 
 The binding contract is sections 1 through 4: the three-tool decision with the

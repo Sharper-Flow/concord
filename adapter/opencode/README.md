@@ -232,7 +232,10 @@ test admission and an explicit caller budget, or diagnoses completed CI runs.
 It reports commands, exit codes and failure evidence, linking known-flake records
 only when they match. It denies editing, workflow writes and CI watch; the caller
 owns waits, evidence binding and delivery. It shares the reviewer's host safety
-and no-bypass boundaries. Test output alone is not captured verification proof.
+and no-bypass boundaries. Test output alone is not a bound verification report.
+The caller binds an attributed verification report for the recorded commit under
+[CD-0242 D8](../../.concord/law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d8-evidence-is-captured-by-its-producer-and-bound-to-its-subject);
+the report is a claim, not attestation that a test ran.
 
 The native `concord-implement` helper accepts assigned paths or a subsystem,
 an outcome and a named check. It returns needs-decision for missing inputs or

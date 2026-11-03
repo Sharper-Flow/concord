@@ -18,9 +18,9 @@ func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T
 			version := seedAgentWorkflow(t, s, grant)
 			// Model the historical kind in the temporary projection. Capture of
 			// a new initiative is independently refused at the append boundary.
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+			if _, err := s.DatabaseForTesting().Exec(`DROP TRIGGER work_items_kind_registry_update; INSERT INTO write_guard(active) VALUES(1);
 				UPDATE work_items SET kind='initiative' WHERE id='work-1';
-				DELETE FROM write_guard`); err != nil {
+				DELETE FROM write_guard; CREATE TRIGGER work_items_kind_registry_update BEFORE UPDATE OF kind ON work_items FOR EACH ROW WHEN NOT EXISTS (SELECT 1 FROM work_kinds WHERE kind=NEW.kind AND stored=1) BEGIN SELECT RAISE(ABORT, 'work_items kind is not a stored work kind'); END`); err != nil {
 				t.Fatal(err)
 			}
 			before := countWorkflowEvents(t, s)
@@ -53,9 +53,9 @@ func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T
 func TestWorkflowActionPreflightRefusesRetiredInitiative(t *testing.T) {
 	s, _, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`DROP TRIGGER work_items_kind_registry_update; INSERT INTO write_guard(active) VALUES(1);
 		UPDATE work_items SET kind='initiative' WHERE id='work-1';
-		DELETE FROM write_guard`); err != nil {
+		DELETE FROM write_guard; CREATE TRIGGER work_items_kind_registry_update BEFORE UPDATE OF kind ON work_items FOR EACH ROW WHEN NOT EXISTS (SELECT 1 FROM work_kinds WHERE kind=NEW.kind AND stored=1) BEGIN SELECT RAISE(ABORT, 'work_items kind is not a stored work kind'); END`); err != nil {
 		t.Fatal(err)
 	}
 	before := countWorkflowEvents(t, s)

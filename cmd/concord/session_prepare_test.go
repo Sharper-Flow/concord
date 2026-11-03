@@ -60,7 +60,7 @@ func TestSessionPrepareRefusesWrongDirectoryBeforeIdentity(t *testing.T) {
 
 func modelCLIHistoricalInitiative(t *testing.T, s *store.Store, workID string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET kind='initiative' WHERE id=?; DELETE FROM write_guard`, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DROP TRIGGER work_items_kind_registry_update; INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET kind='initiative' WHERE id=?; DELETE FROM write_guard; CREATE TRIGGER work_items_kind_registry_update BEFORE UPDATE OF kind ON work_items FOR EACH ROW WHEN NOT EXISTS (SELECT 1 FROM work_kinds WHERE kind=NEW.kind AND stored=1) BEGIN SELECT RAISE(ABORT, 'work_items kind is not a stored work kind'); END`, workID); err != nil {
 		t.Fatal(err)
 	}
 }

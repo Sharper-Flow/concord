@@ -366,6 +366,9 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := deleteWorkOwnedProjections(ctx, tx, event.SubjectID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM durable_operations WHERE work_id=?`, event.SubjectID); err != nil {
+		return projectionDeleteFailure("durable_operations", err)
+	}
 	result, err := tx.ExecContext(ctx, `UPDATE work_removal_operations SET state='committed',event_id=?,updated_at=? WHERE operation_id=? AND work_id=?`, event.EventID, event.OccurredAt.UTC().Format(time.RFC3339Nano), payload.OperationID, event.SubjectID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot close removal receipt", true, "retry once the database is writable", err)
@@ -380,7 +383,7 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 	return nil
 }
 
-func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) error {
+func deleteWorkOwnedProjections(ctx context.Context, tx migrationRunner, workID string) error {
 	// This order follows the FK graph. The table names are closed source-owned
 	// identifiers, not caller input. Shared Product, Project, actor, and law
 	// rows have no work-item ownership predicate and remain untouched.
@@ -399,25 +402,13 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 			return err
 		}
 	}
-	for _, statement := range []struct {
-		table string
-		query string
-	}{
-		{"durable_operations", `DELETE FROM durable_operations WHERE work_id=?`},
-	} {
-		var err error
-		_, err = tx.ExecContext(ctx, statement.query, workID)
-		if err != nil {
-			return projectionDeleteFailure(statement.table, err)
-		}
-	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM work_items WHERE id=?`, workID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot remove the work item", false, "reconcile remaining foreign-key owners", err)
 	}
 	return nil
 }
 
-func deleteWorkProjectionTx(ctx context.Context, tx *sql.Tx, table, workID string) error {
+func deleteWorkProjectionTx(ctx context.Context, tx migrationRunner, table, workID string) error {
 	_, deleteErr := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID) //nolint:gosec // table comes only from the closed FK-order projection list in deleteWorkOwnedProjections and the work ID stays parameter-bound.
 	if deleteErr == nil {
 		return nil

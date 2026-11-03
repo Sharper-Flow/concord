@@ -6,8 +6,7 @@ import (
 	"errors"
 )
 
-// CD-0213 D8 keeps Initiative records and edges readable but gives them no
-// execution behavior: neither selectable work nor operative blockers.
+// Retired Initiative work is never selectable or an operative blocker.
 // Queries qualify this constant predicate with their fixed table alias.
 const retiredInitiativeWorkKind = "initiative"
 const actionableWorkKindSQL = "kind <> '" + retiredInitiativeWorkKind + "'"
@@ -25,8 +24,8 @@ func requireActionableWorkKind(kind, operation string) error {
 	return nil
 }
 
-// RequireActionableWork refuses execution of a historical read-only kind before
-// a caller probes or changes native state. Historical reads do not use this gate.
+// RequireActionableWork refuses execution of a retired kind before a caller
+// probes or changes native state.
 func (s *Store) RequireActionableWork(ctx context.Context, workID, operation string) error {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, operation, "store is not open", false, "open the authority database")

@@ -91,6 +91,11 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Name == "native_task_cutover" {
 		return applyNativeTaskCutover(ctx, q, m.SQL)
 	}
+	if m.Name == "retire_initiative_work" {
+		if err := retireInitiativeWork(ctx, q); err != nil {
+			return err
+		}
+	}
 	if m.Name == "repository_verification_retirement" {
 		if err := checkVerificationRetirement(ctx, q); err != nil {
 			return err
@@ -8622,6 +8627,18 @@ DROP TABLE workflow_artifact_actions;
 ALTER TABLE workflow_predicate_verdicts DROP COLUMN prior_correction_seq;
 ALTER TABLE workflow_instances DROP COLUMN unhealthy_verdict_seq;
 DELETE FROM write_guard;
+`,
+	},
+	{
+		Version: 182, Name: "retire_initiative_work", Breaking: true,
+		SQL: `
+DROP TRIGGER work_kinds_registry_no_update;
+UPDATE work_kinds SET stored=0, fold_create=0 WHERE kind='initiative';
+CREATE TRIGGER work_kinds_registry_no_update
+BEFORE UPDATE ON work_kinds FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'work_kinds registry is immutable');
+END;
 `,
 	},
 }

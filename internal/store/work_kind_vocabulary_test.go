@@ -17,7 +17,7 @@ func TestWorkKindPoliciesAndDatabaseRegistry(t *testing.T) {
 		"decision":   {1, 1, 1, 1},
 		"research":   {1, 1, 1, 1},
 		"other":      {1, 1, 1, 1},
-		"initiative": {1, 1, 0, 0},
+		"initiative": {0, 0, 0, 0},
 		"epic":       {0, 0, 0, 0},
 	}
 	rows, err := db.QueryContext(ctx, `SELECT kind,stored,fold_create,fold_revise,agent_capture FROM work_kinds`)
@@ -54,21 +54,17 @@ func TestWorkKindPoliciesAndDatabaseRegistry(t *testing.T) {
 	if _, err := db.ExecContext(ctx, insert, "stored-bug", "bug", "Bug", "needed", "now", "now"); err != nil {
 		t.Fatalf("stored bug rejected: %v", err)
 	}
-	for _, kind := range []string{"problem", "epic"} {
+	for _, kind := range []string{"problem", "epic", "initiative"} {
 		if _, err := db.ExecContext(ctx, insert, "invalid-"+kind, kind, kind, "needed", "now", "now"); err == nil || !strings.Contains(err.Error(), "work_items kind is not a stored work kind") {
 			t.Fatalf("undeclared or retired kind %q error = %v", kind, err)
 		}
 	}
 }
 
-func TestWorkKindFoldPoliciesRejectRetiredAndAllowInitiative(t *testing.T) {
+func TestWorkKindFoldPoliciesRejectRetiredKinds(t *testing.T) {
 	t.Parallel()
-	// CD-0213 D4/D8: initiative stays fold-create allowed solely so a
-	// historical capture replays; revise, agent capture, and every new
-	// append refuse. The append seam owns the new-write refusal, so the
-	// vocabulary must keep both halves of the split.
-	if !WorkKindFoldCreateAllowed("initiative") || WorkKindFoldReviseAllowed("initiative") {
-		t.Fatal("initiative policy does not distinguish create from revise")
+	if WorkKindStored("initiative") || WorkKindFoldCreateAllowed("initiative") || WorkKindFoldReviseAllowed("initiative") {
+		t.Fatal("initiative policy permits storage or folding")
 	}
 	if WorkKindAgentCaptureAllowed("initiative") {
 		t.Fatal("initiative must not be agent-capturable under CD-0213 D4")

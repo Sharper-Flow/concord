@@ -33,9 +33,9 @@
     },
     {
       "kind": "initiative",
-      "summary": "A read-only historical container. Historical capture still folds during replay; no agent may capture or revise it. Grouping lives in Linear under CD-0213.",
-      "stored": true,
-      "fold_create": "allowed",
+      "summary": "Retired container kind. Grouping lives in Linear under CD-0213.",
+      "stored": false,
+      "fold_create": "refused",
       "fold_revise": "refused",
       "agent_capture": "refused",
       "refusal": {

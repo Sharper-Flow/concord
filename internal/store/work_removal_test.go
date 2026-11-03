@@ -97,6 +97,11 @@ func TestWorkRemovalCancellationKeepsReasonDistinct(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard VALUES(1);
+INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES('removal-op',1,'cancelled-removal-work','workflow.test','digest','step','internal_sqlite','digest','{}','completed','{}','[]','[]','operator','request','t','t','digest');
+DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
 	req := removalTestRequest()
 	req.OperationID = "cancel-op-1"
 	req.IdempotencyKey = "cancel-key-1"
@@ -122,6 +127,10 @@ func TestWorkRemovalCancellationKeepsReasonDistinct(t *testing.T) {
 	}
 	if removed != 1 || transitioned != 0 {
 		t.Fatalf("removal events = %d, transition events = %d", removed, transitioned)
+	}
+	var operations int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE work_id=?`, req.WorkID).Scan(&operations); err != nil || operations != 0 {
+		t.Fatalf("removal retained %d durable operations: %v", operations, err)
 	}
 }
 

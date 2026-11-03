@@ -26,8 +26,13 @@ have adequate evidence. Do not add verification merely to repeat a passing
 result in another record. Reporting a gap does not satisfy required acceptance.
 
 A regression test must exercise the change. Confirm it fails without the fix
-before trusting that it passes with the fix. For a change without executable
-behavior, use the relevant validation and review; do not invent a test matrix.
+before trusting that it passes with the fix. For a removal, the deletion
+itself, the build, the repository's dead-code or reachability check, and
+review are the proof. Add a test only for behaviour that still exists at the
+old boundary, such as refusing an old input or upgrading old stored data. Do
+not add a test that only asserts a removed name, command, file or field is
+absent. For a change without executable behavior, use the relevant validation
+and review; do not invent a test matrix.
 
 Inspect failures rather than routing around them. Establish the cause before
 compensating for it. A retry, a fallback, a suppressed error, or a second

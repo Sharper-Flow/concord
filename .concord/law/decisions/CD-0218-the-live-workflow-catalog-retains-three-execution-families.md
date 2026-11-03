@@ -20,10 +20,10 @@
   at 19:35 Eastern Daylight Time (EDT), relayed through the Snowball
   coordinator. Live migration and release activation require separate authority.
 - **Candidate supersession set:** CD-0007, CD-0012, CD-0013, CD-0039,
-  CD-0077, CD-0156, CD-0198. The D5 owner must resolve its current successor
+  CD-0077, CD-0198. The D5 owner must resolve its current successor
   identities before cutover.
 - **Related:** CD-0007, CD-0012, CD-0013, CD-0036, CD-0039, CD-0077,
-  CD-0156, CD-0198, CD-0215
+  CD-0198, CD-0215
 
 [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 governs D1: Product-law changes require approval only under its six classes. Workflow-family and repository-law-route requirements remain required.
@@ -46,17 +46,16 @@ The accepted research-pack capability remains independent of workflow selection.
 
 The store keeps current state, finite snapshots, and attribution facts ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Review inspects the accumulated solution, verifies the corrected candidate, and reports one disposition that Main records; completion and premise confirmation use their real authorized coordinators ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). No retired family gains a new authoring route.
 
-### D1. Three families own new execution
+### D1. Four workflow types own new execution
 
-New execution selects `workflow.implementation`, `workflow.break_fix`, or
-`workflow.research`. The live catalog does not select architecture_spike,
-ops_runbook, static_analysis, or generic_one_off. No compatibility alias maps a
-retired family to a retained one.
-
-Task capture defaults to implementation. Bug capture defaults to break-fix.
-Research capture defaults to research. Decision and other captures require an
-explicit retained family. Operator kind and workflow family remain different
-vocabularies. A retired ref refuses before any capture or contract write.
+New execution picks one of four workflow types after intake: `change`, `fix`,
+`research`, or `removal`, whose required steps come from the template contract
+[`contracts/workflow-step-templates.v1.json`](../../../contracts/workflow-step-templates.v1.json)
+and are copied into the item's own step plan (CON-1574; the
+workflow-engine-contract §2). There is no per-kind family default: the work
+kind stays capture metadata and the driving agent picks the type. No
+compatibility alias maps a retired family ref to a type. A retired ref refuses
+before any capture or contract write.
 
 Implementation and break-fix allow exists, absent, and check predicates. Research
 allows outcome predicates with no_change, resolved, and report_recorded tokens.
@@ -71,7 +70,10 @@ claim, timer service, or new authority for external effects.
 
 ### D2. Fewer calls carry the same enforceable facts
 
-The live families are implementation, break-fix, and research, each family's plain definition sets its mandatory stages, break-fix keeps diagnosis and regression proof, and no agent waives a mandatory stage or an operator approval ([CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
+Each type's template sets its required steps, fix keeps diagnosis and the
+regression test that fails before the fix, and no agent waives a required step
+or an operator approval. The driving agent may insert steps between required
+steps; insertion never removes or rewrites a required step.
 
 ### D3. Ordinary writes preserve authority and proof
 
@@ -192,7 +194,7 @@ declared actions, and independent acceptance. CD-0039 D1 through D4 and D7 throu
 D9 govern attributed reports, failures, and effects.
 
 CD-0077 governs operator kind separation, stored historical names, and immutable
-migration checksums. CD-0156 governs mandatory backlog search. CD-0198 governs
+migration checksums. CD-0198 governs
 evidence, approval, and start floors. CD-0215 governs research-pack guarantees.
 
 CD-0215 D2 requires a separate architecture spike decision. D5 cutover must

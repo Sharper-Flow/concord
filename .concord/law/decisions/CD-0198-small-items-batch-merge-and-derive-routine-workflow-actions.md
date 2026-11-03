@@ -10,14 +10,6 @@
   "law_relations": [
     {
       "kind": "refines",
-      "target_id": "CD-0156"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0166"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0183"
     }
   ]
@@ -28,7 +20,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-30
 - **Scope:** Batched verdicts, typed diagnosis and derived producing-step starts
-- **Related:** CD-0012, CD-0156, CD-0166, CD-0173, CD-0183, CD-0192, CD-0242, CD-0243
+- **Related:** CD-0012, CD-0173, CD-0183, CD-0242, CD-0243
 
 ## Context
 
@@ -55,7 +47,7 @@ Concord attests no subagent identity.
 
 `record_diagnosis` advances the diagnosis step only with reproduction,
 alignment-search and root-cause sections, each retaining its fields and guards.
-The search includes `searched`, `outcome` and `related_ids` under CD-0156 D3.
+The search includes `searched`, `outcome` and `related_ids`.
 It writes the same alignment declaration and creates no relation. An outcome
 of found-nothing is distinct from not searched. Implementation retains its
 declared alignment step. Analysis cannot advance without the search beside it.
@@ -65,7 +57,7 @@ declared alignment step. Analysis cannot advance without the search beside it.
 The first action at repair or refine derives the step-start fact in its own
 transaction. The first recorded action wins, opens the epoch and binds the
 fence from its actor. Delivery still requires that start. Refine proof uses a
-passing report for the recorded candidate under CD-0192; no lease acquisition,
+passing report for the recorded candidate; no lease acquisition,
 live Git freshness or exact tooling argv comparison is required. Current rows own these facts; generated definitions
 derive from one canonical source.
 

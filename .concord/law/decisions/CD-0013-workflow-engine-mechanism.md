@@ -376,8 +376,8 @@ This decision produces:
 
 - `.concord/law/specs/workflow-engine-contract.md` — implementation contract binding this
   decision to concrete Go/storage/agent/CLI behavior;
-- `contracts/workflow-definition.schema.json` — closed definition schema for
-  generated manifests;
+- `contracts/workflow-step-templates.v1.json` — closed template contract for
+  the workflow types and the stored step plan schema;
 - `contracts/workflow-outcome.schema.json` — closed outcome payload schema;
 - `.concord/scenarios/workflow-engine.v1.json` — the conformance scenario carriers listed
   above;
@@ -407,9 +407,8 @@ This decision produces:
 - The workflow-action dispatcher reuses agent authority; an upgrade to
   `concord_work_transition.workflow_action` is required under TS8 once the engine
   ships.
-- Definition manifests become durable artifacts; drift detection between the Go
-  registry and the registered definition digest must run at every
-  `WorkflowActionAvailable` call.
+- Each item's step plan is a durable artifact; every plan write passes the one
+  plan-write check before it saves (CON-1574; the workflow-engine-contract §2.3).
 
 ### What this forecloses
 

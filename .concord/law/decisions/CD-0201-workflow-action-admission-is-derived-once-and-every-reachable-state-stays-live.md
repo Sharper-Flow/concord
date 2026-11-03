@@ -7,12 +7,7 @@
   },
   "home_domain_id": "workflow-engine",
   "applies_to_domain_ids": [],
-  "law_relations": [
-    {
-      "kind": "refines",
-      "target_id": "CD-0166"
-    }
-  ]
+  "law_relations": []
 }
 ---
 # CD-0201: Workflow action admission is derived once and every reachable state stays live
@@ -24,7 +19,7 @@
 - **Preserves:** every other route refusal keeps its own scope;
   payload and identity checks stay in the guards; no generated contract
   changes
-- **Related:** CD-0043, CD-0166, CD-0173, CD-0197
+- **Related:** CD-0043, CD-0173, CD-0197
 - **Approval:** The operator approved the approach in session chat on
   2026-10-01, including the well-formed-state exit check and excluding
   runtime invariant guards and random-walk conformance.

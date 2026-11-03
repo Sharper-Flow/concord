@@ -37,7 +37,7 @@
 > completion, workflow composition, and the reserved `workflow_action`
 > dispatch path.
 > **Conformance carriers:** [`workflow-engine.v1.json`](../../scenarios/workflow-engine.v1.json),
-> [`workflow-definition.schema.json`](../../../contracts/workflow-definition.schema.json),
+> [`workflow-step-templates.v1.json`](../../../contracts/workflow-step-templates.v1.json),
 > [`workflow-outcome.schema.json`](../../../contracts/workflow-outcome.schema.json).
 
 This document fills the implementation-design boundary left by CD-0013. It does
@@ -84,18 +84,17 @@ The workflow engine carries a work item from an approved contract to a
 completed outcome. The binding inputs are CD-0013 as amended by CD-0015,
 CD-0016, and CD-0036, the typed carriers it names, and the scenario corpus
 with the two schemas it cites. This record fills the implementation boundary
-CD-0013 left open: the common representation, the definition registry and
-digest check, the instance state machine, current workflow state, outcome
+CD-0013 left open: the common representation, the type templates and step
+plans, the instance state machine, current workflow state, outcome
 evaluation, the ordered completion gate, the actor tuple and verdict
-authority, workflow composition,
-dispatch, and the built-in family graphs.
+authority, workflow composition, dispatch, and the workflow types.
 
 ## Contract
 
 CD-0013 D11 qualifies every operator-only contract, premise, verdict, correction, update, and completion clause in this contract, including their actor mappings. Engineering records a valid contract and coordinator confirmation; review records verdicts, and Implement cannot accept its own result ([CD-0242 D5](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)); coordinators record completion. No synthetic operator identity is created. Decision-bearing checkpoints retain human authority through CD-0243's conversational classes. Generated definitions derive from one source, and every evidence, recovery, source, and liveness obligation remains required at its owning stage ([CD-0242 D14](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 The binding contract is sections 1 through 12: the common representation and
-bounds, the definition registry, the instance state machine, current workflow
+bounds, the type templates and step plans, the instance state machine, current workflow
 state, outcome evaluation and strength, the
 ordered completion gate, the actor tuple and verdict authority, workflow
 composition, dispatch, and the built-in
@@ -120,83 +119,47 @@ payloads are typed objects, never free-form maps; unknown keys are refused
 | `actor_ref` | `actor:` plus lower-case content-hash reference |
 | `payload_version` | integer exactly `1` for v1 emission |
 
-## 2. Definition registry
+## 2. Workflow type templates and step plans
 
-### 2.1 Go-side shape
+### 2.1 One template contract
 
-The process-owned registry holds one current definition per stable `ref`.
-Identity is the `ref` and content digest ([CD-0242 D14](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)). The value is equivalent to the strict manifest in
-[`workflow-definition.schema.json`](../../../contracts/workflow-definition.schema.json):
+Each workflow type's ordered required steps — with each step's method skill,
+helper, and reviewed flag, and the actions admitted on it — are listed once in
+the machine-readable contract
+[`contracts/workflow-step-templates.v1.json`](../../../contracts/workflow-step-templates.v1.json).
+The plan schema sits in the same contract. Code reads it. Law and docs hold no
+hand-written copy of a type's steps. The contract changes only through the law
+route. There is no per-kind fixed step chain, no definition registry, and no
+definition digest: a copied plan never changes when a template changes.
 
-```go
-type WorkflowDefinition struct {
-    Ref                   string
-    WorkKind              WorkKind
-    Capabilities          []WorkflowCapability
-    StepGraph             StepGraph
-    AvailableActions      []ActionID
-    RequiredEvidenceKinds []EvidenceKind
-    OutcomeSchema         OutcomeSchema
-    RigorRules            []RigorRule
-    StalenessRules        []StalenessRule
-    CompositionRules      CompositionRules
-}
+The closed type set is `change`, `fix`, `research`, and `removal`. Only Change
+and Fix carry the six-part architectural plan at their plan step.
 
-type RegisteredDefinition struct {
-    Definition WorkflowDefinition
-    Digest     Digest // sha256 of canonical definition bytes
-}
-type DefinitionRegistry interface {
-    Register(WorkflowDefinition) (RegisteredDefinition, error)
-    Current(ref string) (RegisteredDefinition, bool)
-    Verify(ref string, digest Digest) error
-}
-```
+### 2.2 Per-item plan
 
-`StepGraph` is a finite directed graph. Every step names its step kind and closed
-action IDs; every edge names `forward`, `retry`, `optional`, or `failure`. The
-graph has one start step, at least one terminal step, no missing endpoints, and no
-edge that escapes the graph. Cycles are permitted only through `retry` edges.
+When the driving agent picks the type, Concord copies that type's required
+steps into one JSON plan stored on the item's workflow row. Each step records
+its id, whether it is required or inserted, the steps it comes `after`, its
+skill, its helper, whether it is reviewed, and, once done, its completion: a
+note, plus the reviewer, result, commit and link for a reviewed step.
+"Current" and "next" are not stored; a read derives them. Concord writes the
+plan only when the type is picked, when a step is inserted, and when a step
+completes. Nothing is written on a start, checkpoint, retry or read.
 
-### 2.2 Digest and registration
+### 2.3 One check per plan write
 
-The digest input is the manifest without `digest`, serialized as UTF-8 JSON with
-the schema's property order, no insignificant whitespace, normalized integer
-values, and arrays in their declared order. Strings are not case-folded. The
-registry computes `sha256(canonical_bytes)` and stores it as `sha256:<hex>`.
-
-Registration refuses:
-
-| Refusal | Condition |
-|---|---|
-| `invalid_definition` | schema, graph, action, evidence, predicate, or composition validation fails |
-| `definition_digest_mismatch` | supplied digest differs from recomputed digest |
-| `definition_action_or_step_unknown` | graph references an action not in `available_actions` |
-
-The selected `ref` and `digest` are written to the work item at planning.
-
-### 2.3 Availability and drift check
-
-`WorkflowActionAvailable(work_id)` performs this sequence before authorizing any
-action:
-
-1. Read the instance's pinned `(ref, digest)`.
-2. Look up exactly that registry entry.
-3. Recompute its canonical digest and compare it with both the registered digest
-   and the pinned digest.
-4. Verify the graph, action list, and payload schema are still supported by this
-   binary.
-5. Return `true` only when all comparisons pass.
-
-Missing registration, unsupported definition, or any digest mismatch returns
-`false` and the existing closed `invariant_violation` refusal with recovery action
-`reread_entities`. No new refusal kind is introduced for registry availability or
-drift. No fallback definition or response-wording path is accepted.
+Each plan write is a single row update under the item's expected version.
+Before it saves, one function compares the new plan with the old one and
+refuses the write if the plan fails its schema, contains a cycle, removes a
+required step or changes a step's `after` edges, completes a step before every
+step it comes after, or alters a completed step. A repeated step adds another
+attempt instead of altering it. A type switch keeps completed steps and adds
+the new type's missing required steps; it never removes a step.
 
 ## 3. Workflow instance state machine
 
 `instance_state` is closed:
-`planned`, `ready`, `running`, `blocked`, `verifying`,
+`intake`, `planned`, `ready`, `running`, `blocked`, `verifying`,
 `completed`, `cancelled`, `superseded`.
 
 | From | To | Operation | Authority/fence |
@@ -319,7 +282,7 @@ correcting a record. Completion follows §7 without rechecking those conditions.
 ### 4.2 Ordinary retry and record correction
 
 Retry reruns the owning action. Current-record replacement applies to
-`record_proposal`, `record_design`, `record_diagnosis`, `record_alignment`,
+`record_intake`, `record_clarify`, `record_plan`, `record_diagnosis`,
 `record_delivery`, `record_review`, `record_verdict` and `revise_candidates`.
 To correct an existing record, the authenticated coordinator invokes its ordinary
 owning action with replacement values and the current expected work version.
@@ -382,14 +345,14 @@ existing `work_items(id)` key; actor references point to `workflow_actors`.
 
 ### 5.1 Tables
 
-Definition identity in these rows is the stable `ref` and content digest ([CD-0242 D14](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+Each instance carries its own step plan ([section 2](#2-workflow-type-templates-and-step-plans)).
 
 | Table | Columns (types) | Keys, foreign keys, and closed checks |
 |---|---|---|
-| `workflow_instances` | `work_id TEXT`, `definition_ref TEXT`, `definition_digest TEXT`, `current_step TEXT`, `instance_state TEXT`, `execution_actor_ref TEXT NULL`, `started_at TEXT NULL`, `completed_at TEXT NULL`, `last_checkpoint_at TEXT NULL` | PK `work_id`; FK work; FK actor nullable; checks digest, state enum |
-| `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `premise TEXT`, `outcome_kind TEXT`, `outcome_payload TEXT`, `consequence_class TEXT`, `required_evidence TEXT`, `route_conventions TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT`, `definition_ref TEXT`, `definition_digest TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract; checks nonempty premise, closed outcome/evidence/consequence; every contract records the exact selected definition pin |
+| `workflow_instances` | `work_id TEXT`, `workflow_type TEXT NULL`, `step_plan TEXT NULL`, `instance_state TEXT`, `execution_actor_ref TEXT NULL`, `started_at TEXT NULL`, `completed_at TEXT NULL`, `last_checkpoint_at TEXT NULL` | PK `work_id`; FK work; FK actor nullable; checks type enum or null, plan JSON object or null, state enum |
+| `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `premise TEXT`, `outcome_kind TEXT`, `outcome_payload TEXT`, `consequence_class TEXT`, `required_evidence TEXT`, `route_conventions TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract; checks nonempty premise, closed outcome/evidence/consequence |
 | `workflow_candidate_sets` | `work_id TEXT`, `contract_version INTEGER`, `candidate_kind TEXT`, `candidate_ref TEXT`, `candidate_role TEXT`, `candidate_scope TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,contract_version,candidate_kind,candidate_ref)`; composite FK contract; FK actor; checks closed candidate kind/role |
-| `workflow_backlog_alignment` | `work_id TEXT`, `related_work_id TEXT NULL`, `searched TEXT`, `outcome TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,related_work_id)`; FK work for both ids; checks closed outcome, a `none_found` work records no match rows, and no self-match; the declaration row carries a null `related_work_id`. Work removal clears rows naming the removed item in either column, because both foreign keys are `RESTRICT`. Its read derives `all_matches_removed` under [CD-0156 D3](../decisions/CD-0156-mandatory-backlog-alignment-step.md#d3-explicit-empty-result), preserving the original search outcome and surviving evidence. It does not reuse `workflow_candidate_sets`, whose composite FK binds to `workflow_contracts(work_id,contract_version)` and which therefore cannot hold a row before planning approves a contract |
+| `workflow_backlog_alignment` | `work_id TEXT`, `related_work_id TEXT NULL`, `searched TEXT`, `outcome TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,related_work_id)`; FK work for both ids; checks closed outcome, a `none_found` work records no match rows, and no self-match; the declaration row carries a null `related_work_id`. Work removal clears rows naming the removed item in either column, because both foreign keys are `RESTRICT`. Its read derives `all_matches_removed` under [§11.1](#111-retained-alignment-reads), preserving the original search outcome and surviving evidence. It does not reuse `workflow_candidate_sets`, whose composite FK binds to `workflow_contracts(work_id,contract_version)` and which therefore cannot hold a row before planning approves a contract |
 | `workflow_actors` | `actor_ref TEXT`, `principal_ref TEXT`, `client_ref TEXT`, `agent_ref TEXT`, `session_ref TEXT`, `actor_class TEXT`, `first_seen_at TEXT` | PK `actor_ref`; UNIQUE tuple `(principal_ref,client_ref,agent_ref,session_ref)`; checks nonempty tuple and `actor_class IN ('agent','operator')` |
 | `workflow_checkpoints` | `work_id TEXT`, `checkpoint_id TEXT`, `step_id TEXT`, `step_kind TEXT`, `attempt_epoch INTEGER`, `accepted_inputs_digest TEXT`, `result_evidence_refs TEXT`, `resume_cursor TEXT`, `idempotency_identity TEXT`, `actor_ref TEXT`, `request_id TEXT`, `recorded_at TEXT` | PK `(work_id,checkpoint_id)`; UNIQUE `(work_id,step_id,attempt_epoch)` and `(work_id,idempotency_identity)`; FK work/actor; closed step-kind check |
 | `workflow_impact_edges` | `work_id TEXT`, `edge_id TEXT`, `edge_kind TEXT`, `edge_class TEXT`, `target_work_id TEXT`, `target_kind TEXT`, `severity TEXT`, `recorded_at TEXT` | PK `(work_id,edge_id)`; FK source/target work; closed edge/class/severity checks; hard `depends_on` and `forward_link` cycle check in transaction |
@@ -463,13 +426,12 @@ separate final evaluator or further actor distinctness exists
 ([CD-0242 D5](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls),
 which governs [CD-0235](../decisions/CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md) D1).
 
-At contract approval, each approved predicate is
-validated against the pinned definition's `outcome_schema`, not only against the
-generic outcome union. The validator rejects a predicate kind outside
-`allowed_kinds` and an outcome token not in `allowed_outcome_tokens`. This check
-runs for each live family; the generic union is only the syntax check, while the
-selected definition is the authority for meaning. New authoring admits no
-`decision_record` (CD-0218 D1).
+At contract approval, each approved predicate is validated against the picked
+type's allowed forms, not only against the generic outcome union. The validator
+rejects a predicate kind outside the type's allowed kinds and an outcome token
+outside the type's allowed tokens. The generic union is only the syntax check;
+the picked type is the authority for meaning. New authoring admits no
+`decision_record`.
 
 1. **`exists`:** resolve every approved subject on the named ground-truth surface.
    Unknown/unreadable is not absent. A delivered `exists(S,D)` is strengthening
@@ -501,9 +463,9 @@ different recorded commit do not prove the candidate.
 
 ## 7. Ordered completion gate
 
-`CompleteWorkflowTxWithRegistry` executes in one SQLite transaction. It locks
-the work item, checks the pinned definition and expected version, and rolls
-back on refusal.
+`CompleteWorkflowTx` executes in one SQLite transaction. It locks the work
+item, checks that every step in the item's plan is completed and the expected
+version, and rolls back on refusal.
 
 Completion records the typed reported-delivery assertion and its links. It does
 not recheck evidence bindings, scope or mandate satisfaction, verification
@@ -606,12 +568,32 @@ in-transaction recursive cycle check.
 
 ## 11. `workflow_action` dispatch
 
+### 11.1 Retained alignment reads
+
+Ordinary work removal drops the removed item's match rows from surviving
+alignments ([CD-0142 D4](../decisions/CD-0142-operator-directed-execution-removal.md#d4-absence-survives-reads-recovery-and-renewal)).
+It preserves each surviving declaration's search, original outcome, author and
+time, other matches, and applicable effect and idempotency evidence.
+The read reports `all_matches_removed` as true exactly when the original outcome
+is `related_found` and no match remains. It reports false for `none_found` and
+for `related_found` with surviving matches. This field derives from current rows;
+it stores no removal history and exposes no removed ID. An absent declaration
+still means no recorded search, not a search whose matches were removed.
+
+Recording guards still refuse `related_found` without match IDs and
+`none_found` with match IDs. The initiative cutover still refuses
+sole-initiative matches under
+[CD-0213 D8](../decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-retired-planning-kinds-keep-no-history);
+the ordinary removal read state does not relax that upgrade gate.
+
 `concord_work_transition.workflow_action` is the only advancement surface. The
 dispatcher performs this order:
 
-1. Check `WorkflowActionAvailable`; refuse structurally until the pinned digest is
-   registered and verified.
-2. Validate the closed action ID and payload against the pinned definition's action
+1. Check `WorkflowActionAvailable`; refuse structurally until the item's
+   workflow instance holds a readable state: before a type is picked only the
+   intake prelude actions are available; after the pick, the plan's derived
+   frontier admits its actions ([section 2](#2-workflow-type-templates-and-step-plans)).
+2. Validate the closed action ID and payload against the action catalog's
    entry. Existing-record replacement follows §4.2; late criterion association
    follows §7.1. Unknown fields, missing fields, wrong bounds, or an action
    outside its admitted ordinary use return the existing `invalid_transition`
@@ -658,38 +640,48 @@ WF09 and WF22 each bind their criterion to a production route.
   action, so the graph's declared-action check refuses it with
   `invalid_transition` before actor authorization, and no contract event is
   written.
-- WF22 commits `checkpoint_context`, abandons an uncommitted `record_proposal`
+- WF22 commits `checkpoint_context`, abandons an uncommitted `record_plan`
   transaction, and reads the resume
-  state through the continuity read (CD-0016). Its resume step is `proposal`,
-  a step of the pinned `workflow.implementation` definition.
+  state through the continuity read (CD-0016). Its resume step is the first
+  incomplete step of its stored plan.
 
-## 12. Live-family graphs and declared action mappings
+## 12. Workflow types, prelude, and step admission
 
-Every live family has typed action execution modes. `record_review` records the
-coordinator's subject-bound typed Review outcome without starting or attesting
-a subagent. `record_delivery` remains the producing-step exit after a recorded
-start. The table lists family actions. Break-fix and implementation carry a mandatory `refine`
-external-effect step between the producing step and its verdict step
-(CD-0242 D4; CD-0229 D4).
-The refine step requires an artifact
-evidence binding and records the scope, report, and evidence supplied by an
-external analysis authority. Concord does not implement the scanner.
+Every workflow starts with **intake**: the driving session records the fourteen
+decided checks — which of them found something — and one of five outcomes
+(`proceed`, `clarify`, `already_handled`, `decline`, `split_or_merge`). **Clarify**
+runs only when intake found open questions, and intake's record says so when it
+found none. The outcomes `already_handled`, `decline` and `split_or_merge` end or
+replace the item without picking a type. Then the type is picked
+(`change`, `fix`, `research` or `removal`) and its required steps are copied from
+the template contract into the item's plan
+([section 2](#2-workflow-type-templates-and-step-plans)).
 
-The refine exit requires a passing bound report for the recorded candidate
-(CD-0192). It does not execute a check, inspect live Git, compare acquisition
-times or compare argv to a tooling manifest. Independent Review judges adequacy.
+**Inserted steps.** Between required steps the driving agent may insert a step
+into the item's plan, and the engine does not refuse it. An inserted step
+anchors itself by declaring its own `after` edges; an existing step's `after`
+edges never change. A send-back is a new inserted step after the current one,
+never an edge pointing backwards, so the plan stays a DAG.
 
-| Family and source | Ordered graph and family actions at each step |
-|---|---|
-| **Implementation** — [`workflows.md` §1](../../docs/workflows.md#1-the-shift-from-one-workflow-to-a-plurality) | `proposal[record_proposal] → alignment[record_alignment] → discovery[record_discovery] → design[record_design] → planning[approve_contract] → execution[start_execution, checkpoint_execution, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → acceptance[record_verdict, confirm_premise] → release[complete]`. Refine is mandatory and requires artifact evidence at that step (CD-0242 D4; CD-0229 D4). The CD-0156 alignment step follows proposal: record_alignment is the step's only advance exit, so backlog search cannot be skipped. A native Task result supplies no workflow exit. |
-| **Break-fix / RCA** — [`workflows.md` §3](../../docs/workflows.md#3-complete-work-kind-taxonomy) and §4 | `reproduce[record_reproduction] → alignment[record_alignment] → diagnose[record_root_cause] → planning[approve_contract] → repair[start_repair, checkpoint_repair, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → verify[bind_evidence, record_verdict, confirm_premise] → complete[complete]`. Refine is mandatory and requires artifact evidence at that step (CD-0138 D1). Verify declares the ordinary hold-mode `bind_evidence` action (CD-0124). The CD-0156 alignment step follows reproduce on the same terms. |
-| **Research / investigation** — [`workflows.md` §4](../../docs/workflows.md#4-example-workflow-types) and CD-0215 D3 | `frame[frame_research, approve_contract] → investigate[record_finding, revise_candidates, bind_evidence] → findings[record_report, link_successor] → conclude[record_conclusion, record_verdict, confirm_premise] → complete[complete]`. Completion verb: findings recorded; `no_change` is valid. |
+**No skip move.** After a step completes, the agent either proceeds to a next
+step or inserts a step. Nothing skips a required step. Clarify running only when
+intake found open questions, the three ending intake outcomes, and the final
+clean review repeating until one needs no fixes, are not skips.
+
+**Reviewed steps.** From implementation onward, a step passes only when a
+`concord-review` native subagent has passed it or fixed it. The step's
+completion record keeps the reviewer, result, commit and link. A final clean
+review needs no fixes before completion. Each step names its method skill and
+the resume read shows it; no check verifies that a skill was loaded.
+
+**Completion follows the plan.** An item completes only when every required
+step in its plan is completed.
 
 ### 12.1 Action-to-event mapping
 
 The table maps the declared action IDs below to their result records, including
 actions from archived definitions. It grants no new-execution permission:
-CD-0218 D1 limits new execution to the three live families. Section 11 and §4.2
+new execution picks one of the four workflow types. Section 11 and §4.2
 govern actions at and after their declared steps. Each
 `action_definitions` entry carries one closed `execution_mode`: `advance`,
 `hold`, `fenced`, or `checkpoint`. Each is a versioned current-state mutation;
@@ -702,7 +694,7 @@ No result record is invented for a graph step.
 | `record_discovery`, `frame_research`, `record_finding`, `record_reproduction`, `record_root_cause`, `record_option`, `record_health`, `declare_scope`, `record_conclusion` | `workflow.action_completed`; immutable artifact/evidence is carried by `result_evidence_refs` and `changed_refs` |
 | `record_proposal` | `workflow.proposal_recorded` plus `workflow.action_completed` for a definition that declares the proposal document; otherwise `workflow.action_completed` alone (CD-0242 D14) |
 | `record_design` | `workflow.design_recorded` plus `workflow.action_completed`; the typed design record is the approved change's decision record, not lane methodology |
-| `record_alignment` | `workflow.backlog_alignment_recorded` plus `workflow.action_completed`; the payload records the search scope, the closed `related_found`/`none_found` outcome, and the related work ids exactly when the search found them (CD-0156) |
+| `record_alignment` | `workflow.backlog_alignment_recorded` plus `workflow.action_completed`; the payload records the search scope, the closed `related_found`/`none_found` outcome, and the related work ids exactly when the search found them (historical mapping for replay; the action is retired) |
 | `approve_contract` | `workflow.contract_approved` plus its required approval evidence binding |
 | `start_execution`, `start_repair`, `start_refine`, `start_run`, `start_poc`, `start_action` | fenced `workflow.action_started` → `workflow.action_completed`/`workflow.action_failed` |
 | `checkpoint_execution`, `checkpoint_repair`, `checkpoint_refine`, `checkpoint_run`, `checkpoint_poc`, `checkpoint_analysis`, `checkpoint_action` | `workflow.action_checkpointed`; the committed checkpoint fixes the attempt boundary, and the recorded current step is the resume point. `resume_cursor` may be empty, and no read depends on it. |
@@ -744,9 +736,9 @@ step endpoints, undeclared start/terminal nodes, and non-retry cycles. The runti
 also requires the action's current step and rejects a terminal transition unless
 the graph declares `complete` on that path.
 
-The live families' allowed predicate forms follow CD-0218 D1: implementation
-and break-fix allow `exists`, `absent`, and `check`; research allows `outcome`
-with `no_change`, `resolved`, and `report_recorded`. Definitions derive from one
+The types' allowed predicate forms: `change`, `fix` and `removal` allow
+`exists`, `absent`, and `check`; `research` allows `outcome` with `no_change`,
+`resolved`, and `report_recorded`. Definitions derive from one
 canonical source, with no released definition version retained for history
 (CD-0242 D14).
 
@@ -785,11 +777,12 @@ values; approval checks their grammar and the verdict actor interprets them
   Then the engine refuses with invalid_input, records no contract, and the
   instance keeps its current step and state.
 
-- Given a workflow action whose pinned definition digest is absent from the
-  registry
-  When the action is dispatched
-  Then the dispatcher refuses with invariant_violation and uses no fallback
-  definition.
+- Given a plan write that removes a required step, changes a step's after
+  edges, completes a step before every step it comes after, or alters a
+  completed step
+  When the write is dispatched
+  Then the engine refuses with invalid_input, records no plan change, and the
+  stored plan is unchanged.
 
 - Given a completion that satisfies the ordered completion gate
   When the completion transaction commits

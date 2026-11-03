@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -36,6 +37,52 @@ func TestOrdinaryExecutionStartDoesNotGrantCompletion(t *testing.T) {
 	}
 }
 
+func TestOffStepPublicProposalReplacementHoldsProgress(t *testing.T) {
+	const workID = "off-step-public-proposal"
+	s, version := seedBootstrapCapturedWork(t, workID, "task")
+	seedWorkflowLaw(t, s)
+	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	proposal := func(problem string) json.RawMessage {
+		return mustJSONValue(map[string]any{"problem": problem, "affected": []string{"People"}, "stakes": "The stakes", "user_outcomes": []string{"An outcome"}})
+	}
+	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_proposal", "first-proposal", actor, proposal("First problem"))
+	step := currentStep(t, s, workID)
+	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_proposal", "replacement-proposal", actor, proposal("Replacement problem"))
+	if currentStep(t, s, workID) != step || readWorkVersion(t, s, workID) != version {
+		t.Fatal("proposal replacement changed workflow progress")
+	}
+	var problem string
+	if err := s.db.QueryRow(`SELECT problem FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, workID).Scan(&problem); err != nil || problem != "Replacement problem" {
+		t.Fatalf("replacement proposal=%q, error=%v", problem, err)
+	}
+}
+
+func TestOffStepPublicDesignReplacementHoldsProgress(t *testing.T) {
+	const workID = "off-step-public-design"
+	s, version := seedBootstrapCapturedWork(t, workID, "task")
+	seedWorkflowLaw(t, s)
+	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_proposal", "design-proposal", actor, json.RawMessage(`{"problem":"Problem","affected":["People"],"stakes":"Stakes","user_outcomes":["Outcome"]}`))
+	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_alignment", "design-alignment", actor, json.RawMessage(`{"searched":"Inventory","outcome":"none_found"}`))
+	binding := corpusArchitectureBinding()
+	binding["home_domain_id"], binding["affected_domain_ids"] = "root", []string{"root"}
+	approval := mustJSONValue(map[string]any{"premise": "The design serves the accepted outcome.", "decision_domains": []string{}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:design", "ordinal": 0, "outcome_kind": "exists", "outcome_payload": map[string]any{"kind": "exists", "surface": "fixture:design", "subjects": []string{"document:design"}}}}, "spec_mandate": []string{}, "law_modifies": []string{}, "architecture_binding": binding})
+	version = issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", "design-contract", actor, approval)
+	design := func(approach string) json.RawMessage {
+		return mustJSONValue(map[string]any{"approach": approach, "decisions": []map[string]any{{"id": "decision:design", "question": "Which approach?", "choice": "Direct", "rationale": "It meets the outcome", "rejected": []string{}}}, "touched_refs": []string{"internal/store/workflow.go"}})
+	}
+	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_design", "first-design", actor, design("First approach"))
+	step := currentStep(t, s, workID)
+	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_design", "replacement-design", actor, design("Replacement approach"))
+	if currentStep(t, s, workID) != step || readWorkVersion(t, s, workID) != version {
+		t.Fatal("design replacement changed workflow progress")
+	}
+	var approach string
+	if err := s.db.QueryRow(`SELECT approach FROM workflow_design_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, workID).Scan(&approach); err != nil || approach != "Replacement approach" {
+		t.Fatalf("design=%q error=%v", approach, err)
+	}
+}
+
 func TestExecutorCannotAdvanceItsStepWithAnUndeclaredCompletionAction(t *testing.T) {
 	t.Parallel()
 	workID := "authority-step-transition"
@@ -52,6 +99,239 @@ func TestExecutorCannotAdvanceItsStepWithAnUndeclaredCompletionAction(t *testing
 	}
 	if currentStep(t, s, workID) != "execution" || readWorkVersion(t, s, workID) != before {
 		t.Fatal("refused completion advanced the step or version")
+	}
+}
+
+func TestOffStepRecordCompletionRequiresOwnEffect(t *testing.T) {
+	for _, action := range []string{"record_proposal", "record_design", "record_alignment", "record_diagnosis", "revise_candidates"} {
+		t.Run(action, func(t *testing.T) {
+			workID := "off-step-own-effect-" + action
+			var s *Store
+			var actor string
+			if action == "record_proposal" || action == "record_design" {
+				s, actor, _ = seedOrdinaryExecutorAtExecution(t, workID)
+			} else if action == "revise_candidates" {
+				f := seedCurrentWorkflowReturnRouteFixture(t, workID, "workflow.research", "investigate")
+				s = f.store
+				issue31WorkflowActionWithPayload(t, s, workID, readWorkVersion(t, s, workID), action, workID+"-first", f.owner, json.RawMessage(`{"added":["candidate:one"]}`))
+				actor, _ = WorkflowActorRef(f.owner)
+			} else {
+				kind := "task"
+				if action == "record_diagnosis" {
+					kind = "bug"
+				}
+				var version int64
+				s, version = seedBootstrapCapturedWork(t, workID, kind)
+				seedWorkflowLaw(t, s)
+				owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+				if kind == "task" {
+					version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_proposal", workID+"-proposal", owner, json.RawMessage(`{"problem":"Problem","affected":["People"],"stakes":"Stakes","user_outcomes":["Outcome"]}`))
+				}
+				payload := json.RawMessage(`{"searched":"Search","outcome":"none_found"}`)
+				if kind == "bug" {
+					payload = json.RawMessage(`{"reproduction":"Reproduction","searched":"Search","outcome":"none_found","root_cause":"Cause"}`)
+				}
+				issue31WorkflowActionWithPayload(t, s, workID, version, action, workID+"-first", owner, payload)
+				actor, _ = WorkflowActorRef(owner)
+			}
+			records, err := workflowCurrentRecords(t.Context(), s.db, workID)
+			if err != nil || !records[action] {
+				t.Fatalf("current record %s absent: %v", action, err)
+			}
+			before := readWorkVersion(t, s, workID)
+			step := currentStep(t, s, workID)
+			tx, err := s.db.BeginTx(t.Context(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			epoch, err := workflowActionStartEpochForDispatch(t.Context(), tx, workID, step, false)
+			_ = tx.Rollback()
+			if err != nil {
+				t.Fatal(err)
+			}
+			event := workflowEventWithActor("bare-"+action, WorkflowActionCompleted, workID, actor, map[string]any{
+				"work_id": workID, "expected_version": before, "resulting_version": before + 1,
+				"step_id": step, "action_id": action, "attempt_epoch": epoch,
+				"result_evidence_refs": []string{}, "changed_refs": []string{}, "actor_ref": actor,
+			})
+			err = applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before}})
+			if err == nil {
+				t.Fatal("bare off-step record completion was accepted")
+			}
+			if currentStep(t, s, workID) != step || readWorkVersion(t, s, workID) != before {
+				t.Fatal("refused completion changed progress or version")
+			}
+		})
+	}
+}
+
+func TestOffStepNeverRecordedUndeclaredCompletion(t *testing.T) {
+	const workID = "off-step-never-recorded"
+	s, actor, _ := seedOrdinaryExecutorAtExecution(t, workID)
+	records, err := workflowCurrentRecords(t.Context(), s.db, workID)
+	if err != nil || records["record_finding"] {
+		t.Fatalf("unexpected record: %v %v", records, err)
+	}
+	before := readWorkVersion(t, s, workID)
+	event := workflowTypedEvent("never-recorded", WorkflowActionCompleted, workID, actor, time.Unix(10, 0), before, map[string]any{
+		"step_id": "execution", "action_id": "record_finding", "attempt_epoch": 2, "actor_ref": actor,
+		"result_evidence_refs": []string{}, "changed_refs": []string{},
+	})
+	err = applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before}})
+	if !hasFailureKind(err, KindIllegalLifecycleTransition) {
+		t.Fatalf("undeclared completion=%v", err)
+	}
+}
+
+func TestOffStepDeliveryRequiresAssertion(t *testing.T) {
+	const workID = "off-step-delivery-assertion"
+	f := qCurrentAcceptanceWithDelivery(t, workID, "file:internal/store/output.go")
+	s := f.store
+	actor, err := WorkflowActorRef(f.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := readWorkVersion(t, s, workID)
+	step := currentStep(t, s, workID)
+	records, err := workflowCurrentRecords(t.Context(), s.db, workID)
+	if err != nil || !records["record_delivery"] {
+		t.Fatalf("delivery record missing: %v", err)
+	}
+	tx, err := s.db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	epoch, err := workflowActionStartEpochForDispatch(t.Context(), tx, workID, step, false)
+	_ = tx.Rollback()
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := workflowTypedEvent("bare-delivery", WorkflowActionCompleted, workID, actor, time.Unix(10, 0), before, map[string]any{
+		"step_id": step, "action_id": "record_delivery", "attempt_epoch": epoch, "actor_ref": actor,
+		"result_evidence_refs": []string{}, "changed_refs": []string{workID},
+	})
+	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before}}); !hasFailureKind(err, KindInvalidPayload) {
+		t.Fatalf("bare delivery completion = %v, want invalid_payload", err)
+	}
+	if currentStep(t, s, workID) != step || readWorkVersion(t, s, workID) != before {
+		t.Fatal("refused delivery changed progress")
+	}
+}
+
+func TestOffStepReviewRequiresOwnEvidence(t *testing.T) {
+	j := reviewGateRefineFixture(t, "off-step-review-evidence", "workflow.implementation")
+	reviewGateCompleteReview(t, j, "ready_for_final_proof")
+	j.bindVerification(t, j.observeRun(t, "review-evidence"))
+	if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
+		t.Fatal(err)
+	}
+	step := currentStep(t, j.s, j.workID)
+	records, err := workflowCurrentRecords(t.Context(), j.s.db, j.workID)
+	if err != nil || !records["record_review"] {
+		t.Fatalf("review record missing: %v", err)
+	}
+	actor, err := WorkflowActorRef(j.fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := j.s.db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	epoch, err := workflowActionStartEpochForDispatch(t.Context(), tx, j.workID, step, false)
+	_ = tx.Rollback()
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, j.s, j.workID)
+	report := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
+	event := workflowTypedEvent("bare-review", WorkflowActionCompleted, j.workID, actor, time.Unix(15, 0), version, map[string]any{"step_id": step, "action_id": "record_review", "attempt_epoch": epoch, "actor_ref": actor, "review": report, "result_evidence_refs": []string{}, "changed_refs": []string{j.workID}})
+	err = applyWorkflowTestOperation(t.Context(), j.s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, j.workID): version}})
+	if !hasFailureKind(err, KindIllegalLifecycleTransition) {
+		t.Fatalf("review completion=%v", err)
+	}
+	if currentStep(t, j.s, j.workID) != step || readWorkVersion(t, j.s, j.workID) != version {
+		t.Fatal("refused review changed progress")
+	}
+}
+
+func TestOffStepProposalEffectMustMatchCompletion(t *testing.T) {
+	for _, tc := range []struct {
+		name, semanticActor, action, step string
+		epoch, versionOffset              int64
+		otherWork                         bool
+		wantSuccess                       bool
+	}{
+		{name: "matching", action: "record_proposal", step: "execution", epoch: 2, wantSuccess: true},
+		{name: "other actor", semanticActor: "owner", action: "record_proposal", step: "execution", epoch: 2},
+		{name: "other work", action: "record_proposal", step: "execution", epoch: 2, otherWork: true, versionOffset: -1},
+		{name: "other action", action: "record_design", step: "execution", epoch: 2},
+		{name: "wrong step", action: "record_proposal", step: "design", epoch: 2},
+		{name: "wrong attempt", action: "record_proposal", step: "execution", epoch: 1},
+		{name: "wrong version", action: "record_proposal", step: "execution", epoch: 2, versionOffset: -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workID := "off-step-pair-" + strings.ReplaceAll(tc.name, " ", "-")
+			s, actor, owner := seedOrdinaryExecutorAtExecution(t, workID)
+			before := readWorkVersion(t, s, workID)
+			semanticActor := actor
+			if tc.semanticActor == "owner" {
+				var err error
+				semanticActor, err = WorkflowActorRef(owner)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			semanticWork, semanticVersion := workID, before
+			versions := map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before}
+			if tc.otherWork {
+				semanticWork = workID + "-other"
+				seedWork(t, s, semanticWork)
+				semanticVersion = readWorkVersion(t, s, semanticWork)
+				versions[VersionRef(SubjectWorkItem, semanticWork)] = semanticVersion
+			}
+			semantic := workflowTypedEvent("proposal-effect-"+workID, WorkflowProposalRecorded, semanticWork, semanticActor, time.Unix(10, 0), semanticVersion, map[string]any{
+				"problem": "A problem", "affected": []string{"People"}, "stakes": "Stakes", "user_outcomes": []string{"An outcome"},
+			})
+			completion := workflowTypedEvent("proposal-completion-"+workID, WorkflowActionCompleted, workID, actor, time.Unix(10, 0), before+1+tc.versionOffset, map[string]any{
+				"step_id": tc.step, "action_id": tc.action, "attempt_epoch": tc.epoch, "actor_ref": actor,
+				"result_evidence_refs": []string{}, "changed_refs": []string{workID},
+			})
+			err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{semantic, completion}, ExpectedVersions: versions})
+			if (err == nil) != tc.wantSuccess {
+				t.Fatalf("completion error=%v, success=%v", err, tc.wantSuccess)
+			}
+			wantVersion := before
+			if tc.wantSuccess {
+				wantVersion += 2
+			}
+			if currentStep(t, s, workID) != "execution" || readWorkVersion(t, s, workID) != wantVersion {
+				t.Fatal("unexpected progress or version")
+			}
+		})
+	}
+}
+
+func TestOffStepProposalCannotReusePreviousOperationEffect(t *testing.T) {
+	const workID = "off-step-previous-operation"
+	s, actor, _ := seedOrdinaryExecutorAtExecution(t, workID)
+	before := readWorkVersion(t, s, workID)
+	semantic := workflowTypedEvent("prior-proposal-effect", WorkflowProposalRecorded, workID, actor, time.Unix(10, 0), before, map[string]any{
+		"problem": "A problem", "affected": []string{"People"}, "stakes": "Stakes", "user_outcomes": []string{"An outcome"},
+	})
+	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{semantic}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before}}); err != nil {
+		t.Fatal(err)
+	}
+	completion := workflowTypedEvent("later-proposal-completion", WorkflowActionCompleted, workID, actor, time.Unix(11, 0), before+1, map[string]any{
+		"step_id": "execution", "action_id": "record_proposal", "attempt_epoch": 2, "actor_ref": actor,
+		"result_evidence_refs": []string{}, "changed_refs": []string{workID},
+	})
+	err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before + 1}})
+	if !hasFailureKind(err, KindIllegalLifecycleTransition) {
+		t.Fatalf("prior effect completion=%v", err)
+	}
+	if currentStep(t, s, workID) != "execution" || readWorkVersion(t, s, workID) != before+1 {
+		t.Fatal("refused completion changed progress")
 	}
 }
 

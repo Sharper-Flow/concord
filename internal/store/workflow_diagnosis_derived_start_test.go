@@ -680,7 +680,6 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_refine", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
 		t.Fatalf("the derived refine start on the corrected contract: %v", err)
 	}
-	journey.bindVerification(t, proof)
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:liveness-refine-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
 		t.Fatalf("record_delivery at the refine step on the corrected contract: %v", err)
 	}

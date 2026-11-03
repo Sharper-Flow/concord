@@ -14,16 +14,13 @@ import (
 // extending the inventory without a guard, fails here first.
 
 // guardedActions is the closed set of actions that carry an action-specific
-// guard in applyWorkflowActionRawTx. Two guards are deliberately absent,
-// because each applies to every action and the dispatcher therefore calls them
-// directly: guardCorrectionRecovery and guardRecordedActorTuple. The folded
+// guard in applyWorkflowActionRawTx. The recorded actor guard applies to every
+// action and the dispatcher therefore calls it directly. The folded
 // admission owns the spec-mandate boundary. record_alignment
 // carries no guard: its cross-field payload rule is declared on the registry
 // payload and enforced by validateWorkflowActionPayload like every other
 // payload-shape rule (CON-412).
 var guardedActions = map[string]workflowActionGuardPhase{
-	"request_correction":     guardPhaseRecovery,
-	"record_verdict":         guardPhaseBoundary,
 	"link_successor":         guardPhasePostValidation,
 	"cross_context_boundary": guardPhaseOperation,
 	"record_delivery":        guardPhaseOperation,

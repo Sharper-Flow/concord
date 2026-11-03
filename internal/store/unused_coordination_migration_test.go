@@ -2,6 +2,7 @@ package store
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -42,11 +43,16 @@ DELETE FROM write_guard`, testManifestDigest, testManifestDigest, testManifestDi
 	if err := db.QueryRow(`SELECT instance_state,execution_model,result_disposition,unhealthy_verdict_seq,latest_non_dispatch_start_seq,(SELECT version FROM work_items WHERE id='source') FROM workflow_instances WHERE work_id='source'`).Scan(&state, &model, &disposition, &unhealthy, &nonDispatch, &version); err != nil || state != "blocked" || model != "test-model" || disposition != "deferred" || unhealthy != 11 || nonDispatch != 12 || version != 7 {
 		t.Fatalf("retained instance=%s/%s/%s/%d/%d/v%d err=%v", state, model, disposition, unhealthy, nonDispatch, version, err)
 	}
+	const retainedColumns = `work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at`
+	instance := retirementUpgradeRows(t, db, `SELECT `+retainedColumns+` FROM workflow_instances ORDER BY rowid`)
 	if err := Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`SELECT instance_state,execution_model,unhealthy_verdict_seq,(SELECT version FROM work_items WHERE id='source') FROM workflow_instances WHERE work_id='source'`).Scan(&state, &model, &unhealthy, &version); err != nil || state != "blocked" || model != "test-model" || unhealthy != 11 || version != 7 {
-		t.Fatalf("current instance=%s/%s/%d/v%d err=%v", state, model, unhealthy, version, err)
+	if current := retirementUpgradeRows(t, db, `SELECT `+retainedColumns+` FROM workflow_instances ORDER BY rowid`); !reflect.DeepEqual(current, instance) {
+		t.Fatalf("current instance=%v, want %v", current, instance)
+	}
+	if err := db.QueryRow(`SELECT version FROM work_items WHERE id='source'`).Scan(&version); err != nil || version != 7 {
+		t.Fatalf("current version=%d err=%v", version, err)
 	}
 	var edges, receipts, guards int
 	if err := db.QueryRow(`SELECT (SELECT count(*) FROM workflow_impact_edges WHERE work_id='source' AND target_work_id='successor' AND edge_kind='forward_link'),(SELECT count(*) FROM effect_receipts),(SELECT count(*) FROM sqlite_schema WHERE type='trigger' AND name IN ('workflow_instances_guard_insert','workflow_instances_guard_update','workflow_instances_guard_delete'))`).Scan(&edges, &receipts, &guards); err != nil || edges != 1 || receipts != 1 || guards != 3 {

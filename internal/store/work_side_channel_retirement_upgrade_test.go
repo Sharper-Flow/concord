@@ -29,6 +29,8 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_native_runs(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref,observation_id,verification_state) SELECT 'work-upgrade-from','run:upgrade','start','started','event:run-upgrade','client-upgrade',approved_by,'run:upgrade',?,'evidence:upgrade',?,?,?,'trusted_client_report','{}','freshness-upgrade','divergence-upgrade','xobs:upgrade','verified' FROM workflow_contracts WHERE work_id='work-upgrade-from'`, testManifestDigest, testManifestDigest, retirementUpgradeTime, retirementUpgradeTime)
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
 	before := retirementUpgradeSnapshot(t, db)
+	retained := retirementUpgradeSnapshot(t, db)
+	ordinaryRecordsUpgradeExpectations(t, db, retained)
 	for _, table := range []string{"work_messages", "work_observations", "work_context_state", "work_context_findings", "workflow_premise_confirmations", "workflow_native_runs", "active_research_packs", "active_research_revisions", "active_research_findings", "active_research_consumers"} {
 		if len(before[table]) != 1 {
 			t.Fatalf("predecessor witness %s has %d rows, want one", table, len(before[table]))
@@ -47,8 +49,8 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
-	retired := map[string]bool{"work_messages": true, "work_observations": true, "workflow_law_baselines": true}
-	for table, want := range before {
+	retired := map[string]bool{"work_messages": true, "work_observations": true, "workflow_law_baselines": true, "workflow_artifact_actions": true, "workflow_correction_state": true}
+	for table, want := range retained {
 		if retired[table] {
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table); len(rows) != 0 {
 				t.Errorf("retired schema survives: %v", rows)

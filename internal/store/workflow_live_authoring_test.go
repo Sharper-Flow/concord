@@ -178,7 +178,7 @@ func TestArchivedFamilyTerminalHistoryStaysReadable(t *testing.T) {
 	}
 }
 
-func TestLiveAuthoringActionUnionTargets25(t *testing.T) {
+func TestLiveAuthoringActionUnionTargets24(t *testing.T) {
 	t.Parallel()
 	declared := map[string]bool{}
 	for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
@@ -201,7 +201,7 @@ func TestLiveAuthoringActionUnionTargets25(t *testing.T) {
 		"complete", "confirm_premise", "cross_context_boundary", "frame_research",
 		"link_successor", "record_alignment", "record_conclusion", "record_delivery", "record_design",
 		"record_diagnosis", "record_finding", "record_proposal", "record_report", "record_review", "record_verdict",
-		"record_work_context", "request_correction",
+		"record_work_context",
 		"revise_candidates", "start_execution",
 	}
 	if !slices.Equal(names, want) {

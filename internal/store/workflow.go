@@ -1659,18 +1659,29 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		}
 		currentRecord = records[p.ActionID]
 		if currentRecord && p.ActionID != "record_verdict" {
+			if err := admitWorkflowRecordReplacementTx(ctx, tx, event, p, entry.Definition, currentStep, scope); err != nil {
+				return err
+			}
 			return nil
 		}
 	}
 	if p.ActionID == "record_verdict" && (currentRecord || workflowLateCriterionAssociationStep(entry.Definition, currentStep)) {
+		epoch, err := workflowActionStartEpochForDispatch(ctx, tx, event.SubjectID, currentStep, false)
+		if err != nil {
+			return err
+		}
+		if p.AttemptEpoch != epoch {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "criterion association does not bind the current attempt", false, "reread_entities")
+		}
 		// Association events fold before their completion. Join this action's
 		// own verified effect for both late association and record replacement,
 		// rather than admitting a completion from the current record alone.
-		var paired bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_predicate_verdicts WHERE work_id=? AND verdict_seq<? AND actor=? AND json_extract(payload,'$.resulting_version')=?)`, event.SubjectID, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&paired); err != nil {
+		var effectID string
+		err = tx.QueryRowContext(ctx, `SELECT r.event_id FROM workflow_predicate_verdicts v JOIN effect_receipts r ON r.effect_seq=v.verdict_seq WHERE v.work_id=? AND v.verdict_seq<? AND v.actor=? AND json_extract(v.payload,'$.resulting_version')=? ORDER BY v.verdict_seq DESC LIMIT 1`, event.SubjectID, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&effectID)
+		if err != nil && err != sql.ErrNoRows {
 			return workflowProjectionError(err, "cannot read criterion association effect")
 		}
-		if paired {
+		if err == nil && scope != nil && scope.operationEvents[effectID] {
 			return nil
 		}
 		return newFailure(KindMissingEvidence, "fold_event", "criterion association requires its own verified association effect", false, "associate applicable producer receipts before recording completion")
@@ -1679,6 +1690,58 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 	}
 	return admitWorkflowEvidenceCompletionTx(ctx, tx, event, p, entry.Definition, currentStep, scope)
+}
+
+func admitWorkflowRecordReplacementTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, definition WorkflowDefinition, currentStep string, scope *writeScope) error {
+	epoch, err := workflowActionStartEpochForDispatch(ctx, tx, event.SubjectID, currentStep, false)
+	if err != nil {
+		return err
+	}
+	if p.AttemptEpoch != epoch {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "record replacement does not bind the current attempt", false, "reread_entities")
+	}
+	switch p.ActionID {
+	case "record_delivery":
+		if !workflowDefinitionRequiresDeliveryPayload(definition) {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "pinned delivery action does not produce a replacement assertion", false, "use a workflow definition that records delivery")
+		}
+		if p.DeliveryArtifact == "" || p.DeliveryState == "" {
+			return newFailure(KindInvalidPayload, "fold_event", "record_delivery requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
+		}
+		raw, err := json.Marshal(map[string]string{"delivery_artifact": p.DeliveryArtifact, "delivery_state": p.DeliveryState})
+		if err != nil {
+			return err
+		}
+		return validateWorkflowActionPayload(definition, p.ActionID, raw)
+	case "record_review":
+		// The review report is carried by the completion; its evidence binds
+		// that exact completion in the same operation.
+		var bindingID string
+		err := tx.QueryRowContext(ctx, `SELECT binding_id FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq<? AND actor=? AND json_extract(payload,'$.resulting_version')=? AND json_extract(payload,'$.immutable_subject_ref')=? AND json_extract(payload,'$.evidence_kind')=? ORDER BY binding_seq DESC LIMIT 1`, event.SubjectID, event.Seq, p.ActorRef, p.ExpectedVersion, event.EventID, string(EvidenceReview)).Scan(&bindingID)
+		if err != nil && err != sql.ErrNoRows {
+			return workflowProjectionError(err, "cannot read review evidence effect")
+		}
+		if err == nil && scope != nil && scope.operationEvents[bindingID] {
+			return nil
+		}
+	default:
+		kind := map[string]string{
+			"record_proposal":   WorkflowProposalRecorded,
+			"record_design":     WorkflowDesignRecorded,
+			"record_alignment":  WorkflowBacklogAlignmentRecorded,
+			"record_diagnosis":  WorkflowDiagnosisRecorded,
+			"revise_candidates": WorkflowCandidateSetRevised,
+		}[p.ActionID]
+		var id string
+		err := tx.QueryRowContext(ctx, `SELECT event_id FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND effect_seq<? AND effect_seq=(SELECT MAX(effect_seq) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND effect_seq<?) AND kind=? AND actor=?`, event.SubjectID, event.Seq, event.SubjectID, event.Seq, kind, p.ActorRef).Scan(&id)
+		if err != nil && err != sql.ErrNoRows {
+			return workflowProjectionError(err, "cannot read record replacement effect")
+		}
+		if err == nil && scope != nil && scope.operationEvents[id] {
+			return nil
+		}
+	}
+	return newFailure(KindIllegalLifecycleTransition, "fold_event", "record replacement requires its own effect in the same operation", false, "record the replacement before completing the action")
 }
 
 func admitWorkflowEvidenceCompletionTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, definition WorkflowDefinition, currentStep string, scope *writeScope) error {

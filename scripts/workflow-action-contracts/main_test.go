@@ -313,4 +313,3 @@ func TestProjectionIsDeterministicAcrossRuns(t *testing.T) {
 		t.Fatal("two runs of the same builtins produced different projections")
 	}
 }
-

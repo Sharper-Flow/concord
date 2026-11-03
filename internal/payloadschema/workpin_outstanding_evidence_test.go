@@ -62,4 +62,3 @@ func TestWorkPinRequiresManagedWorkflowIdentity(t *testing.T) {
 		t.Fatal("managed pin admitted empty workflow identity")
 	}
 }
-
